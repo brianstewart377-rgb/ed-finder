@@ -107,15 +107,16 @@ Each published knowledge entry is a CRE-owned statement, not a CPE plan rule.
 |---|---:|---|---|
 | Entry identifier | R | CRE | Stable identity for a published knowledge entry. |
 | Entry category | R | CRE | Identifies the entry as, for example, mechanic, observation, claim, guardrail, contradiction, unknown, or experiment outcome. It must not collapse these categories. |
-| Planner-safe statement | R | CRE | The bounded published meaning that a planner may consume. It must preserve qualification rather than overstate evidence. |
+| Planner-safe statement | C | CRE | Required when Publication decision makes the entry publishable for planning. It must preserve qualification rather than overstate evidence. It is not required for a withheld or excluded entry that uses the safe stub below. |
 | Applicability conditions | C | CRE | Required when the statement depends on body type, facility context, patch, link type, current state, or another stated condition. |
-| Evidence / provenance references | R | CRE | References sufficient to trace the entry to CRE-held evidence, claims, observations, or canonical records. |
-| Confidence status | R | CRE | CRE's confidence classification for the published statement. CPE must not silently strengthen it. |
+| Evidence / provenance references | C | CRE | Required when Publication decision makes the entry publishable for planning. They must trace the entry to CRE-held evidence, claims, observations, or canonical records. They are not required for a withheld or excluded entry that uses the safe stub below. |
+| Confidence status | R | CRE | CRE's confidence classification for the published statement or, for a withheld/excluded entry, the bounded safe limitation. CPE must not silently strengthen it. |
 | Caveat references | C | CRE | Required when material caveats exist. |
 | Contradiction references | C | CRE | Required when CRE records a relevant unresolved conflict. |
 | Unknown / missing-evidence references | C | CRE | Required when absence or incompleteness limits the statement. |
 | Live-verification requirement | C | CRE | Required when an irreversible or consequential use must be checked in live state or a trusted preview before action. |
 | Publication decision | R | CRE | States whether the entry is publishable for planning, downgraded, withheld, or excluded. |
+| Withholding / exclusion stub | C | CRE | Required when Publication decision is withheld or excluded. It must preserve the entry identifier, entry category, publication decision, bounded reason, and any safe caveat or limitation needed to explain why the entry cannot be used. It must not expose private evidence, raw storage, credentials, or unpublished material. |
 
 ### 4.3 Prohibited Knowledge Release content
 
@@ -224,10 +225,10 @@ A Planning Request must not:
 | CRE Knowledge Release pin | R | CPE reference to CRE | Must match the request or record a Section 11.2 permitted update, including the exact updated pin and reason. |
 | CRE State Snapshot pin | C | CPE reference to CRE | Required only when the Planning Request pins a Snapshot. When present, it must match the request or record a Section 11.2 permitted update, including the exact updated pin and reason. When the Request has no Snapshot pin, the Result pin must remain explicitly absent and carry forward the bounded limitation. |
 | Result disposition | R | Derived CPE | Distinguishes candidate plan set, conditional plan set, withheld conclusion, or non-assessable outcome. A result must not pretend a candidate exists when evidence cannot support one. |
-| Candidate-plan set | C | Derived CPE | Required only when disposition includes a candidate plan. |
+| Candidate-plan set | C | Derived CPE | Required whenever Result disposition includes a candidate plan set or a conditional plan set. Each conditional alternative must carry the same candidate-plan detail needed for review: proposed actions, applicable expected effects, supporting inputs, trade-offs, caveats, and validation gates. |
 | Constraint-outcome set | R | Derived CPE | States each material hard constraint as satisfied, unsatisfied, conditional, or not assessable. |
 | Trade-off set | C | Derived CPE | Required when candidate plans differ materially or an objective is compromised. |
-| Confidence and limitations | R | Derived CPE | Must identify plan-level confidence, caveats, contradictions, unknowns, and limitations. Plan-level confidence must not exceed what its most limiting material CRE confidence, contradiction, unknown, or pending-validation input supports. Where material inputs differ, the result must state the limiting qualification rather than mask it with an aggregate summary. |
+| Confidence and limitations | R | Derived CPE | Must identify plan-level confidence, caveats, contradictions, unknowns, and limitations. Plan-level confidence must not exceed what any material CRE confidence limitation or material Section 9 limitation supports, including unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, and pending live verification. Where material inputs differ, the result must state the limiting qualification rather than mask it with an aggregate summary. |
 | Required validation steps | C | Derived CPE | Required when an irreversible or consequential action depends on an unverified input, model, or mechanic. |
 | Input-change sensitivity | C | Derived CPE | Required when a change in a pinned input, assumption, or verification result would materially alter the result. A permitted CRE input update must record its resulting sensitivity, limitation, or validation gate where applicable. |
 | Presentation hints | O | Presentation only | Later display guidance may be included, but must not alter the plan's authoritative reasoning or data. |
@@ -335,7 +336,7 @@ CPE may add plan-specific caveats. It must not remove a material CRE caveat, con
 
 A CPE Planning Request must pin the exact Knowledge Release used. It must pin the exact State Snapshot only when an eligible Snapshot exists and is used. A CPE Plan Result must pin the exact Knowledge Release used and must pin the exact State Snapshot only when the Request pins one. Every present pin must include a stable identifier plus immutable revision/source information when available.
 
-A CPE Plan Result may use a newer compatible CRE Knowledge Release or State Snapshot than its Planning Request only where the update does not materially alter the request's planning scope, objective, hard constraint, protected asset, preference, risk-tolerance policy, stated assumption, or applicable CRE semantic meaning. A material change to any of those matters requires a new Planning Request.
+A CPE Plan Result may use a newer compatible CRE Knowledge Release or State Snapshot than its Planning Request only where the update does not materially alter the request's planning scope, objective, hard constraint, protected asset, preference, risk-tolerance policy, declared programme requirement or its capacity/coverage implications, stated assumption, or applicable CRE semantic meaning. A material change to any of those matters, including to how a declared programme requirement is evaluated, requires a new Planning Request.
 
 For a permitted update, the Plan Result must record the exact updated pin, the update reason, Input-change sensitivity, and every resulting limitation or validation gate. This is field-level governance only; it does not create or select an implementation, compatibility engine, or update mechanism.
 
@@ -401,7 +402,8 @@ These are review checklists, not executable validators.
 
 ### 13.1 CRE Knowledge Release checklist
 
-- Does every published entry have a stable identifier, category, bounded statement, provenance basis, confidence, and publication decision?
+- Does every published entry have a stable identifier, category, publication decision, and—when publishable for planning—a bounded statement, provenance basis, and confidence?
+- When an entry is withheld or excluded, does it retain a safe stub with its bounded reason and any safe caveat or limitation, without exposing private evidence or unpublished material?
 - Are caveats, contradictions, unknowns, and live-verification requirements carried where applicable?
 - Does the release avoid embedding player-specific objective or plan content?
 - Is the release pin reproducible or explicitly marked as not fully reproducible?
@@ -425,11 +427,13 @@ These are review checklists, not executable validators.
 
 ### 13.4 CPE Plan Result checklist
 
+- When Result disposition includes a candidate plan set or a conditional plan set, is the Candidate-plan set present and does each conditional alternative carry proposed actions, applicable expected effects, supporting inputs, trade-offs, caveats, and validation gates?
 - Are every material candidate claim and trade-off traceable to the relevant request inputs and CRE inputs where they exist and are material, without inventing CRE, Snapshot, or hard-constraint references for a request-only conclusion?
 - Are hard constraint outcomes explicit: satisfied, unsatisfied, conditional, or not assessable?
 - Are caveats, contradictions, unknowns, and validation gates preserved?
+- Does plan-level confidence remain bounded by every material CRE confidence limitation and Section 9 limitation, including unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, and pending live verification?
 - When withholding an answer, are all applicable limitation bases retained, including unknown, missing, contradictory, stale, incomplete, unsupported, withheld, out of scope, and pending live verification?
-- Where a Result uses a permitted updated CRE input, are the exact updated pin, reason, Input-change sensitivity, and each resulting limitation or validation gate recorded; and has a new Planning Request been used for a material change?
+- Where a Result uses a permitted updated CRE input, are the exact updated pin, reason, Input-change sensitivity, and each resulting limitation or validation gate recorded; and has a new Planning Request been used for a material change, including a material change to a declared programme requirement or its capacity/coverage evaluation?
 - Do proposed actions trace to the relevant objective, hard constraint, preference, risk tolerance, declared programme requirement, or stated assumption, without inventing a CRE factual basis where none exists?
 - Is the result clearly a plan-specific decision-support output rather than observed reality or automatic player choice?
 
