@@ -134,11 +134,13 @@ Before any CPE code work, the project needs only:
 2. the CPE System Assessment Roadmap;
 3. the Project Continuity and Merge Closeout Protocol;
 4. an accurate `CURRENT_STAGE.md` working point;
-5. CPE README ownership correction;
-6. a later CPE documentation contract defining the first System Assessment request/result shapes.
+5. the Agent Working-Point Preflight Protocol;
+6. the Historical Records Index for safe interpretation of frozen and historical records;
+7. CPE README ownership correction;
+8. a later CPE documentation contract defining the first System Assessment request/result shapes.
 
 Explicitly excluded: new SRE repository, database, API, shared package, runtime/storage/transport decision, scoring formula, external evidence collection, R1 code change, CPE scaffolding, CRE source change, or deployment.
 
 ## 10. Next safe action
 
-Conduct D0 — the read-only cross-repository Documentation Estate Audit and Spring-Clean Register. Do not change this ledger’s classifications further until that audit supplies evidence for a lifecycle, replacement, archive, or deletion recommendation.
+Conduct an independent, read-only review of D2a — Working-Point Hierarchy Enforcement and Historical Records Index — against the exact live branch or PR head, changed-file scope, and live review state. D0 is already recorded in merged PR `#304`, and D1b is already merged in PR `#305`. Do not change this ledger’s classifications further, and do not start D2, archive treatment, deletion review, or implementation work, until D2a is resolved and a separately authorised next batch supplies the evidence for any later lifecycle action.

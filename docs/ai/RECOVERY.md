@@ -16,12 +16,15 @@ Until this protocol is complete, the agent must **not**:
 From the repository root, read:
 
 ```text
-docs/DOCUMENTATION_INDEX.md
 docs/ai/CURRENT_STAGE.md
+docs/DOCUMENTATION_INDEX.md
+docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md
 docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md
 docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md
 docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md
+docs/HISTORICAL_RECORDS_INDEX.md
 docs/ai/DECISIONS.md
+docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md
 ```
 
 Then inspect live GitHub PR state where relevant and the live Git branch/worktree state before making any write.
@@ -59,6 +62,8 @@ Return only:
 5. Whether the current worktree and live PR state match the stage record.
 6. Any mismatch, missing evidence, stale record, or blocker.
 7. The next safe action, without making changes.
+
+Use the proof-block format required by `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`.
 
 ## If the expected branch or files are missing
 

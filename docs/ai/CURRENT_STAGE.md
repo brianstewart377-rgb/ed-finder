@@ -4,18 +4,18 @@
 
 ## Status
 
-**D1a — Documentation Control Plane is accepted and merged. D0 — Documentation Estate and Code Boundary Register is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md`.**
+**D2a — Working-Point Hierarchy Enforcement and Historical Records Index is drafted for independent review on branch `docs/d2a-working-point-hierarchy-historical-index`. It is based on `work/r1-canonical-body-evidence` at exact base `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`, after D0 merged in PR `#304` and D1b merged in PR `#305`. This stage creates a mandatory preflight protocol and a logical historical-records index, updates the working-point hierarchy links, and hardens the rule that historical or frozen contracts cannot grant current execution authority. It is docs-only, not accepted or merged, and grants no archive, deletion, rename, implementation, API, database, CRE, CPE, or R1 authority.**
 
 ## Branch and base
 
 - Repository: `brianstewart377-rgb/ed-finder`
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Required canonical base SHA: `4d01e0213046825f640e245cc551512c7e9d90f1`
-- Closeout branch: `docs/d1a-merge-closeout`
+- Required canonical base SHA: `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`
+- Working branch: `docs/d2a-working-point-hierarchy-historical-index`
 
-This closeout branch was created only after fetching `origin/work/r1-canonical-body-evidence` and verifying that it resolved to `4d01e0213046825f640e245cc551512c7e9d90f1`.
+The live head for this draft is not recorded statically here. Before any review, owner-acceptance wording, or merge decision, fetch live branch or PR metadata and verify the exact current head, changed-file scope, review state, and thread state.
 
-## D1a merge record
+## Recent merged predecessor facts
 
 - PR: `#302 — docs: establish documentation control plane`
 - PR base branch: `work/r1-canonical-body-evidence`
@@ -26,6 +26,33 @@ This closeout branch was created only after fetching `origin/work/r1-canonical-b
 - Merged at: `2026-07-03T16:23:05Z`
 
 At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the merge commit above.
+
+- PR: `#304 — docs: record D0 estate and boundary register`
+- PR base SHA before merge: `95b1eba4c026ac75b003e148fc8d3d8a4430ac46`
+- Reviewed head SHA: `a0670bc00562077f8e49a2516dfc3a8233c059d9`
+- Merge commit SHA: `2d1472cc63f9c228e26796d68d7e75384fc0db61`
+- Merged at: `2026-07-03T17:26:10Z`
+
+- PR: `#305 — docs: clarify root navigation and history`
+- PR base SHA before merge: `2d1472cc63f9c228e26796d68d7e75384fc0db61`
+- Reviewed head SHA: `a8be0792bed7982d36e679ea1ba3961569510a23`
+- Merge commit SHA: `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`
+- Merged at: `2026-07-03T18:39:28Z`
+
+## D2a scope
+
+- create `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`;
+- create `docs/HISTORICAL_RECORDS_INDEX.md`;
+- update current control documents so the working-point hierarchy is explicit and hard to ignore;
+- correct stale D0/D1b next-action wording using live merged facts;
+- link historical records to their controlling replacement or next document to read.
+
+## D2a exclusions
+
+- no code, test, fixture, schema, API, runtime, deployment, database, CRE, CPE, or R1 semantic change;
+- no archive, move, rename, deletion, physical document reorganisation, root `README.md`, `CHANGES.md`, or beta-version work;
+- no automation, CI, hooks, scripts, templates, package changes, or implementation authority;
+- no Stage 25 semantic change, no universal-score change, and no change to CRE/CPE ownership boundaries.
 
 ## What D1a changed
 
@@ -67,22 +94,22 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 - PR `#302` was verified merged at `4d01e0213046825f640e245cc551512c7e9d90f1`.
 - The reviewed head for that completed predecessor merge was `2317012372742864b79b85f08f52361e1b5aee18`.
 - The changed-file scope for that predecessor merge remained the approved ten-file D1a documentation allowlist.
-- This closeout branch was created from the fetched canonical base only after the worktree was verified clean.
+- PR `#304` was verified merged at `2d1472cc63f9c228e26796d68d7e75384fc0db61`.
+- PR `#305` was verified merged at `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`.
+- This D2a branch was created from the fetched canonical base only after the worktree was verified clean.
 
 ## Remaining documentation debt
 
 - D0 is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` as a read-only documentation-estate and code-boundary register.
-- D1b is the proposed, separately owner-authorised next documentation batch for root navigation and history/changelog cleanup. It is not started, accepted, merged, or authorised here.
+- D1b is complete and merged in PR `#305`; its merge facts remain historical evidence, not current working authority.
+- D1c remains a separate CRE documentation-repair batch and does not alter current ed-finder control authority here.
+- D2 remains the later logical archive/index treatment candidate; it is not started or authorised by this draft.
 - Stale historical-stage wording outside D1a requires later, separately authorised conservative cleanup batches.
 - Archive, move, rename, deletion, root `README.md`, changelog, beta-version, and physical documentation reorganisation require separate explicit authorisation.
 
 ## Next safe action
 
-D1b is the proposed next documentation batch: a separately owner-authorised,
-docs-only root navigation and history/changelog cleanup. It must not archive,
-delete, move, rename, refactor, implement any API or code boundary, or start
-code, runtime, database, API, CRE, CPE, or R1 work without further explicit
-authorisation.
+Conduct an independent, read-only review of the live D2a draft against its exact current branch or PR head, changed-file scope, review state, and thread state. Do not treat historical or frozen contracts as current execution authority, and do not start D2, D1c, archive treatment, deletion review, code-boundary implementation, or API work without further explicit authorisation.
 
 ## Closeout rule
 
@@ -100,12 +127,14 @@ A later ordinary working-point update may record this closeout merge as historic
 
 If context is lost, start read-only. Read:
 
-1. `docs/DOCUMENTATION_INDEX.md`;
-2. this file;
-3. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`;
-4. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`;
-5. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`;
-6. `docs/ai/DECISIONS.md`;
-7. the live GitHub and Git state.
+1. this file;
+2. `docs/DOCUMENTATION_INDEX.md`;
+3. `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`;
+4. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`;
+5. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`;
+6. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`;
+7. `docs/HISTORICAL_RECORDS_INDEX.md`;
+8. `docs/ai/DECISIONS.md`;
+9. the live GitHub and Git state.
 
-Report the recovered branch, exact base, active scope, exclusions, validation state, merged-predecessor facts, and next safe action before making any write.
+Report the recovered branch, exact base, controlling document, exact current-status wording, active scope, exclusions, merged-predecessor facts, and next safe action before making any write.

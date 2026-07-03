@@ -10,6 +10,8 @@
 
 `CURRENT_STAGE.md` is mandatory after every merge. The roadmap, continuity ledger, and decision register are updated when their respective subject matter changes.
 
+Historical or completed contracts may explain provenance, but they do not by themselves authorise current execution, define the next stage, or override `CURRENT_STAGE.md`.
+
 ### Self-closeout rule
 
 A PR that itself updates `CURRENT_STAGE.md` cannot know its own merge SHA before it merges. It must record every completed predecessor merge it is closing, including exact reviewed heads and merge commits. Its own merge event remains recoverable from live GitHub PR metadata until a later ordinary working-point update references it.
@@ -60,14 +62,17 @@ No document may say a merged item is pending review or merge. No document may ca
 
 ## 5. New-chat recovery protocol
 
-A new chat or agent begins read-only.
+A new chat or agent begins read-only and follows `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`.
 
 1. Read `CURRENT_STAGE.md`.
-2. Read this protocol.
-3. Read the applicable roadmap and continuity ledger.
-4. Read `DECISIONS.md`.
-5. Inspect the live repository branch, exact commit, worktree/PR state, and current review threads.
-6. Report:
+2. Read `docs/DOCUMENTATION_INDEX.md`.
+3. Read `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`.
+4. Read this protocol.
+5. Read the applicable roadmap and continuity ledger.
+6. Read `docs/HISTORICAL_RECORDS_INDEX.md`.
+7. Read `DECISIONS.md`.
+8. Inspect the live repository branch, exact commit, worktree/PR state, and current review threads.
+9. Report:
    - repository and branch;
    - exact commit;
    - active phase;
@@ -75,7 +80,7 @@ A new chat or agent begins read-only.
    - open PR/review status;
    - next safe action;
    - any discrepancy between durable records and live GitHub state.
-7. Do not write, merge, push, close, deploy, reset, stash, or delete until the owner approves the recovered state.
+10. Do not write, merge, push, close, deploy, reset, stash, or delete until the owner approves the recovered state.
 
 ## 6. Cross-repository rule
 
@@ -93,6 +98,8 @@ Each cross-repository handoff records:
 ## 7. Documentation boundaries
 
 This protocol does not authorise code, tests, fixture changes, data migration, external research, database access, architecture selection, deployment, or implementation. It governs continuity only.
+
+Completed or frozen records remain usable for provenance, but they cannot grant current execution authority by themselves. When their wording conflicts with live control, treat the conflict as documentation drift and resolve it conservatively through current control plus live GitHub state.
 
 ## 8. Review and merge rule
 
