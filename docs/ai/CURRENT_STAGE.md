@@ -4,31 +4,44 @@
 
 ## Status
 
-**D1a — Documentation Control Plane is drafted for independent review on branch `docs/d1a-documentation-control-plane` and live draft PR `#302 — docs: establish documentation control plane`. It is based on `work/r1-canonical-body-evidence` at exact base `2302634a226ab79545bf27dfaf77cd6aff26a309`. This stage creates a practical documentation entry point, separates current product control from historic and future assessment records, corrects stale Stage 25 wording, and aligns recovery/handoff documents to the current reading order. It is not accepted or merged.**
+**D1a — Documentation Control Plane is accepted and merged.**
 
 ## Branch and base
 
 - Repository: `brianstewart377-rgb/ed-finder`
-- Base branch: `work/r1-canonical-body-evidence`
-- Required base SHA: `2302634a226ab79545bf27dfaf77cd6aff26a309`
+- Canonical base branch: `work/r1-canonical-body-evidence`
+- Required canonical base SHA: `4d01e0213046825f640e245cc551512c7e9d90f1`
+- Closeout branch: `docs/d1a-merge-closeout`
+
+This closeout branch was created only after fetching `origin/work/r1-canonical-body-evidence` and verifying that it resolved to `4d01e0213046825f640e245cc551512c7e9d90f1`.
+
+## D1a merge record
+
 - PR: `#302 — docs: establish documentation control plane`
-- Branch: `docs/d1a-documentation-control-plane`
+- PR base branch: `work/r1-canonical-body-evidence`
+- PR base SHA before merge: `2302634a226ab79545bf27dfaf77cd6aff26a309`
+- Reviewed head SHA: `2317012372742864b79b85f08f52361e1b5aee18`
+- Merge commit SHA: `4d01e0213046825f640e245cc551512c7e9d90f1`
+- Merge method: `merge commit`
+- Merged at: `2026-07-03T16:23:05Z`
 
-The live head for this draft is not recorded statically here. Before any independent review, owner-acceptance wording, or merge decision, fetch live PR `#302` metadata and verify its current head SHA, changed-file scope, mergeability, submitted reviews, comments, and unresolved review-thread state.
+At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the merge commit above.
 
-## Scope
+## What D1a changed
 
-- create `docs/DOCUMENTATION_INDEX.md` as the practical documentation entry point;
-- update `docs/ai/README.md` to index the current control documents, roadmap, ledger, merge-closeout protocol, Stage 6 closeout, R1 contracts, recovery material, and decisions;
-- update `docs/ai/PROJECT_CONTEXT.md`, `docs/ai/RECOVERY.md`, `docs/ai/CHAT_HANDOFF_TEMPLATE.md`, and `docs/ai/ACCEPTANCE_PROTOCOL.md` to match the current documentation control plane and reading order;
-- correct stale Stage 25 wording in `docs/colonisation-redesign/README.md` and `docs/colonisation-redesign/stage-25-roadmap.md` using live merged PR status;
-- update `docs/reference/colonisation/README.md` to point readers first to the Documentation Index and current control documents.
+- introduced `docs/DOCUMENTATION_INDEX.md` as a navigation layer subordinate to `CURRENT_STAGE.md`;
+- separated current Stage 25 control, legacy stored ED-Finder ratings, DEV-only R1 Assessment Laboratory, future CPE System Assessment Engine, and CRE research truth;
+- aligned AI recovery and handoff material with current control records and live GitHub/Git recovery;
+- reconciled pre-merge acceptance with post-merge closeout;
+- corrected stale Stage 25C wording without claiming Stage 25 is complete;
+- updated the Reference Pack to lead with current control material before historical roadmaps.
 
-## Explicit exclusions
+## What D1a did not change
 
 - no code, test, SQL, schema, API, runtime, deployment, CRE, CPE, or R1 semantic change;
 - no document move, rename, archive, delete, or physical reorganisation;
 - no changelog or versioning baseline;
+- no database change, root `README.md` work, beta-version work, or implementation authority;
 - no merge, rebase, force-push, review request, PR comment, deployment, or automation authority;
 - no claim that Stage 25 is complete.
 
@@ -49,22 +62,37 @@ The live head for this draft is not recorded statically here. Before any indepen
 
 These merged facts correct stale wording that still described Stage 25C Slice 1 as pending review. They do not justify calling Stage 25 complete.
 
-## Validation
+## Validation history
 
-- Base branch resolution to exact required SHA was verified before editing.
-- The worktree was clean before editing.
-- `git diff --check` passed on the D1a docs-only diff.
-- `git status --short` showed only the ten allowlisted documentation files before commit.
+- PR `#302` was verified merged at `4d01e0213046825f640e245cc551512c7e9d90f1`.
+- The reviewed head for that completed predecessor merge was `2317012372742864b79b85f08f52361e1b5aee18`.
+- The changed-file scope for that predecessor merge remained the approved ten-file D1a documentation allowlist.
+- This closeout branch was created from the fetched canonical base only after the worktree was verified clean.
 
 ## Remaining documentation debt
 
 - D0 cross-repository Documentation Estate Audit and Spring-Clean Register remains outstanding.
-- Conservative follow-on batches are still required for stale historical-stage wording outside the D1a allowlist.
-- Any future archive, move, rename, deletion, root `README.md`, changelog, beta-version baseline, or physical documentation reorganisation work requires separate explicit authorisation.
+- Stale historical-stage wording outside D1a requires later, separately authorised conservative cleanup batches.
+- Archive, move, rename, deletion, root `README.md`, changelog, beta-version, and physical documentation reorganisation require separate explicit authorisation.
 
 ## Next safe action
 
-D1a remains drafted and awaiting independent review. The final independent review must assess the live head reported by PR `#302` metadata. Owner acceptance may follow only after a fresh final live GitHub-state check against the exact then-current reviewed head. Acceptance does not merge or deploy; merge remains a separate exact-live-head owner-authorised decision. Do not mark this stage accepted or merged, and do not widen scope beyond the listed documentation files.
+Conduct D0 — the separately owner-authorised, read-only cross-repository
+Documentation Estate Audit and Spring-Clean Register. It must not perform
+archive, deletion, move, rename, restructuring, versioning, or implementation
+work without further explicit authorisation.
+
+## Closeout rule
+
+This closeout records PR `#302`’s completed merge.
+
+This closeout PR cannot record its own eventual merge SHA before it merges.
+
+Its own eventual merge remains recoverable from live GitHub PR metadata.
+
+Do not open another PR solely to record this closeout PR’s own merge SHA.
+
+A later ordinary working-point update may record this closeout merge as historical evidence.
 
 ## Recovery instruction
 
@@ -78,4 +106,4 @@ If context is lost, start read-only. Read:
 6. `docs/ai/DECISIONS.md`;
 7. the live GitHub and Git state.
 
-Report the recovered branch, exact base, exact HEAD, active scope, exclusions, validation state, PR state, and next safe action before making any write.
+Report the recovered branch, exact base, active scope, exclusions, validation state, merged-predecessor facts, and next safe action before making any write.
