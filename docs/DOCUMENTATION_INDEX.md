@@ -20,11 +20,12 @@ Chat memory
 ## Read first
 
 1. `docs/ai/CURRENT_STAGE.md`
-2. `docs/colonisation-redesign/stage-25-roadmap.md`
-3. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`
-4. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`
-5. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`
-6. `docs/ai/DECISIONS.md`
+2. `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` — current read-only documentation-estate and code-boundary register
+3. `docs/colonisation-redesign/stage-25-roadmap.md`
+4. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`
+5. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`
+6. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`
+7. `docs/ai/DECISIONS.md`
 
 Then inspect the live branch, exact commit, worktree state, and live GitHub PR state before making any write.
 
