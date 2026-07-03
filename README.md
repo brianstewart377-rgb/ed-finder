@@ -1,5 +1,26 @@
-# ED Finder — Hetzner PostgreSQL Stack
-## Complete setup and import guide
+# ED Finder
+
+ED Finder is the live product and presentation repository for Elite Dangerous system discovery, stored product ratings, simulation, optimiser, observations, and related user-facing tooling.
+
+## Start here
+
+For the current working point, documentation authority order, and active programme boundaries, read:
+
+1. `docs/DOCUMENTATION_INDEX.md`
+2. `docs/ai/CURRENT_STAGE.md`
+3. `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md`
+
+The current product API contract is documented in `docs/api-contracts.md`.
+
+## Historical operations reference
+
+The remaining material in this file is a retained Hetzner, import, deployment, incident, and operations record. It may contain historical versions, environment-specific commands, and superseded workflow assumptions.
+
+Do not treat it as current product control or as an approved live deployment procedure without first checking the current repository, operational environment, and applicable project controls.
+
+## Retained Hetzner PostgreSQL Stack and Operations Record
+
+### Complete setup and import guide
 
 ---
 
