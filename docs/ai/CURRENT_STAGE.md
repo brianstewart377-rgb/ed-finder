@@ -41,6 +41,7 @@ At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the 
 - no code, test, SQL, schema, API, runtime, deployment, CRE, CPE, or R1 semantic change;
 - no document move, rename, archive, delete, or physical reorganisation;
 - no changelog or versioning baseline;
+- no database change, root `README.md` work, beta-version work, or implementation authority;
 - no merge, rebase, force-push, review request, PR comment, deployment, or automation authority;
 - no claim that Stage 25 is complete.
 
