@@ -23,8 +23,7 @@
 - Stage 6B contract branch: `docs/r1-stage6b-cre-cpe-boundary-contract` (historical merged branch)
 - Stage 6C field-contract branch: `docs/r1-stage6c-contract-detail`
 - Stage 6C contract base: `work/r1-canonical-body-evidence` at `dad29b1760e8291f8c48db665ed4be5e193d51db`
-- Stage 6C contract document initial revision: `5c7dc41e617017e97e5c1e81f32a148ea28c98d5`; this is document provenance only, not a review or merge target.
-- Stage 6C architecture-review amendment revision: `34ed064aff32c1c5efc66ecc217a68c74f1ea968`; it corrects plan-level confidence handling and expected-effect state terminology only, and is document provenance only, not a review or merge target.
+- Stage 6C recovery rule: future review, acceptance, or merge work must retrieve the live PR `#299` head from pull-request metadata. No draft-document commit is a recovery pointer.
 - Stage 5A discovery PR: `#290`, merged at `dad3a99f4571428fcb517a13785be297f57e875a`
 - Stage 5A reviewed head: `36371887bf09dad420c86b6c6ca6faffb7cfa0cd`
 - Stage 5B evidence-discipline PR: `#291`, merged at `f1b1e5b42859a42b0e651ad957c01d5261bec754`

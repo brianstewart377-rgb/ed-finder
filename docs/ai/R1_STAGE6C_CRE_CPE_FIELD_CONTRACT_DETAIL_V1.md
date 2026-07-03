@@ -131,7 +131,7 @@ A CRE Knowledge Release must not contain:
 **Owner:** CRE  
 **Purpose:** Publish a timestamped, evidence-linked snapshot of observed or explicitly modelled colony context.
 
-A snapshot may contain observed, previewed, predicted, proposed, or completed items, but each item must carry its own state classification. A snapshot must never make an entire system appear observed simply because some items are observed.
+A snapshot may contain observed, previewed, predicted, or completed items, but each item must carry its own state classification. A snapshot must never make an entire system appear observed simply because some items are observed. A CPE candidate action or design intent is recorded separately in a Plan Result, not as a Snapshot item.
 
 ### 5.1 Snapshot-level fields
 
@@ -154,7 +154,7 @@ A snapshot may contain observed, previewed, predicted, proposed, or completed it
 | Entity identity | R | CRE | Identifies the body, orbital, facility, market link, economy snapshot, service, or other declared entity. |
 | Entity category | R | CRE | Distinguishes physical body, orbital capacity, facility, station, market link, economy state, material observation, or another declared category. |
 | Primary state classification | R | CRE | Exactly one of the Stage 6C state classifications in Section 8. |
-| State-value content | R | CRE | The fact, preview, projection, proposal, or completion record being stated. Its meaning must match the primary state classification. |
+| State-value content | R | CRE | The fact, preview, projection, or completion record being stated. Its meaning must match the primary state classification. |
 | Evidence/model basis | R | CRE | Provenance reference or named model/preview basis for this item. |
 | Evidence capture / model time | C | CRE | Required when it differs materially from the snapshot capture time. |
 | Body capacity / slot context | C | CRE | Required when the item concerns buildability, capacity, or placement. It must not be inferred solely from a facility proposal. |
@@ -174,7 +174,8 @@ A state snapshot must not contain:
 - player objective ordering, subjective preference, risk tolerance, protected-asset policy, or a selected plan;
 - a CPE decision rendered as though it were observed CRE state;
 - an unqualified inference that a completed facility caused a predicted economy or commodity outcome;
-- a silent substitution of a preview, prediction, or proposal for an observed fact.
+- a silent substitution of a preview or prediction for an observed fact;
+- a CPE candidate action or design intent recorded as though it were a CRE Snapshot item.
 
 ## 6. CPE Planning Request — field detail
 
@@ -188,7 +189,7 @@ A state snapshot must not contain:
 | Request identifier | R | CPE | Stable identity for the planning request. |
 | Request creation time | R | CPE | When the requester or CPE created the planning context. |
 | CRE Knowledge Release pin | R | CPE reference to CRE | Exact compatible CRE Knowledge Release being used. A vague reference to a branch or latest state is insufficient. |
-| CRE Observed Colony-State Snapshot pin | R | CPE reference to CRE | Exact snapshot being used. If no snapshot exists, CPE must return a bounded limitation rather than fabricate state. |
+| CRE Observed Colony-State Snapshot pin | C | CPE reference to CRE | Required only when an eligible Snapshot exists and is used. Where no eligible Snapshot exists, the pin must be explicitly absent, not fabricated, substituted, or replaced by a placeholder. In that case, Request limitations must state the absence and bounded limitation. |
 | Planning scope | R | CPE | What the plan is attempting to decide or sequence. |
 | Objectives / priorities | R | CPE | Player-declared desired outcomes. They are not CRE facts and must preserve priority ordering or explicit equal treatment. |
 | Hard constraints | R | CPE | Non-negotiable limits. An empty set must be explicit rather than implicit. |
@@ -221,7 +222,7 @@ A Planning Request must not:
 | Result creation time | R | CPE | When the result was produced. |
 | Planning Request pin | R | CPE | Exact request from which the plan result derives. |
 | CRE Knowledge Release pin | R | CPE reference to CRE | Must match the request or explicitly record a permitted update and reason. |
-| CRE State Snapshot pin | R | CPE reference to CRE | Must match the request or explicitly record a permitted update and reason. |
+| CRE State Snapshot pin | C | CPE reference to CRE | Required only when the Planning Request pins a Snapshot. When present, it must match the request or explicitly record a permitted update and reason. When the Request has no Snapshot pin, the Result pin must remain explicitly absent and carry forward the bounded limitation. |
 | Result disposition | R | Derived CPE | Distinguishes candidate plan set, conditional plan set, withheld conclusion, or non-assessable outcome. A result must not pretend a candidate exists when evidence cannot support one. |
 | Candidate-plan set | C | Derived CPE | Required only when disposition includes a candidate plan. |
 | Constraint-outcome set | R | Derived CPE | States each material hard constraint as satisfied, unsatisfied, conditional, or not assessable. |
@@ -237,7 +238,7 @@ A Planning Request must not:
 |---|---:|---|---|
 | Candidate identifier | R | Derived CPE | Stable identity for a specific plan alternative. |
 | Candidate role / intent | R | Derived CPE | States why the candidate exists relative to the request objective. It is not a CRE mechanic. |
-| Proposed actions | R | Derived CPE | Facility choices, sequencing, preservation, deferral, validation, or other plan actions. Every irreversible action must carry an applicable evidence/validation basis. |
+| Proposed actions | R | Derived CPE | Facility choices, sequencing, preservation, deferral, validation, or other plan actions. Proposed is a CPE action/design-intent classification, not a Snapshot-item or expected-effect classification. Every irreversible action must carry an applicable evidence/validation basis. |
 | Sequence / dependency order | C | Derived CPE | Required where order changes buildability, risk, verification, or expected effect. |
 | Expected effects | C | Derived CPE | Required when claimed. Each expected effect must carry one primary Section 8 classification. “Observed carry-forward” is an Observed effect repeated unchanged from a pinned Snapshot. “Conditional” is not a sixth state; it must be expressed as a Predicted effect whose named assumptions, uncertainty, or validation gate state the condition. A proposed action remains Proposed rather than being relabelled as an effect. No expected effect may be stated as a guaranteed outcome. |
 | Supporting input references | R | Derived CPE | Pins each material candidate claim to CRE knowledge entries, state items, and CPE request constraints. |
@@ -257,17 +258,22 @@ A Plan Result must not:
 
 ## 8. State-classification semantics
 
-Each state-bearing Snapshot item and Plan Result effect must use one primary classification. The exact encoding is not selected here.
+Each state-bearing Snapshot item and each Plan Result expected effect must use one primary classification. Snapshot items and expected effects may use only **Observed**, **Previewed**, **Predicted**, or **Completed**. **Proposed** is reserved exclusively for CPE Plan Result action/design-intent content and is not valid for a CRE Snapshot item or an expected effect. The exact encoding is not selected here.
 
 | State classification | Meaning | Must not be interpreted as |
 |---|---|---|
 | **Observed** | A fact recorded from an identified evidence source at an identified or bounded capture time. | A universal mechanic, permanent state, or causal explanation not separately supported. |
 | **Previewed** | A result displayed by an identified trusted preview, construction interface, or stated preview method before the action is completed. | A completed build, a guaranteed live result, or proof that a previewed effect persists after later changes. |
 | **Predicted** | A modelled expectation produced from named assumptions, a stated method, or a known simulation. | An observed in-game result or a guarantee. |
-| **Proposed** | A candidate plan action or design intent not yet verified as built or effective. | Existing facility state, player commitment, or research fact. |
 | **Completed** | A build, action, or milestone recorded as finished by identified evidence. | Verification that the intended economic, market, service, or material effect occurred. |
 
 A facility may be **Completed** while its expected consequence remains **Unknown**, **Predicted**, or **Pending live verification**. A later outcome observation must be represented separately rather than implied by completion.
+
+For CPE Plan Result action/design-intent content only:
+
+| Action classification | Meaning | Must not be interpreted as |
+|---|---|---|
+| **Proposed** | A candidate plan action or design intent not yet verified as built or effective. | Existing facility state, a Snapshot item, an expected effect, player commitment, or research fact. |
 
 ## 9. Uncertainty, withholding, and validation semantics
 
@@ -296,10 +302,12 @@ For every material CPE conclusion, a reader must be able to trace:
 ```text
 CPE Plan Result assertion
 → candidate-plan / constraint / trade-off item
-→ Planning Request objective or hard constraint
+→ Planning Request objective, hard constraint, preference, risk-tolerance policy, declared programme requirement, or stated assumption
 → pinned CRE Knowledge Release entry and/or State Snapshot item
 → CRE provenance, caveat, contradiction, unknown, and validation basis
 ```
+
+If a material conclusion depends only on a planning input and not on a CRE factual basis, the trace must stop at the relevant Planning Request input and must not pretend a CRE factual basis exists.
 
 ### 10.2 Required references by assertion type
 
@@ -308,7 +316,7 @@ CPE Plan Result assertion
 | Uses a mechanic or guardrail | CRE Knowledge Release entry identifier, confidence, applicability conditions, and caveats. |
 | Uses a physical or facility-state fact | CRE State Snapshot item identifier, state classification, evidence/model basis, and capture time/context. |
 | Predicts an effect | Named input references, state classification `Predicted`, assumptions, and a validation gate where consequential. |
-| Proposes an action | Request objective/constraint linkage, supporting CRE inputs, trade-offs, and irreversible-action validation requirements. |
+| Proposes an action | Request objective, hard constraint, preference, risk-tolerance policy, declared programme requirement, or stated assumption linkage; supporting CRE inputs when they exist; trade-offs; and irreversible-action validation requirements. |
 | Withholds an answer | The unsupported, missing, contradictory, withheld, or out-of-scope basis. |
 
 ### 10.3 Caveat-preservation rule
@@ -325,11 +333,13 @@ CPE may add plan-specific caveats. It must not remove a material CRE caveat, con
 
 ### 11.2 Release pinning
 
-A CPE Planning Request and Plan Result must pin the exact Knowledge Release and State Snapshot used. A pin must include a stable identifier plus immutable revision/source information when available.
+A CPE Planning Request must pin the exact Knowledge Release used. It must pin the exact State Snapshot only when an eligible Snapshot exists and is used. A CPE Plan Result must pin the exact Knowledge Release used and must pin the exact State Snapshot only when the Request pins one. Every present pin must include a stable identifier plus immutable revision/source information when available.
 
 A mutable label such as `main`, `latest`, `current`, or a repository name by itself is insufficient for a reproducible planning input.
 
 When an immutable revision does not exist, the object must state that absence and why. The consumer must treat reproducibility as limited rather than pretending the input is pinned.
+
+When no eligible Snapshot exists, the Request and Result must keep the Snapshot pin explicitly absent, state the bounded limitation, and must not fabricate a substitute identifier or placeholder.
 
 ### 11.3 Supersession and withdrawal
 
@@ -367,8 +377,9 @@ These are conceptual examples, not payloads, schemas, fixtures, or actual game f
 | Existing facility record | Observed | A facility is recorded as present by identified evidence. |
 | Candidate construction preview | Previewed | The preview may guide a conditional plan, but does not establish a completed outcome. |
 | Expected post-change material coverage | Predicted | A modelled effect under named assumptions, requiring a validation gate if consequential. |
-| Future build action | Proposed | A CPE candidate action, not present state. |
 | Finished construction milestone | Completed | A build may be done, but its market/economy consequence still needs separate observation. |
+
+A future build action is recorded separately in a CPE Plan Result as `Proposed` action/design-intent content, not as a Snapshot item.
 
 ### 12.3 Example: a CPE Plan Result validation gate
 
@@ -396,20 +407,23 @@ These are review checklists, not executable validators.
 - Does each state-bearing item have exactly one primary state classification?
 - Are facility class, station type, economy state, market links, body capacity, and planning role kept distinct where present?
 - Is completed construction kept distinct from verified outcome?
-- Are mixed observed/previewed/predicted/proposed items separated rather than collapsed?
+- Are mixed observed/previewed/predicted/completed items separated rather than collapsed?
+- Are CPE candidate actions kept out of the Snapshot and recorded separately in a Plan Result?
 
 ### 13.3 CPE Planning Request checklist
 
-- Are exact CRE release and snapshot pins present?
+- Is the exact CRE release pin present?
+- Is the Snapshot pin present only when an eligible Snapshot exists and is used, and otherwise explicitly absent with a bounded limitation?
 - Are player objectives, hard constraints, preferences, protected assets, and risk tolerance distinguished?
 - Are user assumptions clearly marked as user-provided rather than observed CRE facts?
 - Does a missing required input cause an explicit limitation rather than invented state?
 
 ### 13.4 CPE Plan Result checklist
 
-- Are every material candidate claim and trade-off traceable to request and CRE inputs?
+- Are every material candidate claim and trade-off traceable to the relevant request inputs and CRE inputs where they exist?
 - Are hard constraint outcomes explicit: satisfied, unsatisfied, conditional, or not assessable?
 - Are caveats, contradictions, unknowns, and validation gates preserved?
+- Do proposed actions trace to the relevant objective, hard constraint, preference, risk tolerance, declared programme requirement, or stated assumption, without inventing a CRE factual basis where none exists?
 - Is the result clearly a plan-specific decision-support output rather than observed reality or automatic player choice?
 
 ## 14. Explicit non-goals
