@@ -14,14 +14,17 @@ Expected branch: <copy from docs/ai/CURRENT_STAGE.md>
 Expected current commit: <copy from docs/ai/CURRENT_STAGE.md>
 
 Read these repository files first:
-- docs/DOCUMENTATION_INDEX.md
 - docs/ai/CURRENT_STAGE.md
+- docs/DOCUMENTATION_INDEX.md
+- docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md
 - docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md
 - docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md
 - docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md
+- docs/HISTORICAL_RECORDS_INDEX.md
 - docs/ai/DECISIONS.md
+- docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md
 
-Then inspect live GitHub PR state where relevant, then run the read-only recovery commands in docs/ai/RECOVERY.md.
+Then inspect live GitHub PR state where relevant, then run the read-only recovery commands in docs/ai/RECOVERY.md and return the proof block required by docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md before making any write.
 
 Return only:
 1. current repository root;
@@ -37,15 +40,17 @@ Do not make changes until I explicitly approve your recovery report.
 
 Upload or paste, in this order:
 
-1. `docs/DOCUMENTATION_INDEX.md`
-2. `docs/ai/CURRENT_STAGE.md`
-3. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`
-4. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`
-5. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`
-6. relevant recent entries from `docs/ai/DECISIONS.md`
-7. the branch name and full commit SHA
-8. the latest test/build/evidence output only if it is not already recorded in `CURRENT_STAGE.md`
-9. a link or patch for the specific diff under review, if applicable
+1. `docs/ai/CURRENT_STAGE.md`
+2. `docs/DOCUMENTATION_INDEX.md`
+3. `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`
+4. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`
+5. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`
+6. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`
+7. `docs/HISTORICAL_RECORDS_INDEX.md`
+8. relevant recent entries from `docs/ai/DECISIONS.md`
+9. the branch name and full commit SHA
+10. the latest test/build/evidence output only if it is not already recorded in `CURRENT_STAGE.md`
+11. a link or patch for the specific diff under review, if applicable
 
 Avoid pasting an entire old conversation. The stage record and Git state should replace it.
 
