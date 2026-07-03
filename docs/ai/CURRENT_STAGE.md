@@ -4,7 +4,7 @@
 
 ## Status
 
-**D1a — Documentation Control Plane is accepted and merged.**
+**D1a — Documentation Control Plane is accepted and merged. D0 — Documentation Estate and Code Boundary Register is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md`.**
 
 ## Branch and base
 
@@ -71,16 +71,18 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 
 ## Remaining documentation debt
 
-- D0 cross-repository Documentation Estate Audit and Spring-Clean Register remains outstanding.
+- D0 is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` as a read-only documentation-estate and code-boundary register.
+- D1b is the proposed, separately owner-authorised next documentation batch for root navigation and history/changelog cleanup. It is not started, accepted, merged, or authorised here.
 - Stale historical-stage wording outside D1a requires later, separately authorised conservative cleanup batches.
 - Archive, move, rename, deletion, root `README.md`, changelog, beta-version, and physical documentation reorganisation require separate explicit authorisation.
 
 ## Next safe action
 
-Conduct D0 — the separately owner-authorised, read-only cross-repository
-Documentation Estate Audit and Spring-Clean Register. It must not perform
-archive, deletion, move, rename, restructuring, versioning, or implementation
-work without further explicit authorisation.
+D1b is the proposed next documentation batch: a separately owner-authorised,
+docs-only root navigation and history/changelog cleanup. It must not archive,
+delete, move, rename, refactor, implement any API or code boundary, or start
+code, runtime, database, API, CRE, CPE, or R1 work without further explicit
+authorisation.
 
 ## Closeout rule
 
