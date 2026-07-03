@@ -20,12 +20,18 @@ code or scoring rules:
 3. [`codex-reference-prompt-snippet.md`](./codex-reference-prompt-snippet.md) -
    reusable prompt text for future Codex runs.
 
-Then read the active roadmap:
+Then read the current control documents:
 
-1. [`docs/colonisation-redesign/README.md`](../../colonisation-redesign/README.md)
-2. [`docs/colonisation-redesign/stage-17p-current-state-forward-plan.md`](../../colonisation-redesign/stage-17p-current-state-forward-plan.md)
-3. [`docs/colonisation-redesign/engine-roadmap.md`](../../colonisation-redesign/engine-roadmap.md)
-4. [`docs/colonisation-redesign/enrichment-roadmap.md`](../../colonisation-redesign/enrichment-roadmap.md)
+1. [`docs/DOCUMENTATION_INDEX.md`](../../DOCUMENTATION_INDEX.md)
+2. [`docs/ai/CURRENT_STAGE.md`](../../ai/CURRENT_STAGE.md)
+3. [`docs/colonisation-redesign/README.md`](../../colonisation-redesign/README.md)
+4. [`docs/colonisation-redesign/stage-25-roadmap.md`](../../colonisation-redesign/stage-25-roadmap.md)
+
+Then read historical roadmaps only as needed for provenance:
+
+1. [`docs/colonisation-redesign/stage-17p-current-state-forward-plan.md`](../../colonisation-redesign/stage-17p-current-state-forward-plan.md)
+2. [`docs/colonisation-redesign/engine-roadmap.md`](../../colonisation-redesign/engine-roadmap.md)
+3. [`docs/colonisation-redesign/enrichment-roadmap.md`](../../colonisation-redesign/enrichment-roadmap.md)
 
 ## Current Pack Contents
 

@@ -14,13 +14,25 @@ Programme status after this reset:
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
-- Stage 25C Slice 1 is in progress and pending review.
-- Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.
+- Stage 25C Slice 1 merged later via PR #262.
+- Later bounded Stage 25 follow-on work merged via PRs #269 and #271.
+- Stage 25 is not complete. Later checkpoints beyond those merges must still be treated conservatively.
 
 The original roadmap-reset PR was documentation, roadmap authority, static
 tests, and guardrails only. Stage 25C runtime implementation now begins
 separately with Slice 1: product shell, navigation hierarchy, minimal selected-
 system context scaffolding, and visual foundation framing only.
+
+## Live merged continuity note
+
+Live GitHub PR metadata confirms the following later merged Stage 25-related PRs:
+
+- PR #262, `Add Stage 25C product shell and navigation hierarchy`, merged on 2026-06-23.
+- PR #263, `Fix Review Lab mobile planner contract`, also merged on 2026-06-23. It is a merged follow-on correction from the same period, but it does not by itself prove Stage 25 completion.
+- PR #269, `[codex] stage 25d-a finder save, inspect, and plan start`, merged on 2026-06-24.
+- PR #271, `[codex] Stage 25D-A.2 planner clarity and draft lifecycle`, merged on 2026-06-25.
+
+This roadmap must not continue to describe Stage 25C Slice 1 as awaiting review. It also must not overstate those later merged follow-ons as proof that the whole Stage 25 programme is complete.
 
 ## Stage 25B Status Correction
 
@@ -209,8 +221,8 @@ Stage 25 preserves evidence-language discipline:
 | --- | --- | --- |
 | Stage 25A | complete | Current-state audit, map product decision and visual-system baseline |
 | Stage 25B | complete (merged in PR #259) | Evidence language and visual-system primitives |
-| Stage 25C | Slice 1 in progress and pending review | Product shell, shared selected-system context, and cockpit visual foundation |
-| Stage 25D | unstarted | Canonical Colony Cockpit and planner/simulation integration |
+| Stage 25C | Slice 1 merged in PR #262; later follow-on work continues | Product shell, shared selected-system context, and cockpit visual foundation |
+| Stage 25D | bounded follow-on work merged in PRs #269 and #271; not closed here | Canonical Colony Cockpit and planner/simulation integration |
 | Stage 25E | unstarted | Review, evidence, validation and export coherence |
 | Stage 25F | unstarted | Facility intelligence and explainable next actions |
 | Stage 25G | unstarted | Explore and map product-value decision |
@@ -229,7 +241,7 @@ broad polish.
 
 ### Stage 25C - Product Shell, Shared Context and Cockpit Visual Foundation
 
-Status: Slice 1 in progress and pending review.
+Status: Slice 1 merged in PR #262. This document retains the Stage 25C control intent, but it must no longer describe Slice 1 as pending review.
 
 Primary objective: implement the first runtime slice of the coherent player
 product shell, the Explore/Plan/Review hierarchy, truthful shared-context
@@ -254,19 +266,22 @@ activity.
 
 The full Stage 25C implementation contract lives in
 `stage-25c-product-shell-shared-context-contract.md`. Defining that contract
-did not by itself authorize runtime implementation; this first runtime slice is
-separately authorized and remains pending review.
+did not by itself authorize runtime implementation. The later merged Stage 25C
+runtime slice and any later follow-on Stage 25 work still need to be read from
+live merged state and current control documents, not inferred only from the
+contract wording.
 
 ### Stage 25D - Canonical Colony Cockpit and Planner/Simulation Integration
 
-Status: unstarted.
+Status: bounded follow-on work exists in merged PRs #269 and #271, but Stage 25D is not closed here.
 
 Purpose: use the Stage 25C shell and context model to integrate the strongest
 existing planner, sequence, simulation, validation, and evidence capabilities
 into one coherent Plan workspace. This stage must prevent the live Colony Planner
 and the reusable simulation-preview capability from becoming parallel competing
 products. It must not start until Stage 25C's navigation, context, and visual
-foundation are accepted.
+foundation are accepted. The merged PRs #269 and #271 are later bounded follow-on
+evidence, not a claim that the whole Stage 25D programme is complete.
 
 ### Stage 25E - Review, Evidence, Validation and Export Coherence
 
@@ -353,8 +368,9 @@ This Stage 25 roadmap reset is acceptable only if:
 
 - Stage 24 remains closed;
 - Stage 25A is recorded as complete and Stage 25B as complete/merged;
-- Stage 25C is recorded as Slice 1 in progress and pending review rather than complete;
-- Stage 25D through Stage 25H are recorded as unstarted;
+- Stage 25C is recorded as later merged, not pending review;
+- Stage 25D is not falsely recorded as wholly unstarted when bounded later merged follow-on work exists;
+- Stage 25E through Stage 25H are recorded conservatively and not overclaimed as complete;
 - PR #257 is recorded as the map recovery point;
 - the map remains a secondary Explore surface only and no deeper map integration
   is authorized;
@@ -372,4 +388,6 @@ This Stage 25 roadmap reset is acceptable only if:
 - Stage 19 remains separately gated;
 - no database or operational write lane is authorized;
 - defining the Stage 25C contract does not by itself authorize runtime
-  implementation.
+  implementation;
+- later merged PRs #262, #263, #269, and #271 are not ignored, but they also do
+  not by themselves prove Stage 25 completion.

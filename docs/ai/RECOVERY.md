@@ -16,11 +16,15 @@ Until this protocol is complete, the agent must **not**:
 From the repository root, read:
 
 ```text
-docs/ai/README.md
-docs/ai/PROJECT_CONTEXT.md
+docs/DOCUMENTATION_INDEX.md
 docs/ai/CURRENT_STAGE.md
+docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md
+docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md
+docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md
 docs/ai/DECISIONS.md
 ```
+
+Then inspect live GitHub PR state where relevant and the live Git branch/worktree state before making any write.
 
 Then run these read-only commands and preserve the raw output:
 
@@ -52,8 +56,8 @@ Return only:
 2. Branch and full HEAD SHA.
 3. Modified and untracked files, exactly as Git reports them.
 4. Active stage status from `CURRENT_STAGE.md`.
-5. Whether the current worktree matches the stage record.
-6. Any mismatch, missing evidence, or blocker.
+5. Whether the current worktree and live PR state match the stage record.
+6. Any mismatch, missing evidence, stale record, or blocker.
 7. The next safe action, without making changes.
 
 ## If the expected branch or files are missing

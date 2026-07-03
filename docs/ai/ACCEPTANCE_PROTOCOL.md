@@ -1,49 +1,52 @@
-# Acceptance Checkpoint Protocol
+# Acceptance Protocol
 
-This protocol turns a reviewer acceptance into a durable recovery point.
+This protocol defines pre-merge acceptance. Post-merge closeout is separate and is governed by `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`.
 
 ## What acceptance means
 
-A stage is not accepted merely because an assistant writes “approved” in chat. Before acceptance, the implementation must already be committed and pushed to a named branch, with the exact reviewed code commit identified.
+A stage is not accepted merely because an assistant writes “approved” in chat. Before acceptance, the implementation must already be committed and pushed to a named branch, with the exact reviewed head commit identified.
 
-Acceptance does **not** merge, deploy, rebase, or change product code.
+Acceptance means the owner authorises merge against that exact live reviewed head after independent review.
 
-## Automatic actions after acceptance
+Acceptance does **not** merge, deploy, rebase, close out merge records, or grant any new implementation authority.
 
-When the reviewing assistant accepts a stage, it should perform these actions without waiting for a separate reminder:
+## Mandatory pre-merge checks
 
-1. Confirm the accepted branch, pull request if any, and exact reviewed code commit SHA.
-2. Create a documentation-only acceptance checkpoint by updating `docs/ai/CURRENT_STAGE.md` on the accepted branch. The update must record:
-   - status: `Accepted`;
-   - accepted code commit SHA;
-   - acceptance date/time;
-   - branch and pull request reference, if any;
-   - evidence reviewed;
-   - caveats or follow-up work;
-   - next safe action.
-3. Add a top-level pull-request comment, when a pull request exists, containing the same acceptance summary and the SHA of the documentation-only checkpoint commit.
-4. State clearly in chat that the checkpoint was written and that merge/deployment remain separate decisions.
+Before calling a stage accepted:
 
-The documentation-only checkpoint commit is allowed to follow the accepted code commit. It must modify only `docs/ai/` files. It does not reopen product-code review.
+1. Confirm the branch, pull request if any, and exact reviewed head SHA.
+2. Re-check the live PR head, changed files, review state, and actionable threads when a PR exists.
+3. Confirm the owner authorises that exact head SHA, not a moving branch in general.
+4. Confirm the evidence reviewed and any explicit caveats.
+
+If the head moved, a required review is missing, or an actionable thread remains open, pause and re-review instead of calling it accepted.
+
+## Durable record rule
+
+Acceptance and merge closeout are distinct:
+
+- **Pre-merge acceptance** records the exact reviewed head and the owner's merge authorisation.
+- **Post-merge closeout** records the actual merge event, including merge SHA and what changed or did not change.
+
+Do not weaken accountability by collapsing those two steps into one vague status.
 
 ## If the code is not pushed
 
-Do not create an acceptance checkpoint and do not call the stage accepted. Ask for the exact branch and pushed commit first.
+Do not call the stage accepted. Ask for the exact pushed branch and reviewed head first.
 
-## If there is no pull request
+## If there is a pull request
 
-Create the documentation-only checkpoint on the named branch and report its commit SHA. The Git commit is still the durable acceptance record.
+Record the exact PR number and exact reviewed head. A PR comment may be useful in some cases, but it is not a mandatory rule when it would conflict with the accepted merge-closeout process.
 
-## Standard acceptance record
+## Standard pre-merge acceptance record
 
-Use this structure in `CURRENT_STAGE.md`:
+Use this structure in `CURRENT_STAGE.md` when a dedicated acceptance checkpoint is needed before merge:
 
 ```md
 ## Acceptance checkpoint
 
-- Status: Accepted
-- Accepted code commit: `<full SHA>`
-- Acceptance checkpoint commit: `<full SHA once created>`
+- Status: Accepted, awaiting merge
+- Accepted reviewed head: `<full SHA>`
 - Branch: `<branch>`
 - Pull request: `<number or none>`
 - Evidence reviewed:
@@ -51,9 +54,15 @@ Use this structure in `CURRENT_STAGE.md`:
 - Caveats:
   - `<none or explicit items>`
 - Next safe action:
-  - `<merge, start next planning stage, or other explicit step>`
+  - `Merge only against the exact accepted head, then perform merge closeout under docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md.`
 ```
 
-## New-chat recovery after acceptance
+## After merge
 
-A new agent must read `CURRENT_STAGE.md` first. It should treat the accepted code SHA as the reviewed baseline and the acceptance checkpoint commit as the durable handoff state. It must not infer that a merge or deployment occurred unless the record says so.
+After merge, do not rely on the pre-merge acceptance note alone. Update the durable recovery records under the merge-closeout protocol so a later recovery can distinguish:
+
+- what exact head was accepted;
+- what exact merge commit landed;
+- what changed;
+- what did not change; and
+- what remains safe next.
