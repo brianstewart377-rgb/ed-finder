@@ -89,7 +89,7 @@ Future CPE work must:
 | **A1** — CPE documentation foundation | Complete — minimum baseline | CPE top-level purpose, first System Assessment scope, and ownership clarity | CPE PR `#1` merged; no implementation authority created |
 | **D0** — Documentation Estate Audit and Spring-Clean Register | **Complete and merged in ed-finder PR #304** | Cross-repository inventory, lifecycle classification, canonical replacements, and safe cleanup batches | Produced D1b, D1c, D2, and code-boundary follow-on candidates; no physical cleanup authorised by D0 itself |
 | **D1b** — Root navigation and history framing | **Complete and merged in ed-finder PR #305** | Root `README.md` and `CHANGES.md` reframed as current navigation vs historical record | No implementation, archive, deletion, or versioning authority created |
-| **D2a** — Working-point hierarchy enforcement and historical records index | **Drafted for independent review** | Mandatory preflight protocol, logical historical-record index, and hierarchy hardening | Independent review against live branch/PR state; no archive, deletion, rename, or implementation authority |
+| **D2a** — Working-point hierarchy enforcement and historical records index | **Complete and merged in ed-finder PR #306** | Mandatory preflight protocol, logical historical-record index, and hierarchy hardening | Canonical current-control hierarchy now includes the D2a preflight protocol and historical-record index; no archive, deletion, rename, or implementation authority created |
 | **A2** — First CPE System Assessment contract | Not started | Documentation-only logical Assessment Request/Result contract with every field owned | D0 accepted and separate A2 owner authorisation |
 | **A3** — Bounded assessment core | Not started | Narrow CPE implementation of accepted R1 assessment semantics against synthetic labelled controls | A2 accepted; separate implementation authorisation |
 | **A4** — Capacity-sufficiency evidence inventory | Not started | CRE-backed read-only inventory for below-sufficiency, compact-sufficient, neutral-surplus, additive-surplus cases | Separate authorisation; inventory may conclude insufficient evidence |
@@ -104,7 +104,7 @@ D0 inventories documents across `ed-finder`, CRE, and CPE against immutable pins
 
 D0 is evidence gathering only. It creates no archive, deletion, rename, relocation, versioning baseline, content rewrite, implementation, code, data, research, or deployment change. Its output is a Spring-Clean Register and proposed safe batches for separately authorised follow-up PRs.
 
-That D0 register is now recorded in merged ed-finder PR `#304`. D1b is also merged in ed-finder PR `#305`. D2a is the current docs-only follow-on drafted for independent review to harden the working-point hierarchy and historical-record interpretation without starting D2, A2, or any implementation work.
+That D0 register is now recorded in merged ed-finder PR `#304`. D1b is also merged in ed-finder PR `#305`. D2a is now merged in ed-finder PR `#306`, making the working-point preflight protocol and historical-record interpretation index canonical without starting D2, A2, or any implementation work.
 
 ## 6. A0 findings that govern all later work
 
@@ -200,4 +200,4 @@ Rules:
 
 ## 11. Current next safe action
 
-Conduct an independent, read-only review of **D2a — Working-point hierarchy enforcement and historical records index** against its exact live branch or PR head, changed-file scope, and live review state. Do not start D2, A2, A3, A4, archive treatment, deletion review, or implementation work until D2a is resolved and a separately authorised next batch is named.
+No new archive, deletion, CRE, CPE, R1, API, runtime, or implementation work is authorised by the D2a merge reconciliation. A separately owner-authorised next batch is required before D2, A2, A3, A4, archive treatment, deletion review, or implementation work begins.
