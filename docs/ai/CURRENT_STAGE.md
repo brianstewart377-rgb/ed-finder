@@ -4,7 +4,7 @@
 
 ## Status
 
-**D1a — Documentation Control Plane is drafted for independent review on branch `docs/d1a-documentation-control-plane` and live draft PR `#302 — docs: establish documentation control plane`. It is based on `work/r1-canonical-body-evidence` at exact base `2302634a226ab79545bf27dfaf77cd6aff26a309`, with current draft head `fab0bad11e47c27996518da118168deb853424c1`. This stage creates a practical documentation entry point, separates current product control from historic and future assessment records, corrects stale Stage 25 wording, and aligns recovery/handoff documents to the current reading order. It is not accepted or merged.**
+**D1a — Documentation Control Plane is drafted for independent review on branch `docs/d1a-documentation-control-plane` and live draft PR `#302 — docs: establish documentation control plane`. It is based on `work/r1-canonical-body-evidence` at exact base `2302634a226ab79545bf27dfaf77cd6aff26a309`. This stage creates a practical documentation entry point, separates current product control from historic and future assessment records, corrects stale Stage 25 wording, and aligns recovery/handoff documents to the current reading order. It is not accepted or merged.**
 
 ## Branch and base
 
@@ -13,9 +13,8 @@
 - Required base SHA: `2302634a226ab79545bf27dfaf77cd6aff26a309`
 - PR: `#302 — docs: establish documentation control plane`
 - Branch: `docs/d1a-documentation-control-plane`
-- Head: `fab0bad11e47c27996518da118168deb853424c1`
 
-This branch/head pair is the recovery point for the current draft only. Any later review, acceptance, or merge work must re-fetch live GitHub PR metadata and live Git state rather than trust stale document text alone.
+The live head for this draft is not recorded statically here. Before any independent review, owner-acceptance wording, or merge decision, fetch live PR `#302` metadata and verify its current head SHA, changed-file scope, mergeability, submitted reviews, comments, and unresolved review-thread state.
 
 ## Scope
 
@@ -65,7 +64,7 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 
 ## Next safe action
 
-Await independent review on live draft PR `#302` at exact head `fab0bad11e47c27996518da118168deb853424c1`. After independent review, the next safe action is owner acceptance only after a final live GitHub-state check against the exact reviewed head. Acceptance does not merge; merge remains a separate exact-head owner-authorised decision. Do not mark this stage accepted or merged, and do not widen scope beyond the listed documentation files.
+D1a remains drafted and awaiting independent review. The final independent review must assess the live head reported by PR `#302` metadata. Owner acceptance may follow only after a fresh final live GitHub-state check against the exact then-current reviewed head. Acceptance does not merge or deploy; merge remains a separate exact-live-head owner-authorised decision. Do not mark this stage accepted or merged, and do not widen scope beyond the listed documentation files.
 
 ## Recovery instruction
 
