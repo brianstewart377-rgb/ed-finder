@@ -1,7 +1,10 @@
-# ED Finder — Dev Change Log
+# ED Finder — Historical Development Log
 
-A running record of development changes, with reasoning. Production app
-lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
+This file preserves earlier development notes and reasoning, primarily from May 2026. It is retained for provenance and troubleshooting; it is not the current product changelog, release record, or working-point authority.
+
+For current project status and control, read `docs/DOCUMENTATION_INDEX.md` and `docs/ai/CURRENT_STAGE.md`. For current API behaviour, read `docs/api-contracts.md`. Use live GitHub PR and commit history for merged change records.
+
+## Retained historical entries
 
 ---
 
