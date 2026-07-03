@@ -102,7 +102,7 @@ A future CPE implementation may preserve the **behavioural control** of a fixtur
 | Stage 5 acceptance records and Stage 6A audit report | Retain for provenance | Historic reference only |
 | CPE README old ownership wording | Corrected in separate documentation PR | Stale documentation debt until merged |
 | Stage 6C current-stage unmerged wording | Corrected by this documentation cleanup | Stale documentation debt until merged |
-| PR #293 | Superseded by #294; close only with explicit owner authorisation | Stale documentation debt until closed |
+| PR #293 | Closed on 2026-07-03 as superseded by #294; retain only its closure provenance | Historic reference only |
 | CRE summary-index mismatch from Stage 6A | CRE-side follow-up; not changed here | Stale documentation debt |
 
 ## 8. Known collision and traceability cautions
@@ -115,16 +115,16 @@ The live station-type feature and related source references using `Dodec` are un
 
 PRs #297 and #298 are linked to their commits by the accepted project records because their commits do not embed the PR number in the commit subject. Future closeouts must explicitly record PR number, reviewed head, merge commit, and merge method to keep recovery auditable.
 
-### Confirmed Stage 2/3 foundation
+### Stage 2/3 lineage baseline
 
-Live GitHub metadata independently confirmed the early R1 lineage:
+At this documentation baseline, live GitHub PR metadata captured on 2026-07-03 verified that the early R1 PRs below were merged. Canonical git ancestry at the baseline corroborates the listed commit SHAs and matching subjects. Because PR-to-SHA association is not always recoverable from a commit subject alone, a later recovery must re-check live PR metadata rather than infer it solely from ancestry.
 
-| PR | Result | Merge commit |
-|---|---|---|
-| #280 — Stage 2B pure R1 assessment core | Merged | `220c870f89a5af7f98adb88578373dbc3a681a9c` |
-| #281 — Stage 3A lens context | Merged | `b6529e70ddbdcc26d46ce742eea793273138c635` |
-| #282 — Stage 3B DEV-only R1 assessment lab | Merged | `98b4bacf1d799e7937b449210046659b3e96615b` |
-| #283 — Stage 3B merge record correction | Merged | `83f4e4bc9829c173979fce5aa0bda734174ca55a` |
+| PR | Result | Merge commit | Durable corroboration |
+|---|---|---|---|
+| #280 — Stage 2B pure R1 assessment core | Merged | `220c870f89a5af7f98adb88578373dbc3a681a9c` | Canonical ancestry and matching subject |
+| #281 — Stage 3A lens context | Merged | `b6529e70ddbdcc26d46ce742eea793273138c635` | Canonical ancestry and matching subject |
+| #282 — Stage 3B DEV-only R1 assessment lab | Merged | `98b4bacf1d799e7937b449210046659b3e96615b` | Canonical ancestry and matching subject |
+| #283 — Stage 3B merge record correction | Merged | `83f4e4bc9829c173979fce5aa0bda734174ca55a` | Canonical ancestry and matching subject |
 
 ## 9. Minimum pre-code documentation package
 
