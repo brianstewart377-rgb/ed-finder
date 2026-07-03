@@ -1,6 +1,6 @@
 # Project Continuity and Merge Closeout Protocol v1
 
-**Status:** Drafted for independent review.
+**Status:** Accepted and merged in ed-finder PR `#300` at `265738fe39513de3d6be32114485d4e19e6131f5`.
 
 **Purpose:** Ensure that a new chat, reviewer, or implementation agent can recover the current project state from the repositories without relying on a long conversation, a remembered plan, or an uncommitted workspace.
 
@@ -9,6 +9,12 @@
 > A merged change is not fully closed until its durable recovery records are updated.
 
 `CURRENT_STAGE.md` is mandatory after every merge. The roadmap, continuity ledger, and decision register are updated when their respective subject matter changes.
+
+### Self-closeout rule
+
+A PR that itself updates `CURRENT_STAGE.md` cannot know its own merge SHA before it merges. It must record every completed predecessor merge it is closing, including exact reviewed heads and merge commits. Its own merge event remains recoverable from live GitHub PR metadata until a later ordinary working-point update references it.
+
+Do not create an endless chain of documentation-only PRs solely to record the merge SHA of the preceding closeout PR. The rule is satisfied when each closeout PR accurately records all prior unclosed merge events and its own exact head is guarded at merge time.
 
 ## 2. Mandatory records
 
@@ -35,6 +41,7 @@ For every merge:
 9. Append to `DECISIONS.md` only when a durable owner decision changed future constraints.
 10. Set one explicit next safe action.
 11. Do not start that next action without separate scope/owner authorisation.
+12. For a self-closeout PR, record its own approved head before merging and rely on GitHub PR metadata for its eventual merge SHA; do not open a recursive closeout solely for that event.
 
 ## 4. Status vocabulary
 
