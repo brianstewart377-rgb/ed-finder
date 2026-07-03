@@ -1,6 +1,6 @@
 # System Assessment Continuity Ledger v1
 
-**Status:** Drafted for independent review as a documentation-only continuity record.
+**Status:** Accepted and merged in ed-finder PR `#300` at `265738fe39513de3d6be32114485d4e19e6131f5`. This living continuity record is updated when an artefact’s ownership, lifecycle label, control status, or migration treatment changes.
 
 **Purpose:** Preserve the R1 Assessment Laboratory lineage while establishing the future home of programme-specific system assessment in **CPE / System Assessment Engine**. This ledger does not authorise implementation, migration, fixture changes, evidence collection, scoring, ranking, or architecture selection.
 
@@ -100,8 +100,8 @@ A future CPE implementation may preserve the **behavioural control** of a fixtur
 | `wregoe_dual_dodec_control` | Defer | Deferred control |
 | Stage 6B and 6C contracts | Keep as cross-repository governance authority | Accepted future design rule |
 | Stage 5 acceptance records and Stage 6A audit report | Retain for provenance | Historic reference only |
-| CPE README old ownership wording | Corrected in separate documentation PR | Stale documentation debt until merged |
-| Stage 6C current-stage unmerged wording | Corrected by this documentation cleanup | Stale documentation debt until merged |
+| Previous CPE README ownership wording | Resolved by CPE PR `#1`, merged at `9d5ff8cc3cdd6653081f5f490dfd4b5b40423197`; retain only as historical before-state | Historic reference only |
+| Stage 6C current-stage unmerged wording | Resolved by ed-finder PR `#300`, merged at `265738fe39513de3d6be32114485d4e19e6131f5`; retain only as historical before-state | Historic reference only |
 | PR #293 | Closed on 2026-07-03 as superseded by #294; retain only its closure provenance | Historic reference only |
 | CRE summary-index mismatch from Stage 6A | CRE-side follow-up; not changed here | Stale documentation debt |
 
@@ -141,4 +141,4 @@ Explicitly excluded: new SRE repository, database, API, shared package, runtime/
 
 ## 10. Next safe action
 
-Review this ledger alongside `CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`, `PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`, and the separate CPE documentation PR. After independent review and separate owner merge authorisation, begin the CPE documentation foundation—not implementation.
+Conduct D0 — the read-only cross-repository Documentation Estate Audit and Spring-Clean Register. Do not change this ledger’s classifications further until that audit supplies evidence for a lifecycle, replacement, archive, or deletion recommendation.

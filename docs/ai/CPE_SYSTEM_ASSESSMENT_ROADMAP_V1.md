@@ -1,6 +1,6 @@
 # CPE System Assessment Roadmap v1
 
-**Status:** Drafted for independent review. Documentation-only programme roadmap.
+**Status:** Accepted and merged in ed-finder PR `#300` at `265738fe39513de3d6be32114485d4e19e6131f5`. This is a living documentation-only programme roadmap; update it when a phase advances, blocks, changes dependency, or completes.
 
 **Purpose:** Turn the accepted R1 Assessment Laboratory lineage into a durable, evidence-first future capability without burying it in generic planning work, duplicating CRE research truth, or prematurely creating a separate SRE repository.
 
@@ -77,23 +77,30 @@ Future CPE work must:
 
 ## 5. Programme roadmap
 
-| Phase | Status at this roadmap baseline | Deliverable | Gate before next phase |
+| Phase | Current status | Deliverable | Gate before next phase |
 |---|---|---|---|
-| **Cleanup 0** — Stage/status hygiene | Drafted | Correct Stage 6C working point; record reviewed head and merge commit; resolve superseded bookkeeping when authorised | Independent review and owner merge authorisation |
-| **Cleanup 1** — R1 freeze and designation | Drafted | Declare R1 lab the frozen DEV-only prototype/control lineage | Recorded in current stage, ledger, and decisions |
-| **Cleanup 2** — Continuity Ledger | Drafted | One ownership/lifecycle/migration inventory | Independent review and owner merge authorisation |
-| **Cleanup 3** — System Assessment Roadmap | Drafted | This strategic programme record | Independent review and owner merge authorisation |
-| **Cleanup 4** — CPE documentation foundation | Drafted separately | Correct CPE README and establish its two pillars | Independent review and owner merge authorisation |
-| **Cleanup 5** — Merge closeout protocol | Drafted | Durable recovery rule for all future merges | Independent review and owner merge authorisation |
-| **A0** — Continuity audit | Owner-accepted | Read-only R1→CPE audit, with repository pins and lifecycle findings | Complete; informs cleanups |
-| **A1** — CPE documentation foundation | Not started | CPE top-level documentation, first-system-assessment scope, ownership clarity | Cleanup package merged |
-| **A2** — First CPE System Assessment contract | Not started | Documentation-only logical Assessment Request/Result contract with every field owned | A1 accepted; no implementation authority |
+| **Cleanup 0** — Stage/status hygiene | Complete — ed-finder PR `#300` | Correct Stage 6C working point; record reviewed head and merge commit; resolve superseded bookkeeping | Completed and merged at `265738…` |
+| **Cleanup 1** — R1 freeze and designation | Complete — ed-finder PR `#300` | Declare R1 lab the frozen DEV-only prototype/control lineage | Recorded in current stage, ledger, and decisions |
+| **Cleanup 2** — Continuity Ledger | Complete — ed-finder PR `#300` | One ownership/lifecycle/migration inventory | Accepted and merged |
+| **Cleanup 3** — System Assessment Roadmap | Complete — ed-finder PR `#300` | This strategic programme record | Accepted and merged |
+| **Cleanup 4** — CPE documentation foundation | Complete — CPE PR `#1` | Correct CPE README and establish its two pillars | Merged at `9d5ff8…` |
+| **Cleanup 5** — Merge closeout protocol | Complete — ed-finder PR `#300` | Durable recovery rule for all future merges | Accepted and merged |
+| **A0** — Continuity audit | Complete — owner-accepted | Read-only R1→CPE audit, with repository pins and lifecycle findings | Informs all later work |
+| **A1** — CPE documentation foundation | Complete — minimum baseline | CPE top-level purpose, first System Assessment scope, and ownership clarity | CPE PR `#1` merged; no implementation authority created |
+| **D0** — Documentation Estate Audit and Spring-Clean Register | **Next authorised read-only audit** | Cross-repository inventory, lifecycle classification, canonical replacements, and safe cleanup batches | Independent review and owner acceptance; no physical cleanup during D0 |
+| **A2** — First CPE System Assessment contract | Not started | Documentation-only logical Assessment Request/Result contract with every field owned | D0 accepted and separate A2 owner authorisation |
 | **A3** — Bounded assessment core | Not started | Narrow CPE implementation of accepted R1 assessment semantics against synthetic labelled controls | A2 accepted; separate implementation authorisation |
 | **A4** — Capacity-sufficiency evidence inventory | Not started | CRE-backed read-only inventory for below-sufficiency, compact-sufficient, neutral-surplus, additive-surplus cases | Separate authorisation; inventory may conclude insufficient evidence |
 | **A5** — Deferred control admission | Not started | Evidence-backed contract and tests for 30-v-60 and/or Wregoe control only after A4 | A4 reviewed; owner authorisation |
 | **A6** — Plan Fit and comparison | Not started | Mature CPE Plan Fit and comparable candidate-system outputs | Assessment core and controls accepted |
 | **B** — Colony Plan Construction | Not started | Candidate layouts, sequencing, alternatives, protected-asset and validation handling | System Assessment produces trusted results |
 | **C** — ed-finder graduation | Not started | Presentation of stable CPE outputs beyond DEV-only laboratory | CPE outputs and contracts stable |
+
+### D0 scope boundary
+
+D0 inventories documents across `ed-finder`, CRE, and CPE against immutable pins. It classifies each item as canonical living, active contract, historic reference, generated/reference source, duplicate or superseded, stale or conflicting, deletion candidate, or unknown.
+
+D0 is evidence gathering only. It creates no archive, deletion, rename, relocation, versioning baseline, content rewrite, implementation, code, data, research, or deployment change. Its output is a Spring-Clean Register and proposed safe batches for separately authorised follow-up PRs.
 
 ## 6. A0 findings that govern all later work
 
@@ -104,8 +111,8 @@ The owner-accepted Programme A0 audit established:
 - the five current fixtures and two current strategies are fixture-only forward reconstruction material, not game truth;
 - `plateau_30_vs_60_case` and `wregoe_dual_dodec_control` have no admitted payload, expected result, test, UI, or active behaviour;
 - Stage 6B establishes the cross-repository ownership model;
-- CPE README ownership wording required correction;
-- Stage records require explicit, durable closeout to prevent stale recovery state.
+- the old CPE README ownership wording required correction, now completed in CPE PR `#1`;
+- stage records require explicit, durable closeout to prevent stale recovery state.
 
 ## 7. First CPE System Assessment contract shape
 
@@ -189,4 +196,4 @@ Rules:
 
 ## 11. Current next safe action
 
-Independently review the documentation-only cleanup package and the separate CPE documentation-foundation change. After explicit owner merge authorisation, begin **A1 CPE documentation foundation**. Do not start A2/A3/A4 work early.
+Conduct **D0 — Documentation Estate Audit and Spring-Clean Register** as a read-only cross-repository audit. Do not start physical cleanup, archive moves, deletions, a changelog/versioning baseline, or A2/A3/A4 work until D0 is independently reviewed and owner-accepted.
