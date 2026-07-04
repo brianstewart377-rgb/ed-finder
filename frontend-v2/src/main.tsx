@@ -50,20 +50,16 @@ async function bootstrap() {
     );
   } else {
     await import('./index.css');
-    const [appModule, contextModule, plannerGuardModule] = await Promise.all([
+    const [appModule, routeRootModule] = await Promise.all([
       import('./App'),
-      import('./features/system-detail/SelectedSystemRouteBar'),
-      import('./features/colony-planner/PlannerRouteGuard'),
+      import('./features/system-detail/Stage25cV2RouteRoot'),
     ]);
     const App = appModule.default;
-    const { SelectedSystemRouteBar } = contextModule;
-    const { PlannerRouteGuard } = plannerGuardModule;
+    const { Stage25cV2RouteRoot } = routeRootModule;
     root.render(
       <StrictMode>
         <ErrorBoundary>
-          <App />
-          <SelectedSystemRouteBar />
-          <PlannerRouteGuard />
+          <Stage25cV2RouteRoot App={App} />
         </ErrorBoundary>
       </StrictMode>,
     );
