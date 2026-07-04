@@ -38,8 +38,8 @@ describe('ColonisationAccessCard', () => {
 
     renderCard();
 
-    const card = await screen.findByTestId('colonisation-access-card');
-    expect(card.textContent).toContain('Frontier Start');
+    await screen.findByText('Frontier Start');
+    const card = screen.getByTestId('colonisation-access-card');
     expect(card.textContent).toContain('74.2 LY away');
     expect(card.textContent).toContain('Minimum bridge unavailable');
     expect(card.textContent).toContain('Route search not run');
