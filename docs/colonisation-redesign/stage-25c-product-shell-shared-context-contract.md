@@ -2,17 +2,20 @@
 
 ## Status
 
-Stage 25C is `slice_1_in_progress_pending_review`.
+Stage 25C is active and not complete.
 
-This document began as an implementation contract, not a runtime implementation
-and not a generic vision document. Defining this contract did not authorize any
-runtime implementation by itself.
+- Slice 1 — product shell and navigation hierarchy: `complete_merged` in PR #262.
+- Slice 2 — selected-system context spine: `contract_defined_pending_implementation`.
+- Later Stage 25C slices remain separately gated and are not complete merely because
+  Slice 1 or bounded follow-on Plan work has merged.
 
-Stage 25C runtime implementation is now authorized only for Slice 1: product
-shell, navigation hierarchy, minimal shared-context scaffolding, and shell
-visual foundation work that remains pending review. Later slices remain
-separately gated by this same contract and do not become complete merely because
-Slice 1 is active.
+This document remains the parent Stage 25C contract. The detailed controlling
+contract for Slice 2 is
+[`stage-25c-selected-system-context-slice.md`](./stage-25c-selected-system-context-slice.md).
+
+The earlier `slice_1_in_progress_pending_review` wording is historical and must not
+be used as current runtime status. Defining either contract does not by itself
+authorize runtime implementation.
 
 ## Product Problem
 
@@ -96,6 +99,9 @@ Stage 25C implementation must resolve these decisions explicitly:
   direct route;
 - when the selected system has no active plan, the context must still show the
   system plus evidence summary and offer an explicit start-planning action.
+
+Slice 2 defines the exact selected-system state, route, transition, failure, and
+no-active-plan rules for this parent requirement.
 
 ### Distinction between selected system, saved candidate, compared system, and active plan
 
@@ -230,18 +236,19 @@ Stage 25C implementation explicitly excludes:
 
 ## Stage 25C Implementation Slices
 
-These are future slices. This document does not implement them.
-
-1. Product shell and navigation hierarchy: introduce the shell and the
-   Explore/Plan/Review framing without removing existing capability.
-2. Selected-system context spine: introduce the persistent selected-system
-   context and its persistence/deep-link rules.
-3. Cockpit visual-system foundation and semantic evidence primitives: tokens,
-   typography/spacing tiers, elevation, and the reused semantic status language.
-4. System Detail -> Plan hand-off and workspace continuity: make the inspect to
-   plan hand-off explicit while keeping the planner canonical and live.
-5. Accessibility, responsive verification, and visual regression baseline:
-   desktop-first verification, Finder/System Detail mobile checks, planner
+1. **Product shell and navigation hierarchy** — complete and merged in PR #262:
+   the shell and Explore/Plan/Review framing without removing existing capability.
+2. **Selected-system context spine** — contract defined; implementation pending:
+   persistent selected-system context and its exact persistence/deep-link rules.
+   The detailed slice contract is `stage-25c-selected-system-context-slice.md`.
+3. **Cockpit visual-system foundation and semantic evidence primitives** — pending:
+   tokens, typography/spacing tiers, elevation, and the reused semantic status
+   language.
+4. **System Detail -> Plan hand-off and workspace continuity** — pending further
+   bounded follow-through: make the inspect-to-plan hand-off explicit while keeping
+   the planner canonical and live.
+5. **Accessibility, responsive verification, and visual regression baseline** —
+   pending: desktop-first verification, Finder/System Detail mobile checks, planner
    phone-width resilience, and regression/accessibility baselines.
 
 ## Acceptance Criteria
