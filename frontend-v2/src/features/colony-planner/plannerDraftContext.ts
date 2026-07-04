@@ -5,9 +5,13 @@ export type ColonyProjectObjective =
   | 'missions_services'
   | 'personal_base_custom_goal'
   | 'balanced'
-  | 'decide_later';
+  | 'decide_later'
+  | 'destination_first_corridor';
 
-export type ColonyProjectStartApproach = 'recommendation_assisted' | 'manual';
+export type ColonyProjectStartApproach =
+  | 'recommendation_assisted'
+  | 'manual'
+  | 'destination_first_corridor';
 
 export type ColonyProjectCreatedFrom = 'system_detail';
 
@@ -69,6 +73,8 @@ export function objectiveLabel(value: ColonyProjectObjective | null | undefined)
       return 'Personal base / custom goal';
     case 'balanced':
       return 'Balanced';
+    case 'destination_first_corridor':
+      return 'Destination-first corridor';
     case 'decide_later':
       return "I'll decide later";
     default:
@@ -90,12 +96,18 @@ export function startApproachLabel(value: ColonyProjectStartApproach | null | un
   if (value === 'manual') {
     return 'Build my own plan';
   }
+  if (value === 'destination_first_corridor') {
+    return 'Destination-first';
+  }
   return 'Approach not set';
 }
 
 export function plannerNextActionCopy(value: ColonyProjectStartApproach | null | undefined): string {
   if (value === 'recommendation_assisted') {
     return 'Review suitable build approaches for this objective.';
+  }
+  if (value === 'destination_first_corridor') {
+    return 'Destination locked. Optimise the road to this system; do not substitute another target. Route search has not yet checked intermediate systems.';
   }
   return 'Choose a body to begin planning.';
 }
@@ -118,6 +130,8 @@ export function defaultDraftProjectName(
       return `${safeSystemName} - New plan`;
     case 'balanced':
       return `${safeSystemName} - Balanced plan`;
+    case 'destination_first_corridor':
+      return `${safeSystemName} - Corridor expedition`;
     case 'decide_later':
     default:
       return `${safeSystemName} - New plan`;
