@@ -17,12 +17,12 @@ const root = createRoot(rootEl);
 // v2 experience exactly as before — zero behaviour change for them.
 //
 // To opt in:
-//   • visit any page with `?ui=v3` (one-shot URL preview), or
-//   • run `localStorage.setItem('uiV3', '1')` in devtools (sticky preview),
+//   • visit any page with ?ui=v3 (one-shot URL preview), or
+//   • run localStorage.setItem('uiV3', '1') in devtools (sticky preview),
 //     reload to apply.
 //
-// To turn it off: `?ui=v2` (one-shot) or
-//   `localStorage.removeItem('uiV3')` and reload.
+// To turn it off: ?ui=v2 (one-shot) or
+//   localStorage.removeItem('uiV3') and reload.
 // ────────────────────────────────────────────────────────────────────────────
 function shouldUseRedesign(): boolean {
   const params = new URLSearchParams(window.location.search);
@@ -50,11 +50,20 @@ async function bootstrap() {
     );
   } else {
     await import('./index.css');
-    const { default: App } = await import('./App');
+    const [appModule, contextModule, plannerGuardModule] = await Promise.all([
+      import('./App'),
+      import('./features/system-detail/SelectedSystemRouteBar'),
+      import('./features/colony-planner/PlannerRouteGuard'),
+    ]);
+    const App = appModule.default;
+    const { SelectedSystemRouteBar } = contextModule;
+    const { PlannerRouteGuard } = plannerGuardModule;
     root.render(
       <StrictMode>
         <ErrorBoundary>
           <App />
+          <SelectedSystemRouteBar />
+          <PlannerRouteGuard />
         </ErrorBoundary>
       </StrictMode>,
     );
