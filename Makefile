@@ -3,12 +3,12 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
+.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local review-preflight review-quick review-full clean
 
 PYTHON ?= python
 
 help:  ## Show this help
-	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ── DB / seed ────────────────────────────────────────────────────────────────
 seed-check:  ## Apply every sql/*.sql with ON_ERROR_STOP=1 + invariants
@@ -55,15 +55,17 @@ test-ci-local: test-env-check test-db-isolation  ## Run focused local CI checks 
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B -m py_compile scripts/dev/test_env_preflight.py scripts/operator/stage19ar_edsm_25_row_staging_pilot.py scripts/operator/stage19as_au_edsm_100_row_controlled_expansion.py tests/helpers/db_isolation.py
 	git diff --check
 
-api-smoke:  ## Curl the Phase-2 happy paths against a running API
-	@API=$${API:-http://localhost:8000}; \
-	echo "▶ /api/health"        && curl -fsS $$API/api/health | python3 -m json.tool; \
-	echo "▶ search HighTech"    && curl -fsS -X POST $$API/api/local/search -H 'Content-Type: application/json' \
-	    -d '{"reference_coords":{"x":0,"y":0,"z":0},"filters":{"distance":{"min":0,"max":1000},"economy":"HighTech"},"size":3}' \
-	    | python3 -c "import sys,json;d=json.load(sys.stdin);print(f\"  {d.get('count')} results, total={d.get('total')}, capped={d.get('total_is_capped')}\")"; \
-	echo "▶ events recent"      && curl -fsS $$API/api/events/recent | python3 -m json.tool | head -10
+# ── Disposable Review Lab ────────────────────────────────────────────────────
+review-preflight:  ## Check the isolated Review Lab contract without Docker writes
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/review_environment.py preflight
 
-# ── Frontend ────────────────────────────────────────────────────────────────
+review-quick:  ## Smoke-test Finder → Detail → Planner against the isolated Docker stack
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/review_environment.py verify --mode quick --scenario planner_core --confirm-local-review-environment
+
+review-full:  ## Run the full isolated Review Lab, including browser and accessibility checks
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
 typecheck:  ## yarn typecheck the frontend
 	cd frontend-v2 && yarn typecheck
 
