@@ -9,6 +9,7 @@ const APP_ROOT = process.cwd();
 const REPO_ROOT = path.resolve(APP_ROOT, '..');
 const args = new Set(process.argv.slice(2));
 const strictMode = args.has('--strict');
+const DEFAULT_CANONICAL_COMPARE_REF = 'origin/work/r1-canonical-body-evidence';
 
 const warnings = [];
 const failures = [];
@@ -93,6 +94,21 @@ function resolveApiTarget() {
   return {
     target: 'http://127.0.0.1:8001',
     source: 'vite fallback default',
+  };
+}
+
+function resolveCompareRef() {
+  const override = process.env.DEV_DOCTOR_COMPARE_REF?.trim();
+  if (override) {
+    return {
+      ref: override,
+      source: 'process.env.DEV_DOCTOR_COMPARE_REF',
+    };
+  }
+
+  return {
+    ref: DEFAULT_CANONICAL_COMPARE_REF,
+    source: 'default canonical branch',
   };
 }
 
@@ -191,6 +207,8 @@ async function main() {
   const branch = runGit('rev-parse --abbrev-ref HEAD', true) || '(unknown)';
   const commit = runGit('rev-parse --short HEAD', true) || '(unknown)';
   printResult('[ok]', `branch=${branch} commit=${commit}`);
+  const { ref: compareRef, source: compareRefSource } = resolveCompareRef();
+  printResult('[ok]', `compare ref=${compareRef} (source: ${compareRefSource})`);
 
   const trackedChanges = runGit('status --porcelain --untracked-files=no', true) || '';
   if (trackedChanges) {
@@ -214,25 +232,31 @@ async function main() {
 
   const fetched = runGit('fetch --quiet origin', true);
   if (fetched !== null && branch !== '(unknown)') {
-    const aheadBehindRaw = runGit('rev-list --left-right --count HEAD...origin/main', true) || '';
-    if (aheadBehindRaw) {
+    const compareRefExists = runGit(`rev-parse --verify ${compareRef}`, true);
+    const aheadBehindRaw = compareRefExists
+      ? runGit(`rev-list --left-right --count HEAD...${compareRef}`, true) || ''
+      : '';
+    if (!compareRefExists) {
+      warnings.push(`Unable to verify comparison reference ${compareRef}.`);
+      printResult('[warn]', `unable to verify comparison reference ${compareRef}`);
+    } else if (aheadBehindRaw) {
       const [aheadText, behindText] = aheadBehindRaw.split(/\s+/);
       const ahead = Number(aheadText || '0');
       const behind = Number(behindText || '0');
       if (ahead > 0 && behind > 0) {
-        warnings.push('Branch diverged from origin/main.');
+        warnings.push(`Branch diverged from ${compareRef}.`);
         printResult('[warn]', `branch diverged (ahead ${ahead}, behind ${behind})`);
       } else if (behind > 0) {
-        warnings.push(`Local branch is behind origin/main by ${behind} commit(s).`);
-        printResult('[warn]', `behind origin/main by ${behind}`);
+        warnings.push(`Local branch is behind ${compareRef} by ${behind} commit(s).`);
+        printResult('[warn]', `behind ${compareRef} by ${behind}`);
       } else if (ahead > 0) {
-        warnings.push(`Local branch is ahead of origin/main by ${ahead} commit(s).`);
-        printResult('[warn]', `ahead of origin/main by ${ahead}`);
+        warnings.push(`Local branch is ahead of ${compareRef} by ${ahead} commit(s).`);
+        printResult('[warn]', `ahead of ${compareRef} by ${ahead}`);
       } else {
-        printResult('[ok]', 'in sync with origin/main');
+        printResult('[ok]', `in sync with ${compareRef}`);
       }
     } else {
-      printResult('[warn]', 'unable to compare against origin/main');
+      printResult('[warn]', `unable to compare against ${compareRef}`);
     }
   } else {
     printResult('[warn]', 'unable to fetch origin for sync check');
@@ -297,9 +321,10 @@ async function main() {
     }
   }
 
+  const syncBranch = compareRef.startsWith('origin/') ? compareRef.slice('origin/'.length) : compareRef;
   console.log('');
   console.log(
-    'If warnings appear, run: git pull --ff-only, verify .env.local, restart dev server, then rerun npm run dev:doctor:strict'
+    `If warnings appear, run: git pull --ff-only origin ${syncBranch}, verify .env.local, restart dev server, then rerun npm run dev:doctor:strict`
   );
 
   if (strictMode && (warnings.length > 0 || failures.length > 0)) {
