@@ -4,7 +4,7 @@
 
 ## Status
 
-**D2 — Historical Status Header Batch 1 is drafted for independent review on branch `docs/d2-historical-status-headers-batch-1`. D2b — D2a Merge Working-Point Reconciliation is accepted and merged in PR `#307 — docs: reconcile D2a merge working point`, with reviewed head `18d5704cc9890d7bbd37f2a1274867da1351c47d`, merge commit `d0983cdc892593f36ac15de1fd59bb41127855d2`, merge method `merge commit`, and merged time `2026-07-03T20:43:51Z`. D2 changes only the two named historical status headers, the historical index, and current working-point status. D2 authorises no physical archive, move, rename, deletion, code, runtime, API, database, CRE, CPE, R1, deployment, CI, automation, or implementation work. No further historic-document changes are implied by this batch.**
+**D2 — Historical Status Header Batch 1 is drafted for independent review on branch `docs/d2-historical-status-headers-batch-1`. D2b — D2a Merge Working-Point Reconciliation is accepted and merged in PR `#307 — docs: reconcile D2a merge working point`, with reviewed head `18d5704cc9890d7bbd37f2a1274867da1351c47d`, merge commit `d0983cdc892593f36ac15de1fd59bb41127855d2`, merge method `merge commit`, and merged time `2026-07-03T20:41:32Z`. D2 changes only the two named historical status headers, the historical index, and current working-point status. D2 authorises no physical archive, move, rename, deletion, code, runtime, API, database, CRE, CPE, R1, deployment, CI, automation, or implementation work. No further historic-document changes are implied by this batch.**
 
 ## Branch and base
 
@@ -51,7 +51,7 @@ At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the 
 - Reviewed head SHA: `18d5704cc9890d7bbd37f2a1274867da1351c47d`
 - Merge commit SHA: `d0983cdc892593f36ac15de1fd59bb41127855d2`
 - Merge method: `merge commit`
-- Merged at: `2026-07-03T20:43:51Z`
+- Merged at: `2026-07-03T20:41:32Z`
 
 ## D2a scope
 
