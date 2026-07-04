@@ -25,7 +25,7 @@ describe('PlannerRouteGuard', () => {
 
     render(<PlannerRouteGuard />);
 
-    await waitFor(() => expect(screen.getByTestId('planner-no-active-draft-route')).toHaveTextContent('No active draft for this system'));
+    await waitFor(() => expect(screen.getByTestId('planner-no-active-draft-route').textContent).toContain('No active draft for this system'));
     expect(Object.keys(useColonyProjectStore.getState().projects)).toHaveLength(0);
 
     fireEvent.click(screen.getByTestId('planner-create-draft'));
@@ -58,7 +58,8 @@ describe('PlannerRouteGuard', () => {
 
     render(<PlannerRouteGuard />);
 
-    expect(screen.getByTestId('planner-project-route-error')).toHaveTextContent('Requested draft could not be opened');
-    expect(screen.getByTestId('planner-project-route-error')).toHaveTextContent('different system');
+    const error = screen.getByTestId('planner-project-route-error').textContent ?? '';
+    expect(error).toContain('Requested draft could not be opened');
+    expect(error).toContain('different system');
   });
 });
