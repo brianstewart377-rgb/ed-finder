@@ -1,57 +1,77 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Hash-based router with optional `system/{id64}` sub-routes.
+ * Hash-based router with selected-system context that is distinct from the
+ * System Detail modal.
  *
- * Supported hash formats (in priority order):
- *   #finder                       → route='finder',    selectedSystemId=null
- *   #pinned                       → route='pinned',    selectedSystemId=null
- *   #pinned/system/12345678       → route='pinned',    selectedSystemId=12345678
- *   #search-tuning                → route='search-tuning', selectedSystemId=null
- *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
- *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
- *   #my-work                      → route='my-work', selectedSystemId=null
- *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
- *   #colony-planner/system/123/project/abc → route='colony-planner', plannerSystemId=123, plannerProjectId='abc'
- *   #operator                     → route='operator', selectedSystemId=null
- *   #colony-planner               → route='colony-planner', plannerSystemId=null
- *   #colony-planner-prototype     → route='colony-planner-prototype', static visual prototype
- *   <empty> or unknown            → route='finder',    selectedSystemId=null
+ * Supported selected-system forms:
+ *   #finder/context/123456       → Finder with selected context and no modal
+ *   #finder/system/123456        → Finder with selected context and System Detail open
+ *   #system/123456               → Finder Inspect alias with System Detail open
+ *   #colony-planner/system/123   → Planner with selected context and no modal
+ *   #colony-planner/system/123/project/abc
+ *                                  → Planner with selected context and a requested local project
  *
- * Modal system sub-routes are intentionally a **child** of each tab so
- * closing the modal restores the user to the same tab they were on. External
- * links (#system/N alone) default to the Finder tab as a sensible landing.
- *
- * Colony Planner is a dedicated workspace route, not a modal child. Its
- * `plannerSystemId` must stay separate from `selectedSystemId` so rendering
- * the workspace does not accidentally open System Detail over it.
- *
- * The route set is still simple enough that this hand-rolled parser beats
- * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
+ * `selectedSystemId` remains the modal ID for backwards compatibility. New
+ * code should use `contextSystemId` for the route-owned selected system.
  */
 export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'operator' | 'colony-planner' | 'colony-planner-prototype';
 const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'operator', 'colony-planner', 'colony-planner-prototype'];
 
+export type SelectedSystemRouteStatus = 'none' | 'pending' | 'invalid';
+
 export interface ParsedHash {
-  route:            Route;
+  route: Route;
+  /** System Detail modal only. */
   selectedSystemId: number | null;
-  plannerSystemId:  number | null;
+  /** Route-owned selected system across Finder, Inspect, and Plan. */
+  contextSystemId: number | null;
+  selectedSystemRouteStatus: SelectedSystemRouteStatus;
+  /** Retained for existing planner consumers; equals contextSystemId on Planner routes. */
+  plannerSystemId: number | null;
   plannerProjectId: string | null;
 }
 
-function parsePositiveId(value: string | undefined): number | null {
-  if (!value) return null;
+interface ParsedSystemId {
+  id64: number | null;
+  status: SelectedSystemRouteStatus;
+}
+
+function parsePositiveId(value: string | undefined): ParsedSystemId {
+  if (!value) return { id64: null, status: 'invalid' };
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+    return { id64: null, status: 'invalid' };
+  }
+  return { id64: n, status: 'pending' };
+}
+
+function decodeProjectId(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const decoded = decodeURIComponent(value).trim();
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
+function emptyParsed(route: Route = 'finder'): ParsedHash {
+  return {
+    route,
+    selectedSystemId: null,
+    contextSystemId: null,
+    selectedSystemRouteStatus: 'none',
+    plannerSystemId: null,
+    plannerProjectId: null,
+  };
 }
 
 function parseHash(): ParsedHash {
-  const raw   = window.location.hash.replace(/^#\/?/, '');
+  const raw = window.location.hash.replace(/^#\/?/, '');
   const parts = raw.split('/').filter(Boolean);
 
-  if (parts.length === 0) {
-    return { route: 'finder', selectedSystemId: null, plannerSystemId: null, plannerProjectId: null };
-  }
+  if (parts.length === 0) return emptyParsed();
 
   let route: Route = 'finder';
   let i = 0;
@@ -63,28 +83,68 @@ function parseHash(): ParsedHash {
     i = 1;
   }
 
-  let selectedSystemId: number | null = null;
-  let plannerSystemId: number | null = null;
-  let plannerProjectId: string | null = null;
-  if (parts[i] === 'system') {
-    const id64 = parsePositiveId(parts[i + 1]);
-    if (route === 'colony-planner') {
-      plannerSystemId = id64;
-      if (parts[i + 2] === 'project' && parts[i + 3]) {
-        plannerProjectId = parts[i + 3];
-      }
-    } else {
-      selectedSystemId = id64;
+  const parsed = emptyParsed(route);
+  const segment = parts[i];
+
+  if (segment === 'context') {
+    const system = parsePositiveId(parts[i + 1]);
+    if (route !== 'finder' || parts.length !== i + 2) {
+      return { ...parsed, selectedSystemRouteStatus: 'invalid' };
     }
+    return {
+      ...parsed,
+      contextSystemId: system.id64,
+      selectedSystemRouteStatus: system.status,
+    };
   }
 
-  return { route, selectedSystemId, plannerSystemId, plannerProjectId };
+  if (segment !== 'system') return parsed;
+
+  const system = parsePositiveId(parts[i + 1]);
+  if (system.status === 'invalid') {
+    return { ...parsed, selectedSystemRouteStatus: 'invalid' };
+  }
+
+  if (route === 'colony-planner') {
+    const hasProjectSegment = parts[i + 2] === 'project';
+    const projectId = hasProjectSegment ? decodeProjectId(parts[i + 3]) : null;
+    const malformedProjectRoute = hasProjectSegment && (!projectId || parts.length !== i + 4);
+    const unexpectedPlannerTail = !hasProjectSegment && parts.length !== i + 2;
+    if (malformedProjectRoute || unexpectedPlannerTail) {
+      return { ...parsed, selectedSystemRouteStatus: 'invalid' };
+    }
+    return {
+      ...parsed,
+      contextSystemId: system.id64,
+      selectedSystemRouteStatus: 'pending',
+      plannerSystemId: system.id64,
+      plannerProjectId: projectId,
+    };
+  }
+
+  if (parts.length !== i + 2) {
+    return { ...parsed, selectedSystemRouteStatus: 'invalid' };
+  }
+
+  return {
+    ...parsed,
+    selectedSystemId: system.id64,
+    contextSystemId: system.id64,
+    selectedSystemRouteStatus: 'pending',
+  };
 }
 
-function buildHash(route: Route, selectedSystemId: number | null): string {
+function buildPlainHash(route: Route): string {
+  return `#${route}`;
+}
+
+function buildModalHash(route: Route, id64: number): string {
   const modalRoute = route === 'colony-planner' ? 'finder' : route;
-  const base = `#${modalRoute}`;
-  return selectedSystemId != null ? `${base}/system/${selectedSystemId}` : base;
+  return `#${modalRoute}/system/${id64}`;
+}
+
+function buildFinderContextHash(id64: number): string {
+  return `#finder/context/${id64}`;
 }
 
 function buildPlannerHash(plannerSystemId: number | null, plannerProjectId: string | null = null): string {
@@ -95,17 +155,20 @@ function buildPlannerHash(plannerSystemId: number | null, plannerProjectId: stri
 }
 
 export interface HashRoute {
-  route:            Route;
+  route: Route;
+  /** System Detail modal only. */
   selectedSystemId: number | null;
-  plannerSystemId:  number | null;
+  contextSystemId: number | null;
+  selectedSystemRouteStatus: SelectedSystemRouteStatus;
+  plannerSystemId: number | null;
   plannerProjectId: string | null;
-  /** Navigate to a tab. Preserves any open system modal. */
-  navigate:    (r: Route) => void;
-  /** Open the system detail modal on top of the current tab. */
-  openSystem:  (id64: number) => void;
+  /** Navigate to a workspace without inventing a modal. */
+  navigate: (r: Route) => void;
+  /** Open System Detail as an explicit Inspect action. */
+  openSystem: (id64: number) => void;
   /** Open the dedicated Colony Planner workspace for a system. */
   openColonyPlanner: (id64: number, options?: { projectId?: string | null }) => void;
-  /** Close the modal — pops back to the current tab. */
+  /** Close an explicit Inspect modal while preserving Finder selected context. */
   closeSystem: () => void;
 }
 
@@ -118,35 +181,63 @@ export function useHashRoute(): HashRoute {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  const hasContext = parsed.contextSystemId != null && parsed.selectedSystemRouteStatus === 'pending';
+
   const navigate = (r: Route) => {
     if (r === 'colony-planner') {
-      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId);
+      const projectId = parsed.route === 'colony-planner' ? parsed.plannerProjectId : null;
+      window.location.hash = buildPlannerHash(hasContext ? parsed.contextSystemId : null, projectId);
       return;
     }
-    window.location.hash = buildHash(r, parsed.selectedSystemId);
+
+    if (r === 'finder') {
+      if (parsed.selectedSystemId != null) {
+        window.location.hash = buildModalHash('finder', parsed.selectedSystemId);
+        return;
+      }
+      window.location.hash = hasContext ? buildFinderContextHash(parsed.contextSystemId as number) : buildPlainHash('finder');
+      return;
+    }
+
+    if (parsed.selectedSystemId != null) {
+      window.location.hash = buildModalHash(r, parsed.selectedSystemId);
+      return;
+    }
+
+    window.location.hash = buildPlainHash(r);
   };
 
   const openSystem = (id64: number) => {
-    window.location.hash = buildHash(parsed.route, id64);
+    const systemId64 = Number(id64);
+    if (!Number.isFinite(systemId64) || !Number.isInteger(systemId64) || systemId64 <= 0) return;
+    window.location.hash = buildModalHash(parsed.route, systemId64);
   };
 
   const openColonyPlanner = (id64: number, options?: { projectId?: string | null }) => {
     const systemId64 = Number(id64);
-    if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
+    if (!Number.isFinite(systemId64) || !Number.isInteger(systemId64) || systemId64 <= 0) return;
     window.location.hash = buildPlannerHash(systemId64, options?.projectId ?? null);
   };
 
   const closeSystem = () => {
-    window.location.hash = parsed.route === 'colony-planner'
-      ? buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId)
-      : buildHash(parsed.route, null);
+    if (parsed.selectedSystemId == null) return;
+    if (parsed.route === 'finder' && hasContext) {
+      window.location.hash = buildFinderContextHash(parsed.contextSystemId as number);
+      return;
+    }
+    window.location.hash = buildPlainHash(parsed.route);
   };
 
   return {
-    route:            parsed.route,
+    route: parsed.route,
     selectedSystemId: parsed.selectedSystemId,
-    plannerSystemId:  parsed.plannerSystemId,
+    contextSystemId: parsed.contextSystemId,
+    selectedSystemRouteStatus: parsed.selectedSystemRouteStatus,
+    plannerSystemId: parsed.plannerSystemId,
     plannerProjectId: parsed.plannerProjectId,
-    navigate, openSystem, openColonyPlanner, closeSystem,
+    navigate,
+    openSystem,
+    openColonyPlanner,
+    closeSystem,
   };
 }
