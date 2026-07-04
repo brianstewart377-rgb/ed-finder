@@ -1,8 +1,13 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { Route, Rocket } from 'lucide-react';
-import type { SystemDetail } from '@/types/api';
+import type { RegionalAnalysisResponse, SystemDetail } from '@/types/api';
 import { getRegionalAnalysis } from '@/lib/api';
 import { calculateColonisationAccess, VERIFIED_CLAIM_HOP_REACH_LY } from './colonisationAccess';
+
+type RegionalState =
+  | { status: 'loading'; data: null }
+  | { status: 'ready'; data: RegionalAnalysisResponse | null }
+  | { status: 'error'; data: null };
 
 export function ColonisationAccessCard({
   system,
@@ -11,13 +16,24 @@ export function ColonisationAccessCard({
   system: SystemDetail;
   onStartCorridorPlan?: (system: SystemDetail) => void;
 }) {
-  const regionalQuery = useQuery({
-    queryKey: ['regional-analysis', system.id64],
-    queryFn: () => getRegionalAnalysis(system.id64),
-    retry: 1,
-    staleTime: 10 * 60 * 1000,
-  });
-  const nearest = regionalQuery.data?.nearest_colonised_system ?? null;
+  const [regional, setRegional] = useState<RegionalState>({ status: 'loading', data: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    setRegional({ status: 'loading', data: null });
+    void getRegionalAnalysis(system.id64)
+      .then((data) => {
+        if (!cancelled) setRegional({ status: 'ready', data });
+      })
+      .catch(() => {
+        if (!cancelled) setRegional({ status: 'error', data: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [system.id64]);
+
+  const nearest = regional.data?.nearest_colonised_system ?? null;
   const access = calculateColonisationAccess(nearest?.distance_ly, VERIFIED_CLAIM_HOP_REACH_LY);
   const canStart = Number.isFinite(system.id64) && system.id64 > 0 && Boolean(onStartCorridorPlan);
 
@@ -46,7 +62,7 @@ export function ColonisationAccessCard({
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <div className="rounded border border-border/60 bg-bg3/35 p-3">
           <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Nearest known colony</div>
-          {regionalQuery.isLoading ? (
+          {regional.status === 'loading' ? (
             <div className="mt-1 text-sm text-silver">Loading regional position…</div>
           ) : nearest?.name && nearest.distance_ly != null ? (
             <>
