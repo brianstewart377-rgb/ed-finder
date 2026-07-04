@@ -1088,6 +1088,7 @@ def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malforme
 @pytest.mark.unit
 def test_browser_result_card_expansion_helper_is_idempotent():
     source = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
+    assert "const actionButton = card.getByRole('button', { name: /Inspect system/i });" in source
     assert "if (await actionButton.isVisible().catch(() => false)) {" in source
     assert 'return;' in source
     assert 'await header.evaluate((node) => {' in source

@@ -133,14 +133,57 @@ test.describe('Local review environment verification', () => {
   });
 });
 
+
+async function openSystemDetailFromResultCard(page, systemId64) {
+  await openResultCard(page, systemId64);
+  const card = page.getByTestId(`result-card-${systemId64}`);
+  const inspectSystem = card.getByRole('button', { name: /Inspect system/i });
+  await expect(inspectSystem).toBeVisible();
+  await inspectSystem.click();
+  await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+}
+
+async function startPlannerDraftFromSystemDetail(page, { useKeyboard = false } = {}) {
+  await expect(page.getByTestId('colony-planner-entry-card')).toBeVisible();
+
+  const openPlanStart = page.getByTestId('open-plan-start');
+  await expect(openPlanStart).toBeVisible();
+
+  if (useKeyboard) {
+    await openPlanStart.focus();
+    await page.keyboard.press('Enter');
+  } else {
+    await openPlanStart.click();
+  }
+
+  await expect(page.getByTestId('plan-start-panel')).toBeVisible();
+
+  await page.getByTestId('plan-objective-materials_coverage').click();
+  await page.getByTestId('plan-approach-manual').click();
+
+  const confirmStart = page.getByTestId('confirm-start-plan');
+  await expect(confirmStart).toBeEnabled();
+
+  if (useKeyboard) {
+    await confirmStart.focus();
+    await page.keyboard.press('Enter');
+  } else {
+    await confirmStart.click();
+  }
+}
+
+async function openPlannerFromResultCard(page, systemId64, systemName) {
+  await openSystemDetailFromResultCard(page, systemId64);
+  await startPlannerDraftFromSystemDetail(page);
+  await waitForPlanner(page, systemName);
+}
+
 async function runAlphaScenario(page, baseURL, summary) {
   const start = summary.apiResponses.length;
   const checks = {};
   try {
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.alpha.id64);
     await expect(page.getByText(SYSTEMS.alpha.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
 
@@ -149,12 +192,8 @@ async function runAlphaScenario(page, baseURL, summary) {
     checks.modalEscapeCloseWorks = true;
     summary.accessibility.modalEscapeCloseWorks = true;
 
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
-    const openPlanner = page.getByTestId('open-colony-planner');
-    await openPlanner.focus();
-    await page.keyboard.press('Enter');
+    await openSystemDetailFromResultCard(page, SYSTEMS.alpha.id64);
+    await startPlannerDraftFromSystemDetail(page, { useKeyboard: true });
     await waitForPlanner(page, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
     summary.accessibility.alphaKeyboardOpenPlannerWorks = true;
@@ -186,12 +225,10 @@ async function runBetaScenario(page, baseURL, summary) {
   const checks = {};
   try {
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.beta.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.beta.id64);
     await expect(page.getByText(SYSTEMS.beta.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
-    await page.getByTestId('open-colony-planner').click();
+    await startPlannerDraftFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.beta.name);
     checks.plannerOpened = true;
     await openEvidenceTechnicalDetail(page);
@@ -215,12 +252,10 @@ async function runGammaScenario(page, baseURL, summary) {
   const checks = {};
   try {
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.gamma.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.gamma.id64);
     await expect(page.getByText(SYSTEMS.gamma.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
-    await page.getByTestId('open-colony-planner').click();
+    await startPlannerDraftFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.gamma.name);
     checks.plannerOpened = true;
     await openEvidenceTechnicalDetail(page);
@@ -244,13 +279,11 @@ async function runDeltaScenario(page, baseURL, summary) {
   const checks = {};
   try {
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.delta.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.delta.id64);
     await expect(page.getByText(SYSTEMS.delta.name).first()).toBeVisible();
     checks.systemDetailLoaded = true;
 
-    await page.getByTestId('open-colony-planner').click();
+    await startPlannerDraftFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.delta.name);
     checks.plannerOpened = true;
     await openEvidenceTechnicalDetail(page);
@@ -258,14 +291,17 @@ async function runDeltaScenario(page, baseURL, summary) {
     checks.reportOnlyBoundaryVisible = await expectVisible(page.getByTestId('planner-evidence-discoverability-surface'));
     checks.fallbackRemainsNonCanonical = await expectText(
       page.getByTestId('warehouse-evidence-summary'),
-      /canonical planner data/i,
+      /Some data is unavailable for this system\. Your plan has not been changed automatically\./i,
     );
     checks.technicalFallbackDisclosureVisible = await expectVisible(page.getByTestId('warehouse-evidence-envelope-summary'))
       && await expectVisible(page.getByTestId('warehouse-evidence-source-class-list'))
       && await expectVisible(page.getByTestId('warehouse-evidence-semantic-list'));
     checks.noDedicatedEvidenceClaim = await page.getByTestId('warehouse-evidence-item').count() === 0;
     checks.noRecoveryScreen = !(await recoveryVisible(page));
-    checks.unavailableFallbackVisible = await expectVisible(page.getByTestId('warehouse-evidence-unavailable'));
+    checks.unavailableFallbackVisible = await expectText(
+      page.getByTestId('warehouse-evidence-summary'),
+      /Your plan has not been changed automatically/i,
+    );
     checks.provenanceWarningVisible = await expectVisible(page.getByTestId('warehouse-evidence-warnings'));
 
     const deltaResponses = summary.apiResponses.slice(start);
@@ -321,10 +357,8 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
   await runViewportProfile(browser, baseURL, summary, profile('planner_laptop_minimum'), async (page) => {
     const checks = {};
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
-    await page.getByTestId('open-colony-planner').click();
+    await openSystemDetailFromResultCard(page, SYSTEMS.alpha.id64);
+    await startPlannerDraftFromSystemDetail(page);
     await waitForPlanner(page, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
     checks.reportOnlyBoundaryVisible = await expectVisible(page.getByTestId('planner-evidence-discoverability-surface'));
@@ -349,9 +383,7 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
   await runViewportProfile(browser, baseURL, summary, profile('planner_constrained_diagnostic'), async (page) => {
     const checks = {};
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
-    await waitForPlanner(page, SYSTEMS.alpha.name);
+    await openPlannerFromResultCard(page, SYSTEMS.alpha.id64, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
     checks.selectedSystemContextVisible = await expectVisible(plannerSelectedSystem(page, SYSTEMS.alpha.name));
     checks.noRecoveryScreen = !(await recoveryVisible(page));
@@ -383,18 +415,14 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
     if (!checks.finderDocumentOverflowWithinTolerance) {
       throw new Error('Finder mobile document overflow exceeded tolerance.');
     }
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.alpha.id64);
     checks.systemDetailOpened = true;
     checks.systemDetailCloseControlVisible = await expectVisible(page.getByTestId('system-detail-close'));
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('system-detail-modal')).toBeHidden();
     checks.modalEscapeCloseWorks = true;
     summary.accessibility.modalEscapeCloseWorks = true;
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: 'Details' }).click();
-    await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+    await openSystemDetailFromResultCard(page, SYSTEMS.alpha.id64);
     const detailOverflow = await collectOverflowMetrics(page, []);
     checks.systemDetailDocumentOverflowWithinTolerance = detailOverflow.documentOverflowPx <= 4;
     if (!checks.systemDetailDocumentOverflowWithinTolerance) {
@@ -416,9 +444,7 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
   await runViewportProfile(browser, baseURL, summary, profile('planner_mobile_resilience'), async (page) => {
     const checks = {};
     await gotoFinder(page, baseURL);
-    await openResultCard(page, SYSTEMS.alpha.id64);
-    await page.getByRole('button', { name: /Evaluate in Colony Planner/i }).click();
-    await waitForPlanner(page, SYSTEMS.alpha.name);
+    await openPlannerFromResultCard(page, SYSTEMS.alpha.id64, SYSTEMS.alpha.name);
     checks.plannerOpened = true;
     checks.selectedSystemContextVisible = await expectVisible(plannerSelectedSystem(page, SYSTEMS.alpha.name));
     checks.safeExitControlVisible = await expectVisible(page.getByRole('button', { name: /Back to Finder/i }));
@@ -618,7 +644,7 @@ async function clearState(page, baseURL) {
 async function openResultCard(page, id64) {
   const card = page.getByTestId(`result-card-${id64}`);
   const header = card.locator('header');
-  const actionButton = card.getByRole('button', { name: /Details|Evaluate in Colony Planner/i }).first();
+  const actionButton = card.getByRole('button', { name: /Inspect system/i });
   await expect(card).toBeVisible();
   if (await actionButton.isVisible().catch(() => false)) {
     return;
@@ -642,11 +668,24 @@ async function waitForPlanner(page, systemName) {
 
 async function openEvidenceTechnicalDetail(page) {
   const toggle = page.getByTestId('warehouse-evidence-disclosure-toggle');
-  await expect(toggle).toBeVisible();
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
-    await toggle.click();
+
+  if (await toggle.isVisible().catch(() => false)) {
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+      await toggle.click();
+    }
+    await expect(page.getByTestId('warehouse-evidence-disclosure-panel')).toBeVisible();
+    return true;
   }
-  await expect(page.getByTestId('warehouse-evidence-disclosure-panel')).toBeVisible();
+
+  const details = page.getByTestId('warehouse-evidence-technical-details');
+  await expect(details).toBeVisible();
+
+  const detailsAreOpen = await details.evaluate((node) => node.open);
+  if (!detailsAreOpen) {
+    await details.locator('summary').click();
+  }
+
+  await expect(details).toHaveJSProperty('open', true);
   return true;
 }
 
