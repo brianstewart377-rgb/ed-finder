@@ -4,14 +4,14 @@
 
 ## Status
 
-**D2 — Historical Status Header Batch 1 is drafted for independent review on branch `docs/d2-historical-status-headers-batch-1`. D2b — D2a Merge Working-Point Reconciliation is accepted and merged in PR `#307 — docs: reconcile D2a merge working point`, with reviewed head `18d5704cc9890d7bbd37f2a1274867da1351c47d`, merge commit `d0983cdc892593f36ac15de1fd59bb41127855d2`, merge method `merge commit`, and merged time `2026-07-03T20:41:32Z`. D2 changes only the two named historical status headers, the historical index, and current working-point status. D2 authorises no physical archive, move, rename, deletion, code, runtime, API, database, CRE, CPE, R1, deployment, CI, automation, or implementation work. No further historic-document changes are implied by this batch.**
+**Stage 26A — Isolated Hosted Review Authority and Migration Contract is drafted for one independent review on branch `docs/stage-26a-hosted-review-authority`. Stage 26A is authority-only and subordinate to the current Stage 25 product programme. D2 — Historical Status Header Batch 1 is accepted and merged in PR `#308 — docs: mark superseded Stage 17 and Stage 21 planning records`, with reviewed head `464405b4d03d803bedf2329dc6474f29556e9791`, merge commit `1481bbd541ee467c7e47a8c0eb853c931e995dde`, merge method `merge commit`, and merged time `2026-07-04T04:00:14Z`. PR `#275 — Stage 26A hosted review contract` is closed and unmerged historical engineering reference at head `2746658aa77a01c04c77db2dc357bc17fda865ee`. This draft authorises no code, deployment, infrastructure, database, Redis, environment, hosted-review, migration, or production-behaviour change. After an accepted and merged Stage 26A contract, one fresh canonical implementation PR may be created and reviewed once. PR #275 must not be reopened, retargeted, rebased, or merged as implementation authority.**
 
 ## Branch and base
 
 - Repository: `brianstewart377-rgb/ed-finder`
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Required canonical base SHA: `d0983cdc892593f36ac15de1fd59bb41127855d2`
-- Working branch: `docs/d2-historical-status-headers-batch-1`
+- Required canonical base SHA: `1481bbd541ee467c7e47a8c0eb853c931e995dde`
+- Working branch: `docs/stage-26a-hosted-review-authority`
 
 The live head for this draft is not recorded statically here. Before any review, owner-acceptance wording, or merge decision, fetch live branch or PR metadata and verify the exact current head, changed-file scope, review state, and thread state.
 
@@ -52,6 +52,13 @@ At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the 
 - Merge commit SHA: `d0983cdc892593f36ac15de1fd59bb41127855d2`
 - Merge method: `merge commit`
 - Merged at: `2026-07-03T20:41:32Z`
+
+- PR: `#308 — docs: mark superseded Stage 17 and Stage 21 planning records`
+- PR base SHA before merge: `d0983cdc892593f36ac15de1fd59bb41127855d2`
+- Reviewed head SHA: `464405b4d03d803bedf2329dc6474f29556e9791`
+- Merge commit SHA: `1481bbd541ee467c7e47a8c0eb853c931e995dde`
+- Merge method: `merge commit`
+- Merged at: `2026-07-04T04:00:14Z`
 
 ## D2a scope
 
@@ -112,33 +119,35 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 - PR `#305` was verified merged at `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`.
 - PR `#306` was verified merged at `70895524847527a603aea0f31aeda847ca4a51ba`.
 - PR `#307` was verified merged at `d0983cdc892593f36ac15de1fd59bb41127855d2`.
-- This D2 branch was created from the fetched canonical base only after the worktree was verified clean.
+- PR `#308` was verified merged at `1481bbd541ee467c7e47a8c0eb853c931e995dde`.
+- This Stage 26A authority branch was created from the fetched canonical base only after the working point was verified.
 
 ## Remaining documentation debt
 
 - D0 is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` as a read-only documentation-estate and code-boundary register.
 - D1b is complete and merged in PR `#305`; its merge facts remain historical evidence, not current working authority.
 - D1c remains a separate CRE documentation-repair batch and does not alter current ed-finder control authority here.
-- D2 is a bounded historical-status-header batch only. It does not complete all historical-document cleanup and does not authorise later archive treatment, deletion review, or broader historical-record rewriting.
-- Stale historical-stage wording outside D1a requires later, separately authorised conservative cleanup batches.
+- D2 is complete and merged in PR `#308`; its historical-header work does not authorise later archive treatment, deletion review, or broader historical-record rewriting.
+- Stage 26A is a narrow authority-only draft. It does not create a general Stage 26 programme or authorise implementation, deployment, infrastructure, or an actual review write environment.
+- Stale historical-stage wording outside the completed batches requires later, separately authorised conservative cleanup.
 - Archive, move, rename, deletion, root `README.md`, changelog, beta-version, and physical documentation reorganisation require separate explicit authorisation.
 
 ## Next safe action
 
-Conduct an independent read-only review of the exact D2 PR head.
-Do not begin any physical archive, move, rename, deletion review, CRE, CPE, R1, API, runtime, or implementation batch without separate owner authorisation.
+Conduct one independent read-only review of the exact Stage 26A authority PR head.
+Do not create the replacement implementation PR, deploy hosted review, create review infrastructure, or enable any write-capable review environment until this authority contract is accepted and merged.
 
 ## Closeout rule
 
-This closeout records PR `#302`’s completed merge.
+This record preserves merged predecessor facts and the current draft working point.
 
-This closeout PR cannot record its own eventual merge SHA before it merges.
+This draft cannot record its own eventual merge SHA before it merges.
 
 Its own eventual merge remains recoverable from live GitHub PR metadata.
 
-Do not open another PR solely to record this closeout PR’s own merge SHA.
+Do not open another PR solely to record this draft's eventual merge SHA.
 
-A later ordinary working-point update may record this closeout merge as historical evidence.
+A later ordinary working-point update may record this draft's merge as historical evidence.
 
 ## Recovery instruction
 
@@ -147,11 +156,12 @@ If context is lost, start read-only. Read:
 1. this file;
 2. `docs/DOCUMENTATION_INDEX.md`;
 3. `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md`;
-4. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`;
-5. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`;
-6. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`;
-7. `docs/HISTORICAL_RECORDS_INDEX.md`;
-8. `docs/ai/DECISIONS.md`;
-9. the live GitHub and Git state.
+4. `docs/ai/STAGE_26A_ISOLATED_HOSTED_REVIEW_AUTHORITY_AND_MIGRATION_CONTRACT_V1.md`;
+5. `docs/ai/PROJECT_CONTINUITY_AND_MERGE_CLOSEOUT_PROTOCOL_V1.md`;
+6. `docs/ai/CPE_SYSTEM_ASSESSMENT_ROADMAP_V1.md`;
+7. `docs/ai/SYSTEM_ASSESSMENT_CONTINUITY_LEDGER_V1.md`;
+8. `docs/HISTORICAL_RECORDS_INDEX.md`;
+9. `docs/ai/DECISIONS.md`;
+10. the live GitHub and Git state.
 
 Report the recovered branch, exact base, controlling document, exact current-status wording, active scope, exclusions, merged-predecessor facts, and next safe action before making any write.
