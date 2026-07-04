@@ -1,5 +1,16 @@
 # Stage 21 - Planner Trust And Operationalisation Roadmap
 
+> HISTORICAL / SUPERSEDED PLANNING RECORD — NOT CURRENT EXECUTION AUTHORITY
+>
+> This document is retained for provenance and post-20 planning history.
+> It is not an active product-control point and cannot authorise implementation or override live GitHub state.
+>
+> For current work, read:
+> 1. `docs/ai/CURRENT_STAGE.md`
+> 2. `docs/DOCUMENTATION_INDEX.md`
+> 3. `docs/colonisation-redesign/stage-25-roadmap.md`
+> 4. live GitHub branch and PR state
+
 ## Purpose
 
 Stage 21 begins after the completed Stage 20 planning cockpit. Its job is to

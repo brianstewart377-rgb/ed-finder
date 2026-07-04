@@ -1,5 +1,16 @@
 # Stage 17P — Current State / Forward Plan Baseline
 
+> HISTORICAL / SUPERSEDED PLANNING RECORD — NOT CURRENT EXECUTION AUTHORITY
+>
+> This document is retained for provenance and earlier planning context.
+> It must not define the current stage, authorise work, or override live GitHub state.
+>
+> For current work, read:
+> 1. `docs/ai/CURRENT_STAGE.md`
+> 2. `docs/DOCUMENTATION_INDEX.md`
+> 3. `docs/colonisation-redesign/stage-25-roadmap.md`
+> 4. live GitHub branch and PR state
+
 Stage 17P is a documentation-control stage. It does not implement app behaviour, change backend mechanics, alter scoring, change CP formulas, add ingestion, change persistence, or redesign the Colony Planner UI.
 
 ## Purpose
