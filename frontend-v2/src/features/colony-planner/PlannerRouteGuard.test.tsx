@@ -26,6 +26,9 @@ describe('PlannerRouteGuard', () => {
     render(<PlannerRouteGuard />);
 
     await waitFor(() => expect(screen.getByTestId('planner-no-active-draft-route').textContent).toContain('No active draft for this system'));
+    const context = screen.getByTestId('planner-selected-system-context').textContent ?? '';
+    expect(context.indexOf('Lave')).toBeLessThan(context.indexOf('System detail available'));
+    expect(context.indexOf('System detail available')).toBeLessThan(context.indexOf('ID64 123456'));
     expect(Object.keys(useColonyProjectStore.getState().projects)).toHaveLength(0);
 
     fireEvent.click(screen.getByTestId('planner-create-draft'));
