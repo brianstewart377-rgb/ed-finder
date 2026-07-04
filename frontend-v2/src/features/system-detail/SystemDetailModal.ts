@@ -1,3 +1,5 @@
+import { createElement, Fragment } from 'react';
+import type { SystemDetail } from '@/types/api';
 import { ColonisationAccessCard } from './ColonisationAccessCard';
 import {
   SystemDetailModal as SystemDetailModalBase,
@@ -5,6 +7,8 @@ import {
 } from './SystemDetailModal.tsx';
 
 export type { SystemDetailModalProps } from './SystemDetailModal.tsx';
+
+type RenderActionSystem = Parameters<NonNullable<SystemDetailModalProps['renderActions']>>[0];
 
 /**
  * Adds the destination-first corridor entry to the established System Detail
@@ -15,28 +19,29 @@ export type { SystemDetailModalProps } from './SystemDetailModal.tsx';
  */
 export function SystemDetailModal(props: SystemDetailModalProps) {
   const { onStartPlan, renderActions } = props;
-
-  return (
-    <SystemDetailModalBase
-      {...props}
-      renderActions={(system) => (
-        <>
-          {system ? (
-            <div className="basis-full">
-              <ColonisationAccessCard
-                system={system}
-                onStartCorridorPlan={(destination) => {
-                  onStartPlan?.(destination, {
-                    objective: 'destination_first_corridor',
-                    startApproach: 'destination_first_corridor',
-                  });
-                }}
-              />
-            </div>
-          ) : null}
-          {renderActions?.(system)}
-        </>
-      )}
-    />
+  const renderColonisationActions = (system: RenderActionSystem) => createElement(
+    Fragment,
+    null,
+    system
+      ? createElement(
+        'div',
+        { className: 'basis-full' },
+        createElement(ColonisationAccessCard, {
+          system: system as SystemDetail,
+          onStartCorridorPlan: (destination: SystemDetail) => {
+            onStartPlan?.(destination, {
+              objective: 'destination_first_corridor',
+              startApproach: 'destination_first_corridor',
+            });
+          },
+        }),
+      )
+      : null,
+    renderActions?.(system),
   );
+
+  return createElement(SystemDetailModalBase, {
+    ...props,
+    renderActions: renderColonisationActions,
+  });
 }
