@@ -19,12 +19,12 @@ describe('SelectedSystemRouteBar', () => {
 
     render(<SelectedSystemRouteBar />);
 
-    await waitFor(() => expect(screen.getByTestId('selected-system-context-name')).toHaveTextContent('Lave'));
+    await waitFor(() => expect(screen.getByTestId('selected-system-context-name').textContent).toContain('Lave'));
     const bar = screen.getByTestId('selected-system-context-bar');
     const text = bar.textContent ?? '';
     expect(text.indexOf('Lave')).toBeLessThan(text.indexOf('System detail available'));
     expect(text.indexOf('System detail available')).toBeLessThan(text.indexOf('ID64 123456'));
-    expect(screen.queryByTestId('selected-system-context-inspect')).toBeInTheDocument();
+    expect(screen.queryByTestId('selected-system-context-inspect')).not.toBeNull();
   });
 
   it('shows an honest recovery state for an invalid selected-system link without fetching a prior system', () => {
@@ -32,7 +32,7 @@ describe('SelectedSystemRouteBar', () => {
 
     render(<SelectedSystemRouteBar />);
 
-    expect(screen.getByTestId('selected-system-context-error')).toHaveTextContent('invalid');
+    expect(screen.getByTestId('selected-system-context-error').textContent).toContain('invalid');
     expect(mockedSystem).not.toHaveBeenCalled();
     fireEvent.click(screen.getByTestId('selected-system-context-recover'));
     expect(window.location.hash).toBe('#finder');
