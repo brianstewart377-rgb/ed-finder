@@ -4,14 +4,14 @@
 
 ## Status
 
-**D2b — D2a Merge Working-Point Reconciliation is drafted for independent review on branch `docs/d2b-d2a-merge-working-point`. D2a — Working-Point Hierarchy Enforcement and Historical Records Index is accepted and merged in PR `#306 — docs: enforce working-point hierarchy and index historical records`, with reviewed head `986bf44fe61ba984b029722873c5ac9268e79809`, merge commit `70895524847527a603aea0f31aeda847ca4a51ba`, merge method `merge commit`, and merged time `2026-07-03T20:15:53Z`. The D2a two-pass preflight protocol and historical-records index are now canonical. D2a authorised no archive moves, deletions, renames, code, runtime, API, database, CRE, CPE, or R1 implementation. D2b is docs-only, not accepted or merged, and grants no new implementation or cleanup authority.**
+**D2 — Historical Status Header Batch 1 is drafted for independent review on branch `docs/d2-historical-status-headers-batch-1`. D2b — D2a Merge Working-Point Reconciliation is accepted and merged in PR `#307 — docs: reconcile D2a merge working point`, with reviewed head `18d5704cc9890d7bbd37f2a1274867da1351c47d`, merge commit `d0983cdc892593f36ac15de1fd59bb41127855d2`, merge method `merge commit`, and merged time `2026-07-03T20:43:51Z`. D2 changes only the two named historical status headers, the historical index, and current working-point status. D2 authorises no physical archive, move, rename, deletion, code, runtime, API, database, CRE, CPE, R1, deployment, CI, automation, or implementation work. No further historic-document changes are implied by this batch.**
 
 ## Branch and base
 
 - Repository: `brianstewart377-rgb/ed-finder`
 - Canonical base branch: `work/r1-canonical-body-evidence`
-- Required canonical base SHA: `70895524847527a603aea0f31aeda847ca4a51ba`
-- Working branch: `docs/d2b-d2a-merge-working-point`
+- Required canonical base SHA: `d0983cdc892593f36ac15de1fd59bb41127855d2`
+- Working branch: `docs/d2-historical-status-headers-batch-1`
 
 The live head for this draft is not recorded statically here. Before any review, owner-acceptance wording, or merge decision, fetch live branch or PR metadata and verify the exact current head, changed-file scope, review state, and thread state.
 
@@ -45,6 +45,13 @@ At closeout preflight, `origin/work/r1-canonical-body-evidence` resolved to the 
 - Merge commit SHA: `70895524847527a603aea0f31aeda847ca4a51ba`
 - Merge method: `merge commit`
 - Merged at: `2026-07-03T20:15:53Z`
+
+- PR: `#307 — docs: reconcile D2a merge working point`
+- PR base SHA before merge: `70895524847527a603aea0f31aeda847ca4a51ba`
+- Reviewed head SHA: `18d5704cc9890d7bbd37f2a1274867da1351c47d`
+- Merge commit SHA: `d0983cdc892593f36ac15de1fd59bb41127855d2`
+- Merge method: `merge commit`
+- Merged at: `2026-07-03T20:43:51Z`
 
 ## D2a scope
 
@@ -104,21 +111,22 @@ These merged facts correct stale wording that still described Stage 25C Slice 1 
 - PR `#304` was verified merged at `2d1472cc63f9c228e26796d68d7e75384fc0db61`.
 - PR `#305` was verified merged at `0e8190e56ed44f6ba176f8a8b7e31e5fa51fe4cc`.
 - PR `#306` was verified merged at `70895524847527a603aea0f31aeda847ca4a51ba`.
-- This D2b branch was created from the fetched canonical base only after the worktree was verified clean.
+- PR `#307` was verified merged at `d0983cdc892593f36ac15de1fd59bb41127855d2`.
+- This D2 branch was created from the fetched canonical base only after the worktree was verified clean.
 
 ## Remaining documentation debt
 
 - D0 is now recorded in `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` as a read-only documentation-estate and code-boundary register.
 - D1b is complete and merged in PR `#305`; its merge facts remain historical evidence, not current working authority.
 - D1c remains a separate CRE documentation-repair batch and does not alter current ed-finder control authority here.
-- D2 remains the later logical archive/index treatment candidate; it is not started or authorised by this draft.
+- D2 is a bounded historical-status-header batch only. It does not complete all historical-document cleanup and does not authorise later archive treatment, deletion review, or broader historical-record rewriting.
 - Stale historical-stage wording outside D1a requires later, separately authorised conservative cleanup batches.
 - Archive, move, rename, deletion, root `README.md`, changelog, beta-version, and physical documentation reorganisation require separate explicit authorisation.
 
 ## Next safe action
 
-No new archive, deletion, CRE, CPE, R1, API, runtime, or implementation work is authorised by this reconciliation.
-A separately owner-authorised next batch is required.
+Conduct an independent read-only review of the exact D2 PR head.
+Do not begin any physical archive, move, rename, deletion review, CRE, CPE, R1, API, runtime, or implementation batch without separate owner authorisation.
 
 ## Closeout rule
 
