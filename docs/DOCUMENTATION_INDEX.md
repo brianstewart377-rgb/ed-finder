@@ -28,10 +28,11 @@ Chat memory
 1. `docs/ai/CURRENT_STAGE.md`
 2. `docs/ai/AGENT_WORKING_POINT_PREFLIGHT_PROTOCOL_V1.md` — mandatory preflight and proof discipline before drafting, reviewing, or merging work
 3. `docs/ai/D0_DOCUMENTATION_ESTATE_AND_CODE_BOUNDARY_REGISTER_V1.md` — current read-only documentation-estate and code-boundary register
-4. the current named roadmap or active contract identified by `CURRENT_STAGE.md`
-5. live GitHub PR and branch state
-6. `docs/HISTORICAL_RECORDS_INDEX.md` — logical index for historical, frozen, superseded, and conflict-prone records
-7. `docs/ai/DECISIONS.md`
+4. `docs/colonisation-redesign/stage-25-roadmap.md` — current product control
+5. `docs/ai/STAGE_26A_ISOLATED_HOSTED_REVIEW_AUTHORITY_AND_MIGRATION_CONTRACT_V1.md` — current named enabling contract for isolated hosted-review work, once accepted and merged
+6. live GitHub PR and branch state
+7. `docs/HISTORICAL_RECORDS_INDEX.md` — logical index for historical, frozen, superseded, and conflict-prone records
+8. `docs/ai/DECISIONS.md`
 
 Then inspect the live branch, exact commit, worktree state, and live GitHub PR state before making any write.
 
@@ -40,6 +41,14 @@ Then inspect the live branch, exact commit, worktree state, and live GitHub PR s
 ### Current ED-Finder Stage 25 product control
 
 `docs/colonisation-redesign/stage-25-roadmap.md` is the current Stage 25 product-control document for ED-Finder. It governs the live product shell, product journey, and no-write boundaries for the current colonisation product work.
+
+### Stage 26A isolated hosted-review enabling contract
+
+`docs/ai/STAGE_26A_ISOLATED_HOSTED_REVIEW_AUTHORITY_AND_MIGRATION_CONTRACT_V1.md` is the bounded enabling contract for future isolated hosted-review work. It is subordinate to Stage 25; it does not create a general Stage 26 product programme or replace Stage 25 product control.
+
+Until accepted and merged, the Stage 26A contract is a draft and not execution authority. Once accepted and merged, it controls only the narrow authority boundary for a later fresh canonical hosted-review implementation PR, including proposed disposable review-only write categories and fail-closed runtime safeguards.
+
+Closed PR #275 is historical engineering reference only. It does not outrank current control, and a later implementation must begin from the current `work/r1-canonical-body-evidence` head and the merged Stage 26A contract.
 
 ### Legacy ED-Finder ratings
 
@@ -75,4 +84,5 @@ A historical contract may explain provenance, but it must never authorise curren
 - Do not treat the R1 laboratory as a public runtime feature.
 - Do not treat future CPE assessment as a universal score.
 - Do not treat historic stage wording as current control when `CURRENT_STAGE.md` or the live merged GitHub state says otherwise.
+- Do not treat closed PR #275 as authority for hosted-review implementation, deployment, or write-capable runtime work.
 - Do not rely on chat summaries when repository records and live Git state can answer the question directly.
