@@ -21,6 +21,21 @@ on:
       - "tests/test_stage20b_readonly_status_surfaces.py"
       - "tests/test_stage22b_planner_evidence_hardening.py"
       - "tests/test_stage23a_live_per_system_evidence.py"
+      # Core user journey: Finder → System Detail → Colony Planner.
+      # Keep this isolated browser/API proof visible for product work that can
+      # change those handoffs, not just for Review Lab infrastructure changes.
+      - "frontend-v2/src/App.tsx"
+      - "frontend-v2/src/components/ResultCard.tsx"
+      - "frontend-v2/src/components/SystemTable.tsx"
+      - "frontend-v2/src/hooks/useHashRoute.ts"
+      - "frontend-v2/src/lib/api.ts"
+      - "frontend-v2/src/types/api.ts"
+      - "frontend-v2/src/types/api.gen.ts"
+      - "frontend-v2/src/features/system-detail/**"
+      - "frontend-v2/src/features/colony-planner/**"
+      - "apps/api/src/regional/**"
+      - "apps/api/src/routers/**"
+      - "apps/api/src/models.py"
   workflow_dispatch:
 
 permissions:
