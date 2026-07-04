@@ -63,7 +63,7 @@ export function PlannerRouteGuard() {
     return <RouteSurface title="Requested draft could not be opened" detail="This draft is missing, archived, or belongs to a different system. A different local draft has not been opened instead." primary="View system without a draft" onPrimary={() => { window.location.hash = `#colony-planner/system/${id64}`; }} testId="planner-project-route-error" />;
   }
   if (unavailable) {
-    return <RouteSurface title="Requested system could not be opened" detail={error} testId="planner-system-route-error" />;
+    return <RouteSurface title="Requested system could not be opened" detail={error ?? 'The selected system is unavailable.'} testId="planner-system-route-error" />;
   }
   return <RouteSurface title="No active draft for this system" detail={`${system?.name || 'This system'} is selected, but this direct Planner route has not chosen or created a local draft.`} primary="Create draft" onPrimary={createDraft} create testId="planner-no-active-draft-route" />;
 }
