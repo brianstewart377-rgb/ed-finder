@@ -11,6 +11,8 @@ export interface WorkspaceContextHeaderProps {
   title: string;
   supportingText?: string;
   selectedSystemName?: string | null;
+  /** Must describe the selected system's evidence/data posture, not a plan outcome. */
+  selectedSystemPosture?: ReactNode;
   selectedSystemMeta?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
@@ -33,6 +35,7 @@ export function WorkspaceContextHeader({
   title,
   supportingText,
   selectedSystemName,
+  selectedSystemPosture,
   selectedSystemMeta,
   status,
   actions,
@@ -42,7 +45,7 @@ export function WorkspaceContextHeader({
   testId,
 }: WorkspaceContextHeaderProps) {
   const HeadingTag = headingLevel === 1 ? 'h1' : headingLevel === 2 ? 'h2' : 'h3';
-  const hasRightRail = Boolean(selectedSystemName || selectedSystemMeta || actions);
+  const hasRightRail = Boolean(selectedSystemName || selectedSystemPosture || selectedSystemMeta || actions);
 
   return (
     <header
@@ -91,8 +94,8 @@ export function WorkspaceContextHeader({
       </div>
 
       <div className="space-y-3 xl:max-w-sm xl:text-right">
-        {selectedSystemName || selectedSystemMeta ? (
-          <div className="rounded-chunk-lg border border-border bg-bg3/35 p-3">
+        {selectedSystemName || selectedSystemPosture || selectedSystemMeta ? (
+          <div className="rounded-chunk-lg border border-border bg-bg3/35 p-3" data-testid="selected-system-context-card">
             <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
               Selected system
             </p>
@@ -100,6 +103,11 @@ export function WorkspaceContextHeader({
               <p className="mt-1 text-base font-semibold text-text sm:text-lg">
                 {selectedSystemName}
               </p>
+            ) : null}
+            {selectedSystemPosture ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2 xl:justify-end" data-testid="selected-system-evidence-posture">
+                {selectedSystemPosture}
+              </div>
             ) : null}
             {selectedSystemMeta ? (
               <div className="mt-1 text-[11px] font-mono uppercase tracking-[0.16em] text-silver-dk">
