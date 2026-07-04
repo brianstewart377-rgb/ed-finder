@@ -66,10 +66,16 @@ async function main() {
   }
 
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const viteBin = path.resolve(scriptDir, '../node_modules/vite/bin/vite.js');
+  const npmExecPath = process.env.npm_execpath;
+  if (!npmExecPath) {
+    console.error(
+      'npm execution context is unavailable. Run `npm install --no-package-lock` in frontend-v2, then rerun `npm run start`.'
+    );
+    process.exit(1);
+  }
 
   await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [viteBin, '--host', '0.0.0.0', '--port', '3000'], {
+    const child = spawn(process.execPath, [npmExecPath, 'run', 'dev', '--', '--host', '0.0.0.0', '--port', '3000'], {
       stdio: 'inherit',
       cwd: path.resolve(scriptDir, '..'),
     });
