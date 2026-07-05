@@ -14,6 +14,7 @@ const system = {
   _rating: {
     score: 82,
     confidence: 0.7,
+    economySuggestion: 'Refinery',
     rationale: 'Good fit',
   },
 } as unknown as SystemResult;
@@ -52,9 +53,22 @@ describe('ResultCard actions', () => {
     expect(onPin).toHaveBeenCalledWith(42);
     expect(onCompare).toHaveBeenCalledWith(42);
     expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
-    const scoreBar = screen.getByLabelText('Rating score: 82/100');
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Refinery');
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Industrial');
+    const scoreBar = screen.getByLabelText('Legacy rating score: 82/100');
     expect(scoreBar).toBeTruthy();
-    expect(scoreBar.getAttribute('title')).toBe('Rating score: 82/100');
+    expect(scoreBar.getAttribute('title')).toBe('Legacy rating score: 82/100');
+  });
+
+  it('frames stored rationale as legacy context while surfacing the suggested archetype', () => {
+    render(<ResultCard system={system} index={0} />);
+
+    fireEvent.click(screen.getByText('Handoff'));
+
+    expect(screen.getByText('Stored rating rationale')).toBeTruthy();
+    expect(screen.getByText('Suggested archetype')).toBeTruthy();
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toBe('Refinery / Industrial');
+    expect(screen.getAllByText('Refinery / Industrial').length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows reversible saved state copy for save-for-later systems', () => {

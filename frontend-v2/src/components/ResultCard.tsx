@@ -10,6 +10,7 @@ import {
   systemStatusLabel,
 } from '@/lib/format';
 import { displayRationale } from '@/lib/rationale';
+import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -46,12 +47,14 @@ export function ResultCard({
   const rating     = system._rating;
   const score      = rating?.score ?? null;
   const tier       = ratingTier(score);
-  const scoreLabel = `Rating score: ${score ?? '—'}/100`;
+  const scoreLabel = `Legacy rating score: ${score ?? 'â€”'}/100`;
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
   const dist       = formatDistance(system.distance) ?? '—';
   const popLabel   = formatPopulationForSystem(system);
   const status     = systemStatusLabel(system);
+  const suggestedEconomy = rating?.economySuggestion ?? system.primaryEconomy ?? system.secondaryEconomy ?? null;
+  const suggestedArchetype = archetypeFromEconomy(suggestedEconomy);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
   const saveActionBusy = savedActionState === 'saving' || savedActionState === 'removing';
@@ -135,8 +138,24 @@ export function ResultCard({
         {/* Population */}
         <span className="chip chip-silver">{popLabel}</span>
 
+        {suggestedArchetype && (
+          <span
+            data-testid="result-card-suggested-archetype"
+            className="font-mono text-[10px] font-bold tracking-[0.12em] px-2.5 py-1 rounded-chunk border uppercase"
+            style={{
+              background: 'linear-gradient(180deg, rgba(34,211,238,0.16), rgba(34,211,238,0.06))',
+              borderColor: 'rgba(34,211,238,0.45)',
+              color: '#67e8f9',
+            }}
+            title={`Suggested archetype: ${formatArchetypeLabel(suggestedArchetype)}`}
+          >
+            {formatArchetypeLabel(suggestedArchetype)}
+          </span>
+        )}
+
         {/* Rating badge — bigger, chunkier */}
         <span
+          data-testid="result-card-legacy-rating"
           className="font-mono text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-chunk border"
           style={{
             background: `linear-gradient(180deg, ${tier.fillColor}33, ${tier.fillColor}11)`,
@@ -144,7 +163,7 @@ export function ResultCard({
             color: tier.fillColor,
             boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px -4px ${tier.fillColor}66`,
           }}
-          title={`Score: ${score ?? '—'}/100`}
+          title={`Legacy rating score: ${score ?? 'â€”'}/100`}
         >
           {tier.label} {score ?? '—'}
         </span>
@@ -153,7 +172,7 @@ export function ResultCard({
         {conf && (
           <span
             className="font-mono text-[10px] text-silver-dk hidden sm:inline-flex items-center gap-0.5"
-            title={`Rating confidence: ${conf.tier} (${conf.pct}%)`}
+            title={`Legacy rating confidence: ${conf.tier} (${conf.pct}%)`}
           >
             <span
               className={[
@@ -203,11 +222,15 @@ export function ResultCard({
         <div className="border-t border-border/70 px-4 py-4 space-y-3 animate-fade-up"
              style={{ background: 'linear-gradient(180deg, rgba(20,22,26,0.3), rgba(20,22,26,0.6))' }}>
           {displayRationale(rating?.rationale) && (
-            <p className="text-silver-dk italic leading-snug text-sm">
-              {displayRationale(rating?.rationale)}
-            </p>
+            <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Stored rating rationale</div>
+              <p className="mt-1 text-sm italic leading-snug text-silver-dk">
+                {displayRationale(rating?.rationale)}
+              </p>
+            </div>
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
+            {suggestedArchetype && <Row label="Suggested archetype" value={formatArchetypeLabel(suggestedArchetype)} highlight />}
             {system.primaryEconomy && <Row label="Economy"    value={system.primaryEconomy} highlight />}
             {system.allegiance     && <Row label="Allegiance" value={system.allegiance} />}
             {system.security       && <Row label="Security"   value={system.security} />}
@@ -276,6 +299,27 @@ function bodyChip(label: string, count: number | null | undefined) {
       {label} <span className="text-orange font-bold tabular-nums">{count}</span>
     </span>
   );
+}
+
+function formatArchetypeLabel(value: string): string {
+  const known: Record<string, string> = {
+    refinery_industrial: 'Refinery / Industrial',
+    extraction_refinery: 'Extraction / Refinery',
+    agriculture_terraforming: 'Agriculture / Terraforming',
+    hitech_tourism: 'High Tech / Tourism',
+    expansion_capital: 'Expansion / Capital',
+    trade_logistics: 'Trade / Logistics',
+    population_capital: 'Population / Capital',
+    ax_forward_base: 'AX / Forward Base',
+    military_industrial: 'Military / Industrial',
+    flexible_multirole: 'Flexible / Multirole',
+  };
+  if (known[value]) return known[value];
+  return value
+    .split(/[_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
 }
 
 function IconToggle({
