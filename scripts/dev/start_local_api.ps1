@@ -39,6 +39,8 @@ if ($EnsureServices) {
 }
 
 $env:PYTHONDONTWRITEBYTECODE = '1'
+$env:PYTHONUTF8 = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 $env:DATABASE_URL = "postgresql://edfinder:$postgresPassword@127.0.0.1:55432/edfinder"
 $env:REDIS_URL = 'redis://127.0.0.1:6379/0'
 $env:CORS_ORIGINS = 'http://localhost:3000,http://127.0.0.1:3000,http://localhost:5174,http://127.0.0.1:5174'

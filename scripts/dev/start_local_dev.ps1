@@ -95,4 +95,7 @@ $ErrorActionPreference = 'SilentlyContinue'
 }
 
 Set-Location $frontendDir
+if (-not $env:VITE_CACHE_DIR -and $env:LOCALAPPDATA) {
+  $env:VITE_CACHE_DIR = Join-Path $env:LOCALAPPDATA 'ED-Finder\vite-cache'
+}
 npm run start

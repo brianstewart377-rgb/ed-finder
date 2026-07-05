@@ -29,9 +29,13 @@ export default defineConfig(({ mode }) => {
   const publicBase = loadedEnv.VITE_PUBLIC_BASE
     || process.env.VITE_PUBLIC_BASE
     || '/';
+  const cacheDir = loadedEnv.VITE_CACHE_DIR
+    || process.env.VITE_CACHE_DIR
+    || 'node_modules/.vite';
 
   return {
     base: publicBase,
+    cacheDir,
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },

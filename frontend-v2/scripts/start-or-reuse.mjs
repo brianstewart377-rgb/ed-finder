@@ -69,7 +69,7 @@ async function main() {
   const viteBin = path.resolve(scriptDir, '../node_modules/vite/bin/vite.js');
 
   await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [viteBin, '--host', '0.0.0.0', '--port', '3000'], {
+    const child = spawn(process.execPath, [viteBin, '--configLoader', 'runner', '--host', '0.0.0.0', '--port', '3000'], {
       stdio: 'inherit',
       cwd: path.resolve(scriptDir, '..'),
     });
