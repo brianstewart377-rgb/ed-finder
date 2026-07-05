@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import {
-  ratingTier,
   formatPopulationForSystem,
   formatDistance,
   formatCoords,
   distanceFromSol,
   systemStatusLabel,
 } from '@/lib/format';
+import { archetypeTierFromScore, formatArchetypeLabel } from '@/lib/archetypes';
 
 /**
  * Minimal row shape that every "list of systems" feature shares (Watchlist,
@@ -24,7 +24,10 @@ export interface SystemRow {
   is_colonised: boolean;
   is_being_colonised?: boolean | null;
   score:        number | null;
+  legacyScore?: number | null;
   economy:      string | null;
+  archetype?:   string | null;
+  secondaryArchetype?: string | null;
   /** ISO timestamp for the "added" / "pinned at" column. null = hide. */
   timestamp:    string | null;
   /** LY from the current search reference. null if the caller has no ref. */
@@ -175,8 +178,8 @@ function headerLabel(col: SystemTableColumn, timestampLabel: string): string {
     case 'system':        return 'System';
     case 'coords':        return 'Coords (LY)';
     case 'population':    return 'Population';
-    case 'score':         return 'Score';
-    case 'economy':       return 'Suggested';
+    case 'score':         return 'Development';
+    case 'economy':       return 'Archetype';
     case 'distanceRef':   return 'Dist. from ref.';
     case 'timestamp':     return timestampLabel;
     case 'externalLinks': return 'Links';
@@ -219,25 +222,45 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
       );
 
     case 'score': {
-      const tier = ratingTier(row.score);
+      const tier = archetypeTierFromScore(row.score);
       return (
-        <span
-          className={[
-            'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
-            tier.label === 'EXCELLENT' && 'bg-green/20 text-green border-green/50',
-            tier.label === 'GOOD'      && 'bg-gold/20 text-gold border-gold/50',
-            tier.label === 'OK'        && 'bg-orange/20 text-orange border-orange/50',
-            tier.label === 'POOR'      && 'bg-red/20 text-red border-red/50',
-            tier.label === 'N/A'       && 'bg-bg4 text-text-dim border-border',
-          ].filter(Boolean).join(' ')}
-        >
-          {row.score ?? '—'}
-        </span>
+        <div className="space-y-1">
+          <span
+            className={[
+              'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
+              tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
+              tier === 'A' && 'bg-green/20 text-green border-green/50',
+              tier === 'B' && 'bg-gold/20 text-gold border-gold/50',
+              tier === 'C' && 'bg-orange/20 text-orange border-orange/50',
+              tier === 'D' && 'bg-red/20 text-red border-red/50',
+              tier == null && 'bg-bg4 text-text-dim border-border',
+            ].filter(Boolean).join(' ')}
+            title={`Development score: ${row.score ?? '—'}/100`}
+          >
+            {tier ?? '—'} {row.score ?? '—'}
+          </span>
+          {row.legacyScore != null && (
+            <div className="text-[10px] text-text-dim" title={`Legacy rating: ${row.legacyScore}/100`}>
+              Legacy {row.legacyScore}
+            </div>
+          )}
+        </div>
       );
     }
 
     case 'economy':
-      return <span className="text-text-dim text-xs">{row.economy ?? '—'}</span>;
+      return (
+        <div className="space-y-1 text-xs">
+          <div className={row.archetype ? 'text-cyan' : 'text-text-dim'}>
+            {row.archetype ? formatArchetypeLabel(row.archetype) : row.economy ?? '—'}
+          </div>
+          {row.secondaryArchetype && (
+            <div className="text-[10px] text-text-dim">
+              {formatArchetypeLabel(row.secondaryArchetype)}
+            </div>
+          )}
+        </div>
+      );
 
     case 'distanceRef':
       return (

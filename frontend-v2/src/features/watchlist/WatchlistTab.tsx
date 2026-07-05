@@ -23,7 +23,7 @@ export function WatchlistTab({
   const sorted = [...entries].sort((a, b) => {
     switch (sort) {
       case 'name':  return a.name.localeCompare(b.name);
-      case 'score': return (b.score ?? -1) - (a.score ?? -1);
+      case 'score': return ((b.archetype_score ?? b.score) ?? -1) - ((a.archetype_score ?? a.score) ?? -1);
       case 'distance': {
         const da = distanceFromSol(a, a.system_id64) ?? Number.POSITIVE_INFINITY;
         const db = distanceFromSol(b, b.system_id64) ?? Number.POSITIVE_INFINITY;
@@ -43,8 +43,11 @@ export function WatchlistTab({
     z:            e.z,
     population:   e.population,
     is_colonised: e.is_colonised,
-    score:        e.score ?? null,
+    score:        e.archetype_score ?? e.score ?? null,
+    legacyScore:  e.score ?? null,
     economy:      e.economy_suggestion ?? null,
+    archetype:    e.primary_archetype ?? null,
+    secondaryArchetype: e.secondary_archetype ?? null,
     timestamp:    e.added_at,
   }));
 
@@ -66,7 +69,7 @@ export function WatchlistTab({
           >
             <option value="added">Recently added</option>
             <option value="name">Name</option>
-            <option value="score">Score ↓</option>
+            <option value="score">Development ↓</option>
             <option value="distance">Distance from Sol ↑</option>
           </select>
         </label>

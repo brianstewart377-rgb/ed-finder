@@ -51,9 +51,16 @@ async def get_watchlist(
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT w.*,
-                   r.score, r.economy_suggestion
+                   r.score,
+                   r.economy_suggestion,
+                   m.primary_archetype,
+                   m.secondary_archetype,
+                   m.overall_development_potential AS archetype_score,
+                   m.buildability_score,
+                   m.purity_score
               FROM watchlist w
          LEFT JOIN ratings r ON r.system_id64 = w.system_id64
+         LEFT JOIN mv_archetype_rankings m ON m.id64 = w.system_id64
              WHERE w.sync_key = $1
           ORDER BY w.added_at DESC
         """, sync_key)

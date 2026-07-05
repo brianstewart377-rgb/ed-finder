@@ -31,6 +31,12 @@ export interface PinnedEntry {
   rating:        number | null;
   /** Snapshot of the suggested economy at pin time. */
   economy:       string | null;
+  /** Optional archetype-era snapshot fields. Old persisted pins simply omit them. */
+  archetype_score?: number | null;
+  primary_archetype?: string | null;
+  secondary_archetype?: string | null;
+  buildability_score?: number | null;
+  purity_score?: number | null;
   pinned_at:     string;
 }
 

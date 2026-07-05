@@ -702,6 +702,11 @@ export interface WatchlistEntry {
   /** Latest rating (joined server-side). */
   score?:             number | null;
   economy_suggestion?: string | null;
+  archetype_score?:   number | null;
+  primary_archetype?: string | null;
+  secondary_archetype?: string | null;
+  buildability_score?: number | null;
+  purity_score?:      number | null;
   alert_min_score?:   number | null;
   alert_economy?:     string | null;
 }

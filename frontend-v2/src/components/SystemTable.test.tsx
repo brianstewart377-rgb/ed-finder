@@ -26,4 +26,30 @@ describe('SystemTable data trust display', () => {
     expect(screen.queryByText(/0\.00/)).toBeNull();
     expect(screen.queryByText(/0\.0 LY from Sol/)).toBeNull();
   });
+
+  it('renders development score and archetype context when provided', () => {
+    const rows = [{
+      id64: 42,
+      name: 'Handoff',
+      x: 1,
+      y: 2,
+      z: 3,
+      population: 1000,
+      is_colonised: false,
+      score: 91,
+      legacyScore: 82,
+      economy: 'Refinery',
+      archetype: 'refinery_industrial',
+      secondaryArchetype: 'trade_logistics',
+      timestamp: '2026-07-05T00:00:00Z',
+      distance: 12.5,
+    }] as SystemRow[];
+
+    render(<SystemTable rows={rows} columns={['system', 'score', 'economy']} />);
+
+    expect(screen.getByText('S 91')).toBeTruthy();
+    expect(screen.getByText('Legacy 82')).toBeTruthy();
+    expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
+    expect(screen.getByText('Trade / Logistics Hub')).toBeTruthy();
+  });
 });

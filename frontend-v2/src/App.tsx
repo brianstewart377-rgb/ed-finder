@@ -455,19 +455,17 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               <button
                 type="button"
                 disabled={!sys}
-                onClick={() => sys && pinned.toggle({
-	                  id64:         sys.id64,
-	                  name:         sys.name,
-	                  x:            sys.x ?? null,
-	                  y:            sys.y ?? null,
-	                  z:            sys.z ?? null,
+                onClick={() => sys && pinned.toggle(toPinnedEntry({
+                  id64:         sys.id64,
+                  name:         sys.name,
+                  coords:       { x: sys.x ?? null, y: sys.y ?? null, z: sys.z ?? null },
                   population:   sys.population ?? null,
                   is_colonised: !!sys.is_colonised,
-                  rating:       sys.score ?? null,
-                  economy:      sys.economy_suggestion ?? sys.primary_economy ?? null,
-                  pinned_at:    new Date().toISOString(),
-                  distance:     null,
-                })}
+                  _rating:      {
+                    score: sys.score ?? null,
+                    economySuggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
+                  },
+                }))}
                 data-testid="modal-pin-toggle"
                 className={[
                   'px-2 py-1 rounded font-mono text-[11px] border transition-colors',

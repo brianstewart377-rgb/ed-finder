@@ -26,7 +26,7 @@
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
     "e2e:install": "playwright install --with-deps chromium",
-    "types:gen": "openapi-typescript ${VITE_OPENAPI_URL:-https://ed-finder.app/openapi.json} -o src/types/api.gen.ts"
+    "types:gen": "node scripts/types-gen.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.100.9",
