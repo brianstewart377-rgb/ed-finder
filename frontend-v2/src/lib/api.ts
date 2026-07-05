@@ -48,6 +48,7 @@ import type {
   SimulationSummary,
   SlotPredictionResponse,
   SystemBuildability,
+  SystemArchetypeResponse,
   SystemDetail,
   SystemDetailResponse,
   SystemResult,
@@ -254,6 +255,10 @@ export const api = {
     const res = await jsonFetch<SystemDetailResponse>(`/system/${id64}`);
     // Endpoint returns {record, system} — same data twice for legacy compat.
     return res.record ?? res.system;
+  },
+
+  archetypeSystem(id64: number): Promise<SystemArchetypeResponse> {
+    return jsonFetch(`/archetypes/system/${id64}`);
   },
 
   simulationSummary(id64: number, archetype?: string): Promise<SimulationSummary> {
@@ -555,6 +560,10 @@ export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse
 
 export function getBuildability(id64: number, archetype?: string): Promise<SystemBuildability> {
   return api.buildability(id64, archetype);
+}
+
+export function getSystemArchetype(id64: number): Promise<SystemArchetypeResponse> {
+  return api.archetypeSystem(id64);
 }
 
 export function getSimulationSummary(id64: number, archetype?: string): Promise<SimulationSummary> {

@@ -15,6 +15,8 @@ import {
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useSystemDetail } from './useSystemDetail';
+import { useSystemArchetype } from './useSystemArchetype';
+import { ArchetypeAssessment } from './ArchetypeAssessment';
 import { RatingRadar } from './RatingRadar';
 
 export interface SystemDetailModalProps {
@@ -59,6 +61,12 @@ export function SystemDetailModal({
   renderActions,
 }: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
+  const {
+    data: archetypeData,
+    loading: archetypeLoading,
+    error: archetypeError,
+    refetch: refetchArchetype,
+  } = useSystemArchetype(id64);
   const [planStartOpen, setPlanStartOpen] = useState(false);
   const [selectedObjective, setSelectedObjective] = useState<ColonyProjectObjective | null>(null);
   const [selectedStartApproach, setSelectedStartApproach] = useState<ColonyProjectStartApproach | null>(null);
@@ -162,7 +170,15 @@ export function SystemDetailModal({
                 onSelectStartApproach={setSelectedStartApproach}
                 onStartPlan={onStartPlan}
               />
-              <Section title="Rating signals">
+              <Section title="Archetype assessment">
+                <ArchetypeAssessment
+                  archetype={archetypeData}
+                  loading={archetypeLoading}
+                  error={archetypeError}
+                  onRetry={refetchArchetype}
+                />
+              </Section>
+              <Section title="Legacy rating signals">
                 <RatingRadar sys={data} />
               </Section>
               <SystemInfoGrid sys={data} />

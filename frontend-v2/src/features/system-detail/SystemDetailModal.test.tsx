@@ -1,16 +1,22 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SystemDetail } from '@/types/api';
+import type { SystemArchetypeResponse, SystemDetail } from '@/types/api';
 import { useSystemDetail } from './useSystemDetail';
+import { useSystemArchetype } from './useSystemArchetype';
 import { SystemDetailModal } from './SystemDetailModal';
 
 vi.mock('./useSystemDetail', () => ({
   useSystemDetail: vi.fn(),
 }));
 
+vi.mock('./useSystemArchetype', () => ({
+  useSystemArchetype: vi.fn(),
+}));
+
 vi.mock('./RatingRadar', () => ({ RatingRadar: () => <div>Rating radar</div> }));
 
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
+const mockedUseSystemArchetype = vi.mocked(useSystemArchetype);
 
 const system = {
   id64: 123,
@@ -31,14 +37,49 @@ function mockLoadedSystem(overrides: Partial<SystemDetail> = {}) {
   });
 }
 
+function mockLoadedArchetype(overrides: Partial<SystemArchetypeResponse> = {}) {
+  mockedUseSystemArchetype.mockReturnValue({
+    data: {
+      id64: 123,
+      name: 'Test System',
+      archetypes: {
+        refinery_industrial: {
+          score: 92,
+          tier: 'A',
+          label: 'Refinery / Industrial Megacomplex',
+          rationale: {
+            headline: 'Strong refinery-industrial fit with scalable slot capacity.',
+            positives: ['Dense industrial body mix', 'Good buildability'],
+            risks: ['Surface-port evidence remains partial'],
+            tags: ['industrial', 'slots'],
+          },
+        },
+      },
+      primary_archetype: 'refinery_industrial',
+      secondary_archetype: 'trade_logistics',
+      overall_development_potential: 88,
+      buildability_score: 81,
+      purity_score: 74,
+      confidence: 0.82,
+      tags: ['industrial'],
+      ...overrides,
+    } as SystemArchetypeResponse,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  });
+}
+
 describe('SystemDetailModal Colony Planner entry point', () => {
   afterEach(() => {
     mockedUseSystemDetail.mockReset();
+    mockedUseSystemArchetype.mockReset();
     vi.restoreAllMocks();
   });
 
   it('renders the new save-or-start planning entry point on System Detail', () => {
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -65,6 +106,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
   it('shows reversible saved-state copy in System Detail without hiding plan start', () => {
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -85,6 +127,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
   it('shows in-progress save feedback and disables duplicate System Detail saves', () => {
     const onToggleSaveForLater = vi.fn();
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -106,6 +149,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
   it('creates a draft only after explicit objective and manual start confirmation', () => {
     const onStartPlan = vi.fn();
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -138,6 +182,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
   it('accepts decide-later plus recommendation-assisted as a valid plan start', () => {
     const onStartPlan = vi.fn();
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -164,6 +209,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
   it('keeps the normal System Detail overview visible', () => {
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -175,6 +221,9 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
     expect(screen.getByText('Journey stage: Inspect')).toBeTruthy();
     expect(screen.getByText('System Detail')).toBeTruthy();
+    expect(screen.getByText('Archetype assessment')).toBeTruthy();
+    expect(screen.getByTestId('archetype-primary').textContent).toContain('Refinery / Industrial Megacomplex');
+    expect(screen.getByText('Legacy rating signals')).toBeTruthy();
     expect(screen.getByText('Rating radar')).toBeTruthy();
     expect(screen.getByText('System info')).toBeTruthy();
     expect(screen.getByText('Coordinates')).toBeTruthy();
@@ -235,6 +284,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
         },
       ],
     } as unknown as Partial<SystemDetail>);
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -263,6 +313,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
   it('shows a friendly disabled planner state when no workspace handler is available', () => {
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(<SystemDetailModal id64={123} onClose={() => undefined} />);
 
@@ -275,6 +326,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     const onStartPlan = vi.fn();
     const onToggleSaveForLater = vi.fn();
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal
@@ -293,6 +345,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
   });
 
   it('does not expose raw backend errors in the compact System Detail error state', () => {
+    mockLoadedArchetype();
     mockedUseSystemDetail.mockReturnValue({
       data: null,
       loading: false,
@@ -306,9 +359,25 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.queryByText(/backend exploded/i)).toBeNull();
   });
 
+  it('shows a fallback when the archetype assessment is unavailable', () => {
+    mockLoadedSystem();
+    mockedUseSystemArchetype.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'boom',
+      refetch: vi.fn(),
+    });
+
+    render(<SystemDetailModal id64={123} onClose={() => undefined} onStartPlan={() => undefined} />);
+
+    expect(screen.getByTestId('archetype-assessment-error')).toBeTruthy();
+    expect(screen.getByText(/legacy rating context remains available below/i)).toBeTruthy();
+  });
+
   it('keeps normal modal close behaviours working without an embedded planner target', () => {
     const onClose = vi.fn();
     mockLoadedSystem();
+    mockLoadedArchetype();
 
     render(
       <SystemDetailModal

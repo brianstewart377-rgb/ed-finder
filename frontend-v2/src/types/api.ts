@@ -51,6 +51,7 @@ export type SystemResult = Schemas['SystemRow'];
 export type SearchResponse        = Schemas['SearchResponse'];
 export type AutocompleteHit       = Schemas['AutocompleteHit'];
 export type AutocompleteResponse  = Schemas['AutocompleteResponse'];
+export type SystemArchetypeResponse = Schemas['SystemArchetypeResponse'];
 export type SystemDetail          = Schemas['SystemDetailRow'];
 export type SystemDetailResponse  = Schemas['SystemDetailResponse'];
 export type AppStatus             = Schemas['StatusResponse'];
