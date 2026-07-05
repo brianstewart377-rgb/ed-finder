@@ -167,7 +167,7 @@ export function ColonyPlannerWorkspace({
     );
   }
 
-  if (projectId == null) {
+  if (projectId == null && !invalidProjectRoute) {
     return (
       <WorkspaceShell>
         <WorkspaceHeader
