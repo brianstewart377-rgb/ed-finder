@@ -144,11 +144,11 @@ async def local_search_endpoint(
         'require_geo':    req.require_geo,
         'require_terra':  req.require_terra,
         'star_types':     req.star_types or [],
-        'min_rating':     req.min_rating or 0,
+        'min_development_score': req.min_development_score or 0,
         'economy':        _filters.economy or 'any',
         'size':           req.size,
         'from':           req.from_,
-        'sort_by':        req.sort_by or 'rating',
+        'sort_by':        req.sort_by or 'development',
         'galaxy_wide':    req.galaxy_wide,
     }
 

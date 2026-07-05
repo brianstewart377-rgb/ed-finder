@@ -102,8 +102,8 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         <RangeRow
           label="Min development score"
           min={0} max={100}
-          value={filters.minRating}
-          onChange={(v) => onChange({ minRating: v })}
+          value={filters.minDevelopmentScore}
+          onChange={(v) => onChange({ minDevelopmentScore: v })}
         />
       </Section>
 
@@ -157,9 +157,9 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           value={filters.sortBy}
           onChange={(v) => onChange({ sortBy: v as SearchFilters['sortBy'] })}
           options={[
-            { value: 'rating',     label: 'Development â†“' },
-            { value: 'distance',   label: 'Distance ↑' },
-            { value: 'population', label: 'Population ↓' },
+            { value: 'development', label: 'Development first' },
+            { value: 'distance',    label: 'Distance nearest' },
+            { value: 'population',  label: 'Population highest' },
           ]}
         />
       </Section>

@@ -54,7 +54,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Optional, Union
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -598,8 +598,14 @@ class RerankResponse(BaseModel):
 
 
 class WatchlistAlert(BaseModel):
-    min_score: Optional[int] = None
+    min_development_score: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices('min_development_score', 'min_score'),
+        serialization_alias='min_development_score',
+    )
     economy:   Optional[str] = None
+
+    model_config = {'populate_by_name': True}
 
 
 class NoteBody(BaseModel):
@@ -626,7 +632,7 @@ class SearchFilters(BaseModel):
 class LocalSearchRequest(BaseModel):
     filters:          Optional[SearchFilters] = None
     reference_coords: Optional[CoordsModel]   = None
-    sort_by:          Optional[str]            = 'rating'
+    sort_by:          Optional[str]            = 'development'
     size:             int                      = Field(default=50, le=500)
     from_:            int                      = Field(default=0, alias='from')
     body_filters:     Optional[BodyFilters]    = None
@@ -634,10 +640,23 @@ class LocalSearchRequest(BaseModel):
     require_geo:      Optional[bool]           = None
     require_terra:    Optional[bool]           = None
     star_types:       Optional[list[str]]      = None
-    min_rating:       Optional[int]            = None
+    min_development_score: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices('min_development_score', 'min_rating'),
+        serialization_alias='min_development_score',
+    )
     galaxy_wide:      bool                     = False
 
     model_config = {'populate_by_name': True}
+
+    @field_validator('sort_by', mode='before')
+    @classmethod
+    def _normalise_sort_by(cls, value: object) -> object:
+        if isinstance(value, str):
+            lowered = value.strip().lower()
+            if lowered == 'rating':
+                return 'development'
+        return value
 
 
 class GalaxySearchRequest(BaseModel):

@@ -2129,7 +2129,7 @@ export interface components {
             reference_coords?: components["schemas"]["CoordsModel"] | null;
             /**
              * Sort By
-             * @default rating
+             * @default development
              */
             sort_by: string | null;
             /**
@@ -2151,8 +2151,8 @@ export interface components {
             require_terra?: boolean | null;
             /** Star Types */
             star_types?: string[] | null;
-            /** Min Rating */
-            min_rating?: number | null;
+            /** Min Development Score */
+            min_development_score?: number | null;
             /**
              * Galaxy Wide
              * @default false
@@ -4012,8 +4012,8 @@ export interface components {
         };
         /** WatchlistAlert */
         WatchlistAlert: {
-            /** Min Score */
-            min_score?: number | null;
+            /** Min Development Score */
+            min_development_score?: number | null;
             /** Economy */
             economy?: string | null;
         };

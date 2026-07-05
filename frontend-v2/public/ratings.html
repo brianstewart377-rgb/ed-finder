@@ -3,140 +3,84 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>How Systems Are Rated — ED Finder</title>
+<title>Scoring Model Notes | ED Finder</title>
 <style>
 :root { --bg:#0d1117; --bg2:#161b22; --border:#30363d; --orange:#f78166;
-        --green:#3fb950; --dim:#8b949e; --text:#e6edf3; }
+        --cyan:#67e8f9; --green:#3fb950; --dim:#8b949e; --text:#e6edf3; }
 * { box-sizing:border-box; }
-body { margin:0; font:15px/1.55 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+body { margin:0; font:15px/1.6 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
        background:var(--bg); color:var(--text); }
-.wrap { max-width:780px; margin:0 auto; padding:48px 24px 96px; }
-h1 { font-size:28px; margin:0 0 8px; }
-h2 { font-size:18px; margin:32px 0 8px; color:var(--orange); }
+.wrap { max-width:860px; margin:0 auto; padding:48px 24px 96px; }
+h1 { font-size:30px; margin:0 0 8px; }
+h2 { font-size:18px; margin:30px 0 10px; color:var(--orange); }
 h3 { font-size:15px; margin:18px 0 6px; color:var(--green); text-transform:uppercase; letter-spacing:.04em; }
+p, li { color:var(--text); }
 .lede { color:var(--dim); margin:0 0 24px; }
+.panel { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin:12px 0; }
+.callout { border-left:4px solid var(--cyan); padding-left:14px; }
 table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:13px; }
-th,td { border:1px solid var(--border); padding:6px 10px; text-align:left; }
+th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
 th { background:var(--bg2); color:var(--orange); font-weight:600; }
-code { background:var(--bg2); padding:2px 5px; border-radius:3px; font-size:12.5px;
-       border:1px solid var(--border); }
-pre { background:var(--bg2); border:1px solid var(--border); border-radius:6px;
-      padding:14px 16px; overflow-x:auto; font-size:12.5px; }
-ul li { margin:4px 0; }
-.tier { display:inline-block; padding:2px 8px; border-radius:3px; margin-right:6px;
-        font-size:11px; font-weight:600; }
-.t100 { background:#1f6feb33; color:#79c0ff; }
-.t90  { background:#3fb95033; color:#7ee787; }
-.t80  { background:#d295394a; color:#f0c674; }
-.t70  { background:#f7816733; color:#ffa198; }
-.t60  { background:#8b949e33; color:#c9d1d9; }
+code { background:var(--bg2); padding:2px 5px; border-radius:3px; font-size:12.5px; border:1px solid var(--border); }
+ul { padding-left:20px; }
 a { color:var(--orange); }
-.foot { margin-top:48px; padding-top:24px; border-top:1px solid var(--border);
-        color:var(--dim); font-size:13px; }
+.foot { margin-top:40px; padding-top:24px; border-top:1px solid var(--border); color:var(--dim); font-size:13px; }
 </style>
 </head>
 <body>
 <div class="wrap">
-<h1>How Systems Are Rated</h1>
-<p class="lede">ED Finder scores every populated-eligible system out of 100 based on how good a colony it would make. Here's exactly what goes into the number.</p>
+<h1>Scoring Model Notes</h1>
+<p class="lede">ED Finder now treats <strong>development score</strong> and <strong>archetype assessment</strong> as the primary operator-facing ranking model. Legacy ratings still appear in some places as compatibility context while the remaining backend contracts finish moving over.</p>
 
-<h2>The score in one paragraph</h2>
-<p>Each system gets a score from 0–100. Per the <a href="https://docs.google.com/document/d/1toXyDQglwVACFKx8umXhP8QcMSAUYPcP6k3STIV2-hE/edit" target="_blank" rel="noopener">Colonisation Mega-Guide v2.3</a>, stations inherit the <strong>top two economies</strong> of their parent body, so the score is built around <strong>complementary economy pairs</strong> — not single economies. We score each economy from your system's bodies, find the strongest game-supported pair, blend in your top-3 average, and apply a rarity gate so 90+ requires genuinely rare features.</p>
+<div class="panel callout">
+  <strong>Current rule:</strong> if you are looking at Finder, Compare, Map selection, Pinned, Watchlist, or System Detail in the v2 app, the main score you see is intended to be the archetype-led <strong>development score</strong>. The old v3.4 rating model is no longer the lead signal.
+</div>
 
-<h2>What "score" means</h2>
+<h2>What The Development Score Means</h2>
+<p>The development score is the archetype engine's top-line view of how promising a system is for colony development. It is tied to the system's strongest colony archetype, not just a legacy economy-pair rating. In practice, that means the app is trying to answer:</p>
+<ul>
+  <li>What colony role does this system fit best?</li>
+  <li>How strong is that fit?</li>
+  <li>How buildable is the system once slot and body constraints are considered?</li>
+  <li>How clean or contaminated is the archetype profile?</li>
+</ul>
+
+<h2>What The UI Is Showing Today</h2>
 <table>
-<thead><tr><th>Band</th><th>Meaning</th><th>Typical profile</th></tr></thead>
+<thead><tr><th>Field</th><th>Status</th><th>Meaning</th></tr></thead>
 <tbody>
-<tr><td><span class="tier t100">95–100</span></td><td>Generational</td><td>Multiple ELWs and/or WWs, exotic bodies, body-rich</td></tr>
-<tr><td><span class="tier t90">85–94</span></td><td>Excellent</td><td>1 ELW or 2+ WWs, strong economy pair, ≥10 slots</td></tr>
-<tr><td><span class="tier t80">75–84</span></td><td>Strong</td><td>Great mining/farming pair, 10+ slots, 1 standout</td></tr>
-<tr><td><span class="tier t70">60–74</span></td><td>Solid</td><td>One viable economy specialty</td></tr>
-<tr><td><span class="tier t60">0–59</span></td><td>Limited</td><td>Few/no useful bodies for colonisation</td></tr>
+<tr><td><code>Development score</code></td><td>Primary</td><td>The main archetype-led score used in Finder and related v2 surfaces.</td></tr>
+<tr><td><code>Primary archetype</code></td><td>Primary</td><td>The best-fitting colony archetype for the system.</td></tr>
+<tr><td><code>Buildability</code></td><td>Primary support signal</td><td>How practical the system is to actually develop.</td></tr>
+<tr><td><code>Purity</code></td><td>Primary support signal</td><td>How coherent the archetype fit is relative to mixed signals.</td></tr>
+<tr><td><code>Legacy rating</code></td><td>Compatibility only</td><td>The older <code>build_ratings.py</code> score, kept visible while old contracts are retired.</td></tr>
 </tbody>
 </table>
 
-<h2>Per-economy scoring</h2>
-<p>Each system gets a 0–100 score for each of the seven economies. Body types and their natural inheritance per the Mega-Guide:</p>
-<table>
-<thead><tr><th>Body</th><th>Vanilla</th><th>+Ring</th><th>+Bio</th><th>+Geo</th></tr></thead>
-<tbody>
-<tr><td><strong>Earth-Like</strong></td><td>Tourism + HiTech + Agri + Mil</td><td>+Extraction</td><td>—</td><td>—</td></tr>
-<tr><td><strong>Water World</strong></td><td>Tourism + Agriculture</td><td>+Extraction</td><td>—</td><td>—</td></tr>
-<tr><td><strong>Ammonia World</strong></td><td>Tourism (exotic)</td><td>+Extraction</td><td>—</td><td>—</td></tr>
-<tr><td><strong>HMC</strong></td><td>Extraction</td><td>(irrelevant)</td><td>+Agri +Terraforming</td><td>+Industrial</td></tr>
-<tr><td><strong>Rocky</strong></td><td>Refinery</td><td>+Extraction</td><td><strong>+Agri +Terraforming</strong> ← best farm</td><td>+Industrial +Extraction</td></tr>
-<tr><td><strong>Icy</strong></td><td>Industrial</td><td>(irrelevant)</td><td>impossible</td><td>(no stack)</td></tr>
-<tr><td><strong>Gas Giant</strong></td><td>HiTech + Industrial</td><td>varies</td><td>n/a</td><td>n/a</td></tr>
-</tbody>
-</table>
+<h2>Why Legacy Ratings Still Exist</h2>
+<p>Parts of the backend and generated OpenAPI contract still carry v3.4 naming such as <code>_rating</code>, <code>sort_by=rating</code>, or <code>min_rating</code>. Those paths are being retired in place rather than ripped out in one break, so the app can keep working while the contracts migrate.</p>
 
-<h2>The complementary-pair list</h2>
-<p>Your system's pair score is the average of the two economies in its <strong>strongest</strong> game-supported pair. The list is exactly the productive pairings from the Mega-Guide:</p>
+<h3>Compatibility policy</h3>
 <ul>
-<li><strong>Extraction + Refinery</strong> — mining stack (Rocky + Ring), the gold standard</li>
-<li><strong>Refinery + Agriculture</strong> — Rocky + Bio, "best farm in the game"</li>
-<li><strong>Extraction + Industrial</strong> — HMC + Geo, mining-to-manufacturing</li>
-<li><strong>Industrial + HighTech</strong> — tech production</li>
-<li><strong>HighTech + Tourism</strong> — exotic destination (ELW, near BH/NS)</li>
-<li><strong>Agriculture + Tourism</strong> — Water World leisure</li>
-<li><strong>HighTech + Military</strong> — arsenal</li>
-<li><strong>Industrial + Military</strong> — defence-production</li>
-<li><strong>Agriculture + HighTech</strong> — bio-research (ELW with farm)</li>
-</ul>
-<p><strong>Note:</strong> <code>Refinery + Industrial</code> is deliberately <em>not</em> a complementary pair — Mega-Guide Appendix D shows they cannibalize each other's markets across nearly every commodity. If your Rocky+Geo body produces both, the recommended play is to "flip" toward Refinery + Extraction or Industrial + Military.</p>
-
-<h2>The formula</h2>
-<pre>score = best_pair_avg × 0.60
-      + top_3_economy_avg × 0.35
-      + strategic_bonus  (max +7, from terraforming + body diversity)
-      + rocky_or_hmc_bio_bonus  (+2 if applicable)
-
-then apply CEILINGS based on rarity:</pre>
-<table>
-<thead><tr><th>Standout count</th><th>Ceiling behaviour</th></tr></thead>
-<tbody>
-<tr><td><strong>0</strong></td><td>Compress 80–100 → 80–84 (great mining is "great", not unicorn)</td></tr>
-<tr><td><strong>1</strong></td><td>Compress 87–100 → 87–92 (one rare feature)</td></tr>
-<tr><td><strong>2+</strong></td><td>No compression — these are the genuine unicorns</td></tr>
-</tbody>
-</table>
-<p>Plus slot-floor gating, since per the Mega-Guide a system with fewer than 10 landable + orbital slots can't support enough Tier-3 ports to reach top-band economy:</p>
-<ul>
-<li>&lt; 10 slots: ceiling soft-capped at 75 + (raw − 75) × 0.40</li>
-<li>10–19 slots: ceiling soft-capped at 85 + (raw − 85) × 0.60</li>
-<li>20+ slots: no slot-cap</li>
+  <li>New UI surfaces should lead with development score and archetype language.</li>
+  <li>Old rating fields may still be returned and displayed, but only as compatibility context.</li>
+  <li>Legacy API names are accepted on input where needed so older callers do not immediately break.</li>
 </ul>
 
-<h2>Standout features</h2>
-<p>"Standouts" are scarcity signals that justify a 90+ score. We weight them by how rare and impactful they are:</p>
-<ul>
-<li><strong>Earth-Like World</strong> = +2 (population cap 3.1 B)</li>
-<li><strong>Water World</strong> = +1 (population cap 1.8 B)</li>
-<li><strong>Ammonia World</strong> = +1 (exotic-rare)</li>
-<li><strong>Black Hole / Neutron Star</strong> = +1 each (Tourism specialty)</li>
-<li><strong>2+ Water Worlds in one system</strong> = +1 extra</li>
-<li><strong>5+ terraformable bodies</strong> = +1 (long-term colony potential)</li>
-</ul>
+<h2>Legacy v3.4 Rating Model</h2>
+<p>The old rating model was based on <code>build_ratings.py</code> and a strongest economy-pair approach. It remains useful as historical context, calibration reference, and fallback data for older saved entries, but it is no longer the intended end-state scoring model for v2.</p>
 
-<h2>What the score is *not*</h2>
-<ul>
-<li><strong>Not a measure of current economy.</strong> ED Finder rates systems for <em>colonisation potential</em> — what they could become with a good build, not what they are now.</li>
-<li><strong>Not Frontier-canonical.</strong> This is a community-built scoring system. Frontier doesn't expose a "system colonisation rating" anywhere in-game.</li>
-<li><strong>Not a substitute for visual inspection.</strong> A 95 system might still not match your aesthetic preferences — go fly to it!</li>
-</ul>
+<div class="panel">
+  <strong>Legacy reference scope:</strong> economy-pair strength, slot heuristics, rarity gates, and standout-body bonuses. This was valuable groundwork, but the archetype engine is the path the app is actively moving toward.
+</div>
 
-<h2>Calibration anchors</h2>
-<p>Sample systems and how they should score under v3.4:</p>
-<ul>
-<li>System with 5 HMCs, 36 plain landables, 0 ELW/WW/AW, 0 exotics → <strong>~80–84</strong> (great mining, no unicorn factor)</li>
-<li>System with 1 ELW + ringed Rocky + 5 terraformable HMCs → <strong>~88–92</strong></li>
-<li>System with 2 ELW + WW + Ammonia + Neutron → <strong>~95–100</strong> (generational)</li>
-<li>System with 1 G-star and 0 useful bodies → <strong>~3–8</strong></li>
-</ul>
+<h2>Mechanics Reference</h2>
+<p>The colony mechanics background still comes from the same Elite Dangerous colonisation research sources, especially the Mega-Guide and the redesign docs in this repository. What changed is the app contract: those mechanics are increasingly expressed as archetypes and development potential rather than a single legacy rating number.</p>
 
 <div class="foot">
-Algorithm: <code>build_ratings.py</code> v3.4. Source: <a href="https://github.com/brianstewart377-rgb/ed-finder">github.com/brianstewart377-rgb/ed-finder</a>.<br>
-Mechanics reference: <a href="https://docs.google.com/document/d/1toXyDQglwVACFKx8umXhP8QcMSAUYPcP6k3STIV2-hE/edit" target="_blank" rel="noopener">Colonisation Mega-Guide v2.3</a> by CMDR Mechan and contributors.
+Active app path: archetype-led development scoring in v2.<br>
+Legacy compatibility path: <code>build_ratings.py</code> v3.4 and the embedded <code>_rating</code> block.<br>
+Repository: <a href="https://github.com/brianstewart377-rgb/ed-finder">github.com/brianstewart377-rgb/ed-finder</a>
 </div>
 </div>
 </body>

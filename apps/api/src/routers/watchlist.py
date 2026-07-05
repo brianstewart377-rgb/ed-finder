@@ -53,6 +53,7 @@ async def get_watchlist(
             SELECT w.*,
                    r.score,
                    r.economy_suggestion,
+                   w.alert_min_score AS alert_min_development_score,
                    m.primary_archetype,
                    m.secondary_archetype,
                    m.overall_development_potential AS archetype_score,
@@ -125,7 +126,7 @@ async def update_alert(
             UPDATE watchlist
                SET alert_min_score = $1, alert_economy = $2
              WHERE sync_key = $3 AND system_id64 = $4
-        """, alert.min_score, alert.economy, sync_key, id64)
+        """, alert.min_development_score, alert.economy, sync_key, id64)
     return {'ok': True}
 
 

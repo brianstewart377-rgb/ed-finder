@@ -9,7 +9,7 @@ import { useCallback, useState } from 'react';
 import { api, type LocalSearchBody } from '@/lib/api';
 import type { SearchResponse, SystemResult } from '@/types/api';
 
-export type SortBy = 'rating' | 'distance' | 'population';
+export type SortBy = 'development' | 'distance' | 'population';
 
 /** Tri-state body filter for the legacy quick-pill section (kept for
  *  feature parity — the new dual-range sliders are the recommended path). */
@@ -99,7 +99,7 @@ export const PRESETS = [
     hint:  'High-yield Earth-like + Water worlds, agriculture',
     filters: {
       economy:   'Agriculture',
-      minRating: 60,
+      minDevelopmentScore: 60,
       bodyRanges: { elw: { min: 1, max: 10 }, ww: { min: 1, max: 20 } },
     },
   },
@@ -110,7 +110,7 @@ export const PRESETS = [
     hint:  'High Metal Content + Metal Rich + Rings',
     filters: {
       economy:   'Refinery',
-      minRating: 55,
+      minDevelopmentScore: 55,
       bodyRanges: { hmc: { min: 3, max: 30 }, metalRich: { min: 1, max: 10 }, rings: { min: 1, max: 30 } },
     },
   },
@@ -121,7 +121,7 @@ export const PRESETS = [
     hint:  'Earth-like, Ammonia, Black Holes — anything rare',
     filters: {
       economy:   'Tourism',
-      minRating: 50,
+      minDevelopmentScore: 50,
       bodyRanges: { elw: { min: 1, max: 10 }, ammonia: { min: 1, max: 10 } },
     },
   },
@@ -134,7 +134,7 @@ export const PRESETS = [
       // Wire value matches the PG `economy_type` enum literal `HighTech`
       // (no space). The dropdown label still reads 'High Tech'.
       economy:   'HighTech',
-      minRating: 70,
+      minDevelopmentScore: 70,
       populated: 'populated' as const,
     },
   },
@@ -145,7 +145,7 @@ export const PRESETS = [
     hint:  'Empire / Federation systems, high security',
     filters: {
       economy:   'Military',
-      minRating: 50,
+      minDevelopmentScore: 50,
       populated: 'populated' as const,
     },
   },
@@ -155,7 +155,7 @@ export const PRESETS = [
     label: 'Exobiology',
     hint:  'Lots of bio + geo signals, landable bodies',
     filters: {
-      minRating: 30,
+      minDevelopmentScore: 30,
       bodyRanges: {
         bioSignals: { min: 5, max: 25 },
         geoSignals: { min: 1, max: 30 },
@@ -178,10 +178,10 @@ export function applyPreset(currentFilters: SearchFilters, id: PresetId): Search
     refName:   currentFilters.refName,
     refCoords: currentFilters.refCoords,
     galaxyWide: currentFilters.galaxyWide,
-    sortBy:    'rating',
+    sortBy:    'development',
   };
   if ('economy'   in preset.filters) next.economy   = preset.filters.economy   as string;
-  if ('minRating' in preset.filters) next.minRating = preset.filters.minRating as number;
+  if ('minDevelopmentScore' in preset.filters) next.minDevelopmentScore = preset.filters.minDevelopmentScore as number;
   if ('populated' in preset.filters) next.populated = preset.filters.populated as SearchFilters['populated'];
   if ('bodyRanges' in preset.filters && preset.filters.bodyRanges) {
     next.bodyRanges = {
@@ -200,7 +200,7 @@ export interface SearchFilters {
   size:           number;
   populated:      'any' | 'populated' | 'uninhabited';
   economy:        string;
-  minRating:      number;
+  minDevelopmentScore: number;
   galaxyWide:     boolean;
   sortBy:         SortBy;
   bodyFilters:    Record<BodyFilterKey, FilterTri>;
@@ -220,9 +220,9 @@ export const DEFAULT_FILTERS: SearchFilters = {
   size:        50,
   populated:   'any',
   economy:     'any',
-  minRating:   0,
+  minDevelopmentScore: 0,
   galaxyWide:  false,
-  sortBy:      'rating',
+  sortBy:      'development',
   bodyFilters: { ...ZERO_BODY_FILTERS },
   bodyRanges:  { ...DEFAULT_BODY_RANGES },
 };
@@ -243,7 +243,7 @@ function toRequestBody(f: SearchFilters): LocalSearchBody {
     from:        0,
     sort_by:     f.sortBy,
     galaxy_wide: f.galaxyWide,
-    min_rating:  f.minRating,
+    min_development_score:  f.minDevelopmentScore,
   };
   if (f.populated === 'uninhabited') {
     body.filters!.population = { comparison: 'equal', value: 0 };

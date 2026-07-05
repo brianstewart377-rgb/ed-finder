@@ -66,8 +66,9 @@ type LocalSearchBody = {
   };
   size?:       number;
   from?:       number;
-  sort_by?:    'distance' | 'rating' | 'population' | string;
+  sort_by?:    'distance' | 'development' | 'population' | 'rating' | string;
   galaxy_wide?: boolean;
+  min_development_score?: number;
   min_rating?: number;
   /** Per-body-type min/max counts (server-side filter). */
   body_filters?: Record<string, { min?: number; max?: number }>;
@@ -707,6 +708,7 @@ export interface WatchlistEntry {
   secondary_archetype?: string | null;
   buildability_score?: number | null;
   purity_score?:      number | null;
+  alert_min_development_score?: number | null;
   alert_min_score?:   number | null;
   alert_economy?:     string | null;
 }

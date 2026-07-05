@@ -205,7 +205,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     ref           = body.get("reference_coords", {})
     size          = min(int(body.get("size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
     from_idx      = int(body.get("from", 0))
-    sort_by       = body.get("sort_by", "rating")
+    sort_by       = body.get("sort_by", "development")
     galaxy_wide   = bool(body.get("galaxy_wide", False))
 
     ref_has_coords = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
@@ -231,7 +231,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     require_geo   = bool(body.get("require_geo", False))
     require_terra = bool(body.get("require_terra", False))
     star_types    = body.get("star_types", []) or []
-    min_rating    = int(body.get("min_rating", 0))
+    min_rating    = int(body.get("min_development_score", body.get("min_rating", 0)))
     economy_filter   = body.get("economy") or body.get("filters", {}).get("economy")
     sec_econ_filter  = body.get("secondary_economy")
     galaxy_region_id = body.get("galaxy_region_id")  # NEW: named region filter
@@ -387,7 +387,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     # Sort by the display score (economy-specific when filtering, overall otherwise)
     order_sql = (
         f"ORDER BY {finder_score_expr} DESC NULLS LAST, dist ASC"
-        if sort_by == "rating"
+        if sort_by in ("rating", "development")
         else "ORDER BY dist ASC"
     )
 
@@ -539,8 +539,9 @@ async def local_db_galaxy_search(body: dict, pool: asyncpg.Pool) -> dict:
         "filters": {
             "population": {} if include_col else {"value": 0, "comparison": "equal"},
         },
-        "min_rating":       min_score,
-        "sort_by":          "rating",
+        "min_development_score": min_score,
+        "min_rating":            min_score,
+        "sort_by":               "development",
         "size":             limit,
         "from":             offset,
         "galaxy_region_id": galaxy_region,
