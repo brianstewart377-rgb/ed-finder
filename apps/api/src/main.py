@@ -48,6 +48,7 @@ from routers.admin     import router as admin_router
 from routers.events    import router as events_router, eddn_pubsub_bridge
 from routers.map       import router as map_router
 from routers.meta      import router as meta_router
+from routers.news      import router as news_router
 from routers.notes     import router as notes_router
 from routers.profile   import router as profile_router
 from routers.archetypes  import router as archetypes_router
@@ -273,6 +274,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 app.include_router(share_router)
 app.include_router(meta_router)
+app.include_router(news_router)
 app.include_router(watchlist_router)
 app.include_router(notes_router)
 app.include_router(profile_router)

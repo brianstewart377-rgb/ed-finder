@@ -133,8 +133,8 @@ vi.mock('@/features/operator/OperatorCockpitTab', () => ({
   OperatorCockpitTab: () => <div data-testid="operator-tab">Operator tab</div>,
 }));
 
-vi.mock('@/features/eddn/EddnTicker', () => ({
-  EddnTicker: () => null,
+vi.mock('@/features/news/EliteNewsBanner', () => ({
+  EliteNewsBanner: () => null,
 }));
 
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
@@ -312,13 +312,13 @@ describe('App Advanced Search Tuning route', () => {
 });
 
 describe('App Colony Planner workspace route', () => {
-  it('sets base-aware Coalsack background image URLs', async () => {
+  it('sets local-root Coalsack background image URLs without probing image paths in dev', async () => {
     const fetchMock = vi.fn(async (url: string | URL | Request) => ({
-      ok: String(url).startsWith('/v2/bg/'),
+      ok: String(url).startsWith('/bg/'),
       headers: {
         get: (name: string) => {
           if (name.toLowerCase() !== 'content-type') return null;
-          return String(url).startsWith('/v2/bg/') ? 'image/jpeg' : 'text/html';
+          return String(url).startsWith('/bg/') ? 'image/jpeg' : 'text/html';
         },
       },
     }));
@@ -332,11 +332,10 @@ describe('App Colony Planner workspace route', () => {
     });
 
     await waitFor(() => {
-      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-2560')).toContain('/v2/bg/coalsack-2560.jpg');
-      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-1600')).toContain('/v2/bg/coalsack-1600.jpg');
+      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-2560')).toContain('/bg/coalsack-2560.jpg');
+      expect(document.documentElement.style.getPropertyValue('--coalsack-bg-1600')).toContain('/bg/coalsack-1600.jpg');
     });
-    expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-2560.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
-    expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-1600.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('renders the dedicated workspace without the global product-shell context or System Detail modal', async () => {

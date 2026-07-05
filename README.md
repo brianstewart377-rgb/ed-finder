@@ -247,6 +247,16 @@ ed-finder/
 └── README.md                # This file
 ```
 
+## Related repositories
+
+This repo is the runnable application layer in a three-repo workspace:
+
+- `ed-finder` - app, frontend, API, local dev stack
+- `colonisation-research-engine` - research truth, evidence, mechanics
+- `colony-planning-engine` - planner-engine ownership and future planning logic
+
+See `docs/development/cross-repo-workspace.md` for the recommended local layout and boundary rules.
+
 > **Single directory deployment:** The repo is cloned directly to `/opt/ed-finder`.
 > All services run from that one directory — there is no separate `/opt/ed-finder-src`.
 > All import scripts live **only** in `apps/importer/src/`. Always use `scripts/run_import.sh`

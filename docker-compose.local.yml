@@ -1,0 +1,43 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ed-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: edfinder
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edfinder-local-dev}
+      POSTGRES_DB: edfinder
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - local_postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edfinder -d edfinder"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: ed-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+        --maxmemory 512mb
+        --maxmemory-policy allkeys-lru
+        --save ""
+        --appendonly no
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - local_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  local_postgres_data:
+  local_redis_data:

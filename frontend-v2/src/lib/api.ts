@@ -138,6 +138,19 @@ export interface RecentEventsResponse {
   jobs:   Record<string, unknown>;
 }
 
+export interface EliteNewsItem {
+  title: string;
+  url: string;
+  source: 'news' | 'galnet' | string;
+}
+
+export interface EliteNewsResponse {
+  items: EliteNewsItem[];
+  source_url: string;
+  fetched_at: string;
+  stale: boolean;
+}
+
 export interface ProfileSyncPull<TBlob> {
   blob:       TBlob;
   updated_at: string;
@@ -308,6 +321,11 @@ export const api = {
   recentEvents(limit = 20): Promise<RecentEventsResponse> {
     const params = new URLSearchParams({ limit: String(limit) });
     return jsonFetch(`/events/recent?${params.toString()}`, { cache: 'no-store' });
+  },
+
+  eliteNewsLatest(limit = 8): Promise<EliteNewsResponse> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return jsonFetch(`/news/latest?${params.toString()}`, { cache: 'no-store' });
   },
 
   profileSyncPull<TBlob>(syncKey: string): Promise<ProfileSyncPull<TBlob>> {

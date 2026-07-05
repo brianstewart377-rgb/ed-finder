@@ -5,8 +5,8 @@ import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 /** Top-bar nav for the v2 app — sticky chrome panel with brushed-metal sheen
- *  and an ED-orange "active-tab" indicator. Height tuned to match the EDDN
- *  bottom ticker for visual symmetry. */
+ *  and an ED-orange "active-tab" indicator. Height tuned to match the bottom
+ *  headline banner for visual symmetry. */
 export interface NavBarProps {
   current:    Route;
   onNavigate: (r: Route) => void;
@@ -134,7 +134,7 @@ export function NavBar({
       ].join(' ')}
       data-testid="navbar"
     >
-      {/* py-1.5 here matches the EDDN ticker bar height so top + bottom chrome align */}
+      {/* py-1.5 here matches the bottom headline banner so top + bottom chrome align */}
       <div className="panel relative overflow-hidden px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3 sm:gap-5">
         {/* ── Logo lockup ─────────────────────────────── */}

@@ -34,13 +34,18 @@ import {
 } from '@/features/colony-planner/plannerDraftContext';
 import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
-import { EddnTicker } from '@/features/eddn/EddnTicker';
+import { EliteNewsBanner } from '@/features/news/EliteNewsBanner';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import './index.css';
 
 const COALSACK_BG_VERSION = 'v=2';
 const COALSACK_BG_2560 = 'coalsack-2560.jpg';
 const COALSACK_BG_1600 = 'coalsack-1600.jpg';
+
+function isLocalDevHost(): boolean {
+  return typeof window !== 'undefined'
+    && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname);
+}
 
 type SavedSystemActionState = 'idle' | 'saving' | 'removing';
 
@@ -70,16 +75,26 @@ function savedSystemFailureDetail(error: unknown, attemptedRemove: boolean): str
 function coalsackBackgroundCandidates(fileName: string): string[] {
   const base = import.meta.env.BASE_URL || '/';
   const normalizedBase = base.endsWith('/') ? base : `${base}/`;
-  return Array.from(new Set([
-    // Production can serve the app bundle from / while the v2 image assets live under /v2.
-    `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
-    `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
-    `/bg/${fileName}?${COALSACK_BG_VERSION}`,
-  ]));
+
+  const candidates = isLocalDevHost()
+    ? [
+        `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
+        `/bg/${fileName}?${COALSACK_BG_VERSION}`,
+        // Production can serve the app bundle from / while the v2 image assets live under /v2.
+        `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
+      ]
+    : [
+        `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
+        `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
+        `/bg/${fileName}?${COALSACK_BG_VERSION}`,
+      ];
+
+  return Array.from(new Set(candidates));
 }
 
 async function resolveCoalsackBackgroundUrl(fileName: string): Promise<string> {
   const candidates = coalsackBackgroundCandidates(fileName);
+  if (isLocalDevHost()) return candidates[0];
   if (typeof fetch !== 'function') return candidates[0];
 
   for (const candidate of candidates) {
@@ -485,7 +500,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      {!plannerWorkspaceRoute && <EddnTicker onOpenSystem={openSystemDetail} />}
+      {!plannerWorkspaceRoute && <EliteNewsBanner />}
     </main>
   );
 }

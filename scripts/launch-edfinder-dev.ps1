@@ -1,20 +1,25 @@
 param(
   [switch]$SkipPull,
   [switch]$NoPrompt,
+  [switch]$EnsureServices,
   [switch]$OpenPlanner,
   [string]$PlannerUrl = 'http://localhost:3000/#colony-planner/system/1453586352459'
 )
 
 $ErrorActionPreference = 'Stop'
 
-$repo = 'C:\Users\brian\Documents\Codex\2026-05-20\files-mentioned-by-the-user-edfinder'
+$repo = Split-Path -Parent $PSScriptRoot
 $frontend = Join-Path $repo 'frontend-v2'
+$startLocalDev = Join-Path $repo 'scripts\dev\start_local_dev.ps1'
 
 if (-not (Test-Path -LiteralPath $repo)) {
   throw "Repo not found: $repo"
 }
 if (-not (Test-Path -LiteralPath $frontend)) {
   throw "Frontend path not found: $frontend"
+}
+if (-not (Test-Path -LiteralPath $startLocalDev)) {
+  throw "start_local_dev.ps1 not found: $startLocalDev"
 }
 
 if (-not $NoPrompt) {
@@ -31,25 +36,20 @@ if (-not $SkipPull) {
 }
 
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
-if ($branch -ne 'main') {
-  throw "Expected branch main but found: $branch"
+
+$args = @(
+  '-NoProfile',
+  '-ExecutionPolicy',
+  'Bypass',
+  '-File',
+  $startLocalDev
+)
+
+if ($EnsureServices) {
+  $args += '-EnsureServices'
 }
 
-# Ensure nothing stale is left on :3000.
-$listeners = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
-if ($listeners) {
-  $listeners | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object {
-    try {
-      Stop-Process -Id $_ -Force -ErrorAction Stop
-    } catch {
-      throw "Unable to stop process $_ on port 3000. Run PowerShell as Administrator once and retry."
-    }
-  }
-}
-
-Set-Location $frontend
-
-Start-Process -FilePath powershell -WindowStyle Hidden -WorkingDirectory $frontend -ArgumentList '-NoProfile', '-Command', 'npm run dev'
+Start-Process -FilePath 'powershell.exe' -WorkingDirectory $repo -ArgumentList $args
 
 # Wait until API health responds.
 $healthy = $false
