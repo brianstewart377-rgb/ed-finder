@@ -826,14 +826,16 @@ async function expectNoStaleSelectedContext(page, {
   absentEvidencePosture = false,
   absentProjectName = null,
 }) {
-  await expectNoVisibleText(page, absentName);
+  const context = productShellContext(page);
+
+  await expectNoVisibleText(context, absentName);
   if (absentId64 != null) {
-    await expectNoVisibleText(page, `ID64 ${absentId64}`);
+    await expectNoVisibleText(context, `ID64 ${absentId64}`);
   }
   if (absentEvidencePosture) {
-    await expectNoVisibleText(page, 'Evidence posture unavailable');
+    await expectNoVisibleText(context, 'Evidence posture unavailable');
   }
-  await expectNoVisibleText(page, absentProjectName);
+  await expectNoVisibleText(context, absentProjectName);
   return true;
 }
 
