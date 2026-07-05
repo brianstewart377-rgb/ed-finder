@@ -2374,3 +2374,47 @@ def test_optional_local_review_smoke():
             assert response.status == 200
     finally:
         review_env.down_review_stack()
+
+@pytest.mark.unit
+def test_review_network_policy_allows_only_verified_unavailable_system_404s():
+    expected_404 = {
+        'scenarios': {},
+        'profileResults': {
+            'planner_desktop_primary': {
+                'checks': {
+                    'unavailableSelectedSystemClearsStaleContext': True,
+                },
+            },
+        },
+        'apiResponses': [
+            {
+                'method': 'GET',
+                'path': '/api/system/7999999999999',
+                'status': 404,
+            },
+        ],
+        'consoleEntries': [
+            {
+                'type': 'error',
+                'text': 'Failed to load resource: the server responded with a status of 404 (Not Found)',
+            },
+        ],
+        'pageErrors': [],
+    }
+
+    assert review_env.evaluate_browser_console(expected_404)['status'] == 'passed'
+
+    unverified_404 = {
+        **expected_404,
+        'profileResults': {
+            'planner_desktop_primary': {
+                'checks': {
+                    'unavailableSelectedSystemClearsStaleContext': False,
+                },
+            },
+        },
+    }
+    result = review_env.evaluate_browser_console(unverified_404)
+
+    assert result['status'] == 'failed'
+    assert result['failure_code'] == 'UNEXPECTED_BROWSER_CONSOLE_ERROR'

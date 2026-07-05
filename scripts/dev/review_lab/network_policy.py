@@ -5,8 +5,38 @@ from typing import Any, Mapping
 from .contract import REVIEW_SYSTEM_IDS
 
 
+EXPECTED_UNAVAILABLE_SYSTEM_PATH = '/api/system/7999999999999'
+
+
 def is_expected_delta_console_503_message(text: str) -> bool:
     return text.strip() == 'Failed to load resource: the server responded with a status of 503 (Service Unavailable)'
+
+
+def is_expected_unavailable_system_console_404_message(text: str) -> bool:
+    return text.strip() == 'Failed to load resource: the server responded with a status of 404 (Not Found)'
+
+
+def expected_unavailable_system_404_budget(summary: Mapping[str, Any]) -> int:
+    profile_results = summary.get('profileResults') or {}
+    if not isinstance(profile_results, Mapping):
+        return 0
+
+    desktop_profile = profile_results.get('planner_desktop_primary') or {}
+    if not isinstance(desktop_profile, Mapping):
+        return 0
+
+    checks = desktop_profile.get('checks') or {}
+    if not isinstance(checks, Mapping) or not checks.get('unavailableSelectedSystemClearsStaleContext'):
+        return 0
+
+    return sum(
+        1
+        for response in summary.get('apiResponses', [])
+        if (
+            str(response.get('path') or '') == EXPECTED_UNAVAILABLE_SYSTEM_PATH
+            and int(response.get('status') or 0) == 404
+        )
+    )
 
 
 def validate_delta_fallback_sequence(summary: Mapping[str, Any]) -> bool:
@@ -36,8 +66,9 @@ def validate_delta_fallback_sequence(summary: Mapping[str, Any]) -> bool:
     )
 
 
-def list_unexpected_api_errors(api_responses: list[Mapping[str, Any]]) -> list[dict[str, Any]]:
+def list_unexpected_api_errors(api_responses: list[Mapping[str, Any]], summary: Mapping[str, Any]) -> list[dict[str, Any]]:
     allowed_delta_path = f"/api/colony-planner/system/{REVIEW_SYSTEM_IDS['delta']}/warehouse-planner-evidence"
+    allowed_unavailable_system_404_budget = expected_unavailable_system_404_budget(summary)
     errors = []
     for response in api_responses:
         status = int(response.get('status') or 0)
@@ -45,6 +76,13 @@ def list_unexpected_api_errors(api_responses: list[Mapping[str, Any]]) -> list[d
         if status < 400:
             continue
         if path == allowed_delta_path and status == 503:
+            continue
+        if (
+            path == EXPECTED_UNAVAILABLE_SYSTEM_PATH
+            and status == 404
+            and allowed_unavailable_system_404_budget > 0
+        ):
+            allowed_unavailable_system_404_budget -= 1
             continue
         errors.append({'path': path, 'status': status, 'method': response.get('method')})
     return errors
@@ -63,6 +101,8 @@ def list_unexpected_console_errors(summary: Mapping[str, Any]) -> list[dict[str,
             if str(response.get('path') or '') == delta_path and int(response.get('status') or 0) == 503
         )
 
+    allowed_unavailable_system_404_budget = expected_unavailable_system_404_budget(summary)
+
     errors = []
     for entry in console_entries:
         if entry.get('type') != 'error':
@@ -75,6 +115,12 @@ def list_unexpected_console_errors(summary: Mapping[str, Any]) -> list[dict[str,
         ):
             allowed_delta_console_503_budget -= 1
             continue
+        if (
+            allowed_unavailable_system_404_budget > 0
+            and is_expected_unavailable_system_console_404_message(text)
+        ):
+            allowed_unavailable_system_404_budget -= 1
+            continue
         errors.append({'type': entry.get('type'), 'text': text})
     errors.extend({'type': 'pageerror', 'text': text} for text in page_errors)
     return errors
@@ -82,7 +128,7 @@ def list_unexpected_console_errors(summary: Mapping[str, Any]) -> list[dict[str,
 
 def evaluate_browser_console(summary: Mapping[str, Any]) -> dict[str, Any]:
     unexpected_console_errors = list_unexpected_console_errors(summary)
-    unexpected_api_errors = list_unexpected_api_errors(summary.get('apiResponses', []))
+    unexpected_api_errors = list_unexpected_api_errors(summary.get('apiResponses', []), summary)
     if unexpected_console_errors:
         return {
             'status': 'failed',

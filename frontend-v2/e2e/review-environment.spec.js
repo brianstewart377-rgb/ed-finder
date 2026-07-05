@@ -412,6 +412,10 @@ async function runSelectedSystemRouteJourney(page, baseURL) {
   await expectNoVisibleText(page, createdProject.projectName);
   checks.crossSystemPlannerProjectRejected = true;
 
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}/project/${createdProject.id}`), { waitUntil: 'domcontentloaded' });
+  await waitForPlanner(page, SYSTEMS.alpha.name);
+  checks.exactPlannerProjectRestoredForDesktopChecks = true;
+
   return checks;
 }
 
