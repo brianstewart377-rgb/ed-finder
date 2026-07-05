@@ -11,6 +11,12 @@ const system = {
   population: 0,
   is_colonised: false,
   primaryEconomy: 'Agriculture',
+  primary_archetype: 'refinery_industrial',
+  archetype_score: 91,
+  archetype_tier: 'S',
+  buildability_score: 77,
+  purity_score: 69,
+  est_total_slots: 12,
   _rating: {
     score: 82,
     confidence: 0.7,
@@ -54,21 +60,26 @@ describe('ResultCard actions', () => {
     expect(onCompare).toHaveBeenCalledWith(42);
     expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Refinery');
-    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Industrial');
-    const scoreBar = screen.getByLabelText('Legacy rating score: 82/100');
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Megacomplex');
+    const scoreBar = screen.getByLabelText('Development score: 91/100');
     expect(scoreBar).toBeTruthy();
-    expect(scoreBar.getAttribute('title')).toBe('Legacy rating score: 82/100');
+    expect(scoreBar.getAttribute('title')).toBe('Development score: 91/100');
+    expect(screen.getByTestId('result-card-archetype-score').textContent).toContain('S 91');
   });
 
-  it('frames stored rationale as legacy context while surfacing the suggested archetype', () => {
+  it('frames stored rationale as legacy context while surfacing the archetype assessment', () => {
     render(<ResultCard system={system} index={0} />);
 
     fireEvent.click(screen.getByText('Handoff'));
 
     expect(screen.getByText('Stored rating rationale')).toBeTruthy();
-    expect(screen.getByText('Suggested archetype')).toBeTruthy();
-    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toBe('Refinery / Industrial');
-    expect(screen.getAllByText('Refinery / Industrial').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('Primary archetype')).toBeTruthy();
+    expect(screen.getByText('Development score')).toBeTruthy();
+    expect(screen.getByText('Buildability')).toBeTruthy();
+    expect(screen.getByText('Purity')).toBeTruthy();
+    expect(screen.getByText('Est. slots')).toBeTruthy();
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toBe('Refinery / Industrial Megacomplex');
+    expect(screen.getAllByText('Refinery / Industrial Megacomplex').length).toBeGreaterThanOrEqual(2);
   });
 
   it('shows reversible saved state copy for save-for-later systems', () => {

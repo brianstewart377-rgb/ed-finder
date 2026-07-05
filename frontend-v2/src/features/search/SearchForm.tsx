@@ -56,7 +56,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
       />
 
-      <div className="text-xs text-dim mb-2 text-right"><a href="/v2/ratings.html" target="_blank" rel="noopener" data-testid="rating-help-link" className="text-orange hover:underline">How are systems rated? &rarr;</a></div><Section title="Search Radius">
+      <div className="text-xs text-dim mb-2 text-right"><a href="/v2/ratings.html" target="_blank" rel="noopener" data-testid="rating-help-link" className="text-orange hover:underline">Scoring model notes &rarr;</a></div><Section title="Search Radius">
         <RangeRow
           label="Min distance (LY)"
           min={0} max={2000}
@@ -100,7 +100,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           options={ECONOMY_OPTIONS}
         />
         <RangeRow
-          label="Min rating"
+          label="Min development score"
           min={0} max={100}
           value={filters.minRating}
           onChange={(v) => onChange({ minRating: v })}
@@ -157,7 +157,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           value={filters.sortBy}
           onChange={(v) => onChange({ sortBy: v as SearchFilters['sortBy'] })}
           options={[
-            { value: 'rating',     label: 'Rating ↓' },
+            { value: 'rating',     label: 'Development â†“' },
             { value: 'distance',   label: 'Distance ↑' },
             { value: 'population', label: 'Population ↓' },
           ]}

@@ -9,6 +9,7 @@ import {
   formatDistance,
   systemStatusLabel,
 } from '@/lib/format';
+import { archetypeTierFromScore, formatArchetypeLabel } from '@/lib/archetypes';
 import { displayRationale } from '@/lib/rationale';
 
 export interface CompareTabProps {
@@ -16,16 +17,6 @@ export interface CompareTabProps {
   onOpenDetail?: (id64: number) => void;
 }
 
-/**
- * Per-metric matrix view. Columns = systems, rows = metrics.
- *
- * The "winner" per numeric row gets an orange left-border + bold text so
- * you can eyeball the best system per dimension in a few seconds. The
- * vanilla app does the same; we just use CSS classes instead of inline
- * style objects because Tailwind.
- *
- * Non-numeric rows (name, rationale, economy, external links) render plain.
- */
 export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   const { entries } = compare;
 
@@ -45,8 +36,6 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
     );
   }
 
-  // Build the metric rows once so the winner-index pass is easy. Keep this
-  // in sync with the CSV export in useCompare.ts.
   const rows = buildMetricRows(entries);
 
   return (
@@ -96,8 +85,7 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
                         <span className="text-orange-lt normal-case font-bold tracking-normal truncate" title={sys.name}>
                           {sys.name}
                         </span>
-                      )
-                    }
+                      )}
                     <button
                       type="button"
                       onClick={() => compare.remove(sys.id64)}
@@ -146,8 +134,6 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   );
 }
 
-// ─── Header with count + actions ──────────────────────────────────────────
-
 function CompareHeader({ compare }: { compare: UseCompare }) {
   return (
     <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
@@ -163,7 +149,7 @@ function CompareHeader({ compare }: { compare: UseCompare }) {
         data-testid="compare-export-csv"
         className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
       >
-        ⬇ Export CSV
+        ↓ Export CSV
       </button>
       <button
         type="button"
@@ -183,19 +169,9 @@ function CompareHeader({ compare }: { compare: UseCompare }) {
   );
 }
 
-// ─── Metric-row construction ──────────────────────────────────────────────
-
 interface Cell { display: ReactNode; winner: boolean }
 interface MetricRow { label: string; cells: Cell[] }
 
-/**
- * Turn a list of systems into the matrix rows. Keep pure + synchronous so
- * it's trivial to unit-test later.
- *
- * Winner rule: per numeric row, mark the single index with the best value.
- * 'Higher is better' unless explicitly inverted (distance-from-ref). If all
- * values are identical, NOBODY wins — highlighting every column is noise.
- */
 function buildMetricRows(entries: SystemResult[]): MetricRow[] {
   const numericRow = (
     label: string,
@@ -231,7 +207,46 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
 
   return [
     numericRow(
-      'Score',
+      'Development score',
+      (s) => s.archetype_score ?? s.overall_development_potential,
+      (v) => {
+        const tier = archetypeTierFromScore(v ?? null);
+        return (
+          <span
+            className={[
+              'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
+              tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
+              tier === 'A' && 'bg-green/20 text-green border-green/50',
+              tier === 'B' && 'bg-gold/20 text-gold border-gold/50',
+              tier === 'C' && 'bg-orange/20 text-orange border-orange/50',
+              tier === 'D' && 'bg-red/20 text-red border-red/50',
+              tier == null && 'bg-bg4 text-text-dim border-border',
+            ].filter(Boolean).join(' ')}
+          >
+            {tier ?? '—'} {v ?? '—'}
+          </span>
+        );
+      },
+    ),
+    plainRow('Primary archetype', (s) => (
+      <span className="text-cyan">{s.primary_archetype ? formatArchetypeLabel(s.primary_archetype) : '—'}</span>
+    )),
+    plainRow('Secondary archetype', (s) => (
+      <span className="text-text-dim">{s.secondary_archetype ? formatArchetypeLabel(s.secondary_archetype) : '—'}</span>
+    )),
+    plainRow('Archetype confidence', (s) => {
+      const value = s.archetype_confidence ?? null;
+      if (value == null) return <span className="text-text-dim">—</span>;
+      return <span className="text-cyan text-xs">{Math.round(value * 100)}%</span>;
+    }),
+    numericRow('Buildability', (s) => s.buildability_score,
+      (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
+    numericRow('Purity', (s) => s.purity_score,
+      (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
+    numericRow('Estimated slots', (s) => s.est_total_slots,
+      (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
+    numericRow(
+      'Legacy rating',
       (s) => s._rating?.score,
       (v) => {
         const tier = ratingTier(v ?? null);
@@ -251,7 +266,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
         );
       },
     ),
-    plainRow('Confidence', (s) => {
+    plainRow('Legacy confidence', (s) => {
       const c = formatConfidence(s._rating?.confidence);
       if (!c) return <span className="text-text-dim">—</span>;
       const colour =
@@ -259,7 +274,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
         c.tier === 'Medium' ? 'text-gold'  : 'text-red';
       return <span className={`${colour} text-xs`}>{c.symbol} {c.pct}%</span>;
     }),
-    plainRow('Rationale', (s) => (
+    plainRow('Legacy rationale', (s) => (
       <span className="text-text-dim text-[11px] italic leading-snug block">
         {displayRationale(s._rating?.rationale) || '—'}
       </span>
@@ -273,7 +288,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
         const fmt = formatDistance(v);
         return fmt ? <span className="tabular-nums">{fmt}</span> : <span className="text-text-dim">—</span>;
       },
-      false, // lower is better
+      false,
     ),
     plainRow('Population', (s) => (
       <span className={s.population ? 'text-text' : 'text-text-dim'}>
@@ -301,7 +316,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     numericRow('ELW',           (s) => s.elw_count,          chipOrDash('🌍', 'green')),
     numericRow('Water worlds',  (s) => s.ww_count,           chipOrDash('🌊', 'cyan')),
     numericRow('Ammonia',       (s) => s.ammonia_count,      chipOrDash('🟣', 'text-dim')),
-    numericRow('Terraformable', (s) => s.terraformable_count,chipOrDash('🌱', 'gold')),
+    numericRow('Terraformable', (s) => s.terraformable_count, chipOrDash('🌱', 'gold')),
     numericRow('Landable',      (s) => s.landable_count,     chipOrDash('🪨', 'text-dim')),
     numericRow('Bio signals',   (s) => s.bio_signal_total,   chipOrDash('🧬', 'green')),
     numericRow('Geo signals',   (s) => s.geo_signal_total,   chipOrDash('🌋', 'orange')),
@@ -331,8 +346,6 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
   ];
 }
 
-// ─── Cell renderers ────────────────────────────────────────────────────────
-
 function chipOrDash(icon: string, colourClass: string) {
   return (v: number | null | undefined) => {
     if (v == null || v === 0) return <span className="text-text-dim">—</span>;
@@ -346,8 +359,6 @@ function chipOrDash(icon: string, colourClass: string) {
 
 function scoreChip(v: number | null | undefined): ReactNode {
   if (v == null) return <span className="text-text-dim">—</span>;
-  // Re-use the overall-score tier palette so "Tourism 78" reads the same
-  // colour language as "Overall 78" on the cards.
   const tier = ratingTier(v);
   return (
     <span

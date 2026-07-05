@@ -38,6 +38,7 @@ export type SystemCoords = Schemas['CoordsModel'];
 export type SystemRating = Schemas['RatingModel'];
 export type SystemBody   = Schemas['BodyModel'];
 export type SystemStation = Schemas['StationModel'];
+type GeneratedSystemResult = Schemas['SystemRow'];
 
 /**
  * One row from `/api/local/search`.
@@ -46,7 +47,20 @@ export type SystemStation = Schemas['StationModel'];
  * block lives under `_rating` (Pydantic alias preserved through the
  * codegen). Field added 2026-05-09 as part of Phase 7 follow-up.
  */
-export type SystemResult = Schemas['SystemRow'];
+export type SystemResult = GeneratedSystemResult & {
+  archetype_score?: number | null;
+  archetype_tier?: 'S' | 'A' | 'B' | 'C' | 'D' | null;
+  primary_archetype?: string | null;
+  secondary_archetype?: string | null;
+  archetype_confidence?: number | null;
+  overall_development_potential?: number | null;
+  buildability_score?: number | null;
+  build_complexity?: string | null;
+  purity_score?: number | null;
+  contamination_risk?: number | null;
+  est_total_slots?: number | null;
+  tags?: string[] | null;
+};
 
 export type SearchResponse        = Schemas['SearchResponse'];
 export type AutocompleteHit       = Schemas['AutocompleteHit'];

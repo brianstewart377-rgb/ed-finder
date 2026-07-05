@@ -33,6 +33,11 @@ function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
     id64: 10477373803,
     name: 'Sol',
     coords: { x: 0, y: 0, z: 0 },
+    primary_archetype: 'refinery_industrial',
+    archetype_score: 88,
+    archetype_tier: 'S',
+    buildability_score: 81,
+    purity_score: 74,
     _rating: { score: 85, rationale: 'Strong Refinery' },
     population: 1000000,
     primaryEconomy: 'Refinery',
@@ -88,10 +93,10 @@ describe('MapTab', () => {
     expect(legend).toBeTruthy();
     expect(within(legend).getByText(/Map legend/)).toBeTruthy();
     expect(within(legend).getByText(/Active: Finder dots \+ Galactic frame/)).toBeTruthy();
-    expect(within(legend).getByText('Scored systems from the current Finder results.')).toBeTruthy();
+    expect(within(legend).getByText('Current Finder systems with archetype-led development scores.')).toBeTruthy();
     expect(within(legend).getByText('Canonical galaxy region labels.')).toBeTruthy();
-    expect(within(legend).getByText('Voxel cells summarising local rating density.')).toBeTruthy();
-    expect(within(legend).getByText('Approximate hulls around high-scoring grouped systems.')).toBeTruthy();
+    expect(within(legend).getByText('Voxel cells summarising local development-potential density.')).toBeTruthy();
+    expect(within(legend).getByText('Approximate hulls around high-development grouped systems.')).toBeTruthy();
   });
 
   it('updates the legend active-layer summary as toggles change', () => {

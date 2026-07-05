@@ -29,6 +29,7 @@ import asyncpg
 from helpers import SOL_ID64, safe_coords_from_row
 from search_economies import (
     ratings_score_column,
+    archetype_score_column,
     cluster_count_column,
     economy_enum_value,
     BODY_FILTER_COLS,
@@ -81,6 +82,26 @@ def _safe_distance(val: Any) -> float | None:
     return round(f, 2)
 
 
+def _archetype_tier(score: Any) -> str | None:
+    if score is None:
+        return None
+    try:
+        s = float(score)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(s):
+        return None
+    if s >= 88:
+        return "S"
+    if s >= 76:
+        return "A"
+    if s >= 60:
+        return "B"
+    if s >= 45:
+        return "C"
+    return "D"
+
+
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
     bodies = bodies or []
 
@@ -97,6 +118,18 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
         "distance":          _safe_distance(row.get("dist")),
         # main_star_class is a generated column (= main_star_type) — always present
         "main_star":         row.get("main_star_class") or row.get("main_star_type"),
+        "archetype_score":   row.get("archetype_score"),
+        "archetype_tier":    _archetype_tier(row.get("archetype_score")),
+        "primary_archetype": row.get("primary_archetype"),
+        "secondary_archetype": row.get("secondary_archetype"),
+        "archetype_confidence": row.get("archetype_confidence"),
+        "overall_development_potential": row.get("overall_development_potential"),
+        "buildability_score": row.get("buildability_score"),
+        "build_complexity": row.get("build_complexity"),
+        "purity_score":     row.get("purity_score"),
+        "contamination_risk": row.get("contamination_risk"),
+        "est_total_slots":  row.get("est_total_slots"),
+        "tags":             list(row.get("display_tags") or []),
         "needs_permit":      bool(row.get("needs_permit", False)),
         "population":        row.get("population"),
         "is_colonised":      int(bool(row.get("is_colonised", False))),
@@ -210,6 +243,8 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     # back to the overall r.score and produced different ordering than
     # the inline fallback (which knew about extraction).
     display_score_col = ratings_score_column(economy_filter, alias='r')
+    primary_score_col = archetype_score_column(economy_filter, alias='m')
+    finder_score_expr = f"COALESCE({primary_score_col}, {display_score_col})"
 
     params: list = []
     wheres: list = []
@@ -288,8 +323,10 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         wheres.append(f"s.main_star_class IN ({placeholders})")
 
     if min_rating > 0:
-        # Filter on the display score column (economy-specific or overall)
-        wheres.append(f"{display_score_col} >= {add(min_rating)}")
+        # Filter on the archetype-led finder score when available, falling
+        # back to the legacy display score for systems that do not yet have
+        # archetype data.
+        wheres.append(f"{finder_score_expr} >= {add(min_rating)}")
 
     # ── Body filters via ratings columns ─────────────────────────────────
     # Column / alias maps now live in search_economies.py — see
@@ -349,7 +386,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     # Sort by the display score (economy-specific when filtering, overall otherwise)
     order_sql = (
-        f"ORDER BY {display_score_col} DESC NULLS LAST, dist ASC"
+        f"ORDER BY {finder_score_expr} DESC NULLS LAST, dist ASC"
         if sort_by == "rating"
         else "ORDER BY dist ASC"
     )
@@ -358,6 +395,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         SELECT COUNT(*)
         FROM systems s
         LEFT JOIN ratings r ON r.system_id64 = s.id64
+        LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
         {where_sql}
     """
 
@@ -374,6 +412,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
                 SELECT 1
                 FROM systems s
                 LEFT JOIN ratings r ON r.system_id64 = s.id64
+                LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
                 {where_sql}
                 LIMIT {GALAXY_WIDE_COUNT_CAP}
             ) t
@@ -399,6 +438,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             s.updated_at,
             r.score,
             {display_score_col}   AS display_score,
+            {finder_score_expr}   AS archetype_score,
             r.score_agriculture, r.score_refinery, r.score_industrial,
             r.score_hightech, r.score_military, r.score_tourism,
             r.score_extraction,
@@ -416,9 +456,20 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             r.terraforming_potential, r.body_diversity,
             r.confidence, r.rationale,
             r.rating_version,
+            m.primary_archetype,
+            m.secondary_archetype,
+            m.archetype_confidence,
+            m.overall_development_potential,
+            m.buildability_score,
+            m.build_complexity,
+            m.purity_score,
+            m.contamination_risk,
+            m.est_total_slots,
+            m.display_tags,
             {dist_expr} AS dist
         FROM systems s
         LEFT JOIN ratings r ON r.system_id64 = s.id64
+        LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
         LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
         {where_sql}
         {order_sql}

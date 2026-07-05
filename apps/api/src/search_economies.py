@@ -130,6 +130,30 @@ def ratings_score_column(name: Optional[str], *, alias: str = '') -> str:
     return f'{alias}.{col}' if alias else col
 
 
+# ── mv_archetype_rankings score lookups ─────────────────────────────────────
+ARCHETYPE_SCORE_COLS: Mapping[str, str] = {
+    'agriculture': 'score_agriculture_terraforming',
+    'refinery':    'score_refinery_industrial',
+    'industrial':  'score_refinery_industrial',
+    'hightech':    'score_hitech_tourism',
+    'military':    'score_military_industrial',
+    'tourism':     'score_hitech_tourism',
+    'extraction':  'score_extraction_refinery',
+}
+
+
+def archetype_score_column(name: Optional[str], *, alias: str = '') -> str:
+    """Return the mv_archetype_rankings score column for an economy-aligned
+    archetype, or overall_development_potential when the economy is missing.
+
+    This keeps Finder/search aligned with the archetype cutover without
+    removing the legacy ratings fields from the response.
+    """
+    canon = _canon(name)
+    col = ARCHETYPE_SCORE_COLS.get(canon, 'overall_development_potential')
+    return f'{alias}.{col}' if alias else col
+
+
 # ── cluster_summary.<economy>_count lookups ────────────────────────────────
 def cluster_count_column(name: Optional[str], *, alias: str = 'cs') -> Optional[str]:
     """Return the ``cluster_summary`` count column for an economy, or
@@ -214,6 +238,7 @@ __all__ = [
     'canonical_economy_key',
     'economy_enum_value',
     'ratings_score_column',
+    'archetype_score_column',
     'cluster_count_column',
     'BODY_FILTER_COLS',
     'BODY_FILTER_ALIASES',

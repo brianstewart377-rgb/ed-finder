@@ -9,8 +9,8 @@ import {
   isInhabited,
   systemStatusLabel,
 } from '@/lib/format';
+import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
 import { displayRationale } from '@/lib/rationale';
-import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -45,16 +45,16 @@ export function ResultCard({
   const [open, setOpen] = useState(false);
 
   const rating     = system._rating;
-  const score      = rating?.score ?? null;
-  const tier       = ratingTier(score);
-  const scoreLabel = `Legacy rating score: ${score ?? 'â€”'}/100`;
+  const legacyScore = rating?.score ?? null;
+  const legacyTier  = ratingTier(legacyScore);
   const conf       = formatConfidence(rating?.confidence);
   const inhabited  = isInhabited(system);
   const dist       = formatDistance(system.distance) ?? '—';
   const popLabel   = formatPopulationForSystem(system);
   const status     = systemStatusLabel(system);
-  const suggestedEconomy = rating?.economySuggestion ?? system.primaryEconomy ?? system.secondaryEconomy ?? null;
-  const suggestedArchetype = archetypeFromEconomy(suggestedEconomy);
+  const archetypeScore = system.archetype_score ?? system.overall_development_potential ?? null;
+  const archetypeTier = system.archetype_tier ?? archetypeTierFromScore(archetypeScore);
+  const archetypeLabel = getFinderArchetypeSummary(system);
   const systemId64 = Number(system.id64);
   const hasValidSystemId = Number.isFinite(systemId64) && systemId64 > 0;
   const saveActionBusy = savedActionState === 'saving' || savedActionState === 'removing';
@@ -138,7 +138,7 @@ export function ResultCard({
         {/* Population */}
         <span className="chip chip-silver">{popLabel}</span>
 
-        {suggestedArchetype && (
+        {archetypeLabel && (
           <span
             data-testid="result-card-suggested-archetype"
             className="font-mono text-[10px] font-bold tracking-[0.12em] px-2.5 py-1 rounded-chunk border uppercase"
@@ -147,25 +147,37 @@ export function ResultCard({
               borderColor: 'rgba(34,211,238,0.45)',
               color: '#67e8f9',
             }}
-            title={`Suggested archetype: ${formatArchetypeLabel(suggestedArchetype)}`}
+            title={`${archetypeLabel.source === 'archetype' ? 'Primary' : 'Suggested'} archetype: ${archetypeLabel.label}`}
           >
-            {formatArchetypeLabel(suggestedArchetype)}
+            {archetypeLabel.label}
           </span>
         )}
 
-        {/* Rating badge — bigger, chunkier */}
         <span
-          data-testid="result-card-legacy-rating"
+          data-testid="result-card-archetype-score"
           className="font-mono text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-chunk border"
           style={{
-            background: `linear-gradient(180deg, ${tier.fillColor}33, ${tier.fillColor}11)`,
-            borderColor: `${tier.fillColor}88`,
-            color: tier.fillColor,
-            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px -4px ${tier.fillColor}66`,
+            background: 'linear-gradient(180deg, rgba(34,211,238,0.18), rgba(34,211,238,0.06))',
+            borderColor: 'rgba(34,211,238,0.45)',
+            color: '#67e8f9',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 12px -4px rgba(34,211,238,0.32)',
           }}
-          title={`Legacy rating score: ${score ?? 'â€”'}/100`}
+          title={`Development score: ${archetypeScore ?? '—'}/100`}
         >
-          {tier.label} {score ?? '—'}
+          {archetypeTier ?? '—'} {archetypeScore ?? '—'}
+        </span>
+
+        <span
+          data-testid="result-card-legacy-rating"
+          className="font-mono text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-chunk border"
+          style={{
+            background: `linear-gradient(180deg, ${legacyTier.fillColor}22, ${legacyTier.fillColor}0d)`,
+            borderColor: `${legacyTier.fillColor}66`,
+            color: legacyTier.fillColor,
+          }}
+          title={`Legacy rating score: ${legacyScore ?? '—'}/100`}
+        >
+          Legacy {legacyScore ?? '—'}
         </span>
 
         {/* Confidence */}
@@ -191,8 +203,8 @@ export function ResultCard({
         <span
           className="block w-20 h-2 rounded-full overflow-hidden"
           role="img"
-          aria-label={scoreLabel}
-          title={scoreLabel}
+          aria-label={`Development score: ${archetypeScore ?? '—'}/100`}
+          title={`Development score: ${archetypeScore ?? '—'}/100`}
           style={{
             background: 'linear-gradient(180deg, hsl(216 10% 12%), hsl(218 11% 8%))',
             border: '1px solid hsl(216 10% 26%)',
@@ -203,9 +215,9 @@ export function ResultCard({
             className="block h-full transition-all duration-500"
             aria-hidden="true"
             style={{
-              width: `${Math.max(0, Math.min(100, score ?? 0))}%`,
-              background: `linear-gradient(90deg, ${tier.fillColor}, ${tier.fillColor}cc)`,
-              boxShadow: `0 0 8px ${tier.fillColor}88`,
+              width: `${Math.max(0, Math.min(100, archetypeScore ?? 0))}%`,
+              background: 'linear-gradient(90deg, #22d3ee, rgba(34,211,238,0.82))',
+              boxShadow: '0 0 8px rgba(34,211,238,0.55)',
             }}
           />
         </span>
@@ -230,7 +242,17 @@ export function ResultCard({
             </div>
           )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
-            {suggestedArchetype && <Row label="Suggested archetype" value={formatArchetypeLabel(suggestedArchetype)} highlight />}
+            {archetypeLabel && (
+              <Row
+                label={archetypeLabel.source === 'archetype' ? 'Primary archetype' : 'Suggested archetype'}
+                value={archetypeLabel.label}
+                highlight
+              />
+            )}
+            {archetypeScore != null && <Row label="Development score" value={`${archetypeScore}/100`} highlight />}
+            {system.buildability_score != null && <Row label="Buildability" value={`${system.buildability_score}/100`} />}
+            {system.purity_score != null && <Row label="Purity" value={`${system.purity_score}/100`} />}
+            {system.est_total_slots != null && <Row label="Est. slots" value={`${system.est_total_slots}`} />}
             {system.primaryEconomy && <Row label="Economy"    value={system.primaryEconomy} highlight />}
             {system.allegiance     && <Row label="Allegiance" value={system.allegiance} />}
             {system.security       && <Row label="Security"   value={system.security} />}
@@ -299,27 +321,6 @@ function bodyChip(label: string, count: number | null | undefined) {
       {label} <span className="text-orange font-bold tabular-nums">{count}</span>
     </span>
   );
-}
-
-function formatArchetypeLabel(value: string): string {
-  const known: Record<string, string> = {
-    refinery_industrial: 'Refinery / Industrial',
-    extraction_refinery: 'Extraction / Refinery',
-    agriculture_terraforming: 'Agriculture / Terraforming',
-    hitech_tourism: 'High Tech / Tourism',
-    expansion_capital: 'Expansion / Capital',
-    trade_logistics: 'Trade / Logistics',
-    population_capital: 'Population / Capital',
-    ax_forward_base: 'AX / Forward Base',
-    military_industrial: 'Military / Industrial',
-    flexible_multirole: 'Flexible / Multirole',
-  };
-  if (known[value]) return known[value];
-  return value
-    .split(/[_-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
 }
 
 function IconToggle({

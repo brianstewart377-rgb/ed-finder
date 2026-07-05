@@ -332,6 +332,18 @@ class SystemRow(BaseModel):
     is_being_colonised:  Optional[bool]        = None
     main_star_type:      Optional[str]         = None
     main_star_subtype:   Optional[str]         = None
+    archetype_score:     Optional[float]       = None
+    archetype_tier:      Optional[TierValue]   = None
+    primary_archetype:   Optional[str]         = None
+    secondary_archetype: Optional[str]         = None
+    archetype_confidence: Optional[float]      = None
+    overall_development_potential: Optional[float] = None
+    buildability_score:  Optional[float]       = None
+    build_complexity:    Optional[str]         = None
+    purity_score:        Optional[float]       = None
+    contamination_risk:  Optional[float]       = None
+    est_total_slots:     Optional[int]         = None
+    tags:                list[str]             = Field(default_factory=list)
 
     # Embedded rating block (also camelCase). Field name has a leading
     # underscore on the wire — Pydantic v2 keeps the raw alias.

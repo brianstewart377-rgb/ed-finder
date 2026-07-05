@@ -3,7 +3,8 @@ import { GalacticMap, type MapViewMode } from './GalacticMap';
 import { MapErrorBoundary } from './MapErrorBoundary';
 import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
-import { ratingTier, formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
+import { formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
+import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
 import { displayRationale } from '@/lib/rationale';
 
 /**
@@ -287,10 +288,10 @@ function MapLegend({
         <LegendItem label="Results" value="Fits the current Finder result dots." />
         <LegendItem label="Galaxy" value="Frames the full galactic disc and axes." />
         <LegendItem label="Reference" value="Centers the chosen reference system." />
-        <LegendItem label="Finder dots" value="Scored systems from the current Finder results." />
+        <LegendItem label="Finder dots" value="Current Finder systems with archetype-led development scores." />
         <LegendItem label="Regions" value="Canonical galaxy region labels." />
-        <LegendItem label="Heatmap" value="Voxel cells summarising local rating density." />
-        <LegendItem label="Clusters" value="Approximate hulls around high-scoring grouped systems." />
+        <LegendItem label="Heatmap" value="Voxel cells summarising local development-potential density." />
+        <LegendItem label="Clusters" value="Approximate hulls around high-development grouped systems." />
         <LegendItem label="Timeline" value="Discovery-count buckets for the map scrubber foundation." />
       </div>
     </details>
@@ -343,7 +344,9 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
       </aside>
     );
   }
-  const tier = ratingTier(system._rating?.score ?? null);
+  const archetypeScore = system.archetype_score ?? system.overall_development_potential ?? null;
+  const tier = system.archetype_tier ?? archetypeTierFromScore(archetypeScore);
+  const archetype = getFinderArchetypeSummary(system);
   const rationale = displayRationale(system._rating?.rationale);
   return (
     <aside
@@ -360,20 +363,29 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
         <span
           className={[
             'px-2 py-0.5 rounded border font-bold',
-            tier.label === 'EXCELLENT' && 'bg-green/20 text-green border-green/50',
-            tier.label === 'GOOD'      && 'bg-gold/20 text-gold border-gold/50',
-            tier.label === 'OK'        && 'bg-orange/20 text-orange border-orange/50',
-            tier.label === 'POOR'      && 'bg-red/20 text-red border-red/50',
-            tier.label === 'N/A'       && 'bg-bg4 text-text-dim border-border',
+            tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
+            tier === 'A' && 'bg-green/20 text-green border-green/50',
+            tier === 'B' && 'bg-gold/20 text-gold border-gold/50',
+            tier === 'C' && 'bg-orange/20 text-orange border-orange/50',
+            tier === 'D' && 'bg-red/20 text-red border-red/50',
+            tier == null && 'bg-bg4 text-text-dim border-border',
           ].filter(Boolean).join(' ')}
         >
-          {tier.label} {system._rating?.score ?? '—'}
+          {tier ?? '—'} {archetypeScore ?? '—'}
         </span>
         <span className="text-text-dim">
           {formatPopulationForSystem(system)}
         </span>
       </div>
       <dl className="space-y-1 text-[11px]">
+        {archetype && (
+          <Row
+            label={archetype.source === 'archetype' ? 'Primary archetype' : 'Suggested archetype'}
+            value={archetype.label}
+          />
+        )}
+        {system.buildability_score != null && <Row label="Buildability" value={`${system.buildability_score}/100`} />}
+        {system.purity_score != null && <Row label="Purity" value={`${system.purity_score}/100`} />}
         {system.primaryEconomy && (
           <Row label="Economy" value={system.primaryEconomy} />
         )}
