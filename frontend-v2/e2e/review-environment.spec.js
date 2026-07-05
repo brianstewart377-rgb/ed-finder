@@ -328,6 +328,97 @@ async function runDeltaScenario(page, baseURL, summary) {
   }
 }
 
+async function runSelectedSystemRouteJourney(page, baseURL) {
+  const checks = {};
+
+  await page.goto(resolveUrl(baseURL, `/#finder/context/${SYSTEMS.alpha.id64}`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('search-summary')).toBeVisible();
+  await expect(productShellContext(page)).toContainText(SYSTEMS.alpha.name);
+  await expect(productShellContext(page)).toContainText('Evidence posture unavailable');
+  await expect(page.getByTestId('system-detail-modal')).toHaveCount(0);
+  checks.finderContextVisible = true;
+
+  await page.goto(resolveUrl(baseURL, `/#finder/system/${SYSTEMS.alpha.id64}`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('system-detail-modal')).toBeVisible();
+  await page.getByTestId('system-detail-close').click();
+  await expect(page).toHaveURL(new RegExp(`#finder/context/${SYSTEMS.alpha.id64}$`));
+  await expect(page.getByTestId('system-detail-modal')).toHaveCount(0);
+  checks.inspectCloseReturnsFinderContext = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByText('No active draft for this system')).toBeVisible();
+  await page.getByTestId('planner-inline-state')
+    .getByRole('button', { name: /^Back to Finder$/ })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`#finder/context/${SYSTEMS.alpha.id64}$`));
+  await expect(page.getByTestId('system-detail-modal')).toHaveCount(0);
+  checks.plannerBackReturnsFinderContext = true;
+  checks.directPlannerNoDraftVisible = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}`), { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /^Create draft$/ }).click();
+  await expect(page).toHaveURL(new RegExp(`#colony-planner/system/${SYSTEMS.alpha.id64}/project/`));
+  checks.explicitCreateDraftRoutesToExactProject = true;
+
+  const createdProject = await readStoredProject(page, SYSTEMS.alpha.id64);
+  checks.createdDraftPersisted = Boolean(createdProject?.id && createdProject?.projectName);
+
+  await page.goto(resolveUrl(baseURL, `/#finder/system/${SYSTEMS.beta.id64}/extra`), { waitUntil: 'domcontentloaded' });
+  await expect(productShellContext(page)).toContainText('Selected system route invalid');
+  await expectNoStaleSelectedContext(page, {
+    absentName: SYSTEMS.alpha.name,
+    absentId64: SYSTEMS.alpha.id64,
+    absentEvidencePosture: true,
+    absentProjectName: createdProject?.projectName ?? null,
+  });
+  checks.invalidFinderRouteClearsStaleContext = true;
+
+  await page.goto(resolveUrl(baseURL, '/#finder/context/7999999999999'), { waitUntil: 'domcontentloaded' });
+  await expect(productShellContext(page)).toContainText('Selected system unavailable');
+  await expectNoStaleSelectedContext(page, {
+    absentName: SYSTEMS.alpha.name,
+    absentId64: SYSTEMS.alpha.id64,
+    absentEvidencePosture: true,
+    absentProjectName: createdProject?.projectName ?? null,
+  });
+  checks.unavailableSelectedSystemClearsStaleContext = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.beta.id64}/extra`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('planner-inline-state')).toContainText('Selected system route invalid');
+  await expectNoStaleSelectedContext(page, {
+    absentName: SYSTEMS.alpha.name,
+    absentId64: SYSTEMS.alpha.id64,
+    absentEvidencePosture: true,
+    absentProjectName: createdProject?.projectName ?? null,
+  });
+  checks.invalidPlannerSystemRouteClearsStaleContext = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}/project`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('planner-inline-state')).toContainText('Selected project route invalid');
+  await expectNoVisibleText(page, createdProject?.projectName ?? null);
+  checks.malformedPlannerProjectRejected = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}/project/missing-project`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('planner-inline-state')).toContainText('Selected project unavailable');
+  await expectNoVisibleText(page, createdProject?.projectName ?? null);
+  checks.missingPlannerProjectRejected = true;
+
+  if (!createdProject?.id) {
+    throw new Error('Selected-system route journey could not find the explicit draft in local storage.');
+  }
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.beta.id64}/project/${createdProject.id}`), { waitUntil: 'domcontentloaded' });
+  await expect(page.getByTestId('planner-inline-state')).toContainText('Selected project does not belong to this system');
+  await expectNoVisibleText(page, createdProject.projectName);
+  checks.crossSystemPlannerProjectRejected = true;
+
+  await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}/project/${createdProject.id}`), { waitUntil: 'domcontentloaded' });
+  await waitForPlanner(page, SYSTEMS.alpha.name);
+  checks.exactPlannerProjectRestoredForDesktopChecks = true;
+
+  return checks;
+}
+
 async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
   await runViewportProfile(browser, baseURL, summary, profile('planner_desktop_primary'), async (page) => {
     const checks = {};
@@ -342,6 +433,7 @@ async function runViewportMatrix(browser, baseURL, scenarioPlan, summary) {
         await runDeltaScenario(page, baseURL, summary);
       }
     }
+    Object.assign(checks, await runSelectedSystemRouteJourney(page, baseURL));
     checks.telemetryToggleKeyboardWorks = await ensureTelemetryToggleKeyboardWorks(page);
     summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true;
     checks.noRecoveryScreen = !(await recoveryVisible(page));
@@ -698,8 +790,57 @@ function plannerWorkspaceHeader(page) {
   return page.getByTestId('workspace-context-header');
 }
 
+function productShellContext(page) {
+  return visibleByTestId(page, 'product-shell-context');
+}
+
 function plannerSelectedSystem(page, systemName) {
   return plannerWorkspaceHeader(page).getByText(systemName, { exact: true });
+}
+
+async function readStoredProject(page, systemId64) {
+  return page.evaluate((targetSystemId64) => {
+    const raw = window.localStorage.getItem('ed_colony_projects_v1');
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const projects = parsed?.state?.projects ?? parsed?.projects ?? {};
+    const match = Object.values(projects)
+      .find((project) => project && project.system_id64 === targetSystemId64 && !project.archived_at);
+
+    if (!match) return null;
+    return {
+      id: match.id,
+      projectName: match.project_name,
+    };
+  }, systemId64);
+}
+
+async function expectNoVisibleText(page, text) {
+  if (!text) return true;
+  const locator = page.getByText(text, { exact: true });
+  if (await locator.count() === 0) return true;
+  await expect(locator.first()).toBeHidden();
+  return true;
+}
+
+async function expectNoStaleSelectedContext(page, {
+  absentName,
+  absentId64,
+  absentEvidencePosture = false,
+  absentProjectName = null,
+}) {
+  const context = productShellContext(page);
+
+  await expectNoVisibleText(context, absentName);
+  if (absentId64 != null) {
+    await expectNoVisibleText(context, `ID64 ${absentId64}`);
+  }
+  if (absentEvidencePosture) {
+    await expectNoVisibleText(context, 'Evidence posture unavailable');
+  }
+  await expectNoVisibleText(context, absentProjectName);
+  return true;
 }
 
 async function expectText(locator, pattern) {

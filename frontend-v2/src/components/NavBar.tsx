@@ -18,9 +18,10 @@ export interface NavBarProps {
   health?:         string;
   fullWidth?:      boolean;
   selectedSystem?: {
-    id64: number;
+    id64: number | null;
     name: string | null;
     loading: boolean;
+    evidencePosture: string | null;
   } | null;
 }
 
@@ -86,7 +87,8 @@ export function NavBar({
   }), [compareCount, fcCount]);
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
+  const showSelectedSystemContext = selectedSystem != null && ['finder', 'colony-planner'].includes(current);
+  const showPlayerContext = showSelectedSystemContext || !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
   const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
   const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
@@ -292,7 +294,12 @@ export function NavBar({
                   headingLevel={2}
                   supportingText={currentWorkspaceMeta.supportingText}
                   selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
-                  selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
+                  selectedSystemMeta={selectedSystem ? (
+                    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                      {selectedSystem.evidencePosture ? <span>{selectedSystem.evidencePosture}</span> : null}
+                      {selectedSystem.id64 != null ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : null}
+                    </span>
+                  ) : undefined}
                   status={(
                     <SemanticStatusBadge
                       label={currentWorkspaceMeta.statusLabel}
@@ -324,9 +331,16 @@ export function NavBar({
                     <p className="mt-1 text-sm font-semibold text-text">
                       {selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system'}
                     </p>
-                    <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-                      ID64 {selectedSystem.id64}
-                    </p>
+                    {selectedSystem.evidencePosture ? (
+                      <p className="mt-1 text-xs text-silver-dk">
+                        {selectedSystem.evidencePosture}
+                      </p>
+                    ) : null}
+                    {selectedSystem.id64 != null ? (
+                      <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+                        ID64 {selectedSystem.id64}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

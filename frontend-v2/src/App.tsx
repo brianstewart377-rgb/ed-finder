@@ -209,7 +209,20 @@ function PrototypeAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
 }
 
 function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
-  const { route, selectedSystemId, plannerSystemId, plannerProjectId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
+  const {
+    route,
+    contextSystemId,
+    selectedSystemId,
+    plannerSystemId,
+    plannerProjectId,
+    invalidSelectedContext,
+    invalidPlannerSystem,
+    invalidPlannerProject,
+    navigate,
+    openSystem,
+    openColonyPlanner,
+    closeSystem,
+  } = hashRoute;
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -223,7 +236,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
   const [savedSystemActionState, setSavedSystemActionState] = useState<Record<number, SavedSystemActionState>>({});
   const [savedSystemNotice, setSavedSystemNotice] = useState<SavedSystemNoticeState | null>(null);
-  const shellSystemId = plannerSystemId ?? selectedSystemId;
+  const shellSystemId = plannerSystemId ?? contextSystemId ?? selectedSystemId;
   const shellSystem = useSystemDetail(shellSystemId);
 
   const openSystemDetail = (id64: number, options?: { focus?: 'colony-planner' }) => {
@@ -325,6 +338,22 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     openColonyPlanner(system.id64, { projectId: saved.id });
   }, [openColonyPlanner, saveProject]);
 
+  const createPlannerDraft = useCallback((system: import('@/types/api').SystemDetail) => {
+    const targetArchetype = archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial';
+    const saved = saveProject(null, {
+      system_id64: system.id64,
+      system_name: system.name || 'Unknown system',
+      project_name: defaultDraftProjectName(system.name || 'Unknown system', 'decide_later'),
+      build_plan_placements: [],
+      target_archetype: targetArchetype,
+      notes: '',
+      status: 'draft',
+      objective: 'decide_later',
+      start_approach: 'manual',
+    });
+    openColonyPlanner(system.id64, { projectId: saved.id });
+  }, [openColonyPlanner, saveProject]);
+
   // First-paint: health + default search.
   useEffect(() => {
     api.health()
@@ -335,6 +364,21 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   }, []);
 
   const plannerWorkspaceRoute = route === 'colony-planner';
+  const selectedContextVisible = route === 'finder' || route === 'colony-planner';
+  const selectedContextId = plannerWorkspaceRoute ? plannerSystemId : (contextSystemId ?? selectedSystemId);
+  const selectedContextInvalid = plannerWorkspaceRoute ? invalidPlannerSystem : invalidSelectedContext;
+  const selectedSystemContext = selectedContextVisible && (selectedContextInvalid || selectedContextId != null)
+    ? {
+      id64: selectedContextId,
+      loading: !selectedContextInvalid && selectedContextId != null && shellSystem.loading,
+      name: selectedContextInvalid
+        ? 'Selected system route invalid'
+        : shellSystem.loading
+          ? null
+          : shellSystem.data?.name ?? (selectedContextId != null ? 'Selected system unavailable' : null),
+      evidencePosture: !selectedContextInvalid && !shellSystem.loading && shellSystem.data ? 'Evidence posture unavailable' : null,
+    }
+    : null;
 
   return (
     <main
@@ -354,11 +398,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         fcCount={fc.waypoints.length}
         health={health}
         fullWidth={plannerWorkspaceRoute}
-        selectedSystem={shellSystemId != null ? {
-          id64: shellSystemId,
-          name: shellSystem.data?.name ?? null,
-          loading: shellSystem.loading,
-        } : null}
+        selectedSystem={selectedSystemContext}
       />
 
       <SavedSystemNotice
@@ -414,6 +454,13 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         <ColonyPlannerWorkspace
           id64={plannerSystemId}
           projectId={plannerProjectId}
+          invalidSystemRoute={invalidPlannerSystem}
+          invalidProjectRoute={invalidPlannerProject}
+          system={plannerSystemId != null ? shellSystem.data : null}
+          systemLoading={plannerSystemId != null && shellSystem.loading}
+          systemError={plannerSystemId != null ? shellSystem.error : null}
+          onRetrySystem={plannerSystemId != null ? shellSystem.refetch : undefined}
+          onCreateDraft={(system) => createPlannerDraft(system)}
           onBackToFinder={() => navigate('finder')}
           onOpenSystemDetail={openSystemDetail}
           onOpenMyWork={() => navigate('my-work')}
@@ -458,7 +505,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         Vite {import.meta.env.MODE} build · prototype · not yet production
       </footer>
 
-      {selectedSystemId !== null && (
+      {selectedSystemId !== null && !invalidSelectedContext && (
         <SystemDetailModal
           id64={selectedSystemId}
           focusIntent={detailFocus}

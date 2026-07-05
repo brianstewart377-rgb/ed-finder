@@ -37,7 +37,7 @@ describe('NavBar', () => {
         current="map"
         onNavigate={vi.fn()}
         health="Online"
-        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false, evidencePosture: 'Evidence posture unavailable' }}
       />,
     );
 
@@ -64,7 +64,7 @@ describe('NavBar', () => {
     rerender(<NavBar current="map" onNavigate={vi.fn()} health="Online" />);
     expect(within(screen.getByTestId('product-shell-context')).getByText(/^Explore$/i)).toBeTruthy();
   });
-  it('keeps Finder, Colony Planner, and My Work routes free of the global product-shell context panel', () => {
+  it('shows selected-system context on Finder and Colony Planner only when selected context exists', () => {
     const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
 
     expect(screen.queryByTestId('product-shell-context')).toBeNull();
@@ -78,13 +78,12 @@ describe('NavBar', () => {
         current="colony-planner"
         onNavigate={vi.fn()}
         health="Online"
-        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false, evidencePosture: 'Evidence posture unavailable' }}
       />,
     );
 
-    expect(screen.queryByTestId('product-shell-context')).toBeNull();
-    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
-    expect(screen.queryByText('Shinrarta Dezhra')).toBeNull();
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Evidence posture unavailable');
 
     for (const route of ['my-work', 'watchlist', 'pinned'] as const) {
       rerender(
@@ -92,7 +91,7 @@ describe('NavBar', () => {
           current={route}
           onNavigate={vi.fn()}
           health="Online"
-          selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+          selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false, evidencePosture: 'Evidence posture unavailable' }}
         />,
       );
 

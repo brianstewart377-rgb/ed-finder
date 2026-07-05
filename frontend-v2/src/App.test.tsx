@@ -12,6 +12,7 @@ const {
   mockSearchRun,
   mockSearchResults,
   mockSearchState,
+  mockUseSystemDetail,
 } = vi.hoisted(() => ({
   mockWatchlistAdd: vi.fn(),
   mockWatchlistRemove: vi.fn(),
@@ -22,6 +23,12 @@ const {
   mockSearchState: {
     current: { kind: 'idle' } as Record<string, unknown>,
   },
+  mockUseSystemDetail: vi.fn((id64: number | null) => ({
+    data: id64 != null ? { id64, name: `System ${id64}` } : null,
+    loading: false,
+    error: null as string | null,
+    refetch: vi.fn(),
+  })),
 }));
 
 vi.mock('@/lib/api', () => {
@@ -140,12 +147,14 @@ vi.mock('@/features/eddn/EddnTicker', () => ({
 vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   SystemDetailModal: ({
     id64,
+    onClose,
     savedForLater,
     saveForLaterState = 'idle',
     onToggleSaveForLater,
     onStartPlan,
   }: {
     id64: number;
+    onClose?: () => void;
     savedForLater?: boolean;
     saveForLaterState?: 'idle' | 'saving' | 'removing';
     onToggleSaveForLater?: (system: {
@@ -178,6 +187,7 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
   }) => (
     <div data-testid="system-detail-modal">
       System detail {id64}
+      <button type="button" onClick={onClose}>Close system details</button>
       <button
         type="button"
         disabled={saveForLaterState === 'saving' || saveForLaterState === 'removing'}
@@ -225,30 +235,36 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
 }));
 
 vi.mock('@/features/system-detail/useSystemDetail', () => ({
-  useSystemDetail: (id64: number | null) => ({
-    data: id64 != null ? { id64, name: `System ${id64}` } : null,
-    loading: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
+  useSystemDetail: mockUseSystemDetail,
 }));
 
 vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
   ColonyPlannerWorkspace: ({
     id64,
     projectId,
+    invalidSystemRoute,
+    invalidProjectRoute,
+    system,
     onBackToFinder,
     onOpenSystemDetail,
+    onCreateDraft,
   }: {
     id64: number | null;
     projectId?: string | null;
+    invalidSystemRoute?: boolean;
+    invalidProjectRoute?: boolean;
+    system?: { id64: number; name: string } | null;
     onBackToFinder: () => void;
     onOpenSystemDetail: (id64: number) => void;
+    onCreateDraft: (system: { id64: number; name: string }) => void;
   }) => (
     <div data-testid="colony-planner-workspace">
-      Colony Planner workspace {id64 ?? 'none'} / {projectId ?? 'no-project'}
+      Colony Planner workspace {id64 ?? 'none'} / {projectId ?? 'no-project'} / {system?.name ?? 'no-system'}
+      {invalidSystemRoute ? <span>invalid-system-route</span> : null}
+      {invalidProjectRoute ? <span>invalid-project-route</span> : null}
       <button type="button" onClick={onBackToFinder}>Back to Finder</button>
       <button type="button" onClick={() => id64 != null && onOpenSystemDetail(id64)}>Open full system detail</button>
+      {system ? <button type="button" onClick={() => onCreateDraft(system)}>Create draft</button> : null}
     </div>
   ),
 }));
@@ -268,6 +284,13 @@ afterEach(() => {
   mockSearchRun.mockClear();
   mockSearchResults.length = 0;
   mockSearchState.current = { kind: 'idle' };
+  mockUseSystemDetail.mockReset();
+  mockUseSystemDetail.mockImplementation((id64: number | null) => ({
+    data: id64 != null ? { id64, name: `System ${id64}` } : null,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  }));
   vi.unstubAllGlobals();
 });
 
@@ -339,7 +362,7 @@ describe('App Colony Planner workspace route', () => {
     expect(fetchMock).toHaveBeenCalledWith('/v2/bg/coalsack-1600.jpg?v=2', { method: 'HEAD', cache: 'no-cache' });
   });
 
-  it('renders the dedicated workspace without the global product-shell context or System Detail modal', async () => {
+  it('renders the dedicated workspace with selected-system shell context and without the System Detail modal', async () => {
     window.location.hash = '#colony-planner/system/123';
 
     render(<App />);
@@ -348,8 +371,8 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('123');
     });
     expect(screen.getByTestId('navbar')).toBeTruthy();
-    expect(screen.queryByTestId('product-shell-context')).toBeNull();
-    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Evidence posture unavailable');
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
@@ -373,7 +396,7 @@ describe('App Colony Planner workspace route', () => {
     expect(finderMain?.className).toContain('max-w-[1840px]');
   });
 
-  it('renders the workspace no-system state for #colony-planner without duplicate shell context', async () => {
+  it('renders the workspace no-system state for #colony-planner without selected-system shell context', async () => {
     window.location.hash = '#colony-planner';
 
     render(<App />);
@@ -413,6 +436,123 @@ describe('App Colony Planner workspace route', () => {
       expect(window.location.hash).toBe('#finder/system/123');
     });
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('123');
+  });
+
+  it('renders non-modal Finder context without opening Inspect', async () => {
+    window.location.hash = '#finder/context/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Search form')).toBeTruthy();
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Evidence posture unavailable');
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+  });
+
+  it('returns Inspect close to Finder context', async () => {
+    window.location.hash = '#finder/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('system-detail-modal')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Close system details/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#finder/context/123');
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+  });
+
+  it('returns Planner to Finder context without reopening Inspect', async () => {
+    window.location.hash = '#colony-planner/system/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^Back to Finder$/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#finder/context/123');
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+  });
+
+  it('clears stale selected-system shell context after a malformed Finder route replaces a valid one', async () => {
+    window.location.hash = '#finder/context/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+    });
+
+    act(() => {
+      window.location.hash = '#finder/system';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('Selected system route invalid');
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('System 123');
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('Evidence posture unavailable');
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('ID64 123');
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+  });
+
+  it.each([
+    '#finder/system/123/extra',
+    '#system/123/extra',
+  ])('does not open Inspect for malformed selected-system route %s', async (hash) => {
+    window.location.hash = hash;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain(
+        'Selected system route invalid',
+      );
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+  });
+
+  it('clears stale evidence posture and prior identity when a selected-system route becomes unavailable', async () => {
+    window.location.hash = '#finder/context/123';
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('Evidence posture unavailable');
+    });
+
+    mockUseSystemDetail.mockImplementation((id64: number | null) => ({
+      data: null,
+      loading: false,
+      error: id64 != null ? 'Not found' : null,
+      refetch: vi.fn(),
+    }));
+
+    act(() => {
+      window.location.hash = '#finder/context/999';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('Selected system unavailable');
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('System 123');
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('Evidence posture unavailable');
+    expect(screen.getByTestId('product-shell-context').textContent).not.toContain('ID64 123');
   });
 
   it('creates exactly one selected-system Draft from System Detail and opens its planner project', async () => {
@@ -768,7 +908,7 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('finder-page-heading').textContent).toContain(
       'Find promising systems. Save them for later or inspect them before starting a plan.',
     );
-    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
     expect(screen.queryByText('Primary workspace')).toBeNull();
 
     window.location.hash = '#my-work';

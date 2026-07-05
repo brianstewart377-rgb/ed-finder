@@ -396,7 +396,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
             'failure_code': None,
             'safe_diagnostics': {'reason': 'scenario selection does not request product observations'},
         }
-    unexpected_api_errors = list_unexpected_api_errors(summary.get('apiResponses', []))
+    unexpected_api_errors = list_unexpected_api_errors(summary.get('apiResponses', []), summary)
     unexpected_console_errors = list_unexpected_console_errors(summary)
     delta_correlation_verified = desktop_phase['status'] == 'passed' and validate_delta_fallback_sequence(summary)
     return {

@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
  * Hash-based router with optional `system/{id64}` sub-routes.
  *
  * Supported hash formats (in priority order):
- *   #finder                       → route='finder',    selectedSystemId=null
+ *   #finder                       → route='finder',    contextSystemId=null, selectedSystemId=null
+ *   #finder/context/12345678      → route='finder',    contextSystemId=12345678, selectedSystemId=null
  *   #pinned                       → route='pinned',    selectedSystemId=null
  *   #pinned/system/12345678       → route='pinned',    selectedSystemId=12345678
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
  *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
- *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
+ *   #finder/system/12345678       → route='finder',    contextSystemId=12345678, selectedSystemId=12345678
+ *   #system/12345678              → route='finder',    contextSystemId=12345678, selectedSystemId=12345678   (deep-link from external)
  *   #my-work                      → route='my-work', selectedSystemId=null
  *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
  *   #colony-planner/system/123/project/abc → route='colony-planner', plannerSystemId=123, plannerProjectId='abc'
@@ -34,57 +36,159 @@ const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'comp
 
 export interface ParsedHash {
   route:            Route;
+  contextSystemId:  number | null;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
   plannerProjectId: string | null;
+  invalidSelectedContext: boolean;
+  invalidPlannerSystem: boolean;
+  invalidPlannerProject: boolean;
 }
 
 function parsePositiveId(value: string | undefined): number | null {
-  if (!value) return null;
+  if (!value || !/^[0-9]+$/.test(value)) return null;
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+function parsedBase(route: Route): ParsedHash {
+  return {
+    route,
+    contextSystemId: null,
+    selectedSystemId: null,
+    plannerSystemId: null,
+    plannerProjectId: null,
+    invalidSelectedContext: false,
+    invalidPlannerSystem: false,
+    invalidPlannerProject: false,
+  };
 }
 
 function parseHash(): ParsedHash {
   const raw   = window.location.hash.replace(/^#\/?/, '');
   const parts = raw.split('/').filter(Boolean);
 
-  if (parts.length === 0) {
-    return { route: 'finder', selectedSystemId: null, plannerSystemId: null, plannerProjectId: null };
-  }
+  if (parts.length === 0) return parsedBase('finder');
 
   let route: Route = 'finder';
   let i = 0;
+  const rootIsSystemAlias = parts[0] === 'system';
   if (parts[0] === 'optimizer') {
     route = 'search-tuning';
     i = 1;
+  } else if (rootIsSystemAlias) {
+    route = 'finder';
+    i = 0;
   } else if ((VALID_ROUTES as string[]).includes(parts[0])) {
     route = parts[0] as Route;
     i = 1;
   }
 
-  let selectedSystemId: number | null = null;
-  let plannerSystemId: number | null = null;
-  let plannerProjectId: string | null = null;
-  if (parts[i] === 'system') {
-    const id64 = parsePositiveId(parts[i + 1]);
-    if (route === 'colony-planner') {
-      plannerSystemId = id64;
-      if (parts[i + 2] === 'project' && parts[i + 3]) {
-        plannerProjectId = parts[i + 3];
-      }
-    } else {
-      selectedSystemId = id64;
+  const parsed = parsedBase(route);
+
+  if (rootIsSystemAlias) {
+    const id64 = parsePositiveId(parts[1]);
+    parsed.contextSystemId = id64;
+    parsed.selectedSystemId = id64;
+    parsed.invalidSelectedContext = parts.length !== 2 || id64 == null;
+    if (parsed.invalidSelectedContext && id64 == null) {
+      parsed.contextSystemId = null;
+      parsed.selectedSystemId = null;
     }
+    return parsed;
   }
 
-  return { route, selectedSystemId, plannerSystemId, plannerProjectId };
+  if (route === 'finder') {
+    if (i === 0 && parts[0] !== 'finder') {
+      return parsed;
+    }
+
+    const remainder = parts.slice(i);
+    if (remainder.length === 0) return parsed;
+
+    if (remainder[0] === 'context') {
+      const id64 = parsePositiveId(remainder[1]);
+      parsed.contextSystemId = id64;
+      parsed.invalidSelectedContext = remainder.length !== 2 || id64 == null;
+      if (parsed.invalidSelectedContext && id64 == null) {
+        parsed.contextSystemId = null;
+      }
+      return parsed;
+    }
+
+    if (remainder[0] === 'system') {
+      const id64 = parsePositiveId(remainder[1]);
+      parsed.contextSystemId = id64;
+      parsed.selectedSystemId = id64;
+      parsed.invalidSelectedContext = remainder.length !== 2 || id64 == null;
+      if (parsed.invalidSelectedContext && id64 == null) {
+        parsed.contextSystemId = null;
+        parsed.selectedSystemId = null;
+      }
+      return parsed;
+    }
+
+    parsed.invalidSelectedContext = remainder.length > 0;
+    return parsed;
+  }
+
+  if (route === 'colony-planner') {
+    const remainder = parts.slice(i);
+    if (remainder.length === 0) return parsed;
+
+    if (remainder[0] !== 'system') {
+      parsed.invalidPlannerSystem = true;
+      return parsed;
+    }
+
+    const id64 = parsePositiveId(remainder[1]);
+    parsed.plannerSystemId = id64;
+
+    if (remainder.length === 2 && id64 != null) {
+      return parsed;
+    }
+
+    if (id64 == null) {
+      parsed.plannerSystemId = null;
+      parsed.invalidPlannerSystem = true;
+      return parsed;
+    }
+
+    if (remainder[2] === 'project') {
+      if (remainder.length < 4) {
+        parsed.invalidPlannerProject = true;
+        return parsed;
+      }
+    } else if (remainder.length < 4 || remainder[2] !== 'project') {
+      parsed.invalidPlannerSystem = true;
+      return parsed;
+    }
+
+    const projectId = remainder[3]?.trim() ?? '';
+    if (projectId.length === 0 || remainder.length !== 4) {
+      parsed.invalidPlannerProject = true;
+      return parsed;
+    }
+
+    parsed.plannerProjectId = projectId;
+    return parsed;
+  }
+
+  if (parts[i] === 'system' && parts.length === i + 2) {
+    parsed.selectedSystemId = parsePositiveId(parts[i + 1]);
+  }
+
+  return parsed;
 }
 
 function buildHash(route: Route, selectedSystemId: number | null): string {
   const modalRoute = route === 'colony-planner' ? 'finder' : route;
   const base = `#${modalRoute}`;
   return selectedSystemId != null ? `${base}/system/${selectedSystemId}` : base;
+}
+
+export function buildFinderContextHash(contextSystemId: number | null): string {
+  return contextSystemId != null ? `#finder/context/${contextSystemId}` : '#finder';
 }
 
 function buildPlannerHash(plannerSystemId: number | null, plannerProjectId: string | null = null): string {
@@ -96,9 +200,13 @@ function buildPlannerHash(plannerSystemId: number | null, plannerProjectId: stri
 
 export interface HashRoute {
   route:            Route;
+  contextSystemId:  number | null;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
   plannerProjectId: string | null;
+  invalidSelectedContext: boolean;
+  invalidPlannerSystem: boolean;
+  invalidPlannerProject: boolean;
   /** Navigate to a tab. Preserves any open system modal. */
   navigate:    (r: Route) => void;
   /** Open the system detail modal on top of the current tab. */
@@ -120,13 +228,29 @@ export function useHashRoute(): HashRoute {
 
   const navigate = (r: Route) => {
     if (r === 'colony-planner') {
-      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId);
+      const plannerSystemId = parsed.route === 'colony-planner'
+        ? parsed.plannerSystemId
+        : (parsed.invalidSelectedContext ? null : (parsed.contextSystemId ?? parsed.selectedSystemId ?? parsed.plannerSystemId));
+      const plannerProjectId = parsed.route === 'colony-planner' && !parsed.invalidPlannerProject
+        ? parsed.plannerProjectId
+        : null;
+      window.location.hash = buildPlannerHash(plannerSystemId, plannerProjectId);
+      return;
+    }
+    if (r === 'finder') {
+      window.location.hash = buildFinderContextHash(
+        parsed.contextSystemId ?? parsed.plannerSystemId ?? parsed.selectedSystemId,
+      );
       return;
     }
     window.location.hash = buildHash(r, parsed.selectedSystemId);
   };
 
   const openSystem = (id64: number) => {
+    if (parsed.route === 'finder' || parsed.route === 'colony-planner') {
+      window.location.hash = buildHash('finder', id64);
+      return;
+    }
     window.location.hash = buildHash(parsed.route, id64);
   };
 
@@ -137,6 +261,10 @@ export function useHashRoute(): HashRoute {
   };
 
   const closeSystem = () => {
+    if (parsed.route === 'finder') {
+      window.location.hash = buildFinderContextHash(parsed.contextSystemId ?? parsed.selectedSystemId);
+      return;
+    }
     window.location.hash = parsed.route === 'colony-planner'
       ? buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId)
       : buildHash(parsed.route, null);
@@ -144,9 +272,13 @@ export function useHashRoute(): HashRoute {
 
   return {
     route:            parsed.route,
+    contextSystemId:  parsed.contextSystemId,
     selectedSystemId: parsed.selectedSystemId,
     plannerSystemId:  parsed.plannerSystemId,
     plannerProjectId: parsed.plannerProjectId,
+    invalidSelectedContext: parsed.invalidSelectedContext,
+    invalidPlannerSystem: parsed.invalidPlannerSystem,
+    invalidPlannerProject: parsed.invalidPlannerProject,
     navigate, openSystem, openColonyPlanner, closeSystem,
   };
 }
