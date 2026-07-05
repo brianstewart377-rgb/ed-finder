@@ -102,6 +102,9 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
 
   it.each([
     ['#finder/context', null, null],
+    ['#finder/context/123.5', null, null],
+    ['#finder/context/0x2A', null, null],
+    ['#finder/context/1e3', null, null],
     ['#finder/context/not-a-number', null, null],
     ['#finder/context/123456/extra', 123456, null],
     ['#finder/system', null, null],

@@ -505,7 +505,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         Vite {import.meta.env.MODE} build · prototype · not yet production
       </footer>
 
-      {selectedSystemId !== null && (
+      {selectedSystemId !== null && !invalidSelectedContext && (
         <SystemDetailModal
           id64={selectedSystemId}
           focusIntent={detailFocus}

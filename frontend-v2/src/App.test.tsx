@@ -509,6 +509,22 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
+  it.each([
+    '#finder/system/123/extra',
+    '#system/123/extra',
+  ])('does not open Inspect for malformed selected-system route %s', async (hash) => {
+    window.location.hash = hash;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain(
+        'Selected system route invalid',
+      );
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+  });
+
   it('clears stale evidence posture and prior identity when a selected-system route becomes unavailable', async () => {
     window.location.hash = '#finder/context/123';
 

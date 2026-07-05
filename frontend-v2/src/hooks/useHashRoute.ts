@@ -46,9 +46,9 @@ export interface ParsedHash {
 }
 
 function parsePositiveId(value: string | undefined): number | null {
-  if (!value) return null;
+  if (!value || !/^[0-9]+$/.test(value)) return null;
   const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 function parsedBase(route: Route): ParsedHash {
