@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { hasKnownCoords, ratingTier } from '@/lib/format';
+import { getLegacyRatingScore } from '@/lib/legacyRating';
 import type { SystemResult } from '@/types/api';
 import type { MapRegion, MapHeatmapResponse, MapClusterHull } from '@/lib/api';
 
@@ -369,7 +370,7 @@ export function GalacticMap({
       const px = wx(coords.x!);
       const py = wz(coords.z!);
       if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
-      const tier = ratingTier(sys._rating?.score ?? null);
+      const tier = ratingTier(sys.archetype_score ?? sys.overall_development_potential ?? getLegacyRatingScore(sys));
       const isSel = sys.id64 === selectedId64;
       const r = isSel ? 6 : 3;
 

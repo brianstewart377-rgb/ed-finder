@@ -344,6 +344,23 @@ class SystemRow(BaseModel):
     contamination_risk:  Optional[float]       = None
     est_total_slots:     Optional[int]         = None
     tags:                list[str]             = Field(default_factory=list)
+    # Legacy v3.x rating fields remain available at top level as
+    # compatibility context while the v2 UI moves off `_rating` as the
+    # normal live path.
+    score:               Optional[float]       = None
+    score_agriculture:   Optional[float]       = None
+    score_refinery:      Optional[float]       = None
+    score_industrial:    Optional[float]       = None
+    score_hightech:      Optional[float]       = None
+    score_military:      Optional[float]       = None
+    score_tourism:       Optional[float]       = None
+    score_extraction:    Optional[float]       = None
+    economy_suggestion:  Optional[str]         = None
+    rating_version:      Optional[str]         = None
+    terraforming_potential: Optional[float]    = None
+    body_diversity:      Optional[float]       = None
+    confidence:          Optional[float]       = None
+    rationale:           Optional[str]         = None
 
     # Embedded rating block (also camelCase). Field name has a leading
     # underscore on the wire — Pydantic v2 keeps the raw alias.

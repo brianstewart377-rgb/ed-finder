@@ -36,6 +36,7 @@ import { archetypeFromEconomy } from '@/features/system-detail/simulation-previe
 import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EliteNewsBanner } from '@/features/news/EliteNewsBanner';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
+import { getLegacyRatingScore } from '@/lib/legacyRating';
 import './index.css';
 
 const COALSACK_BG_VERSION = 'v=2';
@@ -461,6 +462,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
                   coords:       { x: sys.x ?? null, y: sys.y ?? null, z: sys.z ?? null },
                   population:   sys.population ?? null,
                   is_colonised: !!sys.is_colonised,
+                  score:        sys.score ?? null,
+                  economy_suggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
                   _rating:      {
                     score: sys.score ?? null,
                     economySuggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
@@ -571,6 +574,20 @@ function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/t
     is_colonised:       !!sys.is_colonised,
     main_star_type:     sys.main_star_type ?? null,
     main_star_subtype:  sys.main_star_subtype ?? null,
+    score:              sys.score ?? null,
+    score_agriculture:  sys.score_agriculture ?? null,
+    score_refinery:     sys.score_refinery ?? null,
+    score_industrial:   sys.score_industrial ?? null,
+    score_hightech:     sys.score_hightech ?? null,
+    score_military:     sys.score_military ?? null,
+    score_tourism:      sys.score_tourism ?? null,
+    score_extraction:   sys.score_extraction ?? null,
+    economy_suggestion: sys.economy_suggestion ?? null,
+    rating_version:     sys.rating_version ?? null,
+    terraforming_potential: sys.terraforming_potential ?? null,
+    body_diversity:     sys.body_diversity ?? null,
+    confidence:         sys.confidence ?? null,
+    rationale:          sys.rationale ?? null,
     _rating: {
       score:                  sys.score ?? null,
       scoreAgriculture:       sys.score_agriculture ?? null,
@@ -707,7 +724,7 @@ function FinderView({
                           z:          sys.coords?.z ?? null,
                           population: sys.population ?? null,
                           is_colonised: !!sys.is_colonised,
-                          score:      sys._rating?.score ?? null,
+                          score:      getLegacyRatingScore(sys),
                         });
                       }}
                       onShowOnMap={onShowOnMap}

@@ -25,7 +25,8 @@ describe('CompareTab data trust display', () => {
       distance: 0,
       population: null,
       is_colonised: false,
-      _rating: { score: 80, scoreExtraction: 70 },
+      score: 80,
+      score_extraction: 70,
     }] as unknown as SystemResult[];
 
     render(<CompareTab compare={compareWith(entries)} />);

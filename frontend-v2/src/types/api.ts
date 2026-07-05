@@ -43,9 +43,9 @@ type GeneratedSystemResult = Schemas['SystemRow'];
 /**
  * One row from `/api/local/search`.
  *
- * Generated from `apps/api/src/models.py::SystemRow`. Camel-case rating
- * block lives under `_rating` (Pydantic alias preserved through the
- * codegen). Field added 2026-05-09 as part of Phase 7 follow-up.
+ * Generated from `apps/api/src/models.py::SystemRow`. Legacy rating data
+ * remains available both as explicit top-level compatibility fields and
+ * inside `_rating` (Pydantic alias preserved through the codegen).
  */
 export type SystemResult = GeneratedSystemResult & {
   archetype_score?: number | null;
@@ -60,6 +60,20 @@ export type SystemResult = GeneratedSystemResult & {
   contamination_risk?: number | null;
   est_total_slots?: number | null;
   tags?: string[] | null;
+  score?: number | null;
+  score_agriculture?: number | null;
+  score_refinery?: number | null;
+  score_industrial?: number | null;
+  score_hightech?: number | null;
+  score_military?: number | null;
+  score_tourism?: number | null;
+  score_extraction?: number | null;
+  economy_suggestion?: string | null;
+  rating_version?: string | null;
+  terraforming_potential?: number | null;
+  body_diversity?: number | null;
+  confidence?: number | null;
+  rationale?: string | null;
 };
 
 export type SearchResponse        = Schemas['SearchResponse'];

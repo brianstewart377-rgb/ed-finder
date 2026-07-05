@@ -10,6 +10,7 @@ import {
   systemStatusLabel,
 } from '@/lib/format';
 import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
+import { getLegacyRatingConfidence, getLegacyRatingRationale, getLegacyRatingScore } from '@/lib/legacyRating';
 import { displayRationale } from '@/lib/rationale';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
@@ -44,10 +45,9 @@ export function ResultCard({
 }: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
-  const rating     = system._rating;
-  const legacyScore = rating?.score ?? null;
+  const legacyScore = getLegacyRatingScore(system);
   const legacyTier  = ratingTier(legacyScore);
-  const conf       = formatConfidence(rating?.confidence);
+  const conf       = formatConfidence(getLegacyRatingConfidence(system));
   const inhabited  = isInhabited(system);
   const dist       = formatDistance(system.distance) ?? '—';
   const popLabel   = formatPopulationForSystem(system);
@@ -233,11 +233,11 @@ export function ResultCard({
       {open && (
         <div className="border-t border-border/70 px-4 py-4 space-y-3 animate-fade-up"
              style={{ background: 'linear-gradient(180deg, rgba(20,22,26,0.3), rgba(20,22,26,0.6))' }}>
-          {displayRationale(rating?.rationale) && (
+          {displayRationale(getLegacyRatingRationale(system)) && (
             <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2">
               <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Stored rating rationale</div>
               <p className="mt-1 text-sm italic leading-snug text-silver-dk">
-                {displayRationale(rating?.rationale)}
+                {displayRationale(getLegacyRatingRationale(system))}
               </p>
             </div>
           )}

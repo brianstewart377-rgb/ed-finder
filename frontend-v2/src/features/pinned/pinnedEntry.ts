@@ -1,4 +1,5 @@
 import type { PinnedEntry } from './usePinned';
+import { getLegacyRatingScore, getLegacySuggestedEconomy } from '@/lib/legacyRating';
 
 /**
  * Factory helper so call-sites don't have to spell out the whole PinnedEntry
@@ -16,6 +17,8 @@ export function toPinnedEntry(sys: {
   secondary_archetype?: string | null;
   buildability_score?: number | null;
   purity_score?: number | null;
+  score?:       number | null;
+  economy_suggestion?: string | null;
   _rating?:     { score?: number | null; economySuggestion?: string | null } | null;
 }): PinnedEntry {
   return {
@@ -27,8 +30,8 @@ export function toPinnedEntry(sys: {
     population:   sys.population ?? null,
     is_colonised: !!sys.is_colonised,
     distance:     sys.distance ?? null,
-    rating:       sys._rating?.score ?? null,
-    economy:      sys._rating?.economySuggestion ?? null,
+    rating:       getLegacyRatingScore(sys),
+    economy:      getLegacySuggestedEconomy(sys),
     archetype_score: sys.archetype_score ?? null,
     primary_archetype: sys.primary_archetype ?? null,
     secondary_archetype: sys.secondary_archetype ?? null,

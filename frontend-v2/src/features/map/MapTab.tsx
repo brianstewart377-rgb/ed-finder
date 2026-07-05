@@ -6,6 +6,7 @@ import type { SystemResult } from '@/types/api';
 import { formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
 import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
 import { displayRationale } from '@/lib/rationale';
+import { getLegacyRatingRationale } from '@/lib/legacyRating';
 
 /**
  * Map tab — wraps the GalacticMap with a selection-detail side panel.
@@ -347,7 +348,7 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
   const archetypeScore = system.archetype_score ?? system.overall_development_potential ?? null;
   const tier = system.archetype_tier ?? archetypeTierFromScore(archetypeScore);
   const archetype = getFinderArchetypeSummary(system);
-  const rationale = displayRationale(system._rating?.rationale);
+  const rationale = displayRationale(getLegacyRatingRationale(system));
   return (
     <aside
       data-testid="map-selection-panel"

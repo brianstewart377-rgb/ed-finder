@@ -11,6 +11,15 @@ import {
 } from '@/lib/format';
 import { archetypeTierFromScore, formatArchetypeLabel } from '@/lib/archetypes';
 import { displayRationale } from '@/lib/rationale';
+import {
+  getLegacyBodyDiversity,
+  getLegacyEconomyScore,
+  getLegacyRatingConfidence,
+  getLegacyRatingRationale,
+  getLegacyRatingScore,
+  getLegacySuggestedEconomy,
+  getLegacyTerraformingPotential,
+} from '@/lib/legacyRating';
 
 export interface CompareTabProps {
   compare: UseCompare;
@@ -247,7 +256,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
       (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
     numericRow(
       'Legacy rating',
-      (s) => s._rating?.score,
+      (s) => getLegacyRatingScore(s),
       (v) => {
         const tier = ratingTier(v ?? null);
         return (
@@ -267,7 +276,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
       },
     ),
     plainRow('Legacy confidence', (s) => {
-      const c = formatConfidence(s._rating?.confidence);
+      const c = formatConfidence(getLegacyRatingConfidence(s));
       if (!c) return <span className="text-text-dim">—</span>;
       const colour =
         c.tier === 'High'   ? 'text-green' :
@@ -276,11 +285,11 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     }),
     plainRow('Legacy rationale', (s) => (
       <span className="text-text-dim text-[11px] italic leading-snug block">
-        {displayRationale(s._rating?.rationale) || '—'}
+        {displayRationale(getLegacyRatingRationale(s)) || '—'}
       </span>
     )),
     plainRow('Primary economy',   (s) => <span className="text-text">{s.primaryEconomy ?? '—'}</span>),
-    plainRow('Suggested economy', (s) => <span className="text-orange">{s._rating?.economySuggestion ?? '—'}</span>),
+    plainRow('Suggested economy', (s) => <span className="text-orange">{getLegacySuggestedEconomy(s) ?? '—'}</span>),
     numericRow(
       'Distance from ref',
       (s) => s.distance,
@@ -309,9 +318,9 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     )),
     plainRow('Security',   (s) => <span className="text-text-dim text-xs">{s.security ?? '—'}</span>),
     plainRow('Allegiance', (s) => <span className="text-text-dim text-xs">{s.allegiance ?? '—'}</span>),
-    numericRow('Terraforming potential', (s) => s._rating?.terraformingPotential,
+    numericRow('Terraforming potential', (s) => getLegacyTerraformingPotential(s),
       (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
-    numericRow('Body diversity', (s) => s._rating?.bodyDiversity,
+    numericRow('Body diversity', (s) => getLegacyBodyDiversity(s),
       (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
     numericRow('ELW',           (s) => s.elw_count,          chipOrDash('🌍', 'green')),
     numericRow('Water worlds',  (s) => s.ww_count,           chipOrDash('🌊', 'cyan')),
@@ -320,13 +329,13 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     numericRow('Landable',      (s) => s.landable_count,     chipOrDash('🪨', 'text-dim')),
     numericRow('Bio signals',   (s) => s.bio_signal_total,   chipOrDash('🧬', 'green')),
     numericRow('Geo signals',   (s) => s.geo_signal_total,   chipOrDash('🌋', 'orange')),
-    numericRow('Agriculture',   (s) => s._rating?.scoreAgriculture, scoreChip),
-    numericRow('Refinery',      (s) => s._rating?.scoreRefinery,    scoreChip),
-    numericRow('Industrial',    (s) => s._rating?.scoreIndustrial,  scoreChip),
-    numericRow('High Tech',     (s) => s._rating?.scoreHightech,    scoreChip),
-    numericRow('Military',      (s) => s._rating?.scoreMilitary,    scoreChip),
-    numericRow('Tourism',       (s) => s._rating?.scoreTourism,     scoreChip),
-    numericRow('Extraction',    (s) => s._rating?.scoreExtraction,  scoreChip),
+    numericRow('Agriculture',   (s) => getLegacyEconomyScore(s, 'agriculture'), scoreChip),
+    numericRow('Refinery',      (s) => getLegacyEconomyScore(s, 'refinery'),    scoreChip),
+    numericRow('Industrial',    (s) => getLegacyEconomyScore(s, 'industrial'),  scoreChip),
+    numericRow('High Tech',     (s) => getLegacyEconomyScore(s, 'hightech'),    scoreChip),
+    numericRow('Military',      (s) => getLegacyEconomyScore(s, 'military'),    scoreChip),
+    numericRow('Tourism',       (s) => getLegacyEconomyScore(s, 'tourism'),     scoreChip),
+    numericRow('Extraction',    (s) => getLegacyEconomyScore(s, 'extraction'),  scoreChip),
     plainRow('Links', (s) => (
       <span className="space-x-2 whitespace-nowrap text-[11px]">
         <a

@@ -1,5 +1,6 @@
 import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { SystemResult } from '@/types/api';
+import { getLegacySuggestedEconomy } from '@/lib/legacyRating';
 
 export type ArchetypeTier = 'S' | 'A' | 'B' | 'C' | 'D';
 
@@ -37,7 +38,7 @@ export function archetypeTierFromScore(score: number | null | undefined): Archet
 
 export function getFinderArchetypeSummary(system: Pick<
   SystemResult,
-  'primary_archetype' | 'secondary_archetype' | 'primaryEconomy' | 'secondaryEconomy' | '_rating'
+  'primary_archetype' | 'secondary_archetype' | 'primaryEconomy' | 'secondaryEconomy' | 'economy_suggestion' | '_rating'
 >): { key: string; label: string; source: 'archetype' | 'economy' } | null {
   if (system.primary_archetype) {
     return {
@@ -47,7 +48,7 @@ export function getFinderArchetypeSummary(system: Pick<
     };
   }
 
-  const suggestedEconomy = system._rating?.economySuggestion ?? system.primaryEconomy ?? system.secondaryEconomy ?? null;
+  const suggestedEconomy = getLegacySuggestedEconomy(system) ?? system.primaryEconomy ?? system.secondaryEconomy ?? null;
   const fallback = archetypeFromEconomy(suggestedEconomy);
   if (!fallback) return null;
   return {
