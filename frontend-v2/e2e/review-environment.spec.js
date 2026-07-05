@@ -347,7 +347,9 @@ async function runSelectedSystemRouteJourney(page, baseURL) {
 
   await page.goto(resolveUrl(baseURL, `/#colony-planner/system/${SYSTEMS.alpha.id64}`), { waitUntil: 'domcontentloaded' });
   await expect(page.getByText('No active draft for this system')).toBeVisible();
-  await page.getByRole('button', { name: /^Back to Finder$/ }).click();
+  await page.getByTestId('planner-inline-state')
+    .getByRole('button', { name: /^Back to Finder$/ })
+    .click();
   await expect(page).toHaveURL(new RegExp(`#finder/context/${SYSTEMS.alpha.id64}$`));
   await expect(page.getByTestId('system-detail-modal')).toHaveCount(0);
   checks.plannerBackReturnsFinderContext = true;
