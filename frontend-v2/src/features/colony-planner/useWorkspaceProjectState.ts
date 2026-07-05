@@ -30,7 +30,7 @@ export function useWorkspaceProjectState(
 
   const projects = useMemo(() => Object.values(projectRecord), [projectRecord]);
   const systemProjects = useMemo(() => activeProjectsForSystem(projects, system.id64), [projects, system.id64]);
-  const initialProject = systemProjects.find((project) => project.id === initialProjectId) ?? systemProjects[0] ?? null;
+  const initialProject = systemProjects.find((project) => project.id === initialProjectId) ?? null;
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => initialProject?.id ?? null);
   const [pendingProjectId, setPendingProjectId] = useState<string>(() => initialProject?.id ?? '');
   const [projectName, setProjectName] = useState(() => initialProject?.project_name ?? `${system.name || 'Colony'} project`);
@@ -57,10 +57,8 @@ export function useWorkspaceProjectState(
       suppressAutoProjectSelect.current = false;
       return;
     }
-    if (!activeProjectId && suppressAutoProjectSelect.current) return;
-    const next = systemProjects[0] ?? null;
-    if ((next?.id ?? null) === activeProjectId) return;
-    setActiveProjectId(next?.id ?? null);
+    if (!activeProjectId) return;
+    setActiveProjectId(null);
   }, [activeProjectId, systemProjects]);
 
   useEffect(() => {

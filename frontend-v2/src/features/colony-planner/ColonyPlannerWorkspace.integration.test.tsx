@@ -1,8 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  api,
   comparePredictionToObservations,
   createObservedFact,
   deleteObservedFact,
@@ -22,9 +21,6 @@ import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
 import { useColonyProjectStore } from './colonyProjectStore';
 
 vi.mock('@/lib/api', () => ({
-  api: {
-    system: vi.fn(),
-  },
   fetchOptimiserCandidates: vi.fn(),
   getFacilityTemplates: vi.fn(),
   getProvenanceCockpit: vi.fn(),
@@ -53,7 +49,6 @@ vi.mock('@/lib/api', () => ({
   reviewPredictionValidation: vi.fn(),
 }));
 
-const mockedApiSystem = vi.mocked(api.system);
 const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
 const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
 const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
@@ -121,18 +116,58 @@ const templates: FacilityTemplate[] = [
 
 const slotMapSystem = {
   ...system,
-  bodies: [{ id: 1, name: 'Body 1', body_type: 'Planet', is_landable: true }],
+  bodies: [{ id: 'body1', name: 'Body 1', body_type: 'Planet', is_landable: true }],
 } as unknown as SystemDetail;
 
-async function renderWorkspace() {
+const activeProject = {
+  id: 'project-1',
+  system_id64: 123,
+  system_name: 'Passive Workspace',
+  project_name: 'Active draft',
+  build_plan_placements: [],
+  target_archetype: 'refinery_industrial',
+  notes: '',
+  status: 'draft',
+  created_at: '2026-07-04T00:00:00Z',
+  updated_at: '2026-07-04T00:00:00Z',
+  archived_at: null,
+};
+
+async function renderWorkspace(options?: {
+  id64?: number | null;
+  projectId?: string | null;
+  invalidSystemRoute?: boolean;
+  invalidProjectRoute?: boolean;
+  system?: SystemDetail | null;
+  systemLoading?: boolean;
+  systemError?: string | null;
+  onCreateDraft?: (system: SystemDetail) => void;
+}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     await useColonyProjectStore.persist.rehydrate();
   });
+  useColonyProjectStore.setState((state) => ({
+    ...state,
+    projects: options?.projectId === null
+      ? state.projects
+      : {
+        ...state.projects,
+        [activeProject.id]: activeProject as any,
+      },
+  }));
   const view = render(
     <QueryClientProvider client={client}>
       <ColonyPlannerWorkspace
-        id64={123}
+        id64={options?.id64 ?? 123}
+        projectId={options?.projectId === undefined ? activeProject.id : options.projectId}
+        invalidSystemRoute={options?.invalidSystemRoute ?? false}
+        invalidProjectRoute={options?.invalidProjectRoute ?? false}
+        system={options?.system ?? system}
+        systemLoading={options?.systemLoading ?? false}
+        systemError={options?.systemError ?? null}
+        onRetrySystem={vi.fn()}
+        onCreateDraft={options?.onCreateDraft ?? vi.fn()}
         onBackToFinder={vi.fn()}
         onOpenSystemDetail={vi.fn()}
       />
@@ -236,7 +271,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
   });
 
   afterEach(() => {
-    mockedApiSystem.mockReset();
+    cleanup();
     mockedGetFacilityTemplates.mockReset();
     mockedGetWarehousePlannerEvidence.mockReset();
     mockedGetProvenanceCockpit.mockReset();
@@ -253,7 +288,6 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
   });
 
   it('loads system context and passive planner data without running Preview or Suggested Builds', async () => {
-    mockedApiSystem.mockResolvedValue(system);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
     mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse() as never);
     mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
@@ -277,7 +311,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       predictions: [
         {
           system_address: 123,
-          body_id: 1,
+          body_id: 'body1',
           body_name: 'Body 1',
           predicted_orbital_slots: 4,
           predicted_ground_slots: 5,
@@ -302,7 +336,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       errors: [],
     });
 
-    await renderWorkspace();
+    await renderWorkspace({ system: slotMapSystem });
 
     expect((await screen.findAllByText('Passive Workspace')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-warehouse-evidence')).toBeTruthy();
@@ -336,7 +370,6 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.getByTestId('body1-ground-add')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add flexible/unknown structure' })).toBeNull();
 
-    expect(mockedApiSystem).toHaveBeenCalledWith(123);
     expect(mockedGetFacilityTemplates).toHaveBeenCalled();
 
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
@@ -351,7 +384,6 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
   });
 
   it('keeps main row slot lanes aligned and updates them after explicit structure adds', async () => {
-    mockedApiSystem.mockResolvedValue(slotMapSystem);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
@@ -373,7 +405,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       predictions: [
         {
           system_address: 123,
-          body_id: 1,
+          body_id: 'body1',
           body_name: 'Body 1',
           predicted_orbital_slots: 4,
           predicted_ground_slots: 5,
@@ -398,40 +430,39 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       errors: [],
     });
 
-    await renderWorkspace();
+    await renderWorkspace({ system: slotMapSystem });
 
-    await screen.findByTestId('raven-real-body-row-1');
-    await click(screen.getByTestId('topology-body-button-1'));
+    await screen.findByTestId('raven-real-body-row-body1');
+    await click(screen.getByTestId('topology-body-button-body1'));
     await waitFor(() => {
-      expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
-      expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+      expect(screen.getByTestId('body1-orbital-slot-3')).toBeTruthy();
+      expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
     });
 
     await screen.findByText(/Planning focus:/i);
-    expect(screen.queryByTestId('raven-inline-body-expansion-1')).toBeNull();
+    expect(screen.queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
     expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
     await waitFor(() => {
-      expect(screen.getByTestId('1-orbital-add')).toBeTruthy();
-      expect(screen.getByTestId('1-ground-add')).toBeTruthy();
+      expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+      expect(screen.getByTestId('body1-ground-add')).toBeTruthy();
     });
 
-    await click(screen.getByTestId('1-orbital-add'));
+    await click(screen.getByTestId('body1-orbital-add'));
     await click(await screen.findByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
-      expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
-      expect(screen.getByTestId('1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
+      expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+      expect(screen.getByTestId('body1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
     });
 
-    await click(screen.getByTestId('1-ground-add'));
+    await click(screen.getByTestId('body1-ground-add'));
     await click(await screen.findByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
-      expect((screen.getByTestId('1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+      expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
       expect(within(screen.getByTestId('workspace-economy-ledger')).getByText(/Agri/i)).toBeTruthy();
     });
   });
 
   it('adds structures directly from Raven canvas slots without Preview, generation, or Advanced Planner dependency', async () => {
-    mockedApiSystem.mockResolvedValue(slotMapSystem);
     mockedGetFacilityTemplates.mockResolvedValue(templates);
     mockedGetSimulationSummary.mockResolvedValue({
       classification: { primary_archetype: 'refinery_industrial' },
@@ -453,7 +484,7 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       predictions: [
         {
           system_address: 123,
-          body_id: 1,
+          body_id: 'body1',
           body_name: 'Body 1',
           predicted_orbital_slots: 4,
           predicted_ground_slots: 5,
@@ -463,16 +494,16 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
       ],
     } as any);
 
-    await renderWorkspace();
+    await renderWorkspace({ system: slotMapSystem });
 
-    await screen.findByTestId('raven-real-body-row-1');
-    await click(screen.getByTestId('topology-body-button-1'));
+    await screen.findByTestId('raven-real-body-row-body1');
+    await click(screen.getByTestId('topology-body-button-body1'));
     await waitFor(() => {
-      expect(screen.getByTestId('1-orbital-slot-3')).toBeTruthy();
-      expect(screen.getByTestId('1-ground-slot-4')).toBeTruthy();
+      expect(screen.getByTestId('body1-orbital-slot-3')).toBeTruthy();
+      expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
     });
 
-    await click(screen.getByTestId('1-orbital-add'));
+    await click(screen.getByTestId('body1-orbital-add'));
     const orbitalPicker = await screen.findByTestId('body-structure-picker');
     expect(orbitalPicker).toBeTruthy();
     expect(within(orbitalPicker).getByRole('heading', { name: 'Add to Body 1' })).toBeTruthy();
@@ -482,29 +513,29 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
     await click(screen.getByRole('button', { name: /Close structure picker/i }));
 
-    await click(screen.getByTestId('1-ground-add'));
+    await click(screen.getByTestId('body1-ground-add'));
     const surfaceAddPicker = await screen.findByTestId('body-structure-picker');
     expect(surfaceAddPicker).toBeTruthy();
     expect(within(surfaceAddPicker).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     expect(screen.getByTestId('body-structure-template-surface_hub')).toBeTruthy();
     await click(screen.getByRole('button', { name: /Close structure picker/i }));
 
-    await click(screen.getByTestId('1-orbital-add'));
+    await click(screen.getByTestId('body1-orbital-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
     await click(screen.getByTestId('body-structure-template-orbital_port'));
     await waitFor(() => {
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Added Orbital Port to Body 1 / Orbit.');
-      expect((screen.getByTestId('1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
-      expect(screen.queryByTestId('raven-inline-body-expansion-1')).toBeNull();
+      expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '')).toMatch(/Orbital|Port/i);
+      expect(screen.queryByTestId('raven-inline-body-expansion-body1')).toBeNull();
       expect(screen.getByTestId('planner-status-strip').textContent).toMatch(/Planned\s*1/);
       expect(within(screen.getByTestId('planner-status-strip')).getByText('Unsaved changes')).toBeTruthy();
     });
 
-    await click(screen.getByTestId('1-ground-add'));
+    await click(screen.getByTestId('body1-ground-add'));
     expect(within(await screen.findByTestId('body-structure-picker')).getAllByText(/Surface lane/i).length).toBeGreaterThan(0);
     await click(screen.getByTestId('body-structure-template-surface_hub'));
     await waitFor(() => {
-      expect((screen.getByTestId('1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
+      expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surface|Hub/i);
       expect(screen.getByTestId('canvas-add-structure-feedback').textContent).toContain('Body 1 / Surface');
       expect(screen.getByTestId('planner-status-strip').textContent).toMatch(/Planned\s*2/);
     });
@@ -521,5 +552,82 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     expect(within(advanced).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
+  });
+
+  it('shows the direct planner no-draft state and creates a draft only on explicit action', async () => {
+    const onCreateDraft = vi.fn();
+
+    await renderWorkspace({ projectId: null, onCreateDraft });
+
+    expect(screen.getByText('No active draft for this system')).toBeTruthy();
+    expect(screen.queryByTestId('whole-system-colony-planner')).toBeNull();
+
+    await click(screen.getByRole('button', { name: 'Create draft' }));
+    expect(onCreateDraft).toHaveBeenCalledWith(system);
+  });
+
+  it('rejects missing, archived, malformed, and cross-system project routes without falling back', async () => {
+    useColonyProjectStore.setState({
+      projects: {
+        archived: {
+          id: 'archived',
+          system_id64: 123,
+          system_name: 'Passive Workspace',
+          project_name: 'Archived draft',
+          build_plan_placements: [],
+          target_archetype: 'refinery_industrial',
+          notes: '',
+          status: 'draft',
+          created_at: '2026-07-04T00:00:00Z',
+          updated_at: '2026-07-04T00:00:00Z',
+          archived_at: '2026-07-04T00:10:00Z',
+        },
+        foreign: {
+          id: 'foreign',
+          system_id64: 999,
+          system_name: 'Other system',
+          project_name: 'Foreign draft',
+          build_plan_placements: [],
+          target_archetype: 'refinery_industrial',
+          notes: '',
+          status: 'draft',
+          created_at: '2026-07-04T00:00:00Z',
+          updated_at: '2026-07-04T00:00:00Z',
+          archived_at: null,
+        },
+        fallback: {
+          id: 'fallback',
+          system_id64: 123,
+          system_name: 'Passive Workspace',
+          project_name: 'Fallback draft',
+          build_plan_placements: [],
+          target_archetype: 'refinery_industrial',
+          notes: '',
+          status: 'draft',
+          created_at: '2026-07-04T00:00:00Z',
+          updated_at: '2026-07-04T00:00:00Z',
+          archived_at: null,
+        },
+      } as any,
+    });
+
+    const missingView = await renderWorkspace({ projectId: 'missing' });
+    expect(screen.getByText('Selected project unavailable')).toBeTruthy();
+    expect(screen.queryByTestId('whole-system-colony-planner')).toBeNull();
+    missingView.unmount();
+
+    const archivedView = await renderWorkspace({ projectId: 'archived' });
+    expect(screen.getByText('Selected project is archived')).toBeTruthy();
+    expect(screen.queryByTestId('whole-system-colony-planner')).toBeNull();
+    archivedView.unmount();
+
+    const foreignView = await renderWorkspace({ projectId: 'foreign' });
+    expect(screen.getByText('Selected project does not belong to this system')).toBeTruthy();
+    expect(screen.queryByTestId('whole-system-colony-planner')).toBeNull();
+    foreignView.unmount();
+
+    await renderWorkspace({ projectId: '', invalidProjectRoute: true });
+    expect(screen.getByText('Selected project route invalid')).toBeTruthy();
+    expect(screen.queryByTestId('whole-system-colony-planner')).toBeNull();
   });
 });

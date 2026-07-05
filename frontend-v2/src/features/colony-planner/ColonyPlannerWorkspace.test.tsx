@@ -317,10 +317,33 @@ async function renderPlanner(
   await act(async () => {
     await useColonyProjectStore.persist.rehydrate();
   });
+  const existingProjects = Object.values(useColonyProjectStore.getState().projects)
+    .filter((project) => project.system_id64 === 123 && !project.archived_at);
+  let defaultProjectId = props?.projectId !== undefined
+    ? props.projectId
+    : (existingProjects.at(-1)?.id ?? null);
+  if (defaultProjectId == null && props?.projectId !== null) {
+    const seeded = useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Workspace draft',
+      build_plan_placements: [],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+      status: 'draft',
+    });
+    defaultProjectId = seeded.id;
+  }
   const view = render(
     <QueryClientProvider client={client}>
       <ColonyPlannerWorkspace
         id64={123}
+        projectId={defaultProjectId}
+        system={system}
+        systemLoading={false}
+        systemError={null}
+        onRetrySystem={vi.fn()}
+        onCreateDraft={vi.fn()}
         onBackToFinder={vi.fn()}
         onOpenSystemDetail={vi.fn()}
         {...props}
@@ -404,36 +427,26 @@ describe('ColonyPlannerWorkspace', () => {
   });
 
   it('renders the loading state without mounting the planner', async () => {
-    mockedUseSystemDetail.mockReturnValue({
-      data: null,
-      loading: true,
-      error: null,
-      refetch: vi.fn(),
-    });
-
-    await renderPlanner(undefined, { settle: false });
+    await renderPlanner({ system: null, systemLoading: true }, { settle: false });
 
     expect(screen.getByText('Loading Colony Planner...')).toBeTruthy();
-    expect(mockedUseSystemDetail).toHaveBeenCalledWith(123);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
   });
 
   it('renders the error state with retry and Back to Finder', async () => {
     const onBackToFinder = vi.fn();
     const refetch = vi.fn();
-    mockedUseSystemDetail.mockReturnValue({
-      data: null,
-      loading: false,
-      error: 'network failed',
-      refetch,
-    });
+    await renderPlanner({
+      system: null,
+      systemError: 'network failed',
+      onRetrySystem: refetch,
+      onBackToFinder,
+    }, { settle: false });
 
-    await renderPlanner({ onBackToFinder }, { settle: false });
-
-    expect(screen.getByText('Failed to load Colony Planner.')).toBeTruthy();
+    expect(screen.getByText('Selected system unavailable.')).toBeTruthy();
     expect(screen.getByText('network failed')).toBeTruthy();
     await click(screen.getByRole('button', { name: /Retry/i }));
-    await click(screen.getAllByRole('button', { name: /Back to Finder/i })[1]);
+    await click(screen.getAllByRole('button', { name: /Back to Finder/i }).at(-1) as HTMLElement);
     expect(refetch).toHaveBeenCalledTimes(1);
     expect(onBackToFinder).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
@@ -781,7 +794,11 @@ describe('ColonyPlannerWorkspace', () => {
     await click(screen.getByRole('button', { name: 'Delete / archive project' }));
     expect(screen.getByText(/Archive this local project/)).toBeTruthy();
     await click(screen.getByRole('button', { name: 'Archive project' }));
-    await waitFor(() => expect(storedProjectByName('Renamed local starter - Copy')?.archived_at).toBeTruthy());
+    await waitFor(() => {
+      const archivedProjects = Object.values(useColonyProjectStore.getState().projects)
+        .filter((project) => project.project_name.startsWith('Renamed local starter') && project.archived_at);
+      expect(archivedProjects.length).toBeGreaterThan(0);
+    });
   });
 
   it('loads old local projects without declared roles safely', async () => {
