@@ -23,17 +23,18 @@ ADMIN_TOKEN = 'test-admin-token'
 async def _seed_archetype_rerank_rows(pool, count: int) -> list[int]:
     async with pool.acquire() as conn:
         ids = [r['id64'] for r in await conn.fetch('SELECT id64 FROM systems ORDER BY id64 LIMIT $1', count)]
-        payload = []
+        score_payload = []
+        trait_payload = []
         for idx, id64 in enumerate(ids, start=1):
-            payload.append((
+            score_payload.append((
                 id64,
                 55 + idx,
                 50 + idx,
                 40 + idx,
                 0.82,
                 json.dumps({'summary': f'Seeded rationale {idx}'}),
-                8 + idx,
             ))
+            trait_payload.append((id64, 8 + idx))
 
         await conn.executemany(
             """
@@ -57,7 +58,7 @@ async def _seed_archetype_rerank_rows(pool, count: int) -> list[int]:
                 rationale = EXCLUDED.rationale,
                 dirty = FALSE
             """,
-            payload,
+            score_payload,
         )
         await conn.executemany(
             """
@@ -67,7 +68,7 @@ async def _seed_archetype_rerank_rows(pool, count: int) -> list[int]:
                 est_total_slots = EXCLUDED.est_total_slots,
                 display_tags = EXCLUDED.display_tags
             """,
-            [(id64, slots) for id64, *_rest, slots in payload],
+            trait_payload,
         )
     return ids
 
