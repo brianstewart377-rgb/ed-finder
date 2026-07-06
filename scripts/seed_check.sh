@@ -86,6 +86,8 @@ echo "  ✓ every system has a rating row"
 # only surface on first /api/map/* call in prod, which is too late.
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "SELECT refresh_map_mviews();" >/dev/null
 echo "  ✓ refresh_map_mviews() succeeds"
+psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "REFRESH MATERIALIZED VIEW mv_archetype_rankings;" >/dev/null
+echo "  ✓ mv_archetype_rankings refreshed"
 
 echo
 echo "▶ seed_check: PASS"

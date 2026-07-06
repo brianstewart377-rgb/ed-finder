@@ -39,7 +39,7 @@ async def test_local_search_accepts_every_hightech_form(client, economy):
         'filters':          {'distance': {'min': 0, 'max': 100000},
                              'economy':  economy},
         'size':             3,
-        'sort_by':          'rating',
+        'sort_by':          'development',
     })
     assert r.status_code == 200, (
         f"economy={economy!r} returned {r.status_code}: {r.text}"
@@ -59,7 +59,7 @@ async def test_local_search_accepts_extraction_forms(client, economy):
         'filters':          {'distance': {'min': 0, 'max': 100000},
                              'economy':  economy},
         'size':             3,
-        'sort_by':          'rating',
+        'sort_by':          'development',
     })
     assert r.status_code == 200, r.text
 

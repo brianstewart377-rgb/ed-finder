@@ -40,16 +40,14 @@ async def test_local_search_extraction_economy_uses_extraction_column(client):
         'reference_coords': {'x': 0, 'y': 0, 'z': 0},
         'filters':          {'distance': {'min': 0, 'max': 100000}, 'economy': 'Extraction'},
         'size':             3,
-        'sort_by':          'rating',
+        'sort_by':          'development',
     }
     r = await client.post('/api/local/search', json=payload)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body.get('display_economy') == 'Extraction'
-    # Ordering: descending by display_score (= score_extraction here)
-    scores = [row.get('display_score') for row in body['results'] if row.get('display_score') is not None]
-    assert scores == sorted(scores, reverse=True), \
-        f"display_score should descend, got {scores}"
+    scores = [row.get('archetype_score') for row in body['results'] if row.get('archetype_score') is not None]
+    assert scores == sorted(scores, reverse=True), f"archetype_score should descend, got {scores}"
 
 
 # --- 503 on DB failure (the core Phase 2 contract) --------------------------
