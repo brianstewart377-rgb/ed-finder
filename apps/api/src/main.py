@@ -44,6 +44,7 @@ from state   import set_pool, set_redis, metrics as _metrics
 
 # Routers
 from routers.admin     import router as admin_router
+from routers.evidence  import router as evidence_router
 from routers.events    import router as events_router, eddn_pubsub_bridge
 from routers.map       import router as map_router
 from routers.meta      import router as meta_router
@@ -278,6 +279,7 @@ app.include_router(notes_router)
 app.include_router(profile_router)
 app.include_router(admin_router)
 app.include_router(events_router)
+app.include_router(evidence_router)
 app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)

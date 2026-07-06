@@ -264,6 +264,29 @@ The write models validate enum values, require positive `system_id64`, normalise
 
 Observations do **not** change optimiser ranking, candidate generation, Simulation Preview scoring, CP/economy/service/buildability mechanics, or existing simulation response fields. They are stored evidence for future manual-entry UI and predicted-vs-observed comparison stages.
 
+## Evidence Store MVP
+
+The Evidence Store MVP adds a durable backend shelf for imported evidence, derived features, and rule-proposal governance. It complements `observed_facts` and `source_runs`; it does not replace them.
+
+| Endpoint | Purpose | Response Model |
+|---|---|---|
+| `GET /api/evidence/sources` | Return the current import-source catalog and recommended implementation order. | `EvidenceSourceCatalogResponse` |
+| `POST /api/evidence/records` | Create one imported/manual/inferred evidence record. | `EvidenceRecordResponse` |
+| `GET /api/evidence/records` | List evidence records with optional `system_id64`, `source_name`, and `origin` filters. | `EvidenceRecordListResponse` |
+| `POST /api/evidence/features` | Create one derived feature linked to evidence refs and optional source-run provenance. | `DerivedFeatureResponse` |
+| `GET /api/evidence/features` | List derived features with optional `system_id64` and `feature_name` filters. | `DerivedFeatureListResponse` |
+| `POST /api/evidence/rule-proposals` | Create a reviewable rule proposal backed by evidence refs and impact summary. | `RuleProposalResponse` |
+| `GET /api/evidence/rule-proposals` | List rule proposals with optional `status`, `domain`, and `scope_key` filters. | `RuleProposalListResponse` |
+| `POST /api/evidence/rule-proposals/{proposal_key}/decisions` | Record an approval/rejection/supersede/rollback decision for a proposal. | `RuleDecisionResponse` |
+| `GET /api/evidence/systems/{system_id64}/summary` | Return a compact per-system evidence summary combining observed facts, imported records, derived features, and open proposals. | `EvidenceSystemSummaryResponse` |
+
+Semantics:
+
+- `evidence_records` are the imported/manual/inferred shelf. They carry provenance JSON and may link back to `source_runs.source_run_key`.
+- `derived_features` are read-model style signals computed from evidence, not canonical truth.
+- `rule_proposals` are governance artifacts. They do not auto-apply mechanics changes.
+- `rule_decisions` are the audit trail for proposal review.
+
 ## Stage 6B Frontend Observed Evidence Integration
 
 Stage 6B adds the frontend integration on top of the Stage 6A API. It introduces frontend types, central API helpers, and an Observed Evidence panel inside Colony Planner. It does **not** change any backend contract.
