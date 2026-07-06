@@ -1,20 +1,21 @@
 # ed-finder frontend (Vite + React + TypeScript)
 
 Current React frontend for ed-finder, served at **`/`**. The source directory
-still happens to be named `frontend-v2`, but the public app path is no longer
-split across `/` and `/v2/`.
+is still named `frontend-v2` for historical reasons, but the public app path is
+no longer split across `/` and `/v2/`.
 
 ## Why this exists
 
 The vanilla `frontend/index.html` is ~12 500 lines of inline HTML/CSS/JS in a
 single file. It works, it ships, it's fast — but a single missing
 `-->` once silently nuked 500+ lines of behaviour for an unknown number of
-sessions before anyone noticed (see `memory/PRD.md` session #6). v2 is the
-seed of a future replacement. We are **not** committing to a full migration;
+sessions before anyone noticed (see `memory/PRD.md` session #6). This React app
+started as a `v2` migration path and became the live frontend. We are **not**
+committing to a full rewrite;
 this is a vertical-slice POC to evaluate whether the dev experience justifies
 the porting cost.
 
-## What's in v2 today
+## What's In The React App Today
 
 **Status: feature parity with the legacy vanilla app.** The React app is now
 the canonical frontend served from `/`. Now also:

@@ -17,12 +17,12 @@ deliberately isolated from the rest of `frontend-v2/src/` while we migrate.
 The redesign is gated by a feature flag in `src/main.tsx`. It does **not** load
 for default users:
 
-| Action                                   | Effect                          |
-|------------------------------------------|---------------------------------|
-| Visit `…/?ui=v3`                         | Load redesign + remember choice |
-| Visit `…/?ui=v2`                         | Load current shell + clear redesign choice |
-| `localStorage.setItem('uiV3','1')`+reload| Sticky redesign preview         |
-| `localStorage.removeItem('uiV3')`+reload | Back to v2                      |
+| Action                                   | Effect                                      |
+|------------------------------------------|---------------------------------------------|
+| Visit `…/?ui=v3`                         | Open New UI Preview and remember this device |
+| Visit `…/?ui=v2`                         | Return to Live UI and clear preview choice   |
+| `localStorage.setItem('uiV3','1')`+reload| Keep New UI Preview enabled                  |
+| `localStorage.removeItem('uiV3')`+reload | Return to Live UI                            |
 
 The redesign bundle (`RedesignApp-*.js`) and its CSS (`RedesignApp-*.css`) are
 emitted as **separate chunks** by Vite's dynamic-import code splitting, so

@@ -9,19 +9,19 @@ if (!rootEl) {
 const root = createRoot(rootEl);
 
 // ────────────────────────────────────────────────────────────────────────────
-// Feature flag: ?ui=v3  or  localStorage.uiV3 = "1"  →  load the redesign.
+// Feature flag: ?ui=v3  or  localStorage.uiV3 = "1"  →  load the new UI preview.
 //
-// The redesign is a parallel shell living in src/_redesign/. It is dynamically
+// The redesign is a separate preview shell living in src/_redesign/. It is dynamically
 // imported so its bundle (and its global CSS reset in redesign.css) never
-// reaches users who haven't opted in. Default users keep getting the existing
-// v2 experience exactly as before — zero behaviour change for them.
+// reaches users who haven't opted in. Default users keep getting the live UI
+// exactly as before — zero behaviour change for them.
 //
 // To opt in:
-//   • visit any page with `?ui=v3` (one-shot URL preview), or
-//   • run `localStorage.setItem('uiV3', '1')` in devtools (sticky preview),
+//   • visit any page with `?ui=v3` (one-shot preview), or
+//   • run `localStorage.setItem('uiV3', '1')` in devtools (remembered preview),
 //     reload to apply.
 //
-// To turn it off: `?ui=v2` (one-shot) or
+// To turn it off: `?ui=v2` (return to the live UI once) or
 //   `localStorage.removeItem('uiV3')` and reload.
 // ────────────────────────────────────────────────────────────────────────────
 function shouldUseRedesign(): boolean {

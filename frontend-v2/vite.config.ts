@@ -11,10 +11,10 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { v
 const appVersion = packageJson.version ?? '0.0.0';
 
 // ────────────────────────────────────────────────────────────────────────────
-// Vite config for ed-finder v2 — Emergent preview / dev variant.
+// Vite config for the React frontend — Emergent preview / dev variant.
 //
 // Differences from production config:
-//   • `base: '/'` — preview serves the v2 React app at the root, not /v2/.
+//   • `base: '/'` — preview serves the live React app at the root, not /v2/.
 //   • Port 3000 + 0.0.0.0 host so Emergent's ingress can route to it.
 //   • PWA plugin disabled (avoids stale SW caching during rapid iteration).
 //   • allowedHosts: 'all' so the preview hostname (*.preview.emergentagent.com)

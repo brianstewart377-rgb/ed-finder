@@ -124,7 +124,7 @@ function setCoalsackBackgroundVariables(): () => void {
 }
 
 /**
- * v2 root: NavBar + tab content + system-detail modal overlay.
+ * Root app shell: NavBar + tab content + system-detail modal overlay.
  *
  * State (search filters, watchlist, pins, compare) lives at this level so
  * tabs can share data and the modal — which can open from any tab — can

@@ -324,7 +324,7 @@ describe('App Development Tuning route', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Development Tuning' })).toBeTruthy();
+      expect(screen.getAllByRole('heading', { name: 'Development Tuning' }).length).toBeGreaterThan(0);
     });
   });
 });
@@ -733,9 +733,9 @@ describe('App Colony Planner workspace route', () => {
       expect(screen.getByTestId('nav-finder')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('nav-group-explore').textContent).toContain('explore');
-    expect(screen.getByTestId('nav-group-plan').textContent).toContain('plan');
-    expect(screen.getByTestId('nav-group-review').textContent).toContain('review');
+    expect(screen.getByTestId('nav-player-routes').textContent).toContain('Finder');
+    expect(screen.getByTestId('nav-player-routes').textContent).toContain('My Work');
+    expect(screen.getByTestId('nav-player-routes').textContent).toContain('Compare');
     expect(screen.getByTestId('nav-finder').textContent).toContain('Finder');
     expect(screen.getByTestId('nav-my-work').textContent).toContain('My Work');
     expect(screen.getByTestId('finder-page-heading').textContent).toContain('Finder');

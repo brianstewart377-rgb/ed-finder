@@ -664,11 +664,11 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       };
     case 'colony-planner-prototype':
       return {
-        title: 'Planner Prototype',
+        title: 'Planner Visual Prototype',
         primaryLabel: 'Prototype',
-        supportingText: 'The static prototype route remains isolated from the live player shell and does not replace the canonical live planner.',
+        supportingText: 'The static visual prototype route remains isolated from the live player shell and does not replace the canonical live planner.',
         nextAction: 'Return to the canonical live planner for real player workflows.',
-        statusLabel: 'Prototype route',
+        statusLabel: 'Visual prototype route',
         statusTone: 'caution',
       };
   }
