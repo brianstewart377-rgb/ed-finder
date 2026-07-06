@@ -8,6 +8,7 @@ import {
   systemStatusLabel,
 } from '@/lib/format';
 import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
+import { economyColor, economySoftColor } from '@/features/colony-planner/economyVisuals';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -132,18 +133,12 @@ export function ResultCard({
         <span className="chip chip-silver">{popLabel}</span>
 
         {archetypeLabel && (
-          <span
-            data-testid="result-card-suggested-archetype"
-            className="font-mono text-[10px] font-bold tracking-[0.12em] px-2.5 py-1 rounded-chunk border uppercase"
-            style={{
-              background: 'linear-gradient(180deg, rgba(34,211,238,0.16), rgba(34,211,238,0.06))',
-              borderColor: 'rgba(34,211,238,0.45)',
-              color: '#67e8f9',
-            }}
-            title={`${archetypeLabel.source === 'archetype' ? 'Primary' : 'Suggested'} archetype: ${archetypeLabel.label}`}
-          >
-            {archetypeLabel.label}
-          </span>
+          <ArchetypeChip
+            label={archetypeLabel.label}
+            source={archetypeLabel.source}
+            primaryEconomy={system.primaryEconomy ?? null}
+            secondaryEconomy={system.secondaryEconomy ?? null}
+          />
         )}
 
         <span
@@ -274,6 +269,92 @@ function bodyChip(label: string, count: number | null | undefined) {
       {label} <span className="text-orange font-bold tabular-nums">{count}</span>
     </span>
   );
+}
+
+function ArchetypeChip({
+  label,
+  source,
+  primaryEconomy,
+  secondaryEconomy,
+}: {
+  label: string;
+  source: 'archetype' | 'economy';
+  primaryEconomy: string | null;
+  secondaryEconomy: string | null;
+}) {
+  const parts = getSplitEconomyChipParts(label, primaryEconomy, secondaryEconomy);
+
+  if (!parts) {
+    return (
+      <span
+        data-testid="result-card-suggested-archetype"
+        className="font-mono text-[10px] font-bold tracking-[0.12em] px-2.5 py-1 rounded-chunk border uppercase"
+        style={{
+          background: 'linear-gradient(180deg, rgba(34,211,238,0.16), rgba(34,211,238,0.06))',
+          borderColor: 'rgba(34,211,238,0.45)',
+          color: '#67e8f9',
+        }}
+        title={`${source === 'archetype' ? 'Primary' : 'Suggested'} archetype: ${label}`}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  return (
+    <span
+      data-testid="result-card-suggested-archetype"
+      className="font-mono text-[10px] font-bold tracking-[0.12em] px-2.5 py-1 rounded-chunk border uppercase"
+      style={{
+        border: '1px solid transparent',
+        background: [
+          `linear-gradient(90deg, ${parts.primarySoft} 0 50%, ${parts.secondarySoft} 50% 100%) padding-box`,
+          `linear-gradient(90deg, ${parts.primaryColor} 0 50%, ${parts.secondaryColor} 50% 100%) border-box`,
+        ].join(', '),
+        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 0 10px -6px ${parts.primaryColor}, 0 0 10px -6px ${parts.secondaryColor}`,
+        color: '#d7f7fb',
+      }}
+      title={`${source === 'archetype' ? 'Primary' : 'Suggested'} archetype: ${label}`}
+    >
+      <span data-testid="result-card-suggested-archetype-primary" style={{ color: parts.primaryColor }}>
+        {parts.primaryEconomy}
+      </span>
+      <span className="text-silver"> / </span>
+      <span data-testid="result-card-suggested-archetype-secondary" style={{ color: parts.secondaryColor }}>
+        {parts.secondaryEconomy}
+      </span>
+      {parts.suffix ? <span className="text-silver"> {parts.suffix}</span> : null}
+    </span>
+  );
+}
+
+function getSplitEconomyChipParts(
+  label: string,
+  primaryEconomy: string | null,
+  secondaryEconomy: string | null,
+): {
+  primaryEconomy: string;
+  secondaryEconomy: string;
+  suffix: string;
+  primaryColor: string;
+  secondaryColor: string;
+  primarySoft: string;
+  secondarySoft: string;
+} | null {
+  if (!primaryEconomy || !secondaryEconomy) return null;
+
+  const prefix = `${primaryEconomy} / ${secondaryEconomy}`;
+  if (!label.startsWith(prefix)) return null;
+
+  return {
+    primaryEconomy,
+    secondaryEconomy,
+    suffix: label.slice(prefix.length).trim(),
+    primaryColor: economyColor(primaryEconomy),
+    secondaryColor: economyColor(secondaryEconomy),
+    primarySoft: economySoftColor(primaryEconomy),
+    secondarySoft: economySoftColor(secondaryEconomy),
+  };
 }
 
 function IconToggle({

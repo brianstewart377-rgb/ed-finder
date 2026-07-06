@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SystemResult } from '@/types/api';
+import { economyColor } from '@/features/colony-planner/economyVisuals';
 import { ResultCard } from './ResultCard';
 
 const system = {
@@ -73,6 +74,22 @@ describe('ResultCard actions', () => {
     expect(screen.getByText('Est. slots')).toBeTruthy();
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toBe('Refinery / Industrial Megacomplex');
     expect(screen.getAllByText('Refinery / Industrial Megacomplex').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('renders split economy colours for paired archetype chips', () => {
+    const pairedEconomies = {
+      ...system,
+      primaryEconomy: 'Refinery',
+      secondaryEconomy: 'Industrial',
+    } as unknown as SystemResult;
+
+    render(<ResultCard system={pairedEconomies} index={0} />);
+
+    const chip = screen.getByTestId('result-card-suggested-archetype');
+    expect(chip.getAttribute('style')).toContain(economyColor('Refinery'));
+    expect(chip.getAttribute('style')).toContain(economyColor('Industrial'));
+    expect(screen.getByTestId('result-card-suggested-archetype-primary').textContent).toBe('Refinery');
+    expect(screen.getByTestId('result-card-suggested-archetype-secondary').textContent).toBe('Industrial');
   });
 
   it('shows reversible saved state copy for save-for-later systems', () => {
