@@ -1,5 +1,5 @@
 import type { PinnedEntry } from './usePinned';
-import { getLegacyRatingScore, getLegacySuggestedEconomy } from '@/lib/legacyRating';
+import { getDevelopmentScore } from '@/lib/archetypes';
 
 /**
  * Factory helper so call-sites don't have to spell out the whole PinnedEntry
@@ -13,13 +13,12 @@ export function toPinnedEntry(sys: {
   population?:  number | null;
   is_colonised?: boolean | null;
   archetype_score?: number | null;
+  overall_development_potential?: number | null;
   primary_archetype?: string | null;
   secondary_archetype?: string | null;
   buildability_score?: number | null;
   purity_score?: number | null;
-  score?:       number | null;
   economy_suggestion?: string | null;
-  _rating?:     { score?: number | null; economySuggestion?: string | null } | null;
 }): PinnedEntry {
   return {
     id64:         sys.id64,
@@ -30,9 +29,8 @@ export function toPinnedEntry(sys: {
     population:   sys.population ?? null,
     is_colonised: !!sys.is_colonised,
     distance:     sys.distance ?? null,
-    rating:       getLegacyRatingScore(sys),
-    economy:      getLegacySuggestedEconomy(sys),
-    archetype_score: sys.archetype_score ?? null,
+    economy:      sys.economy_suggestion ?? null,
+    archetype_score: getDevelopmentScore(sys),
     primary_archetype: sys.primary_archetype ?? null,
     secondary_archetype: sys.secondary_archetype ?? null,
     buildability_score: sys.buildability_score ?? null,

@@ -129,7 +129,7 @@ export const PRESETS = [
     id:    'hightech',
     icon:  '🔬',
     label: 'High-Tech R&D',
-    hint:  'Populated, high-rating, science-heavy',
+    hint:  'Populated, high-development, science-heavy',
     filters: {
       // Wire value matches the PG `economy_type` enum literal `HighTech`
       // (no space). The dropdown label still reads 'High Tech'.

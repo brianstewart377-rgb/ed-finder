@@ -37,7 +37,6 @@ describe('SystemTable data trust display', () => {
       population: 1000,
       is_colonised: false,
       score: 91,
-      legacyScore: 82,
       economy: 'Refinery',
       archetype: 'refinery_industrial',
       secondaryArchetype: 'trade_logistics',
@@ -48,7 +47,6 @@ describe('SystemTable data trust display', () => {
     render(<SystemTable rows={rows} columns={['system', 'score', 'economy']} />);
 
     expect(screen.getByText('S 91')).toBeTruthy();
-    expect(screen.getByText('Legacy 82')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
     expect(screen.getByText('Trade / Logistics Hub')).toBeTruthy();
   });

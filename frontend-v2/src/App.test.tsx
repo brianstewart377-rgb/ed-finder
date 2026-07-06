@@ -148,17 +148,26 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
     id64: number;
     savedForLater?: boolean;
     saveForLaterState?: 'idle' | 'saving' | 'removing';
-    onToggleSaveForLater?: (system: {
-      id64: number;
-      name: string;
-      x: number;
-      y: number;
-      z: number;
-      population: number | null;
-      is_colonised: boolean;
-      score: number | null;
-      primary_economy: string | null;
-      economy_suggestion: string | null;
+    onToggleSaveForLater?: (context: {
+      system: {
+        id64: number;
+        name: string;
+        x: number;
+        y: number;
+        z: number;
+        population: number | null;
+        is_colonised: boolean;
+        score: number | null;
+        primary_economy: string | null;
+        economy_suggestion: string | null;
+      };
+      archetype: {
+        overall_development_potential: number | null;
+        primary_archetype: string | null;
+        secondary_archetype: string | null;
+        buildability_score: number | null;
+        purity_score: number | null;
+      } | null;
     }) => void;
     onStartPlan?: (system: {
       id64: number;
@@ -182,16 +191,25 @@ vi.mock('@/features/system-detail/SystemDetailModal', () => ({
         type="button"
         disabled={saveForLaterState === 'saving' || saveForLaterState === 'removing'}
         onClick={() => onToggleSaveForLater?.({
-          id64,
-          name: `System ${id64}`,
-          x: 1,
-          y: 2,
-          z: 3,
-          population: 0,
-          is_colonised: false,
-          score: 77,
-          primary_economy: 'Agriculture',
-          economy_suggestion: 'Refinery',
+          system: {
+            id64,
+            name: `System ${id64}`,
+            x: 1,
+            y: 2,
+            z: 3,
+            population: 0,
+            is_colonised: false,
+            score: 77,
+            primary_economy: 'Agriculture',
+            economy_suggestion: 'Refinery',
+          },
+          archetype: {
+            overall_development_potential: 88,
+            primary_archetype: 'refinery_industrial',
+            secondary_archetype: 'trade_logistics',
+            buildability_score: 80,
+            purity_score: 70,
+          },
         })}
       >
         {saveForLaterState === 'saving'
@@ -280,11 +298,12 @@ function seedFinderResult(overrides: Record<string, unknown> = {}) {
     population: 0,
     is_colonised: false,
     primaryEconomy: 'Refinery',
-    _rating: {
-      score: 88,
-      confidence: 0.9,
-      rationale: 'Strong candidate',
-    },
+    archetype_score: 91,
+    primary_archetype: 'refinery_industrial',
+    secondary_archetype: 'trade_logistics',
+    buildability_score: 84,
+    purity_score: 73,
+    economy_suggestion: 'Refinery',
     ...overrides,
   };
   mockSearchResults.push(result);
@@ -299,14 +318,14 @@ function seedFinderResult(overrides: Record<string, unknown> = {}) {
   return result;
 }
 
-describe('App Advanced Search Tuning route', () => {
-  it.each(['#search-tuning', '#optimizer'])('renders Advanced Search Tuning for %s', async (hash) => {
+describe('App Development Tuning route', () => {
+  it.each(['#search-tuning', '#optimizer'])('renders Development Tuning for %s', async (hash) => {
     window.location.hash = hash;
 
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Advanced Search Tuning' })).toBeTruthy();
+      expect(screen.getByRole('heading', { name: 'Development Tuning' })).toBeTruthy();
     });
   });
 });
@@ -517,6 +536,11 @@ describe('App Colony Planner workspace route', () => {
       population: 0,
       is_colonised: false,
       score: 77,
+      archetype_score: 88,
+      primary_archetype: 'refinery_industrial',
+      secondary_archetype: 'trade_logistics',
+      buildability_score: 80,
+      purity_score: 70,
     }));
     await waitFor(() => {
       expect(screen.getByTestId('saved-system-notice').textContent).toContain('Saved to My Work');
@@ -630,6 +654,11 @@ describe('App Colony Planner workspace route', () => {
       population: 0,
       is_colonised: false,
       score: 88,
+      archetype_score: 91,
+      primary_archetype: 'refinery_industrial',
+      secondary_archetype: 'trade_logistics',
+      buildability_score: 84,
+      purity_score: 73,
     }));
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
     expect(window.location.hash).toBe('#finder');

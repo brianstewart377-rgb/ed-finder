@@ -4,9 +4,7 @@ import { MapErrorBoundary } from './MapErrorBoundary';
 import { useMapLayers } from './useMapLayers';
 import type { SystemResult } from '@/types/api';
 import { formatPopulationForSystem, formatDistance, formatCoords } from '@/lib/format';
-import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
-import { displayRationale } from '@/lib/rationale';
-import { getLegacyRatingRationale } from '@/lib/legacyRating';
+import { archetypeTierFromScore, getDevelopmentScore, getFinderArchetypeSummary } from '@/lib/archetypes';
 
 /**
  * Map tab — wraps the GalacticMap with a selection-detail side panel.
@@ -345,10 +343,9 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
       </aside>
     );
   }
-  const archetypeScore = system.archetype_score ?? system.overall_development_potential ?? null;
+  const archetypeScore = getDevelopmentScore(system);
   const tier = system.archetype_tier ?? archetypeTierFromScore(archetypeScore);
   const archetype = getFinderArchetypeSummary(system);
-  const rationale = displayRationale(getLegacyRatingRationale(system));
   return (
     <aside
       data-testid="map-selection-panel"
@@ -396,11 +393,6 @@ function SelectionPanel({ system }: { system: SystemResult | null }) {
           <Row label="Distance" value={formatDistance(system.distance)!} />
         )}
       </dl>
-      {rationale && (
-        <p className="text-text-dim italic leading-snug border-t border-border pt-2">
-          {rationale}
-        </p>
-      )}
     </aside>
   );
 }

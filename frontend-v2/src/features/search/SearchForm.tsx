@@ -56,7 +56,18 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
       />
 
-      <div className="text-xs text-dim mb-2 text-right"><a href="/v2/ratings.html" target="_blank" rel="noopener" data-testid="rating-help-link" className="text-orange hover:underline">Scoring model notes &rarr;</a></div><Section title="Search Radius">
+      <div className="mb-2 text-right text-xs text-dim">
+        <a
+          href="/v2/development.html"
+          target="_blank"
+          rel="noopener"
+          data-testid="development-help-link"
+          className="text-orange hover:underline"
+        >
+          Development model notes &rarr;
+        </a>
+      </div>
+      <Section title="Search Radius">
         <RangeRow
           label="Min distance (LY)"
           min={0} max={2000}

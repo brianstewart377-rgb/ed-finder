@@ -23,7 +23,7 @@ describe('NavBar', () => {
     expect(screen.queryByTestId('nav-pinned')).toBeNull();
 
     rerender(<NavBar current="search-tuning" onNavigate={vi.fn()} health="Online" />);
-    expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Advanced Search Tuning');
+    expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Development Tuning');
     expect(screen.queryByTestId('nav-my-work')).toBeNull();
 
     rerender(<NavBar current="compare" onNavigate={vi.fn()} health="Online" compareCount={2} colonyCount={1} fcCount={1} />);

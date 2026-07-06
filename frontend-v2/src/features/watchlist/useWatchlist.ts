@@ -46,6 +46,12 @@ function entryFromHint(id64: number, hint?: Partial<WatchlistEntry>): WatchlistE
     is_colonised: hint?.is_colonised ?? false,
     added_at:     new Date().toISOString(),
     score:        hint?.score ?? null,
+    economy_suggestion: hint?.economy_suggestion ?? null,
+    archetype_score: hint?.archetype_score ?? null,
+    primary_archetype: hint?.primary_archetype ?? null,
+    secondary_archetype: hint?.secondary_archetype ?? null,
+    buildability_score: hint?.buildability_score ?? null,
+    purity_score: hint?.purity_score ?? null,
   };
 }
 

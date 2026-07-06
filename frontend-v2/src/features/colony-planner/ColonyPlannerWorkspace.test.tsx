@@ -470,7 +470,7 @@ describe('ColonyPlannerWorkspace', () => {
     await renderPlanner({ onOpenSystemDetail });
 
     expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Refinery').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agriculture').length).toBeGreaterThan(0);
     expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
     expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
     expect(screen.getByTestId('raven-real-planner-canvas')).toBeTruthy();
@@ -534,7 +534,7 @@ describe('ColonyPlannerWorkspace', () => {
     expect(within(summaryPanel).getAllByText('0').length).toBeGreaterThan(0);
     expect(within(screen.getByTestId('plan-health-card')).getByText('Unassigned')).toBeTruthy();
     expect(within(screen.getByTestId('plan-health-card')).getByText('Warnings')).toBeTruthy();
-    expect(within(screen.getByTestId('plan-health-card')).getByText('Refinery / Industrial Plan')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText(/Agriculture.*Plan/)).toBeTruthy();
     expect(document.body.textContent).not.toMatch(/Stage 15|15H|15I|deferred to next stages/i);
     expect(screen.queryByText('Attached Structures')).toBeNull();
 
@@ -572,7 +572,7 @@ describe('ColonyPlannerWorkspace', () => {
         onPlanSnapshotChange: expect.any(Function),
         initialRequest: {
           system_id64: 123,
-          target_archetype: 'refinery_industrial',
+          target_archetype: 'agriculture_terraforming',
           placements: [],
         },
       }),

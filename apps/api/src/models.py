@@ -25,14 +25,14 @@ SQL projections in `routers/systems.py` + `local_search.py` first.
 Strictness policy (2026-05-09 follow-up to the search-503 RCA):
 
 * **Row models** (`SystemRow`, `SystemDetailRow`, `BodyModel`,
-  `StationModel`, `RatingModel`, `RerankRow`, `AutocompleteHit`,
+  `StationModel`, `AutocompleteHit`,
   `RangeFilter`, `BodyCountFilter`, `BodyFilters`,
   `ExplorationValueModel`) → `extra='allow'`. SQL projections
   legitimately drift; silently dropping an existing field would be a
   worse bug than passing through an unknown one.
 * **Response envelopes** (`SearchResponse`, `AutocompleteResponse`,
-  `StatusResponse`, `CacheStatsResponse`, `RerankResponse`,
-  `SystemDetailResponse`, `HealthResponse`) → `extra='forbid'`. The
+  `StatusResponse`, `CacheStatsResponse`, `SystemDetailResponse`,
+  `HealthResponse`) → `extra='forbid'`. The
   top-level envelope shape changes rarely and intentionally;
   forgetting to update the model when adding a key should be a loud
   failure (Pydantic ValidationError → 500), not silently shipped
@@ -42,7 +42,7 @@ Strictness policy (2026-05-09 follow-up to the search-503 RCA):
 
 Note on dict-typed request fields (2026-05-09 follow-up): every
 request-side `Optional[dict]` has been replaced with a proper sub-model
-(RangeFilter, BodyFilters, RerankWeightsInput, etc.) or `Optional[Any]`
+(RangeFilter, BodyFilters, etc.) or `Optional[Any]`
 where the shape is genuinely opaque. Pydantic 2.10+ emits
 `additionalProperties: false` for `dict` fields, which openapi-typescript
 renders as the strict-empty `Record<string, never>` — strict-mode TS
@@ -189,33 +189,6 @@ class BodyFilters(BaseModel):
     walkable_count:      Optional[BodyCountFilter] = None
 
 
-class RatingModel(BaseModel):
-    """camelCase rating block embedded inside SystemRow under `_rating`.
-
-    Mirrors the shape produced by `helpers.sys_row_to_dict` so the
-    generated TypeScript matches what the search response actually puts
-    on the wire.
-    """
-    model_config = ConfigDict(extra='allow')
-
-    score:                  Optional[float] = None
-    scoreAgriculture:       Optional[float] = None
-    scoreRefinery:          Optional[float] = None
-    scoreIndustrial:        Optional[float] = None
-    scoreHightech:          Optional[float] = None
-    scoreMilitary:          Optional[float] = None
-    scoreTourism:           Optional[float] = None
-    scoreExtraction:        Optional[float] = None
-    economySuggestion:      Optional[str]   = None
-    breakdown:              Optional[Any]   = None  # opaque rationale payload
-    ratingVersion:          Optional[str]   = None
-    # v3.1 fields — mirrored in camelCase for frontend parity.
-    terraformingPotential:  Optional[float] = None
-    bodyDiversity:          Optional[float] = None
-    confidence:             Optional[float] = None
-    rationale:              Optional[str]   = None
-
-
 class BodyRingModel(BaseModel):
     model_config = ConfigDict(extra='allow')
 
@@ -344,28 +317,6 @@ class SystemRow(BaseModel):
     contamination_risk:  Optional[float]       = None
     est_total_slots:     Optional[int]         = None
     tags:                list[str]             = Field(default_factory=list)
-    # Legacy v3.x rating fields remain available at top level as
-    # compatibility context while the v2 UI moves off `_rating` as the
-    # normal live path.
-    score:               Optional[float]       = None
-    score_agriculture:   Optional[float]       = None
-    score_refinery:      Optional[float]       = None
-    score_industrial:    Optional[float]       = None
-    score_hightech:      Optional[float]       = None
-    score_military:      Optional[float]       = None
-    score_tourism:       Optional[float]       = None
-    score_extraction:    Optional[float]       = None
-    economy_suggestion:  Optional[str]         = None
-    rating_version:      Optional[str]         = None
-    terraforming_potential: Optional[float]    = None
-    body_diversity:      Optional[float]       = None
-    confidence:          Optional[float]       = None
-    rationale:           Optional[str]         = None
-
-    # Embedded rating block (also camelCase). Field name has a leading
-    # underscore on the wire — Pydantic v2 keeps the raw alias.
-    rating: Optional[RatingModel] = Field(default=None, alias='_rating')
-
     # Body counts surfaced flat for filter pills (the search SQL
     # projects these from the ratings row).
     elw_count:            Optional[int] = None
@@ -565,55 +516,6 @@ class CacheStatsResponse(BaseModel):
     db_cache_rows:    int = 0
 
 
-class RerankWeights(BaseModel):
-    economy:      float = 0.42
-    slots:        float = 0.23
-    strategic:    float = 0.18
-    safety:       float = 0.10
-    terraforming: float = 0.05
-    diversity:    float = 0.02
-
-
-class RerankContributions(BaseModel):
-    economy:      float
-    slots:        float
-    strategic:    float
-    safety:       float
-    terraforming: float
-    diversity:    float
-
-
-class RerankSignals(BaseModel):
-    economy_score:              Optional[float] = None
-    slots:                      Optional[float] = None
-    body_quality:               Optional[float] = None
-    orbital_safety:             Optional[float] = None
-    terraforming_potential:     Optional[float] = None
-    body_diversity:             Optional[float] = None
-    confidence:                 Optional[float] = None
-
-
-class RerankRow(BaseModel):
-    model_config = ConfigDict(extra='allow')
-
-    id64:           int
-    reranked_score: int
-    original_score: Optional[float] = None
-    confidence:     Optional[float] = None
-    rationale:      Optional[str]   = None
-    economy_used:   Optional[str]   = None
-    contributions:  Optional[RerankContributions] = None
-    signals:        Optional[RerankSignals] = None
-
-
-class RerankResponse(BaseModel):
-    model_config = ConfigDict(extra='forbid')
-
-    weights_applied: RerankWeights
-    economy_used:    Optional[str] = None
-    results:         list[RerankRow]
-
-
 class WatchlistAlert(BaseModel):
     min_development_score: Optional[int] = Field(
         default=None,
@@ -657,11 +559,7 @@ class LocalSearchRequest(BaseModel):
     require_geo:      Optional[bool]           = None
     require_terra:    Optional[bool]           = None
     star_types:       Optional[list[str]]      = None
-    min_development_score: Optional[int] = Field(
-        default=None,
-        validation_alias=AliasChoices('min_development_score', 'min_rating'),
-        serialization_alias='min_development_score',
-    )
+    min_development_score: Optional[int] = None
     galaxy_wide:      bool                     = False
 
     model_config = {'populate_by_name': True}
@@ -670,9 +568,7 @@ class LocalSearchRequest(BaseModel):
     @classmethod
     def _normalise_sort_by(cls, value: object) -> object:
         if isinstance(value, str):
-            lowered = value.strip().lower()
-            if lowered == 'rating':
-                return 'development'
+            return value.strip().lower()
         return value
 
 
@@ -942,8 +838,6 @@ class ArchetypeRerankResponse(BaseModel):
     _cached:         Optional[bool]             = None
 
 
-# Backward-compat alias used in ratings.py POST /api/ratings/rerank
-RerankedSystemRow = ArchetypeRerankRow
 
 
 # ── Request: POST /api/archetypes/simulate ───────────────────────────

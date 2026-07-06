@@ -19,9 +19,8 @@ Cache strategy:
     rerank    → Redis key arch:v{ver}:rerank:{hash}                                TTL 120s
     profiles  → Redis key arch:profiles                                            TTL 3600s
 
-Backward compatibility:
-    The existing /api/ratings/rerank endpoint is UNCHANGED.
-    All new routes are under /api/archetypes/* to avoid conflicts.
+Route scope:
+    Development rerank and archetype endpoints live under /api/archetypes/*.
 """
 
 import hashlib
@@ -46,7 +45,6 @@ from models import (
     ArchetypesProfilesResponse,
     BuildSimulateRequest,
     BuildSimulateResponse,
-    RerankedSystemRow,
     SystemArchetypeResponse,
 )
 from state import get_pool_singleton as get_pool, get_redis_singleton as get_redis

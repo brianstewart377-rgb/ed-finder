@@ -50,7 +50,7 @@ export function WholeSystemColonyPlanner({
   const [placements, setPlacements] = useState<SimulateBuildPlacement[]>([]);
   const [placementLaneHints, setPlacementLaneHints] = useState<Record<number, BodyPlannerLane>>({});
   const [targetArchetype, setTargetArchetype] = useState(() => (
-    archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial'
+    system.primary_archetype ?? archetypeFromEconomy(system.primary_economy) ?? 'refinery_industrial'
   ));
   const [projection, setProjection] = useState<TopologyPlanSnapshot['projection']>(null);
   const [advancedPanelOpen, setAdvancedPanelOpen] = useState(false);
@@ -89,7 +89,8 @@ export function WholeSystemColonyPlanner({
 
   const templates = useMemo(() => templatesQuery.data ?? [], [templatesQuery.data]);
   const suggestedArchetype = summaryQuery.data?.classification?.primary_archetype
-    ?? archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy)
+    ?? system.primary_archetype
+    ?? archetypeFromEconomy(system.primary_economy)
     ?? 'refinery_industrial';
 
   useEffect(() => {
@@ -103,9 +104,9 @@ export function WholeSystemColonyPlanner({
     setProjection(null);
     setStructurePicker(null);
     setStructureAddFeedback(null);
-    setTargetArchetype(archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial');
+    setTargetArchetype(system.primary_archetype ?? archetypeFromEconomy(system.primary_economy) ?? 'refinery_industrial');
     appliedProjectFingerprint.current = null;
-  }, [system.economy_suggestion, system.id64, system.primary_economy]);
+  }, [system.id64, system.primary_archetype, system.primary_economy]);
 
   useEffect(() => {
     if (placements.length > 0 || targetArchetype) return;

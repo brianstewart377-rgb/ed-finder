@@ -5,6 +5,8 @@
 **Status:** Design document — approved for phased implementation  
 **Scope:** Schema, scoring engine, API, migration, pipeline  
 
+**Update (2026-07):** The legacy ratings rerank surface (`POST /api/ratings/rerank`) has been retired. Development Tuning now uses `POST /api/archetypes/rerank`. Any remaining ratings-rerank references in this document are historical.
+
 ---
 
 ## Table of Contents

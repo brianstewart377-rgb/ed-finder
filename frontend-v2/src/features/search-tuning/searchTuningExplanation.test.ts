@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RerankRow } from '@/types/api';
+import type { DevelopmentRerankRow } from '@/types/api';
 import {
   buildTunedResultExplanation,
   describeRankMovement,
@@ -9,27 +9,25 @@ import {
   hasContributionBreakdown,
 } from './searchTuningExplanation';
 
-const row: RerankRow = {
+const row: DevelopmentRerankRow = {
   id64: 123,
   reranked_score: 82,
   original_score: 70,
   confidence: 0.92,
-  rationale: 'Stored rationale',
-  economy_used: 'Tourism',
+  rationale: { summary: 'Stored rationale' },
   contributions: {
-    economy: 30,
+    purity: 30,
+    buildability: 24,
     slots: 20,
-    strategic: 12,
-    safety: 8,
-    terraforming: 1,
-    diversity: 0.5,
+    expansion: 12,
+    logistics: 1,
   },
 };
 
 describe('searchTuningExplanation', () => {
   it('sorts top and weakest contributors deterministically', () => {
-    expect(getTopContributors(row).map((item) => item.label)).toEqual(['Economy', 'Slots']);
-    expect(getWeakestSignals(row).map((item) => item.label)).toEqual(['Diversity', 'Terraforming']);
+    expect(getTopContributors(row).map((item) => item.label)).toEqual(['Purity', 'Buildability']);
+    expect(getWeakestSignals(row).map((item) => item.label)).toEqual(['Logistics', 'Expansion']);
   });
 
   it('describes rank movement conservatively', () => {
@@ -41,23 +39,22 @@ describe('searchTuningExplanation', () => {
 
   it('builds concise explanation lines from available contribution data', () => {
     expect(buildTunedResultExplanation(row, 4, 1)).toEqual([
-      'Moved up 3 places. economy and slots helped most under the current scoring emphasis.',
-      'diversity and terraforming contributed less under the current weights.',
+      'Moved up 3 places. purity and buildability helped most under the current scoring emphasis.',
+      'logistics and expansion contributed less under the current weights.',
       'Final tuned score may also reflect the stored confidence adjustment.',
     ]);
   });
 
   it('uses neutral explanation copy when all contributions are zero', () => {
-    const zeroRow: RerankRow = {
+    const zeroRow: DevelopmentRerankRow = {
       ...row,
       confidence: null,
       contributions: {
-        economy: 0,
+        purity: 0,
+        buildability: 0,
         slots: 0,
-        strategic: 0,
-        safety: 0,
-        terraforming: 0,
-        diversity: 0,
+        expansion: 0,
+        logistics: 0,
       },
     };
 
@@ -69,29 +66,28 @@ describe('searchTuningExplanation', () => {
   });
 
   it('describes mixed positive and zero contributions without penalty language', () => {
-    const mixedRow: RerankRow = {
+    const mixedRow: DevelopmentRerankRow = {
       ...row,
       confidence: null,
       contributions: {
-        economy: 30,
+        purity: 30,
+        buildability: 0,
         slots: 0,
-        strategic: 12,
-        safety: 0,
-        terraforming: 0,
-        diversity: 0,
+        expansion: 12,
+        logistics: 0,
       },
     };
 
     const explanation = buildTunedResultExplanation(mixedRow, 4, 1);
     expect(explanation).toEqual([
-      'Moved up 3 places. economy and strategic helped most under the current scoring emphasis.',
-      'slots and safety contributed less under the current weights.',
+      'Moved up 3 places. purity and expansion helped most under the current scoring emphasis.',
+      'buildability and slots contributed less under the current weights.',
     ]);
     expect(explanation.join(' ')).not.toContain('held this tuned position back');
   });
 
   it('returns a fallback when contribution data is unavailable', () => {
-    const fallbackRow: RerankRow = { id64: 456, reranked_score: 60 };
+    const fallbackRow: DevelopmentRerankRow = { id64: 456, reranked_score: 60 };
 
     expect(hasContributionBreakdown(fallbackRow)).toBe(false);
     expect(buildTunedResultExplanation(fallbackRow, 2, 2)).toEqual([

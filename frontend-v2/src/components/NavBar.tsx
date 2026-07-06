@@ -69,7 +69,7 @@ export function NavBar({
     explore: [
       { route: 'finder' as const, label: 'Finder', shortLabel: 'Explore', testid: 'nav-finder' },
       { route: 'map' as const, label: 'Map', shortLabel: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
-      { route: 'search-tuning' as const, label: 'Advanced Search Tuning', shortLabel: 'Advanced', testid: 'nav-search-tuning' },
+      { route: 'search-tuning' as const, label: 'Development Tuning', shortLabel: 'Tuning', testid: 'nav-search-tuning' },
     ],
     plan: [
       { route: 'my-work' as const, label: 'My Work', shortLabel: 'My Work', testid: 'nav-my-work' },

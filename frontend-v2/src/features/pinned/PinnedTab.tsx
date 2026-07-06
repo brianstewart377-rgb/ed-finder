@@ -9,7 +9,7 @@ export interface PinnedTabProps {
   onOpenDetail?: (id64: number) => void;
 }
 
-type Sort = 'pinned_at' | 'name' | 'rating' | 'distance';
+type Sort = 'pinned_at' | 'name' | 'development' | 'distance';
 
 export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps) {
   const [sort, setSort] = useState<Sort>('pinned_at');
@@ -17,7 +17,7 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
   const sorted = [...pinned.entries].sort((a, b) => {
     switch (sort) {
       case 'name':   return a.name.localeCompare(b.name);
-      case 'rating': return ((b.archetype_score ?? b.rating) ?? -1) - ((a.archetype_score ?? a.rating) ?? -1);
+      case 'development': return (b.archetype_score ?? -1) - (a.archetype_score ?? -1);
       case 'distance': {
         const da = distanceFromSol(a, a.id64) ?? Number.POSITIVE_INFINITY;
         const db = distanceFromSol(b, b.id64) ?? Number.POSITIVE_INFINITY;
@@ -37,8 +37,7 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
     z:            p.z,
     population:   p.population,
     is_colonised: p.is_colonised,
-    score:        p.archetype_score ?? p.rating,
-    legacyScore:  p.rating,
+    score:        p.archetype_score ?? null,
     economy:      p.economy,
     archetype:    p.primary_archetype ?? null,
     secondaryArchetype: p.secondary_archetype ?? null,
@@ -64,7 +63,7 @@ export function PinnedTab({ pinned, onShowOnMap, onOpenDetail }: PinnedTabProps)
           >
             <option value="pinned_at">Recently pinned</option>
             <option value="name">Name</option>
-            <option value="rating">Development ↓</option>
+            <option value="development">Development ↓</option>
             <option value="distance">Distance from Sol ↑</option>
           </select>
         </label>

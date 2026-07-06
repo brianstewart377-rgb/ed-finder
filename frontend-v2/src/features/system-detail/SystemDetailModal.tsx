@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Bookmark, Compass, Rocket, X } from 'lucide-react';
-import type { SystemDetail, SystemBody, SystemStation } from '@/types/api';
+import type { SystemArchetypeResponse, SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { distanceFromSol, formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
-import { displayRationale } from '@/lib/rationale';
 import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
 import {
@@ -17,7 +16,6 @@ import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';
 import { ArchetypeAssessment } from './ArchetypeAssessment';
-import { RatingRadar } from './RatingRadar';
 
 export interface SystemDetailModalProps {
   id64:    number;
@@ -25,7 +23,10 @@ export interface SystemDetailModalProps {
   focusIntent?: 'colony-planner' | null;
   savedForLater?: boolean;
   saveForLaterState?: 'idle' | 'saving' | 'removing';
-  onToggleSaveForLater?: (system: SystemDetail) => void;
+  onToggleSaveForLater?: (context: {
+    system: SystemDetail;
+    archetype: SystemArchetypeResponse | null;
+  }) => void;
   onStartPlan?: (
     system: SystemDetail,
     planStart: {
@@ -37,7 +38,10 @@ export interface SystemDetailModalProps {
    *  Watchlist / Pin / Compare / Show-on-map without this component knowing
    *  about those features. Receives the loaded SystemDetail or null while
    *  the fetch is in flight. */
-  renderActions?: (sys: SystemDetail | null) => React.ReactNode;
+  renderActions?: (context: {
+    system: SystemDetail | null;
+    archetype: SystemArchetypeResponse | null;
+  }) => React.ReactNode;
 }
 
 /**
@@ -159,6 +163,7 @@ export function SystemDetailModal({
             <>
               <ColonyPlannerEntryPoint
                 system={data}
+                archetype={archetypeData}
                 savedForLater={savedForLater}
                 saveForLaterState={saveForLaterState}
                 planningOpen={planStartOpen}
@@ -178,9 +183,6 @@ export function SystemDetailModal({
                   onRetry={refetchArchetype}
                 />
               </Section>
-              <Section title="Legacy rating signals">
-                <RatingRadar sys={data} />
-              </Section>
               <SystemInfoGrid sys={data} />
               <BodiesSection bodies={data.bodies} systemName={data.name} />
               <StationsSection stations={data.stations} />
@@ -192,7 +194,7 @@ export function SystemDetailModal({
           )}
 
           <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
-            {renderActions?.(data)}
+            {renderActions?.({ system: data, archetype: archetypeData })}
           </div>
         </div>
       </article>
@@ -202,6 +204,7 @@ export function SystemDetailModal({
 
 function ColonyPlannerEntryPoint({
   system,
+  archetype,
   savedForLater,
   saveForLaterState,
   planningOpen,
@@ -214,12 +217,16 @@ function ColonyPlannerEntryPoint({
   onStartPlan,
 }: {
   system: SystemDetail;
+  archetype: SystemArchetypeResponse | null;
   savedForLater: boolean;
   saveForLaterState: 'idle' | 'saving' | 'removing';
   planningOpen: boolean;
   selectedObjective: ColonyProjectObjective | null;
   selectedStartApproach: ColonyProjectStartApproach | null;
-  onToggleSaveForLater?: (system: SystemDetail) => void;
+  onToggleSaveForLater?: (context: {
+    system: SystemDetail;
+    archetype: SystemArchetypeResponse | null;
+  }) => void;
   onTogglePlanStart: () => void;
   onSelectObjective: (value: ColonyProjectObjective) => void;
   onSelectStartApproach: (value: ColonyProjectStartApproach) => void;
@@ -269,7 +276,7 @@ function ColonyPlannerEntryPoint({
           <>
             <button
               type="button"
-              onClick={() => onToggleSaveForLater?.(system)}
+              onClick={() => onToggleSaveForLater?.({ system, archetype })}
               disabled={saveActionBusy}
               data-testid="system-detail-save-for-later"
               aria-pressed={savedForLater}
@@ -531,9 +538,6 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
     sys.secondary_economy
       ? { label: 'Secondary economy', value: sys.secondary_economy }
       : null,
-    sys.economy_suggestion
-      ? { label: 'Suggested economy', value: <span className="text-orange">{sys.economy_suggestion}</span> }
-      : null,
     {
       label: 'Population',
       value: formatPopulationForSystem(sys),
@@ -544,7 +548,6 @@ function SystemInfoGrid({ sys }: { sys: SystemDetail }) {
     sys.main_star_subtype || sys.main_star_type
       ? { label: 'Main star', value: <span className="text-cyan">{sys.main_star_subtype || sys.main_star_type}</span> }
       : null,
-    displayRationale(sys.rationale) ? { label: 'Rating rationale', value: <span className="italic text-text-dim">{displayRationale(sys.rationale)}</span> } : null,
   ];
 
   const visible = fields.filter(

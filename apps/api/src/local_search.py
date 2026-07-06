@@ -143,43 +143,7 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
         # Galaxy region (named ED codex region)
         "galaxy_region_id":  row.get("galaxy_region_id"),
         "galaxy_region":     row.get("galaxy_region_name"),
-        # Rating — display_score is the searched economy score when filtering
-        "rating":            display_score,
-        "score":             row.get("score"),       # always the overall score
-        "display_score":     display_score,          # economy-specific when filtering
         "updated_at":        row["updated_at"].isoformat() if row.get("updated_at") else None,
-        "score_components":  {
-            "slots":         row.get("r_slots"),
-            "bodyQuality":   row.get("r_body_quality"),
-            "compactness":   row.get("r_compactness"),
-            "signalQuality": row.get("r_signal_quality"),
-            "orbitalSafety": row.get("r_orbital_safety"),
-            "starBonus":     row.get("r_star_bonus"),
-        } if row.get("score") is not None else None,
-        "_rating": {
-            "score":              row.get("score"),
-            "displayScore":       display_score,
-            "scoreAgriculture":   row.get("score_agriculture"),
-            "scoreRefinery":      row.get("score_refinery"),
-            "scoreIndustrial":    row.get("score_industrial"),
-            "scoreHightech":      row.get("score_hightech"),
-            "scoreMilitary":      row.get("score_military"),
-            "scoreTourism":       row.get("score_tourism"),
-            "scoreExtraction":    row.get("score_extraction"),
-            "economySuggestion":  row.get("economy_suggestion"),
-            "ratingVersion":      row.get("rating_version"),
-            "elw_count":          row.get("elw_count"),
-            "ww_count":           row.get("ww_count"),
-            "ammonia_count":      row.get("ammonia_count"),
-            "gas_giant_count":    row.get("gas_giant_count"),
-            "neutron_count":      row.get("neutron_count"),
-            "black_hole_count":   row.get("black_hole_count"),
-            "white_dwarf_count":  row.get("white_dwarf_count"),
-            "landable_count":     row.get("landable_count"),
-            "terraformable_count": row.get("terraformable_count"),
-            "bio_signal_total":   row.get("bio_signal_total"),
-            "geo_signal_total":   row.get("geo_signal_total"),
-        },
         "bodies":            bodies,
         "source":            "local_db",
     }
@@ -231,7 +195,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     require_geo   = bool(body.get("require_geo", False))
     require_terra = bool(body.get("require_terra", False))
     star_types    = body.get("star_types", []) or []
-    min_rating    = int(body.get("min_development_score", body.get("min_rating", 0)))
+    min_development_score = int(body.get("min_development_score", 0))
     economy_filter   = body.get("economy") or body.get("filters", {}).get("economy")
     sec_econ_filter  = body.get("secondary_economy")
     galaxy_region_id = body.get("galaxy_region_id")  # NEW: named region filter
@@ -322,11 +286,11 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         placeholders = ", ".join(add(st) for st in star_types)
         wheres.append(f"s.main_star_class IN ({placeholders})")
 
-    if min_rating > 0:
+    if min_development_score > 0:
         # Filter on the archetype-led finder score when available, falling
         # back to the legacy display score for systems that do not yet have
         # archetype data.
-        wheres.append(f"{finder_score_expr} >= {add(min_rating)}")
+        wheres.append(f"{finder_score_expr} >= {add(min_development_score)}")
 
     # ── Body filters via ratings columns ─────────────────────────────────
     # Column / alias maps now live in search_economies.py — see
@@ -387,7 +351,7 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     # Sort by the display score (economy-specific when filtering, overall otherwise)
     order_sql = (
         f"ORDER BY {finder_score_expr} DESC NULLS LAST, dist ASC"
-        if sort_by in ("rating", "development")
+        if sort_by == "development"
         else "ORDER BY dist ASC"
     )
 
@@ -540,7 +504,6 @@ async def local_db_galaxy_search(body: dict, pool: asyncpg.Pool) -> dict:
             "population": {} if include_col else {"value": 0, "comparison": "equal"},
         },
         "min_development_score": min_score,
-        "min_rating":            min_score,
         "sort_by":               "development",
         "size":             limit,
         "from":             offset,

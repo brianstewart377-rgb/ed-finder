@@ -1,8 +1,12 @@
 import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import type { SystemResult } from '@/types/api';
-import { getLegacySuggestedEconomy } from '@/lib/legacyRating';
 
 export type ArchetypeTier = 'S' | 'A' | 'B' | 'C' | 'D';
+
+type DevelopmentScoreCarrier = Partial<Pick<
+  SystemResult,
+  'archetype_score' | 'overall_development_potential'
+>>;
 
 const ARCHETYPE_LABELS: Record<string, string> = {
   refinery_industrial: 'Refinery / Industrial Megacomplex',
@@ -36,9 +40,14 @@ export function archetypeTierFromScore(score: number | null | undefined): Archet
   return 'D';
 }
 
+export function getDevelopmentScore(system: DevelopmentScoreCarrier): number | null {
+  const score = system.archetype_score ?? system.overall_development_potential ?? null;
+  return typeof score === 'number' && Number.isFinite(score) ? score : null;
+}
+
 export function getFinderArchetypeSummary(system: Pick<
   SystemResult,
-  'primary_archetype' | 'secondary_archetype' | 'primaryEconomy' | 'secondaryEconomy' | 'economy_suggestion' | '_rating'
+  'primary_archetype' | 'secondary_archetype' | 'primaryEconomy' | 'secondaryEconomy'
 >): { key: string; label: string; source: 'archetype' | 'economy' } | null {
   if (system.primary_archetype) {
     return {
@@ -48,8 +57,7 @@ export function getFinderArchetypeSummary(system: Pick<
     };
   }
 
-  const suggestedEconomy = getLegacySuggestedEconomy(system) ?? system.primaryEconomy ?? system.secondaryEconomy ?? null;
-  const fallback = archetypeFromEconomy(suggestedEconomy);
+  const fallback = archetypeFromEconomy(system.primaryEconomy ?? system.secondaryEconomy ?? null);
   if (!fallback) return null;
   return {
     key: fallback,

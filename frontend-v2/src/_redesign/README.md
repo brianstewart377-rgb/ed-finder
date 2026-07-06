@@ -67,7 +67,7 @@ objects from the live endpoints, then replace the `import { SYSTEMS, … } from
 | Discover  | `SYSTEMS`, `EDDN_FEED`       | `POST /api/local/search`, `GET /api/events/recent` |
 | Map       | `REGIONS`, `CLUSTERS`, `HEATMAP` | `GET /api/map/{regions,clusters/hulls,heatmap}` |
 | Drawer    | `SYSTEMS[i]` detail          | `GET /api/system/{id64}`              |
-| Tabs      | hard-coded stubs             | `/api/watchlist`, `/api/ratings/rerank`, etc. |
+| Tabs      | hard-coded stubs             | `/api/watchlist`, `/api/archetypes/rerank`, etc. |
 
 Until those land, anyone opening the redesign sees the prototype's hand-picked
 mock data and not real galactic data — which is the desired behaviour for an

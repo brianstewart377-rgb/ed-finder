@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { hasKnownCoords, ratingTier } from '@/lib/format';
-import { getLegacyRatingScore } from '@/lib/legacyRating';
+import { hasKnownCoords } from '@/lib/format';
+import { archetypeTierFromScore, getDevelopmentScore } from '@/lib/archetypes';
 import type { SystemResult } from '@/types/api';
 import type { MapRegion, MapHeatmapResponse, MapClusterHull } from '@/lib/api';
 
@@ -50,6 +50,23 @@ function normalizeWheelDelta(deltaY: number, deltaMode: number, viewportHeight: 
 const GALAXY_CENTER = { x: 25.2, z: 25899.9 } as const;
 const GALAXY_RADIUS_LY = 50_000;
 
+function developmentColor(score: number | null | undefined): string {
+  switch (archetypeTierFromScore(score)) {
+    case 'S':
+      return '#22d3ee';
+    case 'A':
+      return '#4ade80';
+    case 'B':
+      return '#facc15';
+    case 'C':
+      return '#ff7a14';
+    case 'D':
+      return '#ef4444';
+    default:
+      return '#8a8f96';
+  }
+}
+
 /**
  * Galactic map — top-down 2-D scatter plot of `systems` on the X/Z plane.
  *
@@ -62,7 +79,7 @@ const GALAXY_RADIUS_LY = 50_000;
  *   • Galactic +X is right, +Z is up on screen (north galactic).
  *   • Reference system (Sol or whatever the user picked) is rendered
  *     as a centred orange diamond and is never clipped.
- *   • Each system is drawn as a circle whose color = rating tier.
+ *   • Each system is drawn as a circle whose color = development tier.
  */
 export interface GalacticMapProps {
   systems:        SystemResult[];
@@ -281,10 +298,10 @@ export function GalacticMap({
         const py = wz(c.cz);
         if (px + half < 0 || py + half < 0 || px - half > w || py - half > h) continue;
         const score = c.avg_score ?? 0;
-        const tier = ratingTier(score);
+        const fillColor = developmentColor(score);
         // Subtle fill; never strong enough to swamp star dots above it.
         ctx.globalAlpha = 0.16;
-        ctx.fillStyle = tier.fillColor;
+        ctx.fillStyle = fillColor;
         ctx.fillRect(px - half, py - half, cell, cell);
       }
       ctx.restore();
@@ -301,16 +318,16 @@ export function GalacticMap({
         const rad = c.radius_ly * safeView.scale;
         if (!isFiniteNumber(rad) || rad <= 0) continue;
         if (px + rad < 0 || py + rad < 0 || px - rad > w || py - rad > h) continue;
-        const tier = ratingTier(c.top_score ?? null);
+        const fillColor = developmentColor(c.top_score ?? null);
         // subtle translucent fill + slightly stronger ring
         ctx.beginPath();
         ctx.arc(px, py, rad, 0, Math.PI * 2);
         ctx.globalAlpha = 0.08;
-        ctx.fillStyle = tier.fillColor;
+        ctx.fillStyle = fillColor;
         ctx.fill();
         ctx.globalAlpha = 0.4;
         ctx.lineWidth = 1;
-        ctx.strokeStyle = tier.fillColor;
+        ctx.strokeStyle = fillColor;
         ctx.stroke();
       }
       ctx.restore();
@@ -370,21 +387,21 @@ export function GalacticMap({
       const px = wx(coords.x!);
       const py = wz(coords.z!);
       if (px < -10 || py < -10 || px > w + 10 || py > h + 10) continue;
-      const tier = ratingTier(sys.archetype_score ?? sys.overall_development_potential ?? getLegacyRatingScore(sys));
+      const fillColor = developmentColor(getDevelopmentScore(sys));
       const isSel = sys.id64 === selectedId64;
       const r = isSel ? 6 : 3;
 
       // soft halo behind every star
       const haloGrad = ctx.createRadialGradient(px, py, 0, px, py, r * 4);
-      haloGrad.addColorStop(0, `${tier.fillColor}66`);
-      haloGrad.addColorStop(1, `${tier.fillColor}00`);
+      haloGrad.addColorStop(0, `${fillColor}66`);
+      haloGrad.addColorStop(1, `${fillColor}00`);
       ctx.fillStyle = haloGrad;
       ctx.beginPath();
       ctx.arc(px, py, r * 4, 0, Math.PI * 2);
       ctx.fill();
 
       // star core
-      ctx.fillStyle = tier.fillColor;
+      ctx.fillStyle = fillColor;
       ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.arc(px, py, r, 0, Math.PI * 2);
@@ -550,12 +567,13 @@ function Legend() {
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05), 0 8px 24px -16px rgba(0,0,0,0.6)',
       }}
     >
-      <div className="font-display text-orange uppercase tracking-[0.18em] text-[10px] mb-1">Score</div>
-      <LegendRow label="80+ Excellent" color="#3ddc84" />
-      <LegendRow label="60-79 Good"    color="#facc15" />
-      <LegendRow label="40-59 OK"      color="#ff7a14" />
-      <LegendRow label="< 40 Poor"     color="#ef4444" />
-      <LegendRow label="No rating"     color="#8a8f96" />
+      <div className="font-display text-orange uppercase tracking-[0.18em] text-[10px] mb-1">Development</div>
+      <LegendRow label="S 88+"         color="#22d3ee" />
+      <LegendRow label="A 76-87"       color="#4ade80" />
+      <LegendRow label="B 60-75"       color="#facc15" />
+      <LegendRow label="C 45-59"       color="#ff7a14" />
+      <LegendRow label="D < 45"        color="#ef4444" />
+      <LegendRow label="No development data" color="#8a8f96" />
     </div>
   );
 }

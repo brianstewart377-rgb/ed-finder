@@ -2,23 +2,20 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AdvancedSearchTuningTab } from './AdvancedSearchTuningTab';
 import type { SearchTuningSourceSnapshot, UseSearchTuning } from './useSearchTuning';
-import type { RerankResponse, SystemResult } from '@/types/api';
+import type { DevelopmentRerankResponse, SystemResult } from '@/types/api';
 
 function makeSearchTuning(overrides: Partial<UseSearchTuning> = {}): UseSearchTuning {
   return {
     weights: {
-      economy: 0.3,
+      purity: 0.3,
+      buildability: 0.25,
       slots: 0.2,
-      strategic: 0.15,
-      safety: 0.15,
-      terraforming: 0.1,
-      diversity: 0.1,
+      expansion: 0.15,
+      logistics: 0.1,
     },
     setWeight: vi.fn(),
     resetWeights: vi.fn(),
     weightSum: 1,
-    economy: null,
-    setEconomy: vi.fn(),
     state: { kind: 'idle' },
     run: vi.fn().mockResolvedValue(undefined),
     resetState: vi.fn(),
@@ -43,11 +40,11 @@ function makeSourceSnapshot(systems: SystemResult[]): SearchTuningSourceSnapshot
   );
 }
 
-describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
-  it('renders Advanced Search Tuning and explains current Finder-result scope', () => {
+describe('AdvancedSearchTuningTab Development Tuning UX', () => {
+  it('renders Development Tuning and explains current Finder-result scope', () => {
     render(<AdvancedSearchTuningTab searchTuning={makeSearchTuning()} search={makeSearch()} />);
 
-    expect(screen.getByRole('heading', { name: 'Advanced Search Tuning' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Development Tuning' })).toBeTruthy();
     expect(screen.getAllByText('Uses current Finder results').length).toBeGreaterThan(0);
     expect(screen.getByText(/re-prioritises the current Finder results/i)).toBeTruthy();
     expect(screen.getByText(/It does not run a new search, save preferences, or change Colony Planner/i)).toBeTruthy();
@@ -64,20 +61,17 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect((screen.getByTestId('search-tuning-run') as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('explains economy scoring emphasis and weight scope', () => {
+  it('explains development-weight emphasis and weight scope', () => {
     render(<AdvancedSearchTuningTab searchTuning={makeSearchTuning()} search={makeSearch([makeSystem(123, 'Sol')])} />);
 
-    expect(screen.getByText('Economy scoring emphasis')).toBeTruthy();
-    expect(screen.getByText(/It does not filter systems out/i)).toBeTruthy();
-    expect(screen.getByText(/Auto uses the best available stored economy score per system/i)).toBeTruthy();
+    expect(screen.getByText('Weights')).toBeTruthy();
     expect(screen.getByText(/Weights apply only to this tuning run/i)).toBeTruthy();
-    expect(screen.getByText(/backend normalises them for the temporary tuned score/i)).toBeTruthy();
-    expect(screen.getByTitle('Economy-score emphasis')).toBeTruthy();
-    expect(screen.getByTitle('Available/buildable capacity signal')).toBeTruthy();
-    expect(screen.getByTitle('Body quality / strategic value signal')).toBeTruthy();
-    expect(screen.getByTitle('Orbital safety signal')).toBeTruthy();
-    expect(screen.getByTitle('Terraforming potential signal')).toBeTruthy();
-    expect(screen.getByTitle('Body diversity signal')).toBeTruthy();
+    expect(screen.getByText(/backend normalises them for the temporary development score/i)).toBeTruthy();
+    expect(screen.getByTitle('Clean economy stack and low contamination')).toBeTruthy();
+    expect(screen.getByTitle('Ease of build and scaling viability')).toBeTruthy();
+    expect(screen.getByTitle('Available colony capacity signal')).toBeTruthy();
+    expect(screen.getByTitle('Overall development headroom')).toBeTruthy();
+    expect(screen.getByTitle('Travel and access practicality')).toBeTruthy();
   });
 
   it('keeps the run control wired to the current Finder result objects', () => {
@@ -107,40 +101,36 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
   it('renders API failures clearly', () => {
     render(
       <AdvancedSearchTuningTab
-        searchTuning={makeSearchTuning({ state: { kind: 'err', message: 'API 500 on /ratings/rerank: exploded' } })}
+        searchTuning={makeSearchTuning({ state: { kind: 'err', message: 'API 500 on /archetypes/rerank: exploded' } })}
         search={makeSearch([makeSystem(123, 'Sol')])}
       />,
     );
 
-    expect(screen.getByText('API 500 on /ratings/rerank: exploded')).toBeTruthy();
+    expect(screen.getByText('API 500 on /archetypes/rerank: exploded')).toBeTruthy();
   });
 
-  it('shows original Finder rank, tuned rank, movement, temporary score, and stored rationale labels', () => {
-    const data: RerankResponse = {
+  it('shows original Finder rank, tuned rank, movement, temporary score, and archetype rationale labels', () => {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 2,
           reranked_score: 91,
           original_score: 80,
           confidence: 0.9,
-          rationale: 'Beta stored rationale',
-          economy_used: 'Tourism',
+          rationale: { summary: 'Beta archetype rationale' },
           contributions: {
-            economy: 30,
+            purity: 30,
+            buildability: 24,
             slots: 22,
-            strategic: 9,
-            safety: 7,
-            terraforming: 1,
-            diversity: 0.5,
+            expansion: 9,
+            logistics: 1,
           },
         },
         {
@@ -148,16 +138,14 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
           reranked_score: 75,
           original_score: 88,
           confidence: null,
-          rationale: 'Alpha stored rationale',
-          economy_used: 'Agriculture',
+          rationale: { summary: 'Alpha archetype rationale' },
         },
         {
           id64: 3,
           reranked_score: 70,
           original_score: 70,
           confidence: null,
-          rationale: 'Gamma stored rationale',
-          economy_used: 'Industrial',
+          rationale: { summary: 'Gamma archetype rationale' },
         },
       ],
     };
@@ -188,17 +176,17 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(beta).getByText('Finder #2 -> Tuned #1')).toBeTruthy();
     expect(within(beta).getByText('Moved up 1 place')).toBeTruthy();
     expect(within(beta).getByText('Temporary tuned score')).toBeTruthy();
-    expect(within(beta).getByText('Original stored score 80')).toBeTruthy();
-    expect(within(beta).getByText(/Stored rating rationale:/)).toBeTruthy();
-    expect(within(beta).getByText(/Beta stored rationale/)).toBeTruthy();
+    expect(within(beta).getByText('Original development score 80')).toBeTruthy();
+    expect(within(beta).getByText(/Archetype rationale:/)).toBeTruthy();
+    expect(within(beta).getByText(/Beta archetype rationale/)).toBeTruthy();
     expect(within(beta).getByText('Why this tuned position?')).toBeTruthy();
-    expect(within(beta).getByText(/economy and slots helped most/i)).toBeTruthy();
+    expect(within(beta).getByText(/purity and buildability helped most/i)).toBeTruthy();
     expect(within(beta).getByText('Helped')).toBeTruthy();
-    expect(within(beta).getByText('Economy +30.0')).toBeTruthy();
-    expect(within(beta).getByText('Slots +22.0')).toBeTruthy();
+    expect(within(beta).getByText('Purity +30.0')).toBeTruthy();
+    expect(within(beta).getByText('Buildability +24.0')).toBeTruthy();
+    expect(within(beta).queryByText('Slots +22.0')).toBeNull();
     expect(within(beta).getByText('Weaker signals')).toBeTruthy();
-    expect(within(beta).getByText('Diversity +0.5')).toBeTruthy();
-    expect(within(beta).getByText('Terraforming +1.0')).toBeTruthy();
+    expect(within(beta).getByText('Logistics +1.0')).toBeTruthy();
     expect(within(beta).getByText('Confidence adjustment: 90%.')).toBeTruthy();
     expect(within(beta).queryByText('Held back')).toBeNull();
     expect(within(beta).queryByText(/held this tuned position back/i)).toBeNull();
@@ -213,28 +201,24 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
     expect(within(gamma).getByText('Unchanged')).toBeTruthy();
 
     expect(screen.getAllByText(/The tuned score is temporary for this run/i).length).toBe(3);
-    expect(screen.getAllByText(/Stored rating rationale comes from the existing rating data/i).length).toBe(3);
   });
 
   it('uses the tuning-run source snapshot for rank movement even when live Finder results changed', () => {
-    const data: RerankResponse = {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 2,
           reranked_score: 91,
           original_score: 80,
           confidence: null,
-          rationale: 'Snapshot rationale',
-          economy_used: 'Tourism',
+          rationale: { summary: 'Snapshot rationale' },
         },
       ],
     };
@@ -267,24 +251,21 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
   });
 
   it('renders a fallback when contribution breakdown is unavailable', () => {
-    const data: RerankResponse = {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 7,
           reranked_score: 60,
           original_score: 60,
           confidence: null,
-          rationale: 'Stored only',
-          economy_used: 'Industrial',
+          rationale: { summary: 'Stored only' },
         },
       ],
     };
@@ -308,31 +289,27 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
   });
 
   it('renders neutral copy for all-zero contribution rows', () => {
-    const data: RerankResponse = {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 8,
           reranked_score: 0,
           original_score: 0,
           confidence: null,
-          rationale: 'No tracked support',
-          economy_used: 'Industrial',
+          rationale: { summary: 'No tracked support' },
           contributions: {
-            economy: 0,
+            purity: 0,
+            buildability: 0,
             slots: 0,
-            strategic: 0,
-            safety: 0,
-            terraforming: 0,
-            diversity: 0,
+            expansion: 0,
+            logistics: 0,
           },
         },
       ],
@@ -362,31 +339,27 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
   it('opens system detail from detail actions and routes Evaluate to the dedicated Colony Planner callback', () => {
     const onOpenDetail = vi.fn();
     const onOpenColonyPlanner = vi.fn();
-    const data: RerankResponse = {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 42,
           reranked_score: 80,
           original_score: 75,
           confidence: null,
-          rationale: 'Stored rationale',
-          economy_used: 'Tourism',
+          rationale: { summary: 'Stored rationale' },
           contributions: {
-            economy: 20,
+            purity: 20,
+            buildability: 12,
             slots: 15,
-            strategic: 10,
-            safety: 8,
-            terraforming: 2,
-            diversity: 1,
+            expansion: 10,
+            logistics: 8,
           },
         },
       ],
@@ -424,24 +397,21 @@ describe('AdvancedSearchTuningTab Advanced Search Tuning UX', () => {
 
   it('falls back to focused detail handoff when no workspace callback is provided', () => {
     const onOpenDetail = vi.fn();
-    const data: RerankResponse = {
+    const data: DevelopmentRerankResponse = {
       weights_applied: {
-        economy: 0.3,
+        purity: 0.3,
+        buildability: 0.25,
         slots: 0.2,
-        strategic: 0.15,
-        safety: 0.15,
-        terraforming: 0.1,
-        diversity: 0.1,
+        expansion: 0.15,
+        logistics: 0.1,
       },
-      economy_used: null,
       results: [
         {
           id64: 42,
           reranked_score: 80,
           original_score: 75,
           confidence: null,
-          rationale: 'Stored rationale',
-          economy_used: 'Tourism',
+          rationale: { summary: 'Stored rationale' },
         },
       ],
     };

@@ -116,6 +116,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/news/latest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Latest News */
+        get: operations["latest_news_api_news_latest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/watchlist/{sync_key}": {
         parameters: {
             query?: never;
@@ -805,23 +822,6 @@ export interface paths {
         get: operations["get_profiles_api_archetypes_profiles_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/ratings/rerank": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Ratings Rerank */
-        post: operations["ratings_rerank_api_ratings_rerank_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2761,48 +2761,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /**
-         * RatingModel
-         * @description camelCase rating block embedded inside SystemRow under `_rating`.
-         *
-         *     Mirrors the shape produced by `helpers.sys_row_to_dict` so the
-         *     generated TypeScript matches what the search response actually puts
-         *     on the wire.
-         */
-        RatingModel: {
-            /** Score */
-            score?: number | null;
-            /** Scoreagriculture */
-            scoreAgriculture?: number | null;
-            /** Scorerefinery */
-            scoreRefinery?: number | null;
-            /** Scoreindustrial */
-            scoreIndustrial?: number | null;
-            /** Scorehightech */
-            scoreHightech?: number | null;
-            /** Scoremilitary */
-            scoreMilitary?: number | null;
-            /** Scoretourism */
-            scoreTourism?: number | null;
-            /** Scoreextraction */
-            scoreExtraction?: number | null;
-            /** Economysuggestion */
-            economySuggestion?: string | null;
-            /** Breakdown */
-            breakdown?: unknown | null;
-            /** Ratingversion */
-            ratingVersion?: string | null;
-            /** Terraformingpotential */
-            terraformingPotential?: number | null;
-            /** Bodydiversity */
-            bodyDiversity?: number | null;
-            /** Confidence */
-            confidence?: number | null;
-            /** Rationale */
-            rationale?: string | null;
-        } & {
-            [key: string]: unknown;
-        };
         /** RecommendedBuildPlan */
         RecommendedBuildPlan: {
             /** Id */
@@ -2954,106 +2912,6 @@ export interface components {
             confidence_signals?: Record<string, never>[];
             /** Computed At */
             computed_at?: unknown | null;
-        };
-        /** RerankContributions */
-        RerankContributions: {
-            /** Economy */
-            economy: number;
-            /** Slots */
-            slots: number;
-            /** Strategic */
-            strategic: number;
-            /** Safety */
-            safety: number;
-            /** Terraforming */
-            terraforming: number;
-            /** Diversity */
-            diversity: number;
-        };
-        /** RerankRequest */
-        RerankRequest: {
-            /** Id64S */
-            id64s: number[];
-            weights?: components["schemas"]["RerankWeights"] | null;
-            /** Economy */
-            economy?: string | null;
-        };
-        /** RerankResponse */
-        RerankResponse: {
-            weights_applied: components["schemas"]["RerankWeights"];
-            /** Economy Used */
-            economy_used?: string | null;
-            /** Results */
-            results: components["schemas"]["RerankRow"][];
-        };
-        /** RerankRow */
-        RerankRow: {
-            /** Id64 */
-            id64: number;
-            /** Reranked Score */
-            reranked_score: number;
-            /** Original Score */
-            original_score?: number | null;
-            /** Confidence */
-            confidence?: number | null;
-            /** Rationale */
-            rationale?: string | null;
-            /** Economy Used */
-            economy_used?: string | null;
-            contributions?: components["schemas"]["RerankContributions"] | null;
-            signals?: components["schemas"]["RerankSignals"] | null;
-        } & {
-            [key: string]: unknown;
-        };
-        /** RerankSignals */
-        RerankSignals: {
-            /** Economy Score */
-            economy_score?: number | null;
-            /** Slots */
-            slots?: number | null;
-            /** Body Quality */
-            body_quality?: number | null;
-            /** Orbital Safety */
-            orbital_safety?: number | null;
-            /** Terraforming Potential */
-            terraforming_potential?: number | null;
-            /** Body Diversity */
-            body_diversity?: number | null;
-            /** Confidence */
-            confidence?: number | null;
-        };
-        /** RerankWeights */
-        RerankWeights: {
-            /**
-             * Economy
-             * @default 0.42
-             */
-            economy: number;
-            /**
-             * Slots
-             * @default 0.23
-             */
-            slots: number;
-            /**
-             * Strategic
-             * @default 0.18
-             */
-            strategic: number;
-            /**
-             * Safety
-             * @default 0.1
-             */
-            safety: number;
-            /**
-             * Terraforming
-             * @default 0.05
-             */
-            terraforming: number;
-            /**
-             * Diversity
-             * @default 0.02
-             */
-            diversity: number;
         };
         /** SearchFilters */
         SearchFilters: {
@@ -3794,7 +3652,30 @@ export interface components {
             main_star_type?: string | null;
             /** Main Star Subtype */
             main_star_subtype?: string | null;
-            _rating?: components["schemas"]["RatingModel"] | null;
+            /** Archetype Score */
+            archetype_score?: number | null;
+            /** Archetype Tier */
+            archetype_tier?: ("S" | "A" | "B" | "C" | "D") | null;
+            /** Primary Archetype */
+            primary_archetype?: string | null;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Archetype Confidence */
+            archetype_confidence?: number | null;
+            /** Overall Development Potential */
+            overall_development_potential?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Est Total Slots */
+            est_total_slots?: number | null;
+            /** Tags */
+            tags?: string[];
             /** Elw Count */
             elw_count?: number | null;
             /** Ww Count */
@@ -4144,6 +4025,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+        };
+    };
+    latest_news_api_news_latest_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -5441,39 +5353,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArchetypesProfilesResponse"];
-                };
-            };
-        };
-    };
-    ratings_rerank_api_ratings_rerank_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["RerankRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RerankResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

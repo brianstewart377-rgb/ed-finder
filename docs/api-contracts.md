@@ -64,24 +64,20 @@ Stage 5A adds `POST /api/optimiser/candidates`, which accepts `OptimiserCandidat
 
 Avoid scattered raw `fetch()` calls for these endpoints. The central client is the only place that should know endpoint paths.
 
-## Advanced Search Tuning / Ratings Rerank API
+## Development Tuning / Archetype Rerank API
 
-Advanced Search Tuning is the Finder-result reranking helper. The user-facing label was reframed in Stage 7B; backend/internal terminology remains ratings rerank. It is distinct from the Stage 5 Colony Planner optimiser.
+Development Tuning is the Finder-result reranking helper. It is distinct from the colony optimiser inside Simulation Preview and does not mutate Finder results.
 
-`POST /api/ratings/rerank` accepts:
+`POST /api/archetypes/rerank` accepts:
 
 - `id64s`: required list of current Finder result IDs, bounded to 1-500.
-- `weights`: optional `RerankWeights` (`economy`, `slots`, `strategic`, `safety`, `terraforming`, `diversity`). Missing values use v3.1 defaults; supplied values are clamped and normalized server-side.
-- `economy`: optional economy scoring emphasis. When recognized, the economy dimension uses that per-economy rating column; when omitted, the backend uses the best available per-economy score/stored suggestion path.
+- `weights`: optional archetype rerank weights (`purity`, `buildability`, `slots`, `expansion`, `logistics`). Missing values use defaults.
+- `profile`: optional profile ID from `GET /api/archetypes/profiles`. If provided, it takes precedence over explicit weights.
+- `archetype`: optional archetype key to rerank against a specific archetype score column.
 
-The endpoint returns `RerankResponse` with `weights_applied`, nullable top-level `economy_used`, and `results` containing `id64`, `reranked_score`, `original_score`, `confidence`, `rationale`, per-row `economy_used`, and optional Stage 7D explanation fields:
+The endpoint returns an archetype rerank response with `weights_applied`, optional `profile_applied`, and `results` containing `id64`, `reranked_score`, optional `original_score`, optional `confidence`, and optional structured `rationale`.
 
-- `contributions`: pre-confidence weighted contribution values for `economy`, `slots`, `strategic`, `safety`, `terraforming`, and `diversity`.
-- `signals`: stored/raw rating signals used by rerank (`economy_score`, `slots`, `body_quality`, `orbital_safety`, `terraforming_potential`, `body_diversity`, and `confidence`).
-
-Contribution values are pre-confidence so the UI can explain which stored signals helped most and which weaker signals contributed less under the current weights for the temporary tuned score. The final `reranked_score` remains the existing weighted sum with the existing confidence multiplier applied afterward. Stage 7B adds original Finder rank, tuned rank, and movement labels in the frontend only by comparing the response order to a source-rank snapshot captured when the tuning run starts.
-
-This endpoint reads existing `ratings` rows and returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, mutate ratings, run Simulation Preview, alter Colony Planner, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.rerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Advanced Search Tuning. `#search-tuning` is the preferred frontend route; `#optimizer` remains a legacy compatibility alias normalized to `search-tuning`.
+This endpoint returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, run Simulation Preview, alter Colony Planner state, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.archetypeRerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Development Tuning (`#search-tuning` route).
 
 Stage 7D added explicit row actions to open system detail and evaluate in Colony Planner. Stage 8A kept those actions on the existing system detail surface with a frontend-only focus intent. Stage 9C moves the primary `Evaluate in Colony Planner` handoff to the dedicated `#colony-planner/system/{id64}` workspace while keeping normal detail/open-row actions on System Detail. The handoff still does not auto-run Simulation Preview, generate Suggested Builds, mutate planner state, persist preferences, or pass search-tuning weights into Colony Planner.
 

@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SystemResult } from '@/types/api';
-import { displayRationale } from '@/lib/rationale';
-import {
-  getLegacyBodyDiversity,
-  getLegacyEconomyScore,
-  getLegacyRatingConfidence,
-  getLegacyRatingRationale,
-  getLegacyRatingScore,
-  getLegacySuggestedEconomy,
-  getLegacyTerraformingPotential,
-} from '@/lib/legacyRating';
+import { formatArchetypeLabel, getDevelopmentScore } from '@/lib/archetypes';
 import { formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 
 /**
@@ -118,19 +109,20 @@ export function useCompare(): UseCompare {
     const header = ['Metric', ...names].map(q).join(',');
 
     const rows: Array<[string, Array<string | number | null | undefined>]> = [
-      ['Score (overall)',      snapshot.map((s) => getLegacyRatingScore(s) ?? '')],
-      ['Confidence',           snapshot.map((s) => getLegacyRatingConfidence(s) ?? '')],
-      ['Rationale',            snapshot.map((s) => displayRationale(getLegacyRatingRationale(s)) ?? '')],
+      ['Development score',    snapshot.map((s) => getDevelopmentScore(s) ?? '')],
+      ['Primary archetype',    snapshot.map((s) => s.primary_archetype ? formatArchetypeLabel(s.primary_archetype) : '')],
+      ['Secondary archetype',  snapshot.map((s) => s.secondary_archetype ? formatArchetypeLabel(s.secondary_archetype) : '')],
+      ['Archetype confidence', snapshot.map((s) => s.archetype_confidence != null ? Math.round(s.archetype_confidence * 100) : '')],
+      ['Buildability',         snapshot.map((s) => s.buildability_score ?? '')],
+      ['Purity',               snapshot.map((s) => s.purity_score ?? '')],
+      ['Estimated slots',      snapshot.map((s) => s.est_total_slots ?? '')],
       ['Primary economy',      snapshot.map((s) => s.primaryEconomy ?? '')],
-      ['Suggested economy',    snapshot.map((s) => getLegacySuggestedEconomy(s) ?? '')],
       ['Distance from ref LY', snapshot.map((s) => s.distance ?? '')],
       ['Population',           snapshot.map((s) => formatPopulationForSystem(s))],
       ['Status',               snapshot.map((s) => systemStatusLabel(s))],
       ['Main star',            snapshot.map((s) => s.main_star_subtype ?? s.main_star_type ?? '')],
       ['Security',             snapshot.map((s) => s.security ?? '')],
       ['Allegiance',           snapshot.map((s) => s.allegiance ?? '')],
-      ['Terraforming potential', snapshot.map((s) => getLegacyTerraformingPotential(s) ?? '')],
-      ['Body diversity',       snapshot.map((s) => getLegacyBodyDiversity(s) ?? '')],
       ['ELW',                  snapshot.map((s) => s.elw_count ?? 0)],
       ['WW',                   snapshot.map((s) => s.ww_count ?? 0)],
       ['Ammonia',              snapshot.map((s) => s.ammonia_count ?? 0)],
@@ -138,13 +130,6 @@ export function useCompare(): UseCompare {
       ['Landable',             snapshot.map((s) => s.landable_count ?? 0)],
       ['Bio signals',          snapshot.map((s) => s.bio_signal_total ?? 0)],
       ['Geo signals',          snapshot.map((s) => s.geo_signal_total ?? 0)],
-      ['Score: Agriculture',   snapshot.map((s) => getLegacyEconomyScore(s, 'agriculture') ?? '')],
-      ['Score: Refinery',      snapshot.map((s) => getLegacyEconomyScore(s, 'refinery') ?? '')],
-      ['Score: Industrial',    snapshot.map((s) => getLegacyEconomyScore(s, 'industrial') ?? '')],
-      ['Score: High Tech',     snapshot.map((s) => getLegacyEconomyScore(s, 'hightech') ?? '')],
-      ['Score: Military',      snapshot.map((s) => getLegacyEconomyScore(s, 'military') ?? '')],
-      ['Score: Tourism',       snapshot.map((s) => getLegacyEconomyScore(s, 'tourism') ?? '')],
-      ['Score: Extraction',    snapshot.map((s) => getLegacyEconomyScore(s, 'extraction') ?? '')],
     ];
 
     const csv = [header, ...rows.map(([label, vals]) => [label, ...vals].map(q).join(','))].join('\n');

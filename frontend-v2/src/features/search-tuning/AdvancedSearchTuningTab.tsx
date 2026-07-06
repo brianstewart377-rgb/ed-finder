@@ -1,6 +1,6 @@
-import type { RerankRow, SystemResult } from '@/types/api';
-import { ratingTier } from '@/lib/format';
-import { ECONOMIES, type SearchTuningSourceSnapshot, type UseSearchTuning } from './useSearchTuning';
+import type { DevelopmentRerankRow, SystemResult } from '@/types/api';
+import { archetypeTierFromScore } from '@/lib/archetypes';
+import { type SearchTuningSourceSnapshot, type UseSearchTuning } from './useSearchTuning';
 import {
   buildTunedResultExplanation,
   formatContributionValue,
@@ -18,16 +18,15 @@ export interface AdvancedSearchTuningTabProps {
 }
 
 const WEIGHT_LABELS: Array<{ key: keyof UseSearchTuning['weights']; label: string; hint: string }> = [
-  { key: 'economy',      label: 'Economy',      hint: 'Economy-score emphasis' },
-  { key: 'slots',        label: 'Slots',        hint: 'Available/buildable capacity signal' },
-  { key: 'strategic',    label: 'Strategic',    hint: 'Body quality / strategic value signal' },
-  { key: 'safety',       label: 'Safety',       hint: 'Orbital safety signal' },
-  { key: 'terraforming', label: 'Terraforming', hint: 'Terraforming potential signal' },
-  { key: 'diversity',    label: 'Diversity',    hint: 'Body diversity signal' },
+  { key: 'purity',       label: 'Purity',       hint: 'Clean economy stack and low contamination' },
+  { key: 'buildability', label: 'Buildability', hint: 'Ease of build and scaling viability' },
+  { key: 'slots',        label: 'Slots',        hint: 'Available colony capacity signal' },
+  { key: 'expansion',    label: 'Expansion',    hint: 'Overall development headroom' },
+  { key: 'logistics',    label: 'Logistics',    hint: 'Travel and access practicality' },
 ];
 
 /**
- * Advanced Search Tuning = re-weight a copy of the current Finder results.
+ * Development Tuning = re-weight a copy of the current Finder results.
  *
  * This is an advanced Finder tool, not Colony Planner.
  * The "source" is whatever Finder last returned - no separate search here.
@@ -39,7 +38,7 @@ export function AdvancedSearchTuningTab({
   onOpenDetail,
   onOpenColonyPlanner,
 }: AdvancedSearchTuningTabProps) {
-  const { weights, setWeight, resetWeights, weightSum, economy, setEconomy, state, run, resetState } = searchTuning;
+  const { weights, setWeight, resetWeights, weightSum, state, run, resetState } = searchTuning;
   const sourceCount = search.results.length;
   const sumOk = Math.abs(weightSum - 1.0) < 0.01;
 
@@ -52,13 +51,13 @@ export function AdvancedSearchTuningTab({
       <header className="panel flex flex-wrap items-start justify-between gap-3 px-5 py-4">
         <div className="space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-orange tracking-[0.14em] text-lg">Advanced Search Tuning</h2>
+            <h2 className="font-display text-orange tracking-[0.14em] text-lg">Development Tuning</h2>
             <span className="rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
               Uses current Finder results
             </span>
           </div>
           <p className="font-mono text-xs text-silver-dk max-w-4xl">
-            Advanced Search Tuning re-prioritises the current Finder results. It does not run a new search, save preferences, or change Colony Planner.
+            Development Tuning re-prioritises the current Finder results using archetype-led development weights. It does not run a new search, save preferences, or change Colony Planner.
           </p>
           <p className="font-mono text-[11px] text-silver-dk max-w-4xl">
             It builds a temporary tuned order from a copy of those results; the original Finder results are not mutated.
@@ -71,27 +70,6 @@ export function AdvancedSearchTuningTab({
         <aside className="panel space-y-4 p-5 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] lg:overflow-y-auto">
           <SourceBadge count={sourceCount} />
 
-          <div>
-            <label className="block font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] mb-1">
-              Economy scoring emphasis
-            </label>
-            <select
-              value={economy ?? ''}
-              onChange={(e) => setEconomy((e.target.value || null) as never)}
-              data-testid="search-tuning-economy"
-              className="w-full font-mono text-xs"
-            >
-              <option value="">Auto (per-row stored suggestion)</option>
-              {ECONOMIES.map((eco) => (
-                <option key={eco} value={eco}>{eco}</option>
-              ))}
-            </select>
-            <p className="text-[10px] text-silver-dk mt-1">
-              This changes which economy score is emphasised during tuning. It does not filter systems out.
-              Auto uses the best available stored economy score per system.
-            </p>
-          </div>
-
           <div className="space-y-2">
             <div className="flex items-center justify-between font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em]">
               <span>Weights</span>
@@ -101,11 +79,11 @@ export function AdvancedSearchTuningTab({
                 data-testid="search-tuning-weights-reset"
                 className="normal-case tracking-normal text-silver-dk hover:text-orange-lt"
               >
-                ↺ Reset to v3.1 defaults
+                ↺ Reset defaults
               </button>
             </div>
             <p className="text-[10px] text-silver-dk">
-              Weights apply only to this tuning run. The backend normalises them for the temporary tuned score.
+              Weights apply only to this tuning run. The backend normalises them for the temporary development score.
             </p>
             {WEIGHT_LABELS.map(({ key, label, hint }) => (
               <WeightSlider
@@ -156,19 +134,19 @@ export function AdvancedSearchTuningTab({
         <section data-testid="search-tuning-results">
           {state.kind === 'idle' && (
             <EmptyState
-              icon="🎚️"
+              icon="Tune"
               title={sourceCount === 0 ? 'Run a Finder search first.' : 'Ready to tune current Finder results'}
               hint={sourceCount === 0
-                ? 'Advanced Search Tuning works on the current Finder results. It cannot tune systems that have not been searched yet.'
+                ? 'Development Tuning works on the current Finder results. It cannot tune systems that have not been searched yet.'
                 : 'Adjust the scoring emphasis, then build a temporary tuned order from the current Finder results.'}
             />
           )}
 
           {state.kind === 'busy' && (
             <EmptyState
-              icon="🎚️"
+              icon="Tune"
               title="Building tuned order..."
-              hint="Advanced Search Tuning is re-prioritising a copy of the current Finder results."
+              hint="Development Tuning is re-prioritising a copy of the current Finder results."
             />
           )}
 
@@ -226,7 +204,7 @@ function WeightSlider({ label, hint, value, onChange, testid }: {
 function ResultsList({
   results, sourceById, sourceSnapshot, onOpenDetail, onOpenColonyPlanner,
 }: {
-  results:    RerankRow[];
+  results:    DevelopmentRerankRow[];
   sourceById: Map<number, SystemResult>;
   sourceSnapshot: SearchTuningSourceSnapshot;
   onOpenDetail?: (id64: number, options?: { focus?: 'colony-planner' }) => void;
@@ -235,9 +213,9 @@ function ResultsList({
   if (results.length === 0) {
     return (
       <EmptyState
-        icon="🤔"
+        icon="None"
         title="No results in source"
-        hint="Advanced Search Tuning returned nothing - typically because the current Finder result IDs are not in the ratings table."
+        hint="Development Tuning returned nothing. This usually means the current Finder result IDs are missing archetype data."
       />
     );
   }
@@ -253,7 +231,8 @@ function ResultsList({
         const movement = describeMovement(originalRank, tunedRank);
         const explanation = buildTunedResultExplanation(r, originalRank, tunedRank);
         const delta   = r.original_score != null ? r.reranked_score - r.original_score : null;
-        const tier    = ratingTier(r.reranked_score);
+        const tier = archetypeTierFromScore(r.reranked_score);
+        const rationale = rationaleSummary(r);
         return (
           <li
             key={r.id64}
@@ -277,13 +256,13 @@ function ResultsList({
               <div className="text-orange-lt font-bold truncate">
                 {displayName}
               </div>
-              {r.rationale && (
+              {rationale && (
                 <div className="text-[11px] text-silver-dk italic truncate">
-                  <span className="not-italic text-silver">Stored rating rationale:</span> {r.rationale}
+                  <span className="not-italic text-silver">Archetype rationale:</span> {rationale}
                 </div>
               )}
               <div className="text-[10px] text-silver-dk">
-                The tuned score is temporary for this run. Stored rating rationale comes from the existing rating data.
+                The tuned score is temporary for this run and does not replace the normal Finder order.
               </div>
               <TuningExplanation row={r} explanation={explanation} />
               {(onOpenDetail || onOpenColonyPlanner) && (
@@ -325,25 +304,20 @@ function ResultsList({
               )}
             </div>
             <div className="text-[11px] text-silver-dk">
-              {r.economy_used ? <span className="text-orange-lt">{r.economy_used}</span> : '—'}
-              {r.confidence != null && (
-                <span className="ml-2 text-silver-dk">
-                  conf {Math.round(r.confidence * 100)}%
-                </span>
-              )}
+              {r.confidence != null ? `conf ${Math.round(r.confidence * 100)}%` : '—'}
             </div>
             <div className="flex items-center gap-2 justify-end">
               <div className="text-right text-[10px] leading-tight text-silver-dk">
                 <div>Temporary tuned score</div>
-                {r.original_score != null && <div>Original stored score {r.original_score}</div>}
+                {r.original_score != null && <div>Original development score {r.original_score}</div>}
               </div>
               <span
                 className="px-2.5 py-1 rounded-chunk-sm border text-[11px] font-bold tabular-nums"
                 style={{
-                  borderColor: tier.fillColor,
-                  color: tier.fillColor,
-                  background: `linear-gradient(180deg, ${tier.fillColor}33, ${tier.fillColor}11)`,
-                  boxShadow: `0 0 12px -4px ${tier.fillColor}66`,
+                  borderColor: tierColor(tier),
+                  color: tierColor(tier),
+                  background: `linear-gradient(180deg, ${tierColor(tier)}33, ${tierColor(tier)}11)`,
+                  boxShadow: `0 0 12px -4px ${tierColor(tier)}66`,
                 }}
               >
                 {r.reranked_score}
@@ -368,7 +342,7 @@ function ResultsList({
   );
 }
 
-function TuningExplanation({ row, explanation }: { row: RerankRow; explanation: string[] }) {
+function TuningExplanation({ row, explanation }: { row: DevelopmentRerankRow; explanation: string[] }) {
   const hasBreakdown = hasContributionBreakdown(row);
   const helped = getTopContributors(row);
   const weakerSignals = getWeakestSignals(row);
@@ -451,4 +425,41 @@ function EmptyState({ icon, title, hint }: {
       <p className="text-silver-dk text-xs max-w-sm mx-auto">{hint}</p>
     </div>
   );
+}
+
+function rationaleSummary(row: DevelopmentRerankRow): string | null {
+  const rationale = row.rationale as unknown;
+  if (!rationale) return null;
+
+  if (typeof rationale === 'string') {
+    const trimmed = rationale.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (typeof rationale === 'object') {
+    const record = rationale as Record<string, unknown>;
+    const summary = typeof record.summary === 'string' ? record.summary.trim() : '';
+    if (summary.length > 0) return summary;
+    const headline = typeof record.headline === 'string' ? record.headline.trim() : '';
+    if (headline.length > 0) return headline;
+  }
+
+  return null;
+}
+
+function tierColor(tier: ReturnType<typeof archetypeTierFromScore>): string {
+  switch (tier) {
+    case 'S':
+      return '#22d3ee';
+    case 'A':
+      return '#4ade80';
+    case 'B':
+      return '#facc15';
+    case 'C':
+      return '#ff7a14';
+    case 'D':
+      return '#ef4444';
+    default:
+      return '#8a8f96';
+  }
 }

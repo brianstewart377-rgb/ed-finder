@@ -32,7 +32,6 @@ function toMapSystem(system: SystemDetail): SystemResult {
     id64: system.id64,
     name: system.name ?? `ID64 ${system.id64}`,
     coords,
-    _rating: system._rating ?? null,
     population: system.population ?? null,
     primaryEconomy: system.primaryEconomy ?? null,
     allegiance: system.allegiance ?? null,

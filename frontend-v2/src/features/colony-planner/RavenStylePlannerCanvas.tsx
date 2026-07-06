@@ -1,8 +1,8 @@
 import { Network, Plus, Sparkles, Target } from 'lucide-react';
 import { useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { displayRationale } from '@/lib/rationale';
-import { formatConfidence, formatPopulationForSystem, ratingTier } from '@/lib/format';
+import { formatPopulationForSystem } from '@/lib/format';
+import { archetypeTierFromScore, formatArchetypeLabel, getDevelopmentScore } from '@/lib/archetypes';
 import type { SimulateBuildPlacement, SystemBody, SystemDetail } from '@/types/api';
 import {
   compactBodyDisplayName,
@@ -283,7 +283,7 @@ export function RavenPlannerTelemetryPanel({
         <TelemetryMetric label="Build staged" value={`${snapshot.placements.length}${snapshot.projection ? ` +${snapshot.projection.placements.length}` : ''}`} />
       </div>
 
-      <RatingProfileCard system={system} />
+      <DevelopmentProfileCard system={system} />
 
       <div className="mt-4 space-y-2">
         {stats.map((stat) => (
@@ -1352,96 +1352,69 @@ function TelemetryMetric({ label, value }: { label: string; value: ReactNode }) 
   );
 }
 
-function RatingProfileCard({ system }: { system: SystemDetail }) {
-  const score = numericValue(system.score);
-  const tier = ratingTier(score);
-  const confidence = formatConfidence(system.confidence);
-  const rationale = displayRationale(system.rationale);
-  const axes = ratingAxes(system);
-  const hasAnyAxis = axes.some((axis) => axis.value != null);
-  const supplemental = [
-    { label: 'Terraforming', value: numericValue(system.terraforming_potential) },
-    { label: 'Diversity', value: numericValue(system.body_diversity) },
-  ].filter((item): item is { label: string; value: number } => item.value != null);
+function DevelopmentProfileCard({ system }: { system: SystemDetail }) {
+  const score = getDevelopmentScore(system);
+  const tier = archetypeTierFromScore(score);
+  const tierColor =
+    tier === 'S' ? '#22d3ee' :
+    tier === 'A' ? '#4ade80' :
+    tier === 'B' ? '#facc15' :
+    tier === 'C' ? '#ff7a14' :
+    tier === 'D' ? '#ef4444' :
+    '#8a8f96';
+  const baseFacts: Array<{ label: string; value: ReactNode | null; tone: 'silver' | 'orange' | 'green' | 'gold' }> = [
+    { label: 'Primary', value: system.primary_archetype ? formatArchetypeLabel(system.primary_archetype) : null, tone: 'orange' },
+    { label: 'Secondary', value: system.secondary_archetype ? formatArchetypeLabel(system.secondary_archetype) : null, tone: 'silver' },
+    { label: 'Buildability', value: numericValue(system.buildability_score), tone: 'green' },
+    { label: 'Purity', value: numericValue(system.purity_score), tone: 'gold' },
+    { label: 'Slots', value: numericValue(system.est_total_slots), tone: 'silver' },
+    { label: 'Confidence', value: system.archetype_confidence != null ? `${Math.round(system.archetype_confidence * 100)}%` : null, tone: 'silver' },
+  ];
+
+  const facts = baseFacts.filter((item): item is { label: string; value: ReactNode; tone: 'silver' | 'orange' | 'green' | 'gold' } => (
+    item.value !== null && item.value !== undefined
+  ));
 
   return (
     <section
-      data-testid="raven-rating-profile-card"
+      data-testid="raven-development-profile-card"
       className="mt-4 rounded border border-orange/30 bg-orange/5 p-2"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">Rating signals</h3>
+          <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-orange">Development profile</h3>
           <div className="mt-1 text-[10px] leading-relaxed text-silver">
-            Saved scoring signals. Validate a build plan before treating capped economy scores as exact.
+            Current planning context from the development assessment and archetype fit.
           </div>
         </div>
         <div
-          data-testid="raven-rating-overall-score"
+          data-testid="raven-development-overall-score"
           className="shrink-0 rounded border px-2 py-1 text-right font-mono"
           style={{
-            borderColor: `${tier.fillColor}88`,
-            background: `linear-gradient(180deg, ${tier.fillColor}24, rgba(18,20,24,0.52))`,
-            color: tier.fillColor,
+            borderColor: `${tierColor}88`,
+            background: `linear-gradient(180deg, ${tierColor}24, rgba(18,20,24,0.52))`,
+            color: tierColor,
           }}
-          title={`Stored rating score: ${score ?? 'n/a'}/100`}
+          title={`Development score: ${score ?? 'n/a'}/100`}
         >
-          <div className="text-[9px] uppercase tracking-[0.12em]">{tier.label}</div>
+          <div className="text-[9px] uppercase tracking-[0.12em]">{tier ?? '-'}</div>
           <div className="text-lg font-bold leading-none">{score ?? '-'}</div>
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-2 gap-1.5 font-mono text-[10px]">
-        <RatingFact label="Suggested" value={system.economy_suggestion ?? 'Unknown'} tone="orange" />
-        <RatingFact
-          label="Confidence"
-          value={confidence ? `${confidence.symbol} ${confidence.tier} ${confidence.pct}%` : 'Unknown'}
-          tone={confidence?.tier === 'High' ? 'green' : confidence?.tier === 'Medium' ? 'gold' : undefined}
-        />
-      </div>
-
-      {hasAnyAxis ? (
-        <div className="mt-3 space-y-1.5" data-testid="raven-rating-economy-breakdown">
-          {axes.map((axis) => (
-            <RatingAxisBar key={axis.label} label={axis.label} value={axis.value} highlighted={axis.highlighted} />
+      {facts.length > 0 ? (
+        <div className="mt-2 grid grid-cols-2 gap-1.5 font-mono text-[10px]">
+          {facts.map((fact) => (
+            <RatingFact key={fact.label} label={fact.label} value={fact.value} tone={fact.tone} />
           ))}
         </div>
       ) : (
         <p className="mt-3 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
-          No per-economy rating scores are present on this system record.
-        </p>
-      )}
-
-      {supplemental.length > 0 && (
-        <div className="mt-2 grid grid-cols-2 gap-1.5 font-mono text-[10px]">
-          {supplemental.map((item) => (
-            <RatingFact key={item.label} label={item.label} value={String(item.value)} />
-          ))}
-        </div>
-      )}
-
-      {rationale && (
-        <p data-testid="raven-rating-rationale" className="mt-2 rounded border border-border/55 bg-bg3/35 px-2 py-1.5 text-[10px] italic leading-relaxed text-silver">
-          {rationale}
+          No development assessment is present on this system record yet.
         </p>
       )}
     </section>
   );
-}
-
-function ratingAxes(system: SystemDetail) {
-  return [
-    { label: 'Agriculture', value: numericValue(system.score_agriculture) },
-    { label: 'Refinery', value: numericValue(system.score_refinery) },
-    { label: 'Industrial', value: numericValue(system.score_industrial) },
-    { label: 'HighTech', value: numericValue(system.score_hightech) },
-    { label: 'Military', value: numericValue(system.score_military) },
-    { label: 'Tourism', value: numericValue(system.score_tourism) },
-    { label: 'Extraction', value: numericValue(system.score_extraction) },
-  ].map((axis) => ({
-    ...axis,
-    highlighted: system.economy_suggestion === axis.label,
-  }));
 }
 
 function RatingFact({
@@ -1463,43 +1436,6 @@ function RatingFact({
     <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1">
       <div className="truncate uppercase tracking-[0.12em] text-silver">{label}</div>
       <div className={['mt-0.5 truncate font-semibold', toneClass].join(' ')} title={String(value)}>{value}</div>
-    </div>
-  );
-}
-
-function RatingAxisBar({
-  label,
-  value,
-  highlighted,
-}: {
-  label: string;
-  value: number | null;
-  highlighted: boolean;
-}) {
-  const pct = Math.max(0, Math.min(100, value ?? 0));
-  const color = highlighted ? '#ffb074' : '#c8ccd1';
-  return (
-    <div
-      data-testid={`raven-rating-axis-${label.toLowerCase()}`}
-      className="grid grid-cols-[5.9rem_1fr_2.4rem] items-center gap-2 font-mono text-[10px]"
-    >
-      <span className={highlighted ? 'truncate font-bold text-orange-lt' : 'truncate text-silver'}>{label}</span>
-      <span className="relative h-2 overflow-hidden rounded-full border border-border/60 bg-bg4/80 shadow-inner-soft">
-        <span
-          aria-hidden
-          className="absolute inset-y-0 left-0 rounded-full"
-          style={{
-            width: `${pct}%`,
-            background: highlighted
-              ? 'linear-gradient(90deg, #ff7a14, #ffb074)'
-              : 'linear-gradient(90deg, #8a8f96, #c8ccd1)',
-            boxShadow: highlighted ? '0 0 8px rgba(255,122,20,0.55)' : undefined,
-          }}
-        />
-      </span>
-      <span className={highlighted ? 'text-right font-bold text-orange-lt' : 'text-right text-silver'} style={{ color }}>
-        {value ?? '-'}
-      </span>
     </div>
   );
 }

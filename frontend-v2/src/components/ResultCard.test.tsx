@@ -17,12 +17,6 @@ const system = {
   buildability_score: 77,
   purity_score: 69,
   est_total_slots: 12,
-  _rating: {
-    score: 82,
-    confidence: 0.7,
-    economySuggestion: 'Refinery',
-    rationale: 'Good fit',
-  },
 } as unknown as SystemResult;
 
 describe('ResultCard actions', () => {
@@ -67,12 +61,11 @@ describe('ResultCard actions', () => {
     expect(screen.getByTestId('result-card-archetype-score').textContent).toContain('S 91');
   });
 
-  it('frames stored rationale as legacy context while surfacing the archetype assessment', () => {
+  it('surfaces the archetype assessment in the expanded card', () => {
     render(<ResultCard system={system} index={0} />);
 
     fireEvent.click(screen.getByText('Handoff'));
 
-    expect(screen.getByText('Stored rating rationale')).toBeTruthy();
     expect(screen.getByText('Primary archetype')).toBeTruthy();
     expect(screen.getByText('Development score')).toBeTruthy();
     expect(screen.getByText('Buildability')).toBeTruthy();

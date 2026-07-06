@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Development Model Notes | ED Finder</title>
+<style>
+:root { --bg:#0d1117; --bg2:#161b22; --border:#30363d; --orange:#f78166;
+        --cyan:#67e8f9; --green:#3fb950; --dim:#8b949e; --text:#e6edf3; }
+* { box-sizing:border-box; }
+body { margin:0; font:15px/1.6 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+       background:var(--bg); color:var(--text); }
+.wrap { max-width:860px; margin:0 auto; padding:48px 24px 96px; }
+h1 { font-size:30px; margin:0 0 8px; }
+h2 { font-size:18px; margin:30px 0 10px; color:var(--orange); }
+p, li { color:var(--text); }
+.lede { color:var(--dim); margin:0 0 24px; }
+.panel { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:16px 18px; margin:12px 0; }
+.callout { border-left:4px solid var(--cyan); padding-left:14px; }
+table { width:100%; border-collapse:collapse; margin:8px 0 16px; font-size:13px; }
+th,td { border:1px solid var(--border); padding:8px 10px; text-align:left; vertical-align:top; }
+th { background:var(--bg2); color:var(--orange); font-weight:600; }
+code { background:var(--bg2); padding:2px 5px; border-radius:3px; font-size:12.5px; border:1px solid var(--border); }
+ul { padding-left:20px; }
+a { color:var(--orange); }
+.foot { margin-top:40px; padding-top:24px; border-top:1px solid var(--border); color:var(--dim); font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Development Model Notes</h1>
+<p class="lede">ED Finder v2 now ranks systems through archetype-led development assessment. Finder, Compare, Map selection, Pinned, Watchlist, and System Detail all treat development score as the primary operator-facing signal.</p>
+
+<div class="panel callout">
+  <strong>Current rule:</strong> the app should describe systems in terms of development score, archetype fit, buildability, purity, and slot headroom.
+</div>
+
+<h2>What The Development Score Means</h2>
+<p>The development score is the top-line view of how promising a system is for colony development. It is anchored to the strongest colony archetype for that system rather than to a legacy economy-pair score.</p>
+<ul>
+  <li>What colony role does this system fit best?</li>
+  <li>How strong is that fit?</li>
+  <li>How buildable is the system once slot and body constraints are considered?</li>
+  <li>How clean or contaminated is the archetype profile?</li>
+</ul>
+
+<h2>Primary Fields In V2</h2>
+<table>
+<thead><tr><th>Field</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>Development score</code></td><td>Main ranking signal across active v2 surfaces.</td></tr>
+<tr><td><code>Primary archetype</code></td><td>Best-fitting colony archetype for the system.</td></tr>
+<tr><td><code>Secondary archetype</code></td><td>Useful supporting fit when the profile is mixed.</td></tr>
+<tr><td><code>Buildability</code></td><td>How practical the system is to develop.</td></tr>
+<tr><td><code>Purity</code></td><td>How coherent the archetype signal is.</td></tr>
+<tr><td><code>Estimated slots</code></td><td>Colony capacity context for planning.</td></tr>
+</tbody>
+</table>
+
+<h2>How Development Tuning Works</h2>
+<p>Development Tuning re-ranks the current Finder results with archetype-weighted factors:</p>
+<ul>
+  <li>Purity</li>
+  <li>Buildability</li>
+  <li>Slots</li>
+  <li>Expansion</li>
+  <li>Logistics</li>
+</ul>
+
+<h2>Mechanics Reference</h2>
+<p>The colony mechanics background still comes from the same Elite Dangerous colonisation research and repository documentation. The app contract now expresses those mechanics through archetypes and development potential.</p>
+
+<div class="foot">
+Active app path: archetype-led development scoring in v2.<br>
+Repository: <a href="https://github.com/brianstewart377-rgb/ed-finder">github.com/brianstewart377-rgb/ed-finder</a>
+</div>
+</div>
+</body>
+</html>

@@ -18,7 +18,6 @@ const baseEntry: PinnedEntry = {
   x: 0, y: 0, z: 0,
   population:   0,
   is_colonised: false,
-  rating:       80,
   economy:      'Tourism',
   pinned_at:    '',
 };

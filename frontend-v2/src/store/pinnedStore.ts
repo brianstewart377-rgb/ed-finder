@@ -26,9 +26,6 @@ export interface PinnedEntry {
   is_colonised:  boolean;
   /** Distance (LY) from the reference at the moment it was pinned. */
   distance?:     number | null;
-  /** Snapshot of the score at pin time. Not refreshed — the point of a pin
-   *  is to remember "this looked good when I saw it". */
-  rating:        number | null;
   /** Snapshot of the suggested economy at pin time. */
   economy:       string | null;
   /** Optional archetype-era snapshot fields. Old persisted pins simply omit them. */

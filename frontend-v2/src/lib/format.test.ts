@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   formatDistance,
   formatConfidence,
-  ratingTier,
   formatCoords,
   formatPopulation,
   formatPopulationForSystem,
@@ -93,27 +92,5 @@ describe('system population/status display', () => {
     const sys = { is_colonised: true, population: 0 };
     expect(systemStatusLabel(sys)).toBe('Colonised');
     expect(formatPopulationForSystem(sys)).toBe('Population unknown');
-  });
-});
-
-describe('ratingTier', () => {
-  it('returns N/A for null score', () => {
-    expect(ratingTier(null).label).toBe('N/A');
-  });
-
-  it('returns EXCELLENT for >= 80', () => {
-    expect(ratingTier(85).label).toBe('EXCELLENT');
-  });
-
-  it('returns GOOD for >= 60', () => {
-    expect(ratingTier(65).label).toBe('GOOD');
-  });
-
-  it('returns OK for >= 40', () => {
-    expect(ratingTier(45).label).toBe('OK');
-  });
-
-  it('returns POOR for < 40', () => {
-    expect(ratingTier(20).label).toBe('POOR');
   });
 });

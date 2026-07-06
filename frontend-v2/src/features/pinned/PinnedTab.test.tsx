@@ -14,7 +14,6 @@ describe('PinnedTab data trust display', () => {
         z: 0,
         population: null,
         is_colonised: false,
-        rating: null,
         economy: null,
         pinned_at: '2026-05-25T00:00:00Z',
         distance: null,
@@ -43,7 +42,6 @@ describe('PinnedTab data trust display', () => {
         z: 3,
         population: 1000,
         is_colonised: false,
-        rating: 82,
         economy: 'Refinery',
         archetype_score: 91,
         primary_archetype: 'refinery_industrial',
@@ -62,7 +60,6 @@ describe('PinnedTab data trust display', () => {
 
     expect(screen.getByText('Development ↓')).toBeTruthy();
     expect(screen.getByText('S 91')).toBeTruthy();
-    expect(screen.getByText('Legacy 82')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
   });
 });

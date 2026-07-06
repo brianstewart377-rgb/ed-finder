@@ -21,8 +21,7 @@
  *   - `WatchlistEntry` — the watchlist endpoint emits raw SQL rows; the
  *     Pydantic model is intentionally not declared so we can iterate on
  *     the table shape without a backend release.
- *   - `Economy` enum + default rerank weights — these are frontend-side
- *     constants, not wire types.
+ *   - default development-rerank weights — frontend-side constant.
  *   - The `LocalSearchBody` request shape used by `lib/api.ts` — the
  *     generated `LocalSearchRequest` accepts `Record<string, never>` for
  *     filters/body_filters because they're typed `dict` in the Python
@@ -35,7 +34,6 @@ type Schemas = components['schemas'];
 
 // ─── Generated response/sub types (single source of truth) ────────────────
 export type SystemCoords = Schemas['CoordsModel'];
-export type SystemRating = Schemas['RatingModel'];
 export type SystemBody   = Schemas['BodyModel'];
 export type SystemStation = Schemas['StationModel'];
 type GeneratedSystemResult = Schemas['SystemRow'];
@@ -43,9 +41,8 @@ type GeneratedSystemResult = Schemas['SystemRow'];
 /**
  * One row from `/api/local/search`.
  *
- * Generated from `apps/api/src/models.py::SystemRow`. Legacy rating data
- * remains available both as explicit top-level compatibility fields and
- * inside `_rating` (Pydantic alias preserved through the codegen).
+ * Generated from `apps/api/src/models.py::SystemRow`, with frontend-friendly
+ * development/archetype fields kept explicit here.
  */
 export type SystemResult = GeneratedSystemResult & {
   archetype_score?: number | null;
@@ -60,34 +57,36 @@ export type SystemResult = GeneratedSystemResult & {
   contamination_risk?: number | null;
   est_total_slots?: number | null;
   tags?: string[] | null;
-  score?: number | null;
-  score_agriculture?: number | null;
-  score_refinery?: number | null;
-  score_industrial?: number | null;
-  score_hightech?: number | null;
-  score_military?: number | null;
-  score_tourism?: number | null;
-  score_extraction?: number | null;
   economy_suggestion?: string | null;
-  rating_version?: string | null;
-  terraforming_potential?: number | null;
-  body_diversity?: number | null;
-  confidence?: number | null;
-  rationale?: string | null;
 };
 
 export type SearchResponse        = Schemas['SearchResponse'];
 export type AutocompleteHit       = Schemas['AutocompleteHit'];
 export type AutocompleteResponse  = Schemas['AutocompleteResponse'];
 export type SystemArchetypeResponse = Schemas['SystemArchetypeResponse'];
-export type SystemDetail          = Schemas['SystemDetailRow'];
+export type SystemDetail          = Schemas['SystemDetailRow'] & {
+  primary_archetype?: string | null;
+  secondary_archetype?: string | null;
+  archetype_confidence?: number | null;
+  overall_development_potential?: number | null;
+  buildability_score?: number | null;
+  build_complexity?: string | null;
+  purity_score?: number | null;
+  contamination_risk?: number | null;
+  est_total_slots?: number | null;
+};
 export type SystemDetailResponse  = Schemas['SystemDetailResponse'];
 export type AppStatus             = Schemas['StatusResponse'];
 export type CacheStats            = Schemas['CacheStatsResponse'];
-export type RerankRequest         = Schemas['RerankRequest'];
-export type RerankResponse        = Schemas['RerankResponse'];
-export type RerankRow             = Schemas['RerankRow'];
-export type RerankWeights         = Schemas['RerankWeights'];
+export type DevelopmentRerankRequest  = Schemas['ArchetypeRerankRequest'];
+export type DevelopmentRerankResponse = Schemas['ArchetypeRerankResponse'];
+export type DevelopmentRerankWeights  = Schemas['ArchetypeRerankWeights'];
+export type DevelopmentRerankRow = Schemas['ArchetypeRerankRow'] & {
+  contributions?: Partial<Record<
+    keyof DevelopmentRerankWeights,
+    number | null | undefined
+  >>;
+};
 export type BuildabilityData      = Schemas['BuildabilityData'];
 export type SimulationSummary     = Schemas['SimulationSummaryResponse'] & { regional_context?: RegionalAnalysisResponse | null };
 export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
@@ -1071,18 +1070,13 @@ export interface RegionalAnalysisResponse {
 
 // ─── Frontend-side constants ──────────────────────────────────────────────
 
-export const DEFAULT_WEIGHTS: RerankWeights = {
-  economy:      0.42,
-  slots:        0.23,
-  strategic:    0.18,
-  safety:       0.10,
-  terraforming: 0.05,
-  diversity:    0.02,
+export const DEFAULT_WEIGHTS: DevelopmentRerankWeights = {
+  purity:       0.30,
+  buildability: 0.25,
+  slots:        0.20,
+  expansion:    0.15,
+  logistics:    0.10,
 };
-
-export type Economy =
-  | 'Agriculture' | 'Refinery' | 'Industrial'
-  | 'HighTech'    | 'Military' | 'Tourism' | 'Extraction';
 
 // ─── Optimiser Candidate Generation / Ranking (Stages 5A-5C) ────────────────
 export interface OptimiserCandidatePlacement {

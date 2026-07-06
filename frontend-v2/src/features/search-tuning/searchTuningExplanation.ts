@@ -1,24 +1,23 @@
-import type { RerankRow } from '@/types/api';
+import type { DevelopmentRerankRow } from '@/types/api';
 
 export interface ContributionLabel {
-  key: keyof NonNullable<RerankRow['contributions']>;
+  key: keyof NonNullable<DevelopmentRerankRow['contributions']>;
   label: string;
   value: number;
 }
 
 const LABELS: Record<ContributionLabel['key'], string> = {
-  economy:      'Economy',
+  purity:       'Purity',
+  buildability: 'Buildability',
   slots:        'Slots',
-  strategic:    'Strategic',
-  safety:       'Safety',
-  terraforming: 'Terraforming',
-  diversity:    'Diversity',
+  expansion:    'Expansion',
+  logistics:    'Logistics',
 };
 
 const CONTRIBUTION_KEYS = Object.keys(LABELS) as ContributionLabel['key'][];
 const EFFECTIVELY_ZERO = 0.05;
 
-export function getTopContributors(row: RerankRow, limit = 2): ContributionLabel[] {
+export function getTopContributors(row: DevelopmentRerankRow, limit = 2): ContributionLabel[] {
   const labels = contributionLabels(row);
   const positiveLabels = labels.filter((item) => item.value >= EFFECTIVELY_ZERO);
 
@@ -27,13 +26,13 @@ export function getTopContributors(row: RerankRow, limit = 2): ContributionLabel
     .slice(0, limit);
 }
 
-export function getWeakestSignals(row: RerankRow, limit = 2): ContributionLabel[] {
+export function getWeakestSignals(row: DevelopmentRerankRow, limit = 2): ContributionLabel[] {
   return contributionLabels(row)
     .sort((a, b) => a.value - b.value)
     .slice(0, limit);
 }
 
-export function hasContributionBreakdown(row: RerankRow): boolean {
+export function hasContributionBreakdown(row: DevelopmentRerankRow): boolean {
   return contributionLabels(row).length > 0;
 }
 
@@ -50,7 +49,7 @@ export function describeRankMovement(originalRank: number | undefined, tunedRank
 }
 
 export function buildTunedResultExplanation(
-  row: RerankRow,
+  row: DevelopmentRerankRow,
   originalRank: number | undefined,
   tunedRank: number,
 ): string[] {
@@ -98,7 +97,7 @@ export function formatContributionValue(value: number): string {
   return `+${value.toFixed(1)}`;
 }
 
-function contributionLabels(row: RerankRow): ContributionLabel[] {
+function contributionLabels(row: DevelopmentRerankRow): ContributionLabel[] {
   if (!row.contributions) return [];
 
   return CONTRIBUTION_KEYS

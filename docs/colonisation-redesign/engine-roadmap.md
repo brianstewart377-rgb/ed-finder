@@ -512,6 +512,10 @@ Stage 6F will harden the Stage 6 workflow around robustness, ergonomics, and con
 
 ## Stage 7A - Search Tuning / Finder Rerank Forensic Review
 
+**Status (2026-07): historical reference.**
+
+Search Tuning was migrated to **Development Tuning** and now reranks via `POST /api/archetypes/rerank`. The Stage 7 notes below are retained for historical context.
+
 Stage 7A is the map-before-the-march review for the legacy Search Tuning / Finder-result rerank surface. It documents what the current feature actually does, where it is implemented, what endpoints and data it uses, how it differs from normal Finder search and Colony Planner, and what should happen next.
 
 Current Stage 7A status:

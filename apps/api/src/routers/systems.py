@@ -44,6 +44,10 @@ async def get_system(
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
             SELECT s.*,
+                m.primary_archetype, m.secondary_archetype,
+                m.archetype_confidence, m.overall_development_potential,
+                m.buildability_score, m.build_complexity,
+                m.purity_score, m.contamination_risk, m.est_total_slots,
                 r.score, r.score_agriculture, r.score_refinery,
                 r.score_industrial, r.score_hightech,
                 r.score_military, r.score_tourism,
@@ -56,6 +60,7 @@ async def get_system(
                 r.terraforming_potential, r.body_diversity,
                 r.confidence, r.rationale, r.rating_version
             FROM systems s
+            LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
             LEFT JOIN ratings r ON r.system_id64 = s.id64
             WHERE s.id64 = $1
         """, id64)

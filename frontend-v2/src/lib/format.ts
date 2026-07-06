@@ -4,21 +4,6 @@
  * app, future mobile app, anything).
  */
 
-/** Bucketise a system score into Elite-style rating tiers. */
-export function ratingTier(score: number | null | undefined): {
-  label: 'EXCELLENT' | 'GOOD' | 'OK' | 'POOR' | 'N/A';
-  className: string;
-  fillColor: string;
-} {
-  if (score == null || Number.isNaN(score)) {
-    return { label: 'N/A', className: 'rating-na', fillColor: '#666' };
-  }
-  if (score >= 80) return { label: 'EXCELLENT', className: 'rating-excellent', fillColor: '#3ddc84' };
-  if (score >= 60) return { label: 'GOOD',      className: 'rating-good',      fillColor: '#facc15' };
-  if (score >= 40) return { label: 'OK',        className: 'rating-ok',        fillColor: '#ff6a00' };
-  return                  { label: 'POOR',      className: 'rating-poor',      fillColor: '#ef4444' };
-}
-
 /** Compact human-readable population (12.3M, 800K, 250). */
 export function formatPopulation(pop: number | null | undefined): string {
   if (pop == null || Number.isNaN(pop)) return 'Unknown';

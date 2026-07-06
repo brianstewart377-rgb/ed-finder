@@ -6,7 +6,7 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-describe('useHashRoute Advanced Search Tuning aliases', () => {
+describe('useHashRoute Development Tuning aliases', () => {
   it.each([
     ['#finder', 'finder'],
     ['#watchlist', 'watchlist'],
@@ -30,7 +30,7 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('parses #search-tuning as the preferred Advanced Search Tuning route', () => {
+  it('parses #search-tuning as the preferred Development Tuning route', () => {
     window.location.hash = '#search-tuning';
 
     const { result } = renderHook(() => useHashRoute());
@@ -40,7 +40,7 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('normalizes #optimizer as the legacy Advanced Search Tuning alias', () => {
+  it('normalizes #optimizer as the legacy Development Tuning alias', () => {
     window.location.hash = '#optimizer';
 
     const { result } = renderHook(() => useHashRoute());
@@ -60,7 +60,7 @@ describe('useHashRoute Advanced Search Tuning aliases', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('parses legacy #optimizer/system links as Advanced Search Tuning modal routes', () => {
+  it('parses legacy #optimizer/system links as Development Tuning modal routes', () => {
     window.location.hash = '#optimizer/system/123456';
 
     const { result } = renderHook(() => useHashRoute());

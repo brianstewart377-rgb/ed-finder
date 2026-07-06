@@ -1,5 +1,9 @@
 # Stage 7A - Search Tuning / Finder Rerank Forensic Review
 
+**Status (2026-07): historical reference.**
+
+Search Tuning was migrated to **Development Tuning** and now reranks via `POST /api/archetypes/rerank` using archetype-led development weights. This document remains as a Stage 7-era forensic record of the legacy ratings rerank design and rollout.
+
 ## Executive Summary
 
 Search Tuning currently reranks the systems already returned by Finder. It does not run a new search, change `/api/local/search` ordering, persist preferences, generate colony build plans, or feed into Colony Planner. The user chooses an optional economy preference and six weights; the frontend sends up to 500 current Finder `id64`s to `POST /api/ratings/rerank`; the backend reads existing rows from `ratings`, computes a temporary weighted score, sorts the returned subset, and returns an explanatory result list.

@@ -157,7 +157,6 @@ export function MyWorkWorkspace({
       population: system.population,
       is_colonised: system.is_colonised,
       distance: null,
-      rating: null,
       economy: null,
       pinned_at: new Date().toISOString(),
     });

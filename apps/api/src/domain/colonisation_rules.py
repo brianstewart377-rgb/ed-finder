@@ -2,7 +2,7 @@
 
 The rules in this module are derived from the repo's Mega Guide notes:
 
-* ``frontend-v2/public/ratings.html`` body-to-economy table.
+* ``frontend-v2/public/development.html`` body-to-economy table.
 * ``docs/colonisation-redesign/COLONISATION_ENGINE_REDESIGN.md``.
 * Existing importer classifiers in ``build_ratings.py`` and
   ``build_topology.py``.

@@ -38,7 +38,6 @@ function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
     archetype_tier: 'S',
     buildability_score: 81,
     purity_score: 74,
-    _rating: { score: 85, rationale: 'Strong Refinery' },
     population: 1000000,
     primaryEconomy: 'Refinery',
     allegiance: 'Federation',
@@ -145,7 +144,7 @@ describe('MapTab', () => {
 
   it('shows system details after selecting a system', () => {
     const systems = [
-      makeSystem({ id64: 1, name: 'Alpha Centauri', coords: { x: 10, y: 0, z: 5 }, _rating: { score: 85, rationale: 'Strong Refinery' } }),
+      makeSystem({ id64: 1, name: 'Alpha Centauri', coords: { x: 10, y: 0, z: 5 } }),
       makeSystem({ id64: 2, name: 'Beta', coords: { x: -20, y: 0, z: 10 } }),
     ];
     render(<MapTab systems={systems} reference={reference} />);

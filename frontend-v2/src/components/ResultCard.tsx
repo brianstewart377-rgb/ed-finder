@@ -1,17 +1,13 @@
 import { useState } from 'react';
 import type { SystemResult } from '@/types/api';
 import {
-  ratingTier,
   formatPopulationForSystem,
-  formatConfidence,
   formatDistance,
   formatCoords,
   isInhabited,
   systemStatusLabel,
 } from '@/lib/format';
 import { archetypeTierFromScore, getFinderArchetypeSummary } from '@/lib/archetypes';
-import { getLegacyRatingConfidence, getLegacyRatingRationale, getLegacyRatingScore } from '@/lib/legacyRating';
-import { displayRationale } from '@/lib/rationale';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -45,9 +41,6 @@ export function ResultCard({
 }: ResultCardProps) {
   const [open, setOpen] = useState(false);
 
-  const legacyScore = getLegacyRatingScore(system);
-  const legacyTier  = ratingTier(legacyScore);
-  const conf       = formatConfidence(getLegacyRatingConfidence(system));
   const inhabited  = isInhabited(system);
   const dist       = formatDistance(system.distance) ?? '—';
   const popLabel   = formatPopulationForSystem(system);
@@ -167,38 +160,6 @@ export function ResultCard({
           {archetypeTier ?? '—'} {archetypeScore ?? '—'}
         </span>
 
-        <span
-          data-testid="result-card-legacy-rating"
-          className="font-mono text-[10px] font-bold tracking-wider px-2 py-0.5 rounded-chunk border"
-          style={{
-            background: `linear-gradient(180deg, ${legacyTier.fillColor}22, ${legacyTier.fillColor}0d)`,
-            borderColor: `${legacyTier.fillColor}66`,
-            color: legacyTier.fillColor,
-          }}
-          title={`Legacy rating score: ${legacyScore ?? '—'}/100`}
-        >
-          Legacy {legacyScore ?? '—'}
-        </span>
-
-        {/* Confidence */}
-        {conf && (
-          <span
-            className="font-mono text-[10px] text-silver-dk hidden sm:inline-flex items-center gap-0.5"
-            title={`Legacy rating confidence: ${conf.tier} (${conf.pct}%)`}
-          >
-            <span
-              className={[
-                conf.tier === 'High'   && 'text-green',
-                conf.tier === 'Medium' && 'text-gold',
-                conf.tier === 'Low'    && 'text-red',
-              ].filter(Boolean).join(' ')}
-            >
-              {conf.symbol}
-            </span>
-            {conf.pct}%
-          </span>
-        )}
-
         {/* Score fill bar */}
         <span
           className="block w-20 h-2 rounded-full overflow-hidden"
@@ -233,14 +194,6 @@ export function ResultCard({
       {open && (
         <div className="border-t border-border/70 px-4 py-4 space-y-3 animate-fade-up"
              style={{ background: 'linear-gradient(180deg, rgba(20,22,26,0.3), rgba(20,22,26,0.6))' }}>
-          {displayRationale(getLegacyRatingRationale(system)) && (
-            <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2">
-              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Stored rating rationale</div>
-              <p className="mt-1 text-sm italic leading-snug text-silver-dk">
-                {displayRationale(getLegacyRatingRationale(system))}
-              </p>
-            </div>
-          )}
           <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs font-mono">
             {archetypeLabel && (
               <Row

@@ -115,7 +115,8 @@ export function SimulationPreview({
   );
   const regionalContext = summaryQuery.data?.regional_context ?? null;
   const suggestedArchetype = summaryQuery.data?.classification?.primary_archetype
-    ?? archetypeFromEconomy(system.economy_suggestion)
+    ?? system.primary_archetype
+    ?? archetypeFromEconomy(system.primary_economy)
     ?? 'refinery_industrial';
   const recommendedPlacements = useMemo(
     () => buildRecommendedPlacements(recommendedSteps, templates, bodies),

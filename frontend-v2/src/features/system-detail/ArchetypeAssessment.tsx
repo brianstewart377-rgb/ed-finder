@@ -46,7 +46,7 @@ export function ArchetypeAssessment({
           </button>
         </div>
         <p className="mt-2 text-sm text-silver">
-          The archetype service did not return a result. Legacy rating context remains available below.
+          The archetype service did not return a result. Retry to refresh the development assessment.
         </p>
       </div>
     );
@@ -140,7 +140,7 @@ export function ArchetypeAssessment({
       )}
 
       <p className="font-mono text-[10px] leading-snug text-silver-dk">
-        This archetype assessment is the active cutover path. The legacy rating profile remains below as compatibility context until finder ranking fully moves off the old contract.
+        This archetype assessment drives the current Finder development view and planning handoff.
       </p>
     </div>
   );

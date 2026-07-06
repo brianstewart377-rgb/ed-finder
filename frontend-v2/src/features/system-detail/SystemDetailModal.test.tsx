@@ -13,8 +13,6 @@ vi.mock('./useSystemArchetype', () => ({
   useSystemArchetype: vi.fn(),
 }));
 
-vi.mock('./RatingRadar', () => ({ RatingRadar: () => <div>Rating radar</div> }));
-
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 const mockedUseSystemArchetype = vi.mocked(useSystemArchetype);
 
@@ -223,8 +221,6 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByText('System Detail')).toBeTruthy();
     expect(screen.getByText('Archetype assessment')).toBeTruthy();
     expect(screen.getByTestId('archetype-primary').textContent).toContain('Refinery / Industrial Megacomplex');
-    expect(screen.getByText('Legacy rating signals')).toBeTruthy();
-    expect(screen.getByText('Rating radar')).toBeTruthy();
     expect(screen.getByText('System info')).toBeTruthy();
     expect(screen.getByText('Coordinates')).toBeTruthy();
     expect(screen.getByText('External')).toBeTruthy();
@@ -340,7 +336,9 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     fireEvent.click(screen.getByTestId('system-detail-save-for-later'));
 
     expect(onToggleSaveForLater).toHaveBeenCalledTimes(1);
-    expect(onToggleSaveForLater).toHaveBeenCalledWith(expect.objectContaining({ id64: 123 }));
+    expect(onToggleSaveForLater).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.objectContaining({ id64: 123 }),
+    }));
     expect(onStartPlan).not.toHaveBeenCalled();
   });
 
@@ -371,7 +369,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     render(<SystemDetailModal id64={123} onClose={() => undefined} onStartPlan={() => undefined} />);
 
     expect(screen.getByTestId('archetype-assessment-error')).toBeTruthy();
-    expect(screen.getByText(/legacy rating context remains available below/i)).toBeTruthy();
+    expect(screen.getByText(/retry to refresh the development assessment/i)).toBeTruthy();
   });
 
   it('keeps normal modal close behaviours working without an embedded planner target', () => {

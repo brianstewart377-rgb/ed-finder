@@ -18,7 +18,6 @@ Endpoint surface (see individual router docstrings for detail):
   routers/search.py     autocomplete + local/galaxy/cluster search
   routers/systems.py    per-system / per-body detail + batch lookup
   routers/map.py        galaxy regions, cluster hulls, heatmap, timeline
-  routers/ratings.py    rating rerank with custom weights (v3.1 — preserved unchanged)
   routers/archetypes.py archetype rankings, rerank, system detail, simulate, profiles
   share_router.py       /s/{id64} OG-tagged share preview + PNG
 """
@@ -55,7 +54,6 @@ from routers.archetypes  import router as archetypes_router
 from routers.colony_planner import router as colony_planner_router
 from routers.provenance_cockpit import router as provenance_cockpit_router
 from routers.warehouse_planner_evidence import router as warehouse_planner_evidence_router
-from routers.ratings     import router as ratings_router
 from routers.simulate    import router as simulate_router
 from routers.simulation  import router as simulation_router
 from routers.search    import router as search_router
@@ -284,7 +282,6 @@ app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)
 app.include_router(archetypes_router)
-app.include_router(ratings_router)
 app.include_router(simulate_router)
 app.include_router(simulation_router)
 app.include_router(optimiser_router)

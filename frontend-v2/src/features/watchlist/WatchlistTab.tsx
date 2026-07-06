@@ -23,7 +23,7 @@ export function WatchlistTab({
   const sorted = [...entries].sort((a, b) => {
     switch (sort) {
       case 'name':  return a.name.localeCompare(b.name);
-      case 'score': return ((b.archetype_score ?? b.score) ?? -1) - ((a.archetype_score ?? a.score) ?? -1);
+      case 'score': return (b.archetype_score ?? -1) - (a.archetype_score ?? -1);
       case 'distance': {
         const da = distanceFromSol(a, a.system_id64) ?? Number.POSITIVE_INFINITY;
         const db = distanceFromSol(b, b.system_id64) ?? Number.POSITIVE_INFINITY;
@@ -43,8 +43,7 @@ export function WatchlistTab({
     z:            e.z,
     population:   e.population,
     is_colonised: e.is_colonised,
-    score:        e.archetype_score ?? e.score ?? null,
-    legacyScore:  e.score ?? null,
+    score:        e.archetype_score ?? null,
     economy:      e.economy_suggestion ?? null,
     archetype:    e.primary_archetype ?? null,
     secondaryArchetype: e.secondary_archetype ?? null,

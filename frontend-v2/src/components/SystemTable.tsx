@@ -24,7 +24,6 @@ export interface SystemRow {
   is_colonised: boolean;
   is_being_colonised?: boolean | null;
   score:        number | null;
-  legacyScore?: number | null;
   economy:      string | null;
   archetype?:   string | null;
   secondaryArchetype?: string | null;
@@ -224,27 +223,20 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
     case 'score': {
       const tier = archetypeTierFromScore(row.score);
       return (
-        <div className="space-y-1">
-          <span
-            className={[
-              'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
-              tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
-              tier === 'A' && 'bg-green/20 text-green border-green/50',
-              tier === 'B' && 'bg-gold/20 text-gold border-gold/50',
-              tier === 'C' && 'bg-orange/20 text-orange border-orange/50',
-              tier === 'D' && 'bg-red/20 text-red border-red/50',
-              tier == null && 'bg-bg4 text-text-dim border-border',
-            ].filter(Boolean).join(' ')}
-            title={`Development score: ${row.score ?? '—'}/100`}
-          >
-            {tier ?? '—'} {row.score ?? '—'}
-          </span>
-          {row.legacyScore != null && (
-            <div className="text-[10px] text-text-dim" title={`Legacy rating: ${row.legacyScore}/100`}>
-              Legacy {row.legacyScore}
-            </div>
-          )}
-        </div>
+        <span
+          className={[
+            'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
+            tier === 'S' && 'bg-cyan/20 text-cyan border-cyan/50',
+            tier === 'A' && 'bg-green/20 text-green border-green/50',
+            tier === 'B' && 'bg-gold/20 text-gold border-gold/50',
+            tier === 'C' && 'bg-orange/20 text-orange border-orange/50',
+            tier === 'D' && 'bg-red/20 text-red border-red/50',
+            tier == null && 'bg-bg4 text-text-dim border-border',
+          ].filter(Boolean).join(' ')}
+          title={`Development score: ${row.score ?? '—'}/100`}
+        >
+          {tier ?? '—'} {row.score ?? '—'}
+        </span>
       );
     }
 

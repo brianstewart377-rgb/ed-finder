@@ -3,23 +3,11 @@ import type { SystemResult } from '@/types/api';
 import type { UseCompare } from './useCompare';
 import { COMPARE_MAX } from './useCompare';
 import {
-  ratingTier,
   formatPopulationForSystem,
-  formatConfidence,
   formatDistance,
   systemStatusLabel,
 } from '@/lib/format';
-import { archetypeTierFromScore, formatArchetypeLabel } from '@/lib/archetypes';
-import { displayRationale } from '@/lib/rationale';
-import {
-  getLegacyBodyDiversity,
-  getLegacyEconomyScore,
-  getLegacyRatingConfidence,
-  getLegacyRatingRationale,
-  getLegacyRatingScore,
-  getLegacySuggestedEconomy,
-  getLegacyTerraformingPotential,
-} from '@/lib/legacyRating';
+import { archetypeTierFromScore, formatArchetypeLabel, getDevelopmentScore } from '@/lib/archetypes';
 
 export interface CompareTabProps {
   compare: UseCompare;
@@ -217,7 +205,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
   return [
     numericRow(
       'Development score',
-      (s) => s.archetype_score ?? s.overall_development_potential,
+      (s) => getDevelopmentScore(s),
       (v) => {
         const tier = archetypeTierFromScore(v ?? null);
         return (
@@ -254,42 +242,7 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
       (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
     numericRow('Estimated slots', (s) => s.est_total_slots,
       (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
-    numericRow(
-      'Legacy rating',
-      (s) => getLegacyRatingScore(s),
-      (v) => {
-        const tier = ratingTier(v ?? null);
-        return (
-          <span
-            className={[
-              'inline-block px-2 py-0.5 rounded border text-[11px] font-bold',
-              tier.label === 'EXCELLENT' && 'bg-green/20 text-green border-green/50',
-              tier.label === 'GOOD'      && 'bg-gold/20 text-gold border-gold/50',
-              tier.label === 'OK'        && 'bg-orange/20 text-orange border-orange/50',
-              tier.label === 'POOR'      && 'bg-red/20 text-red border-red/50',
-              tier.label === 'N/A'       && 'bg-bg4 text-text-dim border-border',
-            ].filter(Boolean).join(' ')}
-          >
-            {v ?? '—'}
-          </span>
-        );
-      },
-    ),
-    plainRow('Legacy confidence', (s) => {
-      const c = formatConfidence(getLegacyRatingConfidence(s));
-      if (!c) return <span className="text-text-dim">—</span>;
-      const colour =
-        c.tier === 'High'   ? 'text-green' :
-        c.tier === 'Medium' ? 'text-gold'  : 'text-red';
-      return <span className={`${colour} text-xs`}>{c.symbol} {c.pct}%</span>;
-    }),
-    plainRow('Legacy rationale', (s) => (
-      <span className="text-text-dim text-[11px] italic leading-snug block">
-        {displayRationale(getLegacyRatingRationale(s)) || '—'}
-      </span>
-    )),
     plainRow('Primary economy',   (s) => <span className="text-text">{s.primaryEconomy ?? '—'}</span>),
-    plainRow('Suggested economy', (s) => <span className="text-orange">{getLegacySuggestedEconomy(s) ?? '—'}</span>),
     numericRow(
       'Distance from ref',
       (s) => s.distance,
@@ -318,10 +271,6 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     )),
     plainRow('Security',   (s) => <span className="text-text-dim text-xs">{s.security ?? '—'}</span>),
     plainRow('Allegiance', (s) => <span className="text-text-dim text-xs">{s.allegiance ?? '—'}</span>),
-    numericRow('Terraforming potential', (s) => getLegacyTerraformingPotential(s),
-      (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
-    numericRow('Body diversity', (s) => getLegacyBodyDiversity(s),
-      (v) => v == null ? <span className="text-text-dim">—</span> : <span className="tabular-nums">{v}</span>),
     numericRow('ELW',           (s) => s.elw_count,          chipOrDash('🌍', 'green')),
     numericRow('Water worlds',  (s) => s.ww_count,           chipOrDash('🌊', 'cyan')),
     numericRow('Ammonia',       (s) => s.ammonia_count,      chipOrDash('🟣', 'text-dim')),
@@ -329,13 +278,6 @@ function buildMetricRows(entries: SystemResult[]): MetricRow[] {
     numericRow('Landable',      (s) => s.landable_count,     chipOrDash('🪨', 'text-dim')),
     numericRow('Bio signals',   (s) => s.bio_signal_total,   chipOrDash('🧬', 'green')),
     numericRow('Geo signals',   (s) => s.geo_signal_total,   chipOrDash('🌋', 'orange')),
-    numericRow('Agriculture',   (s) => getLegacyEconomyScore(s, 'agriculture'), scoreChip),
-    numericRow('Refinery',      (s) => getLegacyEconomyScore(s, 'refinery'),    scoreChip),
-    numericRow('Industrial',    (s) => getLegacyEconomyScore(s, 'industrial'),  scoreChip),
-    numericRow('High Tech',     (s) => getLegacyEconomyScore(s, 'hightech'),    scoreChip),
-    numericRow('Military',      (s) => getLegacyEconomyScore(s, 'military'),    scoreChip),
-    numericRow('Tourism',       (s) => getLegacyEconomyScore(s, 'tourism'),     scoreChip),
-    numericRow('Extraction',    (s) => getLegacyEconomyScore(s, 'extraction'),  scoreChip),
     plainRow('Links', (s) => (
       <span className="space-x-2 whitespace-nowrap text-[11px]">
         <a
@@ -359,28 +301,9 @@ function chipOrDash(icon: string, colourClass: string) {
   return (v: number | null | undefined) => {
     if (v == null || v === 0) return <span className="text-text-dim">—</span>;
     return (
-      <span className={`text-${colourClass}`}>
+      <span className={colourClass}>
         {icon} <span className="tabular-nums font-bold">{v}</span>
       </span>
     );
   };
-}
-
-function scoreChip(v: number | null | undefined): ReactNode {
-  if (v == null) return <span className="text-text-dim">—</span>;
-  const tier = ratingTier(v);
-  return (
-    <span
-      className={[
-        'inline-block px-1.5 py-0 rounded border text-[10px] font-bold',
-        tier.label === 'EXCELLENT' && 'bg-green/20 text-green border-green/40',
-        tier.label === 'GOOD'      && 'bg-gold/20 text-gold border-gold/40',
-        tier.label === 'OK'        && 'bg-orange/20 text-orange border-orange/40',
-        tier.label === 'POOR'      && 'bg-red/20 text-red border-red/40',
-        tier.label === 'N/A'       && 'bg-bg4 text-text-dim border-border',
-      ].filter(Boolean).join(' ')}
-    >
-      {v}
-    </span>
-  );
 }

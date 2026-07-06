@@ -11,15 +11,15 @@ Single source of truth for:
 
 Audit fix (2026-05-08, AUDIT_REPORT.md §H8 / §C5):
 the previous repo had four separate copies of these dicts spread across
-``local_search.py``, ``routers/search.py``, ``routers/map.py`` and
-``routers/ratings.py``. They had already drifted in two ways:
+``local_search.py``, ``routers/search.py``, ``routers/map.py`` and the
+retired ratings rerank router. They had already drifted in two ways:
 
   1. ``local_search.ECONOMY_SCORE_COL`` was missing ``"extraction"`` —
      so if a user filtered by ``economy=extraction``, the display-score
      and ORDER BY silently fell back to the overall ``r.score``,
      producing a different ordering than the same query in the inline
      fallback (which DID know about extraction).
-  2. ``routers/ratings.py`` keyed by Title-case (``'Agriculture'``)
+  2. The retired ratings rerank router keyed by Title-case (``'Agriculture'``)
      while every other site keyed by lower-case (``'agriculture'``).
 
 Centralising eliminates both bugs and gives us one place to add a new

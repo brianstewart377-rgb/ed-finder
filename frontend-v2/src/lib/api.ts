@@ -14,6 +14,8 @@ import type {
   AppStatus,
   AutocompleteResponse,
   CacheStats,
+  DevelopmentRerankRequest,
+  DevelopmentRerankResponse,
   EnrichmentStationStatus,
   EnrichmentWarehouseStatus,
   AdminDataStatus,
@@ -40,8 +42,6 @@ import type {
   ProvenanceCockpitResponse,
   RecommendedBuildsResponse,
   RegionalAnalysisResponse,
-  RerankRequest,
-  RerankResponse,
   SearchResponse,
   SimulateBuildRequest,
   SimulateBuildResponse,
@@ -66,10 +66,9 @@ type LocalSearchBody = {
   };
   size?:       number;
   from?:       number;
-  sort_by?:    'distance' | 'development' | 'population' | 'rating' | string;
+  sort_by?:    'distance' | 'development' | 'population' | string;
   galaxy_wide?: boolean;
   min_development_score?: number;
-  min_rating?: number;
   /** Per-body-type min/max counts (server-side filter). */
   body_filters?: Record<string, { min?: number; max?: number }>;
   /** Top-level boolean toggles understood by local_search.py. */
@@ -345,11 +344,11 @@ export const api = {
     });
   },
 
-  // ── Advanced Search Tuning / ratings rerank ──────────────────────────
+  // ── Development Tuning / archetype rerank ────────────────────────────
   // This endpoint only reorders supplied Finder result IDs; it is separate
   // from Colony Planner optimiser candidates.
-  rerank(body: RerankRequest): Promise<RerankResponse> {
-    return jsonFetch('/ratings/rerank', {
+  archetypeRerank(body: DevelopmentRerankRequest): Promise<DevelopmentRerankResponse> {
+    return jsonFetch('/archetypes/rerank', {
       method: 'POST',
       body:   JSON.stringify(body),
     });
@@ -700,7 +699,7 @@ export interface WatchlistEntry {
   population:         number | null;
   is_colonised:       boolean;
   added_at:           string;
-  /** Latest rating (joined server-side). */
+  /** Latest development snapshot joined server-side. */
   score?:             number | null;
   economy_suggestion?: string | null;
   archetype_score?:   number | null;

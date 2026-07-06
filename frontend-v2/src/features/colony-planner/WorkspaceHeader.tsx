@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ArrowLeft, ExternalLink, MoreHorizontal, Trash2 } from 'lucide-react';
 import { formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
+import { formatArchetypeLabel } from '@/lib/archetypes';
 import type { SystemDetail } from '@/types/api';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
@@ -109,7 +110,7 @@ export function WorkspaceHeader({
         status={<SemanticStatusBadge label={status} tone={statusTone} />}
         facts={[
           { label: 'Coords', value: coords, tone: 'cyan' },
-          { label: 'Economy', value: system.economy_suggestion ?? system.primary_economy ?? 'Unknown', tone: 'orange' },
+          { label: 'Archetype', value: system.primary_archetype ? formatArchetypeLabel(system.primary_archetype) : system.primary_economy ?? 'Unknown', tone: 'orange' },
           { label: 'Population', value: population },
         ]}
         actions={(

@@ -93,24 +93,6 @@ def sys_row_to_dict(r: Any) -> dict:
     d['government']       = d.get('government', 'Unknown')
     d['is_colonised']        = d.get('is_colonised', False)
     d['is_being_colonised']  = d.get('is_being_colonised', False)
-    d['_rating'] = {
-        'score':             d.get('score'),
-        'scoreAgriculture':  d.get('score_agriculture'),
-        'scoreRefinery':     d.get('score_refinery'),
-        'scoreIndustrial':   d.get('score_industrial'),
-        'scoreHightech':     d.get('score_hightech'),
-        'scoreMilitary':     d.get('score_military'),
-        'scoreTourism':      d.get('score_tourism'),
-        'scoreExtraction':   d.get('score_extraction'),
-        'economySuggestion': d.get('economy_suggestion'),
-        'breakdown':         d.get('score_breakdown'),
-        'ratingVersion':     d.get('rating_version'),
-        # v3.1 fields — mirrored in camelCase for frontend parity.
-        'terraformingPotential': d.get('terraforming_potential'),
-        'bodyDiversity':         d.get('body_diversity'),
-        'confidence':            d.get('confidence'),
-        'rationale':             d.get('rationale'),
-    }
     d['bodies'] = d.get('bodies', [])
     return d
 

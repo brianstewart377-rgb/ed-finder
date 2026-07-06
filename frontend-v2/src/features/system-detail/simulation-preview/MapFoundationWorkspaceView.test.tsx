@@ -21,7 +21,6 @@ describe('MapFoundationWorkspaceView', () => {
           id64: 12866676218109,
           name: 'Shinrarta Dezhra',
           coords: { x: 12, y: 0, z: 42 },
-          _rating: { score: 88, rationale: 'Strong refinery' },
           population: 1000000,
           primaryEconomy: 'Refinery',
           allegiance: 'Pilots Federation',

@@ -36,7 +36,8 @@ import { archetypeFromEconomy } from '@/features/system-detail/simulation-previe
 import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EliteNewsBanner } from '@/features/news/EliteNewsBanner';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
-import { getLegacyRatingScore } from '@/lib/legacyRating';
+import { getDevelopmentScore } from '@/lib/archetypes';
+import type { SystemArchetypeResponse } from '@/types/api';
 import './index.css';
 
 const COALSACK_BG_VERSION = 'v=2';
@@ -226,7 +227,12 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       z?: number | null;
       population?: number | null;
       is_colonised?: boolean;
-      score?: number | null;
+      developmentScore?: number | null;
+      economy_suggestion?: string | null;
+      primary_archetype?: string | null;
+      secondary_archetype?: string | null;
+      buildability_score?: number | null;
+      purity_score?: number | null;
     },
   ) => {
     if (savedSystemActionState[id64] && savedSystemActionState[id64] !== 'idle') return;
@@ -252,7 +258,12 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         z: hint.z ?? null,
         population: hint.population ?? null,
         is_colonised: hint.is_colonised ?? false,
-        score: hint.score ?? null,
+        economy_suggestion: hint.economy_suggestion ?? null,
+        archetype_score: hint.developmentScore ?? null,
+        primary_archetype: hint.primary_archetype ?? null,
+        secondary_archetype: hint.secondary_archetype ?? null,
+        buildability_score: hint.buildability_score ?? null,
+        purity_score: hint.purity_score ?? null,
       });
       setSavedSystemNotice({
         tone: 'success',
@@ -282,7 +293,9 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       startApproach: ColonyProjectStartApproach;
     },
   ) => {
-    const targetArchetype = archetypeFromEconomy(system.economy_suggestion ?? system.primary_economy) ?? 'refinery_industrial';
+    const targetArchetype = system.primary_archetype
+      ?? archetypeFromEconomy(system.primary_economy)
+      ?? 'refinery_industrial';
     const saved = saveProject(null, {
       system_id64: system.id64,
       system_name: system.name || 'Unknown system',
@@ -440,34 +453,39 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           savedForLater={shellSystem.data ? watchlist.has(shellSystem.data.id64) : false}
           saveForLaterState={shellSystem.data ? savedSystemActionState[shellSystem.data.id64] ?? 'idle' : 'idle'}
           onToggleSaveForLater={(system) => {
-            void toggleSavedSystem(system.id64, {
-              name: system.name,
-              x: system.x,
-              y: system.y,
-              z: system.z,
-              population: system.population ?? null,
-              is_colonised: !!system.is_colonised,
-              score: system.score ?? null,
+            void toggleSavedSystem(system.system.id64, {
+              name: system.system.name,
+              x: system.system.x,
+              y: system.system.y,
+              z: system.system.z,
+              population: system.system.population ?? null,
+              is_colonised: !!system.system.is_colonised,
+              developmentScore: system.archetype?.overall_development_potential ?? null,
+              economy_suggestion: system.system.economy_suggestion ?? null,
+              primary_archetype: system.archetype?.primary_archetype ?? null,
+              secondary_archetype: system.archetype?.secondary_archetype ?? null,
+              buildability_score: system.archetype?.buildability_score ?? null,
+              purity_score: system.archetype?.purity_score ?? null,
             });
           }}
           onStartPlan={startPlanFromSystemDetail}
-          renderActions={(sys) => (
+          renderActions={({ system: sys, archetype }) => (
             <>
               <button
                 type="button"
                 disabled={!sys}
                 onClick={() => sys && pinned.toggle(toPinnedEntry({
-                  id64:         sys.id64,
-                  name:         sys.name,
-                  coords:       { x: sys.x ?? null, y: sys.y ?? null, z: sys.z ?? null },
-                  population:   sys.population ?? null,
+                  id64: sys.id64,
+                  name: sys.name,
+                  coords: { x: sys.x ?? null, y: sys.y ?? null, z: sys.z ?? null },
+                  population: sys.population ?? null,
                   is_colonised: !!sys.is_colonised,
-                  score:        sys.score ?? null,
                   economy_suggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
-                  _rating:      {
-                    score: sys.score ?? null,
-                    economySuggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
-                  },
+                  archetype_score: archetype?.overall_development_potential ?? null,
+                  primary_archetype: archetype?.primary_archetype ?? null,
+                  secondary_archetype: archetype?.secondary_archetype ?? null,
+                  buildability_score: archetype?.buildability_score ?? null,
+                  purity_score: archetype?.purity_score ?? null,
                 }))}
                 data-testid="modal-pin-toggle"
                 className={[
@@ -484,7 +502,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               <button
                 type="button"
                 disabled={!sys}
-                onClick={() => sys && compare.toggle(toCompareSnapshot(sys))}
+                onClick={() => sys && compare.toggle(toCompareSnapshot(sys, archetype))}
                 data-testid="modal-compare-toggle"
                 className={[
                   'px-2 py-1 rounded font-mono text-[11px] border transition-colors',
@@ -555,11 +573,14 @@ function SavedSystemNotice({
 
 // ─── Detail → SystemResult adapter ─────────────────────────────────────────
 //
-// Compare stores SystemResult (camelCase rating fields). The detail endpoint
-// returns snake_case. Bridge here so adding-to-compare from the modal lands
-// the same shape Compare's matrix expects.
+// Compare stores SystemResult. The detail endpoint returns snake_case, so
+// bridge here into the compare snapshot shape.
 
-function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/types/api').SystemResult {
+function toCompareSnapshot(
+  sys: import('@/types/api').SystemDetail,
+  archetype: SystemArchetypeResponse | null,
+): import('@/types/api').SystemResult {
+  const developmentScore = archetype?.overall_development_potential ?? null;
   return {
     id64:               sys.id64,
     name:               sys.name,
@@ -574,35 +595,14 @@ function toCompareSnapshot(sys: import('@/types/api').SystemDetail): import('@/t
     is_colonised:       !!sys.is_colonised,
     main_star_type:     sys.main_star_type ?? null,
     main_star_subtype:  sys.main_star_subtype ?? null,
-    score:              sys.score ?? null,
-    score_agriculture:  sys.score_agriculture ?? null,
-    score_refinery:     sys.score_refinery ?? null,
-    score_industrial:   sys.score_industrial ?? null,
-    score_hightech:     sys.score_hightech ?? null,
-    score_military:     sys.score_military ?? null,
-    score_tourism:      sys.score_tourism ?? null,
-    score_extraction:   sys.score_extraction ?? null,
-    economy_suggestion: sys.economy_suggestion ?? null,
-    rating_version:     sys.rating_version ?? null,
-    terraforming_potential: sys.terraforming_potential ?? null,
-    body_diversity:     sys.body_diversity ?? null,
-    confidence:         sys.confidence ?? null,
-    rationale:          sys.rationale ?? null,
-    _rating: {
-      score:                  sys.score ?? null,
-      scoreAgriculture:       sys.score_agriculture ?? null,
-      scoreRefinery:          sys.score_refinery ?? null,
-      scoreIndustrial:        sys.score_industrial ?? null,
-      scoreHightech:          sys.score_hightech ?? null,
-      scoreMilitary:          sys.score_military ?? null,
-      scoreTourism:           sys.score_tourism ?? null,
-      scoreExtraction:        sys.score_extraction ?? null,
-      economySuggestion:      sys.economy_suggestion ?? null,
-      terraformingPotential:  sys.terraforming_potential ?? null,
-      bodyDiversity:          sys.body_diversity ?? null,
-      confidence:             sys.confidence ?? null,
-      rationale:              sys.rationale ?? null,
-    },
+    archetype_score:    developmentScore,
+    archetype_tier:     null,
+    primary_archetype:  archetype?.primary_archetype ?? null,
+    secondary_archetype: archetype?.secondary_archetype ?? null,
+    archetype_confidence: archetype?.archetype_confidence ?? archetype?.confidence ?? null,
+    overall_development_potential: developmentScore,
+    buildability_score: archetype?.buildability_score ?? null,
+    purity_score:       archetype?.purity_score ?? null,
     elw_count:           sys.elw_count ?? null,
     ww_count:            sys.ww_count ?? null,
     ammonia_count:       sys.ammonia_count ?? null,
@@ -638,7 +638,12 @@ function FinderView({
       z?: number | null;
       population?: number | null;
       is_colonised?: boolean;
-      score?: number | null;
+      developmentScore?: number | null;
+      economy_suggestion?: string | null;
+      primary_archetype?: string | null;
+      secondary_archetype?: string | null;
+      buildability_score?: number | null;
+      purity_score?: number | null;
     },
   ) => Promise<void>;
   onShowOnMap:  () => void;
@@ -724,7 +729,12 @@ function FinderView({
                           z:          sys.coords?.z ?? null,
                           population: sys.population ?? null,
                           is_colonised: !!sys.is_colonised,
-                          score:      getLegacyRatingScore(sys),
+                          developmentScore: getDevelopmentScore(sys),
+                          economy_suggestion: sys.economy_suggestion ?? null,
+                          primary_archetype: sys.primary_archetype ?? null,
+                          secondary_archetype: sys.secondary_archetype ?? null,
+                          buildability_score: sys.buildability_score ?? null,
+                          purity_score: sys.purity_score ?? null,
                         });
                       }}
                       onShowOnMap={onShowOnMap}

@@ -1,17 +1,11 @@
 import { useCallback, useState } from 'react';
 import { api } from '@/lib/api';
 import type {
-  Economy,
-  RerankResponse,
-  RerankWeights,
+  DevelopmentRerankResponse,
+  DevelopmentRerankWeights,
   SystemResult,
 } from '@/types/api';
 import { DEFAULT_WEIGHTS } from '@/types/api';
-
-export const ECONOMIES: Economy[] = [
-  'Agriculture', 'Refinery', 'Industrial',
-  'HighTech',    'Military', 'Tourism', 'Extraction',
-];
 
 export type SearchTuningSourceSnapshot = Record<number, {
   originalRank: number;
@@ -22,34 +16,30 @@ export type SearchTuningState =
   | { kind: 'idle' }
   | { kind: 'busy'; sourceSnapshot: SearchTuningSourceSnapshot }
   | { kind: 'err'; message: string }
-  | { kind: 'ok';  data: RerankResponse; queriedAt: number; sourceSnapshot: SearchTuningSourceSnapshot };
+  | { kind: 'ok';  data: DevelopmentRerankResponse; queriedAt: number; sourceSnapshot: SearchTuningSourceSnapshot };
 
 export interface UseSearchTuning {
-  weights:   RerankWeights;
-  setWeight: (k: keyof RerankWeights, v: number) => void;
+  weights:   DevelopmentRerankWeights;
+  setWeight: (k: keyof DevelopmentRerankWeights, v: number) => void;
   resetWeights: () => void;
   weightSum: number;
 
-  economy:   Economy | null;
-  setEconomy: (e: Economy | null) => void;
-
   state:     SearchTuningState;
-  /** Run /api/ratings/rerank against the given source list. */
+  /** Run /api/archetypes/rerank against the given source list. */
   run:       (source: SystemResult[]) => Promise<void>;
   resetState: () => void;
 }
 
 /**
- * Advanced Search Tuning state. The weights are local + reactive; the source list
+ * Development Tuning state. The weights are local + reactive; the source list
  * (id64s) is supplied at run() time by the caller - usually the Finder's
  * current results - so this feature doesn't have to know about /search.
  */
 export function useSearchTuning(): UseSearchTuning {
-  const [weights, setWeights] = useState<RerankWeights>(DEFAULT_WEIGHTS);
-  const [economy, setEconomy] = useState<Economy | null>(null);
+  const [weights, setWeights] = useState<DevelopmentRerankWeights>(DEFAULT_WEIGHTS);
   const [state,   setState]   = useState<SearchTuningState>({ kind: 'idle' });
 
-  const setWeight = useCallback((k: keyof RerankWeights, v: number) => {
+  const setWeight = useCallback((k: keyof DevelopmentRerankWeights, v: number) => {
     setWeights((prev) => ({
       ...prev,
       [k]: Math.max(0, Math.min(1, v)),
@@ -78,10 +68,9 @@ export function useSearchTuning(): UseSearchTuning {
 
     setState({ kind: 'busy', sourceSnapshot });
     try {
-      const data = await api.rerank({
+      const data = await api.archetypeRerank({
         id64s:   sourceForRun.map((s) => s.id64),
         weights,
-        economy: economy ?? null,
       });
       setState({ kind: 'ok', data, queriedAt: Date.now(), sourceSnapshot });
     } catch (e: unknown) {
@@ -91,13 +80,12 @@ export function useSearchTuning(): UseSearchTuning {
         message: e instanceof Error ? e.message : String(e),
       });
     }
-  }, [weights, economy]);
+  }, [weights]);
 
   const resetState = useCallback(() => setState({ kind: 'idle' }), []);
 
   return {
     weights, setWeight, resetWeights, weightSum,
-    economy, setEconomy,
     state, run, resetState,
   };
 }
