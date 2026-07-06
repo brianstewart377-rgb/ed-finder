@@ -83,7 +83,7 @@ export function AdvancedSearchTuningTab({
               </button>
             </div>
             <p className="text-[10px] text-silver-dk">
-              Weights apply only to this tuning run. The backend normalises them for the temporary development score.
+              Weights apply only to this tuning run. The backend uses the raw values for the temporary development score.
             </p>
             {WEIGHT_LABELS.map(({ key, label, hint }) => (
               <WeightSlider
@@ -102,7 +102,7 @@ export function AdvancedSearchTuningTab({
             ].join(' ')}>
               <span>Sum: {weightSum.toFixed(2)}</span>
               <span className="text-[10px] opacity-80">
-                {sumOk ? '≈ 1.0 ✓' : 'will be normalised server-side'}
+                {sumOk ? '≈ 1.0 ✓' : 'sum is not enforced server-side'}
               </span>
             </div>
           </div>

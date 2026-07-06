@@ -453,6 +453,10 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           savedForLater={shellSystem.data ? watchlist.has(shellSystem.data.id64) : false}
           saveForLaterState={shellSystem.data ? savedSystemActionState[shellSystem.data.id64] ?? 'idle' : 'idle'}
           onToggleSaveForLater={(system) => {
+            const developmentScore = system.archetype?.overall_development_potential
+              ?? system.system.overall_development_potential
+              ?? system.system.score
+              ?? null;
             void toggleSavedSystem(system.system.id64, {
               name: system.system.name,
               x: system.system.x,
@@ -460,12 +464,12 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               z: system.system.z,
               population: system.system.population ?? null,
               is_colonised: !!system.system.is_colonised,
-              developmentScore: system.archetype?.overall_development_potential ?? null,
+              developmentScore,
               economy_suggestion: system.system.economy_suggestion ?? null,
-              primary_archetype: system.archetype?.primary_archetype ?? null,
-              secondary_archetype: system.archetype?.secondary_archetype ?? null,
-              buildability_score: system.archetype?.buildability_score ?? null,
-              purity_score: system.archetype?.purity_score ?? null,
+              primary_archetype: system.archetype?.primary_archetype ?? system.system.primary_archetype ?? null,
+              secondary_archetype: system.archetype?.secondary_archetype ?? system.system.secondary_archetype ?? null,
+              buildability_score: system.archetype?.buildability_score ?? system.system.buildability_score ?? null,
+              purity_score: system.archetype?.purity_score ?? system.system.purity_score ?? null,
             });
           }}
           onStartPlan={startPlanFromSystemDetail}
@@ -481,11 +485,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
                   population: sys.population ?? null,
                   is_colonised: !!sys.is_colonised,
                   economy_suggestion: sys.economy_suggestion ?? sys.primary_economy ?? null,
-                  archetype_score: archetype?.overall_development_potential ?? null,
-                  primary_archetype: archetype?.primary_archetype ?? null,
-                  secondary_archetype: archetype?.secondary_archetype ?? null,
-                  buildability_score: archetype?.buildability_score ?? null,
-                  purity_score: archetype?.purity_score ?? null,
+                  archetype_score: archetype?.overall_development_potential ?? sys.overall_development_potential ?? sys.score ?? null,
+                  primary_archetype: archetype?.primary_archetype ?? sys.primary_archetype ?? null,
+                  secondary_archetype: archetype?.secondary_archetype ?? sys.secondary_archetype ?? null,
+                  buildability_score: archetype?.buildability_score ?? sys.buildability_score ?? null,
+                  purity_score: archetype?.purity_score ?? sys.purity_score ?? null,
                 }))}
                 data-testid="modal-pin-toggle"
                 className={[
@@ -580,7 +584,10 @@ function toCompareSnapshot(
   sys: import('@/types/api').SystemDetail,
   archetype: SystemArchetypeResponse | null,
 ): import('@/types/api').SystemResult {
-  const developmentScore = archetype?.overall_development_potential ?? null;
+  const developmentScore = archetype?.overall_development_potential
+    ?? sys.overall_development_potential
+    ?? sys.score
+    ?? null;
   return {
     id64:               sys.id64,
     name:               sys.name,
@@ -597,12 +604,12 @@ function toCompareSnapshot(
     main_star_subtype:  sys.main_star_subtype ?? null,
     archetype_score:    developmentScore,
     archetype_tier:     null,
-    primary_archetype:  archetype?.primary_archetype ?? null,
-    secondary_archetype: archetype?.secondary_archetype ?? null,
+    primary_archetype:  archetype?.primary_archetype ?? sys.primary_archetype ?? null,
+    secondary_archetype: archetype?.secondary_archetype ?? sys.secondary_archetype ?? null,
     archetype_confidence: archetype?.archetype_confidence ?? archetype?.confidence ?? null,
     overall_development_potential: developmentScore,
-    buildability_score: archetype?.buildability_score ?? null,
-    purity_score:       archetype?.purity_score ?? null,
+    buildability_score: archetype?.buildability_score ?? sys.buildability_score ?? null,
+    purity_score:       archetype?.purity_score ?? sys.purity_score ?? null,
     elw_count:           sys.elw_count ?? null,
     ww_count:            sys.ww_count ?? null,
     ammonia_count:       sys.ammonia_count ?? null,

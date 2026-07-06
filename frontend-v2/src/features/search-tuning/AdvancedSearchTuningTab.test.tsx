@@ -66,7 +66,7 @@ describe('AdvancedSearchTuningTab Development Tuning UX', () => {
 
     expect(screen.getByText('Weights')).toBeTruthy();
     expect(screen.getByText(/Weights apply only to this tuning run/i)).toBeTruthy();
-    expect(screen.getByText(/backend normalises them for the temporary development score/i)).toBeTruthy();
+    expect(screen.getByText(/backend uses the raw values for the temporary development score/i)).toBeTruthy();
     expect(screen.getByTitle('Clean economy stack and low contamination')).toBeTruthy();
     expect(screen.getByTitle('Ease of build and scaling viability')).toBeTruthy();
     expect(screen.getByTitle('Available colony capacity signal')).toBeTruthy();

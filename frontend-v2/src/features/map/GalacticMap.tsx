@@ -67,6 +67,15 @@ function developmentColor(score: number | null | undefined): string {
   }
 }
 
+function legacyOverlayColor(score: number | null | undefined): string {
+  if (typeof score !== 'number' || !Number.isFinite(score)) return '#6b7280';
+  if (score >= 88) return '#a78bfa';
+  if (score >= 76) return '#818cf8';
+  if (score >= 60) return '#38bdf8';
+  if (score >= 45) return '#64748b';
+  return '#475569';
+}
+
 /**
  * Galactic map — top-down 2-D scatter plot of `systems` on the X/Z plane.
  *
@@ -298,7 +307,7 @@ export function GalacticMap({
         const py = wz(c.cz);
         if (px + half < 0 || py + half < 0 || px - half > w || py - half > h) continue;
         const score = c.avg_score ?? 0;
-        const fillColor = developmentColor(score);
+        const fillColor = legacyOverlayColor(score);
         // Subtle fill; never strong enough to swamp star dots above it.
         ctx.globalAlpha = 0.16;
         ctx.fillStyle = fillColor;
@@ -318,7 +327,7 @@ export function GalacticMap({
         const rad = c.radius_ly * safeView.scale;
         if (!isFiniteNumber(rad) || rad <= 0) continue;
         if (px + rad < 0 || py + rad < 0 || px - rad > w || py - rad > h) continue;
-        const fillColor = developmentColor(c.top_score ?? null);
+        const fillColor = legacyOverlayColor(c.top_score ?? null);
         // subtle translucent fill + slightly stronger ring
         ctx.beginPath();
         ctx.arc(px, py, rad, 0, Math.PI * 2);

@@ -94,8 +94,8 @@ describe('MapTab', () => {
     expect(within(legend).getByText(/Active: Finder dots \+ Galactic frame/)).toBeTruthy();
     expect(within(legend).getByText('Current Finder systems with archetype-led development scores.')).toBeTruthy();
     expect(within(legend).getByText('Canonical galaxy region labels.')).toBeTruthy();
-    expect(within(legend).getByText('Voxel cells summarising local development-potential density.')).toBeTruthy();
-    expect(within(legend).getByText('Approximate hulls around high-development grouped systems.')).toBeTruthy();
+    expect(within(legend).getByText('Voxel cells summarising legacy rating density from map aggregate views.')).toBeTruthy();
+    expect(within(legend).getByText('Approximate hulls around high-rating grouped systems.')).toBeTruthy();
   });
 
   it('updates the legend active-layer summary as toggles change', () => {

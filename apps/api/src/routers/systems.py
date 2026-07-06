@@ -22,7 +22,7 @@ except ImportError:
 
 router = APIRouter(tags=['systems'])
 
-SYSTEM_CACHE_VERSION = 'v6'
+SYSTEM_CACHE_VERSION = 'v7'
 BODY_CACHE_VERSION = 'v3'
 
 

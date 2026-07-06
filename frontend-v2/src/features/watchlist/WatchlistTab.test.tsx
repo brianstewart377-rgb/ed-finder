@@ -66,4 +66,32 @@ describe('WatchlistTab data trust display', () => {
     expect(screen.getByText('S 91')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
   });
+
+  it('falls back to saved legacy score when archetype rows are missing', () => {
+    const entries: WatchlistEntry[] = [{
+      system_id64: 77,
+      name: 'Fallback',
+      x: 4,
+      y: 5,
+      z: 6,
+      population: 2500,
+      is_colonised: false,
+      added_at: '2026-07-05T00:00:00Z',
+      score: 84,
+      economy_suggestion: 'Agriculture',
+      archetype_score: null,
+    }];
+
+    render(
+      <WatchlistTab
+        entries={entries}
+        loading={false}
+        error={null}
+        onRefresh={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('A 84')).toBeTruthy();
+  });
 });

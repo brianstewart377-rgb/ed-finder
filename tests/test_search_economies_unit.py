@@ -103,3 +103,60 @@ def test_normalise_body_filters():
         'gas_giant': {'min': 7},
     })
     assert out['gas_giant'] == {'min': 7}
+
+
+def test_body_filter_columns_accept_public_count_keys():
+    """Public API request keys like ``elw_count`` must resolve all the way
+    through to SQL columns, not just the frontend's short aliases."""
+    from search_economies import body_filter_column
+
+    assert body_filter_column('elw_count', alias='r') == 'r.elw_count'
+    assert body_filter_column('ww_count', alias='r') == 'r.ww_count'
+    assert body_filter_column('ammonia_count', alias='r') == 'r.ammonia_count'
+
+
+def test_sort_by_rating_alias_maps_to_development():
+    """Legacy callers still send ``sort_by=rating``; preserve development
+    ordering instead of silently falling back to distance sort."""
+    from models import LocalSearchRequest
+
+    body = LocalSearchRequest.model_validate({'sort_by': 'rating'})
+    assert body.sort_by == 'development'
+
+
+def test_build_system_record_preserves_flat_body_counts():
+    """Finder rows still need flat body-count fields for chips and compare
+    surfaces after the `_rating` retirement."""
+    from local_search import _build_system_record
+
+    row = {
+        'id64': 42,
+        'name': 'Handoff',
+        'x': 1,
+        'y': 2,
+        'z': 3,
+        'updated_at': None,
+        'archetype_score': 91,
+        'primary_archetype': 'refinery_industrial',
+        'secondary_archetype': 'trade_logistics',
+        'elw_count': 2,
+        'ww_count': 4,
+        'ammonia_count': 1,
+        'gas_giant_count': 6,
+        'neutron_count': 0,
+        'black_hole_count': 0,
+        'white_dwarf_count': 0,
+        'landable_count': 12,
+        'terraformable_count': 5,
+        'bio_signal_total': 3,
+        'geo_signal_total': 7,
+        'display_tags': [],
+    }
+
+    rec = _build_system_record(row)
+
+    assert rec['elw_count'] == 2
+    assert rec['ww_count'] == 4
+    assert rec['ammonia_count'] == 1
+    assert rec['terraformable_count'] == 5
+    assert rec['bio_signal_total'] == 3

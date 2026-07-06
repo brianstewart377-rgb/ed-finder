@@ -568,7 +568,10 @@ class LocalSearchRequest(BaseModel):
     @classmethod
     def _normalise_sort_by(cls, value: object) -> object:
         if isinstance(value, str):
-            return value.strip().lower()
+            lowered = value.strip().lower()
+            if lowered == 'rating':
+                return 'development'
+            return lowered
         return value
 
 

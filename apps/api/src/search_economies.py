@@ -175,27 +175,46 @@ def cluster_count_column(name: Optional[str], *, alias: str = 'cs') -> Optional[
 BODY_FILTER_COLS: Mapping[str, str] = {
     # Body-type counts
     'landable':      'landable_count',
+    'landable_count': 'landable_count',
     'terraformable': 'terraformable_count',
+    'terraformable_count': 'terraformable_count',
     'elw':           'elw_count',
+    'elw_count':     'elw_count',
     'ww':            'ww_count',
+    'ww_count':      'ww_count',
     'ammonia':       'ammonia_count',
+    'ammonia_count': 'ammonia_count',
     'gas_giant':     'gas_giant_count',
+    'gas_giant_count': 'gas_giant_count',
     'hmc':           'hmc_count',
+    'hmc_count':     'hmc_count',
     'metal_rich':    'metal_rich_count',
+    'metal_rich_count': 'metal_rich_count',
     'rocky':         'rocky_count',
+    'rocky_count':   'rocky_count',
     'rocky_ice':     'rocky_ice_count',
+    'rocky_ice_count': 'rocky_ice_count',
     'icy':           'icy_count',
+    'icy_count':     'icy_count',
     # Star-type counts (stored on ratings)
     'neutron':       'neutron_count',
+    'neutron_count': 'neutron_count',
     'black_hole':    'black_hole_count',
+    'black_hole_count': 'black_hole_count',
     'white_dwarf':   'white_dwarf_count',
+    'white_dwarf_count': 'white_dwarf_count',
     'other_star':    'other_star_count',
+    'other_star_count': 'other_star_count',
     # Body-system aggregates (sql/008_body_filter_aggregates.sql)
     'rings':         'ring_count',
+    'ring_count':    'ring_count',
     'walkable':      'walkable_count',
+    'walkable_count': 'walkable_count',
     # Signal totals
     'bio':           'bio_signal_total',
+    'bio_signal_total': 'bio_signal_total',
     'geo':           'geo_signal_total',
+    'geo_signal_total': 'geo_signal_total',
 }
 
 # Backwards-compat aliases for older camelCase callers.

@@ -289,8 +289,8 @@ function MapLegend({
         <LegendItem label="Reference" value="Centers the chosen reference system." />
         <LegendItem label="Finder dots" value="Current Finder systems with archetype-led development scores." />
         <LegendItem label="Regions" value="Canonical galaxy region labels." />
-        <LegendItem label="Heatmap" value="Voxel cells summarising local development-potential density." />
-        <LegendItem label="Clusters" value="Approximate hulls around high-development grouped systems." />
+        <LegendItem label="Heatmap" value="Voxel cells summarising legacy rating density from map aggregate views." />
+        <LegendItem label="Clusters" value="Approximate hulls around high-rating grouped systems." />
         <LegendItem label="Timeline" value="Discovery-count buckets for the map scrubber foundation." />
       </div>
     </details>
