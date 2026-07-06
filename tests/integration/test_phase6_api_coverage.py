@@ -13,10 +13,63 @@ Covers the endpoints the per-phase tests didn't already touch:
   * RFC 7807 problem-details on 503 / 410
 """
 import pytest
+import json
 
 pytestmark = pytest.mark.asyncio
 
 ADMIN_TOKEN = 'test-admin-token'
+
+
+async def _seed_archetype_rerank_rows(pool, count: int) -> list[int]:
+    async with pool.acquire() as conn:
+        ids = [r['id64'] for r in await conn.fetch('SELECT id64 FROM systems ORDER BY id64 LIMIT $1', count)]
+        payload = []
+        for idx, id64 in enumerate(ids, start=1):
+            payload.append((
+                id64,
+                55 + idx,
+                50 + idx,
+                40 + idx,
+                0.82,
+                json.dumps({'summary': f'Seeded rationale {idx}'}),
+                8 + idx,
+            ))
+
+        await conn.executemany(
+            """
+            INSERT INTO system_archetype_scores (
+                system_id64,
+                primary_archetype,
+                overall_development_potential,
+                purity_score,
+                buildability_score,
+                confidence,
+                rationale,
+                dirty
+            )
+            VALUES ($1, 'flexible_multirole', $2, $3, $4, $5, $6::jsonb, FALSE)
+            ON CONFLICT (system_id64) DO UPDATE SET
+                primary_archetype = EXCLUDED.primary_archetype,
+                overall_development_potential = EXCLUDED.overall_development_potential,
+                purity_score = EXCLUDED.purity_score,
+                buildability_score = EXCLUDED.buildability_score,
+                confidence = EXCLUDED.confidence,
+                rationale = EXCLUDED.rationale,
+                dirty = FALSE
+            """,
+            payload,
+        )
+        await conn.executemany(
+            """
+            INSERT INTO system_archetype_traits (system_id64, est_total_slots, display_tags)
+            VALUES ($1, $2, ARRAY['Seeded'])
+            ON CONFLICT (system_id64) DO UPDATE SET
+                est_total_slots = EXCLUDED.est_total_slots,
+                display_tags = EXCLUDED.display_tags
+            """,
+            [(id64, slots) for id64, *_rest, slots in payload],
+        )
+    return ids
 
 
 # --- Health / status -------------------------------------------------------
@@ -90,10 +143,7 @@ async def test_systems_batch(client, pool):
 # --- Development rerank ----------------------------------------------------
 
 async def test_archetype_rerank_default_weights(client, pool):
-    async with pool.acquire() as conn:
-        ids = [r['system_id64'] for r in await conn.fetch(
-            'SELECT system_id64 FROM system_archetype_scores WHERE dirty = FALSE LIMIT 3'
-        )]
+    ids = await _seed_archetype_rerank_rows(pool, 3)
     r = await client.post('/api/archetypes/rerank', json={
         'id64s': ids,
     })
@@ -108,10 +158,7 @@ async def test_archetype_rerank_default_weights(client, pool):
 
 
 async def test_archetype_rerank_custom_weights(client, pool):
-    async with pool.acquire() as conn:
-        ids = [r['system_id64'] for r in await conn.fetch(
-            'SELECT system_id64 FROM system_archetype_scores WHERE dirty = FALSE LIMIT 5'
-        )]
+    ids = await _seed_archetype_rerank_rows(pool, 5)
     r = await client.post('/api/archetypes/rerank', json={
         'id64s': ids,
         'weights': {

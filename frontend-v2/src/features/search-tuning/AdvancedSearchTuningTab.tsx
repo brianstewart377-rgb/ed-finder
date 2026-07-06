@@ -180,19 +180,20 @@ function SourceBadge({ count }: { count: number }) {
 }
 
 function WeightSlider({ label, hint, value, onChange, testid }: {
-  label: string; hint: string; value: number;
+  label: string; hint: string; value: number | null | undefined;
   onChange: (v: number) => void; testid: string;
 }) {
+  const displayValue = typeof value === 'number' && Number.isFinite(value) ? value : 0;
   return (
     <div className="space-y-0.5">
       <div className="flex items-center justify-between font-mono text-[11px]">
         <span className="text-silver" title={hint}>{label}</span>
-        <span className="text-orange-lt tabular-nums">{value.toFixed(2)}</span>
+        <span className="text-orange-lt tabular-nums">{displayValue.toFixed(2)}</span>
       </div>
       <input
         type="range"
         min={0} max={1} step={0.01}
-        value={value}
+        value={displayValue}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         data-testid={testid}
         className="w-full"

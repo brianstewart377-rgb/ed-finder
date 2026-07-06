@@ -11,19 +11,27 @@ const cliPath = path.resolve(frontendRoot, 'node_modules/openapi-typescript/bin/
 const apiSrcPath = path.resolve(repoRoot, 'apps/api/src');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-finder-openapi-'));
 const input = path.join(tempDir, 'openapi.json');
+const openapiUrl = process.env.VITE_OPENAPI_URL?.trim() || process.env.ED_FINDER_OPENAPI_URL?.trim();
+
+function parseCommand(raw) {
+  if (!raw) return null;
+  if (fs.existsSync(raw)) return [raw];
+  const parts = raw.match(/(?:[^\s"]+|"[^"]*")+/g)?.map((part) => part.replace(/^"|"$/g, '')) ?? [];
+  return parts.length > 0 ? parts : [raw];
+}
 
 function resolvePython() {
-  const envCandidate = process.env.ED_FINDER_PYTHON?.trim();
+  const envCandidate = parseCommand(process.env.ED_FINDER_PYTHON?.trim());
   const candidates = process.platform === 'win32'
     ? [
-        envCandidate ? [envCandidate] : null,
+        envCandidate,
         [path.resolve(repoRoot, '.venv/Scripts/python.exe')],
         ['py', '-3.12'],
         ['py', '-3.11'],
         ['python'],
       ]
     : [
-        envCandidate ? [envCandidate] : null,
+        envCandidate,
         [path.resolve(repoRoot, '.venv/bin/python')],
         ['python3.12'],
         ['python3.11'],
@@ -45,6 +53,20 @@ function resolvePython() {
   throw new Error(
     'No usable Python interpreter found for local OpenAPI generation. Install Python 3.12/3.11 and ensure asyncpg can be imported, or set ED_FINDER_PYTHON to a compatible interpreter.',
   );
+}
+
+if (openapiUrl) {
+  const schemaFetchResult = spawnSync(
+    process.execPath,
+    [cliPath, openapiUrl, '-o', output],
+    { stdio: 'inherit', shell: false },
+  );
+
+  if (schemaFetchResult.error) {
+    throw schemaFetchResult.error;
+  }
+
+  process.exit(schemaFetchResult.status ?? 0);
 }
 
 const pythonCommand = resolvePython();

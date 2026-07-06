@@ -1,4 +1,27 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type APIRequestContext } from '@playwright/test';
+
+const SEARCH_PAYLOAD = {
+  reference_coords: { x: 0, y: 0, z: 0 },
+  filters: { distance: { min: 0, max: 1000 } },
+  size: 5,
+};
+
+async function waitForSearchBackend(request: APIRequestContext) {
+  let lastStatus: number | null = null;
+  let lastBody = '';
+
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const response = await request.post('/api/local/search', { data: SEARCH_PAYLOAD });
+    lastStatus = response.status();
+    lastBody = await response.text();
+    if (lastStatus === 200) {
+      return JSON.parse(lastBody);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  throw new Error(`search backend did not become ready: status=${lastStatus}, body=${lastBody}`);
+}
 
 /**
  * E2E smoke tests for the v2 SPA — runs against `yarn preview` (Vite
@@ -26,7 +49,8 @@ test.describe('ED Finder v2 — smoke', () => {
     await expect(page.getByText(/Finder/i).first()).toBeVisible();
   });
 
-  test('search runs and renders at least one result', async ({ page }) => {
+  test('search runs and renders at least one result', async ({ page, request }) => {
+    await waitForSearchBackend(request);
     await page.goto('/');
     // Wait for either a result-card to appear or the "No systems found"
     // empty state — whichever the seed data produces. The previous
@@ -81,15 +105,7 @@ test.describe('ED Finder v2 — smoke', () => {
   });
 
   test('search backend returns valid envelope (Phase 2 contract)', async ({ request }) => {
-    const r = await request.post('/api/local/search', {
-      data: {
-        reference_coords: { x: 0, y: 0, z: 0 },
-        filters: { distance: { min: 0, max: 1000 } },
-        size: 5,
-      },
-    });
-    expect(r.status()).toBe(200);
-    const body = await r.json();
+    const body = await waitForSearchBackend(request);
     expect(body).toHaveProperty('results');
     expect(Array.isArray(body.results)).toBe(true);
     expect(body.source).toBe('local_db');
