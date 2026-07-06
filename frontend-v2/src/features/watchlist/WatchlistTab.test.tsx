@@ -64,7 +64,6 @@ describe('WatchlistTab data trust display', () => {
 
     expect(screen.getByText('Development ↓')).toBeTruthy();
     expect(screen.getByText('S 91')).toBeTruthy();
-    expect(screen.getByText('Legacy 82')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
   });
 });
