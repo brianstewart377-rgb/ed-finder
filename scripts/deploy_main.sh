@@ -158,6 +158,10 @@ say "Rebuild/restart application containers"
 docker compose up -d --build api eddn maintenance
 ok "application containers updated"
 
+say "Recreate nginx to pick up config and volume changes"
+docker compose up -d --force-recreate nginx
+ok "nginx container recreated"
+
 say "Wait for API health"
 for i in {1..30}; do
   if curl -fsS --max-time 5 http://127.0.0.1:8000/api/health >/tmp/ed-finder-health.json; then
