@@ -167,6 +167,7 @@ def test_explicit_staging_write_targets_only_enrichment_warehouse_tables():
     assert report['summary']['records_seen'] == 3
     assert report['summary']['raw_records_written'] == 3
     assert report['summary']['staging_station_rows_written'] == 2
+    assert report['summary']['evidence_records_written'] == 2
     assert report['summary']['canonical_writes_planned'] == 0
     assert report['source_run']['db_id'] == 1001
     assert report['source_file']['db_id'] == 1002
@@ -184,11 +185,13 @@ def test_explicit_staging_write_targets_only_enrichment_warehouse_tables():
     assert 'INSERT INTO enrichment_source_files' in sql_text
     assert 'INSERT INTO enrichment_raw_records' in sql_text
     assert 'INSERT INTO staging_edsm_stations' in sql_text
+    assert 'INSERT INTO evidence_records' in sql_text
     assert CANONICAL_WRITE_RE.search(sql_text) is None
     assert 'ON CONFLICT (source_run_key)' in sql_text
     assert 'ON CONFLICT (source_run_id, source_file_key)' in sql_text
     assert 'ON CONFLICT (source_run_id, source_file_id, source_record_hash)' in sql_text
     assert 'ON CONFLICT (source_run_id, source_record_hash)' in sql_text
+    assert 'ON CONFLICT (evidence_key)' in sql_text
 
 
 def test_schema_preflight_validates_required_staging_tables_without_writes():
@@ -223,9 +226,10 @@ def test_schema_preflight_reports_missing_tables_and_columns_without_writes():
     report = db_loader.check_staging_schema(conn)
 
     assert report['ok'] is False
-    assert report['missing_tables'] == ['staging_edsm_stations']
+    assert report['missing_tables'] == ['staging_edsm_stations', 'evidence_records']
     assert {'table': 'enrichment_source_runs', 'column': 'source_class'} in report['missing_columns']
     assert any(row['table'] == 'staging_edsm_stations' for row in report['missing_columns'])
+    assert any(row['table'] == 'evidence_records' for row in report['missing_columns'])
     assert report['summary']['errors'] == 1
     assert_only_safe_sql(conn.statements)
 
@@ -397,7 +401,7 @@ def test_gzipped_snapshot_works_through_staging_db_loader(tmp_path):
     assert report['source_file']['compression'] == 'gzip'
     assert report['summary']['raw_records_written'] == 3
     assert report['summary']['staging_station_rows_written'] == 2
-    assert len([sql for sql, _params in conn.statements if 'INSERT INTO' in sql]) == 9
+    assert len([sql for sql, _params in conn.statements if 'INSERT INTO' in sql]) == 11
     assert_only_safe_sql(conn.statements)
 
 

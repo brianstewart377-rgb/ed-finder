@@ -130,6 +130,7 @@ def build_report_from_staged_rows(report: Mapping[str, Any], write_summary: Mapp
         'source_file_id': write_summary.get('source_file_id'),
         'raw_records_written': int(write_summary.get('raw_records_written', 0)),
         'staging_station_rows_written': int(write_summary.get('staging_station_rows_written', 0)),
+        'evidence_records_written': int(write_summary.get('evidence_records_written', 0)),
         'staging_body_rows_written': int(write_summary.get('staging_body_rows_written', 0)),
         'staging_ring_rows_written': int(write_summary.get('staging_ring_rows_written', 0)),
         'write_batches_attempted': int(write_summary.get('write_batches_attempted', 0)),

@@ -49,6 +49,7 @@ from enrichment_write_plans import (
     build_station_staging_write_plan,
 )
 from enrichment_warehouse import (
+    EVIDENCE_RECORDS_TABLE,
     WAREHOUSE_BODY_RING_WRITE_TABLES,
     WAREHOUSE_RAW_RECORDS_TABLE,
     WAREHOUSE_SOURCE_FILES_TABLE,
@@ -65,6 +66,7 @@ SUPPORTED_SOURCES = {'edsm_nightly_stations', 'edsm_nightly_bodies'}
 PREFLIGHT_SCHEMA_VERSION = 'enrichment_staging_schema_preflight/v1'
 RECONCILIATION_REPORT_SCHEMA_VERSION = 'enrichment_staging_reconciliation/v1'
 DEFAULT_WRITE_BATCH_SIZE = 500
+_SOURCE_RUN_LEDGER_PREFIXES = ('stage-', 'stage19')
 
 
 class EnrichmentWarehouseRepository:
@@ -423,6 +425,7 @@ def write_station_snapshot_report(
 
         staging_write_attempts = 0
         staging_ids_by_hash: dict[str, int] = {}
+        evidence_write_attempts = 0
         for batch in iter_batches(plan['station_rows'], batch_size=batch_size):
             batches_attempted += 1
             for station_row in batch:
@@ -440,12 +443,14 @@ def write_station_snapshot_report(
                 )
                 staging_ids_by_hash[record_hash] = staging_id
                 staging_write_attempts += 1
+                evidence_write_attempts += 1
 
         return {
             'source_run_id': source_run_id,
             'source_file_id': source_file_id,
             'raw_records_written': raw_write_attempts,
             'staging_station_rows_written': staging_write_attempts,
+            'evidence_records_written': evidence_write_attempts,
             'write_batches_attempted': batches_attempted,
             'batch_size': batch_size,
             'raw_record_ids_by_hash': raw_ids_by_hash,
@@ -753,7 +758,158 @@ def upsert_staging_station(
             _jsonb(station_row.get('provenance', {})),
         ),
     )
+    staging_station_id = _returned_id(cur)
+    upsert_station_evidence_record(
+        cur,
+        staging_station_id=staging_station_id,
+        source_run_id=source_run_id,
+        source_file_id=source_file_id,
+        raw_record_id=raw_record_id,
+        station_row=station_row,
+        evidence_source_run_key=_evidence_source_run_key_for_station_row(station_row),
+    )
+    return staging_station_id
+
+
+def upsert_station_evidence_record(
+    cur: Any,
+    *,
+    staging_station_id: int,
+    source_run_id: int,
+    source_file_id: int,
+    raw_record_id: int | None,
+    station_row: Mapping[str, Any],
+    evidence_source_run_key: str | None = None,
+) -> int:
+    market_id = station_row.get('market_id')
+    edsm_station_id = station_row.get('edsm_station_id')
+    subject_id = (
+        str(market_id)
+        if market_id is not None
+        else str(edsm_station_id)
+        if edsm_station_id is not None
+        else f'staging:{staging_station_id}'
+    )
+    source_record_hash = str(station_row.get('source_record_hash') or staging_station_id)
+    evidence_key = f'edsm-station:{source_record_hash}'
+    source_record_id = (
+        str(station_row.get('source_record_key'))
+        if station_row.get('source_record_key') is not None
+        else source_record_hash
+    )
+    station_name = station_row.get('station_name') or subject_id
+    system_name = station_row.get('system_name') or f"system {station_row.get('system_id64')}"
+    summary = f'EDSM station snapshot for {station_name} in {system_name}'
+    freshness_status = 'current' if station_row.get('source_updated_at') else 'unknown'
+    value = {
+        'station_name': station_row.get('station_name'),
+        'station_type': station_row.get('station_type'),
+        'system_name': station_row.get('system_name'),
+        'system_id64': station_row.get('system_id64'),
+        'market_id': market_id,
+        'edsm_station_id': edsm_station_id,
+        'distance_to_arrival': station_row.get('distance_to_arrival'),
+        'body_name': station_row.get('body_name'),
+        'services': list(station_row.get('services') or []),
+        'economies': list(station_row.get('economies') or []),
+        'controlling_faction': station_row.get('controlling_faction'),
+        'allegiance': station_row.get('allegiance'),
+        'government': station_row.get('government'),
+    }
+    provenance = {
+        'source': 'edsm',
+        'staging_source_run_id': source_run_id,
+        'staging_source_file_id': source_file_id,
+        'staging_raw_record_id': raw_record_id,
+        'staging_station_id': staging_station_id,
+        'source_record_hash': source_record_hash,
+        'source_record_key': station_row.get('source_record_key'),
+        'staging_provenance': dict(station_row.get('provenance') or {}),
+    }
+    tags = [
+        'edsm',
+        'station_snapshot',
+        str(station_row.get('source_class') or 'unknown_source_class'),
+    ]
+    metadata = {
+        'writer': 'enrichment_warehouse_repository',
+        'source_adapter': 'edsm_nightly_stations',
+        'freshness_class': station_row.get('freshness_class'),
+        'confidence_class': station_row.get('confidence'),
+    }
+    sql = f"""
+        INSERT INTO {EVIDENCE_RECORDS_TABLE} (
+            evidence_key,
+            system_id64,
+            source_name,
+            origin,
+            subject_type,
+            subject_id,
+            evidence_type,
+            record_status,
+            freshness_status,
+            confidence,
+            summary,
+            source_record_id,
+            source_run_key,
+            observed_at,
+            value_json,
+            provenance_json,
+            tags_json,
+            metadata_json
+        )
+        VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb
+        )
+        ON CONFLICT (evidence_key) DO UPDATE SET
+            system_id64 = EXCLUDED.system_id64,
+            subject_id = EXCLUDED.subject_id,
+            freshness_status = EXCLUDED.freshness_status,
+            confidence = EXCLUDED.confidence,
+            summary = EXCLUDED.summary,
+            source_record_id = EXCLUDED.source_record_id,
+            source_run_key = COALESCE(EXCLUDED.source_run_key, {EVIDENCE_RECORDS_TABLE}.source_run_key),
+            observed_at = EXCLUDED.observed_at,
+            value_json = EXCLUDED.value_json,
+            provenance_json = EXCLUDED.provenance_json,
+            tags_json = EXCLUDED.tags_json,
+            metadata_json = EXCLUDED.metadata_json,
+            updated_at = NOW()
+        RETURNING id
+        """
+    _execute_staging_write(
+        cur,
+        sql,
+        (
+            evidence_key,
+            station_row.get('system_id64'),
+            'edsm',
+            'imported',
+            'station',
+            subject_id,
+            'station_snapshot',
+            'active',
+            freshness_status,
+            'medium',
+            summary,
+            source_record_id,
+            evidence_source_run_key,
+            station_row.get('source_updated_at'),
+            _jsonb(value),
+            _jsonb(provenance),
+            _jsonb(tags),
+            _jsonb(metadata),
+        ),
+    )
     return _returned_id(cur)
+
+
+def _evidence_source_run_key_for_station_row(station_row: Mapping[str, Any]) -> str | None:
+    source_run_key = str(station_row.get('source_run_key') or '').strip()
+    if source_run_key.startswith(_SOURCE_RUN_LEDGER_PREFIXES):
+        return source_run_key
+    return None
 
 
 def upsert_staging_body(

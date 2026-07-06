@@ -539,7 +539,8 @@ def _flush_station_streaming_batch(
                 (station_row.get('provenance') or {}).get('parent_source_record_hash')
                 or ''
             )
-            upsert_staging_edsm_station(
+            staging_station_id = upsert_staging_edsm_station(
+                # Keep imported EDSM evidence even if canonical reconciliation/apply never runs.
                 cur,
                 source_run_id,
                 source_file_id,
@@ -547,6 +548,7 @@ def _flush_station_streaming_batch(
                 station_row,
             )
             stats['staging_station_rows_written'] += 1
+            stats['evidence_records_written'] += 1
         stats['batches_written'] += 1
     finally:
         _close_cursor(cur)
@@ -564,6 +566,7 @@ def _new_station_streaming_stats(*, file_format: Mapping[str, Any]) -> dict[str,
         'nested_station_records_skipped': 0,
         'raw_records_written': 0,
         'staging_station_rows_written': 0,
+        'evidence_records_written': 0,
         'batches_written': 0,
         'unsupported_source_shapes': 0,
         'malformed_rows': 0,
@@ -709,6 +712,7 @@ def _build_station_streaming_write_report(
         'nested_station_records_extracted': stats['nested_station_records_extracted'],
         'nested_station_records_skipped': stats['nested_station_records_skipped'],
         'staging_station_rows_written': stats['staging_station_rows_written'],
+        'evidence_records_written': stats['evidence_records_written'],
         'staging_body_rows_written': 0,
         'staging_ring_rows_written': 0,
         'batches_written': stats['batches_written'],

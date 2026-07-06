@@ -1277,7 +1277,9 @@ def _first_non_whitespace_char(source_file: Path) -> str | None:
 
 def _assert_local_file(path: Path) -> None:
     parsed = urlparse(str(path))
-    if parsed.scheme and parsed.scheme not in {'', 'file'}:
+    # On Windows, absolute drive paths like C:\foo are local files even
+    # though urlparse() treats the drive letter as a URL scheme.
+    if not path.drive and parsed.scheme and parsed.scheme not in {'', 'file'}:
         raise ValueError('source file must be a local path, not a URL')
     if not path.exists():
         raise ValueError(f'source file does not exist: {path}')

@@ -96,6 +96,13 @@ Best next ingestion implementation order:
 5. emit proposal candidates into `rule_proposals`
 6. expose proposal review in Admin
 
+Status after this slice:
+
+- `EDSM` staging writes now emit `evidence_records` for station snapshots.
+- The writer is idempotent on `evidence_key`.
+- It only attaches `source_run_key` when the station row clearly came from the newer `source_runs` ledger flow, avoiding invalid links to legacy enrichment-only staging runs.
+- Windows local importer paths now pass the local-file assertion correctly instead of being misread as URLs.
+
 ## Guardrails
 
 - Evidence Store does not replace canonical game-state tables.

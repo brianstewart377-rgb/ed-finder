@@ -192,6 +192,7 @@ def insert_targets(statements):
             warehouse.WAREHOUSE_SOURCE_FILES_TABLE,
             warehouse.WAREHOUSE_RAW_RECORDS_TABLE,
             warehouse.WAREHOUSE_STAGING_STATIONS_TABLE,
+            warehouse.EVIDENCE_RECORDS_TABLE,
             warehouse.WAREHOUSE_STAGING_BODIES_TABLE,
             warehouse.WAREHOUSE_STAGING_BODY_RINGS_TABLE,
         ):
@@ -252,6 +253,7 @@ def test_repository_station_write_targets_only_warehouse_tables():
 
     assert summary['raw_records_written'] == 2
     assert summary['staging_station_rows_written'] == 2
+    assert summary['evidence_records_written'] == 2
     assert summary['target_tables'] == list(warehouse.WAREHOUSE_STATION_WRITE_TABLES)
     assert_repository_writes_are_safe(conn.statements)
 
@@ -288,6 +290,7 @@ def test_repository_station_write_batches_execute_in_order():
 
     assert summary['raw_records_written'] == 3
     assert summary['staging_station_rows_written'] == 2
+    assert summary['evidence_records_written'] == 2
     assert summary['write_batches_attempted'] == 5
     assert summary['batch_size'] == 1
     assert insert_targets(conn.statements) == [
@@ -297,7 +300,9 @@ def test_repository_station_write_batches_execute_in_order():
         warehouse.WAREHOUSE_RAW_RECORDS_TABLE,
         warehouse.WAREHOUSE_RAW_RECORDS_TABLE,
         warehouse.WAREHOUSE_STAGING_STATIONS_TABLE,
+        warehouse.EVIDENCE_RECORDS_TABLE,
         warehouse.WAREHOUSE_STAGING_STATIONS_TABLE,
+        warehouse.EVIDENCE_RECORDS_TABLE,
     ]
     assert_repository_writes_are_safe(conn.statements)
 
@@ -349,6 +354,41 @@ def test_repository_batch_size_must_be_positive():
     else:
         raise AssertionError('expected invalid batch size to fail closed')
     assert conn.statements == []
+
+
+def test_repository_station_evidence_uses_new_source_run_key_only_for_stage_ledgers():
+    report = snapshot_loader.build_snapshot_load_report(
+        source_file=STATION_FIXTURE,
+        source='edsm_nightly_stations',
+        limit=1,
+    )
+    conn = FakeConn()
+
+    legacy_summary = repository.EnrichmentWarehouseRepository(conn).write_station_snapshot_report(report)
+
+    legacy_evidence_stmt = next(
+        (statement for statement in conn.statements if 'INSERT INTO evidence_records' in statement[0]),
+        None,
+    )
+    assert legacy_summary['evidence_records_written'] == 1
+    assert legacy_evidence_stmt is not None
+    assert legacy_evidence_stmt[1][12] is None
+
+    stage_row = dict(report['staged_rows'][0])
+    stage_row['source_run_key'] = 'stage-19t-edsm-stations-demo'
+    direct_conn = FakeConn()
+    cur = direct_conn.cursor()
+    try:
+        repository.upsert_staging_station(cur, 11, 22, 33, stage_row)
+    finally:
+        cur.close()
+
+    evidence_stmt = next(
+        (statement for statement in direct_conn.statements if 'INSERT INTO evidence_records' in statement[0]),
+        None,
+    )
+    assert evidence_stmt is not None
+    assert evidence_stmt[1][12] == 'stage-19t-edsm-stations-demo'
 
 
 def test_repository_staged_run_report_is_deterministic_and_read_only():
