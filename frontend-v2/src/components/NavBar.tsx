@@ -78,6 +78,10 @@ export function NavBar({
       { route: 'operator' as const, label: 'Operator', testid: 'nav-operator' },
     ],
   }), [compareCount, fcCount]);
+  const playerRoutes = useMemo(
+    () => PLAYER_WORKSPACES.flatMap((workspace) => groupedRoutes[workspace]),
+    [groupedRoutes],
+  );
 
   const operatorMode = current === 'admin' || current === 'operator';
   const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
@@ -149,40 +153,21 @@ export function NavBar({
             data-testid="nav-desktop-route-strip"
           >
             {!operatorMode ? (
-              <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 overflow-x-auto" aria-label="Player routes">
-                {PLAYER_WORKSPACES.map((workspace, index) => (
-                  <div
-                    key={workspace}
-                    className="flex items-center gap-2"
-                    data-testid={`nav-group-${workspace}`}
-                  >
-                    {index > 0 ? (
-                      <span
-                        className="hidden h-7 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent xl:block"
-                        aria-hidden
-                      />
-                    ) : null}
-                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                      {workspace}
-                    </span>
-                    <div
-                      className="flex min-w-0 flex-wrap items-center gap-1"
-                      data-testid={`nav-routes-${workspace}`}
-                      aria-label={`${workspace} routes`}
-                    >
-                      {groupedRoutes[workspace].map((tab) => (
-                        <Tab
-                          key={tab.route}
-                          label={tab.label}
-                          active={isRouteActive(current, tab.route)}
-                          onClick={() => handleNavigate(tab.route)}
-                          testid={tab.testid}
-                          badge={tab.badge}
-                          title={tab.title}
-                        />
-                      ))}
-                    </div>
-                  </div>
+              <div
+                className="flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto"
+                aria-label="Player routes"
+                data-testid="nav-player-routes"
+              >
+                {playerRoutes.map((tab) => (
+                  <Tab
+                    key={tab.route}
+                    label={tab.label}
+                    active={isRouteActive(current, tab.route)}
+                    onClick={() => handleNavigate(tab.route)}
+                    testid={tab.testid}
+                    badge={tab.badge}
+                    title={tab.title}
+                  />
                 ))}
               </div>
             ) : null}
@@ -324,20 +309,8 @@ export function NavBar({
         >
           <div className="grid gap-3">
             <MenuSection
-              title="Explore"
-              routes={groupedRoutes.explore}
-              current={current}
-              onNavigate={handleNavigate}
-            />
-            <MenuSection
-              title="Plan"
-              routes={groupedRoutes.plan}
-              current={current}
-              onNavigate={handleNavigate}
-            />
-            <MenuSection
-              title="Review"
-              routes={groupedRoutes.review}
+              title="Routes"
+              routes={playerRoutes}
               current={current}
               onNavigate={handleNavigate}
             />
@@ -601,7 +574,7 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       };
     case 'search-tuning':
       return {
-        title: 'Advanced Search',
+        title: 'Development Tuning',
         primaryLabel: 'Explore',
         supportingText: 'Refine discovery weighting and candidate filters without changing the core Finder or planning logic.',
         nextAction: 'Run a search, inspect a candidate, then enter Plan from a real system.',
@@ -655,7 +628,7 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       };
     case 'fc':
       return {
-        title: 'FC Planner',
+        title: 'FC Route Planner',
         primaryLabel: 'Review',
         supportingText: 'Use fleet-carrier routing as a supporting tool for player logistics without turning it into a primary Explore or Plan workspace.',
         nextAction: 'Review route support needs, then return to Explore or Plan for system work.',

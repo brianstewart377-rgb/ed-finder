@@ -63,13 +63,20 @@ async function bootstrap() {
 
 void bootstrap();
 
-// Service worker registration. vite-plugin-pwa emits /v2/sw.js at build time;
-// we register it manually here (avoids the virtual:pwa-register module which
-// has a known resolution issue in some yarn-classic + vite 6 setups).
+function normaliseBase(base: string): string {
+  if (!base || base === '/') return '/';
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+// Service worker registration. The build emits `sw.js` under the app base; we
+// register it manually here (avoids the virtual:pwa-register module which has
+// a known resolution issue in some yarn-classic + vite 6 setups).
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
+    const scope = normaliseBase(import.meta.env.BASE_URL || '/');
+    const swUrl = new URL(`.${scope}sw.js`, window.location.origin).pathname;
     navigator.serviceWorker
-      .register('/v2/sw.js', { scope: '/v2/' })
+      .register(swUrl, { scope })
       .then(reg => {
         // Auto-detect updates roughly every hour.
         setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
@@ -82,7 +89,7 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
             }
           });
         });
-        console.info('[ED:Finder] Service worker registered for /v2/.');
+        console.info(`[ED:Finder] Service worker registered for ${scope}.`);
       })
       .catch(err => console.warn('[ED:Finder] SW registration failed:', err));
   });

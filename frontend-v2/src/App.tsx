@@ -78,18 +78,10 @@ function coalsackBackgroundCandidates(fileName: string): string[] {
   const base = import.meta.env.BASE_URL || '/';
   const normalizedBase = base.endsWith('/') ? base : `${base}/`;
 
-  const candidates = isLocalDevHost()
-    ? [
-        `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
-        `/bg/${fileName}?${COALSACK_BG_VERSION}`,
-        // Production can serve the app bundle from / while the v2 image assets live under /v2.
-        `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
-      ]
-    : [
-        `/v2/bg/${fileName}?${COALSACK_BG_VERSION}`,
-        `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
-        `/bg/${fileName}?${COALSACK_BG_VERSION}`,
-      ];
+  const candidates = [
+    `${normalizedBase}bg/${fileName}?${COALSACK_BG_VERSION}`,
+    `/bg/${fileName}?${COALSACK_BG_VERSION}`,
+  ];
 
   return Array.from(new Set(candidates));
 }

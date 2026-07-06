@@ -380,6 +380,29 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByText('Development score snapshot 86. Buildability 79. Purity 72.')).toBeTruthy();
   });
 
+  it('falls back to the legacy system-detail score when archetype rows are missing', () => {
+    mockLoadedSystem({
+      primary_economy: 'Industrial',
+      score: 68,
+      overall_development_potential: null,
+      buildability_score: null,
+      purity_score: null,
+    } as Partial<SystemDetail>);
+    mockedUseSystemArchetype.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'boom',
+      refetch: vi.fn(),
+    });
+
+    render(<SystemDetailModal id64={123} onClose={() => undefined} onStartPlan={() => undefined} />);
+
+    expect(screen.getByTestId('archetype-assessment')).toBeTruthy();
+    expect(screen.getByTestId('archetype-assessment-warning').textContent).toContain('Using the development snapshot already loaded with system detail');
+    expect(screen.getByTestId('archetype-primary').textContent).toContain('Industrial');
+    expect(screen.getByText('Development score snapshot 68. Using the score already present on system detail until archetype rows refresh.')).toBeTruthy();
+  });
+
   it('shows the compact unavailable state when neither live nor fallback archetype data exists', () => {
     mockLoadedSystem();
     mockedUseSystemArchetype.mockReturnValue({

@@ -13,8 +13,8 @@
 
 :root {
   color-scheme: dark;
-  --coalsack-bg-2560: url('/v2/bg/coalsack-2560.jpg?v=2');
-  --coalsack-bg-1600: url('/v2/bg/coalsack-1600.jpg?v=2');
+  --coalsack-bg-2560: url('/bg/coalsack-2560.jpg?v=2');
+  --coalsack-bg-1600: url('/bg/coalsack-1600.jpg?v=2');
 }
 
 html {

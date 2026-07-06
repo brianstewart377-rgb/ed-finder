@@ -20,7 +20,7 @@
 | EDDN Listener | `python:3.12-slim` | Live game data ingestion (`apps/eddn/`) |
 | Importer | `python:3.12-slim` | Spansh dump + post-import builders (`apps/importer/`) |
 | Frontend v2 | Vite 6 + React 19 + TS 5 + Tailwind 3 | SPA (`frontend-v2/`) — TanStack Query, Zustand, codegen-typed wire contract |
-| Nginx | `nginx:alpine` | SSL + static `frontend-v2/dist/` serving + `/api/*` proxy |
+| Nginx | `nginx:alpine` | SSL + static `frontend-v2/dist/` serving at `/` + `/api/*` proxy |
 
 **Type contract**: the frontend's `src/types/api.gen.ts` is auto-generated from the FastAPI `/openapi.json` via `openapi-typescript`. CI fails any push that drifts the checked-in baseline from what the running API actually emits — so backend response shapes and frontend types never silently diverge.
 
@@ -206,7 +206,7 @@ ed-finder/
 │   ├── package.json         # Yarn deps (React 19, Tailwind 3, Vite 6,
 │   │                        # @tanstack/react-query, zustand,
 │   │                        # @playwright/test, openapi-typescript)
-│   └── vite.config.ts       # Build config — emits dist/ for /var/www/v2/
+│   └── vite.config.ts       # Build config — emits dist/ for the root-served SPA
 ├── scripts/
 │   ├── nightly_update.sh    # Nightly delta-import cron script
 │   ├── run_import.sh        # Import runner wrapper
@@ -440,6 +440,15 @@ Use the production deploy wrapper for normal code/schema releases. It pulls
 `main`, applies the known safe additive SQL migrations, builds the frontend,
 rebuilds/restarts app containers, reloads nginx, and runs health checks.
 
+Windows/local one-command wrapper:
+
+```powershell
+setx EDFINDER_DEPLOY_TARGET ed-finder-prod
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipPrompt
+```
+
+For first-time SSH alias setup, see [ssh-deploy-from-windows.md](file:///c:/Users/brian/Documents/trae_projects/ED-Finder/docs/operations/ssh-deploy-from-windows.md).
+
 ```bash
 ssh root@<hetzner-ip>
 cd /opt/ed-finder
@@ -465,7 +474,7 @@ cd /opt/ed-finder
 git log -1 --oneline > /tmp/pre-deploy-commit.txt   # rollback target
 git pull --ff-only origin main
 
-# Frontend: nginx serves frontend-v2/dist/ directly, so it must be
+# Frontend: nginx serves frontend-v2/dist/ directly at /, so it must be
 # rebuilt on the host (not inside a container).
 ( cd frontend-v2 && yarn install --frozen-lockfile && yarn build )
 
@@ -474,7 +483,7 @@ docker compose up -d --build api eddn maintenance
 sleep 5
 docker compose logs --tail=50 api | grep -E "Application startup complete|ERROR"
 
-# Reload nginx so /v2/ serves the new dist.
+# Reload nginx so / serves the new dist.
 docker compose exec nginx nginx -s reload
 
 # Verify the new code is live (substitute real schema refs you care about).
@@ -483,7 +492,7 @@ docker compose exec -T postgres psql -U edfinder -d edfinder \
   -c "SELECT COUNT(*) AS facility_templates FROM facility_templates;"
 ```
 
-> **Cloudflare**: if you cache `/v2/index.html` in the dashboard, **purge** it after deploy or users keep getting the old bundle until their TTL expires.
+> **Cloudflare**: if you cache `/index.html` in the dashboard, **purge** it after deploy or users keep getting the old bundle until their TTL expires.
 
 **Rollback** (~3 min):
 ```bash

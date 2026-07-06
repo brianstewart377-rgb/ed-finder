@@ -486,6 +486,7 @@ function buildFallbackArchetype(system: SystemDetail | null): SystemArchetypeRes
     system.overall_development_potential,
     system.buildability_score,
     system.purity_score,
+    system.score,
   );
   if (developmentScore == null) return null;
 
@@ -500,6 +501,9 @@ function buildFallbackArchetype(system: SystemDetail | null): SystemArchetypeRes
 
   const summary = [
     `Development score snapshot ${Math.round(developmentScore)}.`,
+    system.overall_development_potential == null && system.score != null
+      ? 'Using the score already present on system detail until archetype rows refresh.'
+      : null,
     system.buildability_score != null ? `Buildability ${Math.round(system.buildability_score)}.` : null,
     system.purity_score != null ? `Purity ${Math.round(system.purity_score)}.` : null,
   ].filter(Boolean).join(' ');
@@ -525,7 +529,7 @@ function buildFallbackArchetype(system: SystemDetail | null): SystemArchetypeRes
     primary_archetype: primaryKey,
     secondary_archetype: system.secondary_archetype ?? null,
     archetype_confidence: system.archetype_confidence ?? null,
-    overall_development_potential: system.overall_development_potential ?? null,
+    overall_development_potential: system.overall_development_potential ?? developmentScore,
     buildability_score: system.buildability_score ?? null,
     build_complexity: system.build_complexity ?? null,
     purity_score: system.purity_score ?? null,

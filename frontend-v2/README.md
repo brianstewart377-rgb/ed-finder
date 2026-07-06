@@ -1,7 +1,8 @@
-# ed-finder v2 (Vite + React + TypeScript)
+# ed-finder frontend (Vite + React + TypeScript)
 
-Proof-of-concept React frontend for ed-finder, mounted at **`/v2/`** alongside
-the existing vanilla JS app at `/`. Same backend, same domain, same nginx.
+Current React frontend for ed-finder, served at **`/`**. The source directory
+still happens to be named `frontend-v2`, but the public app path is no longer
+split across `/` and `/v2/`.
 
 ## Why this exists
 
@@ -15,10 +16,10 @@ the porting cost.
 
 ## What's in v2 today
 
-**Status: feature parity with the legacy vanilla app.** Ready for nginx
-root flip to `/v2/`. Now also:
+**Status: feature parity with the legacy vanilla app.** The React app is now
+the canonical frontend served from `/`. Now also:
 
-- **Installable PWA** — `manifest.webmanifest` + `sw.js` shipped at build time. Service worker scope locked to `/v2/` so it can't claim root or `/v1/`. NetworkFirst-with-5s-timeout cache for `/api/*`, StaleWhileRevalidate for static assets. Auto-update on next reload.
+- **Installable PWA** — `manifest.webmanifest` + `sw.js` shipped at build time. Service worker scope follows the app base (`/` in production). NetworkFirst-with-5s-timeout cache for `/api/*`, StaleWhileRevalidate for static assets. Auto-update on next reload.
 - **Vitest unit tests** — `yarn test` runs 14 tests covering FC route maths, Compare cap behaviour, Colony state transitions. Pure-function tests, no DOM/network, ~3s.
 - **OpenAPI codegen** — `yarn types:gen` writes `src/types/api.gen.ts` from the live backend (requires nginx forward — see `scripts/nginx_snippet.md`). Hand-maintained `api.ts` stays primary; generated file lives alongside as a drift reference.
 - **Profile sync** — single backend endpoint (`PUT/GET/DELETE /api/profile/sync/{key}`) backed by a JSONB slot table. Frontend hook in Admin tab pushes/pulls Pinned + Compare + FC route + Colony tracker as one blob. Sync key = credential; 1 MiB per slot; manual push/pull (no auto-merge).
@@ -155,7 +156,7 @@ src/
 ```bash
 cd frontend-v2
 yarn install              # one-time
-yarn dev                  # http://localhost:5174/v2/
+yarn dev                  # http://localhost:3000/
 ```
 
 For the Stage 17 planner workflow, prefer:
@@ -187,26 +188,25 @@ VITE_DEV_API_TARGET=https://ed-finder.app yarn dev
 yarn build                # → dist/   ~60 KB gzipped
 ```
 
-`vite.config.ts` sets `base: '/v2/'` so the bundle works when served from
-that sub-path. The `dist/` directory is meant to be served by nginx at
-`/v2/` (see deployment section).
+`vite.config.ts` defaults to `base: '/'` for the canonical root-served app.
+The `dist/` directory is meant to be served by nginx at `/` (see deployment
+section).
 
 ## Deployment
 
-Nginx mounts the existing vanilla frontend at `/var/www/html` and the v2
-build at `/var/www/html-v2`. Both are read-only volumes in docker-compose.
+Nginx serves the built frontend from `/var/www/app`, backed by the
+`frontend-v2/dist` volume in `docker-compose.yml`.
 
 ```nginx
-# Existing  (unchanged)
+# Canonical root-served SPA
 location / {
-    root /var/www/html;
-    try_files $uri $uri/ /index.html;
+    root /var/www/app;
+    try_files $uri /index.html;
 }
 
-# New  (just add this block)
-location /v2/ {
-    alias /var/www/html-v2/;
-    try_files $uri $uri/ /v2/index.html;
+# Legacy redirect for old bookmarks / cached HTML
+location ~ ^/v2/(.*)$ {
+    return 301 /$1;
 }
 ```
 
@@ -216,12 +216,15 @@ Build pipeline on Hetzner:
 cd /opt/ed-finder/frontend-v2
 yarn install --frozen-lockfile
 yarn build
-sudo rsync -a --delete dist/ /var/www/html-v2/
+cd /opt/ed-finder
+sudo docker compose up -d nginx
+sudo docker compose exec nginx nginx -t
 sudo docker compose exec nginx nginx -s reload
 ```
 
-(For now, build locally + commit `dist/`. We can promote to a proper docker
-multi-stage build once the v2 surface is more than one component.)
+(For now, build on the host and let nginx mount `frontend-v2/dist`. We can
+promote to a proper docker multi-stage build once the frontend packaging is
+tidied further.)
 
 ## Type generation
 

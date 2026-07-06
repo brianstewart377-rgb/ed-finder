@@ -1,10 +1,11 @@
 param(
-  [string]$RepoPath = 'C:\Users\brian\Documents\Codex\2026-05-20\files-mentioned-by-the-user-edfinder',
-  [string]$DeployHost = $(if ($env:EDFINDER_DEPLOY_HOST) { $env:EDFINDER_DEPLOY_HOST } else { 'ed-finder.app' }),
+  [string]$RepoPath = '',
+  [string]$DeployTarget = $env:EDFINDER_DEPLOY_TARGET,
+  [string]$DeployHost = $(if ($env:EDFINDER_DEPLOY_HOST) { $env:EDFINDER_DEPLOY_HOST } else { '' }),
   [string]$DeployUser = $env:EDFINDER_DEPLOY_USER,
   [int]$DeployPort = $(if ($env:EDFINDER_DEPLOY_PORT) { [int]$env:EDFINDER_DEPLOY_PORT } else { 22 }),
   [string]$PublicUrl = 'https://ed-finder.app',
-  [string]$PlannerRoute = '/v2/#colony-planner/system/1453586352459',
+  [string]$AppProbePath = '/',
   [string]$RemoteRepoPath = '/opt/ed-finder',
   [ValidateSet('abort', 'stash', 'reset')]
   [string]$RemoteDirtyPolicy = 'stash',
@@ -20,6 +21,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if (-not $RepoPath) {
+  $RepoPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+}
 
 function Test-TcpOpen {
   param(
@@ -39,6 +44,33 @@ function Test-TcpOpen {
   }
 }
 
+function Resolve-SshTarget {
+  param(
+    [string]$DeployTarget,
+    [string]$DeployHost,
+    [string]$DeployUser,
+    [int]$DeployPort
+  )
+
+  if ($DeployTarget) {
+    return @{
+      Display = $DeployTarget
+      SshArgs = @($DeployTarget)
+      CanProbeTcp = $false
+    }
+  }
+
+  if (-not $DeployHost) {
+    throw 'Deploy host missing. Set EDFINDER_DEPLOY_TARGET to an SSH alias like ed-finder-prod, or pass -DeployHost.'
+  }
+
+  return @{
+    Display = "$DeployUser@$DeployHost`:$DeployPort"
+    SshArgs = @('-p', "$DeployPort", "$DeployUser@$DeployHost")
+    CanProbeTcp = $true
+  }
+}
+
 if (-not $DeployUser) {
   $DeployUser = 'root'
 }
@@ -48,7 +80,14 @@ if (-not (Test-Path -LiteralPath $RepoPath)) {
 }
 
 if (-not $SkipPrompt) {
-  $target = if ($SkipDeploy) { '(deploy skipped)' } else { "$DeployUser@$DeployHost`:$DeployPort" }
+  $previewTarget = if ($DeployTarget) {
+    $DeployTarget
+  } elseif ($DeployHost) {
+    "$DeployUser@$DeployHost`:$DeployPort"
+  } else {
+    '(deploy target not set)'
+  }
+  $target = if ($SkipDeploy) { '(deploy skipped)' } else { $previewTarget }
   $answer = Read-Host "Release main, push, and deploy to $target ? (y/N)"
   if ($answer -notin @('y', 'Y')) {
     throw 'Cancelled by user.'
@@ -85,21 +124,25 @@ if (-not $SkipPull) {
 
 Set-Location (Join-Path $RepoPath 'frontend-v2')
 
+Write-Host '[release] Ensuring frontend dependencies are installed...'
+yarn install --frozen-lockfile
+if ($LASTEXITCODE -ne 0) { throw 'yarn install failed' }
+
 if (-not $SkipTypecheck) {
   Write-Host '[release] Running typecheck...'
-  npm run typecheck
+  yarn typecheck
   if ($LASTEXITCODE -ne 0) { throw 'typecheck failed' }
 }
 
 if (-not $SkipBuild) {
   Write-Host '[release] Running build...'
-  npm run build
+  yarn build
   if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 }
 
 if (-not $SkipTests) {
   Write-Host '[release] Running tests...'
-  npm test
+  yarn test:ci
   if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
 }
 
@@ -114,10 +157,8 @@ if (-not $SkipPush) {
 }
 
 if (-not $SkipDeploy) {
-  if (-not $DeployHost) {
-    throw 'Deploy host missing. Set EDFINDER_DEPLOY_HOST or pass -DeployHost.'
-  }
-  if (-not (Test-TcpOpen -HostName $DeployHost -Port $DeployPort -TimeoutMs 3000)) {
+  $resolvedTarget = Resolve-SshTarget -DeployTarget $DeployTarget -DeployHost $DeployHost -DeployUser $DeployUser -DeployPort $DeployPort
+  if ($resolvedTarget.CanProbeTcp -and -not (Test-TcpOpen -HostName $DeployHost -Port $DeployPort -TimeoutMs 3000)) {
     if ($DeployHost -eq 'ed-finder.app' -and $DeployPort -eq 22) {
       throw @"
 SSH to ed-finder.app:22 is not reachable.
@@ -134,7 +175,6 @@ setx EDFINDER_DEPLOY_PORT 22
     throw "SSH is not reachable on $DeployHost`:$DeployPort. Check host/port/firewall."
   }
 
-  $remote = "$DeployUser@$DeployHost"
   $remoteCmdParts = @(
     'set -euo pipefail',
     "cd ""$RemoteRepoPath""",
@@ -162,20 +202,18 @@ setx EDFINDER_DEPLOY_PORT 22
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {
     throw 'ssh is not available in PATH.'
   }
-  Write-Host "[release] Starting remote deploy on $remote`:$DeployPort ..."
+  Write-Host "[release] Starting remote deploy on $($resolvedTarget.Display) ..."
   Write-Host "[release] Remote dirty policy: $RemoteDirtyPolicy"
   Write-Host '[release] If prompted, complete SSH authentication in this terminal.'
   $sshArgs = @()
   if ($SshOptions.Trim()) {
     $sshArgs += $SshOptions.Trim().Split(' ')
   }
-  $sshArgs += '-p'
-  $sshArgs += "$DeployPort"
-  $sshArgs += $remote
+  $sshArgs += $resolvedTarget.SshArgs
   $sshArgs += 'bash -s --'
   $remoteScriptLf | & ssh @sshArgs
   if ($LASTEXITCODE -ne 0) {
-    throw "Remote deploy failed on $remote"
+    throw "Remote deploy failed on $($resolvedTarget.Display)"
   }
   Write-Host '[release] Remote deploy finished.'
 }
@@ -188,18 +226,19 @@ if ($health.status -ne 'ok') {
 }
 
 $baseUrl = $PublicUrl.TrimEnd('/')
-$plannerUrl = if ($PlannerRoute.StartsWith('#')) { "$baseUrl/$PlannerRoute" } else { "$baseUrl/$PlannerRoute" }
-$plannerProbe = Invoke-WebRequest -Uri $plannerUrl -UseBasicParsing -TimeoutSec 20
-if ($plannerProbe.StatusCode -lt 200 -or $plannerProbe.StatusCode -ge 400) {
-  throw "Planner URL probe failed: $plannerUrl ($($plannerProbe.StatusCode))"
+$probePath = if ($AppProbePath.StartsWith('/')) { $AppProbePath } else { "/$AppProbePath" }
+$appUrl = "$baseUrl$probePath"
+$appProbe = Invoke-WebRequest -Uri $appUrl -UseBasicParsing -TimeoutSec 20
+if ($appProbe.StatusCode -lt 200 -or $appProbe.StatusCode -ge 400) {
+  throw "App probe failed: $appUrl ($($appProbe.StatusCode))"
 }
-Write-Host "[release] Public planner probe OK: $plannerUrl ($($plannerProbe.StatusCode))"
+Write-Host "[release] Public app probe OK: $appUrl ($($appProbe.StatusCode))"
 
 $releaseCheckStamp = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
-$appShell = Invoke-WebRequest -Uri "$baseUrl/v2/index.html?release_check=$releaseCheckStamp" -UseBasicParsing -TimeoutSec 20
+$appShell = Invoke-WebRequest -Uri "$baseUrl/index.html?release_check=$releaseCheckStamp" -UseBasicParsing -TimeoutSec 20
 $scriptMatch = [regex]::Match($appShell.Content, '<script[^>]+src="([^"]+)"')
 if (-not $scriptMatch.Success) {
-  throw 'App shell validation failed: could not find a module script src in /v2/index.html.'
+  throw 'App shell validation failed: could not find a module script src in /index.html.'
 }
 $scriptSrc = $scriptMatch.Groups[1].Value
 $scriptUrl = if ($scriptSrc.StartsWith('http')) { $scriptSrc } else { "$baseUrl$scriptSrc" }
@@ -209,24 +248,22 @@ $scriptLooksLikeHtml = $scriptProbe.Content -match '^\s*<!doctype html'
 if ($scriptLooksLikeHtml -or ($scriptContentType -notmatch 'javascript')) {
   throw "App shell validation failed: script URL resolved to non-JS payload ($scriptUrl, content-type=$scriptContentType)."
 }
-if ($appShell.Content -match '/v2/assets/') {
-  Write-Host '[release] App shell asset base OK (/v2/assets/* detected).'
-} elseif ($appShell.Content -match '/assets/') {
-  Write-Warning 'App shell is using /assets/* (compatibility mode via nginx alias), not /v2/assets/*.'
+if ($appShell.Content -match '/assets/') {
+  Write-Host '[release] App shell asset base OK (/assets/* detected).'
 } else {
-  Write-Warning 'App shell does not clearly advertise /v2/assets/* or /assets/*; continuing because script probe succeeded.'
+  Write-Warning 'App shell does not clearly advertise /assets/*; continuing because script probe succeeded.'
 }
 
 if ($OpenApp) {
-  Start-Process $plannerUrl
+  Start-Process $appUrl
 }
 
 [PSCustomObject]@{
   repo = $RepoPath
   commit = $head
   branch = $branch
-  deployHost = if ($SkipDeploy) { '(skipped)' } else { "$DeployUser@$DeployHost" }
+  deployHost = if ($SkipDeploy) { '(skipped)' } else { if ($DeployTarget) { $DeployTarget } else { "$DeployUser@$DeployHost" } }
   publicHealth = $health
-  plannerUrl = $plannerUrl
-  plannerHttpStatus = $plannerProbe.StatusCode
+  appUrl = $appUrl
+  appHttpStatus = $appProbe.StatusCode
 } | ConvertTo-Json -Depth 6

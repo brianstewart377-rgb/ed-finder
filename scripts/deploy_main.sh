@@ -147,7 +147,7 @@ say "Build frontend-v2"
 (
   cd frontend-v2
   yarn install --frozen-lockfile
-  VITE_PUBLIC_BASE=/v2/ yarn build
+  yarn build
 )
 ok "frontend built"
 else
@@ -240,7 +240,11 @@ Commit:     $(git --no-pager log -1 --oneline)
 Health:     http://127.0.0.1/api/health OK
 Public URL: $PUBLIC_URL
 
-If Cloudflare caches /v2/index.html, purge it now.
+Smoke-check the promoted root frontend now:
+  curl -I "$PUBLIC_URL/"
+  curl -I "$PUBLIC_URL/index.html"
+Legacy /v2/ should now redirect to /:
+  curl -I "$PUBLIC_URL/v2/"
 Rollback target is saved at: $PRE_DEPLOY_FILE
 ===============================================================================
 EOF

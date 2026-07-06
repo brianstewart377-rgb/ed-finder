@@ -506,7 +506,7 @@ function attachSummaryListeners(page, summary) {
 
 async function installReviewLabInitScript(context) {
   await context.addInitScript(() => {
-    const stub = async () => ({ scope: '/v2/' });
+    const stub = async () => ({ scope: '/' });
     try {
       if ('serviceWorker' in navigator && navigator.serviceWorker) {
         navigator.serviceWorker.register = stub;

@@ -19,8 +19,8 @@ for default users:
 
 | Action                                   | Effect                          |
 |------------------------------------------|---------------------------------|
-| Visit `…/v2/?ui=v3`                      | Load redesign + remember choice |
-| Visit `…/v2/?ui=v2`                      | Load v2 + clear redesign choice |
+| Visit `…/?ui=v3`                         | Load redesign + remember choice |
+| Visit `…/?ui=v2`                         | Load current shell + clear redesign choice |
 | `localStorage.setItem('uiV3','1')`+reload| Sticky redesign preview         |
 | `localStorage.removeItem('uiV3')`+reload | Back to v2                      |
 

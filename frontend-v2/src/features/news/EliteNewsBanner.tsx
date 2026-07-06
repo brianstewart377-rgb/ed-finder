@@ -19,8 +19,9 @@ export function EliteNewsBanner() {
   const { items, status, stale } = useEliteNewsFeed({ limit: 8 });
   const haveItems = items.length > 0;
   const renderedItems = haveItems ? items : FALLBACK_ITEMS;
+  const showingFallbackLinks = renderedItems.every(isFallbackItem);
   const feedState = status === 'live'
-    ? (stale ? 'cached headlines' : 'latest headlines')
+    ? (showingFallbackLinks ? 'quick links' : stale ? 'cached headlines' : 'latest headlines')
     : status === 'offline'
       ? 'offline'
       : 'loading';
@@ -91,11 +92,15 @@ export function EliteNewsBanner() {
 
           <div className="hidden md:flex items-center gap-2 px-4 shrink-0 border-l border-border/70 bg-bg3/40 rounded-r-[20px]">
             <span className="font-mono text-[10px] tracking-widest text-silver-dk uppercase">
-              {renderedItems.length} headlines
+              {renderedItems.length} {showingFallbackLinks ? 'links' : 'headlines'}
             </span>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+function isFallbackItem(item: EliteNewsItem): boolean {
+  return FALLBACK_ITEMS.some((fallback) => fallback.url === item.url && fallback.title === item.title);
 }

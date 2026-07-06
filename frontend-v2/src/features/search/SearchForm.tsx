@@ -30,6 +30,9 @@ export interface SearchFormProps {
 }
 
 export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: SearchFormProps) {
+  const base = import.meta.env.BASE_URL || '/';
+  const developmentHelpHref = `${base.endsWith('/') ? base : `${base}/`}development.html`;
+
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
@@ -58,7 +61,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
 
       <div className="mb-2 text-right text-xs text-dim">
         <a
-          href="/v2/development.html"
+          href={developmentHelpHref}
           target="_blank"
           rel="noopener"
           data-testid="development-help-link"

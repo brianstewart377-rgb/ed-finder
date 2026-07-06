@@ -29,6 +29,7 @@ router = APIRouter(tags=['news'])
 ELITE_NEWS_URL = 'https://www.elitedangerous.com/news'
 ELITE_GALNET_URL = 'https://www.elitedangerous.com/en-US/Galnet'
 ELITE_NEWS_CACHE_TTL = 900
+ELITE_NEWS_FALLBACK_TTL = 60
 _DATE_ONLY_RE = re.compile(r'^\d{1,2}\s+[A-Za-z]+\s+\d{4}$|^[A-Za-z]+\s+\d{1,2},\s+\d{4}$|^\d{1,2}\s+[A-Za-z]+\s+\d{4,}$')
 _LOCAL_CACHE: dict[tuple[int], tuple[float, dict]] = {}
 _FALLBACK_ITEMS = [
@@ -161,6 +162,21 @@ def _fallback_payload(limit: int) -> dict:
     }
 
 
+def _is_fallback_payload(payload: dict | None) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    items = payload.get('items')
+    if not isinstance(items, list) or not items:
+        return False
+    fallback_pairs = {(item['title'], item['url']) for item in _FALLBACK_ITEMS}
+    item_pairs = {
+        (item.get('title'), item.get('url'))
+        for item in items
+        if isinstance(item, dict)
+    }
+    return item_pairs.issubset(fallback_pairs)
+
+
 @router.get('/api/news/latest')
 async def latest_news(
     limit: int = 8,
@@ -170,13 +186,13 @@ async def latest_news(
     cache_key = f'elite-news:latest:{limit}'
 
     cached = await cache_get(cache_key, redis)
-    if cached:
+    if cached and not _is_fallback_payload(cached):
         return cached
 
     local_key = (limit,)
     now = time.time()
     cached_local = _LOCAL_CACHE.get(local_key)
-    if cached_local and cached_local[0] > now:
+    if cached_local and cached_local[0] > now and not _is_fallback_payload(cached_local[1]):
         return cached_local[1]
 
     try:
@@ -189,7 +205,11 @@ async def latest_news(
         if cached_local:
             stale_payload = {**cached_local[1], 'stale': True}
             return stale_payload
+        if cached:
+            stale_payload = {**cached, 'stale': True}
+            _LOCAL_CACHE[local_key] = (now + ELITE_NEWS_FALLBACK_TTL, stale_payload)
+            return stale_payload
         fallback_payload = _fallback_payload(limit)
-        _LOCAL_CACHE[local_key] = (now + ELITE_NEWS_CACHE_TTL, fallback_payload)
-        await cache_set(cache_key, fallback_payload, ELITE_NEWS_CACHE_TTL, redis)
+        _LOCAL_CACHE[local_key] = (now + ELITE_NEWS_FALLBACK_TTL, fallback_payload)
+        await cache_set(cache_key, fallback_payload, ELITE_NEWS_FALLBACK_TTL, redis)
         return fallback_payload

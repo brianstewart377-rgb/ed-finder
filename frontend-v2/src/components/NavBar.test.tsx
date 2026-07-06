@@ -3,12 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
 describe('NavBar', () => {
-  it('shows one direct route strip grouped under Explore / Plan / Review headings', () => {
+  it('shows one direct route strip without duplicated workspace headings', () => {
     render(<NavBar current="my-work" onNavigate={vi.fn()} health="Online" watchlistCount={2} />);
 
-    expect(screen.getByTestId('nav-group-explore').textContent).toContain('explore');
-    expect(screen.getByTestId('nav-group-plan').textContent).toContain('plan');
-    expect(screen.getByTestId('nav-group-review').textContent).toContain('review');
+    expect(screen.queryByTestId('nav-group-explore')).toBeNull();
+    expect(screen.queryByTestId('nav-group-plan')).toBeNull();
+    expect(screen.queryByTestId('nav-group-review')).toBeNull();
+    expect(screen.getByTestId('nav-player-routes')).toBeTruthy();
     expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
     expect(screen.queryByTestId('nav-operator-tools')).toBeNull();
     expect(screen.queryByTestId('nav-admin')).toBeNull();
@@ -103,13 +104,14 @@ describe('NavBar', () => {
     }
   });
 
-  it('renders grouped desktop navigation in one route strip with direct destination tabs', () => {
+  it('renders one flat desktop navigation strip with direct destination tabs', () => {
     render(<NavBar current="colony-planner" onNavigate={vi.fn()} health="Online" />);
 
     const routeStrip = screen.getByTestId('nav-desktop-route-strip');
-    expect(routeStrip.contains(screen.getByTestId('nav-group-explore'))).toBe(true);
-    expect(routeStrip.contains(screen.getByTestId('nav-group-plan'))).toBe(true);
-    expect(routeStrip.contains(screen.getByTestId('nav-group-review'))).toBe(true);
+    expect(screen.queryByTestId('nav-group-explore')).toBeNull();
+    expect(screen.queryByTestId('nav-group-plan')).toBeNull();
+    expect(screen.queryByTestId('nav-group-review')).toBeNull();
+    expect(routeStrip.contains(screen.getByTestId('nav-player-routes'))).toBe(true);
     expect(routeStrip.contains(screen.getByTestId('nav-my-work'))).toBe(true);
     expect(routeStrip.contains(screen.getByTestId('nav-colony-planner'))).toBe(true);
     expect(screen.getByTestId('nav-colony-planner').getAttribute('aria-current')).toBe('page');

@@ -27,6 +27,10 @@
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+echo "scripts/deploy_v2.sh is retired: the frontend is now served at /, not /v2/." >&2
+echo "Use: bash scripts/deploy_main.sh" >&2
+exit 64
+
 REPO_DIR=${REPO_DIR:-/opt/ed-finder}
 BRANCH=${BRANCH:-main}
 WEBROOT=${WEBROOT:-/var/www/html-v2}

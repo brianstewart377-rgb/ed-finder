@@ -102,6 +102,12 @@ Status after this slice:
 - The writer is idempotent on `evidence_key`.
 - It only attaches `source_run_key` when the station row clearly came from the newer `source_runs` ledger flow, avoiding invalid links to legacy enrichment-only staging runs.
 - Windows local importer paths now pass the local-file assertion correctly instead of being misread as URLs.
+- Added `apps/importer/src/inara_evidence_import.py` for the first bounded `Inara -> evidence_records` path.
+- The first Inara slice targets `station_services` only, resolves `system_id64` against the local `systems` table, records a `source_runs` ledger entry, and writes a JSON artifact for review.
+- Example dry run:
+  - `py apps/importer/src/inara_evidence_import.py --system "Shinrarta Dezhra" --dry-run --artifact-dir artifacts/inara`
+- Example bounded write:
+  - `py apps/importer/src/inara_evidence_import.py --system "Shinrarta Dezhra" --artifact-dir artifacts/inara`
 
 ## Guardrails
 
