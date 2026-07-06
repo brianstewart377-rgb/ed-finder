@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MyWorkWorkspace } from './MyWorkWorkspace';
 import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
@@ -109,6 +109,7 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Considering');
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Favourite');
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Ready to plan');
+    expect(within(screen.getByTestId('saved-system-101')).getByRole('button', { name: /Favourite enabled/i }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('removes saved systems safely across Watchlist, Pins, and local saved labels', async () => {

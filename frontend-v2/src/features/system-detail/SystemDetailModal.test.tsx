@@ -357,7 +357,30 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.queryByText(/backend exploded/i)).toBeNull();
   });
 
-  it('shows a fallback when the archetype assessment is unavailable', () => {
+  it('falls back to the development snapshot already present on system detail when the archetype refresh fails', () => {
+    mockLoadedSystem({
+      primary_archetype: 'refinery_industrial',
+      overall_development_potential: 86,
+      buildability_score: 79,
+      purity_score: 72,
+      archetype_confidence: 0.77,
+    } as Partial<SystemDetail>);
+    mockedUseSystemArchetype.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'boom',
+      refetch: vi.fn(),
+    });
+
+    render(<SystemDetailModal id64={123} onClose={() => undefined} onStartPlan={() => undefined} />);
+
+    expect(screen.getByTestId('archetype-assessment')).toBeTruthy();
+    expect(screen.getByTestId('archetype-assessment-warning').textContent).toContain('Using the development snapshot already loaded with system detail');
+    expect(screen.getByTestId('archetype-primary').textContent).toContain('Refinery / Industrial Megacomplex');
+    expect(screen.getByText('Development score snapshot 86. Buildability 79. Purity 72.')).toBeTruthy();
+  });
+
+  it('shows the compact unavailable state when neither live nor fallback archetype data exists', () => {
     mockLoadedSystem();
     mockedUseSystemArchetype.mockReturnValue({
       data: null,

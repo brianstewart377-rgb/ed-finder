@@ -25,11 +25,11 @@ export interface NavBarProps {
 }
 
 type PrimaryWorkspace = 'explore' | 'plan' | 'review';
+const PLAYER_WORKSPACES: PrimaryWorkspace[] = ['explore', 'plan', 'review'];
 
 interface RouteDescriptor {
   route: Route;
   label: string;
-  shortLabel?: string;
   testid: string;
   badge?: number;
   title?: string;
@@ -43,12 +43,6 @@ interface WorkspaceMeta {
   statusLabel: string;
   statusTone: 'available' | 'canonical' | 'caution';
 }
-
-const PRIMARY_DEFAULT_ROUTE: Record<PrimaryWorkspace, Route> = {
-  explore: 'finder',
-  plan: 'my-work',
-  review: 'compare',
-};
 
 export function NavBar({
   current, onNavigate,
@@ -67,17 +61,17 @@ export function NavBar({
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const groupedRoutes = useMemo<Record<'explore' | 'plan' | 'review' | 'operator', RouteDescriptor[]>>(() => ({
     explore: [
-      { route: 'finder' as const, label: 'Finder', shortLabel: 'Explore', testid: 'nav-finder' },
-      { route: 'map' as const, label: 'Map', shortLabel: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
-      { route: 'search-tuning' as const, label: 'Development Tuning', shortLabel: 'Tuning', testid: 'nav-search-tuning' },
+      { route: 'finder' as const, label: 'Finder', testid: 'nav-finder' },
+      { route: 'map' as const, label: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
+      { route: 'search-tuning' as const, label: 'Development Tuning', testid: 'nav-search-tuning' },
     ],
     plan: [
-      { route: 'my-work' as const, label: 'My Work', shortLabel: 'My Work', testid: 'nav-my-work' },
-      { route: 'colony-planner' as const, label: 'Colony Planner', shortLabel: 'Plan', testid: 'nav-colony-planner' },
+      { route: 'my-work' as const, label: 'My Work', testid: 'nav-my-work' },
+      { route: 'colony-planner' as const, label: 'Colony Planner', testid: 'nav-colony-planner' },
     ],
     review: [
       { route: 'compare' as const, label: 'Compare', testid: 'nav-compare', badge: compareCount },
-      { route: 'fc' as const, label: 'FC Planner', testid: 'nav-fc', badge: fcCount },
+      { route: 'fc' as const, label: 'FC Route Planner', testid: 'nav-fc', badge: fcCount },
     ],
     operator: [
       { route: 'admin' as const, label: 'Admin', testid: 'nav-admin' },
@@ -88,8 +82,9 @@ export function NavBar({
   const operatorMode = current === 'admin' || current === 'operator';
   const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
-  const activeSubnav = currentPrimary ? groupedRoutes[currentPrimary] : [];
-  const currentRouteDescriptor = activeSubnav.find((tab) => tab.route === current)
+  const currentRouteDescriptor = PLAYER_WORKSPACES
+    .flatMap((workspace) => groupedRoutes[workspace])
+    .find((tab) => tab.route === current)
     ?? groupedRoutes.operator.find((tab) => tab.route === current)
     ?? null;
   const currentWorkspaceMeta = workspaceMetaForRoute(current);
@@ -120,10 +115,6 @@ export function NavBar({
   const handleNavigate = (route: Route) => {
     onNavigate(route);
     setMenuOpen(false);
-  };
-
-  const navigatePrimary = (workspace: PrimaryWorkspace) => {
-    handleNavigate(PRIMARY_DEFAULT_ROUTE[workspace]);
   };
 
   return (
@@ -157,54 +148,43 @@ export function NavBar({
             className="hidden min-w-0 flex-1 items-center gap-3 lg:flex"
             data-testid="nav-desktop-route-strip"
           >
-            <div
-              className="flex shrink-0 flex-wrap items-center gap-2"
-              data-testid="nav-primary-workspaces"
-              aria-label="Primary workspaces"
-            >
-              <PrimaryTab
-                label="Explore"
-                active={currentPrimary === 'explore'}
-                onClick={() => navigatePrimary('explore')}
-                testid="nav-primary-explore"
-              />
-              <PrimaryTab
-                label="Plan"
-                active={currentPrimary === 'plan'}
-                onClick={() => navigatePrimary('plan')}
-                testid="nav-primary-plan"
-              />
-              <PrimaryTab
-                label="Review"
-                active={currentPrimary === 'review'}
-                onClick={() => navigatePrimary('review')}
-                testid="nav-primary-review"
-              />
-            </div>
-            {currentPrimary ? (
-              <>
-                <span
-                  className="hidden h-7 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent xl:block"
-                  aria-hidden
-                />
-                <div
-                  className="flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto"
-                  data-testid="nav-secondary-routes"
-                  aria-label={`${currentWorkspaceMeta.primaryLabel} routes`}
-                >
-                  {groupedRoutes[currentPrimary].map((tab) => (
-                    <Tab
-                      key={tab.route}
-                      label={tab.label}
-                      active={current === tab.route}
-                      onClick={() => handleNavigate(tab.route)}
-                      testid={tab.testid}
-                      badge={tab.badge}
-                      title={tab.title}
-                    />
-                  ))}
-                </div>
-              </>
+            {!operatorMode ? (
+              <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 overflow-x-auto" aria-label="Player routes">
+                {PLAYER_WORKSPACES.map((workspace, index) => (
+                  <div
+                    key={workspace}
+                    className="flex items-center gap-2"
+                    data-testid={`nav-group-${workspace}`}
+                  >
+                    {index > 0 ? (
+                      <span
+                        className="hidden h-7 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent xl:block"
+                        aria-hidden
+                      />
+                    ) : null}
+                    <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                      {workspace}
+                    </span>
+                    <div
+                      className="flex min-w-0 flex-wrap items-center gap-1"
+                      data-testid={`nav-routes-${workspace}`}
+                      aria-label={`${workspace} routes`}
+                    >
+                      {groupedRoutes[workspace].map((tab) => (
+                        <Tab
+                          key={tab.route}
+                          label={tab.label}
+                          active={isRouteActive(current, tab.route)}
+                          onClick={() => handleNavigate(tab.route)}
+                          testid={tab.testid}
+                          badge={tab.badge}
+                          title={tab.title}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : null}
           </div>
 
@@ -447,36 +427,6 @@ function Tab({ label, active, onClick, testid, badge, title, compact = false }: 
   );
 }
 
-function PrimaryTab({
-  label,
-  active,
-  onClick,
-  testid,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  testid: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      data-testid={testid}
-      aria-current={active ? 'page' : undefined}
-      className={[
-        'rounded-chunk-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.16em] transition-colors',
-        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
-        active
-          ? 'border-orange/55 bg-orange/15 text-orange'
-          : 'border-border bg-bg3/35 text-silver hover:border-orange/40 hover:text-orange-lt',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  );
-}
-
 function MenuSection({
   title,
   routes,
@@ -498,7 +448,7 @@ function MenuSection({
           <Tab
             key={`menu-${tab.route}`}
             label={tab.label}
-            active={current === tab.route}
+            active={isRouteActive(current, tab.route)}
             onClick={() => onNavigate(tab.route)}
             testid={`${tab.testid}-menu`}
             badge={tab.badge}
@@ -620,6 +570,13 @@ function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
   if (route === 'my-work' || route === 'watchlist' || route === 'pinned' || route === 'colony' || route === 'colony-planner') return 'plan';
   if (route === 'compare' || route === 'fc') return 'review';
   return null;
+}
+
+function isRouteActive(current: Route, target: Route): boolean {
+  if (current === target) return true;
+  if (target === 'my-work' && (current === 'watchlist' || current === 'pinned')) return true;
+  if (target === 'colony-planner' && current === 'colony') return true;
+  return false;
 }
 
 function workspaceMetaForRoute(route: Route): WorkspaceMeta {

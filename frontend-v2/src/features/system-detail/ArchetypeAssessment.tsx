@@ -4,11 +4,13 @@ export function ArchetypeAssessment({
   archetype,
   loading,
   error,
+  warning,
   onRetry,
 }: {
   archetype: SystemArchetypeResponse | null;
   loading: boolean;
   error: string | null;
+  warning?: string | null;
   onRetry: () => void;
 }) {
   if (loading) {
@@ -27,7 +29,7 @@ export function ArchetypeAssessment({
     );
   }
 
-  if (error) {
+  if (error && !archetype) {
     return (
       <div
         data-testid="archetype-assessment-error"
@@ -70,6 +72,26 @@ export function ArchetypeAssessment({
 
   return (
     <div data-testid="archetype-assessment" className="space-y-4">
+      {warning ? (
+        <div
+          data-testid="archetype-assessment-warning"
+          className="rounded-chunk-lg border border-gold/40 bg-gold/10 p-4"
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-gold">
+              Live archetype refresh unavailable
+            </div>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="rounded-chunk-sm border border-gold/40 bg-gold/10 px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-gold hover:bg-gold/15"
+            >
+              Retry
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-silver">{warning}</p>
+        </div>
+      ) : null}
       <div className="rounded-chunk-lg border border-cyan/30 bg-cyan/5 p-4">
         <div className="flex flex-wrap items-start gap-3">
           <div className="min-w-0 flex-1">

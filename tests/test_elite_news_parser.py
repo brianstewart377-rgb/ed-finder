@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
 
+from routers import news
 from routers.news import extract_elite_news_items
 
 
@@ -33,6 +34,25 @@ def test_extract_elite_news_items_prefers_headline_text_and_deduplicates_urls():
         {
             'title': 'Vista Genomics Seeks Exploration Data From Sanguineous Rim',
             'url': 'https://www.elitedangerous.com/news/galnet/vista-genomics-seeks-exploration-data-sanguineous-rim',
+            'source': 'galnet',
+        },
+    ]
+
+
+def test_fallback_payload_keeps_official_news_links_available():
+    payload = news._fallback_payload(limit=2)
+
+    assert payload['stale'] is True
+    assert payload['source_url'] == 'https://www.elitedangerous.com/news'
+    assert payload['items'] == [
+        {
+            'title': 'Open official Elite Dangerous news',
+            'url': 'https://www.elitedangerous.com/news',
+            'source': 'news',
+        },
+        {
+            'title': 'Open official Galnet',
+            'url': 'https://www.elitedangerous.com/en-US/Galnet',
             'source': 'galnet',
         },
     ]

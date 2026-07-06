@@ -21,7 +21,9 @@ describe('EliteNewsBanner', () => {
 
     expect(screen.getByTestId('elite-news-banner')).toBeTruthy();
     expect(screen.getByText('offline')).toBeTruthy();
-    expect(screen.getByText('Official Elite Dangerous headlines unavailable')).toBeTruthy();
+    expect(screen.getByText('Official feed unavailable right now. Quick links stay available below.')).toBeTruthy();
+    expect(screen.getByTestId('elite-news-link-0').getAttribute('href')).toBe('https://www.elitedangerous.com/news');
+    expect(screen.getByTestId('elite-news-link-1').getAttribute('href')).toBe('https://www.elitedangerous.com/en-US/Galnet');
   });
 
   it('renders headline links and stale state labels', () => {

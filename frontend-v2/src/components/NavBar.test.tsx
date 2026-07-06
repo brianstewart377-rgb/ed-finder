@@ -3,31 +3,31 @@ import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
 describe('NavBar', () => {
-  it('exposes Explore / Plan / Review as the only normal player workspaces', () => {
+  it('shows one direct route strip grouped under Explore / Plan / Review headings', () => {
     render(<NavBar current="my-work" onNavigate={vi.fn()} health="Online" watchlistCount={2} />);
 
-    expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
-    expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
-    expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
-    expect(screen.getByTestId('nav-primary-plan').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('nav-group-explore').textContent).toContain('explore');
+    expect(screen.getByTestId('nav-group-plan').textContent).toContain('plan');
+    expect(screen.getByTestId('nav-group-review').textContent).toContain('review');
+    expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
     expect(screen.queryByTestId('nav-operator-tools')).toBeNull();
     expect(screen.queryByTestId('nav-admin')).toBeNull();
     expect(screen.queryByTestId('nav-operator')).toBeNull();
   });
 
-  it('renders route-specific secondary navigation within the active primary workspace', () => {
+  it('keeps all player routes visible instead of requiring a duplicate primary click layer', () => {
     const { rerender } = render(<NavBar current="my-work" onNavigate={vi.fn()} health="Online" />);
 
     expect(screen.getByTestId('nav-my-work').textContent).toContain('My Work');
-    expect(screen.queryByTestId('nav-watchlist')).toBeNull();
-    expect(screen.queryByTestId('nav-pinned')).toBeNull();
+    expect(screen.getByTestId('nav-finder').textContent).toContain('Finder');
+    expect(screen.getByTestId('nav-compare').textContent).toContain('Compare');
 
     rerender(<NavBar current="search-tuning" onNavigate={vi.fn()} health="Online" />);
     expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Development Tuning');
-    expect(screen.queryByTestId('nav-my-work')).toBeNull();
+    expect(screen.getByTestId('nav-my-work')).toBeTruthy();
 
     rerender(<NavBar current="compare" onNavigate={vi.fn()} health="Online" compareCount={2} colonyCount={1} fcCount={1} />);
-    expect(screen.getByTestId('nav-fc').textContent).toContain('FC Planner');
+    expect(screen.getByTestId('nav-fc').textContent).toContain('FC Route Planner');
     expect(screen.queryByTestId('nav-colony')).toBeNull();
   });
 
@@ -44,10 +44,10 @@ describe('NavBar', () => {
     expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
     expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
 
-    const planButton = screen.getByTestId('nav-primary-plan');
-    planButton.focus();
-    expect(document.activeElement).toBe(planButton);
-    expect(planButton.className).toContain('focus-visible:ring-2');
+    const plannerButton = screen.getByTestId('nav-colony-planner');
+    plannerButton.focus();
+    expect(document.activeElement).toBe(plannerButton);
+    expect(plannerButton.className).toContain('focus-visible:ring-2');
   });
 
   it('uses full-width supporting text for Compare and removes its redundant Review eyebrow', () => {
@@ -99,20 +99,19 @@ describe('NavBar', () => {
       expect(screen.queryByTestId('product-shell-context')).toBeNull();
       expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
       expect(screen.queryByText('Shinrarta Dezhra')).toBeNull();
-      expect(screen.getByTestId('nav-primary-plan').getAttribute('aria-current')).toBe('page');
+      expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
     }
   });
 
-  it('renders primary and active secondary desktop navigation in one route strip', () => {
+  it('renders grouped desktop navigation in one route strip with direct destination tabs', () => {
     render(<NavBar current="colony-planner" onNavigate={vi.fn()} health="Online" />);
 
     const routeStrip = screen.getByTestId('nav-desktop-route-strip');
-    expect(routeStrip.contains(screen.getByTestId('nav-primary-explore'))).toBe(true);
-    expect(routeStrip.contains(screen.getByTestId('nav-primary-plan'))).toBe(true);
-    expect(routeStrip.contains(screen.getByTestId('nav-primary-review'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-group-explore'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-group-plan'))).toBe(true);
+    expect(routeStrip.contains(screen.getByTestId('nav-group-review'))).toBe(true);
     expect(routeStrip.contains(screen.getByTestId('nav-my-work'))).toBe(true);
     expect(routeStrip.contains(screen.getByTestId('nav-colony-planner'))).toBe(true);
-    expect(screen.getByTestId('nav-primary-plan').getAttribute('aria-current')).toBe('page');
     expect(screen.getByTestId('nav-colony-planner').getAttribute('aria-current')).toBe('page');
   });
 

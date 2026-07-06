@@ -65,4 +65,44 @@ describe('useSearchTuning', () => {
       303: { originalRank: 3, name: 'Gamma' },
     });
   });
+
+  it('fills missing rerank rows from the current Finder snapshot when the API returns none', async () => {
+    const { result } = renderHook(() => useSearchTuning());
+
+    await act(async () => {
+      await result.current.run([
+        {
+          id64: 101,
+          name: 'Alpha',
+          archetype_score: 88,
+          overall_development_potential: 88,
+          buildability_score: 70,
+          purity_score: 65,
+          est_total_slots: 12,
+          archetype_confidence: 0.83,
+          main_star_type: 'K',
+        } as SystemResult,
+      ]);
+    });
+
+    expect(result.current.state.kind).toBe('ok');
+    if (result.current.state.kind !== 'ok') return;
+
+    expect(result.current.state.data.results).toHaveLength(1);
+    expect(result.current.state.data.results[0]).toMatchObject({
+      id64: 101,
+      original_score: 88,
+      confidence: 0.83,
+      rationale: {
+        summary: expect.stringContaining('current Finder snapshot'),
+      },
+      contributions: {
+        purity: 19.5,
+        buildability: 17.5,
+        slots: 2.4,
+        expansion: 13.2,
+        logistics: 8,
+      },
+    });
+  });
 });

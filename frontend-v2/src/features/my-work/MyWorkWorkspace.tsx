@@ -734,6 +734,7 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={[
         'rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
         active
@@ -742,6 +743,7 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
       ].join(' ')}
     >
       {label}
+      <span className="sr-only">{active ? ' enabled' : ' disabled'}</span>
     </button>
   );
 }
@@ -788,6 +790,7 @@ function buildSavedSystems({
       ...(pinnedEntry ? ['favourite'] as const : []),
     ]);
     bySystem.set(snapshot.id64, {
+      ...existing,
       id64: snapshot.id64,
       name: snapshot.name,
       x: snapshot.x,
@@ -810,7 +813,6 @@ function buildSavedSystems({
       watchlistEntry,
       pinnedEntry,
       localRecord,
-      ...existing,
       ...partial,
     });
   };

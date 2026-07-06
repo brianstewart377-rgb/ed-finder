@@ -27,9 +27,22 @@ log = logging.getLogger('ed_finder')
 router = APIRouter(tags=['news'])
 
 ELITE_NEWS_URL = 'https://www.elitedangerous.com/news'
+ELITE_GALNET_URL = 'https://www.elitedangerous.com/en-US/Galnet'
 ELITE_NEWS_CACHE_TTL = 900
 _DATE_ONLY_RE = re.compile(r'^\d{1,2}\s+[A-Za-z]+\s+\d{4}$|^[A-Za-z]+\s+\d{1,2},\s+\d{4}$|^\d{1,2}\s+[A-Za-z]+\s+\d{4,}$')
 _LOCAL_CACHE: dict[tuple[int], tuple[float, dict]] = {}
+_FALLBACK_ITEMS = [
+    {
+        'title': 'Open official Elite Dangerous news',
+        'url': ELITE_NEWS_URL,
+        'source': 'news',
+    },
+    {
+        'title': 'Open official Galnet',
+        'url': ELITE_GALNET_URL,
+        'source': 'galnet',
+    },
+]
 
 
 class _AnchorCollector(HTMLParser):
@@ -139,6 +152,15 @@ def _fetch_official_news(limit: int) -> dict:
     }
 
 
+def _fallback_payload(limit: int) -> dict:
+    return {
+        'items': _FALLBACK_ITEMS[:limit],
+        'source_url': ELITE_NEWS_URL,
+        'fetched_at': datetime.now(timezone.utc).isoformat(),
+        'stale': True,
+    }
+
+
 @router.get('/api/news/latest')
 async def latest_news(
     limit: int = 8,
@@ -167,4 +189,7 @@ async def latest_news(
         if cached_local:
             stale_payload = {**cached_local[1], 'stale': True}
             return stale_payload
-        raise HTTPException(503, 'Official Elite Dangerous news is unavailable right now')
+        fallback_payload = _fallback_payload(limit)
+        _LOCAL_CACHE[local_key] = (now + ELITE_NEWS_CACHE_TTL, fallback_payload)
+        await cache_set(cache_key, fallback_payload, ELITE_NEWS_CACHE_TTL, redis)
+        return fallback_payload

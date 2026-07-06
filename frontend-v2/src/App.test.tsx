@@ -730,12 +730,14 @@ describe('App Colony Planner workspace route', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('nav-primary-explore')).toBeTruthy();
+      expect(screen.getByTestId('nav-finder')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('nav-primary-explore').textContent).toContain('Explore');
-    expect(screen.getByTestId('nav-primary-plan').textContent).toContain('Plan');
-    expect(screen.getByTestId('nav-primary-review').textContent).toContain('Review');
+    expect(screen.getByTestId('nav-group-explore').textContent).toContain('explore');
+    expect(screen.getByTestId('nav-group-plan').textContent).toContain('plan');
+    expect(screen.getByTestId('nav-group-review').textContent).toContain('review');
+    expect(screen.getByTestId('nav-finder').textContent).toContain('Finder');
+    expect(screen.getByTestId('nav-my-work').textContent).toContain('My Work');
     expect(screen.getByTestId('finder-page-heading').textContent).toContain('Finder');
     expect(screen.getByTestId('finder-page-heading').textContent).toContain(
       'Find promising systems. Save them for later or inspect them before starting a plan.',

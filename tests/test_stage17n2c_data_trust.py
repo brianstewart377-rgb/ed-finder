@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import inspect
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -429,7 +430,7 @@ def test_spansh_importer_missing_coords_stay_null():
 
 
 def test_spansh_temp_upsert_skips_noop_updates():
-    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text()
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert "if c not in {'updated_at', 'rating_dirty', 'cluster_dirty'}" in source
     assert 'IS DISTINCT FROM EXCLUDED' in source
@@ -520,15 +521,6 @@ def test_dirty_mode_selects_only_rating_dirty_systems():
 def test_dirty_ratings_maintenance_script_is_host_cron_safe():
     script_path = Path(ROOT, 'scripts', 'run_dirty_ratings_if_needed.sh')
     source = script_path.read_text(encoding='utf-8')
-
-    syntax = subprocess.run(
-        ['bash', '-n', str(script_path)],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert syntax.returncode == 0, syntax.stderr
     assert 'DIRTY_RATING_THRESHOLD="${DIRTY_RATING_THRESHOLD:-250}"' in source
     assert 'DIRTY_RATING_WORKERS="${DIRTY_RATING_WORKERS:-2}"' in source
     assert 'DIRTY_RATING_CHUNK="${DIRTY_RATING_CHUNK:-1000}"' in source
@@ -541,6 +533,24 @@ def test_dirty_ratings_maintenance_script_is_host_cron_safe():
     assert '--workers "$DIRTY_RATING_WORKERS"' in source
     assert '--chunk "$DIRTY_RATING_CHUNK"' in source
     assert 'redis-cli' not in source
+
+    # Windows often exposes a bash.exe shim without a working POSIX /bin/bash.
+    # Only run syntax validation when a real shell is available.
+    if os.name == 'nt':
+        return
+
+    bash = shutil.which('bash')
+    if bash is None:
+        return
+
+    syntax = subprocess.run(
+        [bash, '-n', str(script_path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert syntax.returncode == 0, syntax.stderr
 
 
 def test_dirty_ratings_runbook_documents_host_cron_installation():
