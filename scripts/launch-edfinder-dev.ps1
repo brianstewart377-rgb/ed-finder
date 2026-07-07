@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path -Parent $PSScriptRoot
-$frontend = Join-Path $repo 'frontend-v2'
+$frontend = Join-Path $repo 'frontend'
 $startLocalDev = Join-Path $repo 'scripts\dev\start_local_dev.ps1'
 
 if (-not (Test-Path -LiteralPath $repo)) {

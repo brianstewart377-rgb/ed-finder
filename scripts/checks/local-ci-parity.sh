@@ -62,8 +62,8 @@ YARN_BIN="$(pick_yarn)"
 
 section "Dependency check"
 require_python_module pytest || die "missing Python module pytest. Install test dependencies before running parity checks."
-if [ ! -d "$ROOT/frontend-v2/node_modules" ]; then
-  die "frontend-v2/node_modules is missing. Run 'cd frontend-v2 && yarn install' first."
+if [ ! -d "$ROOT/frontend/node_modules" ]; then
+  die "frontend/node_modules is missing. Run 'cd frontend && yarn install' first."
 fi
 printf 'Python: %s\n' "$PYTHON_BIN"
 printf 'Yarn:   %s\n' "$YARN_BIN"
@@ -102,8 +102,7 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19ay_test_environment_closeout.py \
     tests/test_stage19ba_bounded_production_staging_activation.py \
     tests/test_stage19bb_first_production_staging_activation.py \
-    tests/test_stage20_planning_baseline.py \
-    tests/test_stage21_planning_baseline.py \
+    tests/test_docs_roadmap.py \
     tests/test_stage18h1_planner_evidence_contract.py \
     tests/test_stage18h2_warehouse_planner_evidence_endpoint.py \
     tests/test_stage18h3_planner_warehouse_fetch_fallback.py \
@@ -115,12 +114,10 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18jq_production_reconciliation_artifact_readiness.py \
     tests/test_stage18jq_chain_followons.py \
     tests/test_stage18jp_station_type_production_chain_closeout.py \
-    tests/test_stage22_planning_baseline.py \
     tests/test_stage22b_planner_evidence_hardening.py \
     tests/test_stage22c_operator_artifact_review_surfaces.py \
     tests/test_stage22d_export_documentation_governance.py \
     tests/test_stage22e_deferred_stage19_decision_gate_closeout.py \
-    tests/test_stage23_planning_baseline.py \
     tests/test_stage23a_live_per_system_evidence.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_enrichment_staging_db_loader.py \
@@ -143,19 +140,19 @@ section "Stage 19/source-run/operator focused tests"
 
 section "Frontend operator/API/routing tests"
 (
-  cd "$ROOT/frontend-v2"
+  cd "$ROOT/frontend"
   "$YARN_BIN" test:operator
 )
 
 section "Frontend typecheck"
 (
-  cd "$ROOT/frontend-v2"
+  cd "$ROOT/frontend"
   "$YARN_BIN" typecheck
 )
 
 section "Frontend build"
 (
-  cd "$ROOT/frontend-v2"
+  cd "$ROOT/frontend"
   "$YARN_BIN" build
 )
 

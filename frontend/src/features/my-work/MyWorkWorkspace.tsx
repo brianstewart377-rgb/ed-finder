@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { UseWatchlist } from '@/features/watchlist/useWatchlist';
-import type { UsePinned, PinnedEntry } from '@/features/pinned/usePinned';
+import type { UsePinned } from '@/features/pinned/usePinned';
 import {
   useColonyProjectStore,
   type ColonyProject,
@@ -13,9 +13,7 @@ import {
 import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 import {
   useMyWorkStore,
-  type MyWorkSystemRecord,
   type SavedSystemLabel,
-  type SavedSystemSnapshot,
 } from './myWorkStore';
 import {
   buildColonies,
@@ -26,8 +24,6 @@ import {
   labelText,
   projectStatusLabel,
   selectContinuation,
-  type ColonyViewModel,
-  type MyWorkContinuation,
   type SavedSystemViewModel,
 } from './myWorkWorkspaceUtils';
 

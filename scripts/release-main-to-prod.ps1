@@ -122,7 +122,7 @@ if (-not $SkipPull) {
   git pull --ff-only origin main
 }
 
-Set-Location (Join-Path $RepoPath 'frontend-v2')
+Set-Location (Join-Path $RepoPath 'frontend')
 
 Write-Host '[release] Ensuring frontend dependencies are installed...'
 yarn install --frozen-lockfile

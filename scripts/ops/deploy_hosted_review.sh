@@ -293,7 +293,7 @@ deploy_review() {
 
   say "Build review frontend at root path"
   (
-    cd "$REVIEW_REPO_DIR/frontend-v2"
+    cd "$REVIEW_REPO_DIR/frontend"
     corepack yarn install --frozen-lockfile
     VITE_PUBLIC_BASE=/ corepack yarn build
   )

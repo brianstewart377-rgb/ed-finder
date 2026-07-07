@@ -1,0 +1,940 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { FacilityTemplate, SimulationSummary, SlotPredictionResponse, SystemDetail, WarehousePlannerEvidenceContract } from '@/types/api';
+import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
+import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
+import { getFacilityTemplates, getProvenanceCockpit, getSimulationSummary, getSlotPredictions, getWarehousePlannerEvidence } from '@/lib/api';
+import { ColonyPlannerWorkspace } from './ColonyPlannerWorkspace';
+import { useColonyProjectStore } from './colonyProjectStore';
+import { useMyWorkStore } from '@/features/my-work/myWorkStore';
+
+vi.mock('@/features/system-detail/useSystemDetail', () => ({
+  useSystemDetail: vi.fn(),
+}));
+
+vi.mock('@/lib/api', () => ({
+  getFacilityTemplates: vi.fn(),
+  getProvenanceCockpit: vi.fn(),
+  getSimulationSummary: vi.fn(),
+  getSlotPredictions: vi.fn(),
+  getWarehousePlannerEvidence: vi.fn(),
+}));
+
+vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
+  const React = await import('react');
+  return {
+    SimulationPreviewPanel: vi.fn(({ onPlanSnapshotChange }) => {
+      React.useEffect(() => {
+        onPlanSnapshotChange?.({
+          placements: [
+            { facility_template_id: 'orbital_port', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
+            { facility_template_id: 'flex_lab', local_body_id: 'body1', build_order: 2 },
+            { facility_template_id: 'surface_hub', local_body_id: '404', build_order: 2 },
+            { facility_template_id: 'surface_hub', local_body_id: null, build_order: 3 },
+          ],
+          templates: [
+            {
+              id: 'orbital_port',
+              name: 'Orbital Port',
+              category: 'port',
+              tier: 3,
+              economy: null,
+              is_port: true,
+              is_support_facility: false,
+              allowed_location: 'orbital',
+              pad_size: 'large',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 1,
+              green_cp_generated: 1,
+              yellow_cp_cost: 0,
+              green_cp_cost: 0,
+            },
+            {
+              id: 'surface_hub',
+              name: 'Surface Hub',
+              category: 'support',
+              tier: 1,
+              economy: 'Extraction',
+              is_port: false,
+              is_support_facility: true,
+              allowed_location: 'surface',
+              pad_size: 'medium',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 0,
+              green_cp_generated: 0,
+              yellow_cp_cost: 1,
+              green_cp_cost: 0,
+            },
+            {
+              id: 'flex_lab',
+              name: 'Flexible Lab',
+              category: 'science',
+              tier: 2,
+              economy: 'HighTech',
+              is_port: false,
+              is_support_facility: true,
+              allowed_location: 'surface_or_orbit',
+              pad_size: 'medium',
+              confidence: 'confirmed',
+              notes: null,
+              yellow_cp_generated: 1,
+              green_cp_generated: 0,
+              yellow_cp_cost: 1,
+              green_cp_cost: 0,
+            },
+          ],
+          targetArchetype: 'refinery_industrial',
+          projection: {
+            candidateId: 'expansion-1',
+            label: 'Expansion candidate',
+            placements: [
+              { facility_template_id: 'surface_hub', local_body_id: 'body1', build_order: 5 },
+            ],
+          },
+        });
+      }, [onPlanSnapshotChange]);
+      return <div>Reused Colony Planner panel</div>;
+    }),
+  };
+});
+
+const mockedUseSystemDetail = vi.mocked(useSystemDetail);
+const mockedSimulationPreviewPanel = vi.mocked(SimulationPreviewPanel);
+const mockedGetFacilityTemplates = vi.mocked(getFacilityTemplates);
+const mockedGetProvenanceCockpit = vi.mocked(getProvenanceCockpit);
+const mockedGetSimulationSummary = vi.mocked(getSimulationSummary);
+const mockedGetSlotPredictions = vi.mocked(getSlotPredictions);
+const mockedGetWarehousePlannerEvidence = vi.mocked(getWarehousePlannerEvidence);
+
+function provenanceResponse() {
+  return {
+    schema_version: 'stage20a_provenance_cockpit/v1',
+    system: { id64: 123, name: 'Workspace System', primary_archetype: 'refinery_industrial' },
+    provenance_summary: {
+      state: 'available',
+      latest_source_run_key: 'warehouse/run-123',
+      warehouse_state: 'available',
+      planner_evidence_state: 'available',
+    },
+    evidence_panels: {
+      source_run: {
+        state: 'available',
+        source_name: 'eddn',
+        rows_read: 120,
+        rows_staged: 120,
+        artifact_name: 'run-123.json',
+      },
+      warehouse: {
+        state: 'available',
+        report_only: true,
+        canonical_writes_planned: 0,
+        stale_records: 0,
+      },
+      planner: {
+        state: 'available',
+        observed_facts_count: 2,
+        projected_build_count: 1,
+        manual_review_required: false,
+      },
+    },
+    guardrails: {
+      stage19_paused: true,
+      stage19_production_activation_complete: false,
+      next_stage19_write_lane_authorized: false,
+      canonical_apply_complete: false,
+      rebaseline_complete: false,
+      scheduler_enabled: false,
+      db_writes_authorized: false,
+      stage19_operator_commands_authorized: false,
+    },
+    warnings: [],
+    ui_hints: {
+      severity: 'info',
+      empty_state_key: null,
+    },
+  } as const;
+}
+
+function warehousePlannerEvidenceResponse(
+  overrides?: Partial<WarehousePlannerEvidenceContract>,
+): WarehousePlannerEvidenceContract {
+  return {
+    schema_version: 'warehouse_planner_evidence/v1',
+    system_id64: 123,
+    generated_at: '2026-06-17T14:00:00Z',
+    freshness: {
+      status: 'fresh',
+      evaluated_at: '2026-06-17T14:00:00Z',
+    },
+    source_run: {
+      source_name: 'warehouse_reconciliation',
+      run_key: 'warehouse/run-20260617.json',
+    },
+    evidence_envelope: {
+      status: 'available',
+      source_classes: ['canonical', 'observed_facts'],
+      semantics: ['canonical_truth', 'observed_report', 'report_only_review_context', 'not_full_coverage'],
+      report_only: true,
+      selected_system_only: true,
+      planner_truth_source_class: 'canonical',
+      claims_canonical_truth: false,
+      claims_full_coverage: false,
+      summary: 'Selected-system evidence is available in this read-only planner envelope. Source classes: canonical evidence, observed-facts evidence.',
+    },
+    bounded_staging: {
+      status: 'not_evaluated',
+      report_only: true,
+      bounded_staging_only: true,
+      available_row_limits: [],
+    },
+    evidence_summary: {
+      availability: 'report_only',
+      report_only: true,
+      manual_review_required: true,
+      items: [
+        {
+          label: 'report_only',
+          source: 'canonical',
+          summary: 'Canonical app data for Workspace System includes 2 bodies and 1 stations.',
+        },
+        {
+          label: 'needs_review',
+          source: 'observed',
+          summary: 'Observed evidence includes 3 persisted facts; latest observed at 2026-06-18T09:30:00Z.',
+        },
+      ],
+    },
+    warnings: [],
+    ...overrides,
+  };
+}
+
+const system = {
+  id64: 123,
+  name: 'Workspace System',
+  x: 1,
+  y: 2,
+  z: 3,
+  population: 0,
+  is_colonised: false,
+  primary_economy: 'Agriculture',
+  economy_suggestion: 'Refinery',
+  bodies: [
+    { id: 'star1', name: 'Workspace System A', body_type: 'Star', subtype: 'K' },
+    { id: 'body1', name: 'Workspace System A 1', body_type: 'Planet', subtype: 'Water world', is_water_world: true, is_landable: false },
+  ],
+  stations: [],
+} as unknown as SystemDetail;
+
+const facilityTemplates: FacilityTemplate[] = [
+  {
+    id: 'orbital_port',
+    name: 'Orbital Port',
+    category: 'port',
+    tier: 3,
+    economy: null,
+    is_port: true,
+    is_support_facility: false,
+    allowed_location: 'orbital',
+    pad_size: 'large',
+    confidence: 'confirmed',
+    notes: null,
+    yellow_cp_generated: 1,
+    green_cp_generated: 1,
+    yellow_cp_cost: 0,
+    green_cp_cost: 0,
+  },
+  {
+    id: 'surface_hub',
+    name: 'Surface Hub',
+    category: 'support',
+    tier: 1,
+    economy: 'Extraction',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'surface',
+    pad_size: 'medium',
+    confidence: 'confirmed',
+    notes: null,
+    yellow_cp_generated: 0,
+    green_cp_generated: 0,
+    yellow_cp_cost: 1,
+    green_cp_cost: 0,
+  },
+  {
+    id: 'flex_lab',
+    name: 'Flexible Lab',
+    category: 'science',
+    tier: 2,
+    economy: 'HighTech',
+    is_port: false,
+    is_support_facility: true,
+    allowed_location: 'surface_or_orbit',
+    pad_size: 'medium',
+    confidence: 'confirmed',
+    notes: null,
+    yellow_cp_generated: 1,
+    green_cp_generated: 0,
+    yellow_cp_cost: 1,
+    green_cp_cost: 0,
+  },
+];
+
+const slotPredictions: SlotPredictionResponse = {
+  system_id64: 123,
+  data_source: 'eddn',
+  body_count: 2,
+  predicted_orbital_slots_total: 4,
+  predicted_ground_slots_total: 5,
+  prediction_status: 'predicted',
+  prediction_version: 'validated-slot-v1',
+  confidence_label: 'validated_high_accuracy',
+  disclaimer: 'Predicted slots — high-accuracy algorithm, not guaranteed. Verify in Architect Mode.',
+  validation_note: 'Validated against the supplied evidence set with only 2 true mismatches after data-entry corrections.',
+  required_input_missing: [],
+  predictions: [
+    {
+      system_address: 123,
+      body_id: 'body1' as never,
+      body_name: 'Workspace System A 1',
+      planet_class: 'Water world',
+      predicted_orbital_slots: 4,
+      predicted_ground_slots: 5,
+      prediction_status: 'predicted',
+      reasons: [],
+    },
+  ],
+};
+
+async function renderPlanner(
+  props?: Partial<Parameters<typeof ColonyPlannerWorkspace>[0]>,
+  options?: { settle?: boolean },
+) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () => {
+    await useColonyProjectStore.persist.rehydrate();
+  });
+  const view = render(
+    <QueryClientProvider client={client}>
+      <ColonyPlannerWorkspace
+        id64={123}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+        {...props}
+      />
+    </QueryClientProvider>,
+  );
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+  if (options?.settle !== false) {
+    await screen.findByTestId('planner-summary-panel');
+    await screen.findByTestId('workspace-economy-ledger');
+    await screen.findByTestId('planner-warehouse-evidence');
+  }
+  return view;
+}
+
+async function click(element: HTMLElement) {
+  await act(async () => {
+    fireEvent.click(element);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+async function change(element: HTMLElement, value: Parameters<typeof fireEvent.change>[1]) {
+  await act(async () => {
+    fireEvent.change(element, value);
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+function storedProjectByName(projectName: string) {
+  return Object.values(useColonyProjectStore.getState().projects)
+    .find((project) => project.project_name === projectName) ?? null;
+}
+
+describe('ColonyPlannerWorkspace', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useColonyProjectStore.setState({ projects: {} });
+    useMyWorkStore.setState({ systems: {} });
+    mockedSimulationPreviewPanel.mockClear();
+    mockedUseSystemDetail.mockReturnValue({
+      data: null,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockedGetFacilityTemplates.mockResolvedValue(facilityTemplates);
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse() as never);
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
+    mockedGetSimulationSummary.mockResolvedValue({
+      classification: { primary_archetype: 'refinery_industrial' },
+      buildability: { recommended_build_order: [] },
+      regional_context: null,
+    } as unknown as SimulationSummary);
+    mockedGetSlotPredictions.mockResolvedValue(slotPredictions);
+  });
+
+  afterEach(() => {
+    mockedUseSystemDetail.mockReset();
+    mockedSimulationPreviewPanel.mockClear();
+    mockedGetFacilityTemplates.mockReset();
+    mockedGetWarehousePlannerEvidence.mockReset();
+    mockedGetProvenanceCockpit.mockReset();
+    mockedGetSimulationSummary.mockReset();
+    mockedGetSlotPredictions.mockReset();
+  });
+
+  it('renders a no-system state for direct #colony-planner visits', async () => {
+    const onBackToFinder = vi.fn();
+
+    await renderPlanner({ id64: null, onBackToFinder }, { settle: false });
+
+    expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
+    expect(screen.getByText('No system selected for Colony Planner.')).toBeTruthy();
+    expect(screen.getByText(/Open System Detail from Explore and start a plan there/i)).toBeTruthy();
+    await click(screen.getByRole('button', { name: /Back to Finder/i }));
+    expect(onBackToFinder).toHaveBeenCalledTimes(1);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('renders the loading state without mounting the planner', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: null,
+      loading: true,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner(undefined, { settle: false });
+
+    expect(screen.getByText('Loading Colony Planner...')).toBeTruthy();
+    expect(mockedUseSystemDetail).toHaveBeenCalledWith(123);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('renders the error state with retry and Back to Finder', async () => {
+    const onBackToFinder = vi.fn();
+    const refetch = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'network failed',
+      refetch,
+    });
+
+    await renderPlanner({ onBackToFinder }, { settle: false });
+
+    expect(screen.getByText('Failed to load Colony Planner.')).toBeTruthy();
+    expect(screen.getByText('network failed')).toBeTruthy();
+    await click(screen.getByRole('button', { name: /Retry/i }));
+    await click(screen.getAllByRole('button', { name: /Back to Finder/i })[1]);
+    expect(refetch).toHaveBeenCalledTimes(1);
+    expect(onBackToFinder).toHaveBeenCalledTimes(1);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('renders one planner-local identity header without internal journey wording', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner(undefined, { settle: false });
+
+    const headers = await screen.findAllByTestId('workspace-context-header');
+    expect(headers).toHaveLength(1);
+    expect(headers[0].textContent).toContain('Plan');
+    expect(headers[0].textContent).toContain('Colony Planner');
+    expect(headers[0].textContent).toContain('Workspace System');
+    expect(headers[0].textContent).toContain('ID64 123');
+    expect(screen.queryByText(/Journey stage/i)).toBeNull();
+  });
+
+  it('renders the new whole-system planner by default and keeps Advanced Planner collapsed', async () => {
+    const onOpenSystemDetail = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner({ onOpenSystemDetail });
+
+    expect(screen.getAllByText('Workspace System').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Agriculture').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('whole-system-colony-planner')).toBeTruthy();
+    expect(screen.getByTestId('whole-system-colony-planner').getAttribute('data-layout')).toBe('stage17n-docked-context-canvas');
+    expect(screen.getByTestId('planner-canvas')).toBeTruthy();
+    expect(screen.getByTestId('planner-canvas-scroll-region').className).toContain('overflow-x-hidden');
+    expect(screen.getByTestId('planner-canvas-scroll-region').className).toContain('lg:overflow-x-auto');
+    expect(screen.getByTestId('planner-canvas-grid-frame').className).toContain('min-w-0');
+    expect(screen.getByTestId('planner-canvas-grid-frame').className).toContain('lg:min-w-[860px]');
+    expect(screen.getByTestId('workspace-planner-content')).toBeTruthy();
+    expect(screen.getByTestId('workspace-planner-content').getAttribute('data-readability')).toBe('stage17n');
+    expect(screen.getByTestId('workspace-planner-content').getAttribute('data-layout')).toBe('main-system-canvas');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-layout')).toBe('plan-details-panel');
+    expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('closed');
+    expect(screen.getByTestId('planner-telemetry-dock-toggle')).toBeTruthy();
+    expect(screen.getByTestId('planner-telemetry-dock-toggle').textContent).toContain('Plan details');
+    expect(screen.getByTestId('planner-telemetry-dock-toggle').textContent).toContain('Choose a body to begin planning.');
+    expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('false');
+    await click(screen.getByTestId('planner-telemetry-dock-toggle'));
+    await waitFor(() => expect(screen.getByTestId('planner-telemetry-region').getAttribute('data-mobile-dock')).toBe('open'));
+    await waitFor(() => expect(screen.getByTestId('planner-telemetry-dock-content').getAttribute('data-open')).toBe('true'));
+    expect(screen.queryByTestId('planner-telemetry-panel')).toBeNull();
+    expect(screen.getByTestId('planner-summary-panel')).toBeTruthy();
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
+    expect(screen.getByTestId('planner-evidence-discoverability-summary').textContent).toContain(
+      'Selected-system evidence stays separate from canonical planner truth.',
+    );
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Selected-system evidence is available as review context. Your plan still uses canonical planner data.',
+    );
+    expect(await screen.findByText(/Canonical app data for Workspace System includes 2 bodies and 1 stations\./i)).toBeTruthy();
+    expect(await screen.findByText(/Observed evidence includes 3 persisted facts/i)).toBeTruthy();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
+    expect(screen.getByTestId('workspace-economy-ledger')).toBeTruthy();
+    expect(screen.getByTestId('summary-economy-ledger')).toBeTruthy();
+    expect(screen.getByRole('region', { name: /Live system build map/i })).toBeTruthy();
+    expect(screen.getByText('System Build Map')).toBeTruthy();
+    expect(screen.queryByText('Whole-System Build Canvas')).toBeNull();
+    expect(screen.getByTestId('planner-canvas-body-row-body1')).toBeTruthy();
+    expect(await screen.findByText('Whole-System Planner')).toBeTruthy();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByTestId('system-overview-planner-canvas')).toBeNull();
+    expect(screen.queryByTestId('system-overview-map')).toBeNull();
+    expect(screen.getByTestId('body1-orbital-slot-3')).toBeTruthy();
+    expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
+    expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
+    expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
+    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(screen.queryByText('Reused Colony Planner panel')).toBeNull();
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+    expect(screen.getByText('Planner summary')).toBeTruthy();
+    await click(screen.getByTestId('summary-rail-collapse-toggle'));
+    expect(await screen.findByTestId('project-card')).toBeTruthy();
+    expect(await screen.findByTestId('plan-health-card')).toBeTruthy();
+    expect(await screen.findByTestId('selection-card')).toBeTruthy();
+    expect(await screen.findByTestId('preview-suggested-card')).toBeTruthy();
+    expect(screen.getByTestId('topology-body-button-body1').getAttribute('title')).toBe('Workspace System A 1');
+    expect(screen.getByText(/Saved locally in this browser/i)).toBeTruthy();
+    const summaryPanel = screen.getByTestId('planner-summary-panel');
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Placements')).toBeTruthy();
+    expect(within(summaryPanel).getAllByText('0').length).toBeGreaterThan(0);
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Unassigned')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText('Warnings')).toBeTruthy();
+    expect(within(screen.getByTestId('plan-health-card')).getByText(/Agriculture.*Plan/)).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/Stage 15|15H|15I|deferred to next stages/i);
+    expect(screen.queryByText('Attached Structures')).toBeNull();
+
+    await click(screen.getByTestId('topology-body-button-body1'));
+    expect(await screen.findByText(/Planning focus: Workspace System A 1/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByTestId('planner-canvas-body-row-body1').getAttribute('data-selected')).toBe('true'));
+    expect(await screen.findByTestId('body1-orbital-slot-3')).toBeTruthy();
+    expect(within(screen.getByTestId('planner-canvas')).queryByTestId('planner-inline-body-expansion-body1')).toBeNull();
+    expect(screen.queryByTestId('selected-role-summary-card')).toBeNull();
+    expect(screen.queryByText('Body Hint')).toBeNull();
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByText('Body slot planner')).toBeNull();
+    expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect(screen.getByTestId('planner-canvas-body-row-body1').firstElementChild?.className).toContain('grid-cols-1');
+    expect(screen.getByTestId('planner-canvas-body-row-body1').firstElementChild?.className).toContain('lg:[grid-template-columns:280px_minmax(300px,1fr)_minmax(320px,1.05fr)]');
+    expect((screen.getByTestId('body1-ground-add') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByTestId('slot-lane-flex')).toBeNull();
+    expect(screen.queryByTestId('slot-lane-add-flex')).toBeNull();
+    expect(screen.getByTestId('body1-ground-disabled-reason').textContent).toMatch(/surface limited: water world/i);
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
+
+    await click(screen.getByTestId('advanced-workspace-toggle'));
+    expect(await screen.findByTestId('advanced-planner-content')).toBeTruthy();
+    expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
+    expect((await screen.findAllByTestId('planner-canvas-projected-structure')).length).toBeGreaterThan(0);
+    expect(screen.getByTestId('planner-canvas-body-row-body1').getAttribute('data-projected')).toBe('true');
+    expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surfa|Surface/i);
+    expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surface Hub/i);
+    expect((screen.getByTestId('workspace-economy-ledger').textContent ?? '')).toMatch(/\+1/);
+    expect(mockedSimulationPreviewPanel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        system,
+        selectedPlan: null,
+        onPlanSnapshotChange: expect.any(Function),
+        initialRequest: {
+          system_id64: 123,
+          target_archetype: 'agriculture_terraforming',
+          placements: [],
+        },
+      }),
+      undefined,
+    );
+
+    await click(screen.getByRole('button', { name: /Back to system detail/i }));
+    expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
+    expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
+  });
+
+  it('opens body-aware structure picker from inline canvas without mounting Advanced Planner', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click(await screen.findByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('body1-orbital-add'));
+
+    const picker = screen.getByTestId('body-structure-picker');
+    expect(picker).toBeTruthy();
+    expect(within(picker).getByRole('heading', { name: /Add to Workspace System A 1/i })).toBeTruthy();
+    expect(within(picker).getAllByText(/Orbit lane/i).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('body-structure-template-surface_hub')).toBeNull();
+    expect(screen.getByTestId('body-structure-template-flex_lab')).toBeTruthy();
+    expect(within(picker).getByTestId('canvas-picker-compatibility-summary').textContent).toContain('1 incompatible hidden');
+    await click(screen.getByTestId('body-structure-template-orbital_port'));
+
+    expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
+    expect(screen.getByTestId('body1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
+    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('keeps body clicks focused on planning rather than role editing side effects', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click(await screen.findByTestId('topology-body-button-body1'));
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+    expect(screen.queryByText('Body slot planner')).toBeNull();
+    expect(screen.getByTestId('planner-canvas-body-row-body1').getAttribute('data-selected')).toBe('true');
+    expect(screen.getByTestId('body1-orbital-add')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Add role' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByText('Observed: Primary Port')).toBeNull();
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+
+  });
+
+  it('renders the dedicated unavailable envelope directly instead of falling back on unavailable status', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockedGetWarehousePlannerEvidence.mockResolvedValue(warehousePlannerEvidenceResponse({
+      evidence_envelope: {
+        status: 'unavailable',
+        source_classes: ['unavailable'],
+        semantics: ['report_only_review_context', 'not_full_coverage'],
+        report_only: true,
+        selected_system_only: true,
+        planner_truth_source_class: 'unavailable',
+        claims_canonical_truth: false,
+        claims_full_coverage: false,
+        summary: 'Selected-system evidence is unavailable in this read-only planner envelope. Source classes: no linked selected-system evidence.',
+      },
+      bounded_staging: {
+        status: 'unavailable',
+        report_only: true,
+        bounded_staging_only: true,
+        available_row_limits: [],
+      },
+      evidence_summary: {
+        availability: 'unavailable',
+        report_only: true,
+        manual_review_required: false,
+        items: [],
+      },
+      warnings: ['No safe per-system warehouse evidence is published for this system yet; planner fallback must remain in place.'],
+    }) as never);
+
+    await renderPlanner();
+
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(await screen.findByTestId('planner-evidence-discoverability-surface')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
+    );
+    expect(screen.getByTestId('planner-warehouse-evidence').getAttribute('data-size')).toBe('compact');
+    expect(screen.queryByTestId('warehouse-evidence-unavailable')).toBeNull();
+    expect(screen.getByTestId('warehouse-evidence-technical-details').getAttribute('open')).toBeNull();
+    expect(screen.getByTestId('warehouse-evidence-status-detail').textContent).toContain(
+      'No approved bounded staging evidence is linked to this selected system.',
+    );
+    expect(screen.queryByText(/DB writes remain unauthorized/i)).toBeNull();
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+    expect(mockedGetProvenanceCockpit).not.toHaveBeenCalled();
+  });
+
+  it('keeps a safe unknown warehouse evidence card when the dedicated endpoint errors', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    mockedGetWarehousePlannerEvidence.mockRejectedValue(new Error('warehouse endpoint unavailable'));
+    mockedGetProvenanceCockpit.mockResolvedValue(provenanceResponse() as never);
+
+    await renderPlanner();
+
+    expect(await screen.findByTestId('planner-warehouse-evidence')).toBeTruthy();
+    expect(screen.getByTestId('warehouse-evidence-summary').textContent).toContain(
+      'Some data is unavailable for this system. Your plan has not been changed automatically.',
+    );
+    expect(screen.getByTestId('planner-warehouse-evidence').getAttribute('data-size')).toBe('compact');
+    expect(mockedGetWarehousePlannerEvidence).toHaveBeenCalledWith(123);
+  });
+
+  it('does not render role conflict controls in the default rescue surface', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click(await screen.findByTestId('topology-body-button-body1'));
+    expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
+    expect(screen.queryByText('Role conflict: Tourism + Heavy Industrial')).toBeNull();
+    expect(screen.queryByText('Observed: not recorded')).toBeNull();
+  });
+
+  it('keeps the summary rail compact without review-toggle clutter', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    const summary = await screen.findByTestId('planner-summary-panel');
+    expect(within(summary).getByTestId('summary-rail-compact-view')).toBeTruthy();
+    expect(within(summary).getByTestId('summary-rail-collapse-toggle')).toBeTruthy();
+    await click(within(summary).getByTestId('summary-rail-collapse-toggle'));
+    expect(within(summary).getByTestId('preview-suggested-card')).toBeTruthy();
+    expect(within(summary).queryByRole('button', { name: 'Evidence' })).toBeNull();
+    expect(within(summary).queryByRole('button', { name: 'Validation' })).toBeNull();
+  });
+
+  it('saves, renames, duplicates, and archives a local Colony Project with confirmation', async () => {
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    expect(await screen.findByTestId('project-card')).toBeTruthy();
+    expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
+
+    await change(screen.getByLabelText('Project name'), { target: { value: 'Local starter' } });
+    await waitFor(() => expect((screen.getByLabelText('Project name') as HTMLInputElement).value).toBe('Local starter'));
+    await click(screen.getByTestId('project-details-toggle'));
+    await change(screen.getByLabelText('Project notes'), { target: { value: 'Check Architect mode before final placement.' } });
+    await click(screen.getByTestId('topology-body-button-body1'));
+    await click(screen.getByTestId('body1-orbital-add'));
+    await click(await screen.findByTestId('body-structure-template-orbital_port'));
+    await waitFor(() => expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Unsaved'));
+    await click(screen.getByRole('button', { name: 'Save project' }));
+
+    expect(screen.getByTestId('project-unsaved-indicator').textContent).toContain('Saved');
+    await waitFor(() => expect(storedProjectByName('Local starter')).toBeTruthy());
+    expect(storedProjectByName('Local starter')?.build_plan_placements).toHaveLength(1);
+    expect(storedProjectByName('Local starter')?.declared_roles).toEqual([]);
+
+    await change(screen.getByLabelText('Project name'), { target: { value: 'Renamed local starter' } });
+    await click(screen.getByRole('button', { name: 'Rename project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter')).toBeTruthy());
+
+    await click(screen.getByRole('button', { name: 'Duplicate project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter - Copy')).toBeTruthy());
+    expect(storedProjectByName('Renamed local starter - Copy')?.declared_roles).toEqual([]);
+
+    await click(screen.getByRole('button', { name: 'Delete / archive project' }));
+    expect(screen.getByText(/Archive this local project/)).toBeTruthy();
+    await click(screen.getByRole('button', { name: 'Archive project' }));
+    await waitFor(() => expect(storedProjectByName('Renamed local starter - Copy')?.archived_at).toBeTruthy());
+  });
+
+  it('loads old local projects without declared roles safely', async () => {
+    useColonyProjectStore.setState({
+      projects: {
+        'old-project': {
+          id: 'old-project',
+          system_id64: 123,
+          system_name: 'Workspace System',
+          project_name: 'Old project',
+          build_plan_placements: [],
+          selected_body_assignments: {},
+          target_archetype: 'refinery_industrial',
+          notes: 'No role field.',
+          status: 'draft',
+          created_at: '2026-05-01T00:00:00.000Z',
+          updated_at: '2026-05-01T00:00:00.000Z',
+          archived_at: null,
+        } as never,
+      },
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    expect((await screen.findAllByText('Old project')).length).toBeGreaterThan(0);
+    expect(screen.queryByTestId('selected-body-planner-canvas')).toBeNull();
+  });
+
+  it('restores the latest saved local project into the workspace on reload', async () => {
+    useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Reloaded project',
+      build_plan_placements: [
+        { facility_template_id: 'surface_hub', local_body_id: 'body1', is_primary_port: false, build_order: 1 },
+      ],
+      target_archetype: 'tourism_agriculture',
+      notes: 'Reload me.',
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    await click((await screen.findByTestId('summary-rail-collapse-toggle')));
+    expect((await screen.findAllByText('Reloaded project')).length).toBeGreaterThan(0);
+    await click(screen.getByTestId('topology-body-button-body1'));
+    expect((await screen.findByTestId('body1-ground-slot-0')).textContent).toMatch(/Surface Hub/i);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('shows draft arrival context for projects created from the new start-plan flow without auto-running advanced planner actions', async () => {
+    useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Workspace System - Materials coverage',
+      build_plan_placements: [],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+      objective: 'materials_coverage',
+      start_approach: 'recommendation_assisted',
+      created_from: 'system_detail',
+      status: 'draft',
+    });
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner();
+
+    expect(screen.getByTestId('planner-arrival-context')).toBeTruthy();
+    expect(screen.getByTestId('planner-project-name').textContent).toContain('Workspace System - Materials coverage');
+    expect(screen.getByTestId('planner-objective-context').textContent).toContain('Materials coverage');
+    expect(screen.getByTestId('planner-start-approach-context').textContent).toContain('ED-Finder recommendation');
+    expect(screen.getByTestId('planner-project-status').textContent).toContain('Draft');
+    expect(screen.getByTestId('planner-local-save-state').textContent).toContain('Saved locally');
+    expect(screen.getByTestId('planner-next-action').textContent).toContain(
+      'Review suitable build approaches for this objective.',
+    );
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('deletes the active local draft through the existing project store and clears planner header state', async () => {
+    const savedSystemRecord = {
+      id64: 123,
+      name: 'Workspace System',
+      x: 1,
+      y: 2,
+      z: 3,
+      population: 0,
+      is_colonised: false,
+      labels: ['considering' as const],
+      explicit_colonised_at: null,
+      updated_at: '2026-06-24T00:00:00.000Z',
+    };
+    const saved = useColonyProjectStore.getState().saveProject(null, {
+      system_id64: 123,
+      system_name: 'Workspace System',
+      project_name: 'Workspace System - Delete me',
+      build_plan_placements: [
+        { facility_template_id: 'surface_hub', local_body_id: 'body1', build_order: 1 },
+      ],
+      target_archetype: 'refinery_industrial',
+      notes: '',
+      objective: 'balanced',
+      start_approach: 'manual',
+      created_from: 'system_detail',
+      status: 'draft',
+    });
+    useMyWorkStore.setState({ systems: { '123': savedSystemRecord } });
+    const onOpenMyWork = vi.fn();
+    const onPlanDeleted = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner({ projectId: saved.id, onOpenMyWork, onPlanDeleted });
+
+    expect(await screen.findByTestId('planner-arrival-context')).toBeTruthy();
+    await click(screen.getByTestId('planner-plan-actions'));
+    await click(screen.getByTestId('planner-delete-plan-menu-item'));
+    const confirmation = screen.getByTestId('planner-delete-confirmation');
+    expect(confirmation.textContent).toContain('Delete “Workspace System - Delete me” from My Work.');
+    expect(confirmation.textContent).toContain('Your saved system will stay.');
+    expect(confirmation.textContent).toContain('This will remove 1 planned structure from this draft.');
+    await click(within(confirmation).getByRole('button', { name: 'Delete draft' }));
+
+    await waitFor(() => {
+      expect(useColonyProjectStore.getState().projects[saved.id]).toBeUndefined();
+    });
+    expect(useMyWorkStore.getState().systems['123']).toEqual(savedSystemRecord);
+    await waitFor(() => {
+      expect(screen.queryByTestId('planner-arrival-context')).toBeNull();
+    });
+    expect(onPlanDeleted).toHaveBeenCalledWith('Workspace System - Delete me');
+    expect(onOpenMyWork).toHaveBeenCalledTimes(1);
+    expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+});

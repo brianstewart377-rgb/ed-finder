@@ -1,4 +1,4 @@
-# Local Review Test Environment
+﻿# Local Review Test Environment
 
 ## Purpose
 
@@ -41,10 +41,10 @@ credentials, or `.env` files.
 
 ## GitHub Actions
 
-Review Lab CI is separate from the normal Frontend v2 E2E lane.
+Review Lab CI is separate from the normal frontend E2E lane for the canonical `frontend/` app.
 
-- Normal Frontend v2 E2E continues to test normal application behaviour only.
-- `frontend-v2/e2e/review-environment.spec.js` intentionally skips outside
+- Normal frontend E2E continues to test normal application behaviour only.
+- `frontend/e2e/review-environment.spec.js` intentionally skips outside
   Review Lab execution.
 - The dedicated GitHub Actions workflow is `Review Lab` in
   `.github/workflows/review-lab.yml`.
@@ -360,3 +360,4 @@ that could carry credentials.
 The Actions job summary records only safe high-level facts such as full verify
 pass/fail state, duration, Delta fallback correlation, unexpected console/API
 error summary, Docker baseline restoration, and review-owned resource absence.
+

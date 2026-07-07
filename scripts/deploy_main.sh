@@ -30,7 +30,7 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/opt/ed-finder}"
 BRANCH="${BRANCH:-main}"
 PUBLIC_URL="${PUBLIC_URL:-https://ed-finder.app}"
-FRONTEND_DIR="${FRONTEND_DIR:-}"
+FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
 
 SKIP_PULL=0
 SKIP_MIGRATIONS=0
@@ -79,21 +79,12 @@ trap 'on_error "$LINENO"' ERR
 
 cd "$REPO_DIR"
 
-if [[ -z "$FRONTEND_DIR" ]]; then
-  if [[ -d frontend ]]; then
-    FRONTEND_DIR="frontend"
-  elif [[ -d frontend-v2 ]]; then
-    FRONTEND_DIR="frontend-v2"
-  else
-    die "frontend directory not found (expected frontend or frontend-v2)"
-  fi
-fi
-
 say "Sanity checks"
 [[ -d .git ]] || die "$REPO_DIR is not a git checkout"
 [[ -f docker-compose.yml ]] || die "docker-compose.yml not found in $REPO_DIR"
 [[ -f .env ]] || die ".env not found in $REPO_DIR"
 [[ -d "$FRONTEND_DIR" ]] || die "frontend directory not found: $FRONTEND_DIR"
+[[ -f "$FRONTEND_DIR/package.json" ]] || die "frontend manifest not found: $FRONTEND_DIR/package.json"
 command -v git >/dev/null || die "git not found"
 command -v docker >/dev/null || die "docker not found"
 command -v curl >/dev/null || die "curl not found"
@@ -151,7 +142,7 @@ else
 fi
 
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
-say "Build frontend"
+say "Build $FRONTEND_DIR"
 (
   cd "$FRONTEND_DIR"
   yarn install --frozen-lockfile
