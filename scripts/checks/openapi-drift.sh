@@ -6,7 +6,7 @@
 #   1. require a local/disposable Postgres + Redis;
 #   2. apply schema/seed with scripts/seed_check.sh;
 #   3. boot the API locally;
-#   4. regenerate frontend-v2/src/types/api.gen.ts from /openapi.json;
+#   4. regenerate frontend/src/types/api.gen.ts from /openapi.json;
 #   5. fail if git sees drift.
 #
 # This script deliberately refuses production-looking DATABASE_URL values.
@@ -128,15 +128,15 @@ fi
 
 section "Regenerate frontend OpenAPI types"
 (
-  cd "$ROOT/frontend-v2"
+  cd "$ROOT/frontend"
   VITE_OPENAPI_URL="$OPENAPI_URL" "$YARN_BIN" types:gen
 )
 
 section "Check generated type drift"
 (
   cd "$ROOT"
-  if ! git diff --exit-code frontend-v2/src/types/api.gen.ts; then
-    die "OpenAPI type drift detected. Commit the regenerated frontend-v2/src/types/api.gen.ts."
+  if ! git diff --exit-code frontend/src/types/api.gen.ts; then
+    die "OpenAPI type drift detected. Commit the regenerated frontend/src/types/api.gen.ts."
   fi
 )
 

@@ -20,10 +20,10 @@ API_SRC = ROOT / 'apps' / 'api' / 'src'
 SCRIPT_DIR = ROOT / 'scripts' / 'dev'
 DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
-FRONTEND_VITE_CONFIG = ROOT / 'frontend-v2' / 'vite.config.ts'
-FRONTEND_PLAYWRIGHT_CONFIG = ROOT / 'frontend-v2' / 'playwright.config.ts'
-FRONTEND_API = ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts'
-PLANNER_WORKSPACE = ROOT / 'frontend-v2' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
+FRONTEND_VITE_CONFIG = ROOT / 'frontend' / 'vite.config.ts'
+FRONTEND_PLAYWRIGHT_CONFIG = ROOT / 'frontend' / 'playwright.config.ts'
+FRONTEND_API = ROOT / 'frontend' / 'src' / 'lib' / 'api.ts'
+PLANNER_WORKSPACE = ROOT / 'frontend' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
 
 os.environ.setdefault('CORS_ORIGINS', 'https://example.com')
@@ -803,12 +803,12 @@ def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
     playwright_config = _read(FRONTEND_PLAYWRIGHT_CONFIG)
     docs = _read(DOC_PATH)
-    review_spec = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
+    review_spec = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
     assert "|| 'http://127.0.0.1:8001';" in vite_config
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
     assert 'report --latest' in docs
-    assert 'Review Lab CI is separate from the normal Frontend v2 E2E lane.' in docs
+    assert 'Review Lab CI is separate from the normal frontend E2E lane for the canonical `frontend/` app.' in docs
     assert 'workflow_dispatch' in docs
     assert 'does not call normal `yarn e2e` as a substitute' in docs
     assert 'failure-only, sanitised Review Lab artifacts' in docs
@@ -849,10 +849,10 @@ def test_review_lab_workflow_exists_and_uses_review_lab_specific_triggers():
         'scripts/dev/review_lab/**',
         'scripts/dev/review_environment_seed.py',
         'apps/api/src/review_*.py',
-        'frontend-v2/e2e/review-environment.spec.js',
-        'frontend-v2/playwright.config.ts',
-        'frontend-v2/package.json',
-        'frontend-v2/yarn.lock',
+        'frontend/e2e/review-environment.spec.js',
+        'frontend/playwright.config.ts',
+        'frontend/package.json',
+        'frontend/yarn.lock',
         'docs/development/local-review-test-environment.md',
         'tests/test_local_review_test_environment.py',
     ):
@@ -909,7 +909,7 @@ def test_review_lab_workflow_uses_failure_only_sanitised_artifacts_and_summary()
     assert '/tmp/edfinder-local-review/latest-report.json' in workflow
     assert '/tmp/edfinder-local-review/*/report.json' in workflow
     assert '/tmp/edfinder-local-review/*/browser-summary.json' in workflow
-    assert 'frontend-v2/test-results' in workflow
+    assert 'frontend/test-results' in workflow
     assert 'GITHUB_STEP_SUMMARY' in workflow
     assert 'docker ps -a --filter "label=com.docker.compose.project=edfinder-review"' in workflow
     assert 'docker volume ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
@@ -1087,7 +1087,7 @@ def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malforme
 
 @pytest.mark.unit
 def test_browser_result_card_expansion_helper_is_idempotent():
-    source = _read(ROOT / 'frontend-v2' / 'e2e' / 'review-environment.spec.js')
+    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
     assert "if (await actionButton.isVisible().catch(() => false)) {" in source
     assert 'return;' in source
     assert 'await header.evaluate((node) => {' in source
@@ -1200,7 +1200,7 @@ def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, 
                     'documentOverflowPx': 12,
                     'containerOverflow': [
                         {
-                            'testId': 'raven-real-planner-canvas',
+                            'testId': 'planner-canvas',
                             'clientWidth': 980,
                             'scrollWidth': 992,
                             'overflowPx': 12,
@@ -1243,7 +1243,7 @@ def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, 
                     'documentOverflowPx': 22,
                     'containerOverflow': [
                         {
-                            'testId': 'raven-real-planner-canvas',
+                            'testId': 'planner-canvas',
                             'clientWidth': 358,
                             'scrollWidth': 380,
                             'overflowPx': 22,

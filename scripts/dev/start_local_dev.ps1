@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $apiScript = Join-Path $repoRoot 'scripts\dev\start_local_api.ps1'
-$frontendDir = Join-Path $repoRoot 'frontend-v2'
+$frontendDir = Join-Path $repoRoot 'frontend'
 $apiHealthUrl = "http://127.0.0.1:$ApiPort/api/health"
 $frontendUrl = 'http://localhost:3000/'
 
