@@ -29,6 +29,15 @@ export const BODY_FILTER_LABELS: Record<BodyFilterKey, string> = {
   geo:     'Geo signals',
 };
 
+const QUICK_PILL_BODY_BACKEND_KEY: Record<BodyFilterKey, string> = {
+  elw: 'elw',
+  ww: 'ww',
+  ammonia: 'ammonia',
+  terra: 'terraformable',
+  bio: 'bio',
+  geo: 'geo',
+};
+
 /** ── Per-body-type dual-range filter (matches `_redesign/FilterRail`) ── */
 export interface BodyRange { min: number; max: number; }
 
@@ -255,9 +264,6 @@ function toRequestBody(f: SearchFilters): LocalSearchBody {
   }
   // Quick-pill body filters (legacy)
   const bf = f.bodyFilters;
-  if (bf.bio   === 'required') body.require_bio   = true;
-  if (bf.geo   === 'required') body.require_geo   = true;
-  if (bf.terra === 'required') body.require_terra = true;
 
   // Per-body dual-range sliders → body_filters{ <key>: { min, max } }
   const bodyFilters: Record<string, { min?: number; max?: number }> = {};
@@ -270,10 +276,14 @@ function toRequestBody(f: SearchFilters): LocalSearchBody {
     if (r.min > 0) bodyFilters[apiKey] = { ...(bodyFilters[apiKey] ?? {}), min: r.min };
     if (r.max < b.max) bodyFilters[apiKey] = { ...(bodyFilters[apiKey] ?? {}), max: r.max };
   }
-  // Quick pills can stack a min:1 if user clicked them
-  if (bf.elw     === 'required') bodyFilters.elw     = { ...(bodyFilters.elw     ?? {}), min: Math.max(1, bodyFilters.elw?.min     ?? 0) };
-  if (bf.ww      === 'required') bodyFilters.ww      = { ...(bodyFilters.ww      ?? {}), min: Math.max(1, bodyFilters.ww?.min      ?? 0) };
-  if (bf.ammonia === 'required') bodyFilters.ammonia = { ...(bodyFilters.ammonia ?? {}), min: Math.max(1, bodyFilters.ammonia?.min ?? 0) };
+  for (const [key, state] of Object.entries(bf) as Array<[BodyFilterKey, FilterTri]>) {
+    if (state === 'off') continue;
+    const apiKey = QUICK_PILL_BODY_BACKEND_KEY[key];
+    const current = bodyFilters[apiKey] ?? {};
+    bodyFilters[apiKey] = state === 'required'
+      ? { ...current, min: Math.max(1, current.min ?? 0) }
+      : { ...current, max: 0 };
+  }
 
   if (Object.keys(bodyFilters).length) body.body_filters = bodyFilters;
   return body;

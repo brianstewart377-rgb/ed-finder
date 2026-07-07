@@ -47,6 +47,17 @@ interface PinnedState {
 
 const STORAGE_KEY = 'ed_pinned';
 
+function readLegacyEntries(): PinnedEntry[] {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PinnedEntry[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Custom storage adapter that reads/writes the bare array (the legacy
  * shape) instead of Zustand's default `{state: {...}, version: ...}`
@@ -56,10 +67,10 @@ const STORAGE_KEY = 'ed_pinned';
 const legacyStorage = {
   getItem: (name: string) => {
     if (name !== STORAGE_KEY) return null;
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
+    const entries = readLegacyEntries();
+    if (entries.length === 0 && !localStorage.getItem(STORAGE_KEY)) return null;
     // Re-wrap the legacy bare array into Zustand's expected envelope.
-    return JSON.stringify({ state: { entries: JSON.parse(raw) }, version: 0 });
+    return JSON.stringify({ state: { entries }, version: 0 });
   },
   setItem: (name: string, value: string) => {
     if (name !== STORAGE_KEY) return;
@@ -105,6 +116,11 @@ export const usePinnedStore = create<PinnedState>()(
     },
   ),
 );
+
+export function rehydratePinnedStore(): Promise<void> {
+  usePinnedStore.setState({ entries: readLegacyEntries() });
+  return Promise.resolve();
+}
 
 /**
  * Convenience helper for export-as-JSON. Stays a free function (rather

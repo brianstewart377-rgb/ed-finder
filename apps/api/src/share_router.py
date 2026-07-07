@@ -260,7 +260,7 @@ def _render_card(
     score: Optional[int],
     confidence: Optional[float],
     rationale: Optional[str],
-    coords: tuple[float, float, float],
+    coords: tuple[float | None, float | None, float | None],
     id64: int,
 ) -> bytes:
     """
@@ -323,7 +323,10 @@ def _render_card(
 
     # ── Coords subtitle ────────────────────────────────────────────────
     f_sub = _font(22)
-    coord_str = f"Coords  {coords[0]:.1f} / {coords[1]:.1f} / {coords[2]:.1f} LY"
+    if all(value is not None for value in coords):
+        coord_str = f"Coords  {coords[0]:.1f} / {coords[1]:.1f} / {coords[2]:.1f} LY"
+    else:
+        coord_str = "Coords  unavailable"
     draw.text((48, 200), coord_str, font=f_sub, fill=DIM)
 
     # ── Rationale (wrapped) ────────────────────────────────────────────

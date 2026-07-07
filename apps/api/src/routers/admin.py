@@ -71,6 +71,7 @@ async def cache_clear(
             patterns = (
                 'status:*', 'search:*', 'ac:*', 'sys:*', 'body:*',
                 'galaxy:*', 'cluster:*', 'map:*', 'og:*',
+                'arch:*', 'elite-news:*', 'sim:*',
             )
             for pattern in patterns:
                 async for key in redis.scan_iter(match=pattern, count=500):
@@ -79,8 +80,11 @@ async def cache_clear(
         except Exception:
             pass
     async with pool.acquire() as conn:
-        await conn.execute('DELETE FROM api_cache WHERE expires_at <= NOW()')
-    return {'ok': True, 'message': f'Cache cleared ({deleted} Redis keys removed)'}
+        deleted_db = await conn.execute('DELETE FROM api_cache')
+    return {
+        'ok': True,
+        'message': f'Cache cleared ({deleted} Redis keys removed, {deleted_db.split()[-1]} DB rows removed)',
+    }
 
 
 @router.post('/api/admin/rebuild-clusters', dependencies=[Depends(require_admin)])

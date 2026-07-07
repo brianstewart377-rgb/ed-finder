@@ -3,6 +3,7 @@ import type { ColonyEntry } from '@/features/colony/useColony';
 import type { FcWaypoint, FcConfig } from '@/features/fc-planner/useFcPlanner';
 import type { PinnedEntry } from '@/features/pinned/usePinned';
 import { api, ApiError } from '@/lib/api';
+import { rehydratePinnedStore } from '@/store/pinnedStore';
 import type { SystemResult } from '@/types/api';
 
 /**
@@ -70,6 +71,8 @@ function applyLocalBlob(blob: ProfileBlob): void {
   writeIf('ed_compare_v2', blob.ed_compare_v2);
   writeIf('ed_colony_v2',  blob.ed_colony_v2);
   writeIf('ed_fc_v2',      blob.ed_fc_v2);
+
+  void rehydratePinnedStore();
 
   // Force the in-memory hooks to re-read by firing a synthetic 'storage'
   // event. They listen for it to support cross-tab sync; we get a

@@ -10,7 +10,7 @@
  *   • clear() empties the store
  */
 import { beforeEach, describe, expect, it } from 'vitest';
-import { usePinnedStore, exportPinnedJson, type PinnedEntry } from './pinnedStore';
+import { usePinnedStore, rehydratePinnedStore, exportPinnedJson, type PinnedEntry } from './pinnedStore';
 
 const baseEntry: PinnedEntry = {
   id64:         12345,
@@ -79,6 +79,16 @@ describe('pinnedStore', () => {
     usePinnedStore.getState().toggle(baseEntry);
     usePinnedStore.getState().clear();
     expect(usePinnedStore.getState().entries).toEqual([]);
+  });
+
+  it('rehydrates from localStorage on demand', async () => {
+    usePinnedStore.setState({ entries: [] });
+    localStorage.setItem('ed_pinned', JSON.stringify([{ ...baseEntry, pinned_at: '2026-07-07T00:00:00Z' }]));
+
+    await rehydratePinnedStore();
+
+    expect(usePinnedStore.getState().entries).toHaveLength(1);
+    expect(usePinnedStore.getState().entries[0].id64).toBe(baseEntry.id64);
   });
 
   it('exportPinnedJson runs without throwing', () => {

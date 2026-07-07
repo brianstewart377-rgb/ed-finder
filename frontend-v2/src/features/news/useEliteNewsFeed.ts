@@ -27,6 +27,7 @@ export function useEliteNewsFeed({
         setStatus('live');
       } catch {
         if (cancelled) return;
+        setItems([]);
         setStatus('offline');
         setStale(false);
       } finally {

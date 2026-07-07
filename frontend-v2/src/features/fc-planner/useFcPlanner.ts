@@ -101,6 +101,14 @@ export function useFcPlanner(): UseFcPlanner {
   // Persist on every mutation (cheap; no debounce needed at this volume).
   useEffect(() => { writeStorage(state); }, [state]);
 
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEY) setState(readStorage());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
   const add = useCallback<UseFcPlanner['add']>((input) => {
     setState((s) => ({
       ...s,

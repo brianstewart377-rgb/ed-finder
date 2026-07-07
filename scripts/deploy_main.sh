@@ -30,6 +30,7 @@ set -euo pipefail
 REPO_DIR="${REPO_DIR:-/opt/ed-finder}"
 BRANCH="${BRANCH:-main}"
 PUBLIC_URL="${PUBLIC_URL:-https://ed-finder.app}"
+FRONTEND_DIR="${FRONTEND_DIR:-}"
 
 SKIP_PULL=0
 SKIP_MIGRATIONS=0
@@ -69,7 +70,7 @@ on_error() {
     echo "[INFO] Rollback commands:" >&2
     echo "  cd $REPO_DIR" >&2
     echo "  git reset --hard \$(awk '{print \$1}' $PRE_DEPLOY_FILE)" >&2
-    echo "  ( cd frontend-v2 && yarn build )" >&2
+    echo "  ( cd $FRONTEND_DIR && yarn build )" >&2
     echo "  docker compose up -d --build api eddn maintenance" >&2
     echo "  docker compose exec nginx nginx -s reload" >&2
   fi
@@ -78,10 +79,21 @@ trap 'on_error "$LINENO"' ERR
 
 cd "$REPO_DIR"
 
+if [[ -z "$FRONTEND_DIR" ]]; then
+  if [[ -d frontend ]]; then
+    FRONTEND_DIR="frontend"
+  elif [[ -d frontend-v2 ]]; then
+    FRONTEND_DIR="frontend-v2"
+  else
+    die "frontend directory not found (expected frontend or frontend-v2)"
+  fi
+fi
+
 say "Sanity checks"
 [[ -d .git ]] || die "$REPO_DIR is not a git checkout"
 [[ -f docker-compose.yml ]] || die "docker-compose.yml not found in $REPO_DIR"
 [[ -f .env ]] || die ".env not found in $REPO_DIR"
+[[ -d "$FRONTEND_DIR" ]] || die "frontend directory not found: $FRONTEND_DIR"
 command -v git >/dev/null || die "git not found"
 command -v docker >/dev/null || die "docker not found"
 command -v curl >/dev/null || die "curl not found"
@@ -114,19 +126,15 @@ ok "compose can see postgres and redis"
 
 if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   say "Apply idempotent/additive SQL migrations"
-  migrations=(
-    sql/011_autocomplete_index.sql
-    sql/012_topology_tables.sql
-    sql/013_archetype_scores.sql
-    sql/014_archetype_mv.sql
-    sql/015_simulation_engine.sql
-    # 019_nullable_coords.sql intentionally remains a manual runbook step:
-    # it includes the non-Sol origin cleanup UPDATE on the large systems table.
-    sql/020_rating_version.sql
-    sql/021_station_body_links.sql
-    sql/024_body_rings.sql
-    sql/025_eddn_ring_identity.sql
+  # 019_nullable_coords.sql intentionally remains a manual runbook step:
+  # it includes the non-Sol origin cleanup UPDATE on the large systems table.
+  mapfile -t migrations < <(
+    find sql -maxdepth 1 -type f -name '[0-9][0-9][0-9]_*.sql' \
+      ! -name '019_nullable_coords.sql' \
+      | sort
   )
+
+  [[ "${#migrations[@]}" -gt 0 ]] || die "no deploy migrations found"
 
   for migration in "${migrations[@]}"; do
     [[ -f "$migration" ]] || die "missing migration file: $migration"
@@ -143,9 +151,9 @@ else
 fi
 
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
-say "Build frontend-v2"
+say "Build frontend"
 (
-  cd frontend-v2
+  cd "$FRONTEND_DIR"
   yarn install --frozen-lockfile
   yarn build
 )
@@ -247,7 +255,7 @@ Public URL: $PUBLIC_URL
 Smoke-check the promoted root frontend now:
   curl -I "$PUBLIC_URL/"
   curl -I "$PUBLIC_URL/index.html"
-Legacy /v2/ should now redirect to /:
+Compatibility check for old /v2/ bookmarks:
   curl -I "$PUBLIC_URL/v2/"
 Rollback target is saved at: $PRE_DEPLOY_FILE
 ===============================================================================

@@ -94,4 +94,23 @@ describe('useFcPlanner.route', () => {
     expect(result.current.waypoints.map((w) => w.name))
       .toEqual(['Sirius', 'Sol', 'Colonia']);
   });
+
+  it('rehydrates when storage changes in the current tab', () => {
+    localStorage.clear();
+    const { result } = renderHook(() => useFcPlanner());
+
+    expect(result.current.waypoints).toHaveLength(0);
+
+    localStorage.setItem('ed_fc_v2', JSON.stringify({
+      waypoints: [{ id: 'wp-sync', name: 'Achenar', x: 67, y: 12, z: -33, id64: 123 }],
+      config: { jump_range_ly: 420, cargo_t: 25000, tritium_per_jump: 50, tritium_price_cr: 50000 },
+    }));
+
+    act(() => {
+      window.dispatchEvent(new StorageEvent('storage', { key: 'ed_fc_v2' }));
+    });
+
+    expect(result.current.waypoints.map((w) => w.name)).toEqual(['Achenar']);
+    expect(result.current.config.jump_range_ly).toBe(420);
+  });
 });
