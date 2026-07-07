@@ -31,6 +31,7 @@ ELITE_GALNET_URL = 'https://www.elitedangerous.com/en-US/Galnet'
 ELITE_NEWS_CACHE_TTL = 900
 ELITE_NEWS_FALLBACK_TTL = 60
 _DATE_ONLY_RE = re.compile(r'^\d{1,2}\s+[A-Za-z]+\s+\d{4}$|^[A-Za-z]+\s+\d{1,2},\s+\d{4}$|^\d{1,2}\s+[A-Za-z]+\s+\d{4,}$')
+_LOCALE_NEWS_PATH_RE = re.compile(r'^/[A-Za-z]{2}-[A-Za-z]{2}(?=/news(?:/|$))')
 _LOCAL_CACHE: dict[tuple[int], tuple[float, dict]] = {}
 _FALLBACK_ITEMS = [
     {
@@ -81,13 +82,14 @@ def _normalise_news_url(href: str) -> str | None:
     parsed = urlparse(absolute)
     if parsed.netloc not in ('www.elitedangerous.com', 'elitedangerous.com'):
         return None
-    if not parsed.path.startswith('/news/'):
+    path = _LOCALE_NEWS_PATH_RE.sub('', parsed.path)
+    if not path.startswith('/news/'):
         return None
-    if parsed.path.rstrip('/') == '/news':
+    if path.rstrip('/') == '/news':
         return None
     if 'page=' in parsed.query:
         return None
-    return f'https://www.elitedangerous.com{parsed.path}'
+    return f'https://www.elitedangerous.com{path}'
 
 
 def _looks_like_title(text: str) -> bool:
