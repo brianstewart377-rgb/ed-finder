@@ -16,6 +16,7 @@ from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,6 +29,7 @@ router = APIRouter(tags=['news'])
 
 ELITE_NEWS_URL = 'https://www.elitedangerous.com/news'
 ELITE_GALNET_URL = 'https://www.elitedangerous.com/en-US/Galnet'
+ELITE_GALNET_RSS_URL = 'https://community.elitedangerous.com/galnet-rss'
 ELITE_NEWS_CACHE_TTL = 900
 ELITE_NEWS_FALLBACK_TTL = 60
 _DATE_ONLY_RE = re.compile(r'^\d{1,2}\s+[A-Za-z]+\s+\d{4}$|^[A-Za-z]+\s+\d{1,2},\s+\d{4}$|^\d{1,2}\s+[A-Za-z]+\s+\d{4,}$')
@@ -132,6 +134,49 @@ def extract_elite_news_items(html: str, *, limit: int = 8) -> list[dict[str, str
     return items
 
 
+def extract_galnet_rss_items(xml_text: str, *, limit: int = 8) -> list[dict[str, str]]:
+    root = ElementTree.fromstring(xml_text)
+    items: list[dict[str, str]] = []
+
+    for item in root.findall('./channel/item'):
+        title = (item.findtext('title') or '').strip()
+        link = (item.findtext('link') or '').strip()
+        if not title or not link:
+            continue
+        items.append({
+            'title': title,
+            'url': link,
+            'source': 'galnet',
+        })
+        if len(items) >= limit:
+            break
+
+    return items
+
+
+def _fetch_galnet_rss(limit: int) -> dict:
+    request = Request(
+        ELITE_GALNET_RSS_URL,
+        headers={
+            'User-Agent': 'ED-Finder/3.x (+https://ed-finder.app)',
+            'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
+        },
+    )
+    with urlopen(request, timeout=10) as response:
+        xml_text = response.read().decode('utf-8', errors='replace')
+
+    items = extract_galnet_rss_items(xml_text, limit=limit)
+    if not items:
+        raise ValueError('Official Elite Dangerous Galnet RSS returned no parseable items')
+
+    return {
+        'items': items,
+        'source_url': ELITE_GALNET_RSS_URL,
+        'fetched_at': datetime.now(timezone.utc).isoformat(),
+        'stale': False,
+    }
+
+
 def _fetch_official_news(limit: int) -> dict:
     request = Request(
         ELITE_NEWS_URL,
@@ -144,15 +189,15 @@ def _fetch_official_news(limit: int) -> dict:
         html = response.read().decode('utf-8', errors='replace')
 
     items = extract_elite_news_items(html, limit=limit)
-    if not items:
-        raise ValueError('Official Elite Dangerous news page returned no parseable headlines')
+    if items:
+        return {
+            'items': items,
+            'source_url': ELITE_NEWS_URL,
+            'fetched_at': datetime.now(timezone.utc).isoformat(),
+            'stale': False,
+        }
 
-    return {
-        'items': items,
-        'source_url': ELITE_NEWS_URL,
-        'fetched_at': datetime.now(timezone.utc).isoformat(),
-        'stale': False,
-    }
+    return _fetch_galnet_rss(limit)
 
 
 def _fallback_payload(limit: int) -> dict:

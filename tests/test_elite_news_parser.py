@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
 
 from routers import news
-from routers.news import extract_elite_news_items
+from routers.news import extract_elite_news_items, extract_galnet_rss_items
 
 
 def test_extract_elite_news_items_prefers_headline_text_and_deduplicates_urls():
@@ -52,6 +52,39 @@ def test_fallback_payload_keeps_official_news_links_available():
         {
             'title': 'Open official Galnet',
             'url': 'https://www.elitedangerous.com/en-US/Galnet',
+            'source': 'galnet',
+        },
+    ]
+
+
+def test_extract_galnet_rss_items_reads_official_feed_entries():
+    xml_text = '''
+    <rss version="2.0">
+      <channel>
+        <title>Elite Dangerous Galnet News</title>
+        <item>
+          <title>Vista Genomics Seeks Exploration Data From Sanguineous Rim</title>
+          <link>https://www.elitedangerous.com/news/galnet/vista-genomics-seeks-exploration-data-sanguineous-rim</link>
+        </item>
+        <item>
+          <title>Frontline Solutions Announces Expansion of Services</title>
+          <link>https://www.elitedangerous.com/news/galnet/frontline-solutions-announces-expansion-of-services</link>
+        </item>
+      </channel>
+    </rss>
+    '''
+
+    items = extract_galnet_rss_items(xml_text, limit=2)
+
+    assert items == [
+        {
+            'title': 'Vista Genomics Seeks Exploration Data From Sanguineous Rim',
+            'url': 'https://www.elitedangerous.com/news/galnet/vista-genomics-seeks-exploration-data-sanguineous-rim',
+            'source': 'galnet',
+        },
+        {
+            'title': 'Frontline Solutions Announces Expansion of Services',
+            'url': 'https://www.elitedangerous.com/news/galnet/frontline-solutions-announces-expansion-of-services',
             'source': 'galnet',
         },
     ]
