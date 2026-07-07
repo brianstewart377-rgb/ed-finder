@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { WatchlistEntry } from '@/lib/api';
+import { useMemo, useState } from 'react';
 import type { UseWatchlist } from '@/features/watchlist/useWatchlist';
-import type { UsePinned, PinnedEntry } from '@/features/pinned/usePinned';
+import type { UsePinned } from '@/features/pinned/usePinned';
 import {
   useColonyProjectStore,
   type ColonyProject,
@@ -14,10 +13,19 @@ import {
 import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
 import {
   useMyWorkStore,
-  type MyWorkSystemRecord,
   type SavedSystemLabel,
-  type SavedSystemSnapshot,
 } from './myWorkStore';
+import {
+  buildColonies,
+  buildSavedSystems,
+  formatRecentActivity,
+  formatTimestamp,
+  groupPlansBySystem,
+  labelText,
+  projectStatusLabel,
+  selectContinuation,
+  type SavedSystemViewModel,
+} from './myWorkWorkspaceUtils';
 
 type MyWorkSection = 'saved-systems' | 'plans' | 'my-colonies';
 
@@ -28,28 +36,6 @@ interface MyWorkWorkspaceProps {
   pinned: UsePinned;
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
   onOpenPlanner: (id64: number, options?: { projectId?: string | null }) => void;
-}
-
-interface SavedSystemViewModel extends SavedSystemSnapshot {
-  labels: SavedSystemLabel[];
-  planCount: number;
-  latestPlanActivity: string | null;
-  latestSavedAt: string | null;
-  activeProject: ColonyProject | null;
-  establishedProject: ColonyProject | null;
-  explicitColonisedAt: string | null;
-  isColonised: boolean;
-  watchlistEntry: WatchlistEntry | null;
-  pinnedEntry: PinnedEntry | null;
-  localRecord: MyWorkSystemRecord | null;
-}
-
-interface ColonyViewModel {
-  id64: number;
-  systemName: string;
-  plan: ColonyProject | null;
-  objective: string;
-  colonisedAt: string | null;
 }
 
 const SECTION_OPTIONS: Array<{ id: MyWorkSection; label: string }> = [
@@ -92,10 +78,6 @@ export function MyWorkWorkspace({
     () => Object.values(projectsRecord).filter((project) => !project.archived_at),
     [projectsRecord],
   );
-
-  useEffect(() => {
-    setActiveSection((current) => (current === initialSection ? current : initialSection));
-  }, [initialSection]);
 
   const savedSystems = useMemo(
     () => buildSavedSystems({ watchlistEntries: watchlist.entries, pinnedEntries: pinned.entries, localSystems, projects: activeProjects }),
@@ -202,19 +184,19 @@ export function MyWorkWorkspace({
       <header className="panel space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="font-display text-xl tracking-[0.14em] text-orange">
+            <h1 className="font-display text-xl tracking-[0.14em] text-text">
               My Work
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-relaxed text-silver">
               Saved systems, plans, and colonies in one place.
             </p>
           </div>
-          <div className="rounded border border-border/60 bg-bg3/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
+          <div className="premium-toolbar rounded-2xl px-3 py-2 font-mono text-[11px] text-silver-dk">
             Saved systems {savedSystems.length} · Plans {activeProjects.length} · Colonies {myColonies.length}
           </div>
         </div>
         {aliasNotice ? (
-          <div className="rounded border border-cyan/30 bg-cyan/8 px-3 py-2 text-sm text-cyan">
+          <div className="premium-subpanel border-cyan/30 bg-cyan/8 px-3 py-2 text-sm text-cyan">
             {aliasNotice}
           </div>
         ) : null}
@@ -226,7 +208,7 @@ export function MyWorkWorkspace({
           />
         ) : null}
         <div
-          className="flex flex-wrap gap-2"
+          className="premium-toolbar flex flex-wrap gap-2 rounded-2xl p-1"
           data-testid="my-work-section-tabs"
         >
           {SECTION_OPTIONS.map((option) => (
@@ -236,10 +218,10 @@ export function MyWorkWorkspace({
               data-testid={`my-work-section-${option.id}`}
               onClick={() => setActiveSection(option.id)}
               className={[
-                'rounded-chunk-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] transition-colors',
+                'rounded-chunk-sm border px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] transition-all',
                 activeSection === option.id
-                  ? 'border-orange/55 bg-orange/15 text-orange'
-                  : 'border-border bg-bg3/35 text-silver hover:border-orange/40 hover:text-orange-lt',
+                  ? 'border-orange/55 bg-orange/15 text-orange shadow-brand-glow'
+                  : 'border-transparent bg-transparent text-silver hover:border-orange/25 hover:bg-orange/5 hover:text-orange-lt',
               ].join(' ')}
             >
               {option.label}
@@ -250,7 +232,7 @@ export function MyWorkWorkspace({
 
       {activeSection === 'saved-systems' ? (
         <section className="space-y-4" data-testid="my-work-saved-systems">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="premium-toolbar flex flex-wrap items-center gap-2 rounded-2xl px-3 py-2">
             {SAVED_LABEL_FILTERS.map((filter) => (
               <button
                 key={filter.id}
@@ -258,10 +240,10 @@ export function MyWorkWorkspace({
                 data-testid={`saved-systems-filter-${filter.id}`}
                 onClick={() => setSavedFilter(filter.id)}
                 className={[
-                  'rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
+                  'rounded border px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] transition-all',
                   savedFilter === filter.id
-                    ? 'border-orange/50 bg-orange/12 text-orange'
-                    : 'border-border bg-bg3/35 text-silver-dk hover:border-orange/35 hover:text-orange-lt',
+                    ? 'border-orange/50 bg-orange/12 text-orange shadow-brand-glow'
+                    : 'border-border/50 bg-bg3/35 text-silver-dk hover:border-orange/35 hover:text-orange-lt',
                 ].join(' ')}
               >
                 {filter.label}
@@ -306,7 +288,7 @@ export function MyWorkWorkspace({
                 <section key={group.systemId64} className="panel space-y-3 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
-                      <h2 className="font-display text-base tracking-[0.12em] text-orange-lt">
+                      <h2 className="font-display text-base tracking-[0.12em] text-text">
                         {group.systemName}
                       </h2>
                       <p className="mt-1 font-mono text-[11px] text-silver-dk">
@@ -316,7 +298,7 @@ export function MyWorkWorkspace({
                     <button
                       type="button"
                       onClick={() => handleInspectSystem(group.systemId64)}
-                      className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/35 hover:text-orange-lt"
+                      className="btn-metal text-[11px] font-mono"
                     >
                       Inspect system
                     </button>
@@ -372,7 +354,7 @@ export function MyWorkWorkspace({
 
       {activeSection === 'my-colonies' ? (
         <section className="space-y-4" data-testid="my-work-colonies">
-          <div className="rounded border border-violet/30 bg-violet/8 px-3 py-2 text-sm text-silver">
+          <div className="premium-subpanel border-violet/30 bg-violet/8 px-3 py-2 text-sm text-silver">
             My Colonies is player-managed planning state. It does not claim live Architect, journal, EDMC, or in-game verification.
           </div>
           {myColonies.length === 0 ? (
@@ -393,7 +375,7 @@ export function MyWorkWorkspace({
                         {colony.colonisedAt ? `Established ${formatTimestamp(colony.colonisedAt)}` : 'Colonised date unavailable'}
                       </span>
                     </div>
-                    <h2 className="font-display text-base tracking-[0.1em] text-orange-lt">
+                      <h2 className="font-display text-base tracking-[0.1em] text-text">
                       {colony.systemName}
                     </h2>
                     <p className="text-sm text-silver">
@@ -408,7 +390,7 @@ export function MyWorkWorkspace({
                       <button
                         type="button"
                         onClick={() => handleContinuePlan(colony.plan!)}
-                        className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+                        className="btn-primary text-[11px] font-mono"
                       >
                         Open plan
                       </button>
@@ -416,7 +398,7 @@ export function MyWorkWorkspace({
                     <button
                       type="button"
                       onClick={() => handleInspectSystem(colony.id64)}
-                      className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/35 hover:text-orange-lt"
+                      className="btn-metal text-[11px] font-mono"
                     >
                       Inspect system
                     </button>
@@ -443,9 +425,9 @@ function ContinueWhereLeftOff({
   if (!continuation) return null;
   if (continuation.kind === 'plan') {
     return (
-      <section data-testid="my-work-continuation" className="rounded-chunk-lg border border-orange/35 bg-orange/8 p-4">
+      <section data-testid="my-work-continuation" className="premium-subpanel border-orange/35 bg-orange/8 p-4">
         <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-orange">Continue planning</p>
-        <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-orange-lt">
+        <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-text">
           {continuation.project.system_name} - {continuation.project.project_name}
         </h2>
         <p className="mt-1 text-sm text-silver">
@@ -454,7 +436,7 @@ function ContinueWhereLeftOff({
         <button
           type="button"
           onClick={() => onContinuePlan(continuation.project)}
-          className="mt-3 rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+          className="btn-primary mt-3 text-[11px] font-mono"
         >
           Continue plan
         </button>
@@ -463,9 +445,9 @@ function ContinueWhereLeftOff({
   }
 
   return (
-    <section data-testid="my-work-continuation" className="rounded-chunk-lg border border-cyan/35 bg-cyan/8 p-4">
+    <section data-testid="my-work-continuation" className="premium-subpanel border-cyan/35 bg-cyan/8 p-4">
       <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-cyan">Ready to revisit</p>
-      <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-orange-lt">
+      <h2 className="mt-2 font-display text-lg tracking-[0.1em] text-text">
         {continuation.system.name}
       </h2>
       <p className="mt-1 text-sm text-silver">
@@ -474,7 +456,7 @@ function ContinueWhereLeftOff({
       <button
         type="button"
         onClick={() => onInspectSystem(continuation.system.id64)}
-        className="mt-3 rounded border border-cyan/45 bg-cyan/10 px-3 py-1.5 font-mono text-[11px] font-bold text-cyan hover:bg-cyan/20"
+        className="mt-3 rounded-chunk-sm border border-cyan/45 bg-cyan/10 px-3 py-1.5 font-mono text-[11px] font-bold text-cyan shadow-[0_14px_24px_-20px_rgba(34,211,238,0.8)] transition-colors hover:bg-cyan/20"
       >
         Inspect system
       </button>
@@ -506,7 +488,7 @@ function SavedSystemCard({
       <div className="min-w-0 flex-1 space-y-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-base tracking-[0.1em] text-orange-lt">
+            <h2 className="font-display text-base tracking-[0.1em] text-text">
               {system.name}
             </h2>
             {system.activeProject ? (
@@ -547,7 +529,7 @@ function SavedSystemCard({
         <button
           type="button"
           onClick={onInspect}
-          className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/35 hover:text-orange-lt"
+          className="btn-metal text-[11px] font-mono"
         >
           Inspect
         </button>
@@ -555,7 +537,7 @@ function SavedSystemCard({
           <button
             type="button"
             onClick={onContinuePlan}
-            className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+            className="btn-primary text-[11px] font-mono"
           >
             Continue plan
           </button>
@@ -563,7 +545,7 @@ function SavedSystemCard({
           <button
             type="button"
             onClick={onStartPlan}
-            className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+            className="btn-primary text-[11px] font-mono"
           >
             Start plan
           </button>
@@ -612,7 +594,7 @@ function PlanCard({
   isExplicitlyColonised: boolean;
 }) {
   return (
-    <article data-testid={`plan-card-${project.id}`} className="rounded border border-border/70 bg-bg3/30 p-3">
+    <article data-testid={`plan-card-${project.id}`} className="premium-subpanel p-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-2">
           {isEditing ? (
@@ -620,25 +602,25 @@ function PlanCard({
               <input
                 value={editingName}
                 onChange={(event) => onEditNameChange(event.target.value)}
-                className="min-w-[18rem] flex-1 rounded border border-border/70 bg-bg2 px-2 py-1.5 font-mono text-xs text-silver"
+                className="min-w-[18rem] flex-1 rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-xs text-silver"
               />
               <button
                 type="button"
                 onClick={onSaveRename}
-                className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] text-orange"
+                className="btn-primary text-[11px] font-mono"
               >
                 Save name
               </button>
               <button
                 type="button"
                 onClick={onCancelRename}
-                className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver"
+                className="btn-metal text-[11px] font-mono"
               >
                 Cancel
               </button>
             </div>
           ) : (
-            <h3 className="truncate font-display text-sm tracking-[0.1em] text-orange-lt">
+            <h3 className="truncate font-display text-sm tracking-[0.1em] text-text">
               {project.project_name}
             </h3>
           )}
@@ -649,10 +631,10 @@ function PlanCard({
             <span>Updated {formatTimestamp(project.updated_at)}</span>
           </div>
           <div className="grid gap-2 text-[11px] font-mono text-silver sm:grid-cols-2">
-            <div className="rounded border border-border/60 bg-bg2/40 px-2 py-1.5">
+            <div className="premium-toolbar rounded-xl px-2 py-1.5">
               Plan health: {project.build_plan_placements.length} placements · {humanizeArchetype(project.target_archetype)}
             </div>
-            <div className="rounded border border-border/60 bg-bg2/40 px-2 py-1.5">
+            <div className="premium-toolbar rounded-xl px-2 py-1.5">
               Status: {projectStatusLabel(project.status)}
             </div>
           </div>
@@ -661,14 +643,14 @@ function PlanCard({
           <button
             type="button"
             onClick={onContinue}
-            className="rounded border border-orange/45 bg-orange/10 px-3 py-1.5 font-mono text-[11px] font-bold text-orange hover:bg-orange/20"
+            className="btn-primary text-[11px] font-mono"
           >
             Continue plan
           </button>
           <button
             type="button"
             onClick={onInspectSystem}
-            className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-orange/35 hover:text-orange-lt"
+            className="btn-metal text-[11px] font-mono"
           >
             Inspect system
           </button>
@@ -682,7 +664,7 @@ function PlanCard({
           data-testid={`plan-status-${project.id}`}
           value={project.status}
           onChange={(event) => onStatusChange(event.target.value as ColonyProjectStatus)}
-          className="rounded border border-border/70 bg-bg2 px-2 py-1.5 font-mono text-[11px] text-silver"
+          className="rounded border border-border/70 bg-bg2/80 px-2 py-1.5 font-mono text-[11px] text-silver"
         >
           <option value="draft">Draft</option>
           <option value="ready_to_build">Ready to build</option>
@@ -692,14 +674,14 @@ function PlanCard({
         <button
           type="button"
           onClick={onBeginRename}
-          className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-cyan/35 hover:text-cyan"
+          className="btn-metal text-[11px] font-mono"
         >
           Rename
         </button>
         <button
           type="button"
           onClick={onDuplicate}
-          className="rounded border border-border bg-bg3/35 px-3 py-1.5 font-mono text-[11px] text-silver hover:border-cyan/35 hover:text-cyan"
+          className="btn-metal text-[11px] font-mono"
         >
           Duplicate
         </button>
@@ -712,7 +694,7 @@ function PlanCard({
         </button>
       </div>
       {project.status === 'established' ? (
-        <div className="mt-3 rounded border border-violet/30 bg-violet/8 px-3 py-2 text-sm text-silver">
+        <div className="premium-subpanel mt-3 border-violet/30 bg-violet/8 px-3 py-2 text-sm text-silver">
           <p>
             Established is still player-managed planning state. Use the action below if you also want this system to appear in My Colonies as explicitly colonised.
           </p>
@@ -751,238 +733,8 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
     <div className="panel px-4 py-12 text-center">
-      <h2 className="font-display text-sm tracking-[0.12em] text-orange">{title}</h2>
+      <h2 className="font-display text-sm tracking-[0.12em] text-text">{title}</h2>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-silver-dk">{body}</p>
     </div>
   );
-}
-
-function buildSavedSystems({
-  watchlistEntries,
-  pinnedEntries,
-  localSystems,
-  projects,
-}: {
-  watchlistEntries: WatchlistEntry[];
-  pinnedEntries: PinnedEntry[];
-  localSystems: Record<string, MyWorkSystemRecord>;
-  projects: ColonyProject[];
-}): SavedSystemViewModel[] {
-  const bySystem = new Map<number, SavedSystemViewModel>();
-  const projectsBySystem = new Map<number, ColonyProject[]>();
-  for (const project of projects) {
-    const existing = projectsBySystem.get(project.system_id64) ?? [];
-    existing.push(project);
-    projectsBySystem.set(project.system_id64, existing);
-  }
-
-  const register = (snapshot: SavedSystemSnapshot, partial: Partial<SavedSystemViewModel>) => {
-    const existing = bySystem.get(snapshot.id64);
-    const localRecord = partial.localRecord ?? existing?.localRecord ?? localSystems[String(snapshot.id64)] ?? null;
-    const watchlistEntry = partial.watchlistEntry ?? existing?.watchlistEntry ?? null;
-    const pinnedEntry = partial.pinnedEntry ?? existing?.pinnedEntry ?? null;
-    const systemProjects = (projectsBySystem.get(snapshot.id64) ?? []).slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-    const activeProject = systemProjects.find((project) => project.status !== 'established') ?? null;
-    const establishedProject = systemProjects.find((project) => project.status === 'established') ?? null;
-    const labels = new Set<SavedSystemLabel>([
-      ...(localRecord?.labels ?? []),
-      ...(watchlistEntry ? ['considering'] as const : []),
-      ...(pinnedEntry ? ['favourite'] as const : []),
-    ]);
-    bySystem.set(snapshot.id64, {
-      ...existing,
-      id64: snapshot.id64,
-      name: snapshot.name,
-      x: snapshot.x,
-      y: snapshot.y,
-      z: snapshot.z,
-      population: snapshot.population,
-      is_colonised: snapshot.is_colonised,
-      labels: Array.from(labels),
-      planCount: systemProjects.length,
-      latestPlanActivity: systemProjects[0]?.updated_at ?? null,
-      latestSavedAt: latestTimestamp([
-        watchlistEntry?.added_at ?? null,
-        pinnedEntry?.pinned_at ?? null,
-        localRecord?.updated_at ?? null,
-      ]),
-      activeProject,
-      establishedProject,
-      explicitColonisedAt: localRecord?.explicit_colonised_at ?? null,
-      isColonised: Boolean(establishedProject || localRecord?.explicit_colonised_at),
-      watchlistEntry,
-      pinnedEntry,
-      localRecord,
-      ...partial,
-    });
-  };
-
-  for (const entry of watchlistEntries) {
-    register({
-      id64: entry.system_id64,
-      name: entry.name,
-      x: entry.x,
-      y: entry.y,
-      z: entry.z,
-      population: entry.population,
-      is_colonised: entry.is_colonised,
-    }, {
-      watchlistEntry: entry,
-    });
-  }
-
-  for (const entry of pinnedEntries) {
-    register({
-      id64: entry.id64,
-      name: entry.name,
-      x: entry.x,
-      y: entry.y,
-      z: entry.z,
-      population: entry.population,
-      is_colonised: entry.is_colonised,
-    }, {
-      pinnedEntry: entry,
-    });
-  }
-
-  for (const record of Object.values(localSystems)) {
-    register(record, {
-      localRecord: record,
-    });
-  }
-
-  return Array.from(bySystem.values())
-    .filter((system) => system.labels.length > 0)
-    .sort((a, b) => (b.latestSavedAt ?? '').localeCompare(a.latestSavedAt ?? ''));
-}
-
-function groupPlansBySystem(projects: ColonyProject[]) {
-  const groups = new Map<number, { systemId64: number; systemName: string; plans: ColonyProject[]; latestUpdatedAt: string }>();
-  for (const project of projects) {
-    const existing = groups.get(project.system_id64);
-    if (existing) {
-      existing.plans.push(project);
-      if (project.updated_at > existing.latestUpdatedAt) existing.latestUpdatedAt = project.updated_at;
-      continue;
-    }
-    groups.set(project.system_id64, {
-      systemId64: project.system_id64,
-      systemName: project.system_name,
-      plans: [project],
-      latestUpdatedAt: project.updated_at,
-    });
-  }
-  return Array.from(groups.values())
-    .map((group) => ({
-      ...group,
-      plans: group.plans.slice().sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
-    }))
-    .sort((a, b) => b.latestUpdatedAt.localeCompare(a.latestUpdatedAt));
-}
-
-function buildColonies({
-  savedSystems,
-  localSystems,
-  projects,
-}: {
-  savedSystems: SavedSystemViewModel[];
-  localSystems: Record<string, MyWorkSystemRecord>;
-  projects: ColonyProject[];
-}): ColonyViewModel[] {
-  const establishedBySystem = new Map<number, ColonyProject>();
-  for (const project of projects) {
-    if (project.status !== 'established') continue;
-    const current = establishedBySystem.get(project.system_id64);
-    if (!current || project.updated_at > current.updated_at) {
-      establishedBySystem.set(project.system_id64, project);
-    }
-  }
-
-  const colonies = new Map<number, ColonyViewModel>();
-  for (const system of savedSystems) {
-    const establishedProject = establishedBySystem.get(system.id64) ?? system.establishedProject ?? null;
-    if (!establishedProject && !system.explicitColonisedAt) continue;
-    colonies.set(system.id64, {
-      id64: system.id64,
-      systemName: system.name,
-      plan: establishedProject,
-      objective: objectiveSummaryLabel(establishedProject?.objective ?? null),
-      colonisedAt: latestTimestamp([establishedProject?.updated_at ?? null, system.explicitColonisedAt]),
-    });
-  }
-
-  for (const record of Object.values(localSystems)) {
-    if (!record.explicit_colonised_at || colonies.has(record.id64)) continue;
-    colonies.set(record.id64, {
-      id64: record.id64,
-      systemName: record.name,
-      plan: establishedBySystem.get(record.id64) ?? null,
-      objective: objectiveSummaryLabel(establishedBySystem.get(record.id64)?.objective ?? null),
-      colonisedAt: latestTimestamp([record.explicit_colonised_at, establishedBySystem.get(record.id64)?.updated_at ?? null]),
-    });
-  }
-
-  for (const project of projects) {
-    if (project.status !== 'established' || colonies.has(project.system_id64)) continue;
-    colonies.set(project.system_id64, {
-      id64: project.system_id64,
-      systemName: project.system_name,
-      plan: project,
-      objective: objectiveSummaryLabel(project.objective),
-      colonisedAt: project.updated_at,
-    });
-  }
-
-  return Array.from(colonies.values()).sort((a, b) => (b.colonisedAt ?? '').localeCompare(a.colonisedAt ?? ''));
-}
-
-function selectContinuation({
-  savedSystems,
-  projects,
-}: {
-  savedSystems: SavedSystemViewModel[];
-  projects: ColonyProject[];
-}) {
-  const latestActivePlan = projects
-    .filter((project) => project.status !== 'established')
-    .sort((a, b) => b.updated_at.localeCompare(a.updated_at))[0] ?? null;
-  if (latestActivePlan) {
-    return { kind: 'plan' as const, project: latestActivePlan };
-  }
-  const recentSavedSystem = savedSystems
-    .filter((system) => system.planCount === 0)
-    .sort((a, b) => (b.latestSavedAt ?? '').localeCompare(a.latestSavedAt ?? ''))[0] ?? null;
-  if (recentSavedSystem) {
-    return { kind: 'saved-system' as const, system: recentSavedSystem };
-  }
-  return null;
-}
-
-function latestTimestamp(values: Array<string | null | undefined>) {
-  return values.filter((value): value is string => Boolean(value)).sort().slice(-1)[0] ?? null;
-}
-
-function formatTimestamp(value: string) {
-  return new Date(value).toLocaleString();
-}
-
-function formatRecentActivity(value: string) {
-  const deltaMs = Date.now() - new Date(value).getTime();
-  if (deltaMs < 60_000) return 'just now';
-  if (deltaMs < 60 * 60_000) return `${Math.max(1, Math.floor(deltaMs / 60_000))}m ago`;
-  if (deltaMs < 24 * 60 * 60_000) return `${Math.max(1, Math.floor(deltaMs / (60 * 60_000)))}h ago`;
-  return formatTimestamp(value);
-}
-
-function projectStatusLabel(status: ColonyProjectStatus) {
-  if (status === 'ready_to_build') return 'Ready to build';
-  if (status === 'building') return 'Building';
-  if (status === 'established') return 'Established';
-  return 'Draft';
-}
-
-function labelText(label: SavedSystemLabel) {
-  if (label === 'considering') return 'Considering';
-  if (label === 'favourite') return 'Favourite';
-  return 'Ready to plan';
 }

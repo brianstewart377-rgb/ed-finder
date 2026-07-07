@@ -79,7 +79,7 @@ export function WorkspaceSummaryRail({
           type="button"
           data-testid="summary-rail-collapse-toggle"
           onClick={() => setCollapsed((value) => !value)}
-          className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
+          className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
         >
           {collapsed ? 'Expand' : 'Compact'}
         </button>
@@ -168,7 +168,7 @@ function CompactSummary({
         <CompactMetric label="Warnings" value={prerequisiteIssueCount > 0 ? `${warningCount} / ${prerequisiteIssueCount} prereq` : String(warningCount)} tone={warningCount > 0 || prerequisiteIssueCount > 0 ? 'gold' : 'green'} />
         <CompactMetric label="Focus" value={selectedContext.kind} tone="cyan" />
       </div>
-      <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono text-[10px]">
+      <div className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px]">
         <div className="flex items-center justify-between gap-2 uppercase tracking-[0.12em] text-silver-dk">
           <span>Current focus</span>
           <span className={projectionLabel ? 'text-cyan' : 'text-silver-dk'}>{projectionLabel ? 'Projection on' : 'No projection'}</span>
@@ -190,7 +190,7 @@ function CompactMetric({ label, value, tone }: { label: string; value: ReactNode
         ? 'text-green'
         : 'text-cyan';
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1 font-mono">
+    <div className="premium-toolbar rounded-xl px-2 py-1 font-mono">
       <div className="truncate text-[9px] uppercase tracking-[0.12em] text-silver-dk">{label}</div>
       <div className={["mt-0.5 truncate text-[12px] font-semibold", toneClass].join(' ')}>{value}</div>
     </div>
@@ -217,7 +217,7 @@ function PlanHealthCard({
   prerequisiteIssues: PrerequisiteIssue[];
 }) {
   return (
-    <section className="rounded border border-orange/25 bg-orange/5 p-2" data-testid="plan-health-card">
+    <section className="premium-subpanel border-orange/25 bg-orange/5 p-2" data-testid="plan-health-card">
       <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
         Plan Health
       </h3>
@@ -231,7 +231,7 @@ function PlanHealthCard({
         <SummaryRow label="Save" value={saveStatus} tone={saveStatus === 'Saved' ? 'green' : 'gold'} />
       </dl>
       {prerequisiteIssues.length > 0 && (
-        <div data-testid="plan-health-prerequisite-warnings" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold">
+        <div data-testid="plan-health-prerequisite-warnings" className="mt-2 rounded border border-gold/35 bg-gold/10 px-2 py-1 font-mono text-[10px] text-gold shadow-[0_12px_22px_-18px_rgba(234,179,8,0.85)]">
           Missing prerequisite: {prerequisiteIssues.slice(0, 3).map((issue) => `${issue.templateName}: ${issue.missing.join('; ')}`).join(' / ')}
         </div>
       )}
@@ -244,7 +244,7 @@ function PlanHealthCard({
 
 function SelectionSummaryCard({ selectedContext }: { selectedContext: TopologySelectionContext }) {
   return (
-    <section className="rounded border border-cyan/25 bg-cyan/5 p-2" data-testid="selection-card">
+    <section className="premium-subpanel border-cyan/25 bg-cyan/5 p-2" data-testid="selection-card">
       <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
         Current Focus
       </h3>
@@ -274,7 +274,7 @@ function PreviewSuggestedCard({
       .filter(Boolean),
   ));
   return (
-    <section className="rounded border border-cyan/25 bg-cyan/5 p-2" data-testid="preview-suggested-card">
+    <section className="premium-subpanel border-cyan/25 bg-cyan/5 p-2" data-testid="preview-suggested-card">
       <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
         Preview / Suggested
       </h3>
@@ -297,7 +297,7 @@ function PreviewSuggestedCard({
         </p>
       )}
       {selection.type === 'body' && snapshot.projection && projectedBodyIds.includes(bodyIdKey(selection.bodyId)) && (
-        <p className="mt-1 rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan">
+        <p className="mt-1 rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] text-cyan shadow-[0_12px_22px_-18px_rgba(34,211,238,0.9)]">
           Selected body is used by the projected suggested build.
         </p>
       )}
@@ -324,7 +324,7 @@ function SummaryRow({
           ? 'text-green'
           : 'text-silver';
   return (
-    <div className="rounded border border-border/55 bg-bg3/35 px-2 py-1.5">
+    <div className="premium-toolbar rounded-xl px-2 py-1.5">
       <dt className="uppercase tracking-[0.14em] text-silver-dk">{label}</dt>
       <dd className={['mt-0.5 break-words text-[11px]', toneClass].join(' ')}>{value}</dd>
     </div>

@@ -40,6 +40,9 @@ body {
   font-weight: 500;
   color: hsl(210 14% 92%);
   background-image:
+    radial-gradient(ellipse 900px 420px at 18% 0%,
+        rgba(111, 229, 255, 0.08) 0%,
+        transparent 62%),
     /* warm orange "nebula glow" highlight */
     radial-gradient(ellipse 1400px 700px at 80% -10%,
         rgba(255, 122, 20, 0.10) 0%,
@@ -51,21 +54,24 @@ body {
         rgba(8, 10, 14, 0.82) 100%),
     /* the nebula itself */
     var(--coalsack-bg-2560);
-  background-size: cover, cover, cover;
-  background-position: top right, center center, center center;
-  background-attachment: fixed, fixed, fixed;
+  background-size: cover, cover, cover, cover;
+  background-position: top left, top right, center center, center center;
+  background-attachment: fixed, fixed, fixed, fixed;
   background-repeat: no-repeat;
 }
 
 @media (max-width: 1024px) {
   body {
     background-image:
+      radial-gradient(ellipse 120% 55% at 20% 0%,
+          rgba(111, 229, 255, 0.05) 0%,
+          transparent 60%),
       radial-gradient(ellipse 140% 90% at 50% 35%,
           rgba(8, 10, 14, 0.22) 0%,
           rgba(8, 10, 14, 0.62) 55%,
           rgba(8, 10, 14, 0.88) 100%),
       var(--coalsack-bg-1600);
-    background-attachment: scroll, scroll;
+    background-attachment: scroll, scroll, scroll;
   }
 }
 
@@ -276,8 +282,10 @@ input[type='checkbox']:checked::after {
 /* ─── Buttons ────────────────────────────────────────────────────────── */
 
 .btn-primary {
-  background: linear-gradient(180deg, #ff8a30 0%, #ff7a14 50%, #cc5400 100%);
-  border: 1px solid #ff7a14;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0) 22%),
+    linear-gradient(180deg, #ff9542 0%, #ff7a14 48%, #bf4f05 100%);
+  border: 1px solid rgba(255, 146, 77, 0.9);
   border-radius: 16px;
   padding: 0.6rem 1.4rem;
   color: #fff;
@@ -288,20 +296,21 @@ input[type='checkbox']:checked::after {
   text-transform: uppercase;
   cursor: pointer;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.25),
-    inset 0 -1px 0 rgba(0,0,0,0.35),
+    inset 0 1px 0 rgba(255,255,255,0.3),
+    inset 0 -1px 0 rgba(0,0,0,0.32),
     0 0 0 1px rgba(255,122,20,0.35),
-    0 6px 20px -8px rgba(255,122,20,0.6);
+    0 10px 28px -12px rgba(255,122,20,0.85),
+    0 16px 44px -26px rgba(0,0,0,0.92);
   transition: transform 140ms ease, box-shadow 200ms ease, filter 140ms ease;
 }
 .btn-primary:hover {
   filter: brightness(1.08);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.3),
+    inset 0 1px 0 rgba(255,255,255,0.34),
     inset 0 -1px 0 rgba(0,0,0,0.35),
-    0 0 0 1px rgba(255,122,20,0.55),
-    0 0 22px -4px rgba(255,122,20,0.85),
-    0 6px 24px -6px rgba(255,122,20,0.7);
+    0 0 0 1px rgba(255,122,20,0.58),
+    0 0 26px -6px rgba(255,122,20,0.9),
+    0 14px 34px -12px rgba(255,122,20,0.72);
 }
 .btn-primary:active {
   transform: translateY(1px);
@@ -309,8 +318,10 @@ input[type='checkbox']:checked::after {
 }
 
 .btn-metal {
-  background: linear-gradient(180deg, hsl(216 10% 22%) 0%, hsl(218 11% 14%) 100%);
-  border: 1px solid hsl(216 10% 30%);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, hsl(216 10% 24%) 0%, hsl(218 11% 13%) 100%);
+  border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 16px;
   padding: 0.55rem 1.1rem;
   color: hsl(210 14% 86%);
@@ -322,28 +333,39 @@ input[type='checkbox']:checked::after {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.06),
     inset 0 -1px 0 rgba(0,0,0,0.35),
-    0 4px 12px -8px rgba(0,0,0,0.7);
+    0 8px 20px -14px rgba(0,0,0,0.9);
   transition: all 160ms ease;
 }
 .btn-metal:hover {
-  border-color: hsl(216 10% 42%);
+  border-color: rgba(148, 163, 184, 0.44);
   color: #fff;
-  background: linear-gradient(180deg, hsl(216 10% 26%) 0%, hsl(218 11% 18%) 100%);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, hsl(216 10% 27%) 0%, hsl(218 11% 17%) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 -1px 0 rgba(0,0,0,0.35),
+    0 0 18px -10px rgba(148,163,184,0.42),
+    0 10px 24px -14px rgba(0,0,0,0.85);
 }
 
 /* ─── Panel — the universal "chunky chrome card" ────────────────────── */
 
 .panel {
   background:
-    linear-gradient(180deg, rgba(28, 31, 36, 0.85) 0%, rgba(18, 20, 24, 0.85) 100%);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid hsl(216 10% 24%);
+    radial-gradient(circle at top left, rgba(111,229,255,0.08) 0%, transparent 34%),
+    radial-gradient(circle at top right, rgba(255,122,20,0.10) 0%, transparent 32%),
+    linear-gradient(180deg, rgba(30, 34, 40, 0.9) 0%, rgba(16, 18, 23, 0.92) 100%);
+  backdrop-filter: blur(18px) saturate(120%);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 26px;
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.05),
+    inset 0 1px 0 rgba(255,255,255,0.07),
     inset 0 0 0 1px rgba(255,255,255,0.02),
-    0 14px 40px -16px rgba(0,0,0,0.85);
+    0 20px 50px -22px rgba(0,0,0,0.92),
+    0 0 32px -28px rgba(111,229,255,0.35),
+    0 0 40px -30px rgba(255,122,20,0.35);
   position: relative;
 }
 
@@ -360,12 +382,36 @@ input[type='checkbox']:checked::after {
   mask-image: linear-gradient(180deg, #000 0, #000 30%, transparent 30%);
 }
 
+.panel::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(26px - 1px);
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
 .panel-thin {
-  background: rgba(18, 20, 24, 0.82);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid hsl(216 10% 24%);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 18%),
+    linear-gradient(180deg, rgba(22, 25, 30, 0.88), rgba(14, 16, 21, 0.86));
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 20px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    0 14px 32px -22px rgba(0,0,0,0.88);
+  position: relative;
+}
+
+.panel-thin::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(20px - 1px);
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.025);
 }
 
 /* ─── Pill / chip ─────────────────────────────────────────────────────── */
@@ -380,9 +426,12 @@ input[type='checkbox']:checked::after {
   font-weight: 600;
   font-size: 0.72rem;
   letter-spacing: 0.04em;
-  border: 1px solid hsl(216 10% 26%);
-  background: linear-gradient(180deg, hsl(216 10% 17%), hsl(218 11% 12%));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, hsl(216 10% 17%), hsl(218 11% 12%));
   color: hsl(210 14% 86%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
 }
 .chip-orange {
   border-color: rgba(255, 122, 20, 0.45);
@@ -390,9 +439,43 @@ input[type='checkbox']:checked::after {
   color: #ffb074;
 }
 .chip-silver {
-  border-color: hsl(216 10% 38%);
-  background: linear-gradient(180deg, hsl(214 8% 22%), hsl(216 10% 14%));
+  border-color: rgba(148,163,184,0.3);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, hsl(214 8% 22%), hsl(216 10% 14%));
   color: #c8ccd1;
+}
+
+.premium-subpanel {
+  position: relative;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, rgba(25, 29, 35, 0.86), rgba(14, 17, 22, 0.84));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    0 14px 28px -20px rgba(0,0,0,0.9);
+}
+
+.premium-subpanel::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: calc(18px - 1px);
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.025);
+}
+
+.premium-toolbar {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 24%),
+    linear-gradient(180deg, rgba(20, 24, 29, 0.86), rgba(14, 16, 20, 0.8));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 12px 28px -22px rgba(0,0,0,0.92);
 }
 
 /* ─── Custom scrollbar ───────────────────────────────────────────────── */

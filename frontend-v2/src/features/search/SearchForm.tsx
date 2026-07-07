@@ -36,7 +36,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-      className="space-y-5 p-5"
+      className="space-y-6 p-5"
       data-testid="search-form"
     >
       <Section title="Reference System">
@@ -59,15 +59,15 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
       />
 
-      <div className="mb-2 text-right text-xs text-dim">
+      <div className="mb-1 text-right text-xs text-dim">
         <a
           href={developmentHelpHref}
           target="_blank"
           rel="noopener"
           data-testid="development-help-link"
-          className="text-orange hover:underline"
+          className="inline-flex items-center rounded-full border border-orange/35 bg-orange/10 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange/55 hover:bg-orange/14 hover:text-orange-lt"
         >
-          Development model notes &rarr;
+          Development model notes
         </a>
       </div>
       <Section title="Search Radius">
@@ -185,7 +185,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           data-testid="search-submit"
           className="btn-primary flex-1"
         >
-          {loading ? 'SCANNING…' : '🔍 SEARCH'}
+          {loading ? 'Scanning…' : 'Search'}
         </button>
         <button
           type="button"
@@ -193,7 +193,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
           data-testid="search-reset"
           className="btn-metal"
         >
-          ✕ Reset
+          Reset
         </button>
       </div>
     </form>
@@ -207,11 +207,11 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <fieldset className="space-y-2">
-      <legend className="font-mono text-[11px] tracking-wider text-orange uppercase">
+    <fieldset className="space-y-2.5">
+      <legend className="px-1 font-mono text-[11px] tracking-[0.18em] text-orange uppercase">
         {title}
       </legend>
-      <div className="space-y-2">{children}</div>
+      <div className="premium-subpanel space-y-3 p-3">{children}</div>
     </fieldset>
   );
 }
@@ -231,11 +231,11 @@ function QuickPresets({ onPick }: { onPick: (id: PresetId) => void }) {
         aria-expanded={open}
         data-testid="quick-presets-toggle"
         className={[
-          'w-full flex items-center justify-between gap-2 px-3 py-2 rounded-chunk-sm',
+          'w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-chunk-sm',
           'border transition-all duration-200 cursor-pointer',
           open
             ? 'border-orange/55 bg-orange/10 shadow-brand-glow'
-            : 'border-border bg-bg3/40 hover:border-orange/45 hover:bg-orange/5',
+            : 'border-border bg-bg3/55 hover:border-orange/45 hover:bg-orange/5',
         ].join(' ')}
       >
         <span className="flex items-center gap-2 font-mono text-[11px] tracking-[0.14em] uppercase">
@@ -259,7 +259,7 @@ function QuickPresets({ onPick }: { onPick: (id: PresetId) => void }) {
               type="button"
               data-testid={`preset-${p.id}`}
               onClick={() => onPick(p.id)}
-              className="text-left px-3 py-2.5 rounded-chunk-sm border border-border bg-bg3/40 hover:border-orange/55 hover:bg-orange/10 hover:shadow-brand-glow transition-all duration-200 group"
+              className="premium-subpanel text-left px-3 py-2.5 transition-all duration-200 group hover:border-orange/55 hover:bg-orange/10 hover:shadow-brand-glow"
             >
               <div className="flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] text-silver group-hover:text-orange-lt mb-0.5">
                 <span className="text-base leading-none">{p.icon}</span>
@@ -284,7 +284,7 @@ function RangeRow({
 }) {
   const id = useId();
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1">
+    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5">
       <label htmlFor={id} className="font-mono text-[11px] text-text-dim col-span-2">
         {label}
       </label>
@@ -304,7 +304,7 @@ function RangeRow({
           const v = Number(e.target.value);
           if (!Number.isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
         }}
-        className="w-20 px-2 py-0.5 rounded bg-bg4 border border-border font-mono text-xs text-orange text-right tabular-nums no-spinner"
+        className="w-20 rounded border border-border bg-bg4/70 px-2 py-1 font-mono text-xs text-orange text-right tabular-nums no-spinner"
       />
     </div>
   );

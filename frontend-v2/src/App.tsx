@@ -37,7 +37,9 @@ import { MyWorkWorkspace } from '@/features/my-work/MyWorkWorkspace';
 import { EliteNewsBanner } from '@/features/news/EliteNewsBanner';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import { getDevelopmentScore } from '@/lib/archetypes';
-import type { SystemArchetypeResponse } from '@/types/api';
+import { systemStatusLabel } from '@/lib/format';
+import type { SemanticStatusTone } from '@/components/SemanticStatusBadge';
+import type { SystemArchetypeResponse, SystemDetail } from '@/types/api';
 import './index.css';
 
 const COALSACK_BG_VERSION = 'v=2';
@@ -56,6 +58,78 @@ interface SavedSystemNoticeState {
   message: string;
   detail: string;
   actionLabel?: string;
+}
+
+function buildShellSelectedSystem(
+  id64: number,
+  system: SystemDetail | null,
+  loading: boolean,
+): {
+  id64: number;
+  name: string | null;
+  loading: boolean;
+  evidenceLabel: string;
+  evidenceTone: SemanticStatusTone;
+  evidenceSummary: string;
+} {
+  if (loading) {
+    return {
+      id64,
+      name: null,
+      loading: true,
+      evidenceLabel: 'Refreshing context',
+      evidenceTone: 'loading',
+      evidenceSummary: 'Refreshing the selected-system evidence posture for the current player flow.',
+    };
+  }
+
+  if (!system) {
+    return {
+      id64,
+      name: null,
+      loading: false,
+      evidenceLabel: 'Selected context',
+      evidenceTone: 'unknown',
+      evidenceSummary: 'This system remains selected across Explore, Inspect, Plan, and Review until you choose another one.',
+    };
+  }
+
+  const status = systemStatusLabel(system);
+  const confidence = typeof system.archetype_confidence === 'number' ? Math.round(system.archetype_confidence * 100) : null;
+  const primaryContext = system.primary_archetype ?? system.primary_economy ?? 'system context';
+
+  if (status === 'Colonised') {
+    return {
+      id64,
+      name: system.name ?? null,
+      loading: false,
+      evidenceLabel: 'Observed colony state',
+      evidenceTone: 'observed',
+      evidenceSummary: `${primaryContext} with inhabited or colonised evidence in view. Planner changes remain separate from observed status.`,
+    };
+  }
+
+  if (status === 'Colonising') {
+    return {
+      id64,
+      name: system.name ?? null,
+      loading: false,
+      evidenceLabel: 'Needs current review',
+      evidenceTone: 'needs_review',
+      evidenceSummary: `Colonisation activity is already in motion here. Inspect current evidence before changing or continuing a plan for ${system.name ?? 'this system'}.`,
+    };
+  }
+
+  return {
+    id64,
+    name: system.name ?? null,
+    loading: false,
+    evidenceLabel: confidence != null && confidence < 60 ? 'Candidate needs review' : 'Available candidate',
+    evidenceTone: confidence != null && confidence < 60 ? 'needs_review' : 'available',
+    evidenceSummary: confidence != null
+      ? `${primaryContext} remains a planning candidate with ${confidence}% archetype confidence. Canonical planner truth is still created in Plan, not by this evidence summary.`
+      : `${primaryContext} remains a planning candidate. Canonical planner truth is still created in Plan, not by this evidence summary.`,
+  };
 }
 
 function savedSystemFailureDetail(error: unknown, attemptedRemove: boolean): string {
@@ -333,11 +407,9 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         fcCount={fc.waypoints.length}
         health={health}
         fullWidth={plannerWorkspaceRoute}
-        selectedSystem={shellSystemId != null ? {
-          id64: shellSystemId,
-          name: shellSystem.data?.name ?? null,
-          loading: shellSystem.loading,
-        } : null}
+        selectedSystem={shellSystemId != null
+          ? buildShellSelectedSystem(shellSystemId, shellSystem.data ?? null, shellSystem.loading)
+          : null}
       />
 
       <SavedSystemNotice
@@ -537,10 +609,10 @@ function SavedSystemNotice({
       aria-live={isError ? 'assertive' : 'polite'}
       data-testid="saved-system-notice"
       className={[
-        'fixed right-4 top-4 z-50 max-w-sm rounded-chunk-lg border p-3 font-mono text-xs shadow-metal',
+        'fixed right-4 top-4 z-50 max-w-sm rounded-chunk-lg border p-3 font-mono text-xs shadow-metal backdrop-blur-xl',
         isError
-          ? 'border-red/45 bg-red/15 text-red'
-          : 'border-green/40 bg-bg2/95 text-green',
+          ? 'border-red/45 bg-[linear-gradient(180deg,rgba(248,113,113,0.18),rgba(127,29,29,0.22))] text-red'
+          : 'border-green/40 bg-[linear-gradient(180deg,rgba(74,222,128,0.16),rgba(15,23,42,0.92))] text-green',
       ].join(' ')}
     >
       <div className="font-bold">{notice.message}</div>
@@ -550,7 +622,7 @@ function SavedSystemNotice({
           <button
             type="button"
             onClick={onOpenMyWork}
-            className="rounded-chunk-sm border border-green/40 bg-green/10 px-3 py-1.5 font-bold text-green hover:bg-green/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green/80"
+            className="rounded-chunk-sm border border-green/40 bg-green/10 px-3 py-1.5 font-bold text-green shadow-[0_14px_24px_-20px_rgba(74,222,128,0.85)] hover:bg-green/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green/80"
           >
             {notice.actionLabel}
           </button>
@@ -558,7 +630,7 @@ function SavedSystemNotice({
         <button
           type="button"
           onClick={onDismiss}
-          className="rounded-chunk-sm border border-border bg-bg4 px-3 py-1.5 font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+          className="btn-metal px-3 py-1.5 font-bold"
         >
           Dismiss
         </button>
@@ -653,7 +725,7 @@ function FinderView({
   return (
     <div className="space-y-4">
       <header data-testid="finder-page-heading" className="max-w-4xl">
-        <h1 className="font-display text-2xl tracking-[0.12em] text-orange sm:text-3xl">
+        <h1 className="font-display text-2xl tracking-[0.12em] text-text sm:text-3xl">
           Finder
         </h1>
         <p className="mt-1 max-w-2xl text-sm leading-relaxed text-silver sm:text-base">
@@ -690,7 +762,7 @@ function FinderView({
         )}
 
         {state.kind === 'err' && (
-          <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
+          <div className="rounded border border-red/50 bg-[linear-gradient(180deg,rgba(248,113,113,0.16),rgba(127,29,29,0.2))] p-4 font-mono text-sm text-red shadow-[0_18px_40px_-28px_rgba(127,29,29,0.9)]">
             <div className="font-bold mb-1">Search failed</div>
             <div className="text-xs">{state.message}</div>
           </div>
@@ -760,7 +832,7 @@ function SummaryBar({ count, total, queriedAt }: {
   return (
     <div
       data-testid="search-summary"
-      className="mb-4 flex flex-wrap items-center gap-3 px-3 py-2 rounded border border-border bg-bg3/40 text-xs font-mono"
+      className="premium-toolbar mb-4 flex flex-wrap items-center gap-3 rounded-2xl px-3 py-2 text-xs font-mono"
     >
       <span className="text-orange font-bold">{count}</span>
       <span className="text-text-dim">shown</span>
@@ -776,7 +848,7 @@ function EmptyState({ icon, title, hint }: {
   icon: string; title: string; hint: string;
 }) {
   return (
-    <div className="text-center py-16 px-4 rounded border border-dashed border-border">
+    <div className="premium-subpanel px-4 py-16 text-center">
       <div className="text-3xl mb-2" aria-hidden>{icon}</div>
       <h3 className="font-mono text-orange text-sm mb-1">{title}</h3>
       <p className="text-text-dim text-xs max-w-sm mx-auto">{hint}</p>

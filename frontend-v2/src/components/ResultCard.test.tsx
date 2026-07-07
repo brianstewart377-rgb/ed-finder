@@ -4,6 +4,18 @@ import type { SystemResult } from '@/types/api';
 import { economyColor } from '@/features/colony-planner/economyVisuals';
 import { ResultCard } from './ResultCard';
 
+function hexToRgbString(hex: string): string {
+  const value = hex.replace('#', '');
+  const normalized = value.length === 3
+    ? value.split('').map((char) => `${char}${char}`).join('')
+    : value;
+  const intValue = Number.parseInt(normalized, 16);
+  const r = (intValue >> 16) & 255;
+  const g = (intValue >> 8) & 255;
+  const b = intValue & 255;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 const system = {
   id64: 42,
   name: 'Handoff',
@@ -56,10 +68,8 @@ describe('ResultCard actions', () => {
     expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Refinery');
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Megacomplex');
-    const scoreBar = screen.getByLabelText('Development score: 91/100');
-    expect(scoreBar).toBeTruthy();
-    expect(scoreBar.getAttribute('title')).toBe('Development score: 91/100');
-    expect(screen.getByTestId('result-card-archetype-score').textContent).toContain('S 91');
+    expect(screen.queryByLabelText('Development score: 91/100')).toBeNull();
+    expect(screen.getByTestId('result-card-archetype-score').textContent).toContain('Score 91');
   });
 
   it('surfaces the archetype assessment in the expanded card', () => {
@@ -72,8 +82,8 @@ describe('ResultCard actions', () => {
     expect(screen.getByText('Buildability')).toBeTruthy();
     expect(screen.getByText('Purity')).toBeTruthy();
     expect(screen.getByText('Est. slots')).toBeTruthy();
-    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toBe('Refinery / Industrial Megacomplex');
-    expect(screen.getAllByText('Refinery / Industrial Megacomplex').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId('result-card-suggested-archetype').getAttribute('aria-label')).toBe('Refinery / Industrial Megacomplex');
+    expect(screen.getAllByText('Refinery / Industrial Megacomplex').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders split economy colours for paired archetype chips', () => {
@@ -85,11 +95,23 @@ describe('ResultCard actions', () => {
 
     render(<ResultCard system={pairedEconomies} index={0} />);
 
-    const chip = screen.getByTestId('result-card-suggested-archetype');
-    expect(chip.getAttribute('style')).toContain(economyColor('Refinery'));
-    expect(chip.getAttribute('style')).toContain(economyColor('Industrial'));
-    expect(screen.getByTestId('result-card-suggested-archetype-primary').textContent).toBe('Refinery');
-    expect(screen.getByTestId('result-card-suggested-archetype-secondary').textContent).toBe('Industrial');
+    const primaryLabel = screen.getByTestId('result-card-suggested-archetype-primary');
+    const secondaryLabel = screen.getByTestId('result-card-suggested-archetype-secondary');
+    expect(getComputedStyle(primaryLabel).color).toBe(hexToRgbString(economyColor('Refinery')));
+    expect(getComputedStyle(secondaryLabel).color).toBe(hexToRgbString(economyColor('Industrial')));
+    expect(primaryLabel.textContent).toBe('Refinery');
+    expect(secondaryLabel.textContent).toBe('Industrial');
+  });
+
+  it('derives split economy colours from the visible archetype label when raw fields do not align', () => {
+    render(<ResultCard system={system} index={0} />);
+
+    const primaryLabel = screen.getByTestId('result-card-suggested-archetype-primary');
+    const secondaryLabel = screen.getByTestId('result-card-suggested-archetype-secondary');
+    expect(getComputedStyle(primaryLabel).color).toBe(hexToRgbString(economyColor('Refinery')));
+    expect(getComputedStyle(secondaryLabel).color).toBe(hexToRgbString(economyColor('Industrial')));
+    expect(primaryLabel.textContent).toBe('Refinery');
+    expect(secondaryLabel.textContent).toBe('Industrial');
   });
 
   it('shows reversible saved state copy for save-for-later systems', () => {

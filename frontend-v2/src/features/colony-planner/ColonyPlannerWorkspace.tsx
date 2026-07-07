@@ -84,21 +84,21 @@ export function ColonyPlannerWorkspace({
     return (
       <WorkspaceShell>
         <WorkspaceHeaderSkeleton id64={id64} onBackToFinder={onBackToFinder} />
-        <div className="panel border-red/45 bg-red/10 p-5 font-mono text-sm text-red">
+        <div className="panel border-red/45 bg-[linear-gradient(180deg,rgba(248,113,113,0.16),rgba(127,29,29,0.2))] p-5 font-mono text-sm text-red">
           <div className="font-bold">Failed to load Colony Planner.</div>
           <div className="mt-1 text-xs text-red/85">{error ?? 'System detail was unavailable.'}</div>
           <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={refetch}
-              className="rounded-chunk-sm border border-red/50 bg-red/10 px-3 py-2 text-xs font-bold text-red hover:bg-red/20"
+              className="rounded-chunk-sm border border-red/50 bg-red/10 px-3 py-2 text-xs font-bold text-red shadow-[0_14px_24px_-20px_rgba(248,113,113,0.9)] hover:bg-red/20"
             >
               Retry
             </button>
             <button
               type="button"
               onClick={onBackToFinder}
-              className="rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-bold text-text-dim hover:text-orange"
+              className="btn-metal text-xs font-bold"
             >
               Back to Finder
             </button>

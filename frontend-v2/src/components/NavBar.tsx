@@ -1,10 +1,10 @@
 import type { Route } from '@/hooks/useHashRoute';
 import { useDensity } from '@/hooks/useDensity';
-import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
+import { SemanticStatusBadge, type SemanticStatusTone } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-/** Top-bar nav for the v2 app — sticky chrome panel with brushed-metal sheen
+/** Top-bar nav for the live app — sticky chrome panel with brushed-metal sheen
  *  and an ED-orange "active-tab" indicator. Height tuned to match the bottom
  *  headline banner for visual symmetry. */
 export interface NavBarProps {
@@ -21,6 +21,9 @@ export interface NavBarProps {
     id64: number;
     name: string | null;
     loading: boolean;
+    evidenceLabel: string;
+    evidenceTone: SemanticStatusTone;
+    evidenceSummary: string;
   } | null;
 }
 
@@ -84,7 +87,7 @@ export function NavBar({
   );
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
+  const showPlayerContext = selectedSystem != null || !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
   const currentRouteDescriptor = PLAYER_WORKSPACES
     .flatMap((workspace) => groupedRoutes[workspace])
@@ -130,7 +133,7 @@ export function NavBar({
       data-testid="navbar"
     >
       {/* py-1.5 here matches the bottom headline banner so top + bottom chrome align */}
-      <div className="panel relative overflow-hidden px-4 py-3 sm:px-6">
+      <div className="panel relative overflow-hidden px-4 py-3.5 sm:px-6">
         <div className="flex items-center gap-3 sm:gap-5">
         {/* ── Logo lockup ─────────────────────────────── */}
           <div className="flex items-center gap-3 shrink-0">
@@ -154,7 +157,7 @@ export function NavBar({
           >
             {!operatorMode ? (
               <div
-                className="flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto"
+                className="premium-toolbar flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto rounded-full px-2 py-1.5"
                 aria-label="Player routes"
                 data-testid="nav-player-routes"
               >
@@ -186,7 +189,7 @@ export function NavBar({
             data-testid="nav-density-toggle"
             title={`Density: ${densityLabel} (click to cycle)`}
             aria-label={`Density: ${densityLabel}, click to cycle`}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg3/60 font-mono text-[14px] leading-none text-silver transition-colors hover:border-orange-dk hover:text-orange-lt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            className="premium-toolbar flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-[14px] leading-none text-silver transition-colors hover:border-orange-dk hover:text-orange-lt focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
           >
             <span aria-hidden>{densityIcon}</span>
           </button>
@@ -197,7 +200,7 @@ export function NavBar({
             data-testid="nav-menu-toggle"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="inline-flex items-center justify-center rounded-chunk-sm border border-border bg-bg3/55 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
+            className="premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
           >
             Menu
           </button>
@@ -207,7 +210,7 @@ export function NavBar({
          * the text label at md+. Used to be 'hidden md:flex' which led
          * users on smaller viewports to think the backend was offline. */}
           <div
-            className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-bg3/60 px-2 py-1.5 md:px-3"
+            className="premium-toolbar flex shrink-0 items-center gap-2 rounded-full px-2.5 py-1.5 md:px-3"
             title={ok ? `Backend online — ${health}` : (health ?? 'Checking…')}
             data-testid="nav-status-pill"
           >
@@ -258,6 +261,18 @@ export function NavBar({
                   supportingText={currentWorkspaceMeta.supportingText}
                   selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
                   selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
+                  selectedSystemDetail={selectedSystem ? (
+                    <div className="space-y-2">
+                      <SemanticStatusBadge
+                        label={selectedSystem.evidenceLabel}
+                        tone={selectedSystem.evidenceTone}
+                        testId="selected-system-evidence-badge"
+                      />
+                      <p className="text-xs normal-case tracking-normal text-silver-dk">
+                        {selectedSystem.evidenceSummary}
+                      </p>
+                    </div>
+                  ) : undefined}
                   status={(
                     <SemanticStatusBadge
                       label={currentWorkspaceMeta.statusLabel}
@@ -282,7 +297,7 @@ export function NavBar({
                   {currentWorkspaceMeta.supportingText}
                 </p>
                 {selectedSystem ? (
-                  <div className="rounded-chunk-lg border border-border bg-bg3/30 p-3">
+                  <div className="premium-subpanel p-3">
                     <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
                       Selected system
                     </p>
@@ -291,6 +306,16 @@ export function NavBar({
                     </p>
                     <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
                       ID64 {selectedSystem.id64}
+                    </p>
+                    <div className="mt-2">
+                      <SemanticStatusBadge
+                        label={selectedSystem.evidenceLabel}
+                        tone={selectedSystem.evidenceTone}
+                        testId="selected-system-evidence-badge-mobile"
+                      />
+                    </div>
+                    <p className="mt-2 text-xs leading-relaxed text-silver-dk">
+                      {selectedSystem.evidenceSummary}
                     </p>
                   </div>
                 ) : null}
@@ -333,9 +358,9 @@ function Logo() {
     <div
       className="relative w-10 h-10 rounded-chunk-sm grid place-items-center"
       style={{
-        background: 'linear-gradient(135deg, #1c1f24 0%, #0a0c10 100%)',
+        background: 'radial-gradient(circle at 30% 25%, rgba(111,229,255,0.15), transparent 38%), linear-gradient(135deg, #1c1f24 0%, #0a0c10 100%)',
         boxShadow:
-          'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(255,122,20,0.4), 0 0 12px -2px rgba(255,122,20,0.5)',
+          'inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 1px rgba(255,122,20,0.4), 0 0 12px -2px rgba(255,122,20,0.5), 0 10px 22px -18px rgba(111,229,255,0.55)',
       }}
     >
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="#ff7a14" strokeWidth="1.6" strokeLinecap="round">
@@ -364,7 +389,7 @@ function Tab({ label, active, onClick, testid, badge, title, compact = false }: 
       title={title}
       aria-current={active ? 'page' : undefined}
       className={[
-        'group relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-chunk-sm whitespace-nowrap',
+        'group relative inline-flex items-center gap-1.5 px-3.5 py-2 rounded-chunk-sm whitespace-nowrap',
         compact ? 'w-full justify-between' : '',
         'font-display font-bold text-[12.5px] tracking-[0.1em] uppercase',
         'transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80',
@@ -373,9 +398,13 @@ function Tab({ label, active, onClick, testid, badge, title, compact = false }: 
           : 'text-silver hover:text-white hover:bg-bg3/70',
       ].join(' ')}
       style={active ? {
-        background: 'linear-gradient(180deg, rgba(255,122,20,0.32) 0%, rgba(255,122,20,0.12) 100%)',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 20%), linear-gradient(180deg, rgba(255,122,20,0.3) 0%, rgba(255,122,20,0.12) 100%)',
         border: '1px solid rgba(255,122,20,0.55)',
-      } : { border: '1px solid transparent' }}
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.08), 0 10px 24px -18px rgba(255,122,20,0.75)',
+      } : {
+        border: '1px solid rgba(148,163,184,0.08)',
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+      }}
     >
       <span>{label}</span>
       {badge !== undefined && badge > 0 && (
@@ -639,7 +668,7 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       return {
         title: 'Colony Tracker',
         primaryLabel: 'Plan',
-        supportingText: 'Legacy colony tracking remains available by route while My Work becomes the calm player-facing home for saved systems, plans, and colonies.',
+        supportingText: 'Colony tracking remains available by route while My Work becomes the calm player-facing home for saved systems, plans, and colonies.',
         nextAction: 'Use My Work for the current player flow, or inspect tracked systems directly.',
         statusLabel: 'Supporting tracker',
         statusTone: 'available',
@@ -662,14 +691,14 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         statusLabel: 'Operator-only tools',
         statusTone: 'caution',
       };
-    case 'colony-planner-prototype':
+    default:
       return {
-        title: 'Planner Visual Prototype',
-        primaryLabel: 'Prototype',
-        supportingText: 'The static visual prototype route remains isolated from the live player shell and does not replace the canonical live planner.',
-        nextAction: 'Return to the canonical live planner for real player workflows.',
-        statusLabel: 'Visual prototype route',
-        statusTone: 'caution',
+        title: 'Finder',
+        primaryLabel: 'Explore',
+        supportingText: 'Find promising systems. Save them for later or inspect them before starting a plan.',
+        nextAction: 'Save systems for later or inspect them before starting a plan.',
+        statusLabel: 'Finder',
+        statusTone: 'available',
       };
   }
 }

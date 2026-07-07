@@ -12,6 +12,7 @@ export interface WorkspaceContextHeaderProps {
   supportingText?: string;
   selectedSystemName?: string | null;
   selectedSystemMeta?: ReactNode;
+  selectedSystemDetail?: ReactNode;
   status?: ReactNode;
   actions?: ReactNode;
   facts?: WorkspaceContextFact[];
@@ -34,6 +35,7 @@ export function WorkspaceContextHeader({
   supportingText,
   selectedSystemName,
   selectedSystemMeta,
+  selectedSystemDetail,
   status,
   actions,
   facts = [],
@@ -55,15 +57,15 @@ export function WorkspaceContextHeader({
       <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
           {journeyLabel ? (
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+            <p className="rounded-full border border-orange/20 bg-orange/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.18em] text-orange-lt">
               {journeyLabel}
             </p>
           ) : null}
           {status}
         </div>
 
-        <div className="space-y-1">
-          <HeadingTag className="font-display text-xl tracking-[0.12em] text-orange sm:text-2xl">
+        <div className="space-y-1.5">
+          <HeadingTag className="font-display text-xl tracking-[0.12em] text-text sm:text-2xl">
             {title}
           </HeadingTag>
           {supportingText ? (
@@ -78,7 +80,7 @@ export function WorkspaceContextHeader({
             {facts.map((fact) => (
               <div
                 key={fact.label}
-                className="inline-flex min-w-0 items-center gap-1.5 rounded border border-border bg-bg3/50 px-2 py-1"
+                className="premium-subpanel inline-flex min-w-0 items-center gap-1.5 px-2.5 py-1.5"
               >
                 <dt className="shrink-0 uppercase tracking-[0.14em] text-silver-dk">{fact.label}</dt>
                 <dd className={['min-w-0 truncate', FACT_VALUE_TONE[fact.tone ?? 'default']].join(' ')}>
@@ -91,8 +93,8 @@ export function WorkspaceContextHeader({
       </div>
 
       <div className="space-y-3 xl:max-w-sm xl:text-right">
-        {selectedSystemName || selectedSystemMeta ? (
-          <div className="rounded-chunk-lg border border-border bg-bg3/35 p-3">
+        {selectedSystemName || selectedSystemMeta || selectedSystemDetail ? (
+          <div className="premium-subpanel p-3.5">
             <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
               Selected system
             </p>
@@ -104,6 +106,11 @@ export function WorkspaceContextHeader({
             {selectedSystemMeta ? (
               <div className="mt-1 text-[11px] font-mono uppercase tracking-[0.16em] text-silver-dk">
                 {selectedSystemMeta}
+              </div>
+            ) : null}
+            {selectedSystemDetail ? (
+              <div className="mt-2">
+                {selectedSystemDetail}
               </div>
             ) : null}
           </div>

@@ -32,18 +32,27 @@ describe('NavBar', () => {
     expect(screen.queryByTestId('nav-colony')).toBeNull();
   });
 
-  it('shows selected-system context only when the active route uses the global context panel', () => {
+  it('shows selected-system context with evidence posture when a shared shell context exists', () => {
     render(
       <NavBar
         current="map"
         onNavigate={vi.fn()}
         health="Online"
-        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+        selectedSystem={{
+          id64: 123,
+          name: 'Shinrarta Dezhra',
+          loading: false,
+          evidenceLabel: 'Available candidate',
+          evidenceTone: 'available',
+          evidenceSummary: 'Candidate remains in focus across Explore, Inspect, Plan, and Review.',
+        }}
       />,
     );
 
     expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
     expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
+    expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Candidate remains in focus across Explore, Inspect, Plan, and Review.');
 
     const plannerButton = screen.getByTestId('nav-colony-planner');
     plannerButton.focus();
@@ -65,7 +74,7 @@ describe('NavBar', () => {
     rerender(<NavBar current="map" onNavigate={vi.fn()} health="Online" />);
     expect(within(screen.getByTestId('product-shell-context')).getByText(/^Explore$/i)).toBeTruthy();
   });
-  it('keeps Finder, Colony Planner, and My Work routes free of the global product-shell context panel', () => {
+  it('keeps Finder compact when no system is selected, but shows shell context once Plan owns a selected system', () => {
     const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
 
     expect(screen.queryByTestId('product-shell-context')).toBeNull();
@@ -79,13 +88,19 @@ describe('NavBar', () => {
         current="colony-planner"
         onNavigate={vi.fn()}
         health="Online"
-        selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+        selectedSystem={{
+          id64: 123,
+          name: 'Shinrarta Dezhra',
+          loading: false,
+          evidenceLabel: 'Available candidate',
+          evidenceTone: 'available',
+          evidenceSummary: 'Planner keeps the selected system visible while player context moves between routes.',
+        }}
       />,
     );
 
-    expect(screen.queryByTestId('product-shell-context')).toBeNull();
-    expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
-    expect(screen.queryByText('Shinrarta Dezhra')).toBeNull();
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
+    expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
 
     for (const route of ['my-work', 'watchlist', 'pinned'] as const) {
       rerender(
@@ -93,13 +108,18 @@ describe('NavBar', () => {
           current={route}
           onNavigate={vi.fn()}
           health="Online"
-          selectedSystem={{ id64: 123, name: 'Shinrarta Dezhra', loading: false }}
+          selectedSystem={{
+            id64: 123,
+            name: 'Shinrarta Dezhra',
+            loading: false,
+            evidenceLabel: 'Available candidate',
+            evidenceTone: 'available',
+            evidenceSummary: 'Planner keeps the selected system visible while player context moves between routes.',
+          }}
         />,
       );
 
-      expect(screen.queryByTestId('product-shell-context')).toBeNull();
-      expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
-      expect(screen.queryByText('Shinrarta Dezhra')).toBeNull();
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
       expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
     }
   });

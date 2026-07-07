@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Bookmark, Compass, Rocket, X } from 'lucide-react';
 import type { SystemArchetypeResponse, SystemDetail, SystemBody, SystemStation } from '@/types/api';
 import { distanceFromSol, formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
@@ -43,7 +43,7 @@ export interface SystemDetailModalProps {
   renderActions?: (context: {
     system: SystemDetail | null;
     archetype: SystemArchetypeResponse | null;
-  }) => React.ReactNode;
+  }) => ReactNode;
 }
 
 /**
@@ -107,14 +107,14 @@ export function SystemDetailModal({
   return (
     <div
       data-testid="system-detail-modal"
-      className="fixed inset-0 z-40 flex items-start justify-center bg-bg1/85 backdrop-blur-md overflow-y-auto px-4 py-8 sm:py-12"
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-[radial-gradient(circle_at_top,rgba(111,229,255,0.1),transparent_32%),radial-gradient(circle_at_top_right,rgba(255,122,20,0.14),transparent_34%),rgba(4,6,10,0.82)] backdrop-blur-xl px-4 py-8 sm:py-12"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-labelledby="system-detail-title"
     >
       <article
-        className="panel relative w-full max-w-6xl animate-fade-up"
+        className="panel relative w-full max-w-6xl animate-fade-up overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -122,7 +122,7 @@ export function SystemDetailModal({
           onClick={onClose}
           data-testid="system-detail-close"
           aria-label="Close system details"
-          className="absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-full border border-white/20 bg-bg1/95 text-white shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition-colors hover:border-orange/70 hover:bg-orange hover:text-bg1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+          className="premium-toolbar absolute right-4 top-4 z-50 grid h-10 w-10 place-items-center rounded-full text-white transition-colors hover:border-orange/70 hover:bg-orange hover:text-bg1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
         >
           <X size={19} strokeWidth={3} />
         </button>
@@ -133,9 +133,9 @@ export function SystemDetailModal({
           hasError={Boolean(error)}
         />
 
-        <div className="px-5 sm:px-6 py-5 space-y-5 text-sm">
+        <div className="space-y-5 px-5 py-5 text-sm sm:px-6">
           {loading && (
-            <div className="rounded-chunk-lg border border-border bg-bg3/30 px-4 py-8 text-center">
+            <div className="premium-subpanel px-4 py-8 text-center">
               <div className="flex justify-center">
                 <SemanticStatusBadge label="Loading" tone="loading" />
               </div>
@@ -149,7 +149,7 @@ export function SystemDetailModal({
           )}
 
           {error && (
-            <div className="rounded-chunk-lg border border-red/50 bg-red/10 p-4 text-sm text-red">
+            <div className="rounded-chunk-lg border border-red/50 bg-[linear-gradient(180deg,rgba(248,113,113,0.16),rgba(127,29,29,0.2))] p-4 text-sm text-red shadow-[0_18px_40px_-28px_rgba(127,29,29,0.9)]">
               <div className="flex flex-wrap items-center gap-2">
                 <SemanticStatusBadge label="Unavailable" tone="unavailable" />
                 <span className="font-semibold">System detail is unavailable right now.</span>
@@ -160,9 +160,9 @@ export function SystemDetailModal({
               <button
                 type="button"
                 onClick={refetch}
-                className="mt-3 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-bold text-text-dim hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                className="btn-metal mt-3 text-xs font-mono font-bold"
               >
-                ↺ Retry
+                Retry
               </button>
             </div>
           )}
@@ -202,7 +202,7 @@ export function SystemDetailModal({
             </>
           )}
 
-          <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+          <div className="premium-toolbar flex flex-wrap gap-2 rounded-2xl border-t border-border px-3 py-3">
             {renderActions?.({ system: data, archetype: effectiveArchetype })}
           </div>
         </div>

@@ -52,7 +52,7 @@ export function WorkspaceHeaderSkeleton({
           <button
             type="button"
             onClick={onBackToFinder}
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            className="btn-metal text-xs font-mono font-bold"
           >
             <ArrowLeft size={14} />
             Back to Finder
@@ -118,7 +118,7 @@ export function WorkspaceHeader({
           <button
             type="button"
             onClick={onBackToFinder}
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+            className="btn-metal text-xs font-mono font-bold"
           >
             <ArrowLeft size={14} />
             Back to Finder
@@ -127,7 +127,7 @@ export function WorkspaceHeader({
             type="button"
             onClick={() => onOpenSystemDetail(system.id64)}
             data-testid="back-to-system-detail"
-            className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-2 text-xs font-mono font-bold text-cyan hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
+            className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-2 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
           >
             <ExternalLink size={14} />
             Back to system detail
@@ -138,7 +138,7 @@ export function WorkspaceHeader({
       {activeProject ? (
         <div
           data-testid="planner-arrival-context"
-          className="mt-4 grid gap-3 rounded-chunk-lg border border-orange/30 bg-bg2/80 p-3 shadow-[0_16px_40px_-30px_rgba(0,0,0,0.8)] lg:grid-cols-[minmax(0,1fr)_auto]"
+          className="premium-subpanel mt-4 grid gap-3 border-orange/30 bg-bg2/80 p-3 lg:grid-cols-[minmax(0,1fr)_auto]"
         >
           <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
@@ -159,7 +159,7 @@ export function WorkspaceHeader({
               </span>
               <span
                 data-testid="planner-objective-context"
-                className="rounded border border-border bg-bg3/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver"
+                className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver"
               >
                 {objectiveSummaryLabel(activeProject.objective)}
               </span>
@@ -181,7 +181,7 @@ export function WorkspaceHeader({
             <div className="flex flex-wrap items-center gap-2">
               <span
                 data-testid="planner-start-approach-context"
-                className="rounded border border-border bg-bg3/40 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk"
+                className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk"
               >
                 {startApproachLabel(activeProject.start_approach)}
               </span>
@@ -189,7 +189,7 @@ export function WorkspaceHeader({
                 type="button"
                 onClick={onOpenMyWork}
                 data-testid="planner-manage-my-work"
-                className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
+                className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
               >
                 Manage in My Work
               </button>
@@ -199,11 +199,11 @@ export function WorkspaceHeader({
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
               <span
                 data-testid="planner-project-status"
-                className="rounded border border-border bg-bg3/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver"
+                className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver"
               >
                 {projectStatusLabel(activeProject.status)}
               </span>
-              <span className="rounded border border-border bg-bg3/60 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
+              <span className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-silver">
                 This browser
               </span>
               <button
@@ -216,7 +216,7 @@ export function WorkspaceHeader({
                 aria-haspopup="menu"
                 aria-expanded={actionsOpen}
                 aria-controls="planner-plan-actions-menu"
-                className="inline-flex items-center gap-2 rounded-chunk-sm border border-border bg-bg4 px-3 py-1.5 text-xs font-mono font-bold text-silver hover:border-orange/45 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                className="btn-metal text-xs font-mono font-bold"
               >
                 <MoreHorizontal size={14} />
                 Plan actions
@@ -227,7 +227,7 @@ export function WorkspaceHeader({
                 id="planner-plan-actions-menu"
                 role="menu"
                 data-testid="planner-plan-actions-menu"
-                className="w-full rounded-chunk-lg border border-border bg-bg1 p-2 shadow-metal lg:w-64"
+                className="panel-thin w-full rounded-chunk-lg p-2 lg:w-64"
               >
                 <button
                   type="button"
@@ -247,7 +247,7 @@ export function WorkspaceHeader({
                 aria-labelledby="planner-delete-confirm-title"
                 aria-describedby="planner-delete-confirm-body"
                 data-testid="planner-delete-confirmation"
-                className="w-full rounded-chunk-lg border border-red/45 bg-red/10 p-3 text-sm text-silver lg:w-80"
+                className="w-full rounded-chunk-lg border border-red/45 bg-[linear-gradient(180deg,rgba(248,113,113,0.16),rgba(127,29,29,0.2))] p-3 text-sm text-silver shadow-[0_18px_40px_-28px_rgba(127,29,29,0.9)] lg:w-80"
               >
                 <h3 id="planner-delete-confirm-title" className="font-display text-sm tracking-[0.12em] text-red">
                   {activeProject.status === 'draft' ? 'Delete this draft?' : 'Delete this plan?'}
@@ -280,7 +280,7 @@ export function WorkspaceHeader({
                     type="button"
                     onClick={() => setConfirmDeleteOpen(false)}
                     data-testid="planner-cancel-delete"
-                    className="rounded-chunk-sm border border-border bg-bg4 px-3 py-2 text-xs font-mono font-bold text-silver hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                    className="btn-metal text-xs font-mono font-bold"
                   >
                     {keepActionLabel}
                   </button>

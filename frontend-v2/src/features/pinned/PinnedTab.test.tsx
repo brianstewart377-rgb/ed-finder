@@ -59,7 +59,7 @@ describe('PinnedTab data trust display', () => {
     render(<PinnedTab pinned={pinned} />);
 
     expect(screen.getByText('Development ↓')).toBeTruthy();
-    expect(screen.getByText('S 91')).toBeTruthy();
+    expect(screen.getByText('Score 91')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
   });
 });

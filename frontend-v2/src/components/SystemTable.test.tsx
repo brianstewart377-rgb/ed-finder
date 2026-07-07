@@ -46,7 +46,7 @@ describe('SystemTable data trust display', () => {
 
     render(<SystemTable rows={rows} columns={['system', 'score', 'economy']} />);
 
-    expect(screen.getByText('S 91')).toBeTruthy();
+    expect(screen.getByText('Score 91')).toBeTruthy();
     expect(screen.getByText('Refinery / Industrial Megacomplex')).toBeTruthy();
     expect(screen.getByText('Trade / Logistics Hub')).toBeTruthy();
   });

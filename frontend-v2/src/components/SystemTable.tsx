@@ -71,14 +71,14 @@ export function SystemTable({
   rows, columns, timestampLabel = 'Added', renderActions, rowTestIdPrefix, onRowClick,
 }: SystemTableProps) {
   return (
-    <div className="overflow-x-auto rounded-chunk-lg border border-border" style={{
-      background: 'linear-gradient(180deg, rgba(20,22,26,0.85), rgba(14,16,20,0.85))',
-      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 8px 24px -16px rgba(0,0,0,0.6)',
+    <div className="premium-subpanel overflow-x-auto rounded-chunk-lg" style={{
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0) 16%), linear-gradient(180deg, rgba(20,22,26,0.9), rgba(14,16,20,0.88))',
+      boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 18px 34px -24px rgba(0,0,0,0.8)',
     }}>
       <table className="w-full text-sm font-mono">
         <thead className="text-silver-dk text-[10px] uppercase tracking-[0.16em]" style={{
-          background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01))',
-          borderBottom: '1px solid hsl(216 10% 24%)',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.01))',
+          borderBottom: '1px solid rgba(148,163,184,0.16)',
         }}>
           <tr>
             {columns.map((col) => (
@@ -141,7 +141,7 @@ function SystemTableRow({
       data-testid={rowTestIdPrefix ? `${rowTestIdPrefix}${row.id64}` : undefined}
       onClick={canOpenRow ? () => onRowClick?.(systemId64) : undefined}
       className={[
-        'border-t border-border/50 hover:bg-orange/5 transition-colors',
+        'border-t border-border/50 transition-all duration-150 hover:bg-white/[0.03]',
         canOpenRow ? 'cursor-pointer' : '',
       ].join(' ')}
     >
@@ -235,7 +235,7 @@ function renderCell(col: SystemTableColumn, row: SystemRow): ReactNode {
           ].filter(Boolean).join(' ')}
           title={`Development score: ${row.score ?? '—'}/100`}
         >
-          {tier ?? '—'} {row.score ?? '—'}
+          Score {row.score ?? '—'}
         </span>
       );
     }
