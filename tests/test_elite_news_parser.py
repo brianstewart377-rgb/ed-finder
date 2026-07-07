@@ -64,7 +64,6 @@ def test_extract_galnet_rss_items_reads_official_feed_entries():
         <title>Elite Dangerous Galnet News</title>
         <item>
           <title>Vista Genomics Seeks Exploration Data From Sanguineous Rim</title>
-          <link>https://www.elitedangerous.com/news/galnet/vista-genomics-seeks-exploration-data-sanguineous-rim</link>
         </item>
         <item>
           <title>Frontline Solutions Announces Expansion of Services</title>
@@ -79,7 +78,7 @@ def test_extract_galnet_rss_items_reads_official_feed_entries():
     assert items == [
         {
             'title': 'Vista Genomics Seeks Exploration Data From Sanguineous Rim',
-            'url': 'https://www.elitedangerous.com/news/galnet/vista-genomics-seeks-exploration-data-sanguineous-rim',
+            'url': 'https://www.elitedangerous.com/en-US/Galnet',
             'source': 'galnet',
         },
         {

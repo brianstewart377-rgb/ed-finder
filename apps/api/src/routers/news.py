@@ -140,8 +140,8 @@ def extract_galnet_rss_items(xml_text: str, *, limit: int = 8) -> list[dict[str,
 
     for item in root.findall('./channel/item'):
         title = (item.findtext('title') or '').strip()
-        link = (item.findtext('link') or '').strip()
-        if not title or not link:
+        link = (item.findtext('link') or '').strip() or ELITE_GALNET_URL
+        if not title:
             continue
         items.append({
             'title': title,
