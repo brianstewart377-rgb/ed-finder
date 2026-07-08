@@ -182,6 +182,6 @@ def test_stage25c_contract_defines_visual_foundation_and_scope_and_criteria():
 def test_stage25_reset_indexed_in_readme():
     readme = _squash(_read(README_PATH))
 
-    assert 'stage-25-roadmap.md' in readme
+    assert '../ROADMAP.md' in readme
     assert 'stage-25c-product-shell-shared-context-contract.md' in readme
-    assert 'Active Stage 25 control' in readme
+    assert 'Active Stage 25 Control' in readme

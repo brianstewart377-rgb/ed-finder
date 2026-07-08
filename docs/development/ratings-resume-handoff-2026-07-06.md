@@ -1,8 +1,14 @@
-﻿# Ratings Resume Handoff (Historical)
+# Ratings Resume Handoff (Historical)
 
 This note was used to resume the ratings-overhaul work after a chat loss. The migration has since been completed in the canonical non-OneDrive workspace.
 
 **Status (2026-07): completed.**
+
+## Use This File As Reference Only
+
+- [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap for current work.
+- This file is preserved for migration traceability, not as the default answer to "what next?".
+- If you are resuming active work, start from `docs/README.md`, then `docs/ROADMAP.md`, then the nearest active contract doc.
 
 ## Final Direction
 
@@ -87,9 +93,12 @@ Useful verification:
 - `frontend`: `npm run test:ci`, `npm run build:typecheck`, `npm run types:gen`
 - `apps/api`: `python -m compileall apps/api/src`
 
-## Resume Prompt
+## Historical Resume Prompt
 
-If starting a new chat, use something close to this:
+This prompt is preserved only as a record of how the migration was resumed at
+the time. Do not use it as the default instruction set for current work.
+
+If starting a historical reconstruction chat, use something close to this:
 
 > Read `docs/development/ratings-resume-handoff-2026-07-06.md` and continue the ratings-overhaul work from there. Stay on the archetype-led cutover path. The next task is to reduce the remaining live use of legacy score fields in the active frontend while keeping legacy rating as compatibility-only context.
 

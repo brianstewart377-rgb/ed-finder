@@ -1,4 +1,14 @@
-﻿# Trae Solo Desktop Handoff (PR #316 CI)
+# Trae Solo Desktop Handoff (Historical PR #316 CI)
+
+This document is a preserved troubleshooting handoff from the PR `#316`
+stabilization window.
+
+## Status
+
+- Historical incident record only.
+- Superseded by the merged repo state and the current clean-promotion work.
+- [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap for current work.
+- Use `docs/README.md` plus the nearest active workflow/runbook doc for present-day tasks.
 
 ## Goal
 

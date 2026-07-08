@@ -267,7 +267,7 @@ def test_review_nginx_host_is_auth_protected_and_uses_review_static_root_api_log
     assert 'access_log /var/log/nginx-review/review-access.log main buffer=32k flush=5s;' in review_block
     assert 'error_log  /var/log/nginx-review/review-error.log warn;' in review_block
     assert 'root /var/www/review;' in review_block
-    assert 'try_files $uri $uri/ /index.html;' in review_block
+    assert 'try_files $uri /index.html;' in review_block
     assert 'resolver 127.0.0.11 valid=10s ipv6=off;' in review_block
     assert 'set $review_api_origin http://review-api:8000;' in review_block
     assert 'proxy_pass         $review_api_origin;' in review_block
@@ -293,7 +293,7 @@ def test_production_nginx_hosts_remain_intact():
     assert any('listen 443 ssl;' in block and 'location = /api/events/live' in block for block in production_blocks)
     assert all('review-api:8000' not in block for block in production_blocks)
     assert all('zone=review_api' not in block for block in production_blocks)
-    assert any('proxy_pass         http://api_backend;' in block for block in production_blocks)
+    assert any('proxy_pass         $api_origin;' in block for block in production_blocks)
     assert any('limit_req zone=api burst=60 nodelay;' in block for block in production_blocks)
     assert any('limit_req zone=search burst=20 nodelay;' in block for block in production_blocks)
 

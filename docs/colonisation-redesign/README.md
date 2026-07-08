@@ -4,6 +4,13 @@ This folder contains the active contracts, closeout records, architecture notes,
 and historical implementation docs for ED-Finder's colonisation, planner,
 evidence, and enrichment work.
 
+## Active Stage 25 Control
+
+- [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap and the
+  default answer to "what next?".
+- [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
+  is the active implementation contract for the current Stage 25 slice.
+
 ## Read This First
 
 Use this order before changing planner, evidence, or enrichment behaviour:
