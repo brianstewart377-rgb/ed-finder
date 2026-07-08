@@ -79,7 +79,30 @@ WHERE  r.system_id64 = agg.system_id64;
 COMMIT;
 
 -- ── Verification ──────────────────────────────────────────────────────
--- Run after the backfill completes to spot-check:
+-- Run after the backfill completes to spot-check.
+--
+-- Production note:
+--   The exact aggregate query below can hit statement_timeout on the live
+--   galaxy because it scans the full `ratings` table. Start with these cheap
+--   existence/sample checks first:
+--
+--   SELECT system_id64, ring_count, walkable_count, other_star_count
+--   FROM ratings
+--   WHERE ring_count > 0
+--   LIMIT 5;
+--
+--   SELECT system_id64, ring_count, walkable_count, other_star_count
+--   FROM ratings
+--   WHERE walkable_count > 0
+--   LIMIT 5;
+--
+--   SELECT system_id64, ring_count, walkable_count, other_star_count
+--   FROM ratings
+--   WHERE other_star_count > 0
+--   LIMIT 5;
+--
+--   If you need the exact aggregate counts on prod, disable statement_timeout
+--   for the session before running the full-table query.
 --
 --   SELECT
 --     count(*)                        AS rated,

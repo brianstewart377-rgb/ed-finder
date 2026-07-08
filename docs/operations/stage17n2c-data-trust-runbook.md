@@ -452,6 +452,33 @@ The second command should return no new lines after the Stage 17N.2d-Q deploy.
 Useful verification SQL:
 
 ```sql
+-- Start with cheap existence checks on production before running any
+-- full-table aggregates over ratings.
+SELECT system_id64, ring_count, walkable_count, other_star_count
+FROM ratings
+WHERE ring_count > 0
+LIMIT 5;
+
+SELECT system_id64, ring_count, walkable_count, other_star_count
+FROM ratings
+WHERE walkable_count > 0
+LIMIT 5;
+
+SELECT system_id64, ring_count, walkable_count, other_star_count
+FROM ratings
+WHERE other_star_count > 0
+LIMIT 5;
+
+-- If you need exact counts from ratings on the live galaxy, disable
+-- statement_timeout for the session first.
+-- Example:
+--   SET statement_timeout = 0;
+--   SELECT
+--     count(*) FILTER (WHERE ring_count > 0)       AS w_rings,
+--     count(*) FILTER (WHERE walkable_count > 0)   AS w_walkable,
+--     count(*) FILTER (WHERE other_star_count > 0) AS w_otherstar
+--   FROM ratings;
+
 SELECT count(*) AS ring_rows
 FROM body_rings;
 
