@@ -9,7 +9,7 @@ from typing import Any, Literal
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = ROOT / 'scripts' / 'dev' / 'review_environment.py'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
-FRONTEND_DIR = ROOT / 'frontend-v2'
+FRONTEND_DIR = ROOT / 'frontend'
 COMPOSE_FILE = ROOT / 'docker-compose.review.yml'
 VERIFY_BROWSER_SPEC = FRONTEND_DIR / 'e2e' / 'review-environment.spec.js'
 VERIFY_TMP_ROOT = Path('/tmp/edfinder-local-review')

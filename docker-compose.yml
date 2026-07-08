@@ -288,8 +288,8 @@ services:
     volumes:
       - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./config/security-headers.conf:/etc/nginx/snippets/security-headers.conf:ro
-      - ./frontend-v2/dist:/var/www/app:ro  # current frontend build output, served at /
-      - /opt/ed-finder-review/frontend-v2/dist:/var/www/review:ro
+      - ./frontend/dist:/var/www/app:ro  # current frontend build output, served at /
+      - /opt/ed-finder-review/frontend/dist:/var/www/review:ro
       - /opt/ed-finder-review/.secrets/review.htpasswd:/etc/nginx/review.htpasswd:ro
       - /opt/ed-finder-review/.review/nginx-logs:/var/log/nginx-review
       - /etc/letsencrypt:/etc/letsencrypt:ro
