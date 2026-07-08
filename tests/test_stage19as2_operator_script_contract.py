@@ -1,4 +1,4 @@
-import ast
+﻿import ast
 import json
 import re
 from pathlib import Path
@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
+ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 CONTRACT_DOC_PATH = DOCS / 'stage-19as2-operator-script-contract.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -200,3 +200,4 @@ def test_local_ci_parity_includes_as2_without_operator_commands():
     assert 'tests/test_stage19as2_operator_script_contract.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
+

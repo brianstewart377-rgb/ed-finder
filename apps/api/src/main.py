@@ -300,7 +300,7 @@ app.include_router(operator_router)
 # In Docker the production bundle is baked at /app/frontend/ (next to
 # apps/api/src/), which is what `__file__.parent.parent / 'frontend'`
 # resolves to. In a local dev clone the equivalent location is
-# `frontend-v2/dist/` (post-`yarn build`). Try both, in that order, so
+# `frontend/dist/` (post-`yarn build`). Try both, in that order, so
 # `python -m uvicorn main:app` works directly from the repo root without
 # rebuilding the image.
 # ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ def _resolve_frontend_dir() -> _pl.Path:
     here       = _pl.Path(__file__).resolve().parent
     candidates = [
         here.parent / 'frontend',                    # Docker baked layout
-        here.parent.parent.parent / 'frontend-v2' / 'dist',  # local dev
+        here.parent.parent.parent / 'frontend' / 'dist',  # local dev
     ]
     for c in candidates:
         if c.is_dir():
@@ -357,7 +357,7 @@ async def spa_fallback(full_path: str):
     if not _FRONTEND_DIR.is_dir():
         raise HTTPException(
             404,
-            'Frontend bundle not built. Run `cd frontend-v2 && yarn build`.',
+            'Frontend bundle not built. Run `cd frontend && yarn build`.',
         )
 
     candidate = _safe_frontend_path(full_path)

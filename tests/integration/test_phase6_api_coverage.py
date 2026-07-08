@@ -216,6 +216,35 @@ async def test_share_og_renders_png(client, pool):
         f"expected PNG header, got {r.content[:8]!r}"
 
 
+async def test_share_og_renders_png_when_coords_are_unknown(client, pool):
+    async with pool.acquire() as conn:
+        id64 = await conn.fetchval(
+            'SELECT id64 FROM systems WHERE id64 != 10477373803 LIMIT 1'
+        )
+        await conn.execute(
+            'UPDATE systems SET x = 0, y = 0, z = 0 WHERE id64 = $1',
+            id64,
+        )
+    r = await client.get(f'/api/share/og/{id64}')
+    assert r.status_code == 200, r.text
+    assert r.headers['content-type'] == 'image/png'
+    assert r.content[:8] == b'\x89PNG\r\n\x1a\n'
+
+
+async def test_share_stop_page_redirects_humans_to_supported_hash_route(client, pool):
+    async with pool.acquire() as conn:
+        id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')
+
+    r = await client.get(
+        f'/s/{id64}',
+        headers={'user-agent': 'Mozilla/5.0'},
+        follow_redirects=False,
+    )
+
+    assert r.status_code == 302
+    assert r.headers['location'].endswith(f'/#system/{id64}')
+
+
 # --- Admin auth ------------------------------------------------------------
 
 async def test_admin_endpoint_requires_token(client):
@@ -236,6 +265,35 @@ async def test_admin_endpoint_with_token_works(client):
     r = await client.post('/api/cache/clear', headers={'X-Admin-Token': ADMIN_TOKEN})
     assert r.status_code == 200
     assert r.json()['ok'] is True
+
+
+async def test_admin_cache_clear_removes_live_cache_entries(client, pool, redis_client):
+    if redis_client is None:
+        pytest.skip('Redis not available')
+
+    await redis_client.set('arch:v1:sys:42', '1')
+    await redis_client.set('elite-news:latest:8', '1')
+    await redis_client.set('sim:v3:summary:42:auto', '1')
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO api_cache (cache_key, response_json, expires_at)
+            VALUES ('live-cache-entry', '{}'::jsonb, NOW() + INTERVAL '1 hour')
+            """
+        )
+
+    r = await client.post('/api/cache/clear', headers={'X-Admin-Token': ADMIN_TOKEN})
+    assert r.status_code == 200
+    assert r.json()['ok'] is True
+
+    assert await redis_client.get('arch:v1:sys:42') is None
+    assert await redis_client.get('elite-news:latest:8') is None
+    assert await redis_client.get('sim:v3:summary:42:auto') is None
+
+    async with pool.acquire() as conn:
+        remaining = await conn.fetchval('SELECT COUNT(*) FROM api_cache')
+    assert remaining == 0
 
 
 # --- 410 Gone responses are RFC 7807 problem-details ----------------------

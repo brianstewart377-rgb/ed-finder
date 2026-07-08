@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS evidence_records (
             'frontier_journal',
             'edcd',
             'canonn',
-            'ravencolonial',
+            'planner_reference_archive',
             'manual_operator_source'
         )),
     CONSTRAINT chk_evidence_records_origin

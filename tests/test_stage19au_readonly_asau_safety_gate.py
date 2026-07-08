@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from pathlib import Path
 
@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
+ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AS1_DOC_PATH = DOCS / 'stage-19as1-disposable-postgres-constraint-tests.md'
 AS2_DOC_PATH = DOCS / 'stage-19as2-operator-script-contract.md'
 AT_DOC_PATH = DOCS / 'stage-19at-paused-state-next-operator-decision.md'
@@ -157,3 +157,4 @@ def test_stage19au_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19au_readonly_asau_safety_gate.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
+

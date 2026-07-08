@@ -1,4 +1,4 @@
-"""Stage 6C predicted-vs-observed comparison models.
+﻿"""Stage 6C predicted-vs-observed comparison models.
 
 These dataclasses describe the deterministic output of the Stage 6C
 comparison engine. They are intentionally separate from the legacy
@@ -14,7 +14,7 @@ Stage 4D comparison models (``ObservedFact`` / ``PredictionObservationDiff``
 
 Stage 6C is **comparison only**. Nothing in this module is consumed by
 Simulation Preview scoring, optimiser candidate generation, or optimiser
-ranking. See ``docs/colonisation-redesign/engine-roadmap.md`` for the
+ranking. See ``docs/ROADMAP.md`` for the
 boundary.
 """
 from __future__ import annotations
@@ -206,3 +206,4 @@ __all__ = [
     'comparison_to_dict',
     'evidence_match_to_dict',
 ]
+

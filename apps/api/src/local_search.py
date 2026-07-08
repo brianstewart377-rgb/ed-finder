@@ -17,6 +17,7 @@ Changes in v4.0:
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
 import logging
 import math
@@ -45,6 +46,7 @@ MAX_SEARCH_RADIUS = float(os.getenv("MAX_SEARCH_RADIUS_LY", "10000"))
 DEFAULT_PAGE_SIZE = 50_000
 MAX_PAGE_SIZE     = 200_000
 CLUSTER_RADIUS_LY = float(os.getenv("CLUSTER_RADIUS_LY", "500"))
+GALAXY_WIDE_COUNT_CAP = 10_000
 
 
 # ---------------------------------------------------------------------------
@@ -160,28 +162,65 @@ def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dic
     }
 
 
-# ---------------------------------------------------------------------------
-# Core search
-# ---------------------------------------------------------------------------
-async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
-    """
-    Execute a filtered system search against the PostgreSQL DB.
+@dataclass(frozen=True)
+class LocalSearchContext:
+    size: int
+    from_idx: int
+    sort_by: str
+    galaxy_wide: bool
+    rx: float
+    ry: float
+    rz: float
+    min_dist: float
+    max_dist_req: float
+    max_dist: float
+    radius_capped: bool
+    require_empty: bool
+    body_filters: dict
+    require_bio: bool
+    require_geo: bool
+    require_terra: bool
+    star_types: list
+    min_development_score: int
+    economy_filter: Any
+    sec_econ_filter: Any
+    galaxy_region_id: Any
+    display_score_col: str
+    finder_score_expr: str
 
-    Key features:
-    - Body filters pushed into SQL via pre-computed ratings columns.
-    - Galaxy region filter (named ED codex regions 1-42).
-    - When filtering by economy, display_score = economy-specific score.
-    - When browsing without economy filter, display_score = overall score.
-    - Unified local and galaxy-wide search (galaxy_wide=True skips distance).
-    """
-    t0 = time.time()
 
-    filters       = body.get("filters", {})
-    ref           = body.get("reference_coords", {})
-    size          = min(int(body.get("size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
-    from_idx      = int(body.get("from", 0))
-    sort_by       = body.get("sort_by", "development")
-    galaxy_wide   = bool(body.get("galaxy_wide", False))
+@dataclass
+class SearchSqlBuilder:
+    params: list[Any] = field(default_factory=list)
+    wheres: list[str] = field(default_factory=list)
+    select_params: list[Any] = field(default_factory=list)
+    next_param_index: int = 1
+
+    def add_where(self, val: Any) -> str:
+        self.params.append(val)
+        idx = self.next_param_index
+        self.next_param_index += 1
+        return f"${idx}"
+
+    def add_select(self, val: Any) -> str:
+        self.params.append(val)
+        self.select_params.append(val)
+        idx = self.next_param_index
+        self.next_param_index += 1
+        return f"${idx}"
+
+    @property
+    def where_sql(self) -> str:
+        return ("WHERE " + " AND ".join(self.wheres)) if self.wheres else ""
+
+
+def _parse_local_search_context(body: dict) -> LocalSearchContext:
+    filters = body.get("filters", {})
+    ref = body.get("reference_coords", {})
+    size = min(int(body.get("size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
+    from_idx = int(body.get("from", 0))
+    sort_by = body.get("sort_by", "development")
+    galaxy_wide = bool(body.get("galaxy_wide", False))
 
     ref_has_coords = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
     if not galaxy_wide and not ref_has_coords:
@@ -190,199 +229,138 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
     ry = float(ref["y"]) if ref_has_coords else 0.0
     rz = float(ref["z"]) if ref_has_coords else 0.0
 
-    dist_filter   = filters.get("distance", {})
-    min_dist      = float(dist_filter.get("min", 0))
-    max_dist_req  = float(dist_filter.get("max", 500))
-    max_dist      = min(max_dist_req, MAX_SEARCH_RADIUS)
+    dist_filter = filters.get("distance", {})
+    min_dist = float(dist_filter.get("min", 0))
+    max_dist_req = float(dist_filter.get("max", 500))
+    max_dist = min(max_dist_req, MAX_SEARCH_RADIUS)
     radius_capped = max_dist < max_dist_req
 
-    pop_filter    = filters.get("population", {})
-    pop_val       = pop_filter.get("value")
-    pop_cmp       = pop_filter.get("comparison", "equal")
+    pop_filter = filters.get("population", {})
+    pop_val = pop_filter.get("value")
+    pop_cmp = pop_filter.get("comparison", "equal")
     require_empty = (pop_val == 0 and pop_cmp == "equal")
 
-    body_filters  = body.get("body_filters", {}) or {}
-    require_bio   = bool(body.get("require_bio", False))
-    require_geo   = bool(body.get("require_geo", False))
+    body_filters = body.get("body_filters", {}) or {}
+    require_bio = bool(body.get("require_bio", False))
+    require_geo = bool(body.get("require_geo", False))
     require_terra = bool(body.get("require_terra", False))
-    star_types    = body.get("star_types", []) or []
+    star_types = body.get("star_types", []) or []
     min_development_score = int(body.get("min_development_score", 0))
-    economy_filter   = body.get("economy") or body.get("filters", {}).get("economy")
-    sec_econ_filter  = body.get("secondary_economy")
-    galaxy_region_id = body.get("galaxy_region_id")  # NEW: named region filter
+    economy_filter = body.get("economy") or body.get("filters", {}).get("economy")
+    sec_econ_filter = body.get("secondary_economy")
+    galaxy_region_id = body.get("galaxy_region_id")
 
-    # Determine which score column to use for display and sorting.
-    # search_economies.ratings_score_column() centralises this and was
-    # the fix for AUDIT_REPORT.md §C5: the previous local map was
-    # missing 'extraction', so filtering by extraction silently fell
-    # back to the overall r.score and produced different ordering than
-    # the inline fallback (which knew about extraction).
-    display_score_col = ratings_score_column(economy_filter, alias='r')
-    primary_score_col = archetype_score_column(economy_filter, alias='m')
+    display_score_col = ratings_score_column(economy_filter, alias="r")
+    primary_score_col = archetype_score_column(economy_filter, alias="m")
     finder_score_expr = f"COALESCE({primary_score_col}, {display_score_col})"
 
-    params: list = []
-    wheres: list = []
-    select_params: list = []  # kept separately so count_sql doesn't see them
-    p = 1
+    return LocalSearchContext(
+        size=size,
+        from_idx=from_idx,
+        sort_by=sort_by,
+        galaxy_wide=galaxy_wide,
+        rx=rx,
+        ry=ry,
+        rz=rz,
+        min_dist=min_dist,
+        max_dist_req=max_dist_req,
+        max_dist=max_dist,
+        radius_capped=radius_capped,
+        require_empty=require_empty,
+        body_filters=body_filters,
+        require_bio=require_bio,
+        require_geo=require_geo,
+        require_terra=require_terra,
+        star_types=star_types,
+        min_development_score=min_development_score,
+        economy_filter=economy_filter,
+        sec_econ_filter=sec_econ_filter,
+        galaxy_region_id=galaxy_region_id,
+        display_score_col=display_score_col,
+        finder_score_expr=finder_score_expr,
+    )
 
-    def add_where(val):
-        """Bind a value used in the WHERE clause. The same placeholder
-        is reused by count_sql, which builds from the WHERE list only."""
-        nonlocal p
-        params.append(val)
-        idx = p
-        p += 1
-        return f"${idx}"
 
-    def add_select(val):
-        """Bind a value used in the SELECT projection (e.g. dist_expr)
-        or in LIMIT/OFFSET. count_sql NEVER sees these — passing them
-        would fail asyncpg's positional-argument-count validation,
-        which is exactly the regression ed1fce6 fixed."""
-        nonlocal p
-        params.append(val)
-        select_params.append(val)
-        idx = p
-        p += 1
-        return f"${idx}"
+def _apply_local_search_filters(ctx: LocalSearchContext, builder: SearchSqlBuilder) -> None:
+    add = builder.add_where
 
-    # Backwards-compatible alias for the body of this function — every
-    # site below was reaching for `add()` with 'goes into WHERE' intent.
-    add = add_where
-
-    # ── Distance filter ───────────────────────────────────────────────────
-    if not galaxy_wide:
-        wheres.append(
+    if not ctx.galaxy_wide:
+        builder.wheres.append(
             f"(s.x IS NOT NULL AND s.y IS NOT NULL AND s.z IS NOT NULL "
             f"AND NOT (s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64}))"
         )
-        wheres.append(f"s.x BETWEEN {add(rx - max_dist)} AND {add(rx + max_dist)}")
-        wheres.append(f"s.y BETWEEN {add(ry - max_dist)} AND {add(ry + max_dist)}")
-        wheres.append(f"s.z BETWEEN {add(rz - max_dist)} AND {add(rz + max_dist)}")
-        wheres.append(
-            f"((s.x-{add(rx)})*(s.x-{add(rx)}) + "
-            f"(s.y-{add(ry)})*(s.y-{add(ry)}) + "
-            f"(s.z-{add(rz)})*(s.z-{add(rz)})) "
-            f"BETWEEN {add(min_dist*min_dist)} AND {add(max_dist*max_dist)}"
+        builder.wheres.append(f"s.x BETWEEN {add(ctx.rx - ctx.max_dist)} AND {add(ctx.rx + ctx.max_dist)}")
+        builder.wheres.append(f"s.y BETWEEN {add(ctx.ry - ctx.max_dist)} AND {add(ctx.ry + ctx.max_dist)}")
+        builder.wheres.append(f"s.z BETWEEN {add(ctx.rz - ctx.max_dist)} AND {add(ctx.rz + ctx.max_dist)}")
+        builder.wheres.append(
+            f"((s.x-{add(ctx.rx)})*(s.x-{add(ctx.rx)}) + "
+            f"(s.y-{add(ctx.ry)})*(s.y-{add(ctx.ry)}) + "
+            f"(s.z-{add(ctx.rz)})*(s.z-{add(ctx.rz)})) "
+            f"BETWEEN {add(ctx.min_dist * ctx.min_dist)} AND {add(ctx.max_dist * ctx.max_dist)}"
         )
 
-    if require_empty:
-        wheres.append("s.population = 0")
-        wheres.append("s.is_colonised = FALSE")
+    if ctx.require_empty:
+        builder.wheres.append("s.population = 0")
+        builder.wheres.append("s.is_colonised = FALSE")
 
-    if economy_filter and economy_filter not in ("any", "Any", "Unknown", ""):
-        # Normalise to the PostgreSQL enum literal — the enum is Title-cased
-        # ('Agriculture', 'HighTech', …) and casting a raw user input like
-        # 'High Tech' or 'hightech' to ::economy_type raises
-        # InvalidTextRepresentationError, which after Phase-2 surfaces as
-        # HTTP 503 (no silent fallback). Unknown inputs skip the filter,
-        # matching the existing 'any' / 'Unknown' / '' semantics above.
-        enum_val = economy_enum_value(economy_filter)
+    if ctx.economy_filter and ctx.economy_filter not in ("any", "Any", "Unknown", ""):
+        enum_val = economy_enum_value(ctx.economy_filter)
         if enum_val is not None:
-            wheres.append(f"s.primary_economy = {add(enum_val)}::economy_type")
+            builder.wheres.append(f"s.primary_economy = {add(enum_val)}::economy_type")
 
-    if sec_econ_filter and sec_econ_filter not in ("any", "Any", "Unknown", ""):
-        sec_enum_val = economy_enum_value(sec_econ_filter)
+    if ctx.sec_econ_filter and ctx.sec_econ_filter not in ("any", "Any", "Unknown", ""):
+        sec_enum_val = economy_enum_value(ctx.sec_econ_filter)
         if sec_enum_val is not None:
-            wheres.append(f"s.secondary_economy = {add(sec_enum_val)}::economy_type")
+            builder.wheres.append(f"s.secondary_economy = {add(sec_enum_val)}::economy_type")
 
-    # ── Galaxy region filter (NEW) ────────────────────────────────────────
-    if galaxy_region_id:
-        wheres.append(f"s.galaxy_region_id = {add(int(galaxy_region_id))}")
+    if ctx.galaxy_region_id:
+        builder.wheres.append(f"s.galaxy_region_id = {add(int(ctx.galaxy_region_id))}")
 
-    # ── Star type filter ──────────────────────────────────────────────────
-    if star_types:
-        # main_star_class is a generated column = main_star_type
-        placeholders = ", ".join(add(st) for st in star_types)
-        wheres.append(f"s.main_star_class IN ({placeholders})")
+    if ctx.star_types:
+        placeholders = ", ".join(add(st) for st in ctx.star_types)
+        builder.wheres.append(f"s.main_star_class IN ({placeholders})")
 
-    if min_development_score > 0:
-        # Filter on the archetype-led finder score when available, falling
-        # back to the legacy display score for systems that do not yet have
-        # archetype data.
-        wheres.append(f"{finder_score_expr} >= {add(min_development_score)}")
+    if ctx.min_development_score > 0:
+        builder.wheres.append(f"{ctx.finder_score_expr} >= {add(ctx.min_development_score)}")
 
-    # ── Body filters via ratings columns ─────────────────────────────────
-    # Column / alias maps now live in search_economies.py — see
-    # AUDIT_REPORT.md §H8 / §C5 for the rationale (eliminates the
-    # 4-way dict drift across search/map/ratings/local_search).
-    body_filters = normalise_body_filters(body_filters)
-
+    body_filters = normalise_body_filters(ctx.body_filters)
     for filter_key, col in BODY_FILTER_COLS.items():
         rng = body_filters.get(filter_key) or {}
         if not isinstance(rng, dict):
             continue
         min_val = int(rng.get("min", 0) or 0)
         max_val = rng.get("max")
-        # local_search joins ratings as `r`, so prefix the column.
-        qcol = f'r.{col}'
+        qcol = f"r.{col}"
         if min_val > 0:
-            wheres.append(f"({qcol} IS NOT NULL AND {qcol} >= {add(min_val)})")
+            builder.wheres.append(f"({qcol} IS NOT NULL AND {qcol} >= {add(min_val)})")
         if max_val is not None:
-            wheres.append(f"({qcol} IS NULL OR {qcol} <= {add(max_val)})")
+            builder.wheres.append(f"({qcol} IS NULL OR {qcol} <= {add(max_val)})")
 
-    if require_bio:
-        wheres.append("(r.bio_signal_total IS NOT NULL AND r.bio_signal_total > 0)")
-    if require_geo:
-        wheres.append("(r.geo_signal_total IS NOT NULL AND r.geo_signal_total > 0)")
-    if require_terra:
-        wheres.append("(r.terraformable_count IS NOT NULL AND r.terraformable_count > 0)")
+    if ctx.require_bio:
+        builder.wheres.append("(r.bio_signal_total IS NOT NULL AND r.bio_signal_total > 0)")
+    if ctx.require_geo:
+        builder.wheres.append("(r.geo_signal_total IS NOT NULL AND r.geo_signal_total > 0)")
+    if ctx.require_terra:
+        builder.wheres.append("(r.terraformable_count IS NOT NULL AND r.terraformable_count > 0)")
 
-    where_sql = ("WHERE " + " AND ".join(wheres)) if wheres else ""
 
-    # Snapshot the param count for the WHERE clause. count_sql consumes
-    # only the WHERE-clause placeholders; everything below this line is
-    # SELECT-side (dist_expr, LIMIT, OFFSET) and must use add_select()
-    # so it lands in `select_params` but not in the count_sql arg list.
-    # Keeping the snapshot here as a cross-check / regression guard
-    # against future inserts of add_where() below this line.
-    where_param_count = len(params)
-
-    # Distance expression — projected, not filtered. Uses add_select()
-    # so its placeholders are NOT replayed against count_sql.
-    #
-    # Guard: systems with (0,0,0) that aren't Sol have fake/missing coords.
-    # After migration 019 they will be NULL in the DB, but pre-migration
-    # they still exist as (0,0,0). The CASE ensures dist is NULL so
-    # _safe_distance() returns None and the UI shows "—".
-    _COORD_GUARD = (
+def _build_distance_expr(ctx: LocalSearchContext, builder: SearchSqlBuilder) -> str:
+    coord_guard = (
         f"CASE WHEN s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64} "
         "THEN NULL::float "
     )
-    if not galaxy_wide:
-        dist_expr = (
-            f"{_COORD_GUARD}ELSE SQRT((s.x-{add_select(rx)})*(s.x-{add_select(rx)}) + "
-            f"(s.y-{add_select(ry)})*(s.y-{add_select(ry)}) + "
-            f"(s.z-{add_select(rz)})*(s.z-{add_select(rz)})) END"
-        )
-    else:
-        dist_expr = "NULL::float"
-
-    # Sort by the display score (economy-specific when filtering, overall otherwise)
-    order_sql = (
-        f"ORDER BY {finder_score_expr} DESC NULLS LAST, dist ASC"
-        if sort_by == "development"
-        else "ORDER BY dist ASC"
+    if ctx.galaxy_wide:
+        return "NULL::float"
+    return (
+        f"{coord_guard}ELSE SQRT((s.x-{builder.add_select(ctx.rx)})*(s.x-{builder.add_select(ctx.rx)}) + "
+        f"(s.y-{builder.add_select(ctx.ry)})*(s.y-{builder.add_select(ctx.ry)}) + "
+        f"(s.z-{builder.add_select(ctx.rz)})*(s.z-{builder.add_select(ctx.rz)})) END"
     )
 
-    count_sql = f"""
-        SELECT COUNT(*)
-        FROM systems s
-        LEFT JOIN ratings r ON r.system_id64 = s.id64
-        LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
-        {where_sql}
-    """
 
-    # Galaxy-wide queries with no distance filter can otherwise trigger
-    # a sequential scan of the entire 186 M-row `systems` table just to
-    # produce the `total` counter the v2 frontend renders as "X+ results".
-    # Cap that at the largest `LIMIT $cap` envelope we want to spend
-    # planner time on. The "+" badge in the UI already communicates
-    # truncation; precise totals on galaxy-wide are not worth the cost.
-    GALAXY_WIDE_COUNT_CAP = 10_000
+def _build_local_search_count_sql(where_sql: str, galaxy_wide: bool) -> str:
     if galaxy_wide:
-        count_sql = f"""
+        return f"""
             SELECT COUNT(*) FROM (
                 SELECT 1
                 FROM systems s
@@ -392,8 +370,27 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
                 LIMIT {GALAXY_WIDE_COUNT_CAP}
             ) t
         """
+    return f"""
+        SELECT COUNT(*)
+        FROM systems s
+        LEFT JOIN ratings r ON r.system_id64 = s.id64
+        LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
+        {where_sql}
+    """
 
-    sql = f"""
+
+def _build_local_search_sql(
+    ctx: LocalSearchContext,
+    builder: SearchSqlBuilder,
+    where_sql: str,
+    dist_expr: str,
+) -> str:
+    order_sql = (
+        f"ORDER BY {ctx.finder_score_expr} DESC NULLS LAST, dist ASC"
+        if ctx.sort_by == "development"
+        else "ORDER BY dist ASC"
+    )
+    return f"""
         SELECT
             s.id64, s.name, s.x, s.y, s.z,
             s.main_star_class,
@@ -412,8 +409,8 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
             gr.name               AS galaxy_region_name,
             s.updated_at,
             r.score,
-            {display_score_col}   AS display_score,
-            {finder_score_expr}   AS archetype_score,
+            {ctx.display_score_col}   AS display_score,
+            {ctx.finder_score_expr}   AS archetype_score,
             r.score_agriculture, r.score_refinery, r.score_industrial,
             r.score_hightech, r.score_military, r.score_tourism,
             r.score_extraction,
@@ -448,30 +445,21 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         LEFT JOIN galaxy_regions gr ON gr.id = s.galaxy_region_id
         {where_sql}
         {order_sql}
-        LIMIT {add_select(size)} OFFSET {add_select(from_idx)}
+        LIMIT {builder.add_select(ctx.size)} OFFSET {builder.add_select(ctx.from_idx)}
     """
 
-    async with pool.acquire() as conn:
-        rows  = await conn.fetch(sql, *params)
-        # count_sql uses ONLY the WHERE-clause placeholders; pass the
-        # snapshot taken before any add_select() call. Asserting here
-        # (instead of slicing by index) makes the contract explicit
-        # and means any future drift between add_where/add_select
-        # surfaces as a test failure, not a runtime asyncpg error.
-        assert len(params) == where_param_count + len(select_params), (
-            "param accounting drifted: WHERE+SELECT must equal total"
-        )
-        total = await conn.fetchval(count_sql, *params[:where_param_count])
 
-    results: list = []
+def _build_local_search_response(
+    rows: list[asyncpg.Record],
+    total: int,
+    ctx: LocalSearchContext,
+    elapsed: int,
+) -> Dict[str, Any]:
+    results = []
     for row in rows:
         rec = _build_system_record(row)
         rec["distance"] = _safe_distance(row["dist"])
         results.append(rec)
-
-    elapsed = round((time.time() - t0) * 1000)
-    log.debug("local_db_search: %d total, returning %d (from=%d) in %dms",
-              total, len(results), from_idx, elapsed)
 
     resp: Dict[str, Any] = {
         "results":  results,
@@ -479,18 +467,55 @@ async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
         "total":    total,
         "source":   "local_db",
         "query_ms": elapsed,
-        "display_economy": economy_filter or "overall",
+        "display_economy": ctx.economy_filter or "overall",
     }
-    if galaxy_wide and total is not None and total >= GALAXY_WIDE_COUNT_CAP:
-        # The frontend should render "10,000+ matches" when this is set.
-        # See `SearchResponse.total_is_capped` in apps/api/src/models.py.
+    if ctx.galaxy_wide and total is not None and total >= GALAXY_WIDE_COUNT_CAP:
         resp["total_is_capped"] = True
-    if radius_capped:
+    if ctx.radius_capped:
         resp["warning"] = (
             f"Search radius capped at {int(MAX_SEARCH_RADIUS):,} LY "
-            f"(requested {int(max_dist_req):,} LY)."
+            f"(requested {int(ctx.max_dist_req):,} LY)."
         )
     return resp
+
+
+# ---------------------------------------------------------------------------
+# Core search
+# ---------------------------------------------------------------------------
+async def local_db_search(body: dict, pool: asyncpg.Pool) -> dict:
+    """
+    Execute a filtered system search against the PostgreSQL DB.
+
+    Key features:
+    - Body filters pushed into SQL via pre-computed ratings columns.
+    - Galaxy region filter (named ED codex regions 1-42).
+    - When filtering by economy, display_score = economy-specific score.
+    - When browsing without economy filter, display_score = overall score.
+    - Unified local and galaxy-wide search (galaxy_wide=True skips distance).
+    """
+    t0 = time.time()
+
+    ctx = _parse_local_search_context(body)
+    builder = SearchSqlBuilder()
+    _apply_local_search_filters(ctx, builder)
+    where_sql = builder.where_sql
+    where_param_count = len(builder.params)
+    dist_expr = _build_distance_expr(ctx, builder)
+    count_sql = _build_local_search_count_sql(where_sql, ctx.galaxy_wide)
+    sql = _build_local_search_sql(ctx, builder, where_sql, dist_expr)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, *builder.params)
+        assert len(builder.params) == where_param_count + len(builder.select_params), (
+            "param accounting drifted: WHERE+SELECT must equal total"
+        )
+        total = await conn.fetchval(count_sql, *builder.params[:where_param_count])
+
+    elapsed = round((time.time() - t0) * 1000)
+    log.debug("local_db_search: %d total, returning %d (from=%d) in %dms",
+              total, len(rows), ctx.from_idx, elapsed)
+
+    return _build_local_search_response(rows, total, ctx, elapsed)
 
 
 # ---------------------------------------------------------------------------

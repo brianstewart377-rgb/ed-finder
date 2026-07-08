@@ -34,7 +34,7 @@ ALLOWED_SOURCE_NAMES = frozenset((
     'frontier_journal',
     'edcd',
     'canonn',
-    'ravencolonial',
+    'planner_reference_archive',
 ))
 
 ALLOWED_SOURCE_CATEGORIES = frozenset((

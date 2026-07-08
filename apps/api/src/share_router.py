@@ -7,7 +7,7 @@ rich-media preview cards in Discord, Reddit, Twitter, Slack, etc.
   GET /s/{id64}              ── HTML page with OG meta tags. Bots stop
                                 here and read the meta. Humans get a
                                 tiny inline script that 302s them to
-                                `/#s={id64}` on the SPA.
+                                `/#system/{id64}` on the SPA.
   GET /api/share/og/{id64}   ── PNG (1200x630) preview card rendered
                                 with Pillow. Lazy: cached in Redis for
                                 7 days under  `og:{id64}`.
@@ -86,7 +86,7 @@ def _wrap(text: str, max_chars: int) -> list[str]:
 async def share_stop_page(id64: int, request: Request):
     """
     Bots → static HTML with OG/Twitter meta tags pointing at the PNG
-    endpoint below. Real users → 302 to the SPA's `#s={id64}` deep-link
+    endpoint below. Real users → 302 to the SPA's `#system/{id64}` deep-link
     so the existing client-side router takes over.
     """
     ua = (request.headers.get("user-agent") or "").lower()
@@ -99,7 +99,7 @@ async def share_stop_page(id64: int, request: Request):
     fwd_host  = request.headers.get("x-forwarded-host")  or request.url.hostname or "ed-finder.app"
     fwd_proto = request.headers.get("x-forwarded-proto") or "https"
     base = f"{fwd_proto}://{fwd_host}"
-    sys_url = f"{base}/#s={id64}"
+    sys_url = f"{base}/#system/{id64}"
     img_url = f"{base}/api/share/og/{id64}"
 
     # Fetch system name + score for human-readable title. If the lookup
@@ -260,7 +260,7 @@ def _render_card(
     score: Optional[int],
     confidence: Optional[float],
     rationale: Optional[str],
-    coords: tuple[float, float, float],
+    coords: tuple[float | None, float | None, float | None],
     id64: int,
 ) -> bytes:
     """
@@ -323,7 +323,10 @@ def _render_card(
 
     # ── Coords subtitle ────────────────────────────────────────────────
     f_sub = _font(22)
-    coord_str = f"Coords  {coords[0]:.1f} / {coords[1]:.1f} / {coords[2]:.1f} LY"
+    if all(value is not None for value in coords):
+        coord_str = f"Coords  {coords[0]:.1f} / {coords[1]:.1f} / {coords[2]:.1f} LY"
+    else:
+        coord_str = "Coords  unavailable"
     draw.text((48, 200), coord_str, font=f_sub, fill=DIM)
 
     # ── Rationale (wrapped) ────────────────────────────────────────────

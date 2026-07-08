@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS source_runs (
             'frontier_journal',
             'edcd',
             'canonn',
-            'ravencolonial'
+            'planner_reference_archive'
         )),
     CONSTRAINT chk_source_runs_source_category
         CHECK (source_category IN (

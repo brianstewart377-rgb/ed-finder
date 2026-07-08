@@ -1,4 +1,4 @@
-import json
+﻿import json
 import re
 from pathlib import Path
 
@@ -8,7 +8,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
+ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AY_DOC_PATH = DOCS / 'stage-19ay-test-environment-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -207,3 +207,4 @@ def test_stage19ay_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19ay_test_environment_closeout.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
+
