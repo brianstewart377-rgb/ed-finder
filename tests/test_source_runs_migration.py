@@ -132,7 +132,7 @@ def test_source_runs_constrains_source_category_domain_and_scope_values():
         'frontier_journal',
         'edcd',
         'canonn',
-        'ravencolonial',
+        'planner_reference_archive',
     ):
         assert f"'{source_name}'" in table
 

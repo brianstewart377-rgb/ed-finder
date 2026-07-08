@@ -231,6 +231,18 @@ async def test_share_og_renders_png_when_coords_are_unknown(client, pool):
     assert r.content[:8] == b'\x89PNG\r\n\x1a\n'
 
 
+async def test_share_stop_page_redirects_humans_to_supported_hash_route(client, pool):
+    async with pool.acquire() as conn:
+        id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')
+
+    r = await client.get(
+        f'/s/{id64}',
+        headers={'user-agent': 'Mozilla/5.0'},
+        follow_redirects=False,
+    )
+
+    assert r.status_code == 302
+    assert r.headers['location'].endswith(f'/#system/{id64}')
 # --- Admin auth ------------------------------------------------------------
 
 async def test_admin_endpoint_requires_token(client):

@@ -1,4 +1,4 @@
-import argparse
+﻿import argparse
 import json
 import re
 import sys
@@ -17,7 +17,7 @@ import stage19av_expanded_source_run_staging_pilot as stage19av  # noqa: E402
 
 
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
+ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AV_DOC_PATH = DOCS / 'stage-19av-expanded-source-run-staging-pilot.md'
 AV_SCRIPT_PATH = OPERATOR_SCRIPTS / 'stage19av_expanded_source_run_staging_pilot.py'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
@@ -259,3 +259,4 @@ def test_stage19av_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19av_expanded_source_run_staging_pilot.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
+

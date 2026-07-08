@@ -169,7 +169,7 @@ def cluster_count_column(name: Optional[str], *, alias: str = 'cs') -> Optional[
 
 
 # ── Body filter columns ────────────────────────────────────────────────────
-# Frontend (frontend-v2/src/features/search/useSearch.ts) sends keys via
+# Frontend (frontend/src/features/search/useSearch.ts) sends keys via
 # BODY_BACKEND_KEY in snake_case. Older callers may still send camelCase;
 # we accept both via BODY_FILTER_ALIASES.
 BODY_FILTER_COLS: Mapping[str, str] = {

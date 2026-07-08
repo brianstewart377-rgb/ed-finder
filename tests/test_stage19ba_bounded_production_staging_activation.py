@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import sys
@@ -12,7 +12,7 @@ DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
-STAGE19_ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
+STAGE19_ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 STAGE19BA_PATH = DOCS / 'stage-19-bounded-production-staging-activation.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 WRAPPER_PATH = ROOT / 'scripts' / 'operator' / 'stage19ba_bounded_production_staging_activation.py'
@@ -292,3 +292,4 @@ def test_stage19ba_target_validation_fails_closed_for_database_url_label_ports_h
     incomplete_identity.db_user = '   '
     with pytest.raises(stage19ba.Stage19BaActivationError):
         stage19ba.assert_safe_stage19ba_target(incomplete_identity)
+

@@ -14,8 +14,8 @@ README_PATH = DOCS / 'README.md'
 STAGE19BA_PATH = DOCS / 'stage-19-bounded-production-staging-activation.md'
 STAGE19BB_PATH = DOCS / 'stage-19bb-first-production-staging-activation.md'
 STAGE19BB_CLOSEOUT_PATH = DOCS / 'stage-19bb-production-staging-execution-closeout.md'
-STAGE19_ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
-STAGE23_PATH = DOCS / 'stage-23-roadmap.md'
+STAGE19_ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
+STAGE23_PATH = ROOT / 'docs' / 'ROADMAP.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 WRAPPER_PATH = ROOT / 'scripts' / 'operator' / 'stage19bb_first_production_staging_activation.py'
 OPERATOR_README_PATH = ROOT / 'scripts' / 'operator' / 'README.md'
@@ -118,7 +118,7 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert checkpoint['runtime_source_run_created'] is True
     assert checkpoint['runtime_artifact_created'] is True
     assert checkpoint['execution_closeout_prepared'] is True
-    assert checkpoint['execution_closeout_document'] == str(STAGE19BB_CLOSEOUT_PATH.relative_to(ROOT))
+    assert checkpoint['execution_closeout_document'] == STAGE19BB_CLOSEOUT_PATH.relative_to(ROOT).as_posix()
     assert checkpoint['canonical_apply_authorized'] is False
     assert checkpoint['rebaseline_authorized'] is False
     assert checkpoint['scheduler_service_authorized'] is False
@@ -328,3 +328,4 @@ def test_stage19bb_script_source_blocks_scheduler_service_and_canonical_apply_pa
     assert 'canonical_apply_authorized' in source
     assert 'rebaseline_authorized' in source
     assert "['git', 'merge-base', '--is-ancestor'" in source
+

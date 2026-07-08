@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -78,7 +78,7 @@ _SOURCE_CATALOG: list[dict[str, Any]] = [
         'recommended_priority': 5,
         'ingestion_modes': ['file_drop', 'operator_upload', 'edmc_bridge'],
         'repo_surfaces': [
-            'docs/colonisation-redesign/engine-roadmap.md',
+            'docs/ROADMAP.md',
             'docs/colonisation-redesign/stage-19-import-source-and-domain-matrix.md',
         ],
         'why_this_matters': 'This is the cleanest path to first-party evidence the community feeds cannot guarantee.',
@@ -134,3 +134,4 @@ def list_evidence_sources() -> list[dict[str, Any]]:
         (dict(row) for row in _SOURCE_CATALOG),
         key=lambda row: (row['recommended_priority'], row['source_name']),
     )
+
