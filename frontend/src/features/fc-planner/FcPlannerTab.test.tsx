@@ -54,4 +54,13 @@ describe('FcPlannerTab', () => {
     expect(screen.getByText('Observed colony state')).toBeTruthy();
     expect(screen.getByText(/player-journey reference/i)).toBeTruthy();
   });
+
+  it('shows an explicit empty selected-system state before anything is pinned', () => {
+    render(<FcPlannerTab fc={makeFc()} />);
+
+    expect(screen.getByTestId('fc-workspace-header')).toBeTruthy();
+    expect(screen.getByText('No selected system')).toBeTruthy();
+    expect(screen.getByText('Waiting for selection')).toBeTruthy();
+    expect(screen.getByText(/Choose a system in Explore, Inspect, or Plan/i)).toBeTruthy();
+  });
 });

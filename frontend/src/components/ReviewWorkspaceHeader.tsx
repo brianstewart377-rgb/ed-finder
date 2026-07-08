@@ -30,7 +30,10 @@ export function ReviewWorkspaceHeader({
 }: ReviewWorkspaceHeaderProps) {
   const selectedSystemName = selectedSystem
     ? (selectedSystem.name ?? (selectedSystem.loading ? 'Refreshing selected system...' : `System ${selectedSystem.id64}`))
-    : null;
+    : 'No selected system';
+  const selectedSystemMeta = selectedSystem
+    ? (selectedSystem.loading ? 'Refreshing selected-system context' : 'Selected-system context')
+    : 'Selected-system context';
 
   return (
     <header className="panel overflow-hidden p-4 sm:p-5">
@@ -42,23 +45,35 @@ export function ReviewWorkspaceHeader({
         actions={actions}
         testId={testId}
         selectedSystemName={selectedSystemName}
-        selectedSystemMeta={selectedSystem ? (
-          <span>{selectedSystem.loading ? 'Refreshing selected-system context' : 'Selected-system context'}</span>
-        ) : undefined}
-        selectedSystemDetail={selectedSystem ? (
+        selectedSystemMeta={<span>{selectedSystemMeta}</span>}
+        selectedSystemDetail={(
           <div className="space-y-2 text-left xl:text-right" data-testid="review-workspace-selected-system">
-            <SemanticStatusBadge
-              label={selectedSystem.evidenceLabel}
-              tone={selectedSystem.evidenceTone}
-            />
-            <p className="text-xs leading-relaxed text-silver">
-              {selectedSystem.evidenceSummary}
-            </p>
-            <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
-              ID64 {selectedSystem.id64}
-            </p>
+            {selectedSystem ? (
+              <>
+                <SemanticStatusBadge
+                  label={selectedSystem.evidenceLabel}
+                  tone={selectedSystem.evidenceTone}
+                />
+                <p className="text-xs leading-relaxed text-silver">
+                  {selectedSystem.evidenceSummary}
+                </p>
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">
+                  ID64 {selectedSystem.id64}
+                </p>
+              </>
+            ) : (
+              <>
+                <SemanticStatusBadge
+                  label="Waiting for selection"
+                  tone="not_evaluated"
+                />
+                <p className="text-xs leading-relaxed text-silver">
+                  Choose a system in Explore, Inspect, or Plan to pin that player-journey context here while you review supporting tools.
+                </p>
+              </>
+            )}
           </div>
-        ) : undefined}
+        )}
       />
     </header>
   );
