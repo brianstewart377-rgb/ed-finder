@@ -146,7 +146,7 @@ export function SystemDetailModal({
                 Loading system detail for inspection.
               </p>
               <p className="mt-1 text-xs text-silver-dk">
-                Review the selected system here, then move into Colony Planner when the context is ready.
+                Review the selected system here, then start a plan in Colony Planner when you're ready.
               </p>
             </div>
           )}

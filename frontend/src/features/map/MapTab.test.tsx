@@ -142,6 +142,17 @@ describe('MapTab', () => {
     expect(screen.getByText('Select a star')).toBeTruthy();
   });
 
+  it('preselects the routed system when an initial selected id is provided', () => {
+    const systems = [
+      makeSystem({ id64: 1, name: 'Alpha Centauri', coords: { x: 10, y: 0, z: 5 } }),
+      makeSystem({ id64: 2, name: 'Beta', coords: { x: -20, y: 0, z: 10 } }),
+    ];
+    render(<MapTab systems={systems} reference={reference} initialSelectedSystemId={2} />);
+
+    expect(screen.getByTestId('map-selection-panel').textContent).toContain('Beta');
+    expect(screen.queryByText('Select a star')).toBeNull();
+  });
+
   it('shows system details after selecting a system', () => {
     const systems = [
       makeSystem({ id64: 1, name: 'Alpha Centauri', coords: { x: 10, y: 0, z: 5 } }),

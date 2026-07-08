@@ -330,7 +330,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           compare={compare}
           savedActionStates={savedSystemActionState}
           onToggleSavedForLater={toggleSavedSystem}
-          onShowOnMap={() => navigate('map')}
+          onShowOnMap={(id64) => openSystemDetail(id64, { hostRoute: 'map' })}
           onOpenDetail={openSystemDetail}
         />
       )}
@@ -405,6 +405,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               x:    search.filters.refCoords.x,
               z:    search.filters.refCoords.z,
             }}
+            initialSelectedSystemId={selectedSystemId}
           />
         )}
       </Suspense>

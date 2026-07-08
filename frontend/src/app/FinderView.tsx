@@ -40,7 +40,7 @@ export function FinderView({
       purity_score?: number | null;
     },
   ) => Promise<void>;
-  onShowOnMap: () => void;
+  onShowOnMap: (id64: number) => void;
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
   const { filters, setFilters, reset, run, state, results } = search;
@@ -74,7 +74,7 @@ export function FinderView({
             <EmptyState
               icon="🔭"
               title="Ready to search"
-              hint="Adjust the filters on the left and hit SEARCH."
+              hint="Adjust the filters on the left, then run a search."
             />
           )}
 

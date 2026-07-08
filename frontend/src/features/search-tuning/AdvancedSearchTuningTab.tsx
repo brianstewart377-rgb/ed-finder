@@ -278,7 +278,7 @@ function ResultsList({
                       }}
                       className="rounded-chunk-sm border border-orange/45 bg-orange/10 px-2 py-1 text-[10px] font-bold text-orange hover:bg-orange/20"
                     >
-                      Open system detail
+                      Inspect system
                     </button>
                   )}
                   <button
@@ -294,7 +294,7 @@ function ResultsList({
                     }}
                     className="rounded-chunk-sm border border-cyan/35 bg-cyan/10 px-2 py-1 text-[10px] font-bold text-cyan hover:bg-cyan/20"
                   >
-                    Evaluate in Colony Planner
+                    Open in Colony Planner
                   </button>
                   <span className="text-[10px] text-silver-dk">
                     {onOpenColonyPlanner

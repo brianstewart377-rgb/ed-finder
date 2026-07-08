@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { GalacticMap, type MapViewMode } from './GalacticMap';
 import { MapErrorBoundary } from './MapErrorBoundary';
 import { MapLayerStatusRow, MapLegend, SelectionPanel, TimelineSummary, VIEW_MODES } from './mapTabPanels';
@@ -16,9 +16,10 @@ import type { SystemResult } from '@/types/api';
 export interface MapTabProps {
   systems:    SystemResult[];
   reference:  { name: string; x: number; z: number };
+  initialSelectedSystemId?: number | null;
 }
 
-export function MapTab({ systems, reference }: MapTabProps) {
+export function MapTab({ systems, reference, initialSelectedSystemId = null }: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
   const [viewMode, setViewMode] = useState<MapViewMode>('results');
   const [showFrame, setShowFrame] = useState(true);
@@ -53,6 +54,12 @@ export function MapTab({ systems, reference }: MapTabProps) {
     showTimeline ? `Timeline (${timelineBucket})` : null,
   ].filter(Boolean).join(' + ');
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewMode) ?? VIEW_MODES[0];
+
+  useEffect(() => {
+    if (initialSelectedSystemId == null) return;
+    const preselected = systems.find((system) => system.id64 === initialSelectedSystemId) ?? null;
+    setSelected(preselected);
+  }, [initialSelectedSystemId, systems]);
 
   return (
     <section data-testid="map-tab" aria-label="Galactic map tab" className="space-y-5">

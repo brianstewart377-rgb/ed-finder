@@ -110,7 +110,7 @@ export function ColonyPlannerEntryPoint({
               className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
             >
               <Rocket size={14} />
-              {planningOpen ? 'Hide plan start' : 'Start a plan'}
+              {planningOpen ? 'Close plan setup' : 'Start a plan'}
             </button>
           </>
         )}
@@ -154,6 +154,8 @@ function PlanStartPanel({
   onConfirm: () => void;
 }) {
   const readyToCreate = selectedObjective != null && selectedStartApproach != null;
+  const objectiveSelected = selectedObjective != null;
+  const approachSelected = selectedStartApproach != null;
 
   return (
     <div
@@ -162,10 +164,10 @@ function PlanStartPanel({
     >
       <div className="space-y-1">
         <h4 className="font-display text-base tracking-[0.1em] text-orange-lt">
-          Start a real local draft
+          Create a local draft
         </h4>
         <p className="text-sm leading-relaxed text-silver">
-          Choose an objective, choose how you want to begin, then enter the canonical planner for {systemName}.
+          Pick an objective and starting approach, then open Colony Planner for {systemName}.
         </p>
       </div>
 
@@ -173,6 +175,13 @@ function PlanStartPanel({
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Step 1</span>
           <h5 className="font-mono text-[11px] uppercase tracking-[0.14em] text-silver">Objective</h5>
+          <span className="flex-1" />
+          <span className={[
+            'font-mono text-[10px] uppercase tracking-[0.14em]',
+            objectiveSelected ? 'text-green' : 'text-silver-dk',
+          ].join(' ')}>
+            {objectiveSelected ? 'Selected' : 'Pick one'}
+          </span>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           {PLANNER_OBJECTIVE_OPTIONS.map((option) => (
@@ -200,6 +209,13 @@ function PlanStartPanel({
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-orange">Step 2</span>
           <h5 className="font-mono text-[11px] uppercase tracking-[0.14em] text-silver">Starting approach</h5>
+          <span className="flex-1" />
+          <span className={[
+            'font-mono text-[10px] uppercase tracking-[0.14em]',
+            approachSelected ? 'text-green' : 'text-silver-dk',
+          ].join(' ')}>
+            {approachSelected ? 'Selected' : 'Pick one'}
+          </span>
         </div>
         <div className="grid gap-2 lg:grid-cols-2">
           <button
@@ -216,10 +232,10 @@ function PlanStartPanel({
           >
             <div className="flex items-center gap-2 font-semibold text-text">
               <Compass size={15} className="text-cyan" />
-              Start with ED-Finder recommendation
+              Start with ED-Finder guidance
             </div>
             <p className="mt-1 text-xs leading-relaxed text-silver-dk">
-              ED-Finder will help compare suitable approaches in the planner. No recommendation is generated yet.
+              ED-Finder will help compare suitable approaches in the planner before you commit anything.
             </p>
           </button>
           <button
@@ -262,7 +278,7 @@ function PlanStartPanel({
           className="inline-flex items-center gap-2 rounded-chunk-sm border border-orange/50 bg-orange/15 px-3 py-2 text-xs font-mono font-bold text-orange hover:bg-orange/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 disabled:cursor-not-allowed disabled:border-border disabled:bg-bg3/60 disabled:text-silver-dk"
         >
           <Rocket size={14} />
-          Create draft and open planner
+          Create draft & open planner
         </button>
         {!readyToCreate ? (
           <p className="text-xs text-silver-dk">

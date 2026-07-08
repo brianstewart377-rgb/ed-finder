@@ -270,6 +270,24 @@ vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
   ),
 }));
 
+vi.mock('@/features/map/MapTab', () => ({
+  MapTab: ({
+    systems,
+    reference,
+    initialSelectedSystemId,
+  }: {
+    systems: Array<{ name?: string; id64: number }>;
+    reference: { name: string };
+    initialSelectedSystemId?: number | null;
+  }) => (
+    <div data-testid="map-tab">
+      <span>Map for {reference.name}</span>
+      <span data-testid="map-tab-system-count">{systems.length}</span>
+      <span data-testid="map-tab-selected-id">{initialSelectedSystemId ?? 'none'}</span>
+    </div>
+  ),
+}));
+
 afterEach(() => {
   window.location.hash = '';
   localStorage.clear();
@@ -420,6 +438,18 @@ describe('App Colony Planner workspace route', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('planner-canvas-preview')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
+    expect(container.querySelector('main')?.className).toContain('max-w-none');
+  });
+
+  it('renders the isolated chip preview on its own safe route', async () => {
+    window.location.hash = '#chip-preview';
+
+    const { container } = await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('chip-preview')).toBeTruthy();
     });
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
     expect(container.querySelector('main')?.className).toContain('max-w-none');
@@ -694,6 +724,29 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('system-detail-modal').textContent).toContain('777');
     expect(screen.queryByTestId('colony-planner-workspace')).toBeNull();
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
+  });
+
+  it('carries the chosen Finder result into the Map route and preselects it there', async () => {
+    seedFinderResult();
+    window.location.hash = '#finder';
+
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('result-card-777')).toBeTruthy();
+    });
+
+    const resultCard = screen.getByTestId('result-card-777');
+    fireEvent.click(screen.getByText('Finder Candidate'));
+    fireEvent.click(within(resultCard).getByRole('button', { name: /^Map$/i }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#map/system/777');
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('map-tab-selected-id').textContent).toBe('777');
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 777');
   });
 
   it('lets Finder remove an already saved system through the same Watchlist path', async () => {

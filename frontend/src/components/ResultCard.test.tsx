@@ -65,7 +65,7 @@ describe('ResultCard actions', () => {
     expect(onShowOnMap).toHaveBeenCalledWith(42);
     expect(onPin).toHaveBeenCalledWith(42);
     expect(onCompare).toHaveBeenCalledWith(42);
-    expect(screen.queryByRole('button', { name: /Evaluate in Colony Planner/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Open in Colony Planner/i })).toBeNull();
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Refinery');
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Megacomplex');
     expect(screen.queryByLabelText('Development score: 91/100')).toBeNull();
@@ -101,6 +101,7 @@ describe('ResultCard actions', () => {
     expect(getComputedStyle(secondaryLabel).color).toBe(hexToRgbString(economyColor('Industrial')));
     expect(primaryLabel.textContent).toBe('Refinery');
     expect(secondaryLabel.textContent).toBe('Industrial');
+    expect(screen.getByTestId('result-card-suggested-archetype-divider')).toBeTruthy();
   });
 
   it('derives split economy colours from the visible archetype label when raw fields do not align', () => {
