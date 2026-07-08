@@ -1,0 +1,48 @@
+# ED-Finder migration manifest
+#
+# Format:
+#   <filename>[|<mode>]
+#
+# Modes:
+#   auto   - applied by the normal migration applier
+#   manual - omitted by default; include explicitly for fresh/local DB setup
+#
+# Notes:
+# - `seed_preview.sql` is not a migration and is applied separately by seed paths.
+# - `999_refresh_materialized_views.sql` is operational SQL and is intentionally
+#   excluded from this manifest.
+
+001_schema.sql
+002_indexes.sql
+003_functions.sql
+004_ratings_v31.sql
+005_map_indexes.sql
+006_score_history.sql
+007_profile_sync.sql
+008_body_filter_aggregates.sql
+009_map_materialised_views.sql
+010_sync_key_scoping.sql
+011_autocomplete_index.sql
+012_topology_tables.sql
+013_archetype_scores.sql
+014_archetype_mv.sql
+015_simulation_engine.sql
+016_regional_analysis.sql
+017_observed_facts.sql
+018_observed_facts_stage6a.sql
+019_nullable_coords.sql|manual
+020_rating_version.sql
+021_station_body_links.sql
+022_rating_dirty_triggers.sql
+023_station_data_provenance.sql
+024_body_rings.sql
+025_eddn_ring_identity.sql
+031_eddn_ring_identity_hardening.sql
+026_enrichment_staging_foundation.sql
+027_station_external_identity.sql
+028_add_dodec_station_type.sql
+029_create_source_runs.sql
+030_evidence_store_foundation.sql
+032_journal_import_staging.sql
+033_body_data_contract_hardening.sql
+034_station_body_link_contract_hardening.sql

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extra instruction: assume this app is about to go through a serious product and engineering review for investment or acquisition diligence. Flag anything that would embarrass the team in that setting.ED Finder — Ratings Computer
+ED Finder — Ratings Computer
 Canonical scorer: Ratings v3.4 Best-Build Potential
 Lineage baseline: v3.0 colonisation-accurate scoring rewrite
 
@@ -1554,6 +1554,15 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         try:
             bodies = bodies_by_system.get(system_id64, [])
             last_updated = last_updated_by_system.get(system_id64)
+            if not bodies:
+                errors += 1
+                failed_ids.add(system_id64)
+                log.warning(
+                    "Worker %s: no bodies fetched for %s; leaving rating_dirty set for retry",
+                    worker_id,
+                    system_id64,
+                )
+                continue
             rating = rate_system(system_id64, bodies, main_star_type,
                                  last_updated=last_updated)
             rating_batch.append(rating)
