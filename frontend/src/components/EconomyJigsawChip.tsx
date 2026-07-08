@@ -24,6 +24,8 @@ export function EconomyJigsawChip({
   secondaryEconomy,
   primaryColor,
   secondaryColor,
+  primarySoft,
+  secondarySoft,
   testIdPrefix,
 }: EconomyJigsawChipProps) {
   const wrapperTestId = testIdPrefix;
@@ -53,12 +55,40 @@ export function EconomyJigsawChip({
         width: `${CHIP_TOTAL_WIDTH}px`,
         maxWidth: '100%',
         height: `${CHIP_HEIGHT}px`,
-        borderColor: 'rgba(148,163,184,0.22)',
-        background: 'rgba(10,14,22,0.5)',
-        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 34px -28px rgba(0,0,0,0.8)',
+        borderColor: 'rgba(148,163,184,0.24)',
+        background: [
+          'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 24%)',
+          'linear-gradient(180deg, rgba(24, 28, 34, 0.9), rgba(12, 15, 20, 0.88))',
+        ].join(', '),
+        boxShadow: [
+          'inset 0 1px 0 rgba(255,255,255,0.05)',
+          'inset 0 -1px 0 rgba(0,0,0,0.28)',
+          '0 12px 30px -24px rgba(0,0,0,0.9)',
+          '0 0 18px -16px rgba(111,229,255,0.22)',
+          '0 0 18px -16px rgba(255,122,20,0.2)',
+        ].join(', '),
       }}
       title={title}
     >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background: [
+            `radial-gradient(circle at 18% 50%, ${primarySoft} 0%, transparent 58%)`,
+            `radial-gradient(circle at 82% 50%, ${secondarySoft} 0%, transparent 58%)`,
+          ].join(', '),
+          opacity: 0.8,
+        }}
+      />
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-[1px] rounded-[15px]"
+        style={{
+          border: '1px solid rgba(255,255,255,0.03)',
+          background: 'linear-gradient(180deg, rgba(255,255,255,0.045), transparent 34%)',
+        }}
+      />
       <svg
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 h-full w-full"
@@ -67,12 +97,12 @@ export function EconomyJigsawChip({
       >
         <defs>
           <linearGradient id={`${gradientId}-left`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={primaryColor} />
-            <stop offset="100%" stopColor={primaryColor} stopOpacity="0.9" />
+            <stop offset="0%" stopColor={primaryColor} stopOpacity="0.9" />
+            <stop offset="100%" stopColor={primaryColor} stopOpacity="0.68" />
           </linearGradient>
           <linearGradient id={`${gradientId}-right`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={secondaryColor} />
-            <stop offset="100%" stopColor={secondaryColor} stopOpacity="0.9" />
+            <stop offset="0%" stopColor={secondaryColor} stopOpacity="0.9" />
+            <stop offset="100%" stopColor={secondaryColor} stopOpacity="0.68" />
           </linearGradient>
         </defs>
         <polygon points="0,0 53,0 47,34 0,34" fill={`url(#${gradientId}-left)`} />
