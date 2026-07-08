@@ -14,6 +14,7 @@ import {
   economySoftColor,
   normaliseEconomyName,
 } from '@/features/colony-planner/economyVisuals';
+import { EconomyJigsawChip } from '@/components/EconomyJigsawChip';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,
 } from 'lucide-react';
@@ -294,63 +295,18 @@ function ArchetypeChip({
   }
 
   return (
-    <span
-      data-testid="result-card-suggested-archetype"
-      aria-label={label}
-      className="relative inline-flex overflow-hidden rounded-chunk border uppercase"
-      style={{
-        borderColor: 'rgba(148,163,184,0.3)',
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.05), 0 0 10px -6px ${parts.primaryColor}, 0 0 10px -6px ${parts.secondaryColor}`,
-      }}
+    <EconomyJigsawChip
+      label={label}
       title={`${source === 'archetype' ? 'Primary' : 'Suggested'} archetype: ${label}`}
-    >
-      <span
-        data-testid="result-card-suggested-archetype-primary-piece"
-        className="relative z-[1] inline-flex items-center px-2.5 py-1 pr-4 font-mono text-[10px] font-bold tracking-[0.12em]"
-        style={{
-          background: `linear-gradient(180deg, ${parts.primarySoft}, rgba(15,23,42,0.08))`,
-          color: '#d7f7fb',
-        }}
-      >
-        <span data-testid="result-card-suggested-archetype-primary" style={{ color: parts.primaryColor }}>
-          {parts.primaryEconomy}
-        </span>
-      </span>
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 left-1/2 z-[2] w-8 -translate-x-1/2"
-      >
-        <svg viewBox="0 0 32 32" preserveAspectRatio="none" className="h-full w-full">
-          <path
-            d="M16 0 L14 10 C14 12.5 15.5 14 18 14 C21.2 14 23 16.1 23 19 C23 21.9 21.2 24 18 24 C15.5 24 14 25.5 14 28 L16 32"
-            fill="none"
-            stroke="rgba(11,18,24,0.92)"
-            strokeWidth="5"
-            strokeLinecap="round"
-          />
-          <path
-            d="M16 0 L14.5 10 C14.5 12.3 15.8 13.6 18 13.6 C20.7 13.6 22.2 15.5 22.2 19 C22.2 22.5 20.7 24.4 18 24.4 C15.8 24.4 14.5 25.7 14.5 28 L16 32"
-            fill="none"
-            stroke="rgba(226,232,240,0.18)"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-          />
-        </svg>
-      </span>
-      <span
-        data-testid="result-card-suggested-archetype-secondary-piece"
-        className="relative z-[1] inline-flex items-center px-2.5 py-1 pl-4 font-mono text-[10px] font-bold tracking-[0.12em]"
-        style={{
-          background: `linear-gradient(180deg, ${parts.secondarySoft}, rgba(15,23,42,0.08))`,
-          color: '#d7f7fb',
-        }}
-      >
-        <span data-testid="result-card-suggested-archetype-secondary" style={{ color: parts.secondaryColor }}>
-          {parts.secondaryEconomy}
-        </span>
-        {parts.suffix ? <span className="text-silver"> {parts.suffix}</span> : null}
-      </span>
-    </span>
+      primaryEconomy={parts.primaryEconomy}
+      secondaryEconomy={parts.secondaryEconomy}
+      suffix={parts.suffix}
+      primaryColor={parts.primaryColor}
+      secondaryColor={parts.secondaryColor}
+      primarySoft={parts.primarySoft}
+      secondarySoft={parts.secondarySoft}
+      testIdPrefix="result-card-suggested-archetype"
+    />
   );
 }
 

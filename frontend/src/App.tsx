@@ -46,6 +46,7 @@ const LazyMapTab = lazy(async () => ({ default: (await import('@/features/map/Ma
 const LazySystemDetailModal = lazy(async () => ({ default: (await import('@/features/system-detail/SystemDetailModal')).SystemDetailModal }));
 const LazyColonyPlannerWorkspace = lazy(async () => ({ default: (await import('@/features/colony-planner/ColonyPlannerWorkspace')).ColonyPlannerWorkspace }));
 const LazyPlannerCanvasPreview = lazy(async () => ({ default: (await import('@/features/colony-planner/preview/PlannerCanvasPreview')).PlannerCanvasPreview }));
+const LazyChipPreview = lazy(async () => ({ default: (await import('@/features/preview/ChipPreview')).ChipPreview }));
 const LazyMyWorkWorkspace = lazy(async () => ({ default: (await import('@/features/my-work/MyWorkWorkspace')).MyWorkWorkspace }));
 const LazyReactQueryDevtools = lazy(async () => ({ default: (await import('@tanstack/react-query-devtools')).ReactQueryDevtools }));
 const SHELL_SELECTED_SYSTEM_STORAGE_KEY = 'ed-finder:selected-system-context';
@@ -84,6 +85,10 @@ function AppInner() {
     return <PlannerPreviewAppShell navigate={hashRoute.navigate} />;
   }
 
+  if (hashRoute.route === 'chip-preview') {
+    return <ChipPreviewAppShell navigate={hashRoute.navigate} />;
+  }
+
   return <LiveAppInner hashRoute={hashRoute} />;
 }
 
@@ -103,6 +108,27 @@ function PlannerPreviewAppShell({ navigate }: { navigate: HashRoute['navigate'] 
       />
       <Suspense fallback={<WorkspaceFallback label="Loading planner preview" fullWidth />}>
         <LazyPlannerCanvasPreview />
+      </Suspense>
+    </main>
+  );
+}
+
+function ChipPreviewAppShell({ navigate }: { navigate: HashRoute['navigate'] }) {
+  return (
+    <main className="min-h-screen max-w-none px-4 py-6 pb-10 sm:px-6 sm:py-10">
+      <NavBar
+        current="chip-preview"
+        onNavigate={navigate}
+        watchlistCount={0}
+        pinnedCount={0}
+        compareCount={0}
+        colonyCount={0}
+        fcCount={0}
+        health="Visual"
+        fullWidth
+      />
+      <Suspense fallback={<WorkspaceFallback label="Loading chip preview" fullWidth />}>
+        <LazyChipPreview />
       </Suspense>
     </main>
   );

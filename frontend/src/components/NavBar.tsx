@@ -700,5 +700,14 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         statusLabel: 'Preview-only route',
         statusTone: 'caution',
       };
+    case 'chip-preview':
+      return {
+        title: 'Chip Preview',
+        primaryLabel: 'Preview',
+        supportingText: 'This isolated route renders the paired economy chip on its own so shape and chrome tweaks stay separate from live Finder workflows.',
+        nextAction: 'Judge the chip shape here, then return to Finder once it feels right.',
+        statusLabel: 'Preview-only route',
+        statusTone: 'caution',
+      };
   }
 }
