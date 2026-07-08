@@ -45,11 +45,11 @@ export function ChipPreview() {
           Isolated chip preview
         </p>
         <h1 className="font-mono text-2xl font-bold tracking-[0.08em] text-orange-lt">
-          Jigsaw economy chip
+          Diagonal economy chip
         </h1>
         <p className="max-w-2xl text-sm text-silver">
           This route strips away live search data and shows only the paired-economy chip geometry,
-          so you can judge the tab/notch silhouette in isolation.
+          so you can judge the centered seam, spacing, and colour balance in isolation.
         </p>
       </header>
 
@@ -72,7 +72,7 @@ export function ChipPreview() {
                 secondarySoft={economySoftColor(variant.secondaryEconomy)}
                 testIdPrefix={`chip-preview-${variant.primaryEconomy.toLowerCase()}-${variant.secondaryEconomy.toLowerCase()}`}
               />
-              <span className="font-mono text-[11px] tracking-[0.14em] text-silver-dk">
+              <span className="font-mono text-[11px] tracking-[0.14em] text-silver-dk sm:whitespace-nowrap">
                 {variant.label}
               </span>
             </div>
