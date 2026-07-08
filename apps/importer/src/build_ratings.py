@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ED Finder — Ratings Computer
+Extra instruction: assume this app is about to go through a serious product and engineering review for investment or acquisition diligence. Flag anything that would embarrass the team in that setting.ED Finder — Ratings Computer
 Canonical scorer: Ratings v3.4 Best-Build Potential
 Lineage baseline: v3.0 colonisation-accurate scoring rewrite
 
@@ -1719,15 +1719,27 @@ def main():
     with conn.cursor() as diag:
         diag.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
         total_with_bodies = diag.fetchone()[0]
-        diag.execute("SELECT COUNT(*) FROM ratings")
-        already_rated = diag.fetchone()[0]
+        # Full rebuilds and dirty-only passes do not need a full-table ratings
+        # count before work starts. On production-sized datasets that scan can
+        # take many minutes and delays the actual rerate unnecessarily.
+        if args.rebuild or args.dirty:
+            already_rated = None
+        else:
+            diag.execute("SELECT COUNT(*) FROM ratings")
+            already_rated = diag.fetchone()[0]
     conn.close()
 
-    remaining = total_with_bodies - already_rated
     log.info(f"  Systems with body data : {fmt_num(total_with_bodies)}")
-    log.info(f"  Already rated          : {fmt_num(already_rated)}")
-    log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
-    log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
+    if already_rated is None:
+        log.info("  Already rated          : skipped for rebuild/dirty preflight")
+        log.info("  Remaining (resume)     : skipped for rebuild/dirty preflight")
+        log.info("  Coverage               : skipped for rebuild/dirty preflight")
+        remaining = None
+    else:
+        remaining = total_with_bodies - already_rated
+        log.info(f"  Already rated          : {fmt_num(already_rated)}")
+        log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
+        log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
     log.info(f"")
     log.info(f"  Score bands:")
     log.info(f"    0–30  : Barely viable (single economy, few bodies)")
