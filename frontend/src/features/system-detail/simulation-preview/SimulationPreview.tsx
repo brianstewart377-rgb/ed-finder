@@ -422,7 +422,7 @@ export function SimulationPreview({
 
         {activeMode === 'evidence' && (
           <EvidenceWorkspaceView
-            systemId64={system.id64}
+            system={system}
             targetArchetype={plan.targetArchetype}
             roleContext={(
               <WorkspaceRoleContext
@@ -438,7 +438,7 @@ export function SimulationPreview({
 
         {activeMode === 'validation' && (
           <ValidationWorkspaceView
-            systemId64={system.id64}
+            system={system}
             targetArchetype={plan.targetArchetype}
             previewResult={runState.result}
             isPreviewResultStale={runState.isResultStale}

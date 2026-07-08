@@ -10,6 +10,7 @@ import type {
 } from '@/types/api';
 import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
 import { buildExportArtifacts } from './exportArtifacts';
+import { SelectedSystemReviewContext } from './SelectedSystemReviewContext';
 
 
 export function ExportReadinessWorkspaceView({
@@ -63,6 +64,13 @@ export function ExportReadinessWorkspaceView({
 
   return (
     <div className="space-y-3" data-testid="export-readiness-workspace-view">
+      <SelectedSystemReviewContext
+        system={system}
+        targetArchetype={targetArchetype}
+        modeLabel="Export mode"
+        tone="report_only"
+        summary={`${system.name ?? 'This system'} remains the active selected-system context while review-ready packs are assembled. Planned, projected, observed, inferred, and warehouse sections stay explicitly separate.`}
+      />
       <section className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         <span className="font-bold text-cyan">Export mode</span>
         <span className="ml-2">

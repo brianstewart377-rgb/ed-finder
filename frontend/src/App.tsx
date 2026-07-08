@@ -352,6 +352,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           <LazyCompareTab
             compare={compare}
             onOpenDetail={openSystemDetail}
+            selectedSystem={shellSelectedSystem}
           />
         )}
 
@@ -382,7 +383,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
 
         {route === 'fc' && (
-          <LazyFcPlannerTab fc={fc} onOpenDetail={openSystemDetail} />
+          <LazyFcPlannerTab
+            fc={fc}
+            onOpenDetail={openSystemDetail}
+            selectedSystem={shellSelectedSystem}
+          />
         )}
 
         {route === 'colony' && (

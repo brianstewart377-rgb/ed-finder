@@ -2,13 +2,15 @@ import { useState } from 'react';
 import type { FcConfig, UseFcPlanner } from './useFcPlanner';
 import { useAutocomplete } from '@/features/search/useAutocomplete';
 import { formatCoords } from '@/lib/format';
+import { ReviewWorkspaceHeader, type ReviewSelectedSystem } from '@/components/ReviewWorkspaceHeader';
 
 export interface FcPlannerTabProps {
   fc: UseFcPlanner;
   onOpenDetail?: (id64: number) => void;
+  selectedSystem?: ReviewSelectedSystem | null;
 }
 
-export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
+export function FcPlannerTab({ fc, onOpenDetail, selectedSystem = null }: FcPlannerTabProps) {
   const { waypoints, config, route, add, remove, move, clear, setConfig, exportCsv } = fc;
   const [query, setQuery] = useState('');
   const { hits } = useAutocomplete(query);
@@ -17,34 +19,44 @@ export function FcPlannerTab({ fc, onOpenDetail }: FcPlannerTabProps) {
 
   return (
     <section data-testid="fc-tab" className="space-y-5">
-      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-        <h2 className="font-display text-orange tracking-[0.14em] text-lg">🚀 FC Route Planner</h2>
-        <span className="font-mono text-xs text-silver-dk">
-          Tritium / hop / cost calculator for Fleet Carrier journeys
-        </span>
-        <span className="flex-1" />
-        <button
-          type="button"
-          onClick={exportCsv}
-          disabled={waypoints.length === 0}
-          data-testid="fc-export"
-          className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          ⬇ Export CSV
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (waypoints.length === 0) return;
-            if (confirm(`Clear all ${waypoints.length} waypoints?`)) clear();
-          }}
-          disabled={waypoints.length === 0}
-          data-testid="fc-clear"
-          className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          ✕ Clear
-        </button>
-      </header>
+      <ReviewWorkspaceHeader
+        testId="fc-workspace-header"
+        title="FC Route Planner"
+        supportingText="Review Fleet Carrier waypoint plans while the selected-system context remains visible as player-journey reference, not route authority."
+        selectedSystem={selectedSystem}
+        facts={[
+          {
+            label: 'Waypoints',
+            value: String(waypoints.length),
+            tone: waypoints.length > 0 ? 'cyan' : 'default',
+          },
+        ]}
+        actions={(
+          <>
+            <button
+              type="button"
+              onClick={exportCsv}
+              disabled={waypoints.length === 0}
+              data-testid="fc-export"
+              className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ⬇ Export CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (waypoints.length === 0) return;
+                if (confirm(`Clear all ${waypoints.length} waypoints?`)) clear();
+              }}
+              disabled={waypoints.length === 0}
+              data-testid="fc-clear"
+              className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ✕ Clear
+            </button>
+          </>
+        )}
+      />
 
       {/* Config row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 panel-thin p-4">

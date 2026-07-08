@@ -73,6 +73,9 @@ describe('ExportReadinessWorkspaceView', () => {
     renderView();
 
     expect(await screen.findByTestId('export-markdown')).toBeTruthy();
+    expect(screen.getByTestId('selected-system-review-context')).toBeTruthy();
+    expect(screen.getByTestId('selected-system-review-summary').textContent).toMatch(/active selected-system context/i);
+    expect(screen.getByTestId('selected-system-review-context').textContent).toMatch(/Shinrarta Dezhra/);
     await waitFor(() => expect(screen.getByTestId('operator-review-references').textContent).toMatch(/run-20260617/));
     expect(screen.getByTestId('export-json')).toBeTruthy();
     expect(screen.getByTestId('export-csv')).toBeTruthy();

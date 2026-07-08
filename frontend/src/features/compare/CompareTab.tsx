@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import type { SystemResult } from '@/types/api';
 import type { UseCompare } from './useCompare';
 import { COMPARE_MAX } from './useCompare';
+import { ReviewWorkspaceHeader, type ReviewSelectedSystem } from '@/components/ReviewWorkspaceHeader';
 import {
   formatPopulationForSystem,
   formatDistance,
@@ -12,15 +13,16 @@ import { archetypeTierFromScore, formatArchetypeLabel, getDevelopmentScore } fro
 export interface CompareTabProps {
   compare: UseCompare;
   onOpenDetail?: (id64: number) => void;
+  selectedSystem?: ReviewSelectedSystem | null;
 }
 
-export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
+export function CompareTab({ compare, onOpenDetail, selectedSystem = null }: CompareTabProps) {
   const { entries } = compare;
 
   if (entries.length === 0) {
     return (
       <section data-testid="compare-tab" className="space-y-5">
-        <CompareHeader compare={compare} />
+        <CompareHeader compare={compare} selectedSystem={selectedSystem} />
         <div className="panel-thin text-center py-16 px-4">
           <div className="text-3xl mb-2" aria-hidden>⚖️</div>
           <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems selected</h3>
@@ -37,7 +39,7 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
 
   return (
     <section data-testid="compare-tab" className="space-y-5">
-      <CompareHeader compare={compare} />
+      <CompareHeader compare={compare} selectedSystem={selectedSystem} />
 
       {compare.lastError && (
         <div className="panel-thin border-red/50 p-2 font-mono text-xs text-red flex items-center gap-2" style={{ background: 'rgba(248,113,113,0.10)' }}>
@@ -131,38 +133,54 @@ export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   );
 }
 
-function CompareHeader({ compare }: { compare: UseCompare }) {
+function CompareHeader({
+  compare,
+  selectedSystem,
+}: {
+  compare: UseCompare;
+  selectedSystem: ReviewSelectedSystem | null;
+}) {
   return (
-    <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-      <h2 className="font-display text-orange tracking-[0.14em] text-lg">⚖️ Compare</h2>
-      <span className="font-mono text-xs text-silver-dk">
-        {compare.entries.length} / {COMPARE_MAX} selected
-      </span>
-      <span className="flex-1" />
-      <button
-        type="button"
-        onClick={compare.exportCsv}
-        disabled={compare.entries.length === 0}
-        data-testid="compare-export-csv"
-        className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        ↓ Export CSV
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          if (compare.entries.length === 0) return;
-          if (confirm(`Clear all ${compare.entries.length} systems from comparison?`)) {
-            compare.clear();
-          }
-        }}
-        disabled={compare.entries.length === 0}
-        data-testid="compare-clear"
-        className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        ✕ Clear all
-      </button>
-    </header>
+    <ReviewWorkspaceHeader
+      testId="compare-workspace-header"
+      title="Compare"
+      supportingText="Review candidate systems side-by-side while the selected-system context stays visible for the wider player journey."
+      selectedSystem={selectedSystem}
+      facts={[
+        {
+          label: 'Compared',
+          value: `${compare.entries.length} / ${COMPARE_MAX}`,
+          tone: compare.entries.length > 0 ? 'cyan' : 'default',
+        },
+      ]}
+      actions={(
+        <>
+          <button
+            type="button"
+            onClick={compare.exportCsv}
+            disabled={compare.entries.length === 0}
+            data-testid="compare-export-csv"
+            className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            ↓ Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (compare.entries.length === 0) return;
+              if (confirm(`Clear all ${compare.entries.length} systems from comparison?`)) {
+                compare.clear();
+              }
+            }}
+            disabled={compare.entries.length === 0}
+            data-testid="compare-clear"
+            className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            ✕ Clear all
+          </button>
+        </>
+      )}
+    />
   );
 }
 
