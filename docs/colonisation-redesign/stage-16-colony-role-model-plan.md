@@ -1,4 +1,4 @@
-# Stage 16 - Colony Role / Colony Planet Model Plan
+﻿# Stage 16 - Colony Role / Colony Planet Model Plan
 
 Stage 16A is a planning/report phase only. It does not implement code, change backend mechanics, change optimiser scoring, or introduce new persistence behavior.
 
@@ -855,3 +855,4 @@ Still deferred:
 - Suggested Build role explanations
 - summary rail role coverage/conflict reporting
 - Architect Slot Survey storage
+

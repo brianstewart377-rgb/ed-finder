@@ -1,4 +1,4 @@
-# Stage 18J-P4 — External Station Identity Schema Design
+﻿# Stage 18J-P4 — External Station Identity Schema Design
 
 ## Purpose
 
@@ -375,3 +375,4 @@ Do not relax the strict station-type filter. Stage 18J station-type writes must
 remain blocked until confirmed external identity rows exist, read-only
 reconciliation exposes them, and a later dry-run review proves that eligible
 candidates pass the unchanged identity boundary.
+

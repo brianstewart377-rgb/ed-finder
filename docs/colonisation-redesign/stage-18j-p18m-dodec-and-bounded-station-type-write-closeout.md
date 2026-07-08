@@ -1,4 +1,4 @@
-# Stage 18J-P18M — Dodec enum and bounded station-type write closeout
+﻿# Stage 18J-P18M — Dodec enum and bounded station-type write closeout
 
 ## Result
 
@@ -95,3 +95,4 @@ The completed chain confirms:
 Stage 18J-P18 is complete for this bounded batch.
 
 No additional station-type writes, canonical writes, or canonical apply are approved by this closeout.
+

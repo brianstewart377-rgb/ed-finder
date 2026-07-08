@@ -1,4 +1,4 @@
-# Mechanics Confidence
+﻿# Mechanics Confidence
 
 ED-Finder now separates numeric confidence from structured confidence signals.
 The numeric score remains useful for ranking, but the signals explain why that
@@ -88,3 +88,4 @@ Observed facts are review inputs. A value such as `reduce_confidence` means “t
 | Unknown/incomplete observation | Report `unknown`; preserve current mechanics confidence. |
 
 This keeps the validation loop honest: ED-Finder can show what it predicts and what players observed, but it must not silently turn observations into mechanics changes, score changes, or ranking changes without evidence review.
+

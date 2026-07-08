@@ -1,4 +1,4 @@
-# Stage 9A - Full App UX / Navigation Forensic Review
+﻿# Stage 9A - Full App UX / Navigation Forensic Review
 
 ## Executive Summary
 
@@ -22,19 +22,19 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 
 | route/tab | visible label | purpose | primary user action | related components/files |
 |---|---|---|---|---|
-| `#finder` | Finder | Discover systems with filters and ratings. | Run search, expand result cards, open details, evaluate in Colony Planner, pin/watch/compare/map. | `frontend-v2/src/App.tsx`, `frontend-v2/src/features/search/SearchForm.tsx`, `frontend-v2/src/components/ResultCard.tsx`, `frontend-v2/src/features/search/useSearch.ts` |
-| `#watchlist` | Watchlist | Server-backed saved systems list. | Refresh, sort, remove, open detail, show on map. | `frontend-v2/src/features/watchlist/WatchlistTab.tsx`, `frontend-v2/src/features/watchlist/useWatchlist.ts`, `frontend-v2/src/components/SystemTable.tsx` |
-| `#pinned` | Pins | Local shortlist stored in browser. | Sort, export JSON, clear, unpin, open detail, show on map. | `frontend-v2/src/features/pinned/PinnedTab.tsx`, `frontend-v2/src/features/pinned/usePinned.ts`, `frontend-v2/src/components/SystemTable.tsx` |
-| `#compare` | Compare | Side-by-side comparison for selected systems. | Compare metrics, open detail, remove, export CSV. | `frontend-v2/src/features/compare/CompareTab.tsx`, `frontend-v2/src/features/compare/useCompare.ts` |
-| `#search-tuning` | Advanced Search Tuning | Temporarily re-prioritise current Finder results. | Adjust weights, show tuned order, inspect/evaluate tuned rows. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend-v2/src/features/search-tuning/useSearchTuning.ts` |
-| `#optimizer` | no nav label; legacy alias | Backward-compatible alias for Advanced Search Tuning. | Old links still render Advanced Search Tuning. | `frontend-v2/src/hooks/useHashRoute.ts`, `frontend-v2/src/hooks/useHashRoute.test.ts` |
-| `#fc` | FC Planner | Fleet Carrier route, hop, tritium, and cost planning. | Add waypoints, tune carrier config, export CSV. | `frontend-v2/src/features/fc-planner/FcPlannerTab.tsx`, `frontend-v2/src/features/fc-planner/useFcPlanner.ts` |
-| `#colony` | Colony Tracker | Local tracker for claimed colonisation projects. | Track system, update phase/progress, export CSV. | `frontend-v2/src/features/colony/ColonyTab.tsx`, `frontend-v2/src/features/colony/useColony.ts` |
-| `#map` | Map | Spatial view of current Finder results. | Pan/zoom, select plotted system. | `frontend-v2/src/features/map/MapTab.tsx`, `frontend-v2/src/features/map/GalacticMap.tsx` |
-| `#admin` | Admin | Ops console and profile sync controls. | Set token, refresh status, run admin actions, configure sync key. | `frontend-v2/src/features/admin/AdminTab.tsx`, `frontend-v2/src/features/admin/useAdmin.ts`, `frontend-v2/src/features/profile-sync/useProfileSync.ts` |
-| `#{route}/system/{id64}` | System Detail modal over current tab | Inspect one system without losing current tab context. | Close/backdrop/Escape, save/pin/compare, open Colony Planner. | `frontend-v2/src/hooks/useHashRoute.ts`, `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
-| `#system/{id64}` | System Detail over Finder | External or direct system deep link. | Opens Finder with modal selected. | `frontend-v2/src/hooks/useHashRoute.ts` |
-| fixed bottom chrome | EDDN live feed | Ambient live system/event ticker. | Filter event types, click an event to open system detail. | `frontend-v2/src/features/eddn/EddnTicker.tsx`, `frontend-v2/src/features/eddn/useEddnFeed.ts` |
+| `#finder` | Finder | Discover systems with filters and ratings. | Run search, expand result cards, open details, evaluate in Colony Planner, pin/watch/compare/map. | `frontend/src/App.tsx`, `frontend/src/features/search/SearchForm.tsx`, `frontend/src/components/ResultCard.tsx`, `frontend/src/features/search/useSearch.ts` |
+| `#watchlist` | Watchlist | Server-backed saved systems list. | Refresh, sort, remove, open detail, show on map. | `frontend/src/features/watchlist/WatchlistTab.tsx`, `frontend/src/features/watchlist/useWatchlist.ts`, `frontend/src/components/SystemTable.tsx` |
+| `#pinned` | Pins | Local shortlist stored in browser. | Sort, export JSON, clear, unpin, open detail, show on map. | `frontend/src/features/pinned/PinnedTab.tsx`, `frontend/src/features/pinned/usePinned.ts`, `frontend/src/components/SystemTable.tsx` |
+| `#compare` | Compare | Side-by-side comparison for selected systems. | Compare metrics, open detail, remove, export CSV. | `frontend/src/features/compare/CompareTab.tsx`, `frontend/src/features/compare/useCompare.ts` |
+| `#search-tuning` | Advanced Search Tuning | Temporarily re-prioritise current Finder results. | Adjust weights, show tuned order, inspect/evaluate tuned rows. | `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend/src/features/search-tuning/useSearchTuning.ts` |
+| `#optimizer` | no nav label; legacy alias | Backward-compatible alias for Advanced Search Tuning. | Old links still render Advanced Search Tuning. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
+| `#fc` | FC Planner | Fleet Carrier route, hop, tritium, and cost planning. | Add waypoints, tune carrier config, export CSV. | `frontend/src/features/fc-planner/FcPlannerTab.tsx`, `frontend/src/features/fc-planner/useFcPlanner.ts` |
+| `#colony` | Colony Tracker | Local tracker for claimed colonisation projects. | Track system, update phase/progress, export CSV. | `frontend/src/features/colony/ColonyTab.tsx`, `frontend/src/features/colony/useColony.ts` |
+| `#map` | Map | Spatial view of current Finder results. | Pan/zoom, select plotted system. | `frontend/src/features/map/MapTab.tsx`, `frontend/src/features/map/GalacticMap.tsx` |
+| `#admin` | Admin | Ops console and profile sync controls. | Set token, refresh status, run admin actions, configure sync key. | `frontend/src/features/admin/AdminTab.tsx`, `frontend/src/features/admin/useAdmin.ts`, `frontend/src/features/profile-sync/useProfileSync.ts` |
+| `#{route}/system/{id64}` | System Detail modal over current tab | Inspect one system without losing current tab context. | Close/backdrop/Escape, save/pin/compare, open Colony Planner. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/features/system-detail/SystemDetailModal.tsx` |
+| `#system/{id64}` | System Detail over Finder | External or direct system deep link. | Opens Finder with modal selected. | `frontend/src/hooks/useHashRoute.ts` |
+| fixed bottom chrome | EDDN live feed | Ambient live system/event ticker. | Filter event types, click an event to open system detail. | `frontend/src/features/eddn/EddnTicker.tsx`, `frontend/src/features/eddn/useEddnFeed.ts` |
 
 ## User Journey Map
 
@@ -60,7 +60,7 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 
 | term | location/type | issue | recommended wording | action taken/deferred |
 |---|---|---|---|---|
-| Optimiser / optimiser candidates | Internal API/types/tests/docs under `frontend-v2/src/lib/api.ts`, `simulation-preview/optimiser/`, docs | Backend/internal vocabulary remains necessary; visible planner UI mostly uses Suggested Builds. | User-facing: Suggested Builds. Internal: optimiser is acceptable. | Deferred internal rename; not worth contract churn. |
+| Optimiser / optimiser candidates | Internal API/types/tests/docs under `frontend/src/lib/api.ts`, `simulation-preview/optimiser/`, docs | Backend/internal vocabulary remains necessary; visible planner UI mostly uses Suggested Builds. | User-facing: Suggested Builds. Internal: optimiser is acceptable. | Deferred internal rename; not worth contract churn. |
 | Optimizer | `#optimizer` route alias and tests | Legacy route name could confuse if surfaced. It is not visible in nav. | Preferred route: `#search-tuning`. | Kept for compatibility; tests added for `#optimizer/system/{id64}`. |
 | Rerank / reranked | API helper, tests, backend route, some data fields | Backend term is accurate but user-facing copy should say temporary tuned order. | Advanced Search Tuning, tuned order, temporary tuned score. | User-facing copy changed; internal/API/test names retained. |
 | Simulation Preview | Docs, API comments, some internal labels | Still valid as backend/API concept; Stage 8 user path prefers Preview / Preview Result. | User-facing planner: Preview / Preview Result. | Search Tuning helper changed to `Preview`; docs classify backend usage. |
@@ -132,14 +132,14 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 
 ## Tiny Fixes Applied
 
-- `frontend-v2/src/components/NavBar.tsx`: changed `FC` to `FC Planner` and `Colony` to `Colony Tracker`.
-- `frontend-v2/src/components/NavBar.test.tsx`: added assertions for the clarified labels.
-- `frontend-v2/src/App.tsx`: changed footer `proof of concept` to `prototype`.
-- `frontend-v2/src/features/system-detail/BuildPlanCard.tsx`: changed `Estimated body candidate` fallback copy to `Estimated body option`.
-- `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`: changed user-facing `reranks a copy` copy to `builds a temporary tuned order`; changed handoff helper from `Simulation Preview` to `Preview`.
-- `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.test.tsx`: updated copy assertion.
-- `frontend-v2/src/hooks/useHashRoute.ts`: updated stale route parser comment.
-- `frontend-v2/src/hooks/useHashRoute.test.ts`: added route/deep-link/fallback/close coverage.
+- `frontend/src/components/NavBar.tsx`: changed `FC` to `FC Planner` and `Colony` to `Colony Tracker`.
+- `frontend/src/components/NavBar.test.tsx`: added assertions for the clarified labels.
+- `frontend/src/App.tsx`: changed footer `proof of concept` to `prototype`.
+- `frontend/src/features/system-detail/BuildPlanCard.tsx`: changed `Estimated body candidate` fallback copy to `Estimated body option`.
+- `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`: changed user-facing `reranks a copy` copy to `builds a temporary tuned order`; changed handoff helper from `Simulation Preview` to `Preview`.
+- `frontend/src/features/search-tuning/AdvancedSearchTuningTab.test.tsx`: updated copy assertion.
+- `frontend/src/hooks/useHashRoute.ts`: updated stale route parser comment.
+- `frontend/src/hooks/useHashRoute.test.ts`: added route/deep-link/fallback/close coverage.
 
 ## Deferred Work
 
@@ -166,3 +166,4 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 ## Final Recommendation
 
 Stage 9A should be treated as a map, not a rebuild. The current app is coherent enough to keep shipping targeted hardening, but the next major UX work should be an IA/navigation decision: either group secondary tools around Finder/System Detail, or split Colony Planner into a dedicated workspace. Do not start new mechanics or persistence work before that navigation decision is made.
+

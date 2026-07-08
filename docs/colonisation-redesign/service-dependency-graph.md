@@ -1,4 +1,4 @@
-# Stage 4B: Per-Port Service Dependency Graph and Service Unlock Ledger
+﻿# Stage 4B: Per-Port Service Dependency Graph and Service Unlock Ledger
 
 Stage 4B adds a conservative per-port service explainability layer to ED-Finder’s deterministic Simulation Preview. It does not replace the existing system-level `services` field. Instead, it adds `port_service_states` and `service_unlock_ledger` so the application can explain which services are active, locked, or unknown at each Main Port without making service unlocks appear more certain than the source data allows.
 
@@ -77,3 +77,4 @@ Existing API fields remain in place. The original `services` object is still ret
 ## Limitations and Future Improvements
 
 Stage 4B is not a full optimiser and does not add service-aware ranking. Some catalogue unlock descriptions contain qualifiers such as port type, settlement type, economy type, or outpost family. Where those qualifiers cannot yet be fully resolved from deterministic data, the ledger marks the rule with caveats and uses conservative unknown or locked states. Future work can refine port-type matching, validate service pass-through and converted-port service behaviour from more observed builds, and add service-aware recommendation scoring after the graph is stable.
+

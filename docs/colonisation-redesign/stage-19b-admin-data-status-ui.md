@@ -1,4 +1,4 @@
-# Stage 19B — Admin data-status UI
+﻿# Stage 19B — Admin data-status UI
 
 ## Result
 
@@ -35,3 +35,4 @@ It does not add:
 - canonical apply.
 
 The API endpoint consumed by the panel runs in a read-only transaction and is admin-token gated.
+

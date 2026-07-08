@@ -1,4 +1,4 @@
-# GitHub Actions Hetzner Operator
+﻿# GitHub Actions Hetzner Operator
 
 ## Purpose
 
@@ -63,3 +63,4 @@ Repository secrets:
 ## Future stages
 
 Any future production DB write stage must be added by a separate PR and must not use arbitrary command input.
+

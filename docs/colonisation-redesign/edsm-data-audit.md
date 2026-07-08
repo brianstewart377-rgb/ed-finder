@@ -1,4 +1,4 @@
-# EDSM Data Audit
+﻿# EDSM Data Audit
 
 Date: 2026-05-25
 
@@ -749,3 +749,4 @@ The first safe test layer should remain parser/resolver-only:
   EDSM dumps to the active download list.
 
 These tests reduce future EDSM ingestion risk without importing any EDSM data.
+

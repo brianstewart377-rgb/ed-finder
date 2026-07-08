@@ -1,4 +1,4 @@
-# Stage 20D - Planner Sequence And CP Curve Cockpit
+﻿# Stage 20D - Planner Sequence And CP Curve Cockpit
 
 ## Purpose
 
@@ -30,15 +30,15 @@ Stage 20D delivers:
 Frontend ownership is now explicit:
 
 - workspace mode registry:
-  `frontend-v2/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
+  `frontend/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
 - planner shell integration:
-  `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+  `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
 - sequence cockpit:
-  `frontend-v2/src/features/system-detail/simulation-preview/SequenceCockpitWorkspaceView.tsx`
+  `frontend/src/features/system-detail/simulation-preview/SequenceCockpitWorkspaceView.tsx`
 - CP summary and timeline primitives:
-  `frontend-v2/src/features/system-detail/simulation-preview/panels/CpSummary.tsx`
-  `frontend-v2/src/features/system-detail/simulation-preview/panels/CpTimelinePanel.tsx`
-  `frontend-v2/src/features/system-detail/simulation-preview/panels/CpRepairPanel.tsx`
+  `frontend/src/features/system-detail/simulation-preview/panels/CpSummary.tsx`
+  `frontend/src/features/system-detail/simulation-preview/panels/CpTimelinePanel.tsx`
+  `frontend/src/features/system-detail/simulation-preview/panels/CpRepairPanel.tsx`
 
 ## Read-only Boundaries
 
@@ -76,3 +76,4 @@ Stage 20D does not yet deliver:
 The next checkpoint remains:
 
 `Stage 20E - Export/operator pack and closeout readiness`
+

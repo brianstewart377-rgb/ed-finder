@@ -1,4 +1,4 @@
-# Stage 4E: Simulation Engine Architecture
+﻿# Stage 4E: Simulation Engine Architecture
 
 Stage 4E consolidates the Simulation Preview engine without adding gameplay mechanics. The refactor keeps the public API response stable while making the internal prediction pipeline explicit enough for future optimiser work to call safely.
 
@@ -52,3 +52,4 @@ This contract is important because Stage 5 optimiser work will call the same eng
 ## Non-Goals
 
 Stage 4E deliberately does not implement the optimiser, candidate generation, journal upload, EDMC integration, manual observation entry, new scoring rules, new CP mechanics, new economy/service rules, or frontend redesign. It only makes the existing deterministic simulation engine cleaner, safer, and better covered by regression tests.
+

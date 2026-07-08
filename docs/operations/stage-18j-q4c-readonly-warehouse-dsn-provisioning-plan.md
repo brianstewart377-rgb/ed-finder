@@ -1,4 +1,4 @@
-# Stage 18J-Q4c — Read-Only Warehouse DSN Provisioning Plan
+﻿# Stage 18J-Q4c — Read-Only Warehouse DSN Provisioning Plan
 
 ## Purpose
 
@@ -379,3 +379,4 @@ path first. Keep the credential out of Git. After the role and variables are
 verified, rerun the Stage 18J-Q3 pre-run gate in a separate task. Until then,
 Stage 18J-Q3 remains blocked, Stage 18J-P remains blocked, and no production
 artifact or production apply is authorized.
+

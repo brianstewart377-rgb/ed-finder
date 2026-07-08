@@ -1,4 +1,4 @@
-# Hosted Hetzner Review Environment
+﻿# Hosted Hetzner Review Environment
 
 This runbook activates and operates the persistent hosted review lane at:
 
@@ -119,7 +119,7 @@ Open:
 https://review.ed-finder.app
 ```
 
-Authenticate with the review-only HTTP basic-auth account. The review frontend is served from `/opt/ed-finder-review/frontend-v2/dist` at the hostname root. `/api/` is proxied only to the isolated `review-api` container on `edfinder-review-edge`.
+Authenticate with the review-only HTTP basic-auth account. The review frontend is served from `/opt/ed-finder-review/frontend/dist` at the hostname root. `/api/` is proxied only to the isolated `review-api` container on `edfinder-review-edge`.
 
 ## Teardown And Rollback
 
@@ -155,3 +155,4 @@ Do not delete `/opt/ed-finder`. Do not run `docker compose down` for the product
 - `config/nginx.conf` serves only `review.ed-finder.app` from `/var/www/review` and proxies `/api/` to `review-api`, never to `api_backend`.
 - Review admin/cache mutation endpoints are blocked at the review vhost.
 - Hosted deploy resets the hosted review Compose project with `down -v --remove-orphans` only after preflight checks pass, then seeds a clean synthetic review database for the selected ref.
+

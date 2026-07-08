@@ -1,4 +1,4 @@
-# Stage 18J-Q — Production Reconciliation Artifact Readiness
+﻿# Stage 18J-Q — Production Reconciliation Artifact Readiness
 
 ## Purpose
 
@@ -38,7 +38,7 @@ connect to production:
 rg -l '"schema_version"\s*:\s*"enrichment_staging_reconciliation/v1"|enrichment_staging_reconciliation/v1' \
     /home/brian/Documents/GitHub/ed-finder /home/brian/.codex /tmp \
     --glob '*.json' --glob '*.jsonl' --glob '*.md' \
-    --glob '!frontend-v2/node_modules/**' --glob '!node_modules/**' --glob '!.git/**'
+    --glob '!frontend/node_modules/**' --glob '!node_modules/**' --glob '!.git/**'
 
 find /home/brian/Documents/GitHub/ed-finder /home/brian/.codex /tmp -maxdepth 5 -type f \
     \( -name '*reconciliation*.json' -o -name '*warehouse*.json' -o -name '*stage18j*.json' -o -name '*station*pilot*.json' \) \
@@ -346,3 +346,4 @@ apply. Any future apply still requires a separate explicit instruction and
 approval naming the exact station-type dry-run artifact hash, candidate count,
 table `stations`, field `station_type`, source run/file, max row count, and
 apply DSN context.
+

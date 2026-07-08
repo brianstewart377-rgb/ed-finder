@@ -1,4 +1,4 @@
-# Stage 19AS.1 - Disposable Postgres Pilot-Path Constraint Tests
+﻿# Stage 19AS.1 - Disposable Postgres Pilot-Path Constraint Tests
 
 ## Purpose
 
@@ -79,3 +79,4 @@ git diff --check
 
 The real-Postgres checks are allowed to skip when no safe disposable/local DB is
 available. A non-skipped run must remain read-only.
+

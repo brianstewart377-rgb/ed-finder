@@ -1,4 +1,4 @@
-# Stage 20A - Provenance Cockpit Implementation Contract
+﻿# Stage 20A - Provenance Cockpit Implementation Contract
 
 ## Purpose
 
@@ -71,18 +71,18 @@ workspace rather than a parallel planner shell:
 
 | Ownership | Current file | Role in Stage 20A contract |
 | --- | --- | --- |
-| Workspace shell handoff | `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx` | Current entry point that mounts the planner workspace. |
-| Workspace state and mode switching | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` | Current owner of build-plan, evidence, suggested-builds, preview, and validation mode wiring. |
-| Evidence workspace surface | `frontend-v2/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx` | Natural location for the first provenance-backed evidence/status panel. |
-| Validation surface adjacency | `frontend-v2/src/features/system-detail/simulation-preview/ValidationWorkspaceView.tsx` | Keeps provenance review separate from validation decisions while sharing trust language. |
-| API fetch wrapper | `frontend-v2/src/lib/api.ts` | Current owner for adding the Stage 20B read-only fetch wrapper. |
-| Frontend wire types | `frontend-v2/src/types/api.ts` | Current owner for generated/manual wire types and friendly aliases. |
+| Workspace shell handoff | `frontend/src/features/system-detail/SimulationPreviewPanel.tsx` | Current entry point that mounts the planner workspace. |
+| Workspace state and mode switching | `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx` | Current owner of build-plan, evidence, suggested-builds, preview, and validation mode wiring. |
+| Evidence workspace surface | `frontend/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx` | Natural location for the first provenance-backed evidence/status panel. |
+| Validation surface adjacency | `frontend/src/features/system-detail/simulation-preview/ValidationWorkspaceView.tsx` | Keeps provenance review separate from validation decisions while sharing trust language. |
+| API fetch wrapper | `frontend/src/lib/api.ts` | Current owner for adding the Stage 20B read-only fetch wrapper. |
+| Frontend wire types | `frontend/src/types/api.ts` | Current owner for generated/manual wire types and friendly aliases. |
 
 ### Planned Stage 20B UI owner
 
 Stage 20B should add one dedicated panel component under:
 
-- `frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
+- `frontend/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
 
 That panel should be rendered from `EvidenceWorkspaceView.tsx` first. It must
 not become a new planner root or a second simulation shell.
@@ -147,11 +147,11 @@ handoff points:
 
 - backend response model: Pydantic response model in `apps/api/src/models.py`
   or a narrowly scoped provenance contract models module;
-- generated frontend wire type: `frontend-v2/src/types/api.gen.ts`;
-- frontend ergonomic wrapper type: `frontend-v2/src/types/api.ts`;
-- fetch wrapper entry: `frontend-v2/src/lib/api.ts`;
+- generated frontend wire type: `frontend/src/types/api.gen.ts`;
+- frontend ergonomic wrapper type: `frontend/src/types/api.ts`;
+- fetch wrapper entry: `frontend/src/lib/api.ts`;
 - component boundary for the first user-visible slice:
-  `frontend-v2/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx`.
+  `frontend/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx`.
 
 If runtime guards are added in Stage 20B, they must validate only the
 provenance cockpit response and must not broaden into generic app-wide schema
@@ -197,3 +197,4 @@ Stage 20B should implement only the first bounded slice described here:
 - one Evidence Workspace panel;
 - fixture-backed UI tests and static contract checks;
 - no write path and no Stage 19 production activation.
+

@@ -1,4 +1,4 @@
-# Stage 19AH — bounded EDSM staging smoke closeout
+﻿# Stage 19AH — bounded EDSM staging smoke closeout
 
 ## Result
 
@@ -131,3 +131,4 @@ After that, the next real import step should be a tiny bounded multi-row local-f
 Stage 19AH closes the bounded EDSM staging smoke.
 
 The warehouse staging path is now production-proven for one local-file EDSM station evidence row.
+

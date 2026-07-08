@@ -1,4 +1,4 @@
-# Stage 18J-P17E — Revised station-type source mapping review closeout
+﻿# Stage 18J-P17E — Revised station-type source mapping review closeout
 
 ## Result
 
@@ -104,3 +104,4 @@ The next stage should be one of:
 2. a schema/design branch to add `Dodec` as a canonical station type before including the Dodec row in a later dry-run.
 
 Any actual station-type dry-run remains a separate bounded action and must still produce its own artifact before any review packet or write can be discussed.
+

@@ -1,4 +1,4 @@
-# Cross-Repo Workspace
+﻿# Cross-Repo Workspace
 
 `ed-finder` now lives in a three-repo workspace:
 
@@ -28,3 +28,4 @@ C:\Users\brian\OneDrive\Documents\GitHub\
 - When a change defines or revises colonisation truth, move that work to `colonisation-research-engine`.
 - When a change formalizes planning logic or engine boundaries, move that work to `colony-planning-engine`.
 - When a change spans repos, write the boundary down before coding so the ownership stays explicit.
+

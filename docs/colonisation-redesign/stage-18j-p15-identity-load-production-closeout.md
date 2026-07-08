@@ -1,4 +1,4 @@
-# Stage 18J-P15 — Controlled external identity load production closeout
+﻿# Stage 18J-P15 — Controlled external identity load production closeout
 
 ## Result
 
@@ -70,3 +70,4 @@ This closeout confirms:
 The next stage may use the loaded external identity evidence as input for a separate, explicitly bounded station-type planning step.
 
 That next step must remain separate from this closeout and must require its own dry-run, review, and approval boundary before any station-type writes are considered.
+

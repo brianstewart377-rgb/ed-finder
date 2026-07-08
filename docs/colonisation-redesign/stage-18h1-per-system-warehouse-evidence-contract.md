@@ -1,4 +1,4 @@
-# Stage 18H.1 — Per-System Warehouse Evidence Contract Review
+﻿# Stage 18H.1 — Per-System Warehouse Evidence Contract Review
 
 ## Purpose
 
@@ -122,3 +122,4 @@ The next implementation slices after this contract review should be:
    bridge
 3. Stage 18H.4 — UX clarification for freshness, review status, and source
    posture
+

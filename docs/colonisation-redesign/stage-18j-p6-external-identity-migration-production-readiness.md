@@ -1,4 +1,4 @@
-# Stage 18J-P6 — External Identity Migration Production Readiness
+﻿# Stage 18J-P6 — External Identity Migration Production Readiness
 
 ## Purpose
 
@@ -24,7 +24,7 @@ Reviewed supporting material:
 - `docs/colonisation-redesign/stage-18j-p5-external-station-identity-migration-draft.md`
 - `docs/colonisation-redesign/stage-18j-p4-external-station-identity-schema-design.md`
 - `docs/operations/enrichment-warehouse-runbook.md`
-- `docs/colonisation-redesign/enrichment-roadmap.md`
+- `docs/ROADMAP.md`
 - `docs/colonisation-redesign/stage-17p-current-state-forward-plan.md`
 - `scripts/operator/require_hetzner_operator_env.sh`
 
@@ -334,3 +334,5 @@ record creation.
 Do not combine the now-present schema with station-type writes. The next work
 should design evidence loading and reconciliation while keeping strict
 station-type dry-run blocked until confirmed identity coverage exists.
+
+

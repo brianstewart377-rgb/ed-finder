@@ -1,4 +1,4 @@
-# Stage 18J-Q4b - Read-Only Warehouse DSN Operator Note
+﻿# Stage 18J-Q4b - Read-Only Warehouse DSN Operator Note
 
 ## Purpose
 
@@ -142,3 +142,4 @@ generated through the approved read-only/report-only path and passes contract
 validation.
 
 No production command is run by this note.
+

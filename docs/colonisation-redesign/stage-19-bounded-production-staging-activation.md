@@ -1,4 +1,4 @@
-# Stage 19BA - Bounded Production Staging Activation
+﻿# Stage 19BA - Bounded Production Staging Activation
 
 ## Purpose
 
@@ -229,3 +229,4 @@ Stage 19BA does not authorize:
 
 Next explicit action after this baseline is operator approval/review, followed
 by a separate reviewed execution decision if the lane is still needed.
+

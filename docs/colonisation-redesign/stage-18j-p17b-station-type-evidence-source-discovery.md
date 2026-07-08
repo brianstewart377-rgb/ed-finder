@@ -1,4 +1,4 @@
-# Stage 18J-P17B — Station-type evidence source discovery closeout
+﻿# Stage 18J-P17B — Station-type evidence source discovery closeout
 
 ## Result
 
@@ -101,3 +101,4 @@ No station-type dry-run, station-type writes, canonical writes, or canonical app
 The next stage should be a read-only source-row inspection for the 11 matched `public.staging_edsm_stations` rows.
 
 That next stage should report available station-type fields and values, but must still not infer or write station type unless a later bounded dry-run stage is explicitly approved.
+

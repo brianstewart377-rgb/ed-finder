@@ -1,4 +1,4 @@
-# Stage 19AR Canonical Baseline and Fresh DB Recovery
+﻿# Stage 19AR Canonical Baseline and Fresh DB Recovery
 
 ## Purpose
 
@@ -197,3 +197,4 @@ The active source of truth is `docs/colonisation-redesign/stage-19-state-authori
 The active invalid-state denylist is intentionally tiny. Historical detail belongs in `docs/archive/stage-19-incident-history.md`; the archive must never be copied into operational prompts or used as operational authority.
 
 If source-of-truth branch/commit or branch provenance is unavailable, stop. Branch mismatch is a hard stop. `completed` is forbidden when branch provenance is false.
+

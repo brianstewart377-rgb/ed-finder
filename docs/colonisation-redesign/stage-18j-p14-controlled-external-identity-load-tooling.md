@@ -1,4 +1,4 @@
-# Stage 18J-P14 — Controlled External Identity Load Tooling
+﻿# Stage 18J-P14 — Controlled External Identity Load Tooling
 
 ## Purpose
 
@@ -289,3 +289,4 @@ Merge P14 as controlled load tooling and dry-run guardrails only.
 
 Do not load identity evidence yet. The next appropriate Hetzner action after
 merge is a dry-run execution plan using the verified review packet and checksum.
+

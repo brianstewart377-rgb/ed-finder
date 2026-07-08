@@ -1,4 +1,4 @@
-# API Contracts
+﻿# API Contracts
 
 ED-Finder keeps the backend, frontend, and EDDN worker as separate apps. They should stay separate. The shared contract between them is the HTTP API.
 
@@ -26,10 +26,10 @@ Frontend code should not manually guess these response shapes. When backend fiel
 
 ## Frontend Types
 
-The current web app lives in `frontend-v2`. Generate types from the running FastAPI OpenAPI document:
+The current web app lives in `frontend`. Generate types from the running FastAPI OpenAPI document:
 
 ```powershell
-cd frontend-v2
+cd frontend
 $env:VITE_OPENAPI_URL = "http://127.0.0.1:8000/openapi.json"
 yarn types:gen
 ```
@@ -37,7 +37,7 @@ yarn types:gen
 If dependencies are missing:
 
 ```powershell
-cd frontend-v2
+cd frontend
 npm install -D openapi-typescript
 ```
 
@@ -48,11 +48,11 @@ cd /opt/ed-finder
 docker compose up -d postgres redis api
 ```
 
-Then run the type generation command from `frontend-v2`.
+Then run the type generation command from `frontend`.
 
 ## Frontend API Calls
 
-Frontend calls for simulation data should go through `frontend-v2/src/lib/api.ts`.
+Frontend calls for simulation data should go through `frontend/src/lib/api.ts`.
 
 Use the central helper functions:
 
@@ -77,7 +77,7 @@ Development Tuning is the Finder-result reranking helper. It is distinct from th
 
 The endpoint returns an archetype rerank response with `weights_applied`, optional `profile_applied`, and `results` containing `id64`, `reranked_score`, optional `original_score`, optional `confidence`, and optional structured `rationale`.
 
-This endpoint returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, run Simulation Preview, alter Colony Planner state, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.archetypeRerank(...)` in `frontend-v2/src/lib/api.ts`; current UI lives under `frontend-v2/src/features/search-tuning/` and presents as Development Tuning (`#search-tuning` route).
+This endpoint returns a temporary sorted subset. It does not run a new search, change `/api/local/search` ordering, persist weights/preferences, run Simulation Preview, alter Colony Planner state, generate optimiser candidates, or consume Observed Evidence / Validation output. The frontend helper is `api.archetypeRerank(...)` in `frontend/src/lib/api.ts`; current UI lives under `frontend/src/features/search-tuning/` and presents as Development Tuning (`#search-tuning` route).
 
 Stage 7D added explicit row actions to open system detail and evaluate in Colony Planner. Stage 8A kept those actions on the existing system detail surface with a frontend-only focus intent. Stage 9C moves the primary `Evaluate in Colony Planner` handoff to the dedicated `#colony-planner/system/{id64}` workspace while keeping normal detail/open-row actions on System Detail. The handoff still does not auto-run Simulation Preview, generate Suggested Builds, mutate planner state, persist preferences, or pass search-tuning weights into Colony Planner.
 
@@ -158,7 +158,7 @@ For Stage 5B ranking, clients request `include_ranking=true`. Ranking is returne
 1. Change or add the backend Pydantic model.
 2. Make the route return that exact model through `response_model=...`.
 3. Regenerate frontend OpenAPI types.
-4. Update `frontend-v2/src/lib/api.ts` if a new endpoint or helper is needed.
+4. Update `frontend/src/lib/api.ts` if a new endpoint or helper is needed.
 5. Update frontend components to use generated types and central client helpers.
 6. Add or update contract tests so old field names cannot silently return.
 
@@ -291,7 +291,7 @@ Semantics:
 
 Stage 6B adds the frontend integration on top of the Stage 6A API. It introduces frontend types, central API helpers, and an Observed Evidence panel inside Colony Planner. It does **not** change any backend contract.
 
-Frontend types are declared in `frontend-v2/src/types/api.ts` and mirror the Stage 6A wire shapes:
+Frontend types are declared in `frontend/src/types/api.ts` and mirror the Stage 6A wire shapes:
 
 - `ObservationSource`
 - `ObservedFactType`
@@ -307,7 +307,7 @@ Frontend types are declared in `frontend-v2/src/types/api.ts` and mirror the Sta
 - `ObservedFactDeleteResponse`
 - `ListObservedFactsParams`
 
-Central API client helpers in `frontend-v2/src/lib/api.ts` follow the existing `jsonFetch` style and target the Stage 6A endpoints:
+Central API client helpers in `frontend/src/lib/api.ts` follow the existing `jsonFetch` style and target the Stage 6A endpoints:
 
 - `listObservedFacts(params)` → `GET /api/observations/facts?system_id64=...&fact_type=...&status=...`
 - `createObservedFact(request)` → `POST /api/observations/facts`
@@ -452,7 +452,7 @@ Stage 8A/8B/8C are frontend UX hardening passes over this existing contract. Fin
 
 ### Frontend types and helper
 
-Frontend types in `frontend-v2/src/types/api.ts` mirror the Stage 6C response:
+Frontend types in `frontend/src/types/api.ts` mirror the Stage 6C response:
 
 - `ComparisonStatus` — `confirmed` | `contradicted` | `predicted_only` | `observed_only` | `unknown` | `unverified`
 - `ComparisonSeverity` — `info` | `low` | `medium` | `high`
@@ -464,7 +464,7 @@ Frontend types in `frontend-v2/src/types/api.ts` mirror the Stage 6C response:
 - `PredictionObservationCompareRequest`
 - `PredictionObservationCompareResponse`
 
-The API helper in `frontend-v2/src/lib/api.ts` is intentionally narrow:
+The API helper in `frontend/src/lib/api.ts` is intentionally narrow:
 
 - `comparePredictionToObservations(request)` → `POST /api/observations/compare`
 
@@ -472,7 +472,7 @@ It does not call `simulateBuild` or `fetchOptimiserCandidates`. Stage 6D always 
 
 ### Panel behaviour
 
-`ValidationPanel` lives under `frontend-v2/src/features/system-detail/simulation-preview/validation/` and receives:
+`ValidationPanel` lives under `frontend/src/features/system-detail/simulation-preview/validation/` and receives:
 
 - `systemId64: number`
 - `targetArchetype: string | null`
@@ -556,3 +556,4 @@ Example response:
 Review statuses are `no_action`, `monitor`, `review_recommended`, `review_high_priority`, `insufficient_evidence`, and `mixed_evidence`. Review areas are `service_rules`, `economy_rules`, `cp_rules`, `facility_rules`, `build_outcome`, `prediction_claims`, `evidence_quality`, and `general`. Evidence strength is `none`, `weak`, `moderate`, `strong`, or `mixed`. High-priority review remains advisory: it identifies investigation priority and does not change predictions, scoring, ranking, or mechanics.
 
 Stage 6E is passive. It does not run Simulation Preview, change predictions, mutate observations, change CP/economy/service/buildability mechanics, alter scoring, alter optimiser candidate generation, alter optimiser ranking, persist changed confidence, ingest EDMC/journals, or derive mechanics changes from observations. Low-confidence evidence cannot trigger high-priority review. Contradicted comparisons are framed as "may need review", not final mechanics verdicts.
+

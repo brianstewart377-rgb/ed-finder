@@ -1,4 +1,4 @@
-# Stage 19AU - Read-Only AS-AU Safety Gate
+﻿# Stage 19AU - Read-Only AS-AU Safety Gate
 
 ## Purpose
 
@@ -150,3 +150,4 @@ git diff --check
 
 These checks are repo-local and static/unit-focused for Stage 19AU. They must
 not run Stage 19 operator commands or mutate a database.
+

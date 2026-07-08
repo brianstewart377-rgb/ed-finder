@@ -1,4 +1,4 @@
-# Stage 22D - Export And Documentation Governance Consolidation
+﻿# Stage 22D - Export And Documentation Governance Consolidation
 
 ## Purpose
 
@@ -34,10 +34,10 @@ workspace and exported pack:
 
 ## Implementation Notes
 
-- `frontend-v2/src/features/system-detail/simulation-preview/exportArtifacts.ts`
+- `frontend/src/features/system-detail/simulation-preview/exportArtifacts.ts`
   now includes a `governance` section in exported Markdown and JSON outputs.
 
-- `frontend-v2/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
+- `frontend/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
   now renders a `Documentation governance` panel with:
   - authority scope;
   - exclusions;
@@ -55,3 +55,4 @@ Stage 22D is complete when:
 - historical review context is easier to navigate without competing with current
   control documents;
 - all deferred Stage 19 boundaries remain false.
+

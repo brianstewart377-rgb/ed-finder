@@ -1,4 +1,4 @@
-# Stage 18J-P18A — Dodec enum support planning closeout
+﻿# Stage 18J-P18A — Dodec enum support planning closeout
 
 ## Result
 
@@ -144,3 +144,4 @@ No enum changes, station-type dry-run, station-type writes, canonical writes, or
 The next stage should be a separate schema/model branch for Dodec enum support.
 
 That branch should be reviewed and tested independently before any station-type dry-run includes the Dodec candidate row.
+

@@ -1,4 +1,4 @@
-# Stage 22E - Deferred Stage 19 Decision Gate And Closeout
+﻿# Stage 22E - Deferred Stage 19 Decision Gate And Closeout
 
 ## Purpose
 
@@ -60,3 +60,4 @@ document with its own:
 
 Until then, current authority remains closed on Stage 22 and deferred on Stage
 19 production activation.
+

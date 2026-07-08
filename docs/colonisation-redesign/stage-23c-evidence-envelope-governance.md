@@ -1,4 +1,4 @@
-# Stage 23C Evidence Envelope Governance
+﻿# Stage 23C Evidence Envelope Governance
 
 ## Status
 
@@ -103,3 +103,4 @@ Stage 23 now has:
 
 The next follow-on can stay focused on narrow UX follow-through rather than
 redefining source semantics again.
+

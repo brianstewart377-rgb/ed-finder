@@ -1,4 +1,4 @@
-# Stage 4A: Per-Port Economy Propagation and Influence Ledger
+﻿# Stage 4A: Per-Port Economy Propagation and Influence Ledger
 
 Stage 4A adds a per-port explainability layer to ED-Finder’s deterministic colonisation simulation. The Stage 2/3 engine already models facility catalogue data, local-body topology, Main Port selection, strong links, fixed weak links, pass-through effects, converted-port caveats, CP timeline, service states, confidence signals, and mechanics trace. Stage 4A keeps those systems intact while changing the explanation from a single system-level economy soup into explicit **Main Port economy states** backed by a structured **influence ledger**.
 
@@ -73,3 +73,4 @@ Strong-link and weak-link structure follows the existing topology graph rules al
 ## Limitations and Future Improvements
 
 Stage 4A is not a full optimiser and does not attempt to choose the best build automatically. It does not invent unsupported Elite Dangerous mechanics. Future work can refine converted-port confidence, validate pass-through behaviour against more observed builds, add service-aware ranking, and provide richer port-to-port visual graph rendering once more in-game observations are available.
+

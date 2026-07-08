@@ -1,4 +1,4 @@
-# Stage 10C - Graphical Body Layout Planner Foundation
+﻿# Stage 10C - Graphical Body Layout Planner Foundation
 
 ## Summary
 
@@ -148,7 +148,7 @@ Stage 10C adds/updates tests for:
 - Saved builds.
 - EDMC/journal ingestion.
 - Spansh refresh endpoint and cache workflow.
-- RavenColonial/SrvSurvey handoff/export feasibility.
+- reference planner/SrvSurvey handoff/export feasibility.
 - Material, commodity, carrier, hauling, and trip planning.
 
 ## Next Recommended Stage
@@ -275,3 +275,4 @@ Stage 11H is a narrow follow-up to clear stale layout-import UI state when switc
 Chronology note:
 
 - Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G.
+

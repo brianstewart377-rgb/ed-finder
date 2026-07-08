@@ -1,4 +1,4 @@
-# Stage 18I — Canonical Write Design Review
+﻿# Stage 18I — Canonical Write Design Review
 
 Stage 18I is a documentation and design review only. It does not authorize
 canonical writes, add apply scripts, add production jobs, change canonical
@@ -418,3 +418,4 @@ Only after Stage 18I and Stage 18I.5 are both complete should Stage 18J begin,
 and the first pilot should be exact station type promotion from exact trusted
 station identity. Warehouse evidence must stay evidence/report-only unless it
 is promoted by an explicitly approved guarded path.
+

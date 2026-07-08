@@ -1,4 +1,4 @@
-# Stage 19AM bounded multi-row EDSM staging rehearsal closeout
+﻿# Stage 19AM bounded multi-row EDSM staging rehearsal closeout
 
 ## Current refresh note
 
@@ -88,3 +88,4 @@ This refresh does not expand those boundaries. It only restores useful closeout 
 Stage 19AM is historical closeout content. It is not current execution authority.
 
 Current execution authority is `docs/colonisation-redesign/stage-19-state-authority.json`. As of this refresh, Stage 19 remains paused, Stage 19AS-AU has not run, and no Stage 19 execution happened while recovering this document.
+

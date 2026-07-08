@@ -1,4 +1,4 @@
-# Stage 18J-P15A — Post-load identity coverage closeout
+﻿# Stage 18J-P15A — Post-load identity coverage closeout
 
 ## Result
 
@@ -117,3 +117,4 @@ It is not station-type truth, and it does not approve station-type writes or can
 The next stage should be Stage 18J-P16: read-only reconciliation integration with confirmed external identity.
 
 Stage 18J-P16 must remain read-only and must not perform canonical writes, station-type writes, station-type dry-run, or canonical apply.
+

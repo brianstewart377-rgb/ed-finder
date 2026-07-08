@@ -1,4 +1,4 @@
-# Regional Positioning Intelligence
+﻿# Regional Positioning Intelligence
 
 Regional positioning answers a different question from local colony mechanics:
 
@@ -120,3 +120,4 @@ The first regional model is intentionally heuristic and transparent. It does not
 model traffic volume, player faction politics, route economics, or future
 colonisation claims. Those can be added later as separate signals once clean
 source data exists.
+

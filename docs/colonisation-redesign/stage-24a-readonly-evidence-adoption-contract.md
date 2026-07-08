@@ -1,4 +1,4 @@
-# Stage 24A - Read-only Evidence Adoption Implementation Contract
+﻿# Stage 24A - Read-only Evidence Adoption Implementation Contract
 
 ## Status
 
@@ -18,7 +18,7 @@ before any broader adoption work begins.
 ## Relationship To Stage 24 Roadmap
 
 Stage 24A is the first executable checkpoint named in
-`docs/colonisation-redesign/stage-24-roadmap.md`.
+`docs/ROADMAP.md`.
 
 It does not replace the Stage 24 roadmap. It narrows that roadmap into one
 reviewable implementation contract so the next slice can stay small and
@@ -46,13 +46,13 @@ follows.
 ### In Scope For Stage 24B
 
 - Primary planner workspace evidence surface:
-  `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+  `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
 - Planner evidence presentation component:
-  `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx`
+  `frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx`
 - Frontend mapping layer from dedicated endpoint to planner view model:
-  `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
+  `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts`
 - Type-level contract surface:
-  `frontend-v2/src/types/api.ts`
+  `frontend/src/types/api.ts`
 - Documentation/readme discoverability for the read-only evidence baseline.
 
 ### Candidate For Stage 24C
@@ -83,12 +83,12 @@ Stage 24A assigns ownership at the contract level.
 | Concern | Primary ownership |
 | --- | --- |
 | API evidence envelope shape and semantics | `apps/api/src/warehouse_planner_evidence.py`, `apps/api/src/warehouse_planner_evidence_models.py`, `apps/api/src/warehouse_planner_evidence_provider.py` |
-| Frontend contract mapping from API to UI view model | `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts` |
-| Planner evidence card copy and user-facing state language | `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx` |
-| Dedicated-endpoint preference vs provenance fallback behavior | `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx` plus the bridge |
+| Frontend contract mapping from API to UI view model | `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts` |
+| Planner evidence card copy and user-facing state language | `frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx` |
+| Dedicated-endpoint preference vs provenance fallback behavior | `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx` plus the bridge |
 | Bounded staging warnings and review-only limits | dedicated contract + planner evidence card |
 | Unavailable / not_evaluated / unknown wording | evidence envelope contract + planner evidence card |
-| Fixtures and regression tests | `tests/test_stage24_planning_baseline.py`, `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`, `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx` |
+| Fixtures and regression tests | `tests/test_docs_roadmap.py`, `frontend/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`, `frontend/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx` |
 
 ## Evidence-State Language Contract
 
@@ -195,9 +195,9 @@ Before Stage 24B implementation is accepted, the fixture/test plan should cover:
 
 Recommended test anchors:
 
-- `tests/test_stage24_planning_baseline.py`
-- `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
+- `tests/test_docs_roadmap.py`
+- `frontend/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
 
 ## Stage 24B Implementation Boundaries
 
@@ -264,3 +264,5 @@ This checkpoint does not authorize:
 - source acquisition;
 - source-file commits;
 - runtime-artifact commits.
+
+

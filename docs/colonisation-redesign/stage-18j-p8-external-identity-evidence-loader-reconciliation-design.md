@@ -1,4 +1,4 @@
-# Stage 18J-P8 — External Identity Evidence Loader / Reconciliation Design
+﻿# Stage 18J-P8 — External Identity Evidence Loader / Reconciliation Design
 
 ## Purpose
 
@@ -410,3 +410,4 @@ review of the dry-run artifact.
 
 Keep station-type dry-run and canonical apply blocked until confirmed identity
 coverage exists and has been reviewed through read-only reconciliation.
+

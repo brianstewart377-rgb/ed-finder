@@ -1,4 +1,4 @@
-# Stage 18T — Canonical Safety Test Environment
+﻿# Stage 18T — Canonical Safety Test Environment
 
 ## Purpose
 
@@ -199,3 +199,4 @@ safety CI job is green, the local runner passes, a suitable report-only
 production reconciliation artifact exists, and a separate explicit approval
 names the exact artifact hash, candidate count, source run/file, table, field,
 max row count, and apply DSN context.
+

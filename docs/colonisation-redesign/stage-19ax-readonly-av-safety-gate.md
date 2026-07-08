@@ -1,4 +1,4 @@
-# Stage 19AX - Read-Only AV Safety Gate
+﻿# Stage 19AX - Read-Only AV Safety Gate
 
 ## Purpose
 
@@ -93,3 +93,4 @@ Commands were run with secrets redacted. The credential check printed only
 
 Follow-up repo validation is covered by the Stage 19AX static test and the
 project state resolver.
+

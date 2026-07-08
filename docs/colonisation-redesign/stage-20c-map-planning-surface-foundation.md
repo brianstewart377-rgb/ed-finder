@@ -1,4 +1,4 @@
-# Stage 20C - Map Planning Surface Foundation
+﻿# Stage 20C - Map Planning Surface Foundation
 
 ## Purpose
 
@@ -26,14 +26,14 @@ Stage 20C delivers:
 The current map foundation now has explicit frontend ownership:
 
 - workspace mode and planner shell routing:
-  `frontend-v2/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
-  `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+  `frontend/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
+  `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
 - planner map foundation view:
-  `frontend-v2/src/features/system-detail/simulation-preview/MapFoundationWorkspaceView.tsx`
+  `frontend/src/features/system-detail/simulation-preview/MapFoundationWorkspaceView.tsx`
 - shared map surface:
-  `frontend-v2/src/features/map/MapTab.tsx`
-  `frontend-v2/src/features/map/GalacticMap.tsx`
-  `frontend-v2/src/features/map/useMapLayers.ts`
+  `frontend/src/features/map/MapTab.tsx`
+  `frontend/src/features/map/GalacticMap.tsx`
+  `frontend/src/features/map/useMapLayers.ts`
 
 ## Read-only Boundaries
 
@@ -85,3 +85,4 @@ Stage 20C does not yet deliver:
 The next checkpoint remains:
 
 `Stage 20D - Planner sequence and CP curve cockpit`
+

@@ -1,4 +1,4 @@
-# Stage 21B-F - Stage 17 And Stage 18 Burn-down Record
+﻿# Stage 21B-F - Stage 17 And Stage 18 Burn-down Record
 
 ## Purpose
 
@@ -130,3 +130,4 @@ This burn-down record does not change:
 - scheduler/service activation;
 - production-like DB execution;
 - planner mutation from warehouse/report-only evidence.
+

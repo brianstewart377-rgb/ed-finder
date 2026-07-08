@@ -1,4 +1,4 @@
-# Stage 23A - First Live Per-System Evidence Provider
+﻿# Stage 23A - First Live Per-System Evidence Provider
 
 ## Purpose
 
@@ -72,3 +72,4 @@ Stage 23A is complete when:
 - unsupported systems still remain unavailable/unknown;
 - provenance fallback still works;
 - all Stage 19 and write-capable boundaries remain false.
+

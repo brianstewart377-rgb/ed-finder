@@ -1,4 +1,4 @@
-# Stage 19V — source-run FK compatibility correction plan
+﻿# Stage 19V — source-run FK compatibility correction plan
 
 ## Result
 
@@ -190,3 +190,4 @@ Stage 19W must remain repo-only:
 Stage 19V records the correction plan for source-run FK compatibility.
 
 No imports, DB writes, migrations, scheduler/timer enablement, canonical writes, or canonical apply are approved by this document.
+

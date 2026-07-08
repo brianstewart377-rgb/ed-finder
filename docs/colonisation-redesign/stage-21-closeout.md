@@ -66,7 +66,7 @@ The Stage 17 and Stage 18 backlog is now reconciled for the current baseline:
 
 Closeout validation passed with the current local toolchain:
 
-- `python3 -m pytest tests/test_stage21_planning_baseline.py -p no:cacheprovider`
+- `python3 -m pytest tests/test_docs_roadmap.py -p no:cacheprovider`
 - focused frontend `vitest` suite covering planner workspace, provenance,
   role-review, optimiser advisor, and body-slot reasoning
 - frontend `yarn typecheck`
@@ -95,3 +95,4 @@ activation remains deferred.
 The next meaningful work should begin from Stage 22A — Post-18/20/21 control
 reset and authority lock, not by reopening completed Stage 18 history or
 silently reactivating deferred Stage 19 production lanes.
+

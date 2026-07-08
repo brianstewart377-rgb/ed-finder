@@ -1,4 +1,4 @@
-# Test Environment
+﻿# Test Environment
 
 ## Purpose
 
@@ -134,3 +134,4 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.
 The resolver is fail-closed for source-of-truth unavailability, branch mismatch, and current branch/head matches in the active invalid-state denylist. The denylist is intentionally tiny; historical archive entries do not become operational blockers by implication.
 
 Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.
+

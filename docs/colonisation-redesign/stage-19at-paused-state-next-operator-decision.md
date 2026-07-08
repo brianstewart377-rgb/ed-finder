@@ -1,4 +1,4 @@
-# Stage 19AT - Paused-State Next Operator Decision
+﻿# Stage 19AT - Paused-State Next Operator Decision
 
 ## Purpose
 
@@ -87,3 +87,4 @@ git diff --check
 
 These checks are repo-local and static/unit-only for Stage 19AT. They must not
 run operator scripts or DB commands.
+

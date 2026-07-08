@@ -1,4 +1,4 @@
-# Agent Prompt Templates
+﻿# Agent Prompt Templates
 
 Each template starts with the same state resolution gate. If the gate fails, stop before operational work.
 
@@ -209,3 +209,4 @@ Task:
 - mark prompt bundles and archive history as evidence only
 - do not paste large stale prompt bundles into future prompts
 - state whether Stage 19 is paused and whether Stage 19AS-AU has run
+

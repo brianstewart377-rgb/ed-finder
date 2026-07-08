@@ -1,4 +1,4 @@
-# Stage 4D: Observed vs Predicted Data Foundation
+﻿# Stage 4D: Observed vs Predicted Data Foundation
 
 Stage 4D creates the foundation for comparing ED-Finder predictions with facts players later observe in-game. It is an additive data and comparison layer. It does **not** implement journal upload, EDMC integration, commander accounts, automatic ingestion, automatic mechanics confidence upgrades, or automatic scoring changes.
 
@@ -88,3 +88,4 @@ Simulation Preview now includes `observation_summary` and `prediction_observatio
 ## Future Work
 
 Stage 4D prepares the validation loop but does not automate it. Future work can add journal upload, EDMC import, manual observation entry, duplicate/provenance handling, commander-scoped observations, and carefully reviewed mechanics confidence upgrades. Those upgrades should remain explicit review decisions, not automatic side effects of attaching one observed fact.
+

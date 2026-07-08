@@ -1,4 +1,4 @@
-# Stage 25A Current-State Map Product Visual Baseline
+﻿# Stage 25A Current-State Map Product Visual Baseline
 
 ## Purpose
 
@@ -151,3 +151,4 @@ It does not start Stage 25B, Stage 25C, Stage 25D, or Stage 25E.
 
 It does not authorize any database, canonical, scheduler, source-acquisition,
 or other operational write-capable lane.
+

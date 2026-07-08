@@ -1,4 +1,4 @@
-# Stage 20B - Read-only Evidence And Status Surfaces
+﻿# Stage 20B - Read-only Evidence And Status Surfaces
 
 ## Purpose
 
@@ -21,11 +21,11 @@ Workspace panel:
   `apps/api/src/provenance_cockpit.py`
   `apps/api/src/provenance_cockpit_models.py`
 - frontend API helper:
-  `frontend-v2/src/lib/api.ts`
+  `frontend/src/lib/api.ts`
 - frontend panel:
-  `frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
+  `frontend/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
 - workspace integration point:
-  `frontend-v2/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx`
+  `frontend/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx`
 
 ## Bounded Read-only Behavior
 
@@ -100,3 +100,4 @@ Stage 20B still does not implement:
 The next checkpoint remains:
 
 `Stage 20C - Map planning surface foundation`
+

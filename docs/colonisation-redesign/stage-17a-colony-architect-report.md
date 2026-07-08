@@ -1,5 +1,9 @@
 # Stage 17A/17B Colony Architect Report
 
+> Historical reference only. This report records an earlier planner direction
+> and rescue pass. It is not an active roadmap source. Use `docs/ROADMAP.md`
+> and `docs/colonisation-redesign/README.md` for current direction.
+
 Stage 17A identified that the planner problem is not missing labels. The useful direction is a **Colony Architect** workflow:
 
 1. analyse the system
@@ -55,7 +59,7 @@ Stage 17C shifts the dedicated Colony Planner toward a body-first workflow:
 
 `click body -> inspect body -> add/review structures there -> run Preview explicitly`
 
-The rescue is functional rather than visual. It keeps ED-Finder's dark/orange brushed-steel style while borrowing the useful RavenColonial workflow principle that the body tree is the primary navigation surface.
+The rescue is functional rather than visual. It keeps ED-Finder's dark/orange brushed-steel style while borrowing the useful reference planner workflow principle that the body tree is the primary navigation surface.
 
 Implemented UX changes:
 
@@ -143,7 +147,7 @@ This is still not the full Colony Architect advisor. ED-Finder does not yet acce
 
 Stage 17C should turn the deterministic analysis and candidate explanations into an explicit Guided Colony Strategy Advisor shell: system analysis, declared intent, generated plan, preview, explanation, and refinement controls without introducing black-box planning.
 
-## Stage 17E RavenColonial-Style Functional Build Planner Rebuild
+## Stage 17E reference planner-Style Functional Build Planner Rebuild
 
 Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the missing loop:
 
@@ -189,7 +193,7 @@ Stage 17E is a functional rebuild pass, not a visual polish pass. It targets the
 
 ## Stage 17N.2d Existing Infrastructure Awareness
 
-Stage 17N.2d closes the main correctness gap left by the Raven-style planner:
+Stage 17N.2d closes the main correctness gap left by the whole-system planner:
 an empty Build Plan no longer implies the system has no infrastructure.
 
 Implemented behaviour:
@@ -197,7 +201,7 @@ Implemented behaviour:
 - existing station records from `/api/system/{id64}` are resolved into a
   frontend `existing` structure model separate from planned and projected
   structures
-- safely mapped existing orbital/surface structures render directly in Raven
+- safely mapped existing orbital/surface structures render directly in the planner canvas
   slot lanes as solid occupied slots
 - unresolved stations render in a compact "Existing infrastructure not matched
   to body" area
@@ -252,15 +256,15 @@ manual/Architect-observed correction can confirm them.
 
 ## Stage 17N.2e Economy Bar Correctness
 
-Stage 17N.2e tightens the Raven planner's economy display without changing
+Stage 17N.2e tightens the planner canvas's economy display without changing
 slot prediction, Preview mechanics, rating weights, or occupied-slot source of
 truth.
 
 Implemented changes:
 
-- economy colours are centralized in `economyVisuals.ts` and shared by Raven
+- economy colours are centralized in `economyVisuals.ts` and shared by the planner canvas
   slot bars, selected-body structure slots, projected slots, planning economy
-  strips, RatingRadar economy bars, and the retained prototype
+  strips, RatingRadar economy bars, and the retained preview
 - supported visual economies are Agriculture, Refinery, Industrial, HighTech,
   Military, Tourism, Extraction, Terraforming, Civilian, Support, Contextual,
   and Unknown
@@ -355,7 +359,7 @@ Safety boundaries kept:
 - no auto-preview
 - no CP formula, economy mechanics, service scoring, Search Tuning, import, EDMC, or hauling/material workflow changes
 - no primary-port truth editing or Architect survey persistence
-- no RavenColonial source/CSS/assets/API mutation
+- no reference planner source/CSS/assets/API mutation
 
 ## Stage 18 direction
 
@@ -367,7 +371,7 @@ Stage 18 should build a constrained Colony Architect assistant shell on top of t
 - no silent build mutation
 - Preview remains the validation authority
 
-## Stage 17I Static Raven-Style Planner Canvas Prototype
+## Stage 17I Static Planner Canvas Preview
 
 Stage 17I is a visual wireframe stage, not a live planner replacement.
 
@@ -379,13 +383,13 @@ Why it exists:
 
 Delivered boundary:
 
-- `frontend-v2/src/features/colony-planner/prototype/RavenStylePlannerPrototype.tsx`
-- safe review route: `#colony-planner-prototype`
+- `frontend/src/features/colony-planner/preview/PlannerCanvasPreview.tsx`
+- safe review route: `#planner-preview`
 - hardcoded/mock system data only
 - no backend fetches, no Build Plan state, no local project mutation, no persistence
 - no optimiser, slot prediction, Simulation Preview, CP, economy, service, Search Tuning, import, or EDMC logic changes
 
-Visual prototype goals:
+Visual preview goals:
 
 - whole system as one continuous scrollable build canvas
 - body hierarchy shown by branch lines and vertical flow, not a detached body list
@@ -393,12 +397,12 @@ Visual prototype goals:
 - planned and projected structures rendered inside slot boxes and repeated as attached child markers
 - ghost/projection styling is visually distinct from planned structures
 - compact economy strips live beside each body while the build layout remains visible
-- a persistent RavenColonial-like telemetry panel shows score, population, security, tech, wealth, standard of living, development, economy mix, haul, and active-build placeholders
+- a persistent reference-planner-like telemetry panel shows score, population, security, tech, wealth, standard of living, development, economy mix, haul, and active-build placeholders
 
 Clean-room boundary:
 
-- RavenColonial evidence was used only to understand functional visual behaviour: system tree, inline site counts, attached structures, projection ghosts, and persistent calculations
-- no RavenColonial source, CSS, assets, icons, API calls, or proprietary implementation details were copied
+- reference planner evidence was used only to understand functional visual behaviour: system tree, inline site counts, attached structures, projection ghosts, and persistent calculations
+- no reference planner source, CSS, assets, icons, API calls, or proprietary implementation details were copied
 - ED-Finder keeps its dark/orange/brushed-steel/cyan styling
 
 What must be validated before real implementation:
@@ -469,14 +473,14 @@ Stage 18 foundation remains unchanged:
 
 Stage 17H supersession note: Stage 17F's graphical lane work remains part of the implementation, but it is no longer the default architecture description. The current default is the Stage 17H whole-system planner with the old stack behind Advanced Planner.
 
-## Stage 17K Raven-Style Real Data Wire-Up
+## Stage 17K Planner Real Data Wire-Up
 
-Stage 17K wires the accepted Raven-style planner direction into the real dedicated Colony Planner route while keeping the isolated prototype route for visual testing.
+Stage 17K wires the accepted whole-system planner direction into the real dedicated Colony Planner route while keeping the isolated preview route for visual testing.
 
 Implemented Stage 17K changes:
 
-- `#colony-planner/system/{id64}` now renders a data-driven Raven-style whole-system canvas as the first planner surface.
-- `#colony-planner-prototype` remains mock-only for visual iteration.
+- `#colony-planner/system/{id64}` now renders a data-driven whole-system planner canvas as the first planner surface.
+- `#planner-preview` remains mock-only for visual iteration.
 - the real canvas consumes the existing planner snapshot:
   - loaded system detail and real body hierarchy
   - canonical slot-prediction response
@@ -492,7 +496,7 @@ Implemented Stage 17K changes:
 
 Default-resolution/readability pass:
 
-- planner route layout now uses a responsive Raven data layout:
+- planner route layout now uses a responsive planner-first data layout:
   - wide real canvas first
   - selected-body editor/detail surface second
   - readable telemetry/project rail on the right at larger widths
@@ -502,11 +506,11 @@ Default-resolution/readability pass:
 Still not production-final:
 
 - planning economy remains the frontend planning ledger, not a validated Preview result.
-- strength values are only shown from available real template metadata; the UI does not invent RavenColonial-style bonus magnitudes when the data is missing.
+- strength values are only shown from available real template metadata; the UI does not invent reference planner-style bonus magnitudes when the data is missing.
 - project save/load remains browser-local.
 - Suggested Build generation, candidate load, and Preview remain explicit actions.
 
-## Stage 17M Two-Region Raven-Style Canvas
+## Stage 17M Two-Region Planner Canvas
 
 Stage 17M removes the permanent three-column planner split. The previous left map + middle selected-body editor + right telemetry layout kept separating the selected body from the system topology, so the middle column did not justify its permanent width and made the planner feel like disconnected panels again.
 
@@ -519,28 +523,28 @@ Selecting a body keeps the whole-system canvas in view and expands that body row
 
 Selecting a structure highlights it in the canvas and updates the telemetry context. Planned structures show full template name, lane/body, economy contribution, CP strength, and build order where available. Projected Suggested Build structures are selectable as ghost/projected context but remain projection-only; they do not load into the Build Plan, run Preview, or trigger generation.
 
-Remaining RavenColonial gaps: no drag/drop slot editing, no true material/hauling workflow, no Architect-observed slot truth storage, no rich orbital path animation, and Suggested Builds remain deterministic editable starts rather than a full strategy advisor.
+Remaining reference planner gaps: no drag/drop slot editing, no true material/hauling workflow, no Architect-observed slot truth storage, no rich orbital path animation, and Suggested Builds remain deterministic editable starts rather than a full strategy advisor.
 
 ## Stage 17N Right-Panel Density And Docking
 
 Stage 17N refines the Stage 17M shape without reopening the three-column split. The right region is now a single context stack: desktop keeps it sticky and scrollable, while narrower layouts present a bottom-docked Telemetry toggle that opens the same telemetry and summary content. This gives mobile/tablet users an intentional dock rather than relying on the right region falling below the canvas.
 
-The telemetry panel now has projection comparison controls for Bodies, Economy, and Slots. These controls make Suggested Build ghosts easier to evaluate before any load action: bodies compare current Build Plan coverage with projected ghost bodies, economy shows planned plus projected counts by template economy, and slots summarize projected orbital/ground/unknown lane pressure and overflow risk. The controls are read-only and do not run Preview, generate, load, save, import, mutate observations, or call RavenColonial.
+The telemetry panel now has projection comparison controls for Bodies, Economy, and Slots. These controls make Suggested Build ghosts easier to evaluate before any load action: bodies compare current Build Plan coverage with projected ghost bodies, economy shows planned plus projected counts by template economy, and slots summarize projected orbital/ground/unknown lane pressure and overflow risk. The controls are read-only and do not run Preview, generate, load, save, import, mutate observations, or call reference planner.
 
 The summary rail is compact by default, showing save state, build counts, warning count, focus, projection label, and economy strip. Local project controls remain available only after manual expansion.
 
 ## Stage 17N.1 Core Interaction Repair
 
-Stage 17N.1 makes the Raven-style whole-system canvas a working manual editing surface, not only a viewer.
+Stage 17N.1 makes the whole-system planner canvas a working manual editing surface, not only a viewer.
 
 Implemented behavior:
 
-- visible Raven row add controls and empty slot clicks open a lane-aware structure picker
+- visible planner row add controls and empty slot clicks open a lane-aware structure picker
 - the picker displays the selected body, requested orbit/surface lane, compatible count, structure name, category/type, economy, tier, pad, and location metadata
 - water-world and non-landable surface attempts show disabled reasons instead of silently doing nothing
 - incompatible templates are hidden and counted
 - template selection writes through the same local Build Plan placement state used by Advanced Planner
-- added structures immediately render in the Raven whole-system lane and the selected-body inline detail
+- added structures immediately render in the planner whole-system lane and the selected-body inline detail
 - project unsaved state updates from the same placement snapshot
 
 Explicit non-behavior:
@@ -563,7 +567,7 @@ Stage 17N.1b keeps the Stage 17N.1 direct-add architecture and makes the interac
 
 Implemented behavior:
 
-- the Raven canvas title is now `System Build Map`; the subtitle is `Plan structures directly into predicted orbital and surface slots.`
+- the planner canvas title is now `System Build Map`; the subtitle is `Plan structures directly into predicted orbital and surface slots.`
 - body controls select bodies, occupied planned slots select placements, projected ghost slots select projected placement context, and visible `+ Add` controls open the structure picker
 - passive slot/capacity boxes no longer use misleading hover or pointer-style treatment
 - the picker no longer treats `both + is_port` as orbital-only or `both + !is_port` as surface-only, so valid outposts, installations, hubs, settlements, ports, and variants remain available for compatible lanes
@@ -575,7 +579,7 @@ Implemented behavior:
 
 Explicit non-behavior:
 
-- no Advanced Planner requirement for manual Raven adds
+- no Advanced Planner requirement for manual planner adds
 - no automatic Preview run
 - no automatic Suggested Build generation
 - no projected candidate auto-load
@@ -589,7 +593,7 @@ Remaining manual editing gaps:
 
 ## Stage 17N.1c Graphical Declutter And Lane Correctness
 
-Stage 17N.1c keeps the same manual Raven add flow but changes how the canvas communicates it. The goal is that the build map can be scanned visually before the user has to read detail copy.
+Stage 17N.1c keeps the same manual planner add flow but changes how the canvas communicates it. The goal is that the build map can be scanned visually before the user has to read detail copy.
 
 Implemented behavior:
 
@@ -599,12 +603,12 @@ Implemented behavior:
 - zero-slot lanes render no fake empty boxes and no add target; selected rows show a compact no-slot state when useful
 - the canvas and selected-body detail share the same lane classifier
 - orbital-only templates are displayed only in orbit lanes, surface-only templates only in surface lanes
-- dual-location placements added from the Raven picker keep the selected lane as a local lane hint
+- dual-location placements added from the planner picker keep the selected lane as a local lane hint
 - dual-location placements without a reliable lane hint are shown as `Needs lane` rather than guessed into ground
 - selected-structure telemetry reports `needs lane` for unresolved flexible placements
 - the picker now uses `Add to [body]`, lane chips, compatible counts, and search across display name, variant/name, family, category, economy, tier, pad, location, and prerequisite text
 
-RavenColonial visual direction adopted:
+reference planner visual direction adopted:
 
 - structure state is carried by slot pills, small status chips, economy micro-bars, warning chips, and tree/slot geometry rather than long repeated sentences
 - longer explanations such as contextual station economy and prerequisite details remain available in tooltips, selected structure detail, telemetry, or plan health
@@ -627,11 +631,11 @@ Remaining manual editing gaps:
 
 ## Stage 17N.1e Slot Box Truth, Physical Compatibility, And Inherited Station Baseline
 
-Stage 17N.1e cleans up the residual visual ambiguity in the Raven whole-system canvas, separates physical compatibility from free-text prerequisites, and gives contextual stations a usable inherited economy baseline before Preview is run.
+Stage 17N.1e cleans up the residual visual ambiguity in the planner whole-system canvas, separates physical compatibility from free-text prerequisites, and gives contextual stations a usable inherited economy baseline before Preview is run.
 
 Implemented behavior:
 
-- the default Raven canvas no longer renders the small cyan/green dot strip next to body names; the helper `SlotCapacityDots` is retained only for the Advanced drawer
+- the default planner canvas no longer renders the small cyan/green dot strip next to body names; the helper `SlotCapacityDots` is retained only for the Advanced drawer
 - every body row renders real, capacity-accurate slot boxes on both selected and unselected rows; empty slots stay passive `<span>` elements and only the row-level `Add Orbit` / `Add Surface` controls open the picker
 - lane capacity chips use the format `Orbit N` and `Surface N` with the count rendered in a larger display font and `tabular-nums`, so the count is unambiguous and never reads as a padded `02`
 - known-zero and unknown lanes still fall through to the compact `No orbital slots` / `No surface slots` / `? slots` state; known positive capacity always renders boxes
@@ -656,7 +660,7 @@ Remaining manual editing gaps:
 - backend prerequisite metadata is not yet typed for "structure prerequisite" vs "slot/lane condition" — the frontend filter is a token allow-list and should migrate to a typed field once the catalogue exposes it
 - Architect observed slot truth and a first-class ringed-body field remain a later stage
 
-## Stage 17N.1f Raven Canvas Micro-Polish
+## Stage 17N.1f Planner Canvas Micro-Polish
 
 Implemented behaviours:
 
@@ -702,4 +706,7 @@ The `RatingRadar` component was rewritten to surface the full rating contract:
 
 ### Planner canvas
 
-No changes to Raven canvas layout, slot boxes, add flow, station economy baseline, picker compatibility, or map dominance. Existing planner tests pass unchanged.
+No changes to planner canvas layout, slot boxes, add flow, station economy baseline, picker compatibility, or map dominance. Existing planner tests pass unchanged.
+
+
+

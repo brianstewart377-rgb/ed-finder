@@ -1,12 +1,16 @@
 # Stage 17P — Current State / Forward Plan Baseline
 
+> Preserved baseline/reference document. Keep using `docs/ROADMAP.md` as the
+> current control document for what happens next. This file remains useful for
+> planner truth, source-authority rules, and historical boundary context.
+
 Stage 17P is a documentation-control stage. It does not implement app behaviour, change backend mechanics, alter scoring, change CP formulas, add ingestion, change persistence, or redesign the Colony Planner UI.
 
 ## Purpose
 
 The colonisation roadmap has grown through many implementation and recovery stages. Older documents are still valuable, but several of their "next stage" recommendations are now historical because later work has already landed.
 
-This document is the current planning baseline for future Colony Planner, colonisation intelligence, trust, slot, enrichment, and Raven-style planner work.
+This document is the current planning baseline for future Colony Planner, colonisation intelligence, trust, slot, enrichment, and whole-system planner work.
 
 Stage 22 is now the active post-21 control document for deciding what happens
 next. This file remains the product-boundary baseline for planner truth,
@@ -33,9 +37,9 @@ Current merged direction, based on the latest roadmap trail:
 - Stage 16E/16F/16G added inferred, declared, and declared-vs-observed role review concepts while keeping roles advisory and non-mechanical.
 - Stage 17B rescued Suggested Builds error handling and usefulness filtering.
 - Stage 17G introduced canonical validated slot prediction and a whole-system slot/economy planning map.
-- Stage 17M moved the dedicated planner toward a two-region Raven-style canvas plus telemetry/context model.
+- Stage 17M moved the dedicated planner toward a two-region whole-system planner canvas plus telemetry/context model.
 - Stage 17N tightened the docked telemetry/context region and read-only projection comparison.
-- Stage 17N.1 repaired and refined Raven canvas add flows, picker compatibility, lane handling, prerequisite warnings, and canvas clarity.
+- Stage 17N.1 repaired and refined planner canvas add flows, picker compatibility, lane handling, prerequisite warnings, and canvas clarity.
 - Stage 17N.2c recovered trust around unknown coordinates, unknown distances, stale/saturated ratings, and legacy rationale language.
 - Stage 17N.2d/17N.2d-H moved existing-infrastructure awareness and station/body association toward backend-backed trust metadata.
 - Stage 17N.2d-P and the enrichment roadmap introduced a safer offline/staging warehouse direction for repeatable enrichment evidence and report-only reconciliation.
@@ -47,16 +51,14 @@ Current merged direction, based on the latest roadmap trail:
 
 Use this order before starting new colonisation work:
 
-1. `docs/colonisation-redesign/README.md`
-2. `docs/colonisation-redesign/stage-23-roadmap.md`
-3. `docs/colonisation-redesign/stage-23a-first-live-per-system-evidence-provider.md`
-4. `docs/colonisation-redesign/stage-19-bounded-production-staging-activation.md`
-5. `docs/colonisation-redesign/stage-22-roadmap.md`
-6. This file.
-7. `docs/colonisation-redesign/engine-roadmap.md` for broad engine history and delivered stage summaries.
-8. `docs/colonisation-redesign/enrichment-roadmap.md` for station/body/ring enrichment, warehouse, and operator-roadmap work.
-9. Specific stage docs only when they directly apply to the task.
-10. For mechanics-heavy or source-sensitive work, read `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md`.
+1. `docs/ROADMAP.md`
+2. `docs/colonisation-redesign/README.md`
+3. This file.
+4. `docs/colonisation-redesign/stage-25c-product-shell-shared-context-contract.md` for the active implementation contract.
+5. `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md` for mechanics-heavy or source-sensitive work.
+6. `docs/operations/enrichment-warehouse-runbook.md` for guarded enrichment and warehouse operations.
+7. `docs/colonisation-redesign/stage-19-bounded-production-staging-activation.md` when work touches the separate bounded production-staging dependency.
+8. Specific historical stage docs only when they directly apply to the task.
 
 If this file conflicts with an older "recommended next stage" section, treat this file as newer planning control unless the older doc is being used only for historical context.
 
@@ -93,7 +95,7 @@ These boundaries continue to apply unless a future stage explicitly changes them
 - No role-aware optimiser scoring/ranking without a dedicated scope.
 - No primary-port truth invented from user intent.
 - No Architect Slot Survey truth unless backed by an explicit evidence/import workflow.
-- No RavenColonial visual clone, asset copy, API mutation, or logistics clone.
+- No reference planner visual clone, asset copy, API mutation, or logistics clone.
 - Existing infrastructure is not a Build Plan placement.
 - Projected Suggested Build structures are ghost/projection-only until explicitly loaded.
 - Unknown data must stay unknown; do not coerce missing coordinates, distances, slot counts, rings, or body associations to zero/false.
@@ -141,11 +143,11 @@ Acceptance:
 
 Status: advanced in Stage 21 and satisfied for the current planner baseline.
 
-Purpose: verify the current Raven-style planner and trust-recovery work behaves honestly on real awkward systems before adding more intelligence.
+Purpose: verify the current whole-system planner and trust-recovery work behaves honestly on real awkward systems before adding more intelligence.
 
 Scope:
 
-- Audit current Raven canvas behaviour against systems with known existing stations, predicted slots, unresolved associations, and projected Suggested Builds.
+- Audit current planner canvas behaviour against systems with known existing stations, predicted slots, unresolved associations, and projected Suggested Builds.
 - Remove any temporary slot/debug console logs.
 - Confirm unknown coordinates/distances never render as real zero values.
 - Confirm stale/saturated rating caveats and legacy-rationale safety copy are still present where needed.
@@ -199,7 +201,7 @@ Scope:
 
 - Improve candidate explanation around body choice, existing infrastructure, slot pressure, economy intent, sparse-data warnings, and declared roles.
 - Keep deterministic candidate families such as main station candidate, industrial/refinery starter, extraction support, tourism/agriculture, security/military, balanced expansion, and support-body plan.
-- Use Raven canvas projection to make candidate impact clearer.
+- Use planner canvas projection to make candidate impact clearer.
 - Keep load explicit and preview explicit.
 
 Non-goals:
@@ -824,7 +826,7 @@ Non-goals:
 - No Stage 18J-P or Stage 18K work.
 
 Support doc:
-`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
+`docs/ROADMAP.md`.
 
 ### Stage 18J-Q9 - Compact Summary Review / Station-Type Dry-Run Readiness
 
@@ -1518,8 +1520,8 @@ Older docs should not be deleted by default. They contain useful context, ration
 | `stage-16-colony-role-model-plan.md` | Historical/reference | Role terminology, source separation, declared/inferred/observed boundaries. |
 | `stage-15-planner-workspace-redesign-plan.md` | Historical/reference | Topology-first workspace rationale and UI architecture intent. |
 | `simulation-preview-ui-architecture.md` | Historical/reference plus current architecture notes | Component ownership and delivered Stage 16/17 architecture notes. |
-| `engine-roadmap.md` | Living historical roadmap | Broad engine history and delivered stage summaries. This Stage 17P file controls immediate next work. |
-| `enrichment-roadmap.md` | Active for enrichment/operator work | Station enrichment, body/ring enrichment, warehouse, and operator roadmap. |
+| `docs/ROADMAP.md` | Current roadmap | Single source for what happens next, including the supporting evidence and ingestion lane. |
+| `docs/operations/enrichment-warehouse-runbook.md` | Active for enrichment/operator work | Guarded station enrichment, body/ring enrichment, warehouse run steps, and operator safety guidance. |
 | Stage 5-14 docs | Historical/reference | Use only for the specific feature or regression they describe. |
 
 ## Final Recommendation
@@ -1540,7 +1542,7 @@ Current status after Stage 20 and the first Stage 21 execution pass:
    warehouse-to-planner and canonical-write planning track.
 6. Stage 19 production activation remains separate deferred work.
 
-Use `stage-21-roadmap.md` as the active post-20 control document and
+Use `docs/ROADMAP.md` as the current control document and
 `stage-21b-to-21f-stage17-stage18-burn-down.md` as the record of how the Stage
 17 and Stage 18 backlog was burned down or reclassified.
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
@@ -1567,3 +1569,5 @@ Use `stage-21-roadmap.md` as the active post-20 control document and
 51. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
+
+

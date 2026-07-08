@@ -1,4 +1,4 @@
-# Stage 5.9B Forensic Structural, UX, and Wiring Review
+﻿# Stage 5.9B Forensic Structural, UX, and Wiring Review
 
 ## 1. Executive Summary
 
@@ -6,7 +6,7 @@ This review finds that ED-Finder’s post-Stage-5 implementation is **functional
 
 The backend Stage 5 structure is comparatively strong. The package `apps/api/src/optimiser/` contains separated generation, ranking, model, rule, dedupe, facility-selection, and preview-summary code. The FastAPI router `apps/api/src/routers/optimiser.py` is small and explicit: it normalises the target archetype, calls candidate generation, optionally attaches ranking, and validates the public response. This is a good foundation and should not be rewritten before Stage 6.
 
-The frontend structure is also better than a monolith, because Simulation Preview has already been decomposed under `frontend-v2/src/features/system-detail/simulation-preview/`. However, the orchestration component `SimulationPreview.tsx` now owns manual preview state, candidate-origin state, candidate loading, run-preview state, error state, target-archetype state, recommended-build loading, and the embedded optimiser panel. This is manageable now, but it is the next structural pressure point.
+The frontend structure is also better than a monolith, because Simulation Preview has already been decomposed under `frontend/src/features/system-detail/simulation-preview/`. However, the orchestration component `SimulationPreview.tsx` now owns manual preview state, candidate-origin state, candidate loading, run-preview state, error state, target-archetype state, recommended-build loading, and the embedded optimiser panel. This is manageable now, but it is the next structural pressure point.
 
 > **Headline verdict:** ED-Finder is ready for a Stage 5.9 cleanup pass before Stage 6. It should not start observed-vs-predicted validation work until the planner surface is renamed, moved into a clearer workspace, and covered by one or two stronger end-to-end wiring tests.
 
@@ -21,7 +21,7 @@ The application now has two distinct concepts that are no longer both called “
 | Should Stage 5 get its own dedicated internal space? | **Yes.** It should become a System Detail-level or Colony Planner-level internal space, not a bottom section inside Simulation Preview. |
 | What should the user-facing term be? | **Colony Planner** for the broad workspace; **Suggested Builds** for the candidate-generation sub-panel; **Simulation Preview** for the explicit preview run/result sub-mode. |
 | Does the current Stage 5 UI explain generate/rank/compare/load semantics? | **Mostly.** The safety copy is good, especially “nothing is committed in-game” and comparison is advisory. The target-archetype and estimated-data controls still need stronger context. |
-| Are there stale optimizer references? | **Internally, yes, intentionally.** `frontend-v2/src/features/optimizer/` and route `optimizer` remain as low-risk compatibility names for Search Tuning. User-facing stale top-level “Optimizer” wording appears addressed. |
+| Are there stale optimizer references? | **Internally, yes, intentionally.** `frontend/src/features/optimizer/` and route `optimizer` remain as low-risk compatibility names for Search Tuning. User-facing stale top-level “Optimizer” wording appears addressed. |
 | Does `SimulationPreview.tsx` own too much orchestration/state? | **Yes, next-stage concern.** It is not broken, but it is now the main frontend refactor candidate. |
 | Are tests sufficient? | **Good but not complete.** Backend optimiser and frontend panel tests are strong. Missing coverage remains around full generate → compare → load → edit → run, navigation labels, and target-archetype changes. |
 | Should Search Tuning stay? | **Yes, for now.** Keep it, but later demote it under Finder/Advanced Search Tuning and improve explanations/presets/rank movement. |
@@ -31,12 +31,12 @@ The application now has two distinct concepts that are no longer both called “
 
 | Severity | Evidence | Issue | Recommendation | Timing |
 |---|---|---|---|---|
-| Medium | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` renders one broad `Section title="Colony Planning"` containing Buildability, Regional, Recommended Builds, Simulation Preview, and Slot Prediction. | The System Detail modal has no internal planner navigation. Colony planning is a vertical stack, so the Stage 5 workflow is hard to discover. | Add internal System Detail/Colony Planning modes or tabs, with **Colony Planner** as the broad workspace. | Next stage |
-| High | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` owns target archetype, placements, result, errors, recommended loading, candidate-origin state, candidate edit tracking, run-preview behavior, and embeds `OptimiserCandidatePanel`. | The file is not yet unmaintainable, but it is now the highest-risk frontend state owner. Future Stage 6 validation or saved builds will increase complexity sharply. | Extract planner state and optimiser-candidate orchestration into hooks such as `useSimulationPreviewPlan` and `useOptimiserCandidateLoading`, or move the optimiser into a sibling workspace. | Next stage |
+| Medium | `frontend/src/features/system-detail/SystemDetailModal.tsx` renders one broad `Section title="Colony Planning"` containing Buildability, Regional, Recommended Builds, Simulation Preview, and Slot Prediction. | The System Detail modal has no internal planner navigation. Colony planning is a vertical stack, so the Stage 5 workflow is hard to discover. | Add internal System Detail/Colony Planning modes or tabs, with **Colony Planner** as the broad workspace. | Next stage |
+| High | `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx` owns target archetype, placements, result, errors, recommended loading, candidate-origin state, candidate edit tracking, run-preview behavior, and embeds `OptimiserCandidatePanel`. | The file is not yet unmaintainable, but it is now the highest-risk frontend state owner. Future Stage 6 validation or saved builds will increase complexity sharply. | Extract planner state and optimiser-candidate orchestration into hooks such as `useSimulationPreviewPlan` and `useOptimiserCandidateLoading`, or move the optimiser into a sibling workspace. | Next stage |
 | Low | `apps/api/src/optimiser/` contains `candidate_generator.py`, `ranker.py`, `models.py`, `archetype_rules.py`, `facility_selection.py`, `dedupe.py`, and `preview_summary.py`. | Backend Stage 5 ownership is clean and does not need urgent structural change. | Keep backend package. Do not rename `apps/api/src/optimiser/` until there is a strong reason, because it is internally coherent and British spelling matches Stage 5 docs. | Do not fix now |
-| Medium | `frontend-v2/src/features/optimizer/OptimizerTab.tsx`, `useOptimizer.ts`, and route key `optimizer` now present as Search Tuning. | User-facing wording is fixed, but internal names remain “optimizer”. This is acceptable short-term, but it will confuse new contributors if left forever. | Later rename the folder to `search-tuning/` and keep a route alias if routing cleanup exists. Do this as a small migration, not during Stage 6. | Later |
-| Medium | `frontend-v2/src/lib/api.ts` contains both `/optimiser/candidates` and `/ratings/rerank` wrappers. | The API client correctly separates backend paths, but colocating both in one broad API file makes naming drift easy. | Add section comments that say “Colony planner optimiser” versus “Search Tuning rerank”, or later split API helpers by feature. | Next stage |
-| Low | `frontend-v2/src/features/system-detail/simulation-preview/optimiser/comparison/` is a separate comparison subfolder. | Comparison logic is well isolated from rendering and does not need a rewrite. | Keep this folder, but consider moving it under a future `colony-planner/` workspace if the optimiser becomes first-class. | Later |
+| Medium | `frontend/src/features/optimizer/OptimizerTab.tsx`, `useOptimizer.ts`, and route key `optimizer` now present as Search Tuning. | User-facing wording is fixed, but internal names remain “optimizer”. This is acceptable short-term, but it will confuse new contributors if left forever. | Later rename the folder to `search-tuning/` and keep a route alias if routing cleanup exists. Do this as a small migration, not during Stage 6. | Later |
+| Medium | `frontend/src/lib/api.ts` contains both `/optimiser/candidates` and `/ratings/rerank` wrappers. | The API client correctly separates backend paths, but colocating both in one broad API file makes naming drift easy. | Add section comments that say “Colony planner optimiser” versus “Search Tuning rerank”, or later split API helpers by feature. | Next stage |
+| Low | `frontend/src/features/system-detail/simulation-preview/optimiser/comparison/` is a separate comparison subfolder. | Comparison logic is well isolated from rendering and does not need a rewrite. | Keep this folder, but consider moving it under a future `colony-planner/` workspace if the optimiser becomes first-class. | Later |
 | Low | `docs/colonisation-redesign/optimiser-candidate-generator.md` starts with Stage 5A/5B scope caveats and later includes Stage 5C–5F. | The document is accurate in sections, but the first paragraph can read stale because it says Stage 5A/B are not comparison UI/apply flow before later describing Stage 5D–5F. | Add a current-status paragraph at the top explaining that Stage 5A–5F now exist, while the early section describes the original foundation. | Fix now or next stage |
 
 ## 4. Stage 5 Wiring Findings
@@ -114,7 +114,7 @@ For Stage 5, the best broad user-facing name is **Colony Planner**. “Build Opt
 | Simulation Preview | Keep as an action/result mode. | It should mean the explicit simulation run/result, not the whole planner workspace. |
 | Build Optimiser / Colony Optimiser | Avoid as top-level label for now. | It implies stronger optimality than bounded heuristic candidates provide. |
 
-Code naming should evolve later, not now. `apps/api/src/optimiser/` is acceptable because it is a backend package and British spelling is consistent with Stage 5 code. `frontend-v2/src/features/optimizer/` should eventually become `search-tuning/`. `frontend-v2/src/features/system-detail/simulation-preview/optimiser/` should eventually move under `colony-planner/optimiser/` if the workspace is renamed.
+Code naming should evolve later, not now. `apps/api/src/optimiser/` is acceptable because it is a backend package and British spelling is consistent with Stage 5 code. `frontend/src/features/optimizer/` should eventually become `search-tuning/`. `frontend/src/features/system-detail/simulation-preview/optimiser/` should eventually move under `colony-planner/optimiser/` if the workspace is renamed.
 
 ## 8. Refactor Candidates
 
@@ -123,11 +123,11 @@ Code naming should evolve later, not now. `apps/api/src/optimiser/` is acceptabl
 | Planner workspace shell | `SystemDetailModal.tsx`, `SimulationPreviewPanel.tsx`, `simulation-preview/SimulationPreview.tsx` | Colony Planning is a vertical stack and Stage 5 is buried. | Introduce a `ColonyPlannerPanel` wrapper with internal modes/tabs. | Medium | High | Stage 5.9C |
 | Simulation Preview state owner | `simulation-preview/SimulationPreview.tsx`, `hooks/useSimulationPreviewPlan.ts`, `hooks/useSimulationPreviewRun.ts` | Stage 5.9D extracted plan state and preview execution into focused hooks while leaving the public composition component in place. | Keep this boundary; only consider further extraction if Stage 6 validation or saved-build work adds new state domains. | Medium | Medium | Later |
 | Optimiser panel parameter lifecycle | `OptimiserCandidatePanel.tsx` | Stage 5.9C now stamps generated candidates with target archetype, max candidate count, and estimated-data setting, and warns when controls differ. | Keep the warning, then consider reset-on-change or stronger stale-load affordances later if user testing shows confusion. | Low-Medium | Medium | Stage 5.9E |
-| Search Tuning internal folder name | `frontend-v2/src/features/optimizer/` | Internal name conflicts with new user-facing Search Tuning terminology. | Rename to `search-tuning/` in a focused route-safe PR. | Medium | Medium | Stage 7 |
-| API client feature boundaries | `frontend-v2/src/lib/api.ts` | Broad API file contains both Search Tuning rerank and Stage 5 candidate generation. | Add clearer comments now; later split feature-specific API helpers. | Low | Medium | Stage 5.9C / Later |
+| Search Tuning internal folder name | `frontend/src/features/optimizer/` | Internal name conflicts with new user-facing Search Tuning terminology. | Rename to `search-tuning/` in a focused route-safe PR. | Medium | Medium | Stage 7 |
+| API client feature boundaries | `frontend/src/lib/api.ts` | Broad API file contains both Search Tuning rerank and Stage 5 candidate generation. | Add clearer comments now; later split feature-specific API helpers. | Low | Medium | Stage 5.9C / Later |
 | Docs current-state framing | `docs/colonisation-redesign/optimiser-candidate-generator.md` | Early Stage 5A/B wording can read stale now that 5C–5F exist. | Add a current-state summary at top and a “scope by stage” table. | Low | Medium | Stage 5.9C |
 | System Detail internal IA | `SystemDetailModal.tsx` | Rating/profile/bodies/stations/planning all appear in one scroll. | Later add modal-level tabs: Overview, Bodies, Colony Planner, Regional Context, Dependencies. | High | Medium | Later |
-| Frontend API types breadth | `frontend-v2/src/types/api.ts` | API type file is growing with every simulation and optimiser field. | Split by domain or add generated-type guardrails after current work stabilises. | Medium | Low | Later |
+| Frontend API types breadth | `frontend/src/types/api.ts` | API type file is growing with every simulation and optimiser field. | Split by domain or add generated-type guardrails after current work stabilises. | Medium | Low | Later |
 
 ## 9. Test Coverage Findings
 
@@ -146,13 +146,13 @@ Current test coverage is strong for many critical pieces. Backend `tests/test_op
 
 ## 10. Docs Findings
 
-The docs are better than average for a fast-moving feature, but they now need a consolidation pass. `optimiser-candidate-generator.md` accurately documents Stages 5A–5F, but its opening language still frames Stage 5A/B as not including UI/load/comparison before later sections describe those stages. `engine-roadmap.md` now distinguishes Search Tuning from the Stage 5 colony optimiser, which is good. `frontend-v2/README.md` correctly identifies Search Tuning as legacy Finder-result reranking.
+The docs are better than average for a fast-moving feature, but they now need a consolidation pass. `optimiser-candidate-generator.md` accurately documents Stages 5A–5F, but its opening language still frames Stage 5A/B as not including UI/load/comparison before later sections describe those stages. `ROADMAP.md` now distinguishes Search Tuning from the Stage 5 colony optimiser, which is good. `frontend/README.md` correctly identifies Search Tuning as legacy Finder-result reranking.
 
 | Severity | Evidence | Issue | Recommendation | Timing |
 |---|---|---|---|---|
 | Medium | `docs/colonisation-redesign/optimiser-candidate-generator.md` | Current-state framing should be updated so readers immediately understand Stage 5A–5F are implemented. | Add a top “Current status after Stage 5F” section. | Next stage |
 | Low | `docs/colonisation-redesign/simulation-preview-ui-architecture.md` | It documents decomposed Simulation Preview architecture, but the product has moved toward broader Colony Planner semantics. | Add note that Simulation Preview may become a sub-mode of Colony Planner. | Next stage |
-| Low | `frontend-v2/README.md` | Search Tuning distinction is now present. | Keep as is; update only after folder rename if that happens. | Do not fix now |
+| Low | `frontend/README.md` | Search Tuning distinction is now present. | Keep as is; update only after folder rename if that happens. | Do not fix now |
 | Medium | No dedicated “Colony Planner workspace” doc yet. | Stage 5 planner IA is not captured as a product architecture decision. | Add a short Stage 5.9C layout/naming doc before moving UI. | Next stage |
 | Low | Search Tuning future rework note exists in roadmap and README. | Adequate for now. | Do not implement rework now. | Do not fix |
 
@@ -201,11 +201,13 @@ Do not start Stage 6 until the planner surface has a clearer workspace name and 
 
 | Area | Key Files Reviewed |
 |---|---|
-| App/nav structure | `frontend-v2/src/App.tsx`, `frontend-v2/src/components/NavBar.tsx` |
-| System Detail placement | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`, `SimulationPreviewPanel.tsx` |
-| Simulation Preview orchestration | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
-| Stage 5 frontend | `frontend-v2/src/features/system-detail/simulation-preview/optimiser/OptimiserCandidatePanel.tsx`, `OptimiserCandidateDetails.tsx`, `OptimiserComparisonPanel.tsx` |
+| App/nav structure | `frontend/src/App.tsx`, `frontend/src/components/NavBar.tsx` |
+| System Detail placement | `frontend/src/features/system-detail/SystemDetailModal.tsx`, `SimulationPreviewPanel.tsx` |
+| Simulation Preview orchestration | `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
+| Stage 5 frontend | `frontend/src/features/system-detail/simulation-preview/optimiser/OptimiserCandidatePanel.tsx`, `OptimiserCandidateDetails.tsx`, `OptimiserComparisonPanel.tsx` |
 | Stage 5 backend | `apps/api/src/routers/optimiser.py`, `apps/api/src/optimiser/candidate_generator.py`, `ranker.py`, `models.py` |
-| Search Tuning | `frontend-v2/src/features/optimizer/OptimizerTab.tsx`, `useOptimizer.ts`, `OptimizerTab.test.tsx` |
+| Search Tuning | `frontend/src/features/optimizer/OptimizerTab.tsx`, `useOptimizer.ts`, `OptimizerTab.test.tsx` |
 | Tests | `tests/test_optimiser.py`, `OptimiserCandidatePanel.test.tsx`, `SimulationPreview.optimiser.test.tsx`, `comparisonEngine.test.ts`, `OptimizerTab.test.tsx` |
-| Docs | `docs/colonisation-redesign/optimiser-candidate-generator.md`, `simulation-preview-ui-architecture.md`, `engine-roadmap.md`, `frontend-v2/README.md` |
+| Docs | `docs/colonisation-redesign/optimiser-candidate-generator.md`, `simulation-preview-ui-architecture.md`, `ROADMAP.md`, `frontend/README.md` |
+
+

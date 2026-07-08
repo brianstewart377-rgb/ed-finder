@@ -1,4 +1,4 @@
-# Stage 18I.5 — Warehouse Database Boundary Review
+﻿# Stage 18I.5 — Warehouse Database Boundary Review
 
 Stage 18I.5 is a documentation and design review only. It decides the intended
 warehouse storage boundary before any Stage 18J canonical write pilot. It does
@@ -462,3 +462,4 @@ Warehouse-to-canonical promotion must cross a guarded apply boundary in a later
 approved stage. Stage 18J cannot start until this boundary decision is accepted;
 if the boundary is not implemented or otherwise explicitly accepted, all
 warehouse output remains report-only.
+

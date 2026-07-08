@@ -1,4 +1,4 @@
-# Stage 25B - Evidence Language And Visual-System Primitives
+﻿# Stage 25B - Evidence Language And Visual-System Primitives
 
 ## Status
 
@@ -35,14 +35,14 @@ The goal is that:
 Stage 25B touches exactly these live user-facing surfaces and narrowly related
 presentation helpers:
 
-- `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`
-- `frontend-v2/src/features/colony-planner/WorkspaceHeader.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx`
-- `frontend-v2/src/components/SemanticStatusBadge.tsx`
-- `frontend-v2/src/components/WorkspaceContextHeader.tsx`
-- `frontend-v2/src/components/EvidencePostureSummary.tsx`
-- `frontend-v2/src/lib/evidenceLanguage.ts`
+- `frontend/src/features/system-detail/SystemDetailModal.tsx`
+- `frontend/src/features/colony-planner/WorkspaceHeader.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx`
+- `frontend/src/components/SemanticStatusBadge.tsx`
+- `frontend/src/components/WorkspaceContextHeader.tsx`
+- `frontend/src/components/EvidencePostureSummary.tsx`
+- `frontend/src/lib/evidenceLanguage.ts`
 
 No shared selected-system state, route rewiring, query-key changes, planner-rule
 changes, or evidence-contract changes are authorized here.
@@ -242,3 +242,4 @@ This checkpoint does not authorize:
 - scheduler enablement;
 - source acquisition;
 - operator activity.
+

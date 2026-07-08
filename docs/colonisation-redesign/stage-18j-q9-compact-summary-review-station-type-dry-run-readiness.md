@@ -1,4 +1,4 @@
-# Stage 18J-Q9 — Compact Summary Review / Station-Type Dry-Run Readiness
+﻿# Stage 18J-Q9 — Compact Summary Review / Station-Type Dry-Run Readiness
 
 ## Purpose
 
@@ -309,3 +309,4 @@ does not run the production dry-run or approve any artifact. Stage
 18J-P-dryrun-ops adds the operator wrapper needed before that future dry-run.
 Stage 18J-P2 adds identity coverage diagnostics so a zero-eligible bounded
 dry-run can be understood before any approval-packet discussion.
+

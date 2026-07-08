@@ -1,4 +1,4 @@
-# Stage 19AV - Expanded Source-Run Staging Pilot
+﻿# Stage 19AV - Expanded Source-Run Staging Pilot
 
 ## Purpose
 
@@ -130,3 +130,4 @@ Stage 19AV completion does not authorize:
 
 Any future write-capable lane after Stage 19AV requires a separate explicit
 operator decision.
+

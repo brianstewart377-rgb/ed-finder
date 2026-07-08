@@ -1,4 +1,4 @@
-# Codex Reference Prompt Snippet
+﻿# Codex Reference Prompt Snippet
 
 Use this snippet at the start of future mechanics-heavy colonisation prompts:
 
@@ -22,8 +22,8 @@ Treat user empirical findings and spreadsheet analysis as high-value evidence,
 especially for surface-slot prediction, but do not label prediction evidence as
 confirmed truth without observed/imported Architect evidence.
 
-Treat RavenColonial as UI/tooling inspiration and possible handoff target only.
-Do not copy RavenColonial source, CSS, assets, icons, proprietary implementation
+Treat reference planner as UI/tooling inspiration and possible handoff target only.
+Do not copy reference planner source, CSS, assets, icons, proprietary implementation
 details, API keys, private plugin data, logistics workflow, or mutating API
 behaviour.
 
@@ -32,3 +32,4 @@ Build generation, automatic Suggested Build loading, silent Build Plan mutation,
 hidden scoring/CP/economy/service/buildability/optimiser-ranking changes, or
 coercion of unknown data to zero/false.
 ```
+

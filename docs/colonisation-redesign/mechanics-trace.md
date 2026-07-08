@@ -1,4 +1,4 @@
-# Mechanics Trace
+﻿# Mechanics Trace
 
 The mechanics trace is a structured debug/explainability layer for simulation
 outputs. It keeps normal UI compact while giving advanced users and developers a
@@ -59,3 +59,4 @@ Each event has:
 - Trace events should point to the source or confidence level.
 - Regional trace events must stay separate from local deterministic mechanics.
 - The frontend should render trace behind an advanced accordion, not as raw JSON.
+

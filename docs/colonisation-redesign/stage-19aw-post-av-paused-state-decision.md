@@ -1,4 +1,4 @@
-# Stage 19AW - Post-AV Paused-State Decision
+﻿# Stage 19AW - Post-AV Paused-State Decision
 
 ## Purpose
 
@@ -111,3 +111,4 @@ decision.
   Stage 19 operator command execution;
 - runtime source files and operator artifact JSON files are not committed
   authority.
+

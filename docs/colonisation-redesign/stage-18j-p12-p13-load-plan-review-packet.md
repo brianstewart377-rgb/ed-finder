@@ -1,4 +1,4 @@
-# Stage 18J-P12/P13 — Load-Plan Review + Planned Row Review Packet
+﻿# Stage 18J-P12/P13 — Load-Plan Review + Planned Row Review Packet
 
 ## Purpose
 
@@ -347,3 +347,4 @@ manual review.
 
 Do not load identity evidence yet. Keep identity writes, station-type writes,
 canonical apply, approval-record creation, and Stage 18K blocked.
+

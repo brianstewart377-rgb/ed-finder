@@ -1,4 +1,4 @@
-# CP Sequence Repair Assistant
+﻿# CP Sequence Repair Assistant
 
 The CP sequence repair assistant is an additive Simulation Preview feature. It reads the existing CP timeline and emits small, conservative repair suggestions for the user’s current build order. It does **not** replace the CP simulator, it does **not** change `cp` or `cp_timeline`, and it does **not** attempt to find the globally optimal build order.
 
@@ -92,3 +92,4 @@ A valid sequence can still be fragile when it ends non-negative but has no usefu
 ## Limitations and Future Optimiser Path
 
 This stage is a repair assistant, not a full optimiser. It does not search every build-order permutation, does not rank all possible repairs, and does not validate every downstream dependency after a proposed move. Future optimiser work can use these structured suggestions as explainability inputs once a full search strategy exists.
+

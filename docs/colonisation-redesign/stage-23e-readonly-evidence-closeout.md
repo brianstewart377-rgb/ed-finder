@@ -1,4 +1,4 @@
-# Stage 23E Read-only Evidence Closeout
+﻿# Stage 23E Read-only Evidence Closeout
 
 ## Purpose
 
@@ -130,3 +130,4 @@ Stage 23 is complete when read as one sequence:
 - dedicated contract, UI wording, and static authority records agree;
 - Stage 19 and all write-capable lanes remain closed unless a later control
   document explicitly changes that state.
+

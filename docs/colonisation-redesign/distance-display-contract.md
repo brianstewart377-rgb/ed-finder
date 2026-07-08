@@ -1,4 +1,4 @@
-# Distance Display Contract
+﻿# Distance Display Contract
 
 ## Rules
 
@@ -56,3 +56,4 @@ Production verification and recovery steps live in `docs/operations/stage17n2c-d
 | `SystemTable` | Watchlist / pinned / cluster table | `—` |
 | `MapTab.SelectionPanel` | Map selection detail | Row omitted |
 | `CompareTab` | Side-by-side comparison | `—` |
+

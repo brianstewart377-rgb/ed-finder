@@ -1,4 +1,4 @@
-# Stage 18J-Q3 — Read-Only Production Reconciliation Artifact
+﻿# Stage 18J-Q3 — Read-Only Production Reconciliation Artifact
 
 ## Purpose
 
@@ -315,3 +315,4 @@ enforcement, and an operator-managed output path are all verified. Until then,
 no production reconciliation artifact exists, no station-type dry-run artifact
 exists, no production artifact is approved, and no production apply is
 authorized.
+

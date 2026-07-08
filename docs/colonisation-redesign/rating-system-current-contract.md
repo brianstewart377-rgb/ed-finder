@@ -1,4 +1,4 @@
-# Rating System Current Contract
+﻿# Rating System Current Contract
 
 ## What `score` means
 
@@ -130,3 +130,4 @@ The `RatingRadar` component must show:
 7. **Economy suitability bars**: all 7 economies including Extraction
 8. **Radar chart**: 7-axis polygon
 9. **Expandable dimension breakdown**: when `score_breakdown.dimensions` exists
+

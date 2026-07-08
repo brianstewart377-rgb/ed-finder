@@ -1,4 +1,4 @@
-# Agent Prompt Contract
+﻿# Agent Prompt Contract
 
 ## Scope
 
@@ -51,3 +51,4 @@ The active state authority contains current operational truth and an intentional
 The archive preserves historical context only. It must never be copied into prompts as operational authority, and it must not expand the active denylist by implication.
 
 Branch `work` is non-authoritative for Stage 19/test-env work unless a prompt explicitly declares scratch or docs-only scope. Wrong-branch outputs must not say `completed`, and wrong-branch operational work must not commit.
+

@@ -1,4 +1,4 @@
-# Stage 19P — source_runs helper smoke closeout
+﻿# Stage 19P — source_runs helper smoke closeout
 
 ## Result
 
@@ -73,3 +73,4 @@ Stage 19R can then implement the first EDSM import wrapper using `source_runs` a
 Stage 19M/19N/19O source-run helper smoke flow is complete.
 
 No imports, scheduler/timer enablement, canonical writes, or canonical apply are approved by this closeout.
+

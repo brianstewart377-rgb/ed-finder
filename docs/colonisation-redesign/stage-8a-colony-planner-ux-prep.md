@@ -1,4 +1,4 @@
-# Stage 8A Prep - Colony Planner Guided Workflow / Suggested-Builds UX Audit
+﻿# Stage 8A Prep - Colony Planner Guided Workflow / Suggested-Builds UX Audit
 
 ## Stage 8A Implementation Note
 
@@ -105,27 +105,27 @@ Relevant sections inspected:
 
 Inspected frontend:
 
-- `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`
-- `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx`
-- `frontend-v2/src/features/system-detail/RecommendedBuildsPanel.tsx`
-- `frontend-v2/src/features/system-detail/BuildPlanCard.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanSection.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanEditor.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/PreviewResultSection.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/SimulationResult.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/ColonyPlannerHeader.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/ColonyPlannerSectionNav.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/StartModes.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/hooks/useSimulationPreviewPlan.ts`
-- `frontend-v2/src/features/system-detail/simulation-preview/hooks/useSimulationPreviewRun.ts`
-- `frontend-v2/src/features/system-detail/simulation-preview/hooks/usePlacementEditor.ts`
-- `frontend-v2/src/features/system-detail/simulation-preview/optimiser/`
-- `frontend-v2/src/features/system-detail/simulation-preview/observations/`
-- `frontend-v2/src/features/system-detail/simulation-preview/validation/`
-- `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`
+- `frontend/src/features/system-detail/SystemDetailModal.tsx`
+- `frontend/src/features/system-detail/SimulationPreviewPanel.tsx`
+- `frontend/src/features/system-detail/RecommendedBuildsPanel.tsx`
+- `frontend/src/features/system-detail/BuildPlanCard.tsx`
+- `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+- `frontend/src/features/system-detail/simulation-preview/BuildPlanSection.tsx`
+- `frontend/src/features/system-detail/simulation-preview/BuildPlanEditor.tsx`
+- `frontend/src/features/system-detail/simulation-preview/PreviewResultSection.tsx`
+- `frontend/src/features/system-detail/simulation-preview/SimulationResult.tsx`
+- `frontend/src/features/system-detail/simulation-preview/ColonyPlannerHeader.tsx`
+- `frontend/src/features/system-detail/simulation-preview/ColonyPlannerSectionNav.tsx`
+- `frontend/src/features/system-detail/simulation-preview/StartModes.tsx`
+- `frontend/src/features/system-detail/simulation-preview/hooks/useSimulationPreviewPlan.ts`
+- `frontend/src/features/system-detail/simulation-preview/hooks/useSimulationPreviewRun.ts`
+- `frontend/src/features/system-detail/simulation-preview/hooks/usePlacementEditor.ts`
+- `frontend/src/features/system-detail/simulation-preview/optimiser/`
+- `frontend/src/features/system-detail/simulation-preview/observations/`
+- `frontend/src/features/system-detail/simulation-preview/validation/`
+- `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`
 
-`frontend-v2/src/features/system-detail/SystemDetailView.tsx` was requested but is not present.
+`frontend/src/features/system-detail/SystemDetailView.tsx` was requested but is not present.
 
 Inspected backend/docs/tests:
 
@@ -143,9 +143,9 @@ Inspected backend/docs/tests:
 - `tests/test_recommended_builds.py`
 - `tests/test_stage6c_comparison.py`
 - `tests/test_stage6e_review.py`
-- `frontend-v2/src/features/system-detail/simulation-preview/**/*.test.*`
+- `frontend/src/features/system-detail/simulation-preview/**/*.test.*`
 - `docs/api-contracts.md`
-- `docs/colonisation-redesign/engine-roadmap.md`
+- `docs/ROADMAP.md`
 - `docs/colonisation-redesign/stage-8a-colony-planner-ux-backlog.md`
 
 ## Current Colony Planner Flow
@@ -155,7 +155,7 @@ Inspected backend/docs/tests:
 Where it appears:
 
 - Finder/search surfaces and Advanced Search Tuning can open system detail.
-- Advanced Search Tuning rows include `Open system detail` and `Evaluate in Colony Planner` buttons in `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`.
+- Advanced Search Tuning rows include `Open system detail` and `Evaluate in Colony Planner` buttons in `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`.
 
 Action:
 
@@ -457,7 +457,7 @@ Player-friendly language:
 - Primary port does not count toward the T2/T3 escalation. The UI should explain why a T3 primary can be powerful for capital systems, while an outpost may be safer for bridges or solo players.
 - Market design should focus on one or two primary economies. The guide's top-two economy protection and contamination discussion imply a UX need for "primary market focus" and "extra economy risk" labels.
 - Orbital and planetary choices are tradeoffs. Orbital ports are convenient and enable some goods/links; planetary sites enable other goods, hubs, T3 planetary stats, and compact multi-site work. ED-Finder should explain what a body/placement choice changes.
-- Users need tools because the system is hard to reason about manually. The guide explicitly points players toward Raven Colonial and DaftMav's spreadsheet for simulation, dependencies, and CP requirements. ED-Finder should own that role with a guided workflow.
+- Users need tools because the system is hard to reason about manually. The guide explicitly points players toward reference planner and DaftMav's spreadsheet for simulation, dependencies, and CP requirements. ED-Finder should own that role with a guided workflow.
 - Hauling effort changes the right answer. The guide's primary-port advice considers cutter-load counts, four-week primary build window, carrier use, and travel distance. ED-Finder currently surfaces build complexity but not enough material/trip effort in the main flow.
 
 These source lessons should be treated as UX/product inputs, not unreviewed game-truth. Where the guide marks mechanics as uncertain or potentially bugged, ED-Finder copy should use cautious terms such as "risk", "likely", "estimated", or "needs in-game verification".
@@ -479,8 +479,8 @@ The user-raised concerns are valid after repo inspection, with nuance:
 
 | Severity | Issue | Evidence | Affected files/components | Recommended Stage 8A fix | Backend needed? |
 |---|---|---|---|---|---|
-| High | Colony Planner is too buried in system detail. | `SystemDetailModal.tsx` renders Colony Planning after Rating profile, System info, Bodies, Stations, and Exploration value. User concern matches current layout. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` | Add prominent top-of-modal CTA/jump link: `Open Colony Planner`. Keep embedded section for Stage 8A; jump/focus it from the CTA. | No |
-| High | `Evaluate in Colony Planner` does not actually land in the planner. | `AdvancedSearchTuningTab.tsx` calls `onOpenDetail(r.id64)` for both `Open system detail` and `Evaluate in Colony Planner`. Docs say it only opens system detail. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend-v2/src/App.tsx`, `SystemDetailModal.tsx` | Preserve no-auto-run semantics, but pass intent/focus so system detail opens scrolled to Colony Planner or with planner highlighted. | No |
+| High | Colony Planner is too buried in system detail. | `SystemDetailModal.tsx` renders Colony Planning after Rating profile, System info, Bodies, Stations, and Exploration value. User concern matches current layout. | `frontend/src/features/system-detail/SystemDetailModal.tsx` | Add prominent top-of-modal CTA/jump link: `Open Colony Planner`. Keep embedded section for Stage 8A; jump/focus it from the CTA. | No |
+| High | `Evaluate in Colony Planner` does not actually land in the planner. | `AdvancedSearchTuningTab.tsx` calls `onOpenDetail(r.id64)` for both `Open system detail` and `Evaluate in Colony Planner`. Docs say it only opens system detail. | `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend/src/App.tsx`, `SystemDetailModal.tsx` | Preserve no-auto-run semantics, but pass intent/focus so system detail opens scrolled to Colony Planner or with planner highlighted. | No |
 | High | Suggested-build path is split between Recommended Builds and Suggested Builds. | `RecommendedBuildsPanel.tsx` exists before `SimulationPreviewPanel`; `OptimiserCandidatePanel.tsx` exists inside the planner with technical label. | `RecommendedBuildsPanel.tsx`, `SimulationPreview.tsx`, `OptimiserCandidatePanel.tsx`, `ColonyPlannerSectionNav.tsx` | Reframe user-facing candidate UI as `Suggested Builds`; make initial planner choice "Generate Suggested Builds" / "Use recommended plan" / "Start blank". Keep backend optimiser names. | No |
 | High | Preview Result lacks a headline interpretation. | `SimulationResult.tsx` renders many panels but starts with metrics rather than a verdict and next-step summary. | `PreviewResultSection.tsx`, `SimulationResult.tsx`, panels under `simulation-preview/panels/` | Add top summary block: verdict, risk level, why, and next recommended action. Reuse existing result fields: score, buildability, confidence, strengths, warnings, recommendations, CP summary. | No |
 | High | Build Plan edits do not loudly indicate "needs preview". | `usePlacementEditor.ts` mutates placements; `useSimulationPreviewRun.ts` can mark stale result, but the editor itself does not show placement count/update/stale state. | `BuildPlanSection.tsx`, `BuildPlanEditor.tsx`, `usePlacementEditor.ts`, `useSimulationPreviewRun.ts` | Add visible status near Build Plan: placement count, "Preview not run yet", "Build Plan updated", and "Preview is stale - run again". | No |
@@ -866,3 +866,5 @@ Stage 8A should be a focused frontend UX implementation based on this audit:
 - Position Observed Evidence, Validation, and Review Guidance as later advisory steps.
 
 This direction aligns ED-Finder with how players actually plan colonisation: choose a system intent, avoid irreversible primary-port mistakes, manage CP/order/slot constraints, protect economy focus, estimate effort, preview the result, and only then validate against in-game evidence.
+
+

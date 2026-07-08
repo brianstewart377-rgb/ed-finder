@@ -1,4 +1,4 @@
-# Stage 19AY - Test-Environment Safety Programme Closeout
+﻿# Stage 19AY - Test-Environment Safety Programme Closeout
 
 ## Purpose And Scope
 
@@ -143,3 +143,4 @@ closeout.
 After Stage 19AY merges, begin Stage 20 planning from the completed Stage 19
 safety evidence. Keep Stage 19 paused until a separate explicit operator
 decision authorizes any future production/canonical activation path.
+

@@ -1,4 +1,4 @@
-# Stage 18H — Warehouse-to-Planner Evidence Bridge (Read-Only)
+﻿# Stage 18H — Warehouse-to-Planner Evidence Bridge (Read-Only)
 
 Stage 18H lets the Colony Planner *see* selected warehouse/report-only evidence
 as **evidence, not truth**. It is strictly read-only. It does not mutate planner
@@ -13,9 +13,9 @@ Stage 18H no longer sits only in a placeholder state.
 The planner now has a live, read-only warehouse bridge through the sanitized
 provenance cockpit route:
 
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
-- `frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts`
+- `frontend/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
 
 This bridge reuses the existing non-admin provenance cockpit endpoint and
 surfaces warehouse status as report-only evidence inside the main planner
@@ -80,7 +80,7 @@ per-system artifact contract exists yet.
 ## What the Planner Card Shows
 
 The card is a presentation-only React component
-(`frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx`). It takes
+(`frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx`). It takes
 an optional `evidence?: PlannerWarehouseEvidence` prop and renders:
 
 - A persistent source-boundary line:
@@ -99,7 +99,7 @@ planner state. It has no callbacks.
 
 ## Typed Model
 
-`frontend-v2/src/types/api.ts` adds a small read-only model:
+`frontend/src/types/api.ts` adds a small read-only model:
 
 ```ts
 type WarehouseEvidenceSource =
@@ -190,3 +190,4 @@ See the PR body for the exact commands. Stage 18H adds frontend component tests
 for the unavailable state, report-only/source-labelled rendering, stale/risky/
 blocked wording, source separation, and the no-control/no-mutation guarantee. It
 changes no backend behaviour and no canonical data.
+

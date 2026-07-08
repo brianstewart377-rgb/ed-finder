@@ -1,4 +1,4 @@
-# Stage 18H.3 — Planner Warehouse Fetch with Provenance Fallback
+﻿# Stage 18H.3 — Planner Warehouse Fetch with Provenance Fallback
 
 ## Purpose
 
@@ -37,8 +37,8 @@ labels used in earlier Stage 18H work.
 
 The fetch/fallback integration is implemented in:
 
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts`
 
 Focused workspace tests cover both:
 
@@ -49,3 +49,4 @@ Focused workspace tests cover both:
 
 The next slice is Stage 18H.4: clarify freshness, review status, and source
 posture in the planner UX now that the dedicated endpoint path is live.
+

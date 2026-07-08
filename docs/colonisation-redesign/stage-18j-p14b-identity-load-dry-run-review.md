@@ -1,4 +1,4 @@
-# Stage 18J-P14B — Identity Load Dry-Run Review
+﻿# Stage 18J-P14B — Identity Load Dry-Run Review
 
 ## Purpose
 
@@ -169,3 +169,4 @@ Do not load identity evidence yet.
 Proceed only to Stage 18J-P14C. The next appropriate work is a separate
 approval allowlist artifact for the exact `20` selected review items or plan
 rows, tied to the verified review packet checksum.
+

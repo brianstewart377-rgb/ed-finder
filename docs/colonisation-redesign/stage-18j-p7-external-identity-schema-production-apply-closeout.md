@@ -1,4 +1,4 @@
-# Stage 18J-P7 — External Identity Schema Production Apply Closeout
+﻿# Stage 18J-P7 — External Identity Schema Production Apply Closeout
 
 ## Purpose
 
@@ -177,3 +177,4 @@ station-type writes.
 Do not retry the strict station-type dry-run until confirmed external identity
 coverage exists in read-only reconciliation output. Do not run canonical apply
 or create approval records as part of identity evidence loading.
+

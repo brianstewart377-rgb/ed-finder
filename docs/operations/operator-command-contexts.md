@@ -1,4 +1,4 @@
-# Operator Command Contexts
+﻿# Operator Command Contexts
 
 ## Purpose
 
@@ -230,3 +230,4 @@ development. Use the Hetzner production operator shell for `/opt/ed-finder`,
 `/var/lib/ed-finder`, Docker/Postgres production services, and production
 artifacts. Keep operator artifacts private, keep secrets out of chat and Git,
 and rely on fail-fast operator scripts for server-only commands.
+

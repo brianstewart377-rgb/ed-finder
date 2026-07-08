@@ -1,4 +1,4 @@
-# Black-Box LLM Colony Architect Musings
+﻿# Black-Box LLM Colony Architect Musings
 
 ## Why this exists
 
@@ -38,3 +38,4 @@ Users want a mini ChatGPT-style planner assistant. The risk is letting opaque ou
 ## Decision
 
 Proceed with schema-first assistant foundation before any live inference integration.
+

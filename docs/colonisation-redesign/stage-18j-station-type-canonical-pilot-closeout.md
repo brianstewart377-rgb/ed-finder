@@ -1,4 +1,4 @@
-# Stage 18J — Station Type Canonical Pilot Closeout
+﻿# Stage 18J — Station Type Canonical Pilot Closeout
 
 ## Result
 
@@ -66,3 +66,4 @@ The next meaningful follow-on is Stage 18T — Canonical Safety Test
 Environment, which hardens repeatable CI/local safety coverage around the
 canonical-write-capable Stage 18J path without authorizing further production
 apply.
+

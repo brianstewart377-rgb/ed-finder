@@ -1,4 +1,4 @@
-# Stage 18J-P18B — Dodec enum repo impact scan closeout
+﻿# Stage 18J-P18B — Dodec enum repo impact scan closeout
 
 ## Result
 
@@ -89,3 +89,4 @@ The next implementation branch should be small and focused:
 Stage 18J-P18B confirms that Dodec support should proceed via a separate schema/model implementation branch.
 
 No enum changes, migrations, station-type dry-run, station-type writes, canonical writes, or canonical apply are approved by this stage.
+

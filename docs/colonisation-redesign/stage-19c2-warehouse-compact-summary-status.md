@@ -1,4 +1,4 @@
-# Stage 19C.2 — Warehouse compact summary status support
+﻿# Stage 19C.2 — Warehouse compact summary status support
 
 ## Result
 
@@ -34,3 +34,4 @@ It does not perform:
 - canonical writes;
 - canonical apply;
 - artifact generation.
+
