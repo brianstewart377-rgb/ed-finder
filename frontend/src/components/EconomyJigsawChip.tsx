@@ -13,7 +13,7 @@ interface EconomyJigsawChipProps {
   testIdPrefix?: string;
 }
 
-const CHIP_HEIGHT = 34;
+const CHIP_HEIGHT = 30;
 const CHIP_HALF_WIDTH = 168;
 const CHIP_TOTAL_WIDTH = CHIP_HALF_WIDTH * 2;
 
@@ -50,22 +50,23 @@ export function EconomyJigsawChip({
     <span
       data-testid={wrapperTestId}
       aria-label={label}
-      className="relative inline-grid grid-cols-2 overflow-hidden rounded-chunk border uppercase align-middle"
+      className="relative inline-grid grid-cols-2 overflow-hidden rounded-full border uppercase align-middle"
       style={{
         width: `${CHIP_TOTAL_WIDTH}px`,
         maxWidth: '100%',
         height: `${CHIP_HEIGHT}px`,
-        borderColor: 'rgba(148,163,184,0.24)',
+        borderColor: 'rgba(255,122,20,0.22)',
         background: [
           'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0) 24%)',
-          'linear-gradient(180deg, rgba(24, 28, 34, 0.9), rgba(12, 15, 20, 0.88))',
+          'radial-gradient(circle at 24% 20%, rgba(111,229,255,0.08), transparent 38%)',
+          'radial-gradient(circle at 78% 18%, rgba(255,122,20,0.08), transparent 40%)',
+          'linear-gradient(180deg, rgba(24, 28, 34, 0.92), rgba(12, 15, 20, 0.9))',
         ].join(', '),
         boxShadow: [
-          'inset 0 1px 0 rgba(255,255,255,0.05)',
+          'inset 0 1px 0 rgba(255,255,255,0.06)',
           'inset 0 -1px 0 rgba(0,0,0,0.28)',
-          '0 12px 30px -24px rgba(0,0,0,0.9)',
-          '0 0 18px -16px rgba(111,229,255,0.22)',
-          '0 0 18px -16px rgba(255,122,20,0.2)',
+          '0 8px 20px -16px rgba(0,0,0,0.82)',
+          '0 0 14px -12px rgba(255,122,20,0.26)',
         ].join(', '),
       }}
       title={title}
@@ -83,7 +84,7 @@ export function EconomyJigsawChip({
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-[1px] rounded-[15px]"
+        className="pointer-events-none absolute inset-[1px] rounded-full"
         style={{
           border: '1px solid rgba(255,255,255,0.03)',
           background: 'linear-gradient(180deg, rgba(255,255,255,0.045), transparent 34%)',
@@ -92,7 +93,7 @@ export function EconomyJigsawChip({
       <svg
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 h-full w-full"
-        viewBox="0 0 100 34"
+        viewBox="0 0 100 30"
         preserveAspectRatio="none"
       >
         <defs>
@@ -105,15 +106,15 @@ export function EconomyJigsawChip({
             <stop offset="100%" stopColor={secondaryColor} stopOpacity="0.68" />
           </linearGradient>
         </defs>
-        <polygon points="0,0 53,0 47,34 0,34" fill={`url(#${gradientId}-left)`} />
-        <polygon points="53,0 100,0 100,34 47,34" fill={`url(#${gradientId}-right)`} />
+        <polygon points="0,0 53,0 47,30 0,30" fill={`url(#${gradientId}-left)`} />
+        <polygon points="53,0 100,0 100,30 47,30" fill={`url(#${gradientId}-right)`} />
         <line
           x1="53"
           y1="0"
           x2="47"
-          y2="34"
+          y2="30"
           stroke="rgba(10,14,22,0.28)"
-          strokeWidth="3.2"
+          strokeWidth="2.6"
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
         />
@@ -122,9 +123,9 @@ export function EconomyJigsawChip({
           x1="53"
           y1="0"
           x2="47"
-          y2="34"
-          stroke="rgba(255,255,255,0.92)"
-          strokeWidth="1.15"
+          y2="30"
+          stroke="rgba(255,255,255,0.88)"
+          strokeWidth="1"
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
         />
@@ -139,7 +140,7 @@ export function EconomyJigsawChip({
           data-testid={primaryLabelTestId}
           className={[
             'block w-full truncate whitespace-nowrap text-center font-display font-semibold text-white',
-            compactText ? 'text-[10px] tracking-[0.005em]' : 'text-[11px] tracking-[0.01em]',
+            compactText ? 'text-[9.5px] tracking-[0.005em]' : 'text-[10.5px] tracking-[0.01em]',
           ].join(' ')}
         >
           {primaryEconomy}
@@ -154,7 +155,7 @@ export function EconomyJigsawChip({
           ref={rightMeasureRef}
           className={[
             'inline-flex w-full min-w-0 items-center justify-center whitespace-nowrap text-center font-display font-semibold text-white',
-            compactText ? 'text-[10px] tracking-[0.005em]' : 'text-[11px] tracking-[0.01em]',
+            compactText ? 'text-[9.5px] tracking-[0.005em]' : 'text-[10.5px] tracking-[0.01em]',
           ].join(' ')}
         >
           <span data-testid={secondaryLabelTestId} className="block shrink-0 text-center">
