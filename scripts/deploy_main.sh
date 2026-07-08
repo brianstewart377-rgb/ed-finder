@@ -130,10 +130,13 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   for migration in "${migrations[@]}"; do
     [[ -f "$migration" ]] || die "missing migration file: $migration"
     echo "[INFO] applying $migration"
-    docker compose exec -T postgres psql \
-      -U edfinder \
-      -d edfinder \
-      -v ON_ERROR_STOP=1 \
+    docker compose exec -T postgres sh -lc '
+      PGOPTIONS="-c statement_timeout=0" \
+      exec psql \
+        -U edfinder \
+        -d edfinder \
+        -v ON_ERROR_STOP=1
+    ' \
       < "$migration"
   done
   ok "migrations applied"
