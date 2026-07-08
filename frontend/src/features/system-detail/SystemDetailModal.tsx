@@ -85,6 +85,7 @@ export function SystemDetailModal({
     ? 'Using the development snapshot already loaded with system detail while the live archetype service is unavailable.'
     : null;
   const showArchetypeLoading = archetypeLoading && !effectiveArchetype;
+  const renderedActions = renderActions?.({ system: data, archetype: effectiveArchetype });
 
   // Esc closes the modal. Body scroll lock only fires if we're actually
   // mounted (id64 changes between mounts so this is per-open).
@@ -204,9 +205,11 @@ export function SystemDetailModal({
             </>
           )}
 
-          <div className="premium-toolbar flex flex-wrap gap-2 rounded-2xl border-t border-border px-3 py-3">
-            {renderActions?.({ system: data, archetype: effectiveArchetype })}
-          </div>
+          {renderedActions ? (
+            <div className="premium-toolbar flex flex-wrap gap-2 rounded-2xl border-t border-border px-3 py-3">
+              {renderedActions}
+            </div>
+          ) : null}
         </div>
       </article>
     </div>

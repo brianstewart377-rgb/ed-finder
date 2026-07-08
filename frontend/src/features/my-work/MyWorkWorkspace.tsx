@@ -181,7 +181,7 @@ export function MyWorkWorkspace({
 
   return (
     <section data-testid="my-work-workspace" className="space-y-5">
-      <header className="panel space-y-4 p-4 sm:p-5">
+      <header className="premium-subpanel space-y-4 p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-display text-xl tracking-[0.14em] text-text">
@@ -191,8 +191,13 @@ export function MyWorkWorkspace({
               Saved systems, plans, and colonies in one place.
             </p>
           </div>
-          <div className="premium-toolbar rounded-2xl px-3 py-2 font-mono text-[11px] text-silver-dk">
-            Saved systems {savedSystems.length} · Plans {activeProjects.length} · Colonies {myColonies.length}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="premium-toolbar rounded-2xl px-3 py-2 font-mono text-[11px] text-silver-dk">
+              Saved systems {savedSystems.length} · Plans {activeProjects.length} · Colonies {myColonies.length}
+            </div>
+            <span className="premium-toolbar rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+              Local workspace
+            </span>
           </div>
         </div>
         {aliasNotice ? (
@@ -285,7 +290,7 @@ export function MyWorkWorkspace({
           ) : (
             <div className="space-y-4">
               {groupedPlans.map((group) => (
-                <section key={group.systemId64} className="panel space-y-3 p-4">
+                <section key={group.systemId64} className="premium-subpanel space-y-3 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h2 className="font-display text-base tracking-[0.12em] text-text">
@@ -365,7 +370,7 @@ export function MyWorkWorkspace({
           ) : (
             <ul className="space-y-3">
               {myColonies.map((colony) => (
-                <li key={`${colony.id64}-${colony.plan?.id ?? 'explicit'}`} className="panel flex flex-wrap items-start justify-between gap-3 p-4">
+                <li key={`${colony.id64}-${colony.plan?.id ?? 'explicit'}`} className="premium-subpanel flex flex-wrap items-start justify-between gap-3 p-4">
                   <div className="space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded border border-violet/35 bg-violet/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-violet">
@@ -484,7 +489,7 @@ function SavedSystemCard({
   onRemove: () => void;
 }) {
   return (
-    <li data-testid={`saved-system-${system.id64}`} className="panel flex flex-wrap items-start justify-between gap-4 p-4">
+    <li data-testid={`saved-system-${system.id64}`} className="premium-subpanel flex flex-wrap items-start justify-between gap-4 p-4">
       <div className="min-w-0 flex-1 space-y-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
@@ -732,7 +737,7 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
 
 function EmptyPanel({ title, body }: { title: string; body: string }) {
   return (
-    <div className="panel px-4 py-12 text-center">
+    <div className="premium-subpanel px-4 py-12 text-center">
       <h2 className="font-display text-sm tracking-[0.12em] text-text">{title}</h2>
       <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-silver-dk">{body}</p>
     </div>

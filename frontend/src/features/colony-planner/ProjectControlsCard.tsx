@@ -37,26 +37,34 @@ export function ProjectControlsCard({
   onConfirmArchiveChange: (confirming: boolean) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  return (
-    <section className="premium-subpanel border-cyan/25 bg-cyan/5 p-2" data-testid="project-card">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
-          Project
-        </h3>
-        <span
-          data-testid="project-unsaved-indicator"
-          className={[
-            'rounded border px-1.5 py-0.5 font-mono text-[10px]',
-            unsavedChanges ? 'border-gold/45 bg-gold/10 text-gold' : 'border-green/35 bg-green/10 text-green',
-          ].join(' ')}
-        >
-          {unsavedChanges ? 'Unsaved changes' : 'Saved'}
-        </span>
-      </div>
+  const savedProjectCount = projects.length;
 
-      <p className="mt-2 font-mono text-[10px] leading-snug text-silver-dk">
-        Saved locally in this browser. Not cloud synced.
-      </p>
+  return (
+    <section className="premium-subpanel border-cyan/25 bg-cyan/5 p-3" data-testid="project-card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+            Project
+          </h3>
+          <p className="mt-1 font-mono text-[10px] leading-snug text-silver-dk">
+            Saved locally in this browser. Not cloud synced.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="premium-toolbar rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+            {savedProjectCount} saved
+          </span>
+          <span
+            data-testid="project-unsaved-indicator"
+            className={[
+              'rounded border px-1.5 py-0.5 font-mono text-[10px]',
+              unsavedChanges ? 'border-gold/45 bg-gold/10 text-gold' : 'border-green/35 bg-green/10 text-green',
+            ].join(' ')}
+          >
+            {unsavedChanges ? 'Unsaved changes' : 'Saved'}
+          </span>
+        </div>
+      </div>
 
       <label className="mt-2 block space-y-1">
         <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Project name</span>
@@ -110,6 +118,12 @@ export function ProjectControlsCard({
 
         {detailsOpen && (
           <div className="premium-toolbar mt-2 space-y-2 rounded-2xl p-2">
+            {activeProject ? (
+              <div className="premium-subpanel border-cyan/20 bg-cyan/6 p-2">
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Active local project</p>
+                <p className="mt-1 truncate text-sm text-text">{activeProject.project_name}</p>
+              </div>
+            ) : null}
             <label className="block space-y-1">
               <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">Notes</span>
               <textarea
