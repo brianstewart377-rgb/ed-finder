@@ -1,20 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { SystemResult } from '@/types/api';
-import { economyColor } from '@/features/colony-planner/economyVisuals';
 import { ResultCard } from './ResultCard';
-
-function hexToRgbString(hex: string): string {
-  const value = hex.replace('#', '');
-  const normalized = value.length === 3
-    ? value.split('').map((char) => `${char}${char}`).join('')
-    : value;
-  const intValue = Number.parseInt(normalized, 16);
-  const r = (intValue >> 16) & 255;
-  const g = (intValue >> 8) & 255;
-  const b = intValue & 255;
-  return `rgb(${r}, ${g}, ${b})`;
-}
 
 const system = {
   id64: 42,
@@ -67,7 +54,7 @@ describe('ResultCard actions', () => {
     expect(onCompare).toHaveBeenCalledWith(42);
     expect(screen.queryByRole('button', { name: /Open in Colony Planner/i })).toBeNull();
     expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Refinery');
-    expect(screen.getByTestId('result-card-suggested-archetype').textContent).toContain('Megacomplex');
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).not.toContain('Megacomplex');
     expect(screen.queryByLabelText('Development score: 91/100')).toBeNull();
     expect(screen.getByTestId('result-card-archetype-score').textContent).toContain('Score 91');
   });
@@ -86,7 +73,7 @@ describe('ResultCard actions', () => {
     expect(screen.getAllByText('Refinery / Industrial Megacomplex').length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders split economy colours for paired archetype chips', () => {
+  it('renders split economy labels with the diagonal divider for paired archetype chips', () => {
     const pairedEconomies = {
       ...system,
       primaryEconomy: 'Refinery',
@@ -97,20 +84,17 @@ describe('ResultCard actions', () => {
 
     const primaryLabel = screen.getByTestId('result-card-suggested-archetype-primary');
     const secondaryLabel = screen.getByTestId('result-card-suggested-archetype-secondary');
-    expect(getComputedStyle(primaryLabel).color).toBe(hexToRgbString(economyColor('Refinery')));
-    expect(getComputedStyle(secondaryLabel).color).toBe(hexToRgbString(economyColor('Industrial')));
     expect(primaryLabel.textContent).toBe('Refinery');
     expect(secondaryLabel.textContent).toBe('Industrial');
     expect(screen.getByTestId('result-card-suggested-archetype-divider')).toBeTruthy();
+    expect(screen.getByTestId('result-card-suggested-archetype').textContent).not.toContain('Megacomplex');
   });
 
-  it('derives split economy colours from the visible archetype label when raw fields do not align', () => {
+  it('derives split economy labels from the visible archetype label when raw fields do not align', () => {
     render(<ResultCard system={system} index={0} />);
 
     const primaryLabel = screen.getByTestId('result-card-suggested-archetype-primary');
     const secondaryLabel = screen.getByTestId('result-card-suggested-archetype-secondary');
-    expect(getComputedStyle(primaryLabel).color).toBe(hexToRgbString(economyColor('Refinery')));
-    expect(getComputedStyle(secondaryLabel).color).toBe(hexToRgbString(economyColor('Industrial')));
     expect(primaryLabel.textContent).toBe('Refinery');
     expect(secondaryLabel.textContent).toBe('Industrial');
   });
