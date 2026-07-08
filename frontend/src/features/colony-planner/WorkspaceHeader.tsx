@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ExternalLink, MoreHorizontal, Trash2 } from 'lucide-react';
 import { formatCoords, formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 import { formatArchetypeLabel } from '@/lib/archetypes';
@@ -86,6 +86,7 @@ export function WorkspaceHeader({
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement | null>(null);
   const population = formatPopulationForSystem(system);
   const status = systemStatusLabel(system);
   const coords = formatCoords(system, system.id64);
@@ -97,6 +98,22 @@ export function WorkspaceHeader({
     : status === 'Colonising'
       ? 'caution'
       : 'available';
+
+  useEffect(() => {
+    if (!actionsOpen && !confirmDeleteOpen) return undefined;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!actionsRef.current?.contains(event.target as Node)) {
+        setActionsOpen(false);
+        setConfirmDeleteOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onPointerDown);
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown);
+    };
+  }, [actionsOpen, confirmDeleteOpen]);
 
   return (
     <header className="panel overflow-hidden p-4 sm:p-5">
@@ -185,17 +202,19 @@ export function WorkspaceHeader({
               >
                 {startApproachLabel(activeProject.start_approach)}
               </span>
-              <button
-                type="button"
-                onClick={onOpenMyWork}
-                data-testid="planner-manage-my-work"
-                className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
-              >
-                Manage in My Work
-              </button>
+              {onOpenMyWork ? (
+                <button
+                  type="button"
+                  onClick={onOpenMyWork}
+                  data-testid="planner-manage-my-work"
+                  className="inline-flex items-center gap-2 rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-mono font-bold text-cyan shadow-[0_14px_28px_-22px_rgba(34,211,238,0.9)] hover:bg-cyan/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/80"
+                >
+                  Manage in My Work
+                </button>
+              ) : null}
             </div>
           </div>
-          <div className="relative flex flex-col items-start gap-2 lg:items-end">
+          <div ref={actionsRef} className="relative flex flex-col items-start gap-2 lg:items-end">
             <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
               <span
                 data-testid="planner-project-status"

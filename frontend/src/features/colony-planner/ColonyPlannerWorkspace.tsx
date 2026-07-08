@@ -136,7 +136,7 @@ export function ColonyPlannerWorkspace({
         data-testid="planner-evidence-discoverability-surface"
         className="space-y-3"
       >
-        <div className="panel-thin p-4 space-y-2">
+        <div className="premium-subpanel border-cyan/20 bg-cyan/5 p-4 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="font-display tracking-[0.14em] text-orange-lt text-sm">
               Review evidence

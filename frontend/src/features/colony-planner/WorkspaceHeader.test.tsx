@@ -104,6 +104,25 @@ describe('WorkspaceHeader data trust display', () => {
     expect(screen.getByTestId('planner-plan-actions-menu').textContent).toContain('Delete draft');
   });
 
+  it('closes planner actions when clicking outside the actions rail', () => {
+    render(
+      <WorkspaceHeader
+        system={system}
+        onBackToFinder={vi.fn()}
+        onOpenSystemDetail={vi.fn()}
+        onOpenMyWork={vi.fn()}
+        activeProject={draftProject}
+        unsavedChanges={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('planner-plan-actions'));
+    expect(screen.getByTestId('planner-plan-actions-menu')).toBeTruthy();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId('planner-plan-actions-menu')).toBeNull();
+  });
+
   it('uses calm draft deletion title, labels, and no-structure copy', () => {
     const confirmation = openDeleteConfirmation();
 

@@ -68,12 +68,17 @@ export function WorkspaceSummaryRail({
     <aside
       aria-label="Workspace summary"
       data-testid="planner-summary-panel"
-      className="panel space-y-3 p-3"
+      className="premium-subpanel space-y-3 p-3"
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
-          <PanelRight size={13} />
-          Planner summary
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-orange">
+            <PanelRight size={13} />
+            Planner summary
+          </div>
+          <p className="font-mono text-[10px] leading-snug text-silver-dk">
+            Local project controls, planning health, and current focus in one rail.
+          </p>
         </div>
         <button
           type="button"
@@ -81,7 +86,7 @@ export function WorkspaceSummaryRail({
           onClick={() => setCollapsed((value) => !value)}
           className="premium-toolbar rounded-xl px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk hover:border-orange/45 hover:text-orange"
         >
-          {collapsed ? 'Expand' : 'Compact'}
+          {collapsed ? 'Expand rail' : 'Compact rail'}
         </button>
       </div>
 
