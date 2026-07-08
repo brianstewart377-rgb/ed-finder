@@ -138,6 +138,16 @@ section "Stage 19/source-run/operator focused tests"
     -q
 )
 
+section "Migration/apply and CI contract tests"
+(
+  cd "$ROOT"
+  "$PYTHON_BIN" -m pytest \
+    tests/test_migration_script_contracts.py \
+    tests/test_ci_data_invariants.py \
+    tests/test_backup_restore_ops.py \
+    -q
+)
+
 section "Frontend operator/API/routing tests"
 (
   cd "$ROOT/frontend"

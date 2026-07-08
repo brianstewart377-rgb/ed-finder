@@ -176,6 +176,8 @@ class LocalSearchContext:
     max_dist: float
     radius_capped: bool
     require_empty: bool
+    population_comparison: str | None
+    population_value: int | None
     body_filters: dict
     require_bio: bool
     require_geo: bool
@@ -236,9 +238,13 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
     radius_capped = max_dist < max_dist_req
 
     pop_filter = filters.get("population", {})
-    pop_val = pop_filter.get("value")
-    pop_cmp = pop_filter.get("comparison", "equal")
-    require_empty = (pop_val == 0 and pop_cmp == "equal")
+    pop_val_raw = pop_filter.get("value")
+    try:
+        pop_val = int(pop_val_raw) if pop_val_raw is not None else None
+    except (TypeError, ValueError):
+        pop_val = None
+    pop_cmp = str(pop_filter.get("comparison", "equal") or "equal").strip().lower()
+    require_empty = pop_val == 0 and pop_cmp in ("equal", "=", "==")
 
     body_filters = body.get("body_filters", {}) or {}
     require_bio = bool(body.get("require_bio", False))
@@ -267,6 +273,8 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
         max_dist=max_dist,
         radius_capped=radius_capped,
         require_empty=require_empty,
+        population_comparison=pop_cmp if pop_val is not None else None,
+        population_value=pop_val,
         body_filters=body_filters,
         require_bio=require_bio,
         require_geo=require_geo,
@@ -302,6 +310,26 @@ def _apply_local_search_filters(ctx: LocalSearchContext, builder: SearchSqlBuild
     if ctx.require_empty:
         builder.wheres.append("s.population = 0")
         builder.wheres.append("s.is_colonised = FALSE")
+    elif ctx.population_value is not None and ctx.population_comparison is not None:
+        population_ops = {
+            "equal": "=",
+            "=": "=",
+            "==": "=",
+            "not_equal": "!=",
+            "!=": "!=",
+            "<>": "!=",
+            "gt": ">",
+            ">": ">",
+            "gte": ">=",
+            ">=": ">=",
+            "lt": "<",
+            "<": "<",
+            "lte": "<=",
+            "<=": "<=",
+        }
+        operator = population_ops.get(ctx.population_comparison)
+        if operator is not None:
+            builder.wheres.append(f"s.population {operator} {add(ctx.population_value)}")
 
     if ctx.economy_filter and ctx.economy_filter not in ("any", "Any", "Unknown", ""):
         enum_val = economy_enum_value(ctx.economy_filter)

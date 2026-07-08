@@ -13,6 +13,20 @@ document that should answer "what next?".
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
   planning workspace.
+- Ratings posture: the canonical current scorer is **Ratings v3.4 Best-Build
+  Potential**. The full production rebaseline main pass has completed and the
+  steady-state dirty-ratings cron has been restored. The remaining ratings
+  integrity issue is post-rerate body-data contract drift
+  (`systems.has_body_data` / `systems.body_count` versus actual `bodies`
+  rows), not an active mixed-generation rerate backlog.
+- Data-trust follow-up posture: the next persisted-integrity hardening lane is
+  `station_body_links` drift; Finder populated/uninhabited filter semantics now
+  match end-to-end, but canonical population storage still needs a later
+  unknown-vs-zero migration.
+- Legacy ratings posture: treat `rating_version IS NULL` rows as
+  **Pre-v3.4 Unversioned Ratings**, not as one coherent legacy type. They may
+  span multiple historical scorer generations and must be rebaselined before
+  the ratings migration can be considered operationally complete.
 
 ## Stage 25 Objective
 
@@ -52,6 +66,77 @@ Stage 25 has exactly one primary objective:
    continuing codebase and documentation cleanup.
 5. Advance the evidence-store and ingestion lane safely, with reviewable
    operator/admin surfaces rather than implicit write automation.
+6. Close out the ratings rebaseline properly so the live app does not quietly
+   carry body-contract drift or unrated ingest edge cases behind the current
+   Development Score / archetype-led product language.
+7. Use the external adversarial audit as an execution-order correction, not as
+   a parallel roadmap: close the ratings integrity gap, then fix migration
+   safety, backups, and CI/build reproducibility before opening new product
+   lanes like accounts.
+8. Incubate only the safe slices of the next two opportunity lanes:
+   `B-1` nearest-colonised proximity in Inspect, then `A-1` journal import as
+   staging/evidence ingestion only, with no new canonical write shortcut.
+
+## Audit Response
+
+The external adversarial audit is directionally correct on the repo's highest
+foundation-risk items. Treat it as a prioritization checkpoint, not as a
+competing roadmap source.
+
+### Do Now
+
+- Roll out the body-data contract hardening and reconcile drifted
+  `has_body_data` / `body_count` rows from the real `bodies` table.
+- Re-run the committed invariant checks after reconciliation so the post-rerate
+  end-state is evidenced, not assumed.
+- Roll out station/body link contract hardening so confirmed occupied-slot rows
+  cannot silently drift away from canonical station/body truth.
+- Keep Stage 25C shell/context work moving only where it does not distract from
+  the remaining ratings integrity cleanup.
+
+### Do Next
+
+- Add a real migration ledger so deploys stop replaying the full `sql/` tree on
+  every release.
+- Renumber or otherwise normalize duplicate migration numbering so order is
+  explicit and auditable.
+- Execute and record a real restore rehearsal on top of the committed backup +
+  restore automation now in the repo.
+- Make CI/build reproducibility honest: use the committed lockfile, stop
+  certifying a dependency set different from what production may build, and run
+  materially more of the existing test estate in CI.
+- Keep the committed data-invariants check path wired into seeded CI/local
+  verification and expand coverage for rating-version uniformity, rating
+  coverage, and related trust signals.
+- Harden the `systems.has_body_data` / `systems.body_count` contract so rating
+  eligibility cannot drift away from actual `bodies` rows under live ingest.
+
+### Defer Until Foundations Are Fixed
+
+- Accounts, auth, and sync expansion remain explicitly deferred until the
+  ratings rebaseline, migration safety, backup posture, and CI/build
+  reproducibility gaps are closed.
+- Broad product-surface expansion remains secondary to eliminating hidden or
+  conflicting surfaces already in the tree.
+
+### Audit Findings We Accept As Real
+
+- Migration replay without a ledger is a critical operational flaw.
+- Backup/restore automation now exists in-repo, but restore readiness is not
+  complete until a real rehearsal is executed and recorded.
+- The ratings rebaseline was operationally incomplete and invisible, which was
+  a core data-trust issue; the remaining follow-up is the body-data contract
+  drift surfaced during closeout.
+- CI currently provides less protection than the apparent test estate implies.
+- Build reproducibility and version identity remain noisier than they should be.
+
+### Audit Findings To Handle Carefully
+
+- The audit's residue and optics observations are useful, but they rank behind
+  ratings, migrations, backups, and CI/build honesty.
+- Cleanup of hidden routes, preview surfaces, archived stage scripts, and other
+  process residue should be executed as a bounded hygiene pass after the
+  foundation risks above, not as a substitute for them.
 
 ## Current Next Steps
 
@@ -77,18 +162,61 @@ Stage 25 has exactly one primary objective:
 - Keep building the source-run ledger, importer safety wrapper, and audit trail.
 - Expand safe source ingestion in priority order:
   `Spansh -> EDDN -> EDSM -> Inara -> Frontier Journal`.
+- Frontier Journal sequencing is explicitly bounded:
+  `A-1` staging/evidence import first, `A-2` guarded canonical promotion only
+  after migration-ledger and backup foundations are in place, and `A-3`
+  personal telemetry only after identity continuity is authorised.
 - Keep freshness, coverage, and operator visibility explicit.
 - Prefer reviewable reconciliation candidates over clever automatic mutation.
 - Treat canonical write lanes, rebaseline, scheduler activation, and broad
   automation as separately gated future work.
 
+### Bounded Post-25C Feature Incubation
+
+- `B-1` nearest-colonised proximity is the cheapest acceptable product win once
+  the current Stage 25C shell/context slice is landed cleanly.
+- `B-2` hop-count-only colonisation corridor routing is acceptable before the
+  score-weighted variant because it does not depend on ratings trust for its
+  core recommendation quality.
+- `B-3` score-weighted corridor ranking is explicitly gated on the ratings
+  rebaseline closing and being verified.
+- `A-1` journal import is acceptable only as client-side parsed, privacy-bounded,
+  staging/evidence ingestion with reviewable receipts and no direct canonical
+  writes.
+- `A-2` journal-driven canonical promotion must reuse guarded reconciliation and
+  should not open until the migration ledger and backup/restore posture are in
+  place.
+- `A-3` personal journal telemetry in My Work / Planner is strategically strong
+  but remains gated on identity continuity; do not invent a third attribution
+  model for it.
+
+### Foundation Safety Sequence
+
+- 1. Close out the ratings rebaseline and reconcile body-data contract drift;
+  no mixed-generation steady state or impossible body-data eligibility state is
+  acceptable.
+- 2. Add migration-ledger discipline and remove replay-all-migrations deploy
+  semantics.
+- 3. Add backup/restore automation plus a tested restore runbook.
+- 3. Add backup/restore automation plus a tested restore runbook.
+  Current state: automation and runbook are committed; rehearsal remains.
+- 4. Tighten CI/test coverage and frontend build reproducibility so green means
+  something.
+- 5. Run one bounded residue/hygiene pass on hidden routes, preview-only
+  surfaces, stale operator one-shots, and naming drift.
+- 6. Re-evaluate accounts/auth only after steps 1-5 are complete.
+
 ## Active Priorities
 
-1. Product shell coherence.
-2. Selected-system continuity.
-3. Planner trust and evidence clarity.
-4. Evidence-store and ingestion foundations.
-5. Operator/admin reviewability for proposed upgrades and bounded actions.
+1. Body-data contract hardening and post-rerate reconciliation.
+2. Product shell coherence.
+3. Selected-system continuity.
+4. Migration-ledger and deploy-safety work.
+5. Backup/restore restore rehearsal and readiness.
+6. CI/test/build reproducibility honesty.
+7. Planner trust and evidence clarity.
+8. Evidence-store and ingestion foundations.
+9. Operator/admin reviewability for proposed upgrades and bounded actions.
 
 ## Boundaries
 
@@ -106,7 +234,15 @@ Stage 25 has exactly one primary objective:
 
 - Mission intelligence remains deferred and unauthorized.
 - Ring/mining work remains deferred and unauthorized.
-- Accounts, OAuth, collaboration, and plan sync remain deferred.
+- Accounts, OAuth, collaboration, and plan sync remain deferred until the
+  ratings rebaseline, migration-ledger work, backup posture, and CI/build
+  reproducibility fixes are complete.
+- Journal `A-2` canonical promotion remains deferred until migration-ledger and
+  backup/restore work are complete enough to make a new write lane safe.
+- Journal `A-3` personal telemetry remains deferred until identity continuity is
+  authorised through the existing sync/accounts direction.
+- Score-weighted colonisation corridor recommendations remain deferred until the
+  ratings rebaseline is complete and verified.
 - Broad facility-browser work remains deferred until the cockpit is coherent.
 - Automatic canonical apply remains deferred behind explicit review and safety
   gates.
@@ -125,6 +261,20 @@ Read these when a task needs more detail than this roadmap provides:
   Stage 24D closeout record and post-Stage-24 handoff.
 - `docs/colonisation-redesign/stage-19as2-operator-script-contract.md`:
   Stage 19AS.2 operator-script contract formalization record.
+- [`operations/audit-remediation-plan.md`](./operations/audit-remediation-plan.md):
+  executable checklist for the accepted audit-driven remediation sequence.
+- [`operations/migration-ledger-implementation-plan.md`](./operations/migration-ledger-implementation-plan.md):
+  detailed implementation plan for replacing replay-all SQL deploys with a
+  ledgered migration path.
+- [`../ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md`](../ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md):
+  proposed sequencing and guardrails for journal import plus colonisation
+  proximity / corridor features.
+- [`colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md`](./colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md):
+  bounded implementation brief for the `B-1` Inspect-side nearest-colonised
+  proximity feature.
+- [`colonisation-redesign/stage-25d-a1-journal-import-staging-brief.md`](./colonisation-redesign/stage-25d-a1-journal-import-staging-brief.md):
+  bounded implementation brief for the `A-1` journal import staging/evidence
+  slice.
 - [`colonisation-redesign/stage-25c-product-shell-shared-context-contract.md`](./colonisation-redesign/stage-25c-product-shell-shared-context-contract.md):
   active implementation contract for the current slice.
 - [`colonisation-redesign/stage-25b-evidence-language-visual-primitives.md`](./colonisation-redesign/stage-25b-evidence-language-visual-primitives.md):

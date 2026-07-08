@@ -8,7 +8,7 @@
 #
 #   1. save the current commit for rollback
 #   2. pull main with fast-forward only
-#   3. apply the known idempotent/additive SQL migrations
+#   3. apply pending ledgered SQL migrations
 #   4. build the frontend bundle served by nginx
 #   5. rebuild/restart long-lived app containers
 #   6. test and reload nginx
@@ -116,29 +116,9 @@ docker compose ps redis >/dev/null
 ok "compose can see postgres and redis"
 
 if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
-  say "Apply idempotent/additive SQL migrations"
-  # 019_nullable_coords.sql intentionally remains a manual runbook step:
-  # it includes the non-Sol origin cleanup UPDATE on the large systems table.
-  mapfile -t migrations < <(
-    find sql -maxdepth 1 -type f -name '[0-9][0-9][0-9]_*.sql' \
-      ! -name '019_nullable_coords.sql' \
-      | sort
-  )
-
-  [[ "${#migrations[@]}" -gt 0 ]] || die "no deploy migrations found"
-
-  for migration in "${migrations[@]}"; do
-    [[ -f "$migration" ]] || die "missing migration file: $migration"
-    echo "[INFO] applying $migration"
-    docker compose exec -T postgres sh -lc '
-      PGOPTIONS="-c statement_timeout=0" \
-      exec psql \
-        -U edfinder \
-        -d edfinder \
-        -v ON_ERROR_STOP=1
-    ' \
-      < "$migration"
-  done
+  say "Apply pending ledgered SQL migrations"
+  [[ -f scripts/apply_migrations.sh ]] || die "migration applier not found: scripts/apply_migrations.sh"
+  bash scripts/apply_migrations.sh
   ok "migrations applied"
 else
   say "Skipping SQL migrations"

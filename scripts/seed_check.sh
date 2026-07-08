@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 #
-# scripts/seed_check.sh — verifies that every sql/*.sql file applies
-# cleanly with `ON_ERROR_STOP=1` against a fresh PostgreSQL, and that
-# the `seed_preview.sql` produces a usable preview database (every
-# system has a rating, every body is reachable, materialised views
-# render non-empty).
+# scripts/seed_check.sh — verifies that the manifest-listed SQL migrations
+# apply cleanly with `ON_ERROR_STOP=1` against a fresh PostgreSQL, and that
+# `seed_preview.sql` produces a usable preview database (every system has a
+# rating, every body is reachable, materialised views render non-empty).
 #
 # This catches the bug class that bit us twice in May 2026:
 #
@@ -26,20 +25,14 @@ set -euo pipefail
 DB_URL="${DATABASE_URL:-postgresql://edfinder:edfinder@localhost:5432/edfinder}"
 SQL_DIR="${SQL_DIR:-$(dirname "$0")/../sql}"
 
-echo "▶ seed_check: applying every sql/*.sql with ON_ERROR_STOP=1"
+echo "▶ seed_check: applying manifest-listed sql migrations with ON_ERROR_STOP=1"
 echo "  (fail-fast on any silent SQL error that prod would tolerate)"
 echo
 
-# Apply schema/migrations in numerical order, then the seed.
-# psql with ON_ERROR_STOP=1 will exit non-zero on the first error,
-# which `set -e` then surfaces as the script exit code.
-for f in $(ls -1 "$SQL_DIR"/*.sql | sort); do
-    case "$f" in
-        */seed_preview.sql)        continue ;;  # applied last
-    esac
-    echo "  ✓ $(basename "$f")"
-    psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$f" >/dev/null
-done
+# Apply the canonical migration manifest first. Fresh/local DB setup includes
+# manual entries such as 019_nullable_coords.sql because the dataset is small
+# and we want the resulting schema/state to match current expectations.
+DATABASE_URL="$DB_URL" bash "$(dirname "$0")/apply_migrations.sh" --include-manual
 
 echo "  ✓ seed_preview.sql"
 psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$SQL_DIR/seed_preview.sql" >/dev/null

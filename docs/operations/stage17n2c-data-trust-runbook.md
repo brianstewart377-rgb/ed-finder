@@ -11,6 +11,22 @@ versions for data-trust payloads, rejects partial EDDN `StarPos` triples, avoids
 treating missing EDDN `Population` as real zero, and reports dirty rebuild
 progress with an unknown total instead of a fake percentage.
 
+## Rating Generation Names
+
+- **Ratings v3.4 Best-Build Potential** is the canonical current scorer.
+  `build_ratings.py` writes `rating_version = '3.4'` for rows rebuilt by the
+  current engine.
+- **Pre-v3.4 Unversioned Ratings** means any row where
+  `rating_version IS NULL`. This is the correct operational name for the legacy
+  bucket.
+- The unversioned bucket may contain more than one historical scorer
+  generation. Production data can reliably distinguish `3.4` rows from
+  unversioned rows, but it cannot safely identify which exact pre-`3.4`
+  generation produced a given unversioned row.
+- If production still shows both `rating_version = '3.4'` and
+  `rating_version IS NULL`, treat that as an incomplete ratings rebaseline, not
+  as an acceptable steady state.
+
 ## Safe Order
 
 1. Apply `sql/020_rating_version.sql`.
@@ -58,7 +74,7 @@ progress with an unknown total instead of a fake percentage.
      ./scripts/run_import.sh build_ratings.py --dirty --workers 2 --chunk 5000
    ```
 
-10. Verify `rating_version` and capped-score behavior.
+10. Verify `rating_version` distribution and capped-score behavior.
 11. Run nightly maintenance:
 
     ```bash
@@ -86,6 +102,19 @@ These changes mark the affected system dirty:
 - EDDN main-star scans now update `systems.main_star_type`; EDDN body upserts
   preserve conflict updates for rating fields such as `distance_from_star`.
 
+Important body-contract note:
+
+- Treat `systems.has_body_data` and `systems.body_count` as a stored summary,
+  not as an unquestionable proof that the local `bodies` catalogue is coherent.
+- Before `033_body_data_contract_hardening.sql`, body dirty triggers could set
+  `has_body_data = TRUE` without recomputing `body_count`, which allows
+  impossible-looking states such as `has_body_data = TRUE` with
+  `body_count = 0`.
+- `build_ratings.py` now leaves systems dirty for retry when no bodies are
+  fetched for a queued system instead of silently writing an empty-body rating.
+- `scripts/checks/data_invariants.py` now fails explicitly when stored
+  body-data flags or stored body counts drift from actual `bodies` rows.
+
 Station-only imports and station/body association backfills do not affect v3.4
 rating math directly, but they can affect planner role/occupied-slot
 presentation. Stage 17N.2d-P therefore makes dirty marking an explicit
@@ -104,6 +133,11 @@ Stage 17N.2d-R keeps EDDN ingestion and rating recalculation separate:
   above `DIRTY_RATING_THRESHOLD`.
 - The script uses `flock` on `/tmp/ed-finder-dirty-ratings.lock` by default, so
   two scheduled invocations of this script cannot overlap.
+
+This scheduled job only maintains the deferred dirty queue. It does not
+complete a backlog of **Pre-v3.4 Unversioned Ratings** by itself unless those
+systems have also been marked dirty or a broader rebuild/rebaseline run is
+performed intentionally.
 
 The existing maintenance sidecar is not the production path for this job. It is
 a small `postgres:16-alpine` cron container for `psql` maintenance tasks. It
@@ -138,7 +172,19 @@ Validation SQL:
 
 ```sql
 SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;
+
+SELECT rating_version, COUNT(*)
+FROM ratings
+GROUP BY rating_version
+ORDER BY COUNT(*) DESC;
 ```
+
+Interpretation:
+
+- `rating_version = '3.4'` rows are **Ratings v3.4 Best-Build Potential**.
+- `rating_version IS NULL` rows are **Pre-v3.4 Unversioned Ratings**.
+- A mixed result set means the ratings rebaseline is still incomplete even if
+  the dirty queue is currently small.
 
 Log checks:
 
@@ -576,6 +622,295 @@ The safer defaults for continuation are:
 - `BATCH_SIZE=1000` or `BATCH_SIZE=2000`
 - `RATING_DIRTY_CLEANUP_CHUNK=1000` or `5000`
 
+Do not purge `ratings` rows first as the normal production path. The intended
+rebaseline path is to overwrite existing rows with a full
+`build_ratings.py --rebuild` run so every eligible row is rewritten by
+**Ratings v3.4 Best-Build Potential** and receives `rating_version = '3.4'`.
+Deleting all rows up front removes the fallback state before the rebuild path
+has proved stable.
+
+## Full Production Rebaseline Sequence
+
+Use this when the goal is to eliminate all **Pre-v3.4 Unversioned Ratings** and
+leave production serving only **Ratings v3.4 Best-Build Potential** rows for
+eligible systems.
+
+1. Pause the scheduled dirty-ratings cron or otherwise ensure no overlapping
+   `build_ratings.py --dirty` job can run while the full rebuild is active.
+2. Capture a baseline before the run:
+
+   ```sql
+   SELECT rating_version, COUNT(*)
+   FROM ratings
+   GROUP BY rating_version
+   ORDER BY COUNT(*) DESC;
+
+   SELECT COUNT(*) AS dirty_count
+   FROM systems
+   WHERE rating_dirty = TRUE;
+   ```
+
+3. Start with the smallest practical full rebuild:
+
+   ```bash
+   cd /opt/ed-finder
+   BATCH_SIZE=1000 RATING_DIRTY_CLEANUP_CHUNK=1000 \
+     ./scripts/run_import.sh build_ratings.py --rebuild --workers 1 --chunk 1000
+   ```
+
+4. Only if the conservative run proves stable, increase carefully:
+
+   ```bash
+   cd /opt/ed-finder
+   BATCH_SIZE=2000 RATING_DIRTY_CLEANUP_CHUNK=5000 \
+     ./scripts/run_import.sh build_ratings.py --rebuild --workers 2 --chunk 5000
+   ```
+
+5. Monitor the run with repeated checks:
+   - `rating_version = '3.4'` count should keep increasing.
+   - `rating_version IS NULL` count should trend toward zero.
+   - `systems.rating_dirty = TRUE` may fluctuate during live ingestion, but the
+     rebuild must continue making forward progress on rating writes.
+6. Do not treat a small dirty queue as proof that the legacy rebaseline is
+   complete. Dirty maintenance and full historical rebaseline are separate
+   concerns.
+7. After the rebuild finishes, rerun the verification queries in the next
+   section.
+8. Clear caches only after verification is clean enough for cutover.
+9. Re-enable the scheduled dirty-ratings cron after the full rebuild is
+   complete and verified.
+
+## Post-Rerate Body Contract Reconciliation
+
+Run this only after the full rebuild has finished and the hardening migration
+(`033_body_data_contract_hardening.sql`) has been applied. The goal is to
+repair legacy `systems.has_body_data` / `systems.body_count` drift from the
+actual `bodies` catalogue, then requeue only the affected systems for a clean
+dirty rebuild.
+
+## Production Rollout: `033` + `034` + Guarded Repairs
+
+Once the hardening commits are on `main`, use this exact order on production.
+This keeps the path boring:
+
+1. deploy code plus ledgered migrations
+2. preview both repair populations
+3. apply body-contract repair in bounded batches
+4. apply station-link repair in bounded batches
+5. run one controlled dirty rebuild
+6. re-run invariants and spot checks
+
+From your local machine:
+
+```powershell
+ssh ed-finder-prod "cd /opt/ed-finder && git fetch origin main && git checkout main && git pull --ff-only origin main && bash scripts/deploy_main.sh --skip-pull"
+```
+
+That deploy path uses the manifest-driven migration applier, so `033` and `034`
+land through the normal ledgered route.
+
+After deploy, preview the repair populations first:
+
+```powershell
+ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T api python scripts/repair_body_contract.py --json"
+ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T api python scripts/repair_station_body_links.py --json"
+```
+
+Recommended first bounded apply on production:
+
+```powershell
+ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T api python scripts/repair_body_contract.py --apply --batch-size 1000 --limit 5000"
+ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T api python scripts/repair_station_body_links.py --apply --batch-size 1000 --limit 5000"
+```
+
+If the previews show a smaller population than expected, you can omit
+`--limit 5000` and let the whole batch set run in one pass.
+
+Then run one explicit dirty rebuild pass against the repaired rows:
+
+```powershell
+ssh ed-finder-prod "cd /opt/ed-finder && DIRTY_RATING_THRESHOLD=1 DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 bash scripts/run_dirty_ratings_if_needed.sh"
+```
+
+Finish with invariants and steady-state spot checks:
+
+```powershell
+ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T api python scripts/checks/data_invariants.py --target-rating-version 3.4"
+ssh ed-finder-prod "cd /opt/ed-finder && tail -100 /data/logs/dirty-ratings.log"
+```
+
+Recommended SQL spot checks after the repair pass:
+
+```powershell
+$sql = @'
+SELECT COUNT(*) AS dirty_systems
+FROM systems
+WHERE rating_dirty = TRUE;
+
+SELECT association_status, association_confidence, COUNT(*)
+FROM station_body_links
+GROUP BY association_status, association_confidence
+ORDER BY association_status, association_confidence;
+'@
+$sql | ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T postgres psql -U edfinder -d edfinder -P pager=off"
+```
+
+Success criteria for this rollout:
+
+- `scripts/checks/data_invariants.py` passes cleanly
+- repaired body-contract mismatches no longer appear in the preview
+- repaired station-link drift no longer appears in the preview
+- the follow-up dirty rebuild drains normally
+- the dirty-ratings cron log shows steady-state behavior, not rebuild-tail chaos
+
+Preferred path:
+
+```bash
+cd /opt/ed-finder
+python scripts/repair_body_contract.py
+```
+
+Apply form after reviewing the dry-run summary:
+
+```bash
+cd /opt/ed-finder
+python scripts/repair_body_contract.py --apply --batch-size 1000
+```
+
+Useful bounded apply for the first production pass:
+
+```bash
+cd /opt/ed-finder
+python scripts/repair_body_contract.py --apply --batch-size 1000 --limit 5000
+```
+
+The helper:
+
+- is dry-run by default
+- disables statement and lock timeouts for the controlled session
+- updates only mismatched `systems` rows
+- rewrites `has_body_data` / `body_count` from the actual `bodies` table
+- marks repaired systems `rating_dirty = TRUE` and `cluster_dirty = TRUE`
+- leaves the follow-up rating rebuild as a separate operator step
+
+Manual SQL equivalent, if you need to inspect or replay the logic explicitly:
+
+Preview the affected population first:
+
+```sql
+WITH actual AS (
+    SELECT s.id64,
+           COUNT(b.id)::INTEGER AS actual_body_count
+    FROM systems s
+    LEFT JOIN bodies b ON b.system_id64 = s.id64
+    GROUP BY s.id64
+)
+SELECT
+    COUNT(*) FILTER (
+        WHERE s.has_body_data = TRUE AND actual.actual_body_count = 0
+    ) AS stored_body_flag_without_rows,
+    COUNT(*) FILTER (
+        WHERE s.has_body_data = FALSE AND actual.actual_body_count > 0
+    ) AS stored_missing_body_flag,
+    COUNT(*) FILTER (
+        WHERE s.has_body_data = TRUE AND COALESCE(s.body_count, 0) = 0
+    ) AS stored_zero_body_count,
+    COUNT(*) FILTER (
+        WHERE COALESCE(s.body_count, 0) IS DISTINCT FROM actual.actual_body_count
+    ) AS stored_body_count_mismatch
+FROM systems s
+JOIN actual ON actual.id64 = s.id64;
+```
+
+Capture the exact systems that need repair:
+
+```sql
+CREATE TEMP TABLE tmp_body_contract_repair AS
+WITH actual AS (
+    SELECT s.id64,
+           COUNT(b.id)::INTEGER AS actual_body_count
+    FROM systems s
+    LEFT JOIN bodies b ON b.system_id64 = s.id64
+    GROUP BY s.id64
+)
+SELECT s.id64,
+       s.has_body_data AS stored_has_body_data,
+       s.body_count    AS stored_body_count,
+       (actual.actual_body_count > 0) AS actual_has_body_data,
+       actual.actual_body_count
+FROM systems s
+JOIN actual ON actual.id64 = s.id64
+WHERE s.has_body_data IS DISTINCT FROM (actual.actual_body_count > 0)
+   OR COALESCE(s.body_count, 0) IS DISTINCT FROM actual.actual_body_count;
+```
+
+Inspect a small sample before mutating anything:
+
+```sql
+SELECT *
+FROM tmp_body_contract_repair
+ORDER BY id64
+LIMIT 50;
+```
+
+Repair the stored summary fields from the real `bodies` table:
+
+```sql
+UPDATE systems s
+   SET has_body_data = t.actual_has_body_data,
+       body_count    = t.actual_body_count,
+       rating_dirty  = TRUE,
+       cluster_dirty = TRUE,
+       updated_at    = NOW()
+  FROM tmp_body_contract_repair t
+ WHERE s.id64 = t.id64;
+```
+
+Validate the repair set was applied:
+
+```sql
+SELECT COUNT(*) AS systems_repaired
+FROM tmp_body_contract_repair;
+
+SELECT COUNT(*) AS body_contract_mismatches_remaining
+FROM systems s
+WHERE EXISTS (
+    SELECT 1
+    FROM (
+        SELECT system_id64, COUNT(*)::INTEGER AS actual_body_count
+        FROM bodies
+        GROUP BY system_id64
+    ) b
+    WHERE b.system_id64 = s.id64
+      AND (
+          s.has_body_data IS DISTINCT FROM (b.actual_body_count > 0)
+          OR COALESCE(s.body_count, 0) IS DISTINCT FROM b.actual_body_count
+      )
+)
+OR (
+    s.has_body_data = TRUE
+    AND NOT EXISTS (
+        SELECT 1
+        FROM bodies b2
+        WHERE b2.system_id64 = s.id64
+    )
+);
+```
+
+Then run a controlled dirty rebuild against the repaired set:
+
+```bash
+cd /opt/ed-finder
+DIRTY_RATING_THRESHOLD=1 DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 \
+  bash scripts/run_dirty_ratings_if_needed.sh
+```
+
+Finish with:
+
+- `python scripts/checks/data_invariants.py --target-rating-version 3.4`
+- the `rating_version` distribution query from this runbook
+- a short soak check before restoring normal dirty-ratings cadence
+
 ## Verification Queries
 
 Fake non-Sol origin rows:
@@ -798,8 +1133,9 @@ Classified findings:
   active `frontend/` application surface; findings there were not patched.
 - **Needs follow-up**: `systems.population` remains `NOT NULL DEFAULT 0`, so DB
   storage still cannot distinguish unknown population from true zero for the
-  main systems table. UI and API contracts are now conservative, but a future
-  migration is required for full population nullability.
+  main systems table. UI and API contracts are now conservative, and backend
+  local search now honors frontend population comparators like `> 0`, but a
+  future migration is still required for full population nullability.
 
 ## Existing Infrastructure / Occupied-Slot Awareness
 
@@ -1075,6 +1411,31 @@ Concrete follow-up plan:
    `market_id` column.
 4. Move the resolver to backend diagnostics once enough body ids are available.
 5. Add production monitoring for unresolved station counts by station type.
+
+Committed hardening now in repo:
+
+- `scripts/checks/data_invariants.py` now fails on:
+  - confirmed links with `body_id IS NULL`
+  - link/body system mismatches
+  - link/station system mismatches
+  - stale denormalized `body_name`
+  - confirmed links with `lane = 'unknown'`
+  - confirmed links with non-`exact` confidence
+- `scripts/repair_station_body_links.py` provides a guarded dry-run/apply repair
+  path for canonical station/body link drift.
+- `sql/034_station_body_link_contract_hardening.sql` adds a guard trigger that
+  keeps `station_body_links.system_id64` aligned with the owning station,
+  syncs `body_name` from the canonical body row, forces confirmed rows back to
+  `exact`, and downgrades links cleanly before a referenced body row is deleted.
+
+Rollout order:
+
+1. Apply `034_station_body_link_contract_hardening.sql`.
+2. Run `python scripts/repair_station_body_links.py --json` to preview drift.
+3. Run `python scripts/repair_station_body_links.py --apply --batch-size 1000`
+   in controlled batches.
+4. Re-run `python scripts/checks/data_invariants.py` to confirm the repaired
+   population is clean.
 
 ## Stop Conditions
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 3.0  (Colonisation-accurate scoring engine)
+Canonical scorer: Ratings v3.4 Best-Build Potential
+Lineage baseline: v3.0 colonisation-accurate scoring rewrite
 
 COMPLETE REWRITE of the scoring system based on official Elite Dangerous
 Trailblazers Update 3 economy mechanics (April 2025) and the System
@@ -1553,6 +1554,15 @@ def worker_process(worker_id: int, system_batch: list, db_dsn: str) -> tuple:
         try:
             bodies = bodies_by_system.get(system_id64, [])
             last_updated = last_updated_by_system.get(system_id64)
+            if not bodies:
+                errors += 1
+                failed_ids.add(system_id64)
+                log.warning(
+                    "Worker %s: no bodies fetched for %s; leaving rating_dirty set for retry",
+                    worker_id,
+                    system_id64,
+                )
+                continue
             rating = rate_system(system_id64, bodies, main_star_type,
                                  last_updated=last_updated)
             rating_batch.append(rating)
@@ -1677,7 +1687,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build pre-computed colonisation ratings (v3.0 — accuracy rewrite)'
+        description='Build pre-computed colonisation ratings (Ratings v3.4 Best-Build Potential)'
     )
     parser.add_argument('--rebuild',     action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
@@ -1699,7 +1709,7 @@ def main():
         worker_count = args.max_workers
 
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v3.0 (Colonisation-accurate)", [
+    startup_banner(log, "Ratings Computer", "Ratings v3.4 Best-Build Potential", [
         ("Mode",       mode_label),
         ("Workers",    str(worker_count)),
         ("Chunk size", f"{args.chunk:,} systems"),
@@ -1718,15 +1728,27 @@ def main():
     with conn.cursor() as diag:
         diag.execute("SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE")
         total_with_bodies = diag.fetchone()[0]
-        diag.execute("SELECT COUNT(*) FROM ratings")
-        already_rated = diag.fetchone()[0]
+        # Full rebuilds and dirty-only passes do not need a full-table ratings
+        # count before work starts. On production-sized datasets that scan can
+        # take many minutes and delays the actual rerate unnecessarily.
+        if args.rebuild or args.dirty:
+            already_rated = None
+        else:
+            diag.execute("SELECT COUNT(*) FROM ratings")
+            already_rated = diag.fetchone()[0]
     conn.close()
 
-    remaining = total_with_bodies - already_rated
     log.info(f"  Systems with body data : {fmt_num(total_with_bodies)}")
-    log.info(f"  Already rated          : {fmt_num(already_rated)}")
-    log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
-    log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
+    if already_rated is None:
+        log.info("  Already rated          : skipped for rebuild/dirty preflight")
+        log.info("  Remaining (resume)     : skipped for rebuild/dirty preflight")
+        log.info("  Coverage               : skipped for rebuild/dirty preflight")
+        remaining = None
+    else:
+        remaining = total_with_bodies - already_rated
+        log.info(f"  Already rated          : {fmt_num(already_rated)}")
+        log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
+        log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
     log.info(f"")
     log.info(f"  Score bands:")
     log.info(f"    0–30  : Barely viable (single economy, few bodies)")
