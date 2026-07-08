@@ -1,4 +1,4 @@
-# Stage 18J-P-dryrun-ops - Operator-Safe Station-Type Dry-Run Wrapper
+﻿# Stage 18J-P-dryrun-ops - Operator-Safe Station-Type Dry-Run Wrapper
 
 ## Purpose
 
@@ -155,3 +155,4 @@ Merge this wrapper before asking the Hetzner operator to run the production
 station-type dry-run. Then run Stage 18J-P only as a separate operator step and
 review the resulting compact dry-run artifact before any approval packet or
 apply discussion.
+

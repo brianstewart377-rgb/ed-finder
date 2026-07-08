@@ -1,4 +1,4 @@
-# Stage 4F: Simulation Preview UI Architecture
+﻿# Stage 4F: Simulation Preview UI Architecture
 
 Stage 4F decomposes the frontend Simulation Preview area so it remains maintainable before Stage 5 optimiser UI work begins. This is a **UI organisation refactor only**. It does not change simulation mechanics, backend API calls, request or response types, scoring, CP logic, economy logic, service logic, observation comparison, or the visual design language.
 
@@ -6,7 +6,7 @@ Stage 4F decomposes the frontend Simulation Preview area so it remains maintaina
 
 ## Folder Structure
 
-The Simulation Preview UI now lives under `frontend-v2/src/features/system-detail/simulation-preview/`. The old public entry file at `frontend-v2/src/features/system-detail/SimulationPreview.tsx` remains as a thin compatibility wrapper so existing imports continue to work.
+The Simulation Preview UI now lives under `frontend/src/features/system-detail/simulation-preview/`. The old public entry file at `frontend/src/features/system-detail/SimulationPreview.tsx` remains as a thin compatibility wrapper so existing imports continue to work.
 
 | Path | Responsibility |
 |---|---|
@@ -126,30 +126,30 @@ Slot-capacity boundary:
 
 ## Stage 17M Dedicated Planner Shell
 
-Stage 17M changes the dedicated planner shell from three permanent regions to two. `WholeSystemColonyPlanner.tsx` now owns a main canvas region and a telemetry/context region. `RavenStylePlannerCanvas.tsx` remains the system canvas and receives the selected body editor as an inline row expansion instead of forcing a separate centre column.
+Stage 17M changes the dedicated planner shell from three permanent regions to two. `WholeSystemColonyPlanner.tsx` now owns a main canvas region and a telemetry/context region. `SystemBuildMapCanvas.tsx` remains the system canvas and receives the selected body editor as an inline row expansion instead of forcing a separate centre column.
 
 | Surface | Stage 17M responsibility |
 |---|---|
-| `WholeSystemColonyPlanner.tsx` | Two-region layout: main Raven canvas plus right telemetry/context. Advanced Planner stays below the main canvas behind its explicit toggle. |
-| `RavenStylePlannerCanvas.tsx` | Whole-system body tree, slot lanes, planned/projected slot pills, row highlighting, inline selected-body expansion, and selectable planned/projected structures. |
+| `WholeSystemColonyPlanner.tsx` | Two-region layout: main planner canvas plus right telemetry/context. Advanced Planner stays below the main canvas behind its explicit toggle. |
+| `SystemBuildMapCanvas.tsx` | Whole-system body tree, slot lanes, planned/projected slot pills, row highlighting, inline selected-body expansion, and selectable planned/projected structures. |
 | `SelectedBodyPlannerCanvas.tsx` / `BodySlotPlanner.tsx` | Body-local lane editor reused inline under the selected body row, including larger lanes, add orbital/surface/flexible actions, picker, body economy, and warnings. |
-| `RavenPlannerTelemetryPanel` | Selected-context panel for system telemetry, body summaries, planned structure details, projected ghost details, projection status, and warnings. |
+| `PlannerTelemetryPanel` | Selected-context panel for system telemetry, body summaries, planned structure details, projected ghost details, projection status, and warnings. |
 
 The reason for removing the middle column is architectural as much as visual: selected-body editing is part of the system canvas, while telemetry is a separate readout. Keeping body editing as a permanent sibling column narrowed the map and recreated a report-card workflow.
 
-Interaction boundaries remain explicit. Selecting bodies or structures does not run Preview, generate Suggested Builds, load candidates, import layout, call RavenColonial, or mutate backend mechanics.
+Interaction boundaries remain explicit. Selecting bodies or structures does not run Preview, generate Suggested Builds, load candidates, import layout, call reference planner, or mutate backend mechanics.
 
 ### Stage 17N Docked Context Region
 
 Stage 17N keeps the Stage 17M two-region ownership model and improves the right region. `WholeSystemColonyPlanner.tsx` owns a single responsive telemetry/context container: sticky and scrollable on desktop, bottom-docked below desktop with an explicit Telemetry toggle and expandable content. The dock contains the same telemetry and summary components rather than duplicate mobile/desktop panels.
 
-`RavenPlannerTelemetryPanel` now includes a read-only Projection comparison card with Bodies, Economy, and Slots controls. The card compares the selected Suggested Build projection against the current Build Plan using only existing frontend state: current placements, projected ghost placements, facility template economy/location metadata, slot predictions, and real system bodies. It does not call generation, load, Preview, persistence, validation, observed evidence, import, or RavenColonial endpoints.
+`PlannerTelemetryPanel` now includes a read-only Projection comparison card with Bodies, Economy, and Slots controls. The card compares the selected Suggested Build projection against the current Build Plan using only existing frontend state: current placements, projected ghost placements, facility template economy/location metadata, slot predictions, and real system bodies. It does not call generation, load, Preview, persistence, validation, observed evidence, import, or reference planner endpoints.
 
 `WorkspaceSummaryRail.tsx` defaults to a denser compact state under telemetry. It keeps save status, planned/projected counts, warning count, current focus, projection label, and planning economy visible, while manual expansion still exposes local project save/load/rename/duplicate/archive controls.
 
 ### Stage 17N.2d Existing Infrastructure Awareness
 
-Stage 17N.2d adds occupied-slot awareness to the Raven-style planner while
+Stage 17N.2d adds occupied-slot awareness to the whole-system planner while
 preserving the map-dominant layout and explicit planner boundaries.
 
 The planner now treats structures as separate sources:
@@ -180,7 +180,7 @@ Stage 17N.2d-H moves the source of truth for this association to the backend:
 - `station_body_links` stores `body_id`, `lane`, `association_status`,
   `association_confidence`, `association_source`, and `resolver_notes`.
 - `/api/system/{id64}` emits those fields for each station.
-- The Raven planner consumes backend metadata first. Inferred existing
+- The planner canvas consumes backend metadata first. Inferred existing
   structures can render in a lane, but they are visibly marked `verify` and are
   not labelled confirmed.
 - Unknown-lane or unresolved stations stay in the unresolved infrastructure
@@ -303,7 +303,7 @@ Tiny private helpers that are only useful to one panel stay in that panel file. 
 
 ## Compatibility Boundary
 
-The legacy wrapper `frontend-v2/src/features/system-detail/SimulationPreview.tsx` continues to export the public preview component and panel exports used by existing tests and callers. `RecommendedBuildPlan` is consistently exported from `@/types/api` through both the legacy wrapper and the new `simulation-preview/index.ts` barrel.
+The legacy wrapper `frontend/src/features/system-detail/SimulationPreview.tsx` continues to export the public preview component and panel exports used by existing tests and callers. `RecommendedBuildPlan` is consistently exported from `@/types/api` through both the legacy wrapper and the new `simulation-preview/index.ts` barrel.
 
 | Public Export | Source |
 |---|---|
@@ -334,7 +334,7 @@ Stage 6A does **not** add frontend observation entry, automatic validation insid
 
 ## Stage 6B Manual Observed Evidence UI
 
-Stage 6B adds a focused **Observed Evidence** panel inside Colony Planner. The panel lives under `frontend-v2/src/features/system-detail/simulation-preview/observations/` and is rendered by `SimulationPreview.tsx` after `PreviewResultSection`. `ColonyPlannerSectionNav.tsx` adds a neutral fourth section label so users can see Observed Evidence alongside Build Plan, Suggested Builds, and Preview Result without implying it feeds the predicted scoring chain.
+Stage 6B adds a focused **Observed Evidence** panel inside Colony Planner. The panel lives under `frontend/src/features/system-detail/simulation-preview/observations/` and is rendered by `SimulationPreview.tsx` after `PreviewResultSection`. `ColonyPlannerSectionNav.tsx` adds a neutral fourth section label so users can see Observed Evidence alongside Build Plan, Suggested Builds, and Preview Result without implying it feeds the predicted scoring chain.
 
 | Path | Responsibility |
 |---|---|
@@ -356,13 +356,13 @@ Stage 6C will introduce the predicted-vs-observed comparison engine. Stage 6D wi
 
 Stage 6C adds a backend-only deterministic comparison engine plus a single new endpoint `POST /api/observations/compare`. The engine takes a Simulation Preview prediction (or any prediction-shaped object) and a list of Stage 6A persisted observed facts, and emits a structured `PredictionObservationCompareResponse` containing a per-row comparison list and a top-level summary. Stage 6C is comparison-only: it does not change predictions, optimiser ranking, candidate generation, Simulation Preview scoring, CP / economy / service / buildability mechanics, or any existing simulation response field.
 
-Per-row `status` is one of `confirmed`, `contradicted`, `predicted_only`, `observed_only`, `unknown`, or `unverified`; `severity` is `info` / `low` / `medium` / `high` and is clamped by observation confidence so low-confidence observations cannot produce high-severity contradictions. Summary `status` is one of `no_observations`, `confirmed`, `mixed`, `needs_review`, or `insufficient_evidence`, and `confidence_impact` (`none` / `strengthened` / `weakened` / `mixed` / `insufficient_evidence`) is a UI hint only. See `docs/api-contracts.md` for the full Stage 6C request/response shape and `docs/colonisation-redesign/engine-roadmap.md` for the engine, models, matching, status, and summary rules.
+Per-row `status` is one of `confirmed`, `contradicted`, `predicted_only`, `observed_only`, `unknown`, or `unverified`; `severity` is `info` / `low` / `medium` / `high` and is clamped by observation confidence so low-confidence observations cannot produce high-severity contradictions. Summary `status` is one of `no_observations`, `confirmed`, `mixed`, `needs_review`, or `insufficient_evidence`, and `confidence_impact` (`none` / `strengthened` / `weakened` / `mixed` / `insufficient_evidence`) is a UI hint only. See `docs/api-contracts.md` for the full Stage 6C request/response shape and `docs/ROADMAP.md` for the engine, models, matching, status, and summary rules.
 
 Stage 6C does **not** touch the frontend. The Stage 6B Observed Evidence panel, `SimulationPreview.tsx`, `useSimulationPreviewRun`, `useSimulationPreviewPlan`, `OptimiserCandidatePanel`, `ColonyPlannerSectionNav.tsx`, and every Preview Result rendering component remain unchanged. Stage 6D adds the frontend validation UI that calls `POST /api/observations/compare` from inside Simulation Preview and renders the comparison summary, per-row statuses, severities, evidence shelf, and recommended actions returned by the Stage 6C engine.
 
 ## Stage 6D Validation Display in Colony Planner
 
-Stage 6D adds an **in-page Validation section** inside Colony Planner that renders the Stage 6C `/api/observations/compare` response. The section lives directly under `frontend-v2/src/features/system-detail/simulation-preview/validation/` and is rendered by `SimulationPreview.tsx` **after** `ObservedEvidencePanel`. `ColonyPlannerSectionNav.tsx` adds a fifth chip ("Validation") so users can see the section alongside Build Plan, Suggested Builds, Preview Result, and Observed Evidence. There is no popout, no modal, and no new top-level app tab - the placement decision is deliberate so validation reads as part of the Colony Planner flow rather than a separate experience. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default.
+Stage 6D adds an **in-page Validation section** inside Colony Planner that renders the Stage 6C `/api/observations/compare` response. The section lives directly under `frontend/src/features/system-detail/simulation-preview/validation/` and is rendered by `SimulationPreview.tsx` **after** `ObservedEvidencePanel`. `ColonyPlannerSectionNav.tsx` adds a fifth chip ("Validation") so users can see the section alongside Build Plan, Suggested Builds, Preview Result, and Observed Evidence. There is no popout, no modal, and no new top-level app tab - the placement decision is deliberate so validation reads as part of the Colony Planner flow rather than a separate experience. A future expansion may move large comparison sets into a drawer/popout while keeping the in-page placement as the default.
 
 | Stage 6D module | Responsibility |
 |---|---|
@@ -397,7 +397,7 @@ Stage 8C is the final forensic pass over the guided workflow. It keeps the older
 
 Stage 9C adds a dedicated Colony Planner workspace route while keeping the existing planner implementation reusable:
 
-- `#colony-planner/system/{id64}` renders `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`.
+- `#colony-planner/system/{id64}` renders `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`.
 - The route parser keeps `plannerSystemId` separate from System Detail modal `selectedSystemId`.
 - `ColonyPlannerWorkspace` uses `useSystemDetail(id64)` for data loading and renders `SimulationPreviewPanel` in the loaded state.
 - Finder and Advanced Search Tuning `Evaluate in Colony Planner` actions navigate to the workspace.
@@ -677,7 +677,7 @@ Stage 15 target architecture:
 Implementation guidance for later stages:
 
 - Do not add more workspace-level state to `SimulationPreview.tsx` if it belongs to saved projects, route/workspace layout, body tree selection, or drawer mode.
-- New topology tree and project persistence code should live under `frontend-v2/src/features/colony-planner/` and call into existing preview components through narrow props.
+- New topology tree and project persistence code should live under `frontend/src/features/colony-planner/` and call into existing preview components through narrow props.
 - If existing `simulation-preview` helpers become generally useful to the workspace, move or re-export them deliberately rather than duplicating logic.
 - Keep `SimulationPreviewPanel` as the compatibility adapter for the dedicated Planner Workspace while topology-first workspace pieces grow around it.
 
@@ -698,7 +698,7 @@ Stage 15C implementation note:
 
 Stage 15D implementation note:
 
-- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx` owns the read-only body-tree/navigation MVP for the workspace. It uses loaded `SystemDetail` bodies plus a one-way planner snapshot to show body rows, child indentation where parent metadata exists, placement counts, orbital/surface/flex chips, unknown/unmatched body groups, and unassigned placements.
+- `frontend/src/features/colony-planner/ColonyTopologyRail.tsx` owns the read-only body-tree/navigation MVP for the workspace. It uses loaded `SystemDetail` bodies plus a one-way planner snapshot to show body rows, child indentation where parent metadata exists, placement counts, orbital/surface/flex chips, unknown/unmatched body groups, and unassigned placements.
 - `SimulationPreviewPanel` and `SimulationPreview` now accept an optional `onPlanSnapshotChange` callback. This is a narrow read-only bridge from the existing central planner state back to the workspace shell; it does not move editing ownership out of `simulation-preview/`.
 - `ColonyPlannerWorkspace` owns only local read-only selection state for topology navigation. Selection updates the rail highlight and right summary context, but never mutates placements, never runs Preview, never generates Suggested Builds, never imports layout, and never touches Observed Evidence or Validation.
 - Stage 15E should build on this by moving add/replace/move interactions toward selected body/slot context. Stage 15D deliberately leaves all editing inside the central planner content.
@@ -1021,16 +1021,16 @@ Passive default-route guarantees:
 - no automatic Suggested Build generation
 - no automatic Preview run
 - no automatic candidate load
-- no RavenColonial API mutation
+- no reference planner API mutation
 
 ## Stage 17I Static Visual Prototype Boundary
 
-Stage 17I adds a separate visual-prototype route instead of changing the Simulation Preview or live planner stack.
+Stage 17I adds a separate visual-preview route instead of changing the Simulation Preview or live planner stack.
 
 Prototype ownership:
 
-- `RavenStylePlannerPrototype.tsx` owns the static mock canvas.
-- `#colony-planner-prototype` opens the canvas for review.
+- `PlannerCanvasPreview.tsx` owns the static mock canvas.
+- `#planner-preview` opens the canvas for review.
 - The component uses hardcoded mock bodies, slots, projected structures, economy strips, and telemetry placeholders.
 - It does not import Simulation Preview hooks, optimiser hooks, project state, slot prediction responses, or backend API helpers.
 
@@ -1048,21 +1048,21 @@ Safety boundary:
 
 - no Simulation Preview mechanics, CP, service, economy, optimiser, slot prediction, validation, observation, import, EDMC, or persistence behavior changes
 - no automatic Suggested Build generation, candidate load, Preview run, or project save
-- no RavenColonial source, CSS, assets, icons, or API usage
+- no reference planner source, CSS, assets, icons, or API usage
 
 If the visual direction is accepted, a later implementation stage can map the existing Stage 17H data/state surfaces into this canvas shape. Stage 17I intentionally does not do that wiring.
 
-## Stage 17K Real Raven-Style Planner Route
+## Stage 17K Real Planner Route
 
 Stage 17K performs that mapping for the dedicated real Colony Planner route.
 
 Route ownership:
 
 - `#colony-planner/system/{id64}` uses `WholeSystemColonyPlanner.tsx`.
-- `WholeSystemColonyPlanner.tsx` now renders `RavenStylePlannerCanvas.tsx` as the primary whole-system canvas.
-- `#colony-planner-prototype` remains isolated and mock-only.
+- `WholeSystemColonyPlanner.tsx` now renders `SystemBuildMapCanvas.tsx` as the primary whole-system canvas.
+- `#planner-preview` remains isolated and mock-only.
 
-Real data consumed by the Raven-style canvas:
+Real data consumed by the whole-system planner canvas:
 
 - `SystemDetail` bodies and body parentage
 - `SlotPredictionResponse` predicted orbital/ground counts
@@ -1073,7 +1073,7 @@ Real data consumed by the Raven-style canvas:
 
 Default route interaction hierarchy:
 
-1. Left/main: continuous Raven-style whole-system canvas with real body rows and slot lanes.
+1. Left/main: continuous whole-system planner canvas with real body rows and slot lanes.
 2. Middle: selected-body editor/detail surface with readable slot lanes and add/review actions.
 3. Right: telemetry and compact project summary.
 4. Advanced Planner: explicit Suggested Builds, Preview, evidence, validation, and list editor.
@@ -1098,17 +1098,17 @@ Safety boundary:
 - no automatic candidate load
 - no automatic Preview run
 - no CP/economy/scoring mechanic changes
-- no RavenColonial API/code/CSS/assets usage
+- no reference planner API/code/CSS/assets usage
 
-## Stage 17N.1 Raven Canvas Add Flow
+## Stage 17N.1 Planner Canvas Add Flow
 
-The Raven-style canvas now owns a direct manual add flow:
+The whole-system planner canvas now owns a direct manual add flow:
 
-1. User selects a body, clicks a Raven row add control, or clicks an empty orbital/surface slot.
+1. User selects a body, clicks a planner row add control, or clicks an empty orbital/surface slot.
 2. `WholeSystemColonyPlanner` stores `{ bodyId, lane }` picker context and keeps the selected body active.
 3. `CanvasStructurePicker` renders outside Advanced Planner with the selected body name, requested lane, compatible count, and facility metadata.
 4. Selecting a template calls the existing local `addStructure(bodyId, lane, templateId)` placement path.
-5. The Build Plan placements are resequenced and the same snapshot feeds Raven canvas, selected-body inline detail, planner status, local project unsaved state, and Advanced Planner when it is later opened.
+5. The Build Plan placements are resequenced and the same snapshot feeds planner canvas, selected-body inline detail, planner status, local project unsaved state, and Advanced Planner when it is later opened.
 
 Compatibility rules:
 
@@ -1134,7 +1134,7 @@ Known limitation:
 
 Stage 17N.1b keeps the Stage 17N.1 ownership model but tightens the user-facing behavior:
 
-- Raven canvas copy is `System Build Map` with a concise predicted-slot disclaimer.
+- planner canvas copy is `System Build Map` with a concise predicted-slot disclaimer.
 - Body controls select bodies; occupied planned slots select placements; projected slots select projection context without loading; visible add controls open the lane-aware picker.
 - Passive capacity boxes and passive empty slots do not use button-like hover or pointer affordances.
 - The picker uses shared compatibility helpers and no longer splits dual-location templates by `is_port`; valid orbital outposts/installations and valid surface ports/hubs/settlements remain visible when the body/lane allows them.
@@ -1154,12 +1154,12 @@ Remaining manual editing gaps:
 Advanced Planner contract:
 
 - Advanced Planner remains secondary and explicitly opened.
-- Raven adds write the same Build Plan state Advanced Planner reads.
+- Planner adds write the same Build Plan state Advanced Planner reads.
 - Existing Simulation Preview picker views should use the same structure display language where practical, especially family labels, prerequisite warnings, and contextual station economy copy.
 
-## Stage 17N.1c Graphical Raven Canvas Contract
+## Stage 17N.1c Graphical Planner Canvas Contract
 
-Stage 17N.1c updates the manual Raven canvas toward the RavenColonial visual model: graphical slots and status markers first, text detail second.
+Stage 17N.1c updates the manual planner canvas toward the reference planner visual model: graphical slots and status markers first, text detail second.
 
 Canvas interaction contract:
 
@@ -1175,7 +1175,7 @@ Lane correctness contract:
 
 - orbital-only templates render only in orbit lanes
 - surface-only templates render only in surface lanes
-- dual-location templates added from the Raven picker carry the chosen lane in local planner state
+- dual-location templates added from the planner picker carry the chosen lane in local planner state
 - dual-location or unknown placements without a reliable lane hint render as `Needs lane`, including in selected-body detail and telemetry
 - picker filtering and canvas rendering must use the same compatibility/classification helpers so visible options and final slot placement agree
 
@@ -1263,3 +1263,7 @@ Planned assistant layer should sit above this architecture:
 - deterministic candidate generation/build-plan editing remains authoritative
 - Preview remains explicit and authoritative
 - no assistant-originated silent mutation of the active Build Plan
+
+
+
+

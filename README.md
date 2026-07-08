@@ -19,8 +19,8 @@
 | FastAPI | `python:3.12-slim` · Pydantic 2.9 | API backend (`apps/api/`) — strict request/response models |
 | EDDN Listener | `python:3.12-slim` | Live game data ingestion (`apps/eddn/`) |
 | Importer | `python:3.12-slim` | Spansh dump + post-import builders (`apps/importer/`) |
-| Frontend v2 | Vite 6 + React 19 + TS 5 + Tailwind 3 | SPA (`frontend-v2/`) — TanStack Query, Zustand, codegen-typed wire contract |
-| Nginx | `nginx:alpine` | SSL + static `frontend-v2/dist/` serving at `/` + `/api/*` proxy |
+| Frontend | Vite 6 + React 19 + TS 5 + Tailwind 3 | SPA (`frontend/`) — TanStack Query, Zustand, codegen-typed wire contract |
+| Nginx | `nginx:alpine` | SSL + static `frontend/dist/` serving at `/` + `/api/*` proxy |
 
 **Type contract**: the frontend's `src/types/api.gen.ts` is auto-generated from the FastAPI `/openapi.json` via `openapi-typescript`. CI fails any push that drifts the checked-in baseline from what the running API actually emits — so backend response shapes and frontend types never silently diverge.
 
@@ -40,11 +40,11 @@
 
 | Component | Version | Notes |
 |---|---|---|
-| `apps/api/src/main.py` | 3.0.1-hetzner | Admin-token auth, CORS lockdown, path-traversal fix, Redis-backed rate limiter, Redis pub/sub SSE bridge, asyncpg `statement_cache_size=0` for pgBouncer. **Audit Phase 7 follow-up (PR #5)**: every v2-frontend-consumed endpoint declares a strict `response_model`; request models use real Pydantic sub-types (`RangeFilter`, `BodyFilters`, `CoordsModel`, `ArchetypeRerankWeights`, `ArchetypeRerankResponse`) instead of `Optional[dict]`, so the OpenAPI schema is stable across Pydantic versions and `frontend-v2/src/types/api.gen.ts` carries real per-row shapes. |
+| `apps/api/src/main.py` | 3.0.1-hetzner | Admin-token auth, CORS lockdown, path-traversal fix, Redis-backed rate limiter, Redis pub/sub SSE bridge, asyncpg `statement_cache_size=0` for pgBouncer. **Audit Phase 7 follow-up (PR #5)**: every frontend-consumed endpoint declares a strict `response_model`; request models use real Pydantic sub-types (`RangeFilter`, `BodyFilters`, `CoordsModel`, `ArchetypeRerankWeights`, `ArchetypeRerankResponse`) instead of `Optional[dict]`, so the OpenAPI schema is stable across Pydantic versions and `frontend/src/types/api.gen.ts` carries real per-row shapes. |
 | `apps/eddn/src/eddn_listener.py` | 1.2 | Publishes events to Redis `eddn_events` channel |
-| `frontend-v2/` | (Vite + React 19) | The single shipping frontend. State on `useState` + Zustand stores (`pinnedStore`, `syncKeyStore`); shared server cache on TanStack Query (`useWatchlist`). Wire types in `src/types/api.ts` re-export from the codegenned `api.gen.ts` — public type names (`SystemResult`, `SearchResponse`, `SystemDetail`, `AppStatus`, `CacheStats`, `ArchetypeRerankRequest`, …) preserved so consumers don't need rewriting when the backend emits a new field. |
+| `frontend/` | (Vite + React 19) | The single shipping frontend. State on `useState` + Zustand stores (`pinnedStore`, `syncKeyStore`); shared server cache on TanStack Query (`useWatchlist`). Wire types in `src/types/api.ts` re-export from the codegenned `api.gen.ts` — public type names (`SystemResult`, `SearchResponse`, `SystemDetail`, `AppStatus`, `CacheStats`, `ArchetypeRerankRequest`, …) preserved so consumers don't need rewriting when the backend emits a new field. |
 
-> **Legacy `frontend/`** (vanilla JS, the original `app.js`) was removed in the audit refactor (PR #3) — `frontend-v2/` is the only frontend in the repo.
+> **Legacy frontend note:** the old vanilla-JS `app.js` frontend was removed in the audit refactor (PR #3). The current `frontend/` directory is the only frontend in the repo.
 
 ---
 
@@ -192,7 +192,7 @@ ed-finder/
 │   ├── security-headers.conf
 │   ├── prometheus.yml
 │   └── grafana/
-├── frontend-v2/             # Vite + React + TypeScript SPA (the only frontend)
+├── frontend/             # Vite + React + TypeScript SPA (the only frontend)
 │   ├── src/                 # Feature-folders: search/, map/, system-detail/,
 │   │                        # watchlist/, pinned/, optimizer/, colony/, …
 │   ├── src/store/           # Zustand stores (pinnedStore, syncKeyStore)
@@ -239,13 +239,15 @@ ed-finder/
 │       └── test_phase5_map_materialised_views.py
 ├── .github/
 │   └── workflows/ci.yml     # 6-job CI: backend smoke, integration (PG+Redis),
-│                            # v2 build, nginx config syntax, OpenAPI types drift
-│                            # check, Frontend v2 E2E (Playwright)
+│                            # frontend build, nginx config syntax, OpenAPI types drift
+│                            # check, frontend E2E (Playwright)
 ├── docker-compose.yml       # Full service stack
 ├── pyproject.toml           # Project metadata (real deps live in apps/*/requirements.txt)
 ├── setup.sh                 # First-time server setup script
 └── README.md                # This file
 ```
+
+For a documentation map, start with [`docs/README.md`](./docs/README.md).
 
 ## Related repositories
 
@@ -273,12 +275,12 @@ Every push and PR runs **6 parallel jobs** on GitHub-hosted runners:
 |---|---|---|
 | **Backend smoke tests + compose validate** | `python -m unittest tests/test_smoke.py` (56 pure-Python tests) and `docker compose config` | ~25 s |
 | **Backend integration (PG+Redis)** | Spawns `postgres:16-alpine` + `redis:7-alpine` service containers, applies `sql/001…010` + `seed_preview.sql`, runs `pytest tests/integration/` (44 tests covering Phase-2/3/5/6 contracts) | ~50 s |
-| **Frontend v2 build** | `yarn install` + `yarn typecheck` + `yarn test --run` (28 vitest) + `yarn build` | ~45 s |
+| **Frontend build** | `yarn install` + `yarn typecheck` + `yarn test --run` (28 vitest) + `yarn build` | ~45 s |
 | **Nginx config syntax** | `nginx -t` against `config/nginx.conf` | ~20 s |
-| **OpenAPI types drift check** | Boots the API, regenerates `frontend-v2/src/types/api.gen.ts`, fails if it drifts from the checked-in baseline | ~55 s |
-| **Frontend v2 E2E (Playwright)** | Spawns PG+Redis services, boots uvicorn on :8002, runs `yarn build` then `yarn e2e` (vite preview on :4173 proxying `/api → :8002`, Playwright drives Chromium against the production bundle — 6 tests) | ~2–3 min |
+| **OpenAPI types drift check** | Boots the API, regenerates `frontend/src/types/api.gen.ts`, fails if it drifts from the checked-in baseline | ~55 s |
+| **Frontend E2E (Playwright)** | Spawns PG+Redis services, boots uvicorn on :8002, runs `yarn build` then `yarn e2e` (vite preview on :4173 proxying `/api → :8002`, Playwright drives Chromium against the production bundle — 6 tests) | ~2–3 min |
 
-**Adding a new test**: pure-Python unit → `tests/test_smoke.py`; needs DB → `tests/integration/test_phase*.py`; frontend logic → `frontend-v2/src/**/*.test.ts(x)` (vitest); user-flow → `frontend-v2/e2e/*.spec.ts` (Playwright).
+**Adding a new test**: pure-Python unit → `tests/test_smoke.py`; needs DB → `tests/integration/test_phase*.py`; frontend logic → `frontend/src/**/*.test.ts(x)` (vitest); user-flow → `frontend/e2e/*.spec.ts` (Playwright).
 
 ---
 
@@ -296,7 +298,7 @@ $EDITOR apps/api/src/local_search.py       # if the search SQL needs the column
 
 # 3. Regenerate the TS types from the running API
 docker compose up -d --build api           # bake the new model into the image
-cd frontend-v2
+cd frontend
 VITE_OPENAPI_URL=http://127.0.0.1:8000/openapi.json yarn types:gen
 git diff src/types/api.gen.ts              # review the schema delta
 
@@ -304,7 +306,7 @@ git diff src/types/api.gen.ts              # review the schema delta
 $EDITOR src/types/api.ts                   # re-export with a nicer name if needed
 
 # 5. Commit BOTH the model change AND the regenerated api.gen.ts
-git add apps/api/src/models.py frontend-v2/src/types/api.gen.ts
+git add apps/api/src/models.py frontend/src/types/api.gen.ts
 git commit
 ```
 
@@ -320,15 +322,15 @@ The codebase passed through a 9-phase audit in May 2026. All phases shipped to p
 
 | Phase | Theme | Landed in |
 |---|---|---|
-| 1 | Centralise economy/body-filter mappings (`search_economies.py`); delete legacy `/frontend/`; monorepo `apps/{api,eddn,importer}/`; `RegionMapData.py` → `data/region_map.json` | PR #3 |
+| 1 | Centralise economy/body-filter mappings (`search_economies.py`); retire the old standalone frontend shell; monorepo `apps/{api,eddn,importer}/`; `RegionMapData.py` → `data/region_map.json` | PR #3 |
 | 2 | Remove inline SQL fallback in `routers/search.py` ("no silent fallback"); contract test `test_phase2_search_no_fallback.py` | PR #3 |
 | 3 | User scope on `watchlist` / `notes` via `sync_key`; `sql/010_sync_key_scoping.sql` | PR #3 |
 | 4 | `statement_timeout` on heavy map queries | PR #3 |
 | 5 | Materialised views for `/api/map/{regions,heatmap,timeline}`; `sql/009_map_materialised_views.sql` + `refresh_map_mviews()` | PR #3 |
 | 6 | API integration tests + Vitest + Playwright e2e (78 new tests across 3 layers) | PR #3 |
 | 7 | `openapi-typescript` CI drift check; `api.gen.ts` baseline | PR #4 |
-| 7b | Strict `response_model=` on every v2-frontend-consumed endpoint; replace `Optional[dict]` request fields with real Pydantic sub-models; `useWatchlist` on TanStack Query; Playwright E2E in CI | PR #5 |
-| 8+ | (in flight) Broaden TanStack Query into `useSearch` / `useAutocomplete`; tighten remaining request dicts; `_redesign/` Phase-2 wiring | TBD |
+| 7b | Strict `response_model=` on every frontend-consumed endpoint; replace `Optional[dict]` request fields with real Pydantic sub-models; `useWatchlist` on TanStack Query; Playwright E2E in CI | PR #5 |
+| 8+ | Historical follow-up note: broaden TanStack Query into `useSearch` / `useAutocomplete`, tighten remaining request dicts, and continue `_redesign/` Phase-2 wiring. | Not the current control document |
 
 ---
 
@@ -447,7 +449,7 @@ setx EDFINDER_DEPLOY_TARGET ed-finder-prod
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipPrompt
 ```
 
-For first-time SSH alias setup, see [ssh-deploy-from-windows.md](file:///c:/Users/brian/Documents/trae_projects/ED-Finder/docs/operations/ssh-deploy-from-windows.md).
+For first-time SSH alias setup, see [`docs/operations/ssh-deploy-from-windows.md`](./docs/operations/ssh-deploy-from-windows.md).
 
 ```bash
 ssh root@<hetzner-ip>
@@ -474,9 +476,9 @@ cd /opt/ed-finder
 git log -1 --oneline > /tmp/pre-deploy-commit.txt   # rollback target
 git pull --ff-only origin main
 
-# Frontend: nginx serves frontend-v2/dist/ directly at /, so it must be
+# Frontend: nginx serves frontend/dist/ directly at /, so it must be
 # rebuilt on the host (not inside a container).
-( cd frontend-v2 && yarn install --frozen-lockfile && yarn build )
+( cd frontend && yarn install --frozen-lockfile && yarn build )
 
 # API: rebuild the images so the new Python source is baked in.
 docker compose up -d --build api eddn maintenance
@@ -498,7 +500,7 @@ docker compose exec -T postgres psql -U edfinder -d edfinder \
 ```bash
 PREV=$(awk '{print $1}' /tmp/pre-deploy-commit.txt)
 cd /opt/ed-finder && git reset --hard "$PREV"
-( cd frontend-v2 && yarn build )
+( cd frontend && yarn build )
 docker compose up -d --build api eddn maintenance
 docker compose exec nginx nginx -s reload
 ```

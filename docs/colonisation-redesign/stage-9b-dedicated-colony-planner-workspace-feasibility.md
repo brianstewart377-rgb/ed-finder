@@ -1,4 +1,4 @@
-# Stage 9B - Dedicated Colony Planner Workspace Feasibility
+﻿# Stage 9B - Dedicated Colony Planner Workspace Feasibility
 
 ## Executive Summary
 
@@ -14,16 +14,16 @@ Stage 9C implementation note: the recommended route has now been implemented as 
 
 | area | current behaviour | relevant files |
 |---|---|---|
-| App shell | `AppInner` renders a persistent `NavBar`, a route-selected page, `SystemDetailModal` when a selected system id exists, and the bottom `EddnTicker`. | `frontend-v2/src/App.tsx` |
-| Hash routing | `useHashRoute` parses top-level routes plus optional `system/{id64}` modal children. Unknown routes fall back to Finder. `#optimizer` is a legacy alias for `#search-tuning`. `#system/{id64}` opens System Detail over Finder. | `frontend-v2/src/hooks/useHashRoute.ts`, `frontend-v2/src/hooks/useHashRoute.test.ts` |
-| Top-level routes | Current routes are Finder, Watchlist, Pinned, Compare, Map, Advanced Search Tuning, FC Planner, Colony Tracker, and Admin. | `frontend-v2/src/components/NavBar.tsx` |
-| System Detail modal | `selectedSystemId` opens the modal over the current route. Close removes the `system/{id64}` child while preserving the parent route. Escape and backdrop close the modal. | `frontend-v2/src/App.tsx`, `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
-| System data loading | System Detail uses `useSystemDetail(id64)`, a TanStack Query wrapper around `api.system(id64)`. Query keys are system-id scoped and already suitable for reuse by a workspace. | `frontend-v2/src/features/system-detail/useSystemDetail.ts` |
-| Embedded Colony Planner | System Detail renders a `Colony Planning` section containing buildability, regional context, recommended builds, the focused `SimulationPreviewPanel`, and slots. The planner focus target has `tabIndex={-1}` and highlight/focus timer cleanup. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`, `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx` |
-| Planner internals | `SimulationPreview` owns the guided planner composition: header, section nav, Build Plan, Suggested Builds, Preview Result, Observed Evidence, and Validation. Preview, generation, and copy-to-plan actions remain explicit. | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
-| Finder handoff | Expanded result cards show `Details` and `Evaluate in Colony Planner`. Details opens System Detail normally. As of Stage 9C, Evaluate routes to `#colony-planner/system/{id64}` when the app provides `onOpenColonyPlanner`, with the old focus-intent handoff retained as a component fallback. | `frontend-v2/src/components/ResultCard.tsx` |
-| Search Tuning handoff | Row/open-detail actions open System Detail normally. As of Stage 9C, `Evaluate in Colony Planner` routes to the dedicated workspace when the app provides `onOpenColonyPlanner`; the old focused-detail handoff remains a fallback. | `frontend-v2/src/features/search-tuning/AdvancedSearchTuningTab.tsx` |
-| Current focus intent | `App` still clears/passes `detailFocus` for compatibility. `SystemDetailModal` scrolls/focuses/highlights the embedded planner when no workspace handler is provided; the app-provided Stage 9C handler routes the top CTA to the dedicated workspace. | `frontend-v2/src/App.tsx`, `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
+| App shell | `AppInner` renders a persistent `NavBar`, a route-selected page, `SystemDetailModal` when a selected system id exists, and the bottom `EddnTicker`. | `frontend/src/App.tsx` |
+| Hash routing | `useHashRoute` parses top-level routes plus optional `system/{id64}` modal children. Unknown routes fall back to Finder. `#optimizer` is a legacy alias for `#search-tuning`. `#system/{id64}` opens System Detail over Finder. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
+| Top-level routes | Current routes are Finder, Watchlist, Pinned, Compare, Map, Advanced Search Tuning, FC Planner, Colony Tracker, and Admin. | `frontend/src/components/NavBar.tsx` |
+| System Detail modal | `selectedSystemId` opens the modal over the current route. Close removes the `system/{id64}` child while preserving the parent route. Escape and backdrop close the modal. | `frontend/src/App.tsx`, `frontend/src/features/system-detail/SystemDetailModal.tsx` |
+| System data loading | System Detail uses `useSystemDetail(id64)`, a TanStack Query wrapper around `api.system(id64)`. Query keys are system-id scoped and already suitable for reuse by a workspace. | `frontend/src/features/system-detail/useSystemDetail.ts` |
+| Embedded Colony Planner | System Detail renders a `Colony Planning` section containing buildability, regional context, recommended builds, the focused `SimulationPreviewPanel`, and slots. The planner focus target has `tabIndex={-1}` and highlight/focus timer cleanup. | `frontend/src/features/system-detail/SystemDetailModal.tsx`, `frontend/src/features/system-detail/SimulationPreviewPanel.tsx` |
+| Planner internals | `SimulationPreview` owns the guided planner composition: header, section nav, Build Plan, Suggested Builds, Preview Result, Observed Evidence, and Validation. Preview, generation, and copy-to-plan actions remain explicit. | `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
+| Finder handoff | Expanded result cards show `Details` and `Evaluate in Colony Planner`. Details opens System Detail normally. As of Stage 9C, Evaluate routes to `#colony-planner/system/{id64}` when the app provides `onOpenColonyPlanner`, with the old focus-intent handoff retained as a component fallback. | `frontend/src/components/ResultCard.tsx` |
+| Search Tuning handoff | Row/open-detail actions open System Detail normally. As of Stage 9C, `Evaluate in Colony Planner` routes to the dedicated workspace when the app provides `onOpenColonyPlanner`; the old focused-detail handoff remains a fallback. | `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx` |
+| Current focus intent | `App` still clears/passes `detailFocus` for compatibility. `SystemDetailModal` scrolls/focuses/highlights the embedded planner when no workspace handler is provided; the app-provided Stage 9C handler routes the top CTA to the dedicated workspace. | `frontend/src/App.tsx`, `frontend/src/features/system-detail/SystemDetailModal.tsx` |
 
 The current architecture is intentionally modal-centric: any parsed `selectedSystemId` means "render System Detail modal". A dedicated workspace should not reuse that same field for planner pages, or the app will risk rendering the modal over the new workspace.
 
@@ -64,7 +64,7 @@ Reuse the existing system-detail data path:
 
 Recommended component shape:
 
-- Add a light `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx` wrapper.
+- Add a light `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx` wrapper.
 - Header shows system name, ID64, coordinates, and concise context.
 - Main content reuses `SimulationPreviewPanel`.
 - Add an `Open full system detail` action.
@@ -229,4 +229,5 @@ Implement a dedicated Colony Planner workspace in Stage 9C using `#colony-planne
 
 This gives Colony Planner the focused surface it now deserves without changing mechanics, scoring, generation, validation, or the working modal inspection path.
 
-Stage 9C followed this recommendation, and Stage 9D hardens the route/workspace passivity tests. Deferred work remains: replacing the embedded planner with a summary/CTA, adding a top-level planner chooser or recent-plans concept, source-aware back labels, saved builds, and richer workspace side-rail context. Material/hauling planning remains explicitly deferred; ED-Finder should not duplicate RavenColonial-style hauling/material tooling unless a later product stage identifies a distinct value-add.
+Stage 9C followed this recommendation, and Stage 9D hardens the route/workspace passivity tests. Deferred work remains: replacing the embedded planner with a summary/CTA, adding a top-level planner chooser or recent-plans concept, source-aware back labels, saved builds, and richer workspace side-rail context. Material/hauling planning remains explicitly deferred; ED-Finder should not duplicate reference-planner-style hauling/material tooling unless a later product stage identifies a distinct value-add.
+

@@ -768,7 +768,7 @@ Classified findings:
   `formatDistance(0, { allowZero: true })`, score/progress count fallbacks, CSS
   color values, and fixture origin triples used in tests.
 - **Dead / legacy path**: `_redesign/` mock/discover components are not the
-  active v2 application surface; findings there were not patched.
+  active `frontend/` application surface; findings there were not patched.
 - **Needs follow-up**: `systems.population` remains `NOT NULL DEFAULT 0`, so DB
   storage still cannot distinguish unknown population from true zero for the
   main systems table. UI and API contracts are now conservative, but a future
@@ -805,7 +805,7 @@ Frontend planner behaviour:
   surface capacity.
 - MegaShip, FleetCarrier, and Unknown station types are shown as unresolved
   rather than forced into a colony slot.
-- Raven canvas shows existing slots with established/solid styling, planned
+- planner canvas shows existing slots with established/solid styling, planned
   slots with user-plan styling, projected slots with ghost/dashed styling, and
   unresolved stations in a compact area below the map.
 - Add Orbit/Add Surface uses remaining capacity after existing + planned
@@ -1058,3 +1058,4 @@ Pause the rebuild and inspect logs if any of these occur:
 - rising `rating_dirty` count while rating writes are not increasing
 - `rating_version = '3.4'` count stops increasing during a dirty rebuild
 - fake non-Sol origin count is non-zero after coordinate cleanup
+

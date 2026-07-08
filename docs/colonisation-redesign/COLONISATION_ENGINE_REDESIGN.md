@@ -1,4 +1,4 @@
-# ED-Finder Colonisation Engine Redesign
+﻿# ED-Finder Colonisation Engine Redesign
 ## Complete Implementation Guide — v4.0
 
 **Date:** 2026-05-10  
@@ -2433,3 +2433,4 @@ sql/014_archetype_mv.sql        NEW (Phase 1)
 ---
 
 *Document version: 4.0 | Generated: 2026-05-10 | ED-Finder Colonisation Engine Redesign*
+

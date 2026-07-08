@@ -1,4 +1,4 @@
-# Stage 19 — Import Source and Domain Matrix
+﻿# Stage 19 — Import Source and Domain Matrix
 
 ## Purpose
 
@@ -20,7 +20,7 @@ This document defines the initial import source and domain/entity matrix.
 | Mega Guide | Source of truth/reference | Rules, constraints, mechanics, interpretation | Human/reference source; not all content is machine-importable | High as reference |
 | ED-Finder operator artifacts | Manual/operator source | Review packets, dry-runs, approval allowlists, write results | Primary audit trail for controlled canonical changes | Critical |
 | Mission observations | Source of evidence / derived analytics | Mission board patterns, mission density, station-to-station links | Volatile; must be freshness-bound | High after warehouse basics |
-| RavenColonial | Source of inspiration | UI ideas, workflow ideas, feature comparison | Not a source of canonical Elite Dangerous data | Low/import not needed |
+| reference planner | Source of inspiration | UI ideas, workflow ideas, feature comparison | Not a source of canonical Elite Dangerous data | Low/import not needed |
 | EDCD/community datasets | Source of evidence | Potential future reference/metadata feeds | Evaluate later; do not assume trust yet | Later |
 | Canonn/community science data | Source of evidence | Specialist location/body/phenomena context | Useful in niche cases; not core first pass | Later |
 | Frontier/game journal data | Source of evidence/manual import | Player-observed facts, mission observations, market/service snapshots | High value if available but user-specific/manual | Later |
@@ -459,3 +459,4 @@ Stage 19A should inventory which of these domains already exist and which are mi
 Stage 19B should define the target schema boundaries.
 
 Stage 19C/19D should complete source and domain priorities before the first auto-import is enabled.
+

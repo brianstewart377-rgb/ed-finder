@@ -1,4 +1,4 @@
-# Stage 18J-P18N — Final state snapshot closeout
+﻿# Stage 18J-P18N — Final state snapshot closeout
 
 ## Result
 
@@ -71,3 +71,4 @@ The snapshot confirms the P18 chain is complete and stable.
 Stage 18J-P18 is complete for this bounded batch.
 
 No further station-type writes, canonical writes, or canonical apply are approved by this closeout.
+

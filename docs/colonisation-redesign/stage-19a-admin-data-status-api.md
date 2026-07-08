@@ -1,4 +1,4 @@
-# Stage 19A — Admin data-status API
+﻿# Stage 19A — Admin data-status API
 
 ## Result
 
@@ -36,3 +36,4 @@ It does not perform:
 ## Roadmap context
 
 This is the backend foundation for Stage 19 operator/data visibility. A later stage can add UI cards that consume this endpoint.
+

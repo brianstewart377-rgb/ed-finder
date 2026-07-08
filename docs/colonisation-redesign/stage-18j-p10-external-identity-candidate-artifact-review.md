@@ -1,4 +1,4 @@
-# Stage 18J-P10 — External Identity Candidate Artifact Review
+﻿# Stage 18J-P10 — External Identity Candidate Artifact Review
 
 ## Purpose
 
@@ -272,3 +272,4 @@ load-plan artifact with no database writes.
 
 After P11, use the Stage 18J-P execution board to bundle repo work safely while
 keeping each Hetzner production action tiny, explicit, and single-purpose.
+

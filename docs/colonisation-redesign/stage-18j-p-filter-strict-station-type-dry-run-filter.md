@@ -1,4 +1,4 @@
-# Stage 18J-P-filter - Strict Station-Type Dry-Run Filter
+﻿# Stage 18J-P-filter - Strict Station-Type Dry-Run Filter
 
 ## Purpose
 
@@ -160,3 +160,4 @@ Stage 18J-P4 refines the immediate path: draft the external identity schema in
 P5 without applying it to production, extract and reconcile identity evidence
 in P6, publish read-only coverage in P7, integrate confirmed identity into
 reconciliation in P8, and only then retry the station-type dry-run in P9.
+

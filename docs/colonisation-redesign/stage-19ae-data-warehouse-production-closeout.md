@@ -1,4 +1,4 @@
-# Stage 19AE — Data Warehouse production closeout
+﻿# Stage 19AE — Data Warehouse production closeout
 
 ## Result
 
@@ -161,3 +161,4 @@ Future production work must remain staged and bounded:
 4. admin/operator visibility;
 5. scheduler only after multiple proven controlled runs;
 6. canonical apply only by separate explicit approval.
+

@@ -1,4 +1,4 @@
-# Stage 18J-P2 - Station-Type Identity Coverage Diagnostics
+﻿# Stage 18J-P2 - Station-Type Identity Coverage Diagnostics
 
 ## Purpose
 
@@ -108,3 +108,4 @@ Stage 18K remains not started.
 ## Final Recommendation
 
 Keep the strict filter. Do not create an approval packet or apply plan from the zero-eligible P2 result. Model external station identity separately, preserve provenance and conflict status, and retry station-type dry-run only after canonical external identity is available in read-only reconciliation output.
+

@@ -1,4 +1,4 @@
-# Body And Ring Enrichment Dry-Run Architecture
+﻿# Body And Ring Enrichment Dry-Run Architecture
 
 This note defines the next enrichment stage before any new production write path
 exists. It is a dry-run contract for improving body metadata, ring coverage,
@@ -242,3 +242,4 @@ fixture, fetches matching local bodies from a non-production database, and emits
 write flags. Acceptance should be focused unit tests plus a fixture-based
 end-to-end dry-run test that asserts JSON counters, skipped rows, conflicts, and
 the source-only ring truth boundary.
+

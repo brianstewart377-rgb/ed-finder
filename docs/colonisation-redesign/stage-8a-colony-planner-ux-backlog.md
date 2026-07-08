@@ -1,4 +1,4 @@
-# Stage 8A - Colony Planner UX Backlog
+﻿# Stage 8A - Colony Planner UX Backlog
 
 Stage 8A should make Colony Planner easier to find, understand, and act on. Stage 7E does not implement this work; it captures the pre-implementation sense check so the next stage starts from a clear problem statement.
 
@@ -20,7 +20,7 @@ Colony Planner currently works as a system-detail planning surface, but the user
 
 - Uploaded DaftMav spreadsheet.
 - Elite Dangerous colonisation Mega Guide.
-- Current `frontend-v2/src/features/system-detail/simulation-preview/` flow.
+- Current `frontend/src/features/system-detail/simulation-preview/` flow.
 - Existing recommended-build, optimiser-candidate, validation, and observed-evidence panels.
 
 ## Likely Scope
@@ -47,3 +47,4 @@ Colony Planner currently works as a system-detail planning surface, but the user
 - Candidate generation can run lightweight previews internally, while the main Simulation Preview remains explicitly user-run. Copy must keep that distinction clear.
 - Validation and observed evidence are passive advisory layers; they must not feed back into Search Tuning, candidate ranking, or simulation scoring.
 - Editing placements should make stale preview state obvious and should not imply that changes have been simulated before the user runs Preview again.
+

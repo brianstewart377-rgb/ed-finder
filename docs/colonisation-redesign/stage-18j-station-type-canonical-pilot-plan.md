@@ -1,4 +1,4 @@
-# Stage 18J — Station Type Canonical Write Pilot Plan
+﻿# Stage 18J — Station Type Canonical Write Pilot Plan
 
 ## Executive Summary
 
@@ -401,7 +401,7 @@ You are implementing Stage 18J for ED-Finder. Before changing code, read:
 
 1. docs/colonisation-redesign/README.md
 2. docs/colonisation-redesign/stage-17p-current-state-forward-plan.md
-3. docs/colonisation-redesign/enrichment-roadmap.md
+3. docs/ROADMAP.md
 4. docs/colonisation-redesign/enrichment-staging-architecture.md
 5. docs/operations/enrichment-warehouse-runbook.md
 6. docs/colonisation-redesign/stage-18h-warehouse-planner-evidence-bridge.md
@@ -443,3 +443,5 @@ The answer to the primary risk question is therefore yes: exact station type pro
 [10]: ../../apps/importer/src/enrichment_warehouse_sql.py "enrichment_warehouse_sql.py"
 [11]: ../../tests/test_enrichment_staging_db_loader.py "test_enrichment_staging_db_loader.py"
 [12]: ../../scripts/station_enrichment_guard.py "station_enrichment_guard.py"
+
+

@@ -1,4 +1,4 @@
-# Stage 22C - Operator Artifact Review And Audit Surfaces
+﻿# Stage 22C - Operator Artifact Review And Audit Surfaces
 
 ## Purpose
 
@@ -40,7 +40,7 @@ workspace. That section makes three things easier to inspect together:
 
 ## Implementation Notes
 
-- `frontend-v2/src/features/system-detail/simulation-preview/exportArtifacts.ts`
+- `frontend/src/features/system-detail/simulation-preview/exportArtifacts.ts`
   now builds an explicit `operator_review` section for Markdown and JSON
   outputs, with:
   - focus items;
@@ -48,7 +48,7 @@ workspace. That section makes three things easier to inspect together:
   - section coverage;
   - sanitized references.
 
-- `frontend-v2/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
+- `frontend/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
   now renders an `Operator review and audit` panel alongside closeout
   readiness and the existing export blocks.
 
@@ -67,3 +67,4 @@ Stage 22C is complete when:
   guardrails, and operator-review sections separate;
 - no runtime artifact becomes authority;
 - all deferred Stage 19 boundaries remain false.
+

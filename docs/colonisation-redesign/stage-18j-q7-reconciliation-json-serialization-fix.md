@@ -1,4 +1,4 @@
-# Stage 18J-Q7 — Reconciliation JSON Serialization Fix
+﻿# Stage 18J-Q7 — Reconciliation JSON Serialization Fix
 
 ## Purpose
 
@@ -102,3 +102,4 @@ Merge Q7 before retrying the read-only reconciliation artifact generation.
 Treat any JSON serialization failure or 0-byte artifact as a hard stop. Do not
 start Stage 18J-P, Stage 18K, station-type dry-run, or canonical apply until
 their documented prerequisites are satisfied.
+

@@ -1,4 +1,4 @@
-# Occupied Slot Source Of Truth
+﻿# Occupied Slot Source Of Truth
 
 Stage 17N.2d-H adds the backend contract ED-Finder needs before Light /
 Medium / High / Maxed plans can safely reason about already-built systems.
@@ -458,3 +458,4 @@ Known gaps:
 Future work should add exact body ids during station import when source data
 supports it, provide manual correction/Architect-observed truth, and report
 unresolved counts in operations dashboards.
+

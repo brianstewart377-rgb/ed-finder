@@ -1,4 +1,4 @@
-# Stage 2 Review
+﻿# Stage 2 Review
 
 Stage 2 turned ED-Finder from a system scoring app into a deterministic colony
 planning engine. This review captures what is strong, what remains inferred, and
@@ -64,3 +64,4 @@ what should not be overclaimed.
 - Do not add an optimiser until recommendation ranking remains transparent.
 - Treat unknown service mechanics as `unknown`, not locked or inactive.
 - Use observed player outcomes to graduate inferred/speculative rules.
+

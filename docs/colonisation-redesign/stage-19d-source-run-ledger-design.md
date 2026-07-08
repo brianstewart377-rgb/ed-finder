@@ -1,4 +1,4 @@
-# Stage 19D — Source-Run Ledger Design
+﻿# Stage 19D — Source-Run Ledger Design
 
 ## Purpose
 
@@ -210,3 +210,4 @@ Stage 19D design is complete when:
 - implementation path is clear.
 
 No DB writes, imports, migrations, or canonical apply are approved by this document.
+

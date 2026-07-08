@@ -1,4 +1,4 @@
-# Colonisation Source Priority
+﻿# Colonisation Source Priority
 
 Use this hierarchy for ED-Finder colonisation mechanics, planner warnings,
 picker validity, CP logic, strong/weak links, dependencies, economy influence,
@@ -13,8 +13,8 @@ and source-sensitive UI copy.
 | 3 | DaftMav Colonization Construction spreadsheet | Catalogue, construction, support, comparison, and structure-table reference. Use for facility/catalogue enrichment where redistribution and versioning are safe. |
 | 4 | OASIS Guide for Bootstrapping a Bubble | Planning workflow support, bootstrapping strategy, and operator/player workflow context. Not higher authority than the Mega Guide for mechanics conflicts. |
 | 5 | Fandom, Frontier forum posts/PDFs, AetherWave PDFs, diagrams, and infographics | Secondary clarification, visual explanation, and cross-checking. Use to clarify or document conflicts, not to silently override primary mechanics authority. |
-| 6 | RavenColonial screenshots/tooling | UI/tooling inspiration and possible future handoff target only. Not mechanics authority for ED-Finder scoring, CP, economy, service, buildability, or optimiser ranking. |
-| 7 | Future external data sources: EDMC, EDDiscovery, EDSM, EDDN, Spansh, RavenColonial plugin data, imported snapshots | Evidence/source data with source, timestamp, freshness, confidence, and review controls. Not automatic mechanics truth. |
+| 6 | reference planner screenshots/tooling | UI/tooling inspiration and possible future handoff target only. Not mechanics authority for ED-Finder scoring, CP, economy, service, buildability, or optimiser ranking. |
+| 7 | Future external data sources: EDMC, EDDiscovery, EDSM, EDDN, Spansh, reference planner plugin data, imported snapshots | Evidence/source data with source, timestamp, freshness, confidence, and review controls. Not automatic mechanics truth. |
 
 ## Conflict Rules
 
@@ -41,10 +41,11 @@ When sources conflict:
 - Declared/inferred/observed roles remain guidance unless a future stage
   explicitly scopes mechanics behaviour.
 
-## RavenColonial Boundary
+## reference planner Boundary
 
-RavenColonial can inform workflow observations such as readable body hierarchy,
+reference planner can inform workflow observations such as readable body hierarchy,
 local placement clarity, compact warnings, and handoff/export ideas. ED-Finder
-must not copy RavenColonial source code, CSS, assets, icons, proprietary
+must not copy reference planner source code, CSS, assets, icons, proprietary
 implementation details, API keys, private plugin data, logistics workflow, or
 mutating API behaviour.
+

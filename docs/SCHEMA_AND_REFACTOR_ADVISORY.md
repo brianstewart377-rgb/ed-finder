@@ -1,4 +1,4 @@
-# Schema and refactor advisory
+﻿# Schema and refactor advisory
 
 > **Status:** advisory only. Zero code change in this PR — read, decide,
 > archive or queue. Each item below is its own future PR with its own
@@ -441,3 +441,4 @@ leisure, no rush:
 
 Reviewing this PR commits us to nothing. Merging it just lands the
 doc in `main` so future-us can find it without trawling chat history.
+

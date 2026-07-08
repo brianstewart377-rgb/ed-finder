@@ -1,4 +1,4 @@
-# Enrichment Staging Architecture
+﻿# Enrichment Staging Architecture
 
 This document defines the offline enrichment warehouse foundation for
 ED-Finder. It is separate from the existing station enrichment runbook and does
@@ -307,3 +307,4 @@ analytics around staged station/body/ring evidence, improve candidate quality
 signals, and add more skipped-by-default smoke coverage. Any future canonical
 write path is out of scope until it has a separate design, safety review, and
 test plan.
+

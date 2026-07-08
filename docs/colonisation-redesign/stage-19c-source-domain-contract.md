@@ -1,4 +1,4 @@
-# Stage 19C — Source and Domain Contract
+﻿# Stage 19C — Source and Domain Contract
 
 ## Purpose
 
@@ -33,7 +33,7 @@ No DB writes, imports, migrations, or canonical apply are approved by this docum
 | `frontier_journal` | `source_of_evidence` | 6 | Later | Player-observed journal data, useful but user-specific/manual at first. |
 | `edcd` | `source_of_evidence` | 8 | Later | Future community source candidate. |
 | `canonn` | `source_of_evidence` | 9 | Later | Specialist community data, later-stage. |
-| `ravencolonial` | `source_of_inspiration` | 10 | No | UI/workflow inspiration only, not canonical data. |
+| `planner_reference_archive` | `source_of_inspiration` | 10 | No | UI/workflow inspiration only, not canonical data. |
 
 ## Import domain contract
 
@@ -186,3 +186,4 @@ Stage 19D should be schema/design first, then implementation.
 Stage 19C is complete when this contract is recorded and accepted as the vocabulary for Stage 19 implementation.
 
 No DB writes, imports, migrations, or canonical apply are approved by this document.
+

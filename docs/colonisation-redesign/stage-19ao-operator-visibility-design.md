@@ -1,4 +1,4 @@
-# Stage 19AO - Operator visibility design
+﻿# Stage 19AO - Operator visibility design
 
 ## Purpose
 
@@ -541,3 +541,4 @@ Stage 19AO does not:
 ## Stage 19AO verdict
 
 The next Stage 19 implementation work should make source-run and staging state visible before expanding ingestion. The system has proven the path from local fixture to `source_runs`, legacy bridge, staging rows, diagnostic mark, and artifacts. The missing safety layer is operator visibility that can answer, in one place, what happened and whether the next step is safe.
+

@@ -1,4 +1,4 @@
-# Stage 24C - Cross-surface Evidence Consistency
+﻿# Stage 24C - Cross-surface Evidence Consistency
 
 ## Status
 
@@ -17,7 +17,7 @@ This checkpoint implements one narrow adjacent read-only consistency slice.
 ## Selected Surface
 
 Stage 24C selects the system-detail Evidence mode
-`frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
+`frontend/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx`
 as the primary adjacent read-only surface.
 
 ## Selection Rationale
@@ -132,3 +132,4 @@ This checkpoint does not:
 Stage 24D is the next checkpoint:
 
 `Stage 24D - Closeout or next-control decision`
+

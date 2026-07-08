@@ -1,4 +1,4 @@
-# Stage 18H.2 — Read-Only Backend Warehouse Evidence Endpoint
+﻿# Stage 18H.2 — Read-Only Backend Warehouse Evidence Endpoint
 
 ## Purpose
 
@@ -68,3 +68,4 @@ The next slices after this endpoint scaffold are:
    back to the current provenance bridge when evidence is unavailable
 2. Stage 18H.4 — UX clarification for freshness, review status, and source
    posture once the planner is reading the dedicated contract
+

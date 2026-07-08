@@ -1,4 +1,4 @@
-# Validated Slot Prediction Algorithm (Stage 17G/17H)
+﻿# Validated Slot Prediction Algorithm (Stage 17G/17H)
 
 ## Purpose
 
@@ -132,20 +132,20 @@ Removed/disabled slot fallback paths:
 
 Frontend slot displays audited:
 
-- `frontend-v2/src/features/system-detail/SlotPredictionPanel.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx`
-- `frontend-v2/src/features/colony-planner/SystemSlotMapPanel.tsx`
-- `frontend-v2/src/features/colony-planner/WholeSystemColonyPlanner.tsx`
-- `frontend-v2/src/features/colony-planner/SelectedBodyPlannerCanvas.tsx`
-- `frontend-v2/src/features/colony-planner/PlannerStatusStrip.tsx`
-- `frontend-v2/src/features/colony-planner/WorkspaceGrid.tsx` (compatibility wrapper only)
-- `frontend-v2/src/features/colony-planner/BodySlotPlanner.tsx`
-- `frontend-v2/src/features/colony-planner/BodySlotLane.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanBodyView.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanLayoutDetailPanel.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
-- `frontend-v2/src/types/api.ts`
-- `frontend-v2/src/lib/api.ts`
+- `frontend/src/features/system-detail/SlotPredictionPanel.tsx`
+- `frontend/src/features/colony-planner/ColonyTopologyRail.tsx`
+- `frontend/src/features/colony-planner/SystemSlotMapPanel.tsx`
+- `frontend/src/features/colony-planner/WholeSystemColonyPlanner.tsx`
+- `frontend/src/features/colony-planner/SelectedBodyPlannerCanvas.tsx`
+- `frontend/src/features/colony-planner/PlannerStatusStrip.tsx`
+- `frontend/src/features/colony-planner/WorkspaceGrid.tsx` (compatibility wrapper only)
+- `frontend/src/features/colony-planner/BodySlotPlanner.tsx`
+- `frontend/src/features/colony-planner/BodySlotLane.tsx`
+- `frontend/src/features/system-detail/simulation-preview/BuildPlanBodyView.tsx`
+- `frontend/src/features/system-detail/simulation-preview/BuildPlanLayoutDetailPanel.tsx`
+- `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+- `frontend/src/types/api.ts`
+- `frontend/src/lib/api.ts`
 
 Frontend rule:
 
@@ -168,8 +168,8 @@ Required coverage is in:
 
 - `tests/test_slot_prediction_algorithm.py`
 - `tests/test_slot_prediction_endpoint.py`
-- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.test.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
+- `frontend/src/features/colony-planner/ColonyTopologyRail.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
 
 Coverage includes:
 
@@ -191,3 +191,4 @@ Coverage includes:
 - default planner route shows the whole-system slot map before body selection
 - old Simulation Preview stack is not mounted/visible by default
 - explicit projection snapshots show ghost slots in the left map and selected-body lanes
+

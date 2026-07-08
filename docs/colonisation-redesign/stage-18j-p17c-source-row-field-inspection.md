@@ -1,4 +1,4 @@
-# Stage 18J-P17C — Source-row station-type field inspection closeout
+﻿# Stage 18J-P17C — Source-row station-type field inspection closeout
 
 ## Result
 
@@ -111,3 +111,4 @@ That stage should classify each source `station_type` value as one of:
 - requires enum/design decision.
 
 Only after that mapping review should a separate bounded dry-run plan be considered.
+

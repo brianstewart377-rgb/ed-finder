@@ -1,4 +1,4 @@
-# Stage 18J-P16A — Read-only reconciliation integration closeout
+﻿# Stage 18J-P16A — Read-only reconciliation integration closeout
 
 ## Result
 
@@ -115,3 +115,4 @@ No station-type writes, canonical writes, or canonical apply are approved by thi
 The next stage should focus on the 11 joined canonical rows with `station_type = 'Unknown'` and confirmed external EDSM station IDs.
 
 The next step must remain read-only. It may prepare a bounded station-type dry-run input or plan, but any actual station-type dry-run, review packet, or apply must remain separate and explicitly approved.
+

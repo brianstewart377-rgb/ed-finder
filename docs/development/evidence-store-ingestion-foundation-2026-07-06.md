@@ -1,4 +1,4 @@
-# Evidence Store And Ingestion Foundation
+﻿# Evidence Store And Ingestion Foundation
 
 Date: 2026-07-06
 
@@ -115,3 +115,4 @@ Status after this slice:
 - Evidence Store does not auto-apply rule changes.
 - Rule proposals remain review-first.
 - Future low-risk auto-approval should be policy-gated and auditable through `rule_decisions`.
+

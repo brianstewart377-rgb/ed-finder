@@ -1,8 +1,8 @@
-# Stage 10A - Build Plan Structure Picker / Body Layout UX Feasibility
+﻿# Stage 10A - Build Plan Structure Picker / Body Layout UX Feasibility
 
 ## Executive Summary
 
-Stage 10A maps how ED-Finder can make manual colony planning more visual without changing mechanics or copying RavenColonial's construction logistics workflow.
+Stage 10A maps how ED-Finder can make manual colony planning more visual without changing mechanics or copying reference planner's construction logistics workflow.
 
 The current Colony Planner already has the right safety boundaries: users enter a dedicated workspace, generate Suggested Builds only by explicit action, edit an in-memory Build Plan, run Preview only by explicit action, and then review Observed Evidence / Validation as passive later steps. The weak point is the manual Build Plan editing surface. It is still mostly a flat form list, so users cannot quickly see where placements sit in the system, which body owns which structure, or how a facility choice affects location, CP, economy, and risk before Preview.
 
@@ -11,7 +11,7 @@ Recommendation:
 - Stage 10B should be a low-risk frontend-only visual improvement: add an optional body-grouped Build Plan view beside the existing list editor.
 - Keep the current flat `BuildPlanEditor` as the canonical editing surface for compatibility.
 - Group existing placements by assigned body, show unassigned placements clearly, and render compact badges for primary port, allowed location, tier, economy, CP gives/needs, confidence, and warnings when data exists.
-- Defer the full structure picker / variant table until Stage 10C because current frontend facility templates do not expose all RavenColonial-style comparison fields.
+- Defer the full structure picker / variant table until Stage 10C because current frontend facility templates do not expose all reference-planner-style comparison fields.
 - Do not add hauling/material totals, carrier stock, trip estimates, commodity progress, saved builds, accounts, journals, automatic learning, or any mechanics mutation.
 
 Stage 10A is a feasibility/design/report stage only. It does not implement UI behaviour.
@@ -32,12 +32,12 @@ Stage 10B implementation note:
 ## Reference Materials
 
 - ED-Finder UI / UX Discussion Tracker maintained from user discussion.
-- RavenColonial screenshots discussed by user: hauling tracker, colony builder/map, structure picker dropdown, and structure picker table.
+- reference planner screenshots discussed by user: hauling tracker, colony builder/map, structure picker dropdown, and structure picker table.
 - `docs/colonisation-redesign/stage-8a-colony-planner-ux-prep.md`
 - `docs/colonisation-redesign/stage-9b-dedicated-colony-planner-workspace-feasibility.md`
 - `docs/colonisation-redesign/simulation-preview-ui-architecture.md`
-- `docs/colonisation-redesign/engine-roadmap.md`
-- Current repo code in `frontend-v2/src/features/colony-planner/` and `frontend-v2/src/features/system-detail/simulation-preview/`
+- `docs/ROADMAP.md`
+- Current repo code in `frontend/src/features/colony-planner/` and `frontend/src/features/system-detail/simulation-preview/`
 - Current backend models and simulation/optimiser data structures under `apps/api/src/`
 
 The UI / UX Discussion Tracker is not currently present as a committed repo file, so this stage uses the tracker summary supplied by the user as required source material.
@@ -129,10 +129,10 @@ Only available after Preview:
 - observed-vs-predicted summaries
 - validation/review comparison output
 
-Missing for a full RavenColonial-style picker/table/body layout:
+Missing for a full reference-planner-style picker/table/body layout:
 
 - exposed variant family metadata separate from the current template name/id
-- stable variant display names such as the RavenColonial examples
+- stable variant display names such as the reference planner examples
 - pre-selection validity result for a specific facility/body pair
 - structured invalid/warning reasons before adding a placement
 - frontend-visible prerequisite detail beyond template notes and Preview warnings
@@ -141,23 +141,23 @@ Missing for a full RavenColonial-style picker/table/body layout:
 - selected-site construction/progress state
 - saved plan/project state
 
-## RavenColonial-Inspired UX Lessons
+## reference planner-Inspired UX Lessons
 
 ### 1. Body-based build map
 
-RavenColonial makes the system layout legible by grouping structures under bodies. ED-Finder should borrow that planning clarity: bodies become visual containers, assigned placements appear under the correct body, and unassigned placements appear in a needs-attention bucket.
+reference planner makes the system layout legible by grouping structures under bodies. ED-Finder should borrow that planning clarity: bodies become visual containers, assigned placements appear under the correct body, and unassigned placements appear in a needs-attention bucket.
 
-ED-Finder should not copy RavenColonial's exact map styling. The ED-Finder version should use the existing Colony Planner visual language: compact dark panels, orange/cyan/silver badges, warning gold for needs-attention states, and explicit Preview/stale copy.
+ED-Finder should not copy reference planner's exact map styling. The ED-Finder version should use the existing Colony Planner visual language: compact dark panels, orange/cyan/silver badges, warning gold for needs-attention states, and explicit Preview/stale copy.
 
 ### 2. Structure picker with filters
 
-The RavenColonial picker shows Both / Orbital / Surface filtering, grouped structures, visible variants, and CP indicators near the choice. ED-Finder should adopt this direction later, but it needs a staged approach. The current dropdown is safe and simple; replacing it with a richer picker should wait until data availability and tests are stronger.
+The reference planner picker shows Both / Orbital / Surface filtering, grouped structures, visible variants, and CP indicators near the choice. ED-Finder should adopt this direction later, but it needs a staged approach. The current dropdown is safe and simple; replacing it with a richer picker should wait until data availability and tests are stronger.
 
 ### 3. Structure picker table
 
-The RavenColonial table makes comparison easy by exposing validity, pad, location, tier, needs/gives CP, economy influence, stat impact, and score. ED-Finder can support a subset now from existing template data, but several columns require backend/catalogue enrichment or Preview-derived data.
+The reference planner table makes comparison easy by exposing validity, pad, location, tier, needs/gives CP, economy influence, stat impact, and score. ED-Finder can support a subset now from existing template data, but several columns require backend/catalogue enrichment or Preview-derived data.
 
-The haul/material column should be explicitly deferred. RavenColonial is already strong at execution/logistics. ED-Finder should not clone commodity demand, carrier stock, deficit, progress, or trip tracking.
+The haul/material column should be explicitly deferred. reference planner is already strong at execution/logistics. ED-Finder should not clone commodity demand, carrier stock, deficit, progress, or trip tracking.
 
 ### 4. Selected site / placement card
 
@@ -165,7 +165,7 @@ The selected placement should show structure, body, allowed location, status, pr
 
 ### 5. Right-side planner summary
 
-RavenColonial's right-side summary shows project status and compact consequences. ED-Finder should eventually add a planning summary that answers: target archetype, placement count, primary port, unassigned count, Preview status, stale state, CP risk, economy focus, warnings, and next action.
+reference planner's right-side summary shows project status and compact consequences. ED-Finder should eventually add a planning summary that answers: target archetype, placement count, primary port, unassigned count, Preview status, stale state, CP risk, economy focus, warnings, and next action.
 
 ### 6. Inline warnings
 
@@ -184,7 +184,7 @@ ED-Finder should own the planning/intelligence layer:
 - What does Preview predict?
 - What evidence later confirms or challenges the prediction?
 
-RavenColonial should remain the stronger execution/logistics layer:
+reference planner should remain the stronger execution/logistics layer:
 
 - What commodities are needed?
 - Which carrier has stock?
@@ -349,7 +349,7 @@ Add a table-like picker with filters, visible variants, CP/location/pad/economy 
 
 Pros:
 
-- Moves closest to RavenColonial's comparison strength.
+- Moves closest to reference planner's comparison strength.
 - Makes facility selection more informed.
 
 Cons:
@@ -485,13 +485,13 @@ Do not use brittle full snapshots.
 - Commodity/material requirement calculation.
 - Carrier stock, surplus/deficit, progress bars, and hauling trip estimates.
 - EDMC/journal ingestion and external data ingestion, likely Stage 11A or later.
-- Optional RavenColonial handoff/export feasibility if a real integration path exists.
+- Optional reference planner handoff/export feasibility if a real integration path exists.
 
 ## Final Recommendation
 
-ED-Finder should move visually closer to RavenColonial's planning clarity without cloning RavenColonial's execution/logistics product. The safest next step is a Stage 10B body-grouped Build Plan view: bodies as containers, placements as visual cards, compact badges for known impacts, explicit unassigned warnings, and the existing list editor preserved for detailed edits.
+ED-Finder should move visually closer to reference planner's planning clarity without cloning reference planner's execution/logistics product. The safest next step is a Stage 10B body-grouped Build Plan view: bodies as containers, placements as visual cards, compact badges for known impacts, explicit unassigned warnings, and the existing list editor preserved for detailed edits.
 
-This gives users a clearer spatial understanding of the Build Plan while keeping ED-Finder as the planning/intelligence layer and leaving hauling/material execution to RavenColonial or a later handoff.
+This gives users a clearer spatial understanding of the Build Plan while keeping ED-Finder as the planning/intelligence layer and leaving hauling/material execution to reference planner or a later handoff.
 
 Stage 10C confirms the next safe step after 10B: strengthen the body-grouped readout into a graphical Layout view and document Spansh import as a backend/manual-refresh follow-up. The structure picker/table, variant comparison, and external system-layout import workflow remain separate future stages.
 
@@ -558,3 +558,5 @@ Stage 11H addresses a residual quality-of-life issue in the planning surface.
 Chronology note:
 
 - Stage 11F happened before Stage 11G, and Stage 11H follows Stage 11G.
+
+

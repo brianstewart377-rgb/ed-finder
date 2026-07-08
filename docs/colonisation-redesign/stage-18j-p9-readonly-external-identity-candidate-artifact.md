@@ -1,4 +1,4 @@
-# Stage 18J-P9 — Read-only External Identity Candidate Artifact
+﻿# Stage 18J-P9 — Read-only External Identity Candidate Artifact
 
 ## Purpose
 
@@ -207,3 +207,4 @@ Use the P9 artifact as the review gate before any writes to
 Do not load identity evidence until the candidate artifact has been generated,
 reviewed, and accepted with exact source filters and artifact checksum. Keep
 station-type dry-run and canonical apply blocked.
+

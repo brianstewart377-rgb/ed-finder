@@ -1,4 +1,4 @@
-# Trae Solo Desktop Handoff (PR #316 CI)
+﻿# Trae Solo Desktop Handoff (PR #316 CI)
 
 ## Goal
 
@@ -88,4 +88,5 @@ Bring up local Postgres+Redis using the repo’s compose file:
 ## Resume Prompt (paste into Desktop Trae Solo)
 
 Read `docs/development/trae-solo-desktop-handoff-2026-07-06.md`. You are in `c:\Users\brian\Documents\trae_projects\ED-Finder` on branch `devscore-retire-ratings` (PR #316). CI still has a failing Backend integration check; open the newest Actions run, download raw logs, identify the failing test or seed step, patch, commit, and push until all checks are green.
+
 

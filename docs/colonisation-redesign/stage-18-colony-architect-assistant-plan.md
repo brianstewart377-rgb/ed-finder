@@ -1,4 +1,4 @@
-# Stage 18 Colony Architect Assistant Plan
+﻿# Stage 18 Colony Architect Assistant Plan
 
 ## Objective
 
@@ -105,3 +105,4 @@ Foundation schema fields:
 - no silent plan mutation occurs
 - user can compare and approve/reject proposals
 - Preview remains explicit and central to final decisions
+

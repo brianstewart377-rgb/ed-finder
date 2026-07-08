@@ -1,4 +1,4 @@
-# Stage 18J-P11 — Bounded External Identity Load-Plan Artifact
+﻿# Stage 18J-P11 — Bounded External Identity Load-Plan Artifact
 
 ## Purpose
 
@@ -245,3 +245,4 @@ station-type dry-run and canonical apply blocked.
 Use `stage-18j-p-identity-evidence-execution-board.md` as the remaining
 Stage 18J-P tracker so repo work can be bundled safely while Hetzner actions
 stay tiny and single-purpose.
+

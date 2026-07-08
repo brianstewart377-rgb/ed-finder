@@ -1,4 +1,4 @@
-# Test Double Inventory
+﻿# Test Double Inventory
 
 ## Scope
 
@@ -77,3 +77,4 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.
 The resolver rejects current branch/head matches from the active invalid-state denylist before any fake-backed test result can be treated as readiness proof. The denylist is intentionally tiny; historical archive entries do not expand it.
 
 Stage 19 remains paused while test-environment hardening proceeds.
+

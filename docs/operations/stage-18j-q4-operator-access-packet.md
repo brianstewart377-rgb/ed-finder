@@ -1,4 +1,4 @@
-# Stage 18J-Q4 — Operator Access Packet
+﻿# Stage 18J-Q4 — Operator Access Packet
 
 ## Purpose
 
@@ -325,3 +325,4 @@ Keep Stage 18J-Q3 and Stage 18J-P blocked until the operator provides the
 required variables through a safe channel and completes the sign-off outside
 git. This packet is not an approval to run production reconciliation, generate a
 station-type dry-run artifact, approve an artifact, or apply canonical writes.
+

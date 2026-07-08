@@ -1,4 +1,4 @@
-# Stage 18J-P12 bounded external identity load-plan review
+﻿# Stage 18J-P12 bounded external identity load-plan review
 
 This document is historical evidence only.
 It is not current operational guidance.
@@ -162,3 +162,4 @@ These checks are preserved as historical safety context only. They do not author
 The original PR included recommended next stages and active roadmap/runbook edits for Stage 18J-P13 through Stage 18J-P17. Those old sequencing updates are not restored as current guidance.
 
 Current project state is governed by `docs/colonisation-redesign/stage-19-state-authority.json`: Stage 19 is paused, Stage 19AS-AU has not run, and this archive recovery did not execute Stage 19.
+

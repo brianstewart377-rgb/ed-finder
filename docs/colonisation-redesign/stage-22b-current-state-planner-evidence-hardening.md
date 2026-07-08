@@ -1,4 +1,4 @@
-# Stage 22B - Current-State Planner Evidence Hardening
+﻿# Stage 22B - Current-State Planner Evidence Hardening
 
 ## Purpose
 
@@ -88,3 +88,4 @@ Stage 22B is complete when:
 - missing timestamps never imply `fresh`;
 - global safety state is visible separately from selected-system evidence;
 - all changes remain read-only and keep Stage 19 deferred.
+

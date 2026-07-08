@@ -1,4 +1,4 @@
-# Stage 18J-P14C — Approval Allowlist Artifact
+﻿# Stage 18J-P14C — Approval Allowlist Artifact
 
 ## Purpose
 
@@ -235,3 +235,4 @@ Merge P14C as approval-allowlist tooling and documentation only.
 After merge, a future Hetzner operator action may create the offline allowlist
 artifact. Do not load identity evidence until a later controlled write-reviewed
 stage explicitly uses that allowlist.
+

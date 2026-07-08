@@ -1,4 +1,4 @@
-# Stage 24B - Planner Evidence Discoverability Surfaces
+﻿# Stage 24B - Planner Evidence Discoverability Surfaces
 
 ## Status
 
@@ -11,10 +11,10 @@ the Stage 24A contract.
 
 Stage 24B stays inside the in-scope Stage 24A surfaces:
 
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx`
-- `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
-- `frontend-v2/src/types/api.ts`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx`
+- `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts`
+- `frontend/src/types/api.ts`
 - documentation/readme discoverability for the read-only evidence baseline
 
 The delivered slice keeps the existing endpoint path and backend behavior while
@@ -112,3 +112,4 @@ Stage 24 now has:
 
 The next follow-on can stay focused on Stage 24C cross-surface consistency
 rather than redefining the planner-evidence contract again.
+

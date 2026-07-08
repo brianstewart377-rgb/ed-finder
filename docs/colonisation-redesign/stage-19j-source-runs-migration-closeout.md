@@ -1,4 +1,4 @@
-# Stage 19J — source_runs migration closeout
+﻿# Stage 19J — source_runs migration closeout
 
 ## Result
 
@@ -70,3 +70,4 @@ That work should be repo-only first and should use Codex:
 Stage 19H/19I source_runs migration is complete and verified.
 
 No imports, scheduler/timer enablement, canonical writes, or canonical apply are approved by this closeout.
+

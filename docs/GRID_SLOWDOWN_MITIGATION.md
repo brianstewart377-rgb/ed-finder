@@ -1,4 +1,4 @@
-# Grid backfill slowdown — mitigation runbook
+﻿# Grid backfill slowdown — mitigation runbook
 
 ## Diagnosis
 
@@ -127,3 +127,4 @@ COMMIT;
 rewrites the entire heap — on 186M rows this is hours of downtime.
 Regular (autovac) VACUUM is online and sufficient once it's given
 enough I/O budget.
+

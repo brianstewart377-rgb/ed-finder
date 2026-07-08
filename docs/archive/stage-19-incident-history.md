@@ -1,4 +1,4 @@
-# Stage 19 Incident History
+﻿# Stage 19 Incident History
 
 This archive is historical evidence only.
 It is not operational authority.
@@ -52,3 +52,4 @@ Do not paste this archive or large stale prompt bundles into future operational 
 ## Current Authority Pointer
 
 The current operational state is intentionally not repeated here. Use `docs/colonisation-redesign/stage-19-state-authority.json` for current Stage 19 status, the approved Stage 19AR baseline, the tiny invalid-state denylist, and durable prompt/state rules.
+

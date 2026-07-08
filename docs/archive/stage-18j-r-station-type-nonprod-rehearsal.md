@@ -1,4 +1,4 @@
-# Stage 18J-R station type non-production rehearsal
+﻿# Stage 18J-R station type non-production rehearsal
 
 This document is historical evidence only.
 It is not current operational guidance.
@@ -173,3 +173,4 @@ The original report said Stage 18J-R was not production approval. A production a
 The original report's recommendation and active-doc links are preserved here only as historical evidence. They are not current operational guidance.
 
 Current project state is governed by `docs/colonisation-redesign/stage-19-state-authority.json`: Stage 19 is paused, Stage 19AS-AU has not run, and this archive recovery did not execute Stage 19.
+

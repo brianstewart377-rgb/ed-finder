@@ -1,4 +1,4 @@
-# Stage 19AN-R — warehouse-derived EDSM staging rehearsal closeout
+﻿# Stage 19AN-R — warehouse-derived EDSM staging rehearsal closeout
 
 ## Result
 
@@ -58,3 +58,4 @@ The stage used the reviewed operator script added in PR #187, sampled five exist
 The warehouse-derived EDSM staging rehearsal is complete and production-proven for a bounded five-row diagnostic sample.
 
 Next sensible step is either a bounded 25-row staging pilot, or pausing data ingestion work to build operator/admin visibility before wider imports.
+

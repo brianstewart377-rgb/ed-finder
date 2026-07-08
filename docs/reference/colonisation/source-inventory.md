@@ -1,4 +1,4 @@
-# Colonisation Source Inventory
+﻿# Colonisation Source Inventory
 
 This inventory records known colonisation reference sources and how future PRs
 should cite or use them. It is deliberately conservative: if redistribution is
@@ -14,8 +14,8 @@ not explicitly safe, the source file is not committed here.
 | Frontier forum strong/weak link references | Secondary clarification for strong/weak link concepts and community explanations. | Secondary clarification | Not committed; external source. | Not confirmed safe to redistribute in this repo. | Cite forum thread/title/date if used. Prefer Mega Guide for mechanics conflicts. |
 | AetherWave PDFs and diagrams | Secondary visual explanation, diagrams, and cross-checking. | Secondary clarification | Not committed; external/attached/local-only source expected when used. | Not confirmed safe to redistribute in this repo. | Cite file/title/date and keep diagrams as explanatory evidence, not automatic mechanics truth. |
 | Construction prerequisite images, link diagrams, and infographics | Visual clarification of dependencies, links, and construction flow. | Secondary clarification | Not committed; external/attached/local-only source expected when used. | Not confirmed safe to redistribute in this repo. | Cite source/title/date. Recreate only repo-native explanatory diagrams when licensing is safe or when based on original ED-Finder analysis. |
-| RavenColonial screenshots/tooling observations | UI/workflow inspiration, planning clarity comparison, and possible future handoff/export research. | UI/tooling inspiration only | Not committed here; existing ED-Finder docs may describe clean-room observations. | Screenshots/assets/source/API material are not confirmed safe to redistribute. | Cite as clean-room workflow observation only. Never use as mechanics authority or copy source/CSS/assets/icons/API behaviour. |
-| EDMC, EDDiscovery, EDSM, EDDN, Spansh, RavenColonial plugin data, imported snapshots | Future evidence/source data for enrichment, observations, validation, and source coverage. | Evidence/source data, not automatic truth | Not committed as source authority; fixtures may be committed only when safe and anonymised. | Varies by source; verify before committing. | Track source, timestamp, freshness, confidence, import method, and review path. Keep data passive unless a future stage explicitly scopes mechanics changes. |
+| reference planner screenshots/tooling observations | UI/workflow inspiration, planning clarity comparison, and possible future handoff/export research. | UI/tooling inspiration only | Not committed here; existing ED-Finder docs may describe clean-room observations. | Screenshots/assets/source/API material are not confirmed safe to redistribute. | Cite as clean-room workflow observation only. Never use as mechanics authority or copy source/CSS/assets/icons/API behaviour. |
+| EDMC, EDDiscovery, EDSM, EDDN, Spansh, reference planner plugin data, imported snapshots | Future evidence/source data for enrichment, observations, validation, and source coverage. | Evidence/source data, not automatic truth | Not committed as source authority; fixtures may be committed only when safe and anonymised. | Varies by source; verify before committing. | Track source, timestamp, freshness, confidence, import method, and review path. Keep data passive unless a future stage explicitly scopes mechanics changes. |
 
 ## Placeholder Policy
 
@@ -27,3 +27,4 @@ not explicitly safe, the source file is not committed here.
   is attached to the PR/review, external, or local-only.
 - If source files are later added here, update this inventory with file path,
   version/date, redistribution status, and citation instructions.
+

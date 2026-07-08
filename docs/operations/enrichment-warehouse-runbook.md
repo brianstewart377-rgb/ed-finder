@@ -828,8 +828,8 @@ operator artifact directory. It does not source DB env, connect to DB, load
 rows, run imports, run reconciliation, run summarizer, run station-type
 dry-run, run canonical apply, or create a production approval record.
 
-Stage 19A documents the warehouse artifact taxonomy and chunked roadmap in
-`docs/colonisation-redesign/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`.
+The current roadmap keeps the warehouse artifact taxonomy and chunking strategy
+under the guarded evidence/ingestion lane in `docs/ROADMAP.md`.
 Use domain-qualified artifact families for stations, bodies, rings,
 station/body links, markets, services, economies, colonisation, freshness,
 coverage, analytics, and future write plans. Do not mix lifecycle steps in one
@@ -934,3 +934,4 @@ current operator examples. Future work may rename the warehouse DSN variable,
 move the warehouse schema, or require different read-only access patterns for
 canonical comparison. The hard boundary remains unchanged: warehouse data is
 evidence and reports, not canonical truth.
+

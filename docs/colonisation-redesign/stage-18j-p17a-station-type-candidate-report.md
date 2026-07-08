@@ -1,4 +1,4 @@
-# Stage 18J-P17A — Station-type candidate report closeout
+﻿# Stage 18J-P17A — Station-type candidate report closeout
 
 ## Result
 
@@ -112,3 +112,4 @@ No station-type dry-run, station-type writes, canonical writes, or canonical app
 The next stage may prepare a read-only station-type evidence lookup or planning artifact for the 11 candidate rows.
 
 Any actual station-type dry-run must remain a separate bounded action. Any station-type write or canonical apply must require a later review packet and explicit approval boundary.
+

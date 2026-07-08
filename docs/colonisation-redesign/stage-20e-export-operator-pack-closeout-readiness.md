@@ -1,4 +1,4 @@
-# Stage 20E - Export, Operator Pack, And Closeout Readiness
+﻿# Stage 20E - Export, Operator Pack, And Closeout Readiness
 
 ## Purpose
 
@@ -22,13 +22,13 @@ Stage 20E delivers:
 Frontend ownership is explicit:
 
 - workspace mode registry:
-  `frontend-v2/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
+  `frontend/src/features/system-detail/simulation-preview/WorkspaceModeTabs.tsx`
 - planner shell integration:
-  `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+  `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
 - export workspace:
-  `frontend-v2/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
+  `frontend/src/features/system-detail/simulation-preview/ExportReadinessWorkspaceView.tsx`
 - pure export builders:
-  `frontend-v2/src/features/system-detail/simulation-preview/exportArtifacts.ts`
+  `frontend/src/features/system-detail/simulation-preview/exportArtifacts.ts`
 
 ## Export Guarantees
 
@@ -74,3 +74,4 @@ Stage 20 completion still does not authorize:
 ## Stage 20 Completion
 
 Stage 20 is complete at this checkpoint.
+

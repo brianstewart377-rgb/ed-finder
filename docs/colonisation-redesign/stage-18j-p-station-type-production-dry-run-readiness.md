@@ -1,4 +1,4 @@
-# Stage 18J-P — Station Type Production Dry-Run Readiness
+﻿# Stage 18J-P — Station Type Production Dry-Run Readiness
 
 ## Purpose
 
@@ -96,7 +96,7 @@ Artifact discovery:
 ```sh
 rg -l '"schema_version"\s*:\s*"enrichment_staging_reconciliation/v1"|enrichment_staging_reconciliation/v1' . \
     --glob '*.json' --glob '*.jsonl' --glob '*.md' \
-    --glob '!frontend-v2/node_modules/**' --glob '!.git/**' --glob '!frontend-v2/.git/**'
+    --glob '!frontend/node_modules/**' --glob '!.git/**' --glob '!frontend/.git/**'
 
 find . -maxdepth 4 -type f \( -name '*reconciliation*.json' -o -name '*warehouse*.json' -o -name '*stage18j*.json' -o -name '*station*pilot*.json' \) \
     -printf '%TY-%Tm-%Td %TH:%TM %p\n'
@@ -331,3 +331,4 @@ See
 [`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
 This does not start Stage 18J-P, approve an artifact, or authorize canonical
 apply.
+

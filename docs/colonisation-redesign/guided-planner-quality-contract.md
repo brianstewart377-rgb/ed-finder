@@ -1,4 +1,4 @@
-# Stage 17N.3-A Guided Planner Quality Contract
+﻿# Stage 17N.3-A Guided Planner Quality Contract
 
 Date: 2026-05-25
 
@@ -9,7 +9,7 @@ Light, Medium, High, or Maxed whole-system plans.
 
 This is a repo-only architecture and test-contract stage. It does not connect
 to production, run imports, deploy, change rating weights, change slot
-prediction, redesign the Raven canvas, add natural-language AI, or wire the new
+prediction, redesign the planner canvas, add natural-language AI, or wire the new
 quality helper into live generation.
 
 ## Current Architecture
@@ -24,7 +24,7 @@ There are two generated-plan families today:
    - Archetype rules: `apps/api/src/optimiser/archetype_rules.py`
    - Facility selection: `apps/api/src/optimiser/facility_selection.py`
    - Ranking: `apps/api/src/optimiser/ranker.py`
-   - Frontend consumer: `frontend-v2/src/features/system-detail/simulation-preview/optimiser/OptimiserCandidatePanel.tsx`
+   - Frontend consumer: `frontend/src/features/system-detail/simulation-preview/optimiser/OptimiserCandidatePanel.tsx`
 
 2. **Recommended Builds**
    - API route: `apps/api/src/routers/simulate.py`
@@ -33,7 +33,7 @@ There are two generated-plan families today:
    - Ranking: `apps/api/src/recommendations/plan_ranker.py`
    - Frontend loading path: `SimulationPreview` and Build Plan helpers
 
-The Raven canvas consumes the editable Build Plan plus optional projected
+The planner canvas consumes the editable Build Plan plus optional projected
 candidate placements. It does not generate candidates itself.
 
 ### Current Inputs
@@ -79,7 +79,7 @@ The current generation path understands predicted slots at a system-summary
 level, but it does not consume the Stage 17N occupied-slot source-of-truth
 contract. It does not yet know per-body confirmed occupied orbital/ground
 slots, unresolved existing infrastructure, or inferred station/body association
-confidence. The Raven canvas can display occupied-slot context, but the
+confidence. The planner canvas can display occupied-slot context, but the
 candidate generator does not yet treat occupied slots as hard constraints.
 
 ### Prerequisite Awareness
@@ -316,7 +316,7 @@ No UI redesign is part of Stage 17N.3-A. Future UX should follow these rules:
 
 - Advanced Tools are diagnostics/manual editing, not the primary guided
   workflow.
-- Guided Planner should live beside or within the main Raven canvas workflow.
+- Guided Planner should live beside or within the main planner canvas workflow.
 - Advanced Planner should not become a wall of text at the page bottom.
 - Candidate output should be cards, comparison, warnings, and explanation.
 - Raw trace, mechanics evidence, and debug ranking detail belong behind
@@ -375,7 +375,7 @@ bodies, and avoided economies. It returns a structured report with:
 
 The prototype proves report shape and quality-gate behaviour without changing
 the existing Suggested Builds route, Recommended Builds route, Simulation
-Preview route, Raven canvas, slot prediction, ratings, imports, or production
+Preview route, planner canvas, slot prediction, ratings, imports, or production
 data.
 
 ## What Is Missing Before Light/Medium/High/Maxed Are Safe
@@ -399,4 +399,5 @@ Stage 17N.3-C should create a non-production backend API surface or service
 adapter for the prototype report, still hidden from the frontend by default.
 It should load body, slot, station/body association, and existing infrastructure
 context from the database, then compare quality-gated output against current
-optimiser candidates without changing the Raven canvas UI.
+optimiser candidates without changing the planner canvas UI.
+

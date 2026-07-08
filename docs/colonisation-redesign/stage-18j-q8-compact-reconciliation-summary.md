@@ -1,4 +1,4 @@
-# Stage 18J-Q8 - Compact Reconciliation Summary
+﻿# Stage 18J-Q8 - Compact Reconciliation Summary
 
 ## Purpose
 
@@ -167,3 +167,4 @@ remains blocked separately.
 
 Q9 does not run station-type dry-run, approve an artifact, create an approval
 record, run canonical apply, start Stage 18J-P, or start Stage 18K.
+

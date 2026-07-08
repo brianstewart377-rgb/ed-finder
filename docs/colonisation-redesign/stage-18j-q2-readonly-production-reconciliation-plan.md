@@ -1,4 +1,4 @@
-# Stage 18J-Q2 — Read-Only Production Reconciliation Artifact Generation Plan
+﻿# Stage 18J-Q2 — Read-Only Production Reconciliation Artifact Generation Plan
 
 ## Purpose
 
@@ -367,3 +367,4 @@ Stage 18J-Q4b records the local/operator note for the missing
 plan to provision a dedicated read-only/report-only warehouse DSN:
 [`../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md`](../operations/stage-18j-q4b-readonly-warehouse-dsn-operator-note.md),
 [`../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md`](../operations/stage-18j-q4c-readonly-warehouse-dsn-provisioning-plan.md).
+

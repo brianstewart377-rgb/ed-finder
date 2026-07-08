@@ -1,4 +1,4 @@
-# SSH Deploy From Windows
+﻿# SSH Deploy From Windows
 
 ## Goal
 
@@ -62,7 +62,7 @@ What it does:
 - checks public `/api/health`
 - checks `/`
 - checks `/index.html`
-- checks the old `/v2/` route resolves cleanly
+- checks old `/v2/` bookmarks redirect cleanly to the root-served app
 
 Useful flags:
 
@@ -97,7 +97,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-main-to-prod
 
 That script now assumes the current root-served SPA:
 
-- probes `/` instead of `/v2/`
+- probes `/` as the live app entrypoint
 - validates `/index.html`
 - uses `yarn` for frontend install/build/test steps
 
@@ -109,3 +109,4 @@ That script now assumes the current root-served SPA:
   deployment logic locally.
 - If the server repo has local tracked edits, fix them before normal deploys.
   Avoid using destructive cleanup unless you explicitly mean to discard work.
+

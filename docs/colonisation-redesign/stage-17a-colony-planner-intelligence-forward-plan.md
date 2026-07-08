@@ -1,10 +1,14 @@
 # Stage 17A — Colony Planner Intelligence / Source Alignment / Forward Plan
 
+> Historical reference only. This forward plan is preserved as stage rationale,
+> not as the active control queue. Use `docs/ROADMAP.md` for current priorities
+> and `docs/colonisation-redesign/README.md` for the active read order.
+
 Stage 17A is a report and planning stage only. It does not implement app behavior, change backend mechanics, change scoring, alter CP formulas, add ingestion, or change Colony Planner UI behavior.
 
 ## Executive Summary
 
-ED-Finder's Colony Planner has reached the point where more features should not be added until the source strategy, trust fixes, surface-slot prediction evidence, picker roadmap, visual planning direction, external ingestion boundary, and RavenColonial product boundary are aligned in one place.
+ED-Finder's Colony Planner has reached the point where more features should not be added until the source strategy, trust fixes, surface-slot prediction evidence, picker roadmap, visual planning direction, external ingestion boundary, and reference planner product boundary are aligned in one place.
 
 The next build phase should prioritize trust before expansion:
 
@@ -12,7 +16,7 @@ The next build phase should prioritize trust before expansion:
 2. Explain or remove the ambiguous Finder score bar.
 3. Implement the user-supplied surface slot prediction heuristic as a labelled prediction helper, not confirmed truth.
 4. Expand the structure picker and variant table using existing catalogue fields first, then enrich catalogue data deliberately.
-5. Keep RavenColonial as inspiration and a possible handoff target, not a workflow to clone.
+5. Keep reference planner as inspiration and a possible handoff target, not a workflow to clone.
 
 The requested committed reference pack path `docs/reference/colonisation/` was not present on latest `main` during this review. A user-supplied archive was then provided at `C:\Users\brian\Downloads\ed-finder-colonisation-reference-pack.zip`; this report uses that archive inventory and its source-priority notes, while still noting that the pack itself is not committed on latest `main`.
 
@@ -32,10 +36,10 @@ This audit is based on latest `main` at `f52446d` (`Stage 16B: workspace cleanup
 | Evidence / Validation drawers | Stage 15H moved Observed Evidence and Validation into explicit drawers/modes. Stage 16B moved controls into the persistent summary rail while content remains in the central planner boundary. | High |
 | Workspace summary rail | Stage 16B split the rail into compact Project, Plan Health, Selection, Architect, Workspace Modes, and save-state cards. | High |
 | Role / planning model work | Stage 16A is a report-only role model plan. Stage 16B is cleanup before role implementation. Role editing, badges, migration, and persistence remain deferred. | High |
-| Reference pack | Not committed on latest `main`, but a user-supplied archive was available during Stage 17A. It contains the expected `docs/reference/colonisation/` layout, source-priority notes, guides, DaftMav workbook, diagrams, RavenColonial screenshots, and UI issue screenshots. | High |
+| Reference pack | Not committed on latest `main`, but a user-supplied archive was available during Stage 17A. It contains the expected `docs/reference/colonisation/` layout, source-priority notes, guides, DaftMav workbook, diagrams, reference planner screenshots, and UI issue screenshots. | High |
 | Known trust issues | Surface slot prediction, bad rating rationale, and score-bar ambiguity are user-reported and should be planned before wider intelligence expansion. | High |
 
-Uncertainty: no committed source pack files were available at the requested path on latest `main`. The local archive was inventory-checked and its README, source-priority, prompt snippet, guide text samples, workbook sheet names, and UI/RavenColonial screenshot metadata were inspected. This is enough for Stage 17A source alignment, but later mechanics stages should still read the committed pack directly before making mechanics claims.
+Uncertainty: no committed source pack files were available at the requested path on latest `main`. The local archive was inventory-checked and its README, source-priority, prompt snippet, guide text samples, workbook sheet names, and UI/reference planner screenshot metadata were inspected. This is enough for Stage 17A source alignment, but later mechanics stages should still read the committed pack directly before making mechanics claims.
 
 ## Source Priority And Reference Pack
 
@@ -48,8 +52,8 @@ Uncertainty: no committed source pack files were available at the requested path
 | 3 | DaftMav Colonization Construction spreadsheet | Catalogue, construction, and structure comparison support. Useful for picker/table enrichment. |
 | 4 | OASIS Guide for Bootstrapping a Bubble | Supporting planning workflow context and bootstrapping strategy. |
 | 5 | Fandom System Colonisation PDF, Frontier Forum strong/weak link PDF, AetherWave PDFs, construction prerequisite image, link diagrams, infographics | Secondary clarification, visualization, and cross-checking. Do not silently merge conflicting claims. |
-| 6 | RavenColonial screenshots/tooling | UI and workflow inspiration, possible handoff target, and logistics comparison boundary. Not mechanics authority for ED-Finder scoring. |
-| 7 | Future external sources: EDMC, EDDiscovery, EDSM, EDDN, Spansh, RavenColonial plugin data | Imported evidence/source data with trust, staleness, and review controls. Not automatic mechanics truth. |
+| 6 | reference planner screenshots/tooling | UI and workflow inspiration, possible handoff target, and logistics comparison boundary. Not mechanics authority for ED-Finder scoring. |
+| 7 | Future external sources: EDMC, EDDiscovery, EDSM, EDDN, Spansh, reference planner plugin data | Imported evidence/source data with trust, staleness, and review controls. Not automatic mechanics truth. |
 
 ### Conflict Rule
 
@@ -97,7 +101,7 @@ Archive inspection notes:
 - The OASIS text sample says it was last updated on 2025-10-29 and warns that ELW/WW T3 intrinsic value changed from earlier assumptions.
 - The DaftMav workbook contains sheets including `Changelog`, `Settings`, `Lists`, `Commodities`, `Stats`, `Cargo Hauling`, and `Colony1` through `Colony20`.
 - The UI issue screenshots include `finder-score-bar-ambiguity.png` and `incorrect-refinery-rationale-elw-ww.png`.
-- The RavenColonial screenshots cover hauling tracker, colony builder system map, structure picker dropdown, and structure picker table.
+- The reference planner screenshots cover hauling tracker, colony builder system map, structure picker dropdown, and structure picker table.
 - A separate surface-slot analysis spreadsheet was not visible in the archive inventory by that name; until such a file is committed or attached, the surface-slot dataset remains a user-provided empirical finding.
 
 Result: the reference pack was available for this Stage 17A report as a user-supplied archive, but it should be committed under `docs/reference/colonisation/` before mechanics-heavy implementation stages rely on it.
@@ -106,7 +110,7 @@ Result: the reference pack was available for this Stage 17A report as a user-sup
 
 Future implementation prompts should start with:
 
-> Inspect `docs/reference/colonisation/README.md` and `docs/reference/colonisation/source-priority.md` first. Treat the Elite Dangerous Colonization Mega Guide as the primary mechanics source. If it conflicts with OASIS, DaftMav, Fandom, Frontier forum PDFs, AetherWave PDFs, diagrams, spreadsheets, or screenshots, prefer the Mega Guide and document the conflict. Treat RavenColonial as UI/tooling inspiration and possible handoff target only.
+> Inspect `docs/reference/colonisation/README.md` and `docs/reference/colonisation/source-priority.md` first. Treat the Elite Dangerous Colonization Mega Guide as the primary mechanics source. If it conflicts with OASIS, DaftMav, Fandom, Frontier forum PDFs, AetherWave PDFs, diagrams, spreadsheets, or screenshots, prefer the Mega Guide and document the conflict. Treat reference planner as UI/tooling inspiration and possible handoff target only.
 
 ## Surface Slot Prediction Heuristic
 
@@ -365,7 +369,7 @@ Future ingestion sources to audit:
 - EDSM
 - EDDN
 - Spansh
-- RavenColonial / RavenColonial EDMC plugin
+- reference planner / reference planner EDMC plugin
 
 Rules:
 
@@ -385,11 +389,11 @@ Recommended Stage 18A:
 - Define security/privacy posture.
 - Define staleness/trust model.
 - Identify licensing and redistribution constraints.
-- Decide what belongs in ED-Finder vs a RavenColonial handoff.
+- Decide what belongs in ED-Finder vs a reference planner handoff.
 
-## RavenColonial Boundary And Handoff Options
+## reference planner Boundary And Handoff Options
 
-RavenColonial is excellent for:
+reference planner is excellent for:
 
 - construction logistics
 - hauling/materials
@@ -414,8 +418,8 @@ ED-Finder should focus on:
 Possible future handoff:
 
 - Export current system, body, planned placements, structure ids/names, role intent, predicted/observed slot context, and notes if format and licensing are feasible.
-- Deep-link or file export to RavenColonial if RavenColonial supports it.
-- Investigate RavenColonial EDMC plugin/source only for interoperability boundaries, not cloning.
+- Deep-link or file export to reference planner if reference planner supports it.
+- Investigate reference planner EDMC plugin/source only for interoperability boundaries, not cloning.
 - Never expose API keys or private commander data.
 - Do not add carrier stock, commodity hauling progress, or trip planning inside ED-Finder unless a future product decision explicitly changes the boundary.
 
@@ -427,14 +431,15 @@ Possible future handoff:
 | 17C | Surface Slot Prediction Heuristic | Implement predicted surface slot helper and display it honestly. | Pure helper, normalization, unit tests, dataset fixtures, Layout/body detail/picker labels, observed override. | No Suggested Builds ranking, Finder ranking, Simulation Preview scoring, or buildability mechanics changes. |
 | 17D | Structure Picker / Variant Table Expansion | Make structure choice easier using current catalogue fields. | Family/variant grouping, sorting, body context, predicted slot display if 17C is done. | No backend catalogue migration unless separately scoped; no logistics/material workflow. |
 | 17E | Structure Picker Validity Hardening | Improve pre-preview placement warnings and trust copy. | Validity labels, slot-pressure warnings, observed-vs-predicted slot override handling, tests. | No hard blocking unless source-backed and explicitly scoped; no scoring changes. |
-| 17F | Visual Planner / Body Map Feasibility | Define the next visual map step without overbuilding. | Map/canvas feasibility, selected body/site panel design, source-backed popovers, responsive verification plan. | No immediate canvas rewrite; no RavenColonial visual clone. |
+| 17F | Visual Planner / Body Map Feasibility | Define the next visual map step without overbuilding. | Map/canvas feasibility, selected body/site panel design, source-backed popovers, responsive verification plan. | No immediate canvas rewrite; no reference planner visual clone. |
 | 17G | Role Model Implementation Slice | Resume Stage 16 role work after trust and slot context are stable. | Read-only role badges or explicit user-declared role controls, depending readiness. | No role-aware optimiser scoring/ranking. |
 | 17H | Durable Project Persistence Feasibility | Revisit the currently pencilled durable persistence stage with role/slot data included. | Backend/cloud persistence plan, export/import JSON, migration from localStorage, privacy model. | No silent autosave; no loss of local projects; no mechanics changes. |
-| 18A | External Data Ingestion Feasibility | Plan imported evidence and source data before adding integrations. | EDMC, EDDiscovery, EDSM, EDDN, Spansh, RavenColonial/plugin audit; trust/staleness/security model. | No ingestion implementation, no automatic planner mutation, no mechanics mutation. |
-| 18B | RavenColonial Handoff Feasibility | Define whether ED-Finder can export or hand off planning outputs. | Export/deep-link investigation, data shape, privacy boundaries. | No logistics clone, no carrier stock/trip planning. |
+| 18A | External Data Ingestion Feasibility | Plan imported evidence and source data before adding integrations. | EDMC, EDDiscovery, EDSM, EDDN, Spansh, reference planner/plugin audit; trust/staleness/security model. | No ingestion implementation, no automatic planner mutation, no mechanics mutation. |
+| 18B | reference planner Handoff Feasibility | Define whether ED-Finder can export or hand off planning outputs. | Export/deep-link investigation, data shape, privacy boundaries. | No logistics clone, no carrier stock/trip planning. |
 
 ## Final Recommendation
 
 Stage 17A should become the map before the next build phase. The immediate next stage should be Stage 17B, because bad rationale copy and unexplained score visuals undermine trust more than missing planner intelligence does. Stage 17C should then implement the surface slot prediction heuristic as a labelled estimate with observed/imported override behavior and strong tests. Structure picker and visual planner expansion should follow after the slot prediction and trust fixes are in place.
 
 The user-supplied reference pack should be committed under `docs/reference/colonisation/` before any mechanics-heavy Stage 17 implementation. Until then, future work should explicitly state whether it used the committed pack or an attached/local archive and should not claim direct source verification where the repo does not provide it.
+

@@ -1,4 +1,4 @@
-# Stage 18J-Q5 - Nested EDSM Station Snapshot Support
+﻿# Stage 18J-Q5 - Nested EDSM Station Snapshot Support
 
 ## Purpose
 
@@ -82,3 +82,4 @@ to stream source-record batches and return a compact write summary. Q5 does not
 authorize a production retry by itself; after Q6 merges, the next server action
 is a controlled warehouse staging load retry only. Read-only reconciliation
 artifact generation comes after that retry succeeds.
+

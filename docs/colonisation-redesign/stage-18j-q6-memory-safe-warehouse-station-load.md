@@ -1,4 +1,4 @@
-# Stage 18J-Q6 — Memory-Safe Warehouse Station Load
+﻿# Stage 18J-Q6 — Memory-Safe Warehouse Station Load
 
 ## Purpose
 
@@ -263,3 +263,4 @@ production reconciliation from development, station-type dry-run, canonical
 apply, production DB access from development, Stage 18J-P, Stage 18K, or
 scheduler work. Stage 18J-P remains blocked until a compact review output
 exists and is explicitly reviewed.
+

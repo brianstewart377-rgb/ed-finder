@@ -5,8 +5,7 @@
 Stage 25C is `slice_1_in_progress_pending_review`.
 
 This document began as an implementation contract, not a runtime implementation
-and not a generic vision document. Defining this contract did not authorize any
-runtime implementation by itself.
+and not a generic vision document. Defining this contract did not authorize any runtime implementation by itself.
 
 Stage 25C runtime implementation is now authorized only for Slice 1: product
 shell, navigation hierarchy, minimal shared-context scaffolding, and shell
@@ -307,3 +306,4 @@ This contract does not authorize:
 - source acquisition;
 - operator activity;
 - runtime UI implementation merely by defining this contract.
+

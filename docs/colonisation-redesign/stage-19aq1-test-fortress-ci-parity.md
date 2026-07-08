@@ -1,4 +1,4 @@
-# Stage 19AQ.1 - Test Fortress / CI parity hardening
+﻿# Stage 19AQ.1 - Test Fortress / CI parity hardening
 
 Stage 19AQ.1 inserts a repo-only test-hardening step before Stage 19AR, the bounded 25-row staging pilot.
 
@@ -61,7 +61,7 @@ The helper mirrors the CI OpenAPI job as closely as practical:
 - requires local Redis reachable through `REDIS_URL`;
 - applies schema/seed through `scripts/seed_check.sh`;
 - boots the API locally;
-- regenerates `frontend-v2/src/types/api.gen.ts` from `/openapi.json`;
+- regenerates `frontend/src/types/api.gen.ts` from `/openapi.json`;
 - fails if `git diff` detects generated type drift.
 
 It refuses production-looking or non-local `DATABASE_URL` values and does not print the refused DSN.
@@ -115,3 +115,4 @@ A follow-up stage should add disposable Postgres tests dedicated to the Stage 19
 - canonical tables remain untouched.
 
 Those tests must stay disposable/local only and must not use production DB credentials.
+

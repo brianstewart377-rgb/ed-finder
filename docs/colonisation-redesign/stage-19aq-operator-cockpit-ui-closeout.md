@@ -1,4 +1,4 @@
-# Stage 19AQ - Operator cockpit UI closeout
+﻿# Stage 19AQ - Operator cockpit UI closeout
 
 ## Summary
 
@@ -33,3 +33,4 @@ The cockpit is available at the frontend `#operator` route and consumes the Stag
 ## Next stage
 
 The next recommended stage is Stage 19AR: a bounded 25-row staging pilot using the cockpit, only if safety gates remain green.
+

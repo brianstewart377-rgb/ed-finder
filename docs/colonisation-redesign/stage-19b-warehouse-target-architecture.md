@@ -1,4 +1,4 @@
-# Stage 19B — Warehouse Target Architecture and Auto-Import Safety Design
+﻿# Stage 19B — Warehouse Target Architecture and Auto-Import Safety Design
 
 ## Purpose
 
@@ -296,3 +296,4 @@ Do not do these in early Stage 19:
 Stage 19B is complete when this architecture is recorded and accepted as the guiding design for Stage 19 implementation.
 
 No DB writes, imports, migrations, or canonical apply are approved by this document.
+

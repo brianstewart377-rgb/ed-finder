@@ -1,4 +1,4 @@
-# Stage 5A/5B Optimiser Candidate Generation And Ranking
+﻿# Stage 5A/5B Optimiser Candidate Generation And Ranking
 
 Stage 5A is a **bounded deterministic candidate-generation foundation** for ED-Finder colony planning. Stage 5B adds **deterministic candidate ranking** over those existing Stage 5A candidates. Stages 5C–5F added candidate inspection, copy-to-plan actions, and advisory comparison UI. Stage 5.9C now frames this surface as the **Colony Planner** workspace with **Build Plan**, **Suggested Builds**, and **Preview Result** sections. It is still not a full optimiser, not an exhaustive search engine, and not an in-game apply/save workflow. **Simulation Preview remains the explicit preview action/result for the editable Build Plan.**
 Backend/API/type names still use candidate/optimiser wording where compatibility requires it.
@@ -128,7 +128,7 @@ The Stage 5A strategies are intentionally simple and bounded. `balanced` uses a 
 
 ## Stage 5C Read-only Comparison UI
 
-Stage 5C exposes generated and ranked candidates in the frontend under `frontend-v2/src/features/system-detail/simulation-preview/optimiser/`. The panel deliberately requests candidates with `run_preview=true` and `include_ranking=true`, shows ranking tiers, scores, structured breakdowns, rationale, warnings, assumptions, and placements, and sorts display cards by top-level ranking references to `candidate_id`.
+Stage 5C exposes generated and ranked candidates in the frontend under `frontend/src/features/system-detail/simulation-preview/optimiser/`. The panel deliberately requests candidates with `run_preview=true` and `include_ranking=true`, shows ranking tiers, scores, structured breakdowns, rationale, warnings, assumptions, and placements, and sorts display cards by top-level ranking references to `candidate_id`.
 
 The comparison UI remains non-destructive. Candidate selection only changes the highlighted candidate and details pane.
 
@@ -140,7 +140,7 @@ The action copies candidate placements into the editable plan, updates the previ
 
 ## Stage 5E Comparison Engine
 
-Stage 5E adds the deterministic frontend comparison engine under `frontend-v2/src/features/system-detail/simulation-preview/optimiser/comparison/`. The engine compares compatible build-plan sources, including current preview plans and optimiser candidates, and returns serialisable deltas for placements, facility counts, body assignment, build order, primary port, target archetype, lightweight preview summaries, ranking, warnings, assumptions, risk, tradeoff summary, and recommendation verdict.
+Stage 5E adds the deterministic frontend comparison engine under `frontend/src/features/system-detail/simulation-preview/optimiser/comparison/`. The engine compares compatible build-plan sources, including current preview plans and optimiser candidates, and returns serialisable deltas for placements, facility counts, body assignment, build order, primary port, target archetype, lightweight preview summaries, ranking, warnings, assumptions, risk, tradeoff summary, and recommendation verdict.
 
 The comparison engine does not run simulations, mutate candidate/current placement arrays, save builds, change backend generation or ranking, or render the full comparison UI. Stage 5F is reserved for rendering and hardening the comparison output in the optimiser UI.
 
@@ -153,3 +153,4 @@ The comparison display is advisory and preview-only. It does not run Simulation 
 ## Deferred Work
 
 Future optimiser work may add candidate-vs-candidate rendering, rejected-alternative comparison polish, and preference controls. Stage 5A/5B/5C/5D/5E/5F should remain the clean foundation for later stages, not an overclaim of full optimiser completion.
+

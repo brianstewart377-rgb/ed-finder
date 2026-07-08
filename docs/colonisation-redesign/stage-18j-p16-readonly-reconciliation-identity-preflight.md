@@ -1,4 +1,4 @@
-# Stage 18J-P16 — Read-only reconciliation identity preflight
+﻿# Stage 18J-P16 — Read-only reconciliation identity preflight
 
 ## Result
 
@@ -127,3 +127,4 @@ That next stage must preserve these boundaries:
 - no canonical writes;
 - no canonical apply;
 - any non-zero station-type candidates require a separate dry-run, review packet, and approval boundary before apply can be discussed.
+

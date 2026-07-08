@@ -1,4 +1,4 @@
-# Stage 2 Topology And Economy Simulation
+﻿# Stage 2 Topology And Economy Simulation
 
 Stage 2 extends the deterministic colony preview without replacing the rules
 layer or turning the planner into an optimiser. The caller still supplies an
@@ -152,3 +152,4 @@ Stage 2 is still a planner preview, not a full optimiser. It does not claim to
 solve all possible build sequences. Converted-port behaviour and terraformable
 strong-link effects remain caveated where the available mechanics are not fully
 settled.
+

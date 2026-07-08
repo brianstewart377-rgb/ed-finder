@@ -1,4 +1,4 @@
-# Stage 19E — source_runs Schema Implementation Plan
+﻿# Stage 19E — source_runs Schema Implementation Plan
 
 ## Purpose
 
@@ -276,3 +276,4 @@ Implement a clean `source_runs` ledger contract.
 Do not overload the current enrichment-specific source-run scaffolding as the final warehouse ledger.
 
 No DB writes, imports, migrations, or canonical apply are approved by this document.
+

@@ -1,4 +1,4 @@
-# Stage 18J-P Identity Evidence Execution Board
+﻿# Stage 18J-P Identity Evidence Execution Board
 
 ## Purpose
 
@@ -323,3 +323,4 @@ Use this board to track Stage 18J-P through identity evidence load, coverage,
 read-only reconciliation integration, and the strict station-type dry-run
 retry. Do not start Stage 18K, and do not discuss canonical apply until a
 future bounded dry-run and separate approval packet justify it.
+

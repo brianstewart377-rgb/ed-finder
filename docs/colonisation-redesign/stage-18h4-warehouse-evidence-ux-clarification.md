@@ -1,4 +1,4 @@
-# Stage 18H.4 — Warehouse Evidence UX Clarification
+﻿# Stage 18H.4 — Warehouse Evidence UX Clarification
 
 ## Purpose
 
@@ -42,13 +42,14 @@ This slice still does **not**:
 
 The UX clarification is implemented in:
 
-- `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx`
-- `frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`
-- `frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts`
-- `frontend-v2/src/types/api.ts`
+- `frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx`
+- `frontend/src/features/colony-planner/WarehouseEvidenceCard.test.tsx`
+- `frontend/src/features/colony-planner/warehouseEvidenceBridge.ts`
+- `frontend/src/types/api.ts`
 
 ## Next Roadmap Position
 
 With Stage 18H.1 through 18H.4 complete, the next meaningful warehouse/canonical
 follow-on remains Stage 18I — Canonical Write Design Review, which is still a
 documentation-only checkpoint and does **not** authorize writes.
+

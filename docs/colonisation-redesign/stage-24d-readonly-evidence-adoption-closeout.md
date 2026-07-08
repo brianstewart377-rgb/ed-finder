@@ -1,4 +1,4 @@
-# Stage 24D Read-only Evidence Adoption Closeout
+﻿# Stage 24D Read-only Evidence Adoption Closeout
 
 ## Purpose
 
@@ -107,3 +107,4 @@ Stage 24 is complete when read as one sequence:
 - no Stage 19 execution lane has been reopened;
 - future work is required to begin under a new explicit post-Stage-24 control
   document.
+

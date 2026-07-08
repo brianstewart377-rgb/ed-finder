@@ -1,4 +1,4 @@
-# Stage 18J-P3 - Canonical External Station Identity Model
+﻿# Stage 18J-P3 - Canonical External Station Identity Model
 
 ## Purpose
 
@@ -257,3 +257,4 @@ This stage does not:
 Do not add `market_id` or `edsm_station_id` directly to `stations` in the next implementation stage unless an app-level need is separately proven. The safer path is a separate `station_external_identity` table populated by a dedicated identity evidence stage, with provenance and conflict status preserved.
 
 Keep the strict station-type filter exactly as strict as it is now. Stage 18J-P cannot produce eligible station-type updates until canonical external station identity is modeled, populated, and exposed through read-only reconciliation. The smallest next stage that unblocks progress is a design-reviewed additive identity schema migration plus a report-only identity evidence loader plan, not station-type apply.
+

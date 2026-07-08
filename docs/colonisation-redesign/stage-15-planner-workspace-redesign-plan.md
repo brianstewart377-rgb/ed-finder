@@ -1,8 +1,12 @@
 # Stage 15 - Topology-First Colony Planner Workspace Redesign Plan
 
+> Historical reference only. This document is kept for rationale and design
+> history. It is not a current roadmap or control document. Start with
+> `docs/ROADMAP.md` and `docs/colonisation-redesign/README.md` for current work.
+
 ## Executive Summary
 
-Stage 15 should move Colony Planner from a vertically stacked explanation surface into a topology-first strategic planning workspace. RavenColonial is useful as workflow inspiration because it keeps the system hierarchy visible, lets users place structures against bodies/slots, keeps summary stats persistent, and makes editing local to the selected body. ED-Finder should not copy RavenColonial's visual style, assets, layout skin, or exact interaction patterns. The goal is a distinct ED-Finder workspace: dark ED-orange, brushed steel, prediction-led, validation-aware, and intentionally strategic.
+Stage 15 should move Colony Planner from a vertically stacked explanation surface into a topology-first strategic planning workspace. reference planner is useful as workflow inspiration because it keeps the system hierarchy visible, lets users place structures against bodies/slots, keeps summary stats persistent, and makes editing local to the selected body. ED-Finder should not copy reference planner's visual style, assets, layout skin, or exact interaction patterns. The goal is a distinct ED-Finder workspace: dark ED-orange, brushed steel, prediction-led, validation-aware, and intentionally strategic.
 
 The current implementation has already outgrown the "Simulation Preview panel inside System Detail" origin. The repo now has a dedicated `#colony-planner/system/{id64}` route, but that route still renders the same mostly vertical `SimulationPreview` composition. Stages 12-14 added useful logic and trust surfaces: structure picker, replacement comparison, guidance, Architect observation readout, topology readout, strategic topology guidance, Observed Evidence, and Validation review clarity. Those additions improved capability, but they also made the planner taller, denser, and more explanation-heavy.
 
@@ -14,7 +18,7 @@ Non-goals for this documentation pass:
 - No backend schema changes.
 - No route changes.
 - No package changes.
-- No RavenColonial cloning.
+- No reference planner cloning.
 
 ## A. Current State Audit
 
@@ -24,16 +28,16 @@ The planner is split across an app-level route shell, a system detail modal, and
 
 | Area | Current state | Relevant files |
 |---|---|---|
-| App shell | `AppInner` owns hash routing, search, watchlist, pinned, compare, colony tracker, FC planner, admin state, and renders the full page. | `frontend-v2/src/App.tsx` |
-| Hash routing | `useHashRoute` parses ordinary modal child routes and the dedicated planner route. `#colony-planner/system/{id64}` maps to `route: 'colony-planner'` plus `plannerSystemId`. | `frontend-v2/src/hooks/useHashRoute.ts` |
-| Planner workspace shell | `ColonyPlannerWorkspace` is a route wrapper that loads system detail and renders `SimulationPreviewPanel`. It is not yet topology-first. | `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx` |
-| System Detail modal | Stage 15C has simplified this into an overview/discovery surface with a compact Colony Planner entry card. It no longer embeds buildability, regional position, Recommended Builds, Simulation Preview, Observed Evidence, Validation, or slot prediction planner panels. | `frontend-v2/src/features/system-detail/SystemDetailModal.tsx` |
-| Compatibility panel | `SimulationPreviewPanel` adapts a selected Recommended Build into `SimulationPreview`. | `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx` |
-| Planner composition | `SimulationPreview` owns facility template loading, simulation summary loading, plan hook, preview-run hook, Suggested Builds, Build Plan, Preview Result, Observed Evidence, and Validation. | `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
-| Build Plan | `BuildPlanSection` owns start modes, status, manual layout import state, archetype selector, List/Layout toggle, and either the list editor or body-group readout. | `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanSection.tsx` |
-| Editable list | `BuildPlanEditor` remains the canonical edit surface. It owns structure picker open state and pending replacement state per row. | `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanEditor.tsx` |
-| Read-only layout | `BuildPlanBodyView` groups placements by body, shows topology/strategic guidance, and supports selection only. | `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanBodyView.tsx` |
-| Detail readout | `BuildPlanLayoutDetailPanel` is a sticky read-only detail panel for summary/body/placement selection. | `frontend-v2/src/features/system-detail/simulation-preview/BuildPlanLayoutDetailPanel.tsx` |
+| App shell | `AppInner` owns hash routing, search, watchlist, pinned, compare, colony tracker, FC planner, admin state, and renders the full page. | `frontend/src/App.tsx` |
+| Hash routing | `useHashRoute` parses ordinary modal child routes and the dedicated planner route. `#colony-planner/system/{id64}` maps to `route: 'colony-planner'` plus `plannerSystemId`. | `frontend/src/hooks/useHashRoute.ts` |
+| Planner workspace shell | `ColonyPlannerWorkspace` is a route wrapper that loads system detail and renders `SimulationPreviewPanel`. It is not yet topology-first. | `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx` |
+| System Detail modal | Stage 15C has simplified this into an overview/discovery surface with a compact Colony Planner entry card. It no longer embeds buildability, regional position, Recommended Builds, Simulation Preview, Observed Evidence, Validation, or slot prediction planner panels. | `frontend/src/features/system-detail/SystemDetailModal.tsx` |
+| Compatibility panel | `SimulationPreviewPanel` adapts a selected Recommended Build into `SimulationPreview`. | `frontend/src/features/system-detail/SimulationPreviewPanel.tsx` |
+| Planner composition | `SimulationPreview` owns facility template loading, simulation summary loading, plan hook, preview-run hook, Suggested Builds, Build Plan, Preview Result, Observed Evidence, and Validation. | `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx` |
+| Build Plan | `BuildPlanSection` owns start modes, status, manual layout import state, archetype selector, List/Layout toggle, and either the list editor or body-group readout. | `frontend/src/features/system-detail/simulation-preview/BuildPlanSection.tsx` |
+| Editable list | `BuildPlanEditor` remains the canonical edit surface. It owns structure picker open state and pending replacement state per row. | `frontend/src/features/system-detail/simulation-preview/BuildPlanEditor.tsx` |
+| Read-only layout | `BuildPlanBodyView` groups placements by body, shows topology/strategic guidance, and supports selection only. | `frontend/src/features/system-detail/simulation-preview/BuildPlanBodyView.tsx` |
+| Detail readout | `BuildPlanLayoutDetailPanel` is a sticky read-only detail panel for summary/body/placement selection. | `frontend/src/features/system-detail/simulation-preview/BuildPlanLayoutDetailPanel.tsx` |
 | Topology helpers | Layout/topology helpers derive body-group readouts and strategic guidance from existing plan/body/template facts only. | `buildPlanLayoutUtils.ts`, `layoutTopologyUtils.ts`, `strategicTopologyGuidanceUtils.ts` |
 | Architect readout | `ArchitectObservationPanel` and helpers distinguish unknown vs observed frontend context, but no persistence or editing exists. | `ArchitectObservationPanel.tsx`, `architectObservationUtils.ts` |
 | Structure picker | The picker and replacement comparison are local to List view rows. Selection is explicit and non-mutating until Apply. | `StructurePickerTable.tsx`, `StructureReplacementComparison.tsx`, `structurePickerUtils.ts`, `structurePickerGroupingUtils.ts`, `structureReplacementDeltaUtils.ts` |
@@ -672,7 +676,7 @@ Purpose:
 Files likely affected:
 
 - `docs/colonisation-redesign/stage-15-planner-workspace-redesign-plan.md`
-- `docs/colonisation-redesign/engine-roadmap.md`
+- `docs/ROADMAP.md`
 - `docs/colonisation-redesign/simulation-preview-ui-architecture.md`
 
 Implementation notes:
@@ -712,10 +716,10 @@ Purpose:
 
 Files likely affected:
 
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- New `frontend-v2/src/features/colony-planner/*` shell components.
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- New `frontend/src/features/colony-planner/*` shell components.
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
 
 Implementation notes:
 
@@ -747,7 +751,7 @@ Explicitly deferred:
 
 Current Stage 15C status:
 
-- Implemented in `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`.
+- Implemented in `frontend/src/features/system-detail/SystemDetailModal.tsx`.
 - System Detail is now an overview/discovery surface: Colony Planner entry card, rating profile, system info, bodies/stations/exploration summaries, external links, and existing modal actions.
 - The full planner stack no longer renders inline on System Detail. Buildability, regional position, Recommended Builds, embedded `SimulationPreviewPanel`, slot prediction, Observed Evidence, and Validation are workspace-first surfaces.
 - The entry card shows planner availability, system name/ID64, concise player-facing copy, a disabled friendly state when the workspace route cannot be opened, and the `Open Colony Planner` CTA wired to `#colony-planner/system/{id64}` through the existing app route handler.
@@ -760,9 +764,9 @@ Purpose:
 
 Files likely affected:
 
-- `frontend-v2/src/features/system-detail/SystemDetailModal.tsx`
-- `frontend-v2/src/features/system-detail/SystemDetailModal.test.tsx`
-- `frontend-v2/src/App.test.tsx`
+- `frontend/src/features/system-detail/SystemDetailModal.tsx`
+- `frontend/src/features/system-detail/SystemDetailModal.test.tsx`
+- `frontend/src/App.test.tsx`
 
 Implementation notes:
 
@@ -793,7 +797,7 @@ Explicitly deferred:
 
 Current Stage 15D status:
 
-- Implemented in `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx` and wired through `ColonyPlannerWorkspace.tsx`.
+- Implemented in `frontend/src/features/colony-planner/ColonyTopologyRail.tsx` and wired through `ColonyPlannerWorkspace.tsx`.
 - The left rail is now a real read-only topology/body-tree MVP rather than a placeholder. It renders a compact system root row, body rows, moon/child indentation when parent metadata is present, per-body planned placement counts, orbital/surface/flex chips, sparse metadata chips, primary-port planned chips, unknown/unmatched placement groups, and unassigned placements.
 - The workspace receives a one-way read-only plan snapshot from `SimulationPreviewPanel` / `SimulationPreview`. This lets the rail show current placement counts without moving editing ownership out of the central planner.
 - Selecting a body, placement, unknown group, or unassigned group highlights the rail and updates the right summary panel with selected name, selected type, placement count, warning count, Architect status, and read-only selection copy.
@@ -806,13 +810,13 @@ Purpose:
 
 Files affected:
 
-- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyTopologyRail.test.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
-- `frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
-- `frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx`
-- `frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
+- `frontend/src/features/colony-planner/ColonyTopologyRail.tsx`
+- `frontend/src/features/colony-planner/ColonyTopologyRail.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.test.tsx`
+- `frontend/src/features/colony-planner/ColonyPlannerWorkspace.integration.test.tsx`
+- `frontend/src/features/system-detail/SimulationPreviewPanel.tsx`
+- `frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx`
 
 Implementation notes:
 
@@ -897,7 +901,7 @@ Files likely affected:
 - `apps/api/src/optimiser/candidate_generator.py`
 - `apps/api/src/optimiser/ranker.py`
 - `apps/api/src/optimiser/models.py`
-- `frontend-v2/src/features/system-detail/simulation-preview/optimiser/*`
+- `frontend/src/features/system-detail/simulation-preview/optimiser/*`
 - New workspace suggestion drawer components.
 - Tests under `tests/test_plan_ranker.py`, `tests/test_recommended_builds.py`, optimiser frontend tests.
 
@@ -918,7 +922,7 @@ Tests:
 
 Safety boundaries:
 
-- Do not overfit to RavenColonial.
+- Do not overfit to reference planner.
 - Do not claim optimality.
 - Do not change simulation mechanics.
 
@@ -935,7 +939,7 @@ Purpose:
 
 Files likely affected:
 
-- New `frontend-v2/src/features/colony-planner/project/*`
+- New `frontend/src/features/colony-planner/project/*`
 - Local storage/IndexedDB adapter.
 - Project tests.
 - Possibly System Detail project summary.
@@ -1051,9 +1055,9 @@ The current hash router is simple but already has separate modal and planner sta
 
 Persistence is essential, but backend persistence too early may freeze the wrong model. Frontend-only persistence first is safer, as long as the UI clearly says local-only. Backend persistence should follow after project schema, roles, and evidence links settle.
 
-### Avoiding RavenColonial Cloning
+### Avoiding reference planner Cloning
 
-RavenColonial should inspire workflow quality, not visuals. ED-Finder should keep:
+reference planner should inspire workflow quality, not visuals. ED-Finder should keep:
 
 - ED-orange/brushed steel styling.
 - Prediction-first summary.
@@ -1071,7 +1075,7 @@ Avoid copying:
 
 ### Not Overfitting To One Site
 
-RavenColonial is one strong reference. ED-Finder should also respect its own data model: prediction confidence, observed evidence, validation, regional context, and future colony roles. The workflow should be familiar, not derivative.
+reference planner is one strong reference. ED-Finder should also respect its own data model: prediction confidence, observed evidence, validation, regional context, and future colony roles. The workflow should be familiar, not derivative.
 
 ### Keeping ED-Finder Identity
 
@@ -1113,7 +1117,7 @@ Tests should focus on behavior and safety:
 Documentation only:
 
 - Add this report: `docs/colonisation-redesign/stage-15-planner-workspace-redesign-plan.md`
-- Update roadmap: `docs/colonisation-redesign/engine-roadmap.md`
+- Update roadmap: `docs/ROADMAP.md`
 - Update UI architecture notes: `docs/colonisation-redesign/simulation-preview-ui-architecture.md`
 
 No implementation changes should be made in Stage 15A.
@@ -1262,3 +1266,5 @@ Deferred:
 - Backend saved-project persistence and migration remain future work.
 - Colony roles, role confidence, and role-aware topology guidance are Stage 16 concerns.
 - Further end-to-end visual/responsive screenshot coverage can be added once Stage 16 role surfaces settle.
+
+

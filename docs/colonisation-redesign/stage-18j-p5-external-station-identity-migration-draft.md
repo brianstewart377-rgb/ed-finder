@@ -1,4 +1,4 @@
-# Stage 18J-P5 — External Station Identity Migration Draft
+﻿# Stage 18J-P5 — External Station Identity Migration Draft
 
 ## Purpose
 
@@ -272,3 +272,4 @@ Do not backfill identity evidence, alter the strict station-type filter, or
 start any station-type dry-run/apply path from this migration. The correct next
 step is an external identity evidence loader/reconciliation design that can
 populate and review the table safely without station-type writes.
+

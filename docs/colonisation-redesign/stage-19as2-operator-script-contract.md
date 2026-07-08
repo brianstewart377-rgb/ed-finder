@@ -1,4 +1,4 @@
-# Stage 19AS.2 - Operator Script Contract Formalization
+﻿# Stage 19AS.2 - Operator Script Contract Formalization
 
 ## Purpose
 
@@ -127,3 +127,4 @@ git diff --check
 
 These checks are repo-local and static/unit-only for AS.2. They must not run
 operator scripts or DB commands.
+
