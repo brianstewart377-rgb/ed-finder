@@ -65,14 +65,14 @@ api-smoke:  ## Curl the Phase-2 happy paths against a running API
 
 # ── Frontend ────────────────────────────────────────────────────────────────
 typecheck:  ## yarn typecheck the frontend
-	cd frontend-v2 && yarn typecheck
+	cd frontend && yarn typecheck
 
 lint:  ## ruff backend + eslint frontend
 	ruff check apps tests
-	cd frontend-v2 && yarn lint
+	cd frontend && yarn lint
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 clean:  ## Remove caches
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
-	rm -rf frontend-v2/dist frontend-v2/playwright-report
+	rm -rf frontend/dist frontend/playwright-report

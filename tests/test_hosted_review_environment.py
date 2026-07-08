@@ -250,7 +250,7 @@ def test_production_compose_attaches_only_nginx_to_review_edge():
             assert 'review-edge' not in _service_block(compose_text, service_name)
 
     volumes = _list_values(nginx_block, 'volumes')
-    assert '/opt/ed-finder-review/frontend-v2/dist:/var/www/review:ro' in volumes
+    assert '/opt/ed-finder-review/frontend/dist:/var/www/review:ro' in volumes
     assert '/opt/ed-finder-review/.secrets/review.htpasswd:/etc/nginx/review.htpasswd:ro' in volumes
     assert '/opt/ed-finder-review/.review/nginx-logs:/var/log/nginx-review' in volumes
     assert 'name: edfinder-review-edge' in compose_text

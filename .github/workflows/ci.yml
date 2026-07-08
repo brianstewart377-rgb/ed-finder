@@ -200,14 +200,14 @@ jobs:
 
   # ─── Frontend v2 ────────────────────────────────────────────────────
   # Catches the exact class of "file got swallowed by .gitignore" bug we
-  # hit on Hetzner. If `frontend-v2/src/lib/api.ts` ever gets ignored
+  # hit on Hetzner. If `frontend/src/lib/api.ts` ever gets ignored
   # again, this job fails on PR before it ever reaches production.
   v2:
     name: Frontend v2 build
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: frontend-v2
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
@@ -236,7 +236,7 @@ jobs:
             src/features/map/MapTab.tsx \
             src/hooks/useDebounced.ts \
             src/hooks/useHashRoute.ts; do
-            test -f "$f" || { echo "::error file=frontend-v2/$f::missing — likely globbed out by a parent .gitignore"; exit 1; }
+            test -f "$f" || { echo "::error file=frontend/$f::missing — likely globbed out by a parent .gitignore"; exit 1; }
           done
           echo "✓ all required v2 source files present"
 
@@ -258,8 +258,8 @@ jobs:
         # Hetzner build step (e.g. node/yarn unavailable on the dedi).
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-v2-dist
-          path: frontend-v2/dist
+          name: frontend-dist
+          path: frontend/dist
           retention-days: 7
 
   # ─── Nginx config ───────────────────────────────────────────────────
@@ -311,10 +311,10 @@ jobs:
           sudo nginx -t -c /tmp/ngx/nginx.conf -p /tmp/ngx
 
   # ─── OpenAPI type generation drift check ──────────────────────────
-  # Audit Phase 7: ensures frontend-v2/src/types/api.gen.ts stays in sync
+  # Audit Phase 7: ensures frontend/src/types/api.gen.ts stays in sync
   # with the API's actual OpenAPI schema. Boots PG+Redis+API, regenerates
   # types via openapi-typescript, fails on drift. To fix: run
-  # `cd frontend-v2 && yarn types:gen` locally (with API on :8000) and
+  # `cd frontend && yarn types:gen` locally (with API on :8000) and
   # commit the updated src/types/api.gen.ts.
   openapi-types:
     name: OpenAPI types drift check
@@ -382,21 +382,21 @@ jobs:
           tail -100 /tmp/uvicorn.log
           exit 1
 
-      - name: Install frontend-v2 deps
-        working-directory: frontend-v2
+      - name: Install frontend deps
+        working-directory: frontend
         run: yarn install --no-progress --non-interactive
 
       - name: Regenerate types from running API
-        working-directory: frontend-v2
+        working-directory: frontend
         env:
           VITE_OPENAPI_URL: http://127.0.0.1:8000/openapi.json
         run: yarn types:gen
 
       - name: Check for drift against checked-in api.gen.ts
-        working-directory: frontend-v2
+        working-directory: frontend
         run: |
           if ! git diff --exit-code src/types/api.gen.ts; then
-            echo "::error::API types are out of date. Run 'cd frontend-v2 && yarn types:gen' locally and commit src/types/api.gen.ts."
+            echo "::error::API types are out of date. Run 'cd frontend && yarn types:gen' locally and commit src/types/api.gen.ts."
             exit 1
           fi
           echo "✓ types match checked-in baseline"
@@ -501,19 +501,19 @@ jobs:
           exit 1
 
       - name: Install frontend deps
-        working-directory: frontend-v2
+        working-directory: frontend
         run: yarn install --no-progress --non-interactive
 
       - name: Build production bundle
-        working-directory: frontend-v2
+        working-directory: frontend
         run: yarn build
 
       - name: Install Playwright Chromium
-        working-directory: frontend-v2
+        working-directory: frontend
         run: yarn e2e:install
 
       - name: Run Playwright E2E
-        working-directory: frontend-v2
+        working-directory: frontend
         env:
           # vite preview's proxy forwards /api → this. Default in
           # vite.config.ts points at :8001 (the supervisor backend in
@@ -528,5 +528,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report
-          path: frontend-v2/playwright-report
+          path: frontend/playwright-report
           retention-days: 7

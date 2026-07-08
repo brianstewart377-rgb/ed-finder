@@ -1,6 +1,6 @@
 # nginx snippet — optional codegen note
 
-The old `deploy_v2.sh` flow is retired now that the frontend is served at `/`.
+The old `/v2/` deployment flow is retired now that the frontend is served at `/`.
 This file remains only for the optional OpenAPI forwarding tweak: by default
 the SPA fallback can catch `/openapi.json` before it can reach the backend. Add this snippet
 inside your `server { listen 443 ssl; server_name ed-finder.app; }`
@@ -20,5 +20,5 @@ docker compose exec nginx nginx -t
 docker compose exec nginx nginx -s reload
 ```
 
-Then re-run `yarn types:gen` from `frontend-v2` to refresh `src/types/api.gen.ts`
+Then re-run `yarn types:gen` from `frontend` to refresh `src/types/api.gen.ts`
 from the live schema.

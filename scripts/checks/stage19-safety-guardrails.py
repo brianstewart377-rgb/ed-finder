@@ -20,9 +20,9 @@ TARGET_FILES = [
     ROOT / 'apps' / 'importer' / 'src' / 'edsm_station_import.py',
     ROOT / 'apps' / 'importer' / 'src' / 'source_run_compatibility.py',
     ROOT / 'scripts' / 'operator' / 'stage19anr_warehouse_derived_staging_rehearsal.py',
-    ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts',
-    ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.operator.test.ts',
-    ROOT / 'frontend-v2' / 'src' / 'features' / 'operator' / 'OperatorCockpitTab.tsx',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api.operator.test.ts',
+    ROOT / 'frontend' / 'src' / 'features' / 'operator' / 'OperatorCockpitTab.tsx',
 ]
 
 PRODUCTION_DSN_PATTERNS = [
@@ -111,7 +111,7 @@ def check_operator_routes_are_get_only(failures: list[str]) -> None:
 
 
 def check_frontend_operator_helpers_are_get_only(failures: list[str]) -> None:
-    api_text = _read(ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.ts')
+    api_text = _read(ROOT / 'frontend' / 'src' / 'lib' / 'api.ts')
     lines = api_text.splitlines()
     for index, line in enumerate(lines):
         if '/api/operator' not in line:
@@ -119,11 +119,11 @@ def check_frontend_operator_helpers_are_get_only(failures: list[str]) -> None:
         window = '\n'.join(lines[index:index + 5])
         if re.search(r"method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)['\"]", window, re.IGNORECASE):
             failures.append(
-                'frontend-v2/src/lib/api.ts:'
+                'frontend/src/lib/api.ts:'
                 f'{index + 1}: operator API helper must remain GET/read-only'
             )
 
-    test_text = _read(ROOT / 'frontend-v2' / 'src' / 'lib' / 'api.operator.test.ts')
+    test_text = _read(ROOT / 'frontend' / 'src' / 'lib' / 'api.operator.test.ts')
     required_fragments = [
         "['GET', undefined]",
         'not.toMatch',
@@ -137,7 +137,7 @@ def check_frontend_operator_helpers_are_get_only(failures: list[str]) -> None:
     for fragment in required_fragments:
         if fragment not in test_text:
             failures.append(
-                'frontend-v2/src/lib/api.operator.test.ts: '
+                'frontend/src/lib/api.operator.test.ts: '
                 f'missing read-only operator helper guard fragment {fragment!r}'
             )
 

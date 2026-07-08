@@ -120,5 +120,5 @@ if ($OpenApp) {
   publicHealth = $health
   rootStatus = $rootProbe.StatusCode
   indexStatus = $indexProbe.StatusCode
-  legacyFinalUrl = $legacyProbe.BaseResponse.ResponseUri.AbsoluteUri
+  legacyRedirectFinalUrl = $legacyProbe.BaseResponse.ResponseUri.AbsoluteUri
 } | ConvertTo-Json -Depth 6
