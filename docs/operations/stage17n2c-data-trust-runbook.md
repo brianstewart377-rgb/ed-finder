@@ -11,6 +11,22 @@ versions for data-trust payloads, rejects partial EDDN `StarPos` triples, avoids
 treating missing EDDN `Population` as real zero, and reports dirty rebuild
 progress with an unknown total instead of a fake percentage.
 
+## Rating Generation Names
+
+- **Ratings v3.4 Best-Build Potential** is the canonical current scorer.
+  `build_ratings.py` writes `rating_version = '3.4'` for rows rebuilt by the
+  current engine.
+- **Pre-v3.4 Unversioned Ratings** means any row where
+  `rating_version IS NULL`. This is the correct operational name for the legacy
+  bucket.
+- The unversioned bucket may contain more than one historical scorer
+  generation. Production data can reliably distinguish `3.4` rows from
+  unversioned rows, but it cannot safely identify which exact pre-`3.4`
+  generation produced a given unversioned row.
+- If production still shows both `rating_version = '3.4'` and
+  `rating_version IS NULL`, treat that as an incomplete ratings rebaseline, not
+  as an acceptable steady state.
+
 ## Safe Order
 
 1. Apply `sql/020_rating_version.sql`.
@@ -58,7 +74,7 @@ progress with an unknown total instead of a fake percentage.
      ./scripts/run_import.sh build_ratings.py --dirty --workers 2 --chunk 5000
    ```
 
-10. Verify `rating_version` and capped-score behavior.
+10. Verify `rating_version` distribution and capped-score behavior.
 11. Run nightly maintenance:
 
     ```bash
@@ -105,6 +121,11 @@ Stage 17N.2d-R keeps EDDN ingestion and rating recalculation separate:
 - The script uses `flock` on `/tmp/ed-finder-dirty-ratings.lock` by default, so
   two scheduled invocations of this script cannot overlap.
 
+This scheduled job only maintains the deferred dirty queue. It does not
+complete a backlog of **Pre-v3.4 Unversioned Ratings** by itself unless those
+systems have also been marked dirty or a broader rebuild/rebaseline run is
+performed intentionally.
+
 The existing maintenance sidecar is not the production path for this job. It is
 a small `postgres:16-alpine` cron container for `psql` maintenance tasks. It
 does not mount importer source, does not include importer Python dependencies,
@@ -138,7 +159,19 @@ Validation SQL:
 
 ```sql
 SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;
+
+SELECT rating_version, COUNT(*)
+FROM ratings
+GROUP BY rating_version
+ORDER BY COUNT(*) DESC;
 ```
+
+Interpretation:
+
+- `rating_version = '3.4'` rows are **Ratings v3.4 Best-Build Potential**.
+- `rating_version IS NULL` rows are **Pre-v3.4 Unversioned Ratings**.
+- A mixed result set means the ratings rebaseline is still incomplete even if
+  the dirty queue is currently small.
 
 Log checks:
 
@@ -575,6 +608,64 @@ The safer defaults for continuation are:
 - `--chunk 1000` or `--chunk 5000`
 - `BATCH_SIZE=1000` or `BATCH_SIZE=2000`
 - `RATING_DIRTY_CLEANUP_CHUNK=1000` or `5000`
+
+Do not purge `ratings` rows first as the normal production path. The intended
+rebaseline path is to overwrite existing rows with a full
+`build_ratings.py --rebuild` run so every eligible row is rewritten by
+**Ratings v3.4 Best-Build Potential** and receives `rating_version = '3.4'`.
+Deleting all rows up front removes the fallback state before the rebuild path
+has proved stable.
+
+## Full Production Rebaseline Sequence
+
+Use this when the goal is to eliminate all **Pre-v3.4 Unversioned Ratings** and
+leave production serving only **Ratings v3.4 Best-Build Potential** rows for
+eligible systems.
+
+1. Pause the scheduled dirty-ratings cron or otherwise ensure no overlapping
+   `build_ratings.py --dirty` job can run while the full rebuild is active.
+2. Capture a baseline before the run:
+
+   ```sql
+   SELECT rating_version, COUNT(*)
+   FROM ratings
+   GROUP BY rating_version
+   ORDER BY COUNT(*) DESC;
+
+   SELECT COUNT(*) AS dirty_count
+   FROM systems
+   WHERE rating_dirty = TRUE;
+   ```
+
+3. Start with the smallest practical full rebuild:
+
+   ```bash
+   cd /opt/ed-finder
+   BATCH_SIZE=1000 RATING_DIRTY_CLEANUP_CHUNK=1000 \
+     ./scripts/run_import.sh build_ratings.py --rebuild --workers 1 --chunk 1000
+   ```
+
+4. Only if the conservative run proves stable, increase carefully:
+
+   ```bash
+   cd /opt/ed-finder
+   BATCH_SIZE=2000 RATING_DIRTY_CLEANUP_CHUNK=5000 \
+     ./scripts/run_import.sh build_ratings.py --rebuild --workers 2 --chunk 5000
+   ```
+
+5. Monitor the run with repeated checks:
+   - `rating_version = '3.4'` count should keep increasing.
+   - `rating_version IS NULL` count should trend toward zero.
+   - `systems.rating_dirty = TRUE` may fluctuate during live ingestion, but the
+     rebuild must continue making forward progress on rating writes.
+6. Do not treat a small dirty queue as proof that the legacy rebaseline is
+   complete. Dirty maintenance and full historical rebaseline are separate
+   concerns.
+7. After the rebuild finishes, rerun the verification queries in the next
+   section.
+8. Clear caches only after verification is clean enough for cutover.
+9. Re-enable the scheduled dirty-ratings cron after the full rebuild is
+   complete and verified.
 
 ## Verification Queries
 

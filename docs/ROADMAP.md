@@ -13,6 +13,14 @@ document that should answer "what next?".
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
   planning workspace.
+- Ratings posture: the canonical current scorer is **Ratings v3.4 Best-Build
+  Potential**. Production rebaseline is not yet complete, so `ratings` still
+  contains a mixed population of `rating_version = '3.4'` rows and legacy
+  unversioned rows (`rating_version IS NULL`).
+- Legacy ratings posture: treat `rating_version IS NULL` rows as
+  **Pre-v3.4 Unversioned Ratings**, not as one coherent legacy type. They may
+  span multiple historical scorer generations and must be rebaselined before
+  the ratings migration can be considered operationally complete.
 
 ## Stage 25 Objective
 
@@ -52,6 +60,9 @@ Stage 25 has exactly one primary objective:
    continuing codebase and documentation cleanup.
 5. Advance the evidence-store and ingestion lane safely, with reviewable
    operator/admin surfaces rather than implicit write automation.
+6. Finish and verify the ratings rebaseline so the live app does not serve
+   mixed-generation scoring rows behind the current Development Score /
+   archetype-led product language.
 
 ## Current Next Steps
 
@@ -87,8 +98,9 @@ Stage 25 has exactly one primary objective:
 1. Product shell coherence.
 2. Selected-system continuity.
 3. Planner trust and evidence clarity.
-4. Evidence-store and ingestion foundations.
-5. Operator/admin reviewability for proposed upgrades and bounded actions.
+4. Ratings rebaseline completion and verification.
+5. Evidence-store and ingestion foundations.
+6. Operator/admin reviewability for proposed upgrades and bounded actions.
 
 ## Boundaries
 

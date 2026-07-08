@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 ED Finder — Ratings Computer
-Version: 3.0  (Colonisation-accurate scoring engine)
+Canonical scorer: Ratings v3.4 Best-Build Potential
+Lineage baseline: v3.0 colonisation-accurate scoring rewrite
 
 COMPLETE REWRITE of the scoring system based on official Elite Dangerous
 Trailblazers Update 3 economy mechanics (April 2025) and the System
@@ -1677,7 +1678,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Build pre-computed colonisation ratings (v3.0 — accuracy rewrite)'
+        description='Build pre-computed colonisation ratings (Ratings v3.4 Best-Build Potential)'
     )
     parser.add_argument('--rebuild',     action='store_true',
                         help='Re-rate ALL systems, not just unrated ones')
@@ -1699,7 +1700,7 @@ def main():
         worker_count = args.max_workers
 
     mode_label = "REBUILD ALL" if args.rebuild else ("DIRTY ONLY" if args.dirty else "RESUME (unrated only)")
-    startup_banner(log, "Ratings Computer", "v3.0 (Colonisation-accurate)", [
+    startup_banner(log, "Ratings Computer", "Ratings v3.4 Best-Build Potential", [
         ("Mode",       mode_label),
         ("Workers",    str(worker_count)),
         ("Chunk size", f"{args.chunk:,} systems"),

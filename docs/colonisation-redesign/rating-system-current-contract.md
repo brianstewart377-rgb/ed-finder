@@ -1,4 +1,24 @@
-﻿# Rating System Current Contract
+# Rating System Current Contract
+
+## Rating Generation Names
+
+- **Ratings v3.4 Best-Build Potential** is the canonical current scorer.
+  `build_ratings.py` writes `rating_version = '3.4'` for rows rebuilt by the
+  current engine.
+- **Pre-v3.4 Unversioned Ratings** means any row where
+  `rating_version IS NULL`. This is the correct operational name for the legacy
+  bucket. Do not describe those rows as one single legacy score type.
+- The unversioned bucket may contain more than one historical generation. The
+  current code/history shows at least:
+  - `v3.0`: colonisation-accurate scoring rewrite baseline
+  - `v3.1`: Extraction, terraforming potential, body diversity, confidence,
+    rationale
+  - `v3.2`: pair-aware overall score model
+  - `v3.3`: complementary-pair tie-break for primary economy selection
+  - `v3.4`: cross-economy attenuation plus explicit `rating_version`
+- Row-level production data can reliably distinguish `3.4` from
+  `rating_version IS NULL`, but it cannot safely identify which exact pre-`3.4`
+  sub-generation produced a given unversioned row.
 
 ## What `score` means
 
@@ -15,7 +35,9 @@ Each economy (Agriculture, Refinery, Industrial, HighTech, Military, Tourism, **
 - Extraction was added in rating v3.1 and must be shown in the UI alongside the other six.
 - The suggested economy (`economy_suggestion`) is the highest-scoring economy.
 - Rating v3.4 attenuates cross-economy saturation: the top two economies keep their raw score, the third is reduced, and the fourth-plus are reduced further. Current recalculations should not produce four or more simultaneous 100 scores.
-- Existing rows with `rating_version IS NULL` may still carry pre-v3.4 saturated scores until they are rebuilt.
+- Existing rows with `rating_version IS NULL` are **Pre-v3.4 Unversioned
+  Ratings** and may still carry pre-v3.4 saturated scores until they are
+  rebuilt.
 - `score_breakdown.rating_version` must match the row-level `ratings.rating_version` for newly written ratings.
 
 ## Top complementary pair
@@ -67,6 +89,9 @@ Stored in `score_breakdown.dimensions`:
 - Dirty flags are cleared only after rating writes commit, in chunks. If dirty cleanup fails, successful rating rows remain committed and the affected systems stay dirty for a retry.
 - The `confidence` field reflects data freshness, not rating algorithm version.
 - If a rating appears stale, has `rating_version = NULL`, or shows three-plus capped economy scores, the operational remedy is to re-run `build_ratings.py` for the affected systems.
+- If production still shows both `rating_version = '3.4'` and
+  `rating_version IS NULL`, treat that as an incomplete ratings rebaseline, not
+  as an acceptable steady state.
 - The frontend shows conservative wording ("Best-build potential") and a caveat for saturated/stale economy scores rather than definitive claims.
 
 Operational recovery steps for Stage 17N.2c are documented in
