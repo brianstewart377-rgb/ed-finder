@@ -1,7 +1,7 @@
 # ED-Finder — Feature Design Report: Journal Import & Colonisation Proximity Routing (V1)
 
-> Historical design reference kept at repo root because `docs/ROADMAP.md`
-> intentionally links to it. It is not a second roadmap or an active control
+> Historical design reference retained under `docs/colonisation-redesign/`.
+> This is background material, not a second roadmap or an active control
 > document.
 
 - **Repo:** `brianstewart377-rgb/ed-finder`, grounded against commit `7913c68` (same tree as the V1.1 audit)

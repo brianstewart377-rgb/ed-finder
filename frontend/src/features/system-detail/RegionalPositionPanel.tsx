@@ -3,8 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { getRegionalAnalysis } from '@/lib/api';
 import type { RegionalAnalysisResponse } from '@/types/api';
 
-const COLONISATION_CLAIM_RANGE_LY = 16;
-
 export function RegionalPositionPanel({ id64 }: { id64: number }) {
   const { data, isLoading, isError, error, refetch } = useQuery<RegionalAnalysisResponse, Error>({
     queryKey: ['regional-analysis', id64],
@@ -51,8 +49,9 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
   const fitRows = Object.entries(data.archetype_regional_fit)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
+  const claimRangeLy = data.claim_range_ly;
   const nearestDistance = data.nearest_colonised_system?.distance_ly ?? null;
-  const inClaimRange = nearestDistance != null && nearestDistance <= COLONISATION_CLAIM_RANGE_LY;
+  const inClaimRange = nearestDistance != null && nearestDistance <= claimRangeLy;
   const proximityLabel = inClaimRange ? 'Within claim range' : 'Out of claim range';
   const proximityTone = inClaimRange ? 'cyan' : 'orange';
 
@@ -71,24 +70,28 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
               <Badge label={standardLabel(data.data_quality.regional_position)} tone="cyan" />
             )}
           </div>
-          {data.nearest_colonised_system?.name && nearestDistance != null && (
-            <div
-              data-testid="regional-position-verdict"
-              className="mt-3 rounded border border-border/60 bg-bg3/45 px-3 py-3"
-            >
-              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
-                Colonisation proximity
-              </div>
+          <div
+            data-testid="regional-position-verdict"
+            className="mt-3 rounded border border-border/60 bg-bg3/45 px-3 py-3"
+          >
+            <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+              Colonisation proximity
+            </div>
+            {data.nearest_colonised_system?.name && nearestDistance != null ? (
               <p className="mt-2 text-sm leading-snug text-silver">
                 {inClaimRange
                   ? `Within claim range of ${data.nearest_colonised_system.name} at ${nearestDistance.toFixed(1)} ly.`
                   : `Out of claim range. Nearest observed colonised anchor is ${data.nearest_colonised_system.name} at ${nearestDistance.toFixed(1)} ly.`}
               </p>
-              <p className="mt-1 font-mono text-[10px] text-silver-dk">
-                Measured star-to-star against the current {COLONISATION_CLAIM_RANGE_LY} ly claim-range setting.
+            ) : (
+              <p className="mt-2 text-sm leading-snug text-silver" data-testid="regional-position-no-anchor">
+                No observed colonised anchor was found inside the current {data.analysis_radius_ly.toFixed(0)} ly regional-analysis radius. This does not rule out a more distant anchor beyond that bounded search.
               </p>
-            </div>
-          )}
+            )}
+            <p className="mt-1 font-mono text-[10px] text-silver-dk">
+              Measured star-to-star against the current {claimRangeLy.toFixed(0)} ly claim-range setting from the regional-analysis service.
+            </p>
+          </div>
           <p className="mt-3 text-sm leading-snug text-silver">
             {data.rationale?.summary}
           </p>

@@ -1,6 +1,7 @@
-# Ratings Resume Handoff (Historical)
+﻿# Ratings Resume Handoff (Historical)
 
-This note was used to resume the ratings-overhaul work after a chat loss. The migration has since been completed in the canonical non-OneDrive workspace.
+This note records an earlier resume point for the ratings-overhaul work. The
+migration has since been completed in the canonical local workspace.
 
 **Status (2026-07): completed.**
 
@@ -17,7 +18,8 @@ This note was used to resume the ratings-overhaul work after a chat loss. The mi
 - The local engineering environment is materially healthier than when this
   handoff was written: repo-local `.venv` execution is canonical, disposable
   Docker-backed Postgres/Redis preflight is green, and the broad local pytest
-  burn-down is currently green at `1487 passed, 16 skipped`.
+  burn-down was most recently observed green at `1487 passed, 16 skipped` in
+  the current workspace.
 - The active product roadmap has moved on to Stage 25 shell/context work plus
   foundation hardening around migration safety, backup/restore rehearsal, and
   CI/build honesty. See [`../ROADMAP.md`](../ROADMAP.md) for the current queue.
@@ -40,7 +42,7 @@ This was chosen because the archetype engine is already real, mounted, and mater
 
 ## Canonical Repo Context
 
-- Canonical repo: `c:\Users\brian\Documents\trae_projects\ED-Finder` (non-OneDrive)
+- Canonical repo: the local `ED-Finder` checkout (outside OneDrive sync)
 - Frontend: `frontend/`
 - Backend: `apps/api/`
 - Main archetype routes: `/api/archetypes/*`
@@ -79,7 +81,6 @@ This was chosen because the archetype engine is already real, mounted, and mater
 - `frontend/src/features/map/GalacticMap.tsx`
 - `frontend/src/features/pinned/pinnedEntry.ts`
 - `frontend/src/App.tsx`
-- `frontend/public/development.html`
 
 ## Current Technical State
 
@@ -100,9 +101,8 @@ Legacy rating terminology and payloads are removed from the active frontend cont
 
 ## Environment Notes
 
-Tooling in the OneDrive workspace was unreliable for long frontend commands. The canonical dev workspace is now non-OneDrive:
-
-- `c:\Users\brian\Documents\trae_projects\ED-Finder`
+Tooling in the older OneDrive-synced workspace was unreliable for long frontend
+commands. The canonical dev workspace is now a local checkout outside OneDrive.
 
 Python note: the backend expects a Python version with `asyncpg` wheels available. Python 3.14 does not currently support `asyncpg` on Windows, so use Python 3.12/3.11 for backend work.
 

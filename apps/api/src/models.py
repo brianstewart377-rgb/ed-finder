@@ -960,6 +960,8 @@ class RegionalAnalysisResponse(BaseModel):
 
     system_id64:                 int
     mechanics_version:           str = ''
+    claim_range_ly:              float = 0.0
+    analysis_radius_ly:          float = 0.0
     nearest_colonised_system:    Optional[dict[str, Any]] = None
     counts:                      dict[str, int] = Field(default_factory=dict)
     scores:                      dict[str, float] = Field(default_factory=dict)

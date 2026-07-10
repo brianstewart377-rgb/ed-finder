@@ -10,7 +10,6 @@ import { usePinned } from '@/features/pinned/usePinned';
 import { toPinnedEntry } from '@/features/pinned/pinnedEntry';
 import { useCompare } from '@/features/compare/useCompare';
 import { useSearchTuning } from '@/features/search-tuning/useSearchTuning';
-import { useColony } from '@/features/colony/useColony';
 import { useFcPlanner } from '@/features/fc-planner/useFcPlanner';
 import { useAdmin } from '@/features/admin/useAdmin';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
@@ -99,7 +98,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const pinned    = usePinned();
   const compare   = useCompare();
   const searchTuning = useSearchTuning();
-  const colony    = useColony();
   const fc        = useFcPlanner();
   const admin     = useAdmin();
   const saveProject = useColonyProjectStore((state) => state.saveProject);
@@ -279,7 +277,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         watchlistCount={watchlist.entries.length}
         pinnedCount={pinned.entries.length}
         compareCount={compare.entries.length}
-        colonyCount={colony.counts.total}
         fcCount={fc.waypoints.length}
         health={health}
         fullWidth={plannerWorkspaceRoute}

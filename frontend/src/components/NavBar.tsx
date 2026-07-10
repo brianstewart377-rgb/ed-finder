@@ -13,7 +13,6 @@ export interface NavBarProps {
   watchlistCount?: number | null;
   pinnedCount?:    number;
   compareCount?:   number;
-  colonyCount?:    number;
   fcCount?:        number;
   health?:         string;
   fullWidth?:      boolean;
@@ -68,7 +67,6 @@ export function NavBar({
     explore: [
       { route: 'finder' as const, label: 'Finder', testid: 'nav-finder' },
       { route: 'map' as const, label: 'Map', testid: 'nav-map', title: 'Secondary Explore surface' },
-      { route: 'search-tuning' as const, label: 'Development Tuning', testid: 'nav-search-tuning' },
     ],
     plan: [
       { route: 'my-work' as const, label: 'My Work', testid: 'nav-my-work' },
@@ -591,7 +589,7 @@ function OperatorModeMenu({
 
 function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
   if (route === 'finder' || route === 'map' || route === 'search-tuning') return 'explore';
-  if (route === 'my-work' || route === 'watchlist' || route === 'pinned' || route === 'colony' || route === 'colony-planner') return 'plan';
+  if (route === 'my-work' || route === 'watchlist' || route === 'pinned' || route === 'colony-planner') return 'plan';
   if (route === 'compare' || route === 'fc') return 'review';
   return null;
 }
@@ -599,7 +597,6 @@ function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
 function isRouteActive(current: Route, target: Route): boolean {
   if (current === target) return true;
   if (target === 'my-work' && (current === 'watchlist' || current === 'pinned')) return true;
-  if (target === 'colony-planner' && current === 'colony') return true;
   return false;
 }
 
@@ -684,15 +681,6 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         supportingText: 'Use fleet-carrier routing as a supporting tool for player logistics without turning it into a primary Explore or Plan workspace.',
         nextAction: 'Review route support needs, then return to Explore or Plan for system work.',
         statusLabel: 'Supporting tool',
-        statusTone: 'available',
-      };
-    case 'colony':
-      return {
-        title: 'Colony Tracker',
-        primaryLabel: 'Plan',
-        supportingText: 'Colony tracking remains available by route while My Work becomes the calm player-facing home for saved systems, plans, and colonies.',
-        nextAction: 'Use My Work for the current player flow, or inspect tracked systems directly.',
-        statusLabel: 'Supporting tracker',
         statusTone: 'available',
       };
     case 'admin':

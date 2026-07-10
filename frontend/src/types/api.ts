@@ -117,7 +117,9 @@ export interface JournalImportObservationInput {
 }
 
 export interface JournalImportRequest {
+  sync_key: string;
   client_manifest: JournalImportClientManifest;
+  evidence_mode?: 'staging_only' | 'quarantined';
   observations: JournalImportObservationInput[];
 }
 
@@ -1086,6 +1088,8 @@ export interface RecommendedBuildsResponse {
 export interface RegionalAnalysisResponse {
   system_id64: number;
   mechanics_version: string;
+  claim_range_ly: number;
+  analysis_radius_ly: number;
   nearest_colonised_system?: {
     id64?: number | null;
     name?: string | null;

@@ -18,7 +18,7 @@ This handoff exists because the current Trae Solo web session cannot view full G
 
 ## Repo + Branch
 
-- Repo: `c:\Users\brian\Documents\trae_projects\ED-Finder`
+- Repo: the local `ED-Finder` checkout
 - PR: https://github.com/brianstewart377-rgb/ed-finder/pull/316
 - Branch: `devscore-retire-ratings`
 
@@ -97,6 +97,6 @@ Bring up local Postgres+Redis using the repo’s compose file:
 
 ## Resume Prompt (paste into Desktop Trae Solo)
 
-Read `docs/development/trae-solo-desktop-handoff-2026-07-06.md`. You are in `c:\Users\brian\Documents\trae_projects\ED-Finder` on branch `devscore-retire-ratings` (PR #316). CI still has a failing Backend integration check; open the newest Actions run, download raw logs, identify the failing test or seed step, patch, commit, and push until all checks are green.
+Read `docs/development/trae-solo-desktop-handoff-2026-07-06.md`. You are in the local `ED-Finder` checkout on branch `devscore-retire-ratings` (PR #316). CI still has a failing Backend integration check; open the newest Actions run, download raw logs, identify the failing test or seed step, patch, commit, and push until all checks are green.
 
 

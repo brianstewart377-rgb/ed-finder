@@ -1,4 +1,4 @@
-﻿# Cross-Repo Workspace
+# Cross-Repo Workspace
 
 `ed-finder` now lives in a three-repo workspace:
 
@@ -9,7 +9,7 @@
 Recommended local layout:
 
 ```text
-C:\Users\brian\OneDrive\Documents\GitHub\
+<workspace-root>\
   ed-finder\
   colonisation-research-engine\
   colony-planning-engine\

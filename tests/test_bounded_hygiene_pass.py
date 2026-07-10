@@ -26,7 +26,7 @@ def test_preview_only_routes_are_no_longer_live_runtime_paths():
 
 
 def test_redesign_readme_marks_folder_as_archived_reference_only():
-    readme = (ROOT / 'frontend' / 'src' / '_redesign' / 'README.md').read_text(encoding='utf-8')
+    readme = (ROOT / 'docs' / 'archive' / 'frontend-redesign-prototype' / 'README.md').read_text(encoding='utf-8')
 
     assert 'archived reference' in readme
     assert 'material while the active Stage 25 shell continues' in readme
@@ -39,7 +39,7 @@ def test_root_residue_is_archived_out_of_repo_root():
     assert not (ROOT / 'ED_FINDER_FULL_STACK_ADVERSARIAL_AUDIT_V1(1).md').exists()
     assert not (ROOT / 'robocopy.log').exists()
     assert (ROOT / 'docs' / 'archive' / 'root-residue' / 'implementation_plan_stage_4a.md').exists()
-    assert (ROOT / 'docs' / 'archive' / 'root-residue' / 'ED_FINDER_FULL_STACK_ADVERSARIAL_AUDIT_V1(1).md').exists()
+    assert (ROOT / 'docs' / 'archive' / 'root-residue' / 'full-stack-adversarial-audit-v1-duplicate-download.md').exists()
 
 
 def test_stage18j_historical_wrappers_are_archived_out_of_top_level_operator_surface():

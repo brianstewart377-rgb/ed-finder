@@ -121,10 +121,6 @@ vi.mock('@/features/search-tuning/useSearchTuning', () => ({
   }),
 }));
 
-vi.mock('@/features/colony/useColony', () => ({
-  useColony: () => ({ counts: { total: 0 } }),
-}));
-
 vi.mock('@/features/fc-planner/useFcPlanner', () => ({
   useFcPlanner: () => ({ waypoints: [] }),
 }));
@@ -361,7 +357,8 @@ function seedFinderResult(overrides: Record<string, unknown> = {}) {
 }
 
 describe('App Development Tuning route', () => {
-  it.each(['#search-tuning', '#optimizer'])('renders Development Tuning for %s', async (hash) => {
+  it('renders Development Tuning for the direct route', async () => {
+    const hash = '#search-tuning';
     window.location.hash = hash;
 
     await renderApp();

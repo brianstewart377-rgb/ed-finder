@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from starlette.requests import Request
 
 ROOT = Path(__file__).resolve().parents[1]
 API_SRC = ROOT / 'apps' / 'api' / 'src'
@@ -21,6 +22,16 @@ os.environ.setdefault('DATABASE_URL', 'postgresql://user:password@localhost:5432
 
 from journal_import.api_models import JournalImportReceipt, JournalImportRequest  # noqa: E402
 from routers import journal_import as journal_import_router  # noqa: E402
+
+
+def _fake_request() -> Request:
+    return Request({
+        'type': 'http',
+        'method': 'POST',
+        'path': '/api/journal/import',
+        'headers': [],
+        'client': ('127.0.0.1', 12345),
+    })
 
 
 class _FakeJournalImportStore:
@@ -62,10 +73,12 @@ def fake_store(monkeypatch: pytest.MonkeyPatch) -> _FakeJournalImportStore:
 @pytest.mark.asyncio
 async def test_post_journal_import_returns_staging_receipt(fake_store: _FakeJournalImportStore):
     request = JournalImportRequest.model_validate({
+            'sync_key': 'sync-key-1234567890',
             'client_manifest': {
                 'parser_version': 'journal-import-worker-v1',
                 'files': [{'name': 'Journal.demo.log', 'event_count': 1}],
             },
+            'evidence_mode': 'staging_only',
             'observations': [
                 {
                     'observation_key': '0123456789abcdef0123456789abcdef',
@@ -82,7 +95,7 @@ async def test_post_journal_import_returns_staging_receipt(fake_store: _FakeJour
                 },
             ],
         })
-    receipt = await journal_import_router.import_frontier_journal(request, pool=object())
+    receipt = await journal_import_router.import_frontier_journal(_fake_request(), request, pool=object())
 
     assert receipt.run_key == 'jrnl-20260708-demo'
     assert receipt.parser_version == 'journal-import-worker-v1'
@@ -108,9 +121,22 @@ async def test_get_journal_import_receipt_returns_existing_run(fake_store: _Fake
             'event_counts': {'Scan': 1},
         },
     })
-    receipt = await journal_import_router.get_frontier_journal_import('jrnl-20260708-demo', pool=object())
+    receipt = await journal_import_router.get_frontier_journal_import(_fake_request(), 'jrnl-20260708-demo', pool=object())
 
     assert receipt.summary.event_counts == {'Scan': 1}
+
+
+@pytest.mark.unit
+def test_journal_import_request_requires_sync_key():
+    with pytest.raises(Exception):
+        JournalImportRequest.model_validate({
+            'sync_key': 'short',
+            'client_manifest': {
+                'parser_version': 'journal-import-worker-v1',
+                'files': [],
+            },
+            'observations': [],
+        })
 
 
 @pytest.mark.unit

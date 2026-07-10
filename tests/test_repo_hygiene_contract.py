@@ -9,7 +9,6 @@ ALLOWED_VISIBLE_ROOT_FILES = {
     'docker-compose.review-hosted.yml',
     'docker-compose.review.yml',
     'docker-compose.yml',
-    'ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md',
     'env.example',
     'Makefile',
     'pyproject.toml',
@@ -30,11 +29,11 @@ def test_visible_repo_root_files_stay_on_the_allowlist():
     assert _visible_root_files() <= ALLOWED_VISIBLE_ROOT_FILES
 
 
-def test_journal_design_root_doc_is_explicitly_marked_as_historical_reference():
-    source = (ROOT / 'ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md').read_text(encoding='utf-8')
+def test_journal_design_doc_lives_under_colonisation_docs():
+    source = (ROOT / 'docs' / 'colonisation-redesign' / 'journal-import-and-colonisation-routing-design-v1.md').read_text(encoding='utf-8')
 
-    assert 'Historical design reference kept at repo root' in source
-    assert 'not a second roadmap or an active control' in source
+    assert 'Feature Design Report: Journal Import & Colonisation Proximity Routing (V1)' in source
+    assert 'retained under `docs/colonisation-redesign/`' in source
 
 
 def test_repo_hygiene_policy_exists_and_names_the_machine_guards():

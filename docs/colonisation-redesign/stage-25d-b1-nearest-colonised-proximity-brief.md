@@ -10,7 +10,7 @@ Ship the smallest useful colonisation-proximity feature:
 - keep the result rooted in evidence language and existing Inspect posture.
 
 This is intentionally the `B-1` slice from
-`ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md`, not the full
+`journal-import-and-colonisation-routing-design-v1.md`, not the full
 colonisation-corridor feature.
 
 ## Why This Slice

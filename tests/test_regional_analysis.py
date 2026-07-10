@@ -126,6 +126,8 @@ def test_api_response_shape_adapter():
 
     assert response['nearest_colonised_system']['distance_ly'] == 74.2
     assert response['mechanics_version'] == MECHANICS_VERSION
+    assert response['claim_range_ly'] == 16.0
+    assert response['analysis_radius_ly'] == 250.0
     assert response['counts']['within_100ly'] == 3
     assert response['scores']['expansion'] == 91.0
     assert response['regional_role'] == 'frontier_hub'

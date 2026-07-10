@@ -1,25 +1,31 @@
-from __future__ import annotations
-
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from deps import get_pool
-from journal_import.api_models import JournalImportReceipt, JournalImportRequest
-from journal_import import store
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool
+from edfinder_api.journal_import.api_models import JournalImportReceipt, JournalImportRequest
+from edfinder_api.journal_import import store
 
 router = APIRouter(tags=['journal-import'])
 
 
 @router.post('/api/journal/import', response_model=JournalImportReceipt)
+@limiter.limit('5/minute')
 async def import_frontier_journal(
+    request: Request,
     body: JournalImportRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> JournalImportReceipt:
-    return await store.import_journal_batch(pool, body)
+    try:
+        return await store.import_journal_batch(pool, body)
+    except store.JournalImportRateLimitError as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
 
 
 @router.get('/api/journal/imports/{run_key}', response_model=JournalImportReceipt)
+@limiter.limit('30/minute')
 async def get_frontier_journal_import(
+    request: Request,
     run_key: str,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> JournalImportReceipt:

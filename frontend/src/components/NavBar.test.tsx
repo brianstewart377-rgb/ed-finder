@@ -22,12 +22,9 @@ describe('NavBar', () => {
     expect(screen.getByTestId('nav-my-work').textContent).toContain('My Work');
     expect(screen.getByTestId('nav-finder').textContent).toContain('Finder');
     expect(screen.getByTestId('nav-compare').textContent).toContain('Compare');
-
-    rerender(<NavBar current="search-tuning" onNavigate={vi.fn()} health="Online" />);
-    expect(screen.getByTestId('nav-search-tuning').textContent).toContain('Development Tuning');
     expect(screen.getByTestId('nav-my-work')).toBeTruthy();
 
-    rerender(<NavBar current="compare" onNavigate={vi.fn()} health="Online" compareCount={2} colonyCount={1} fcCount={1} />);
+    rerender(<NavBar current="compare" onNavigate={vi.fn()} health="Online" compareCount={2} fcCount={1} />);
     expect(screen.getByTestId('nav-fc').textContent).toContain('FC Route Planner');
     expect(screen.queryByTestId('nav-colony')).toBeNull();
   });

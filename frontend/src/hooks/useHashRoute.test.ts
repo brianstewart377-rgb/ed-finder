@@ -6,7 +6,7 @@ afterEach(() => {
   window.location.hash = '';
 });
 
-describe('useHashRoute Development Tuning aliases', () => {
+describe('useHashRoute route parsing', () => {
   it.each([
     ['#finder', 'finder', null],
     ['#watchlist', 'my-work', 'watchlist'],
@@ -41,13 +41,13 @@ describe('useHashRoute Development Tuning aliases', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('normalizes #optimizer as the legacy Development Tuning alias', () => {
+  it('redirects legacy #optimizer links onto the canonical search-tuning route', () => {
     window.location.hash = '#optimizer';
 
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('search-tuning');
-    expect(result.current.routeAlias).toBe('optimizer');
+    expect(result.current.routeAlias).toBeNull();
     expect(result.current.selectedSystemId).toBeNull();
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -62,13 +62,13 @@ describe('useHashRoute Development Tuning aliases', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('parses legacy #optimizer/system links as Development Tuning modal routes', () => {
+  it('parses legacy #optimizer/system links as canonical search-tuning modal routes', () => {
     window.location.hash = '#optimizer/system/123456';
 
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('search-tuning');
-    expect(result.current.routeAlias).toBe('optimizer');
+    expect(result.current.routeAlias).toBeNull();
     expect(result.current.selectedSystemId).toBe(123456);
     expect(result.current.plannerSystemId).toBeNull();
   });

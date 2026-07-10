@@ -23,7 +23,8 @@ response lane.
 - Local engineering trust is materially improved:
   - repo-local Python 3.12 `.venv` is the canonical local runner;
   - Docker-backed disposable Postgres/Redis preflight is green;
-  - the broad local pytest burn-down is green at `1487 passed, 16 skipped`.
+  - the broad local pytest burn-down was most recently observed green at
+    `1487 passed, 16 skipped` in the current workspace.
 - The recently closed local failures were not new product-lane work; they were
   trust/honesty fixes in the local verification stack:
   - preflight now handles missing host `pg_isready` and does not over-probe;
@@ -82,7 +83,8 @@ If a new chat needs to resume the Claude-report lane, use this summary:
   - production ratings is in healthy steady state, with remaining follow-up in
     contract/integrity hardening rather than a live mixed-generation backlog;
   - local preflight and disposable DB/Redis verification are green;
-  - broad local pytest is green at `1487 passed, 16 skipped`.
+  - broad local pytest was most recently observed green at
+    `1487 passed, 16 skipped` in the current workspace.
 - The next audit-response work is still:
   1. finish production body-contract closeout evidence,
   2. land migration-ledger discipline,
@@ -322,7 +324,7 @@ Goals:
 - Remove the most misleading residue without pretending cleanup equals safety.
 
 Checklist:
-- [x] Decide the fate of `frontend/src/_redesign/`.
+- [x] Decide the fate of the archived frontend redesign prototype.
 - [x] Remove or redirect hidden/ghost routes that no longer match the product.
 - [x] Archive completed stage-specific one-shot scripts that should not be
       executable history.
@@ -339,8 +341,8 @@ Current checkpoint:
 - `frontend/src/main.tsx` no longer conditionally imports
   `_redesign/RedesignApp.jsx`; the archived prototype is no longer a live
   runtime entrypoint.
-- `frontend/src/_redesign/README.md` now marks the folder as quarantined
-  archive/reference material rather than an opt-in preview surface.
+- The archived redesign prototype now lives under
+  `docs/archive/frontend-redesign-prototype/` instead of inside `frontend/src/`.
 - `#planner-preview` and `#chip-preview` no longer ship as live top-level
   routes; the old preview components remain historical reference material
   rather than production-reachable UI.

@@ -37,12 +37,14 @@ FRONTEND_ARCHIVE="${FRONTEND_ARCHIVE:-}"
 SKIP_PULL=0
 SKIP_MIGRATIONS=0
 SKIP_FRONTEND=0
+SKIP_INVARIANTS=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --skip-pull)       SKIP_PULL=1; shift ;;
     --skip-migrations) SKIP_MIGRATIONS=1; shift ;;
     --skip-frontend)   SKIP_FRONTEND=1; shift ;;
+    --skip-invariants) SKIP_INVARIANTS=1; shift ;;
     --frontend-archive) FRONTEND_ARCHIVE="$2"; shift 2 ;;
     --branch)          BRANCH="$2"; shift 2 ;;
     --repo-dir)        REPO_DIR="$2"; shift 2 ;;
@@ -233,6 +235,18 @@ say "Check OpenAPI simulation contract"
 curl -fsS --max-time 10 http://127.0.0.1:8000/openapi.json \
   | grep -q '"SlotPredictionResponse"'
 ok "OpenAPI includes SlotPredictionResponse"
+
+if [[ "$SKIP_INVARIANTS" -eq 0 ]]; then
+  say "Run post-deploy data invariants"
+  [[ -f scripts/run_data_invariants_receipted.sh ]] || die "invariants wrapper not found: scripts/run_data_invariants_receipted.sh"
+  bash scripts/run_data_invariants_receipted.sh \
+    --target-rating-version 3.4 \
+    --production-safe \
+    --receipt-file /tmp/ed-finder-data-invariants-post-deploy.json
+  ok "post-deploy data invariants passed"
+else
+  say "Skipping post-deploy data invariants"
+fi
 
 say "Recent API warnings/errors"
 docker compose logs --tail=120 api | grep -E "Facility catalogue|ERROR|WARNING" || true

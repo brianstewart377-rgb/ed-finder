@@ -1,4 +1,4 @@
-﻿# Test Environment
+# Test Environment
 
 ## Purpose
 
@@ -156,7 +156,8 @@ Current local test-environment posture:
 
 - repo-local `.venv` Python is the canonical runner;
 - Docker-backed local Postgres/Redis preflight is green;
-- broad local pytest is green at `1487 passed, 16 skipped`;
+- broad local pytest was most recently observed green at
+  `1487 passed, 16 skipped` in the current workspace;
 - Stage 19 real-service tests prove live Postgres access without fake
   fallbacks, but historical baseline/checkpoint assertions skip explicitly when
   the disposable DB does not contain those old approved rows.

@@ -9,7 +9,6 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  *   #pinned                       → route='my-work',   routeAlias='pinned',    selectedSystemId=null
  *   #pinned/system/12345678       → route='my-work',   routeAlias='pinned',    selectedSystemId=12345678
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
- *   #optimizer                    → route='search-tuning', routeAlias='optimizer', selectedSystemId=null
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   #my-work                      → route='my-work', selectedSystemId=null
  *   #watchlist                    → route='my-work', routeAlias='watchlist', selectedSystemId=null
@@ -33,12 +32,12 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'colony' | 'admin' | 'operator' | 'colony-planner';
-const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'colony', 'admin', 'operator', 'colony-planner'];
+export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'admin' | 'operator' | 'colony-planner';
+const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'admin', 'operator', 'colony-planner'];
 
 export interface ParsedHash {
   route:            Route;
-  routeAlias:       'watchlist' | 'pinned' | 'colony' | 'optimizer' | null;
+  routeAlias:       'watchlist' | 'pinned' | 'colony' | null;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
   plannerProjectId: string | null;
@@ -82,7 +81,6 @@ function parseHash(): ParsedHash {
   let i = 0;
   if (parts[0] === 'optimizer') {
     route = 'search-tuning';
-    routeAlias = 'optimizer';
     i = 1;
   } else if (parts[0] === 'watchlist' || parts[0] === 'pinned' || parts[0] === 'colony') {
     route = 'my-work';

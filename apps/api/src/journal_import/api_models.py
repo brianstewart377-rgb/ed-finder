@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 JsonObject = dict[str, Any]
+_SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
 
 _ALLOWED_EVENT_TYPES = {
     'CarrierJump',
@@ -89,8 +91,20 @@ class JournalObservationInput(BaseModel):
 class JournalImportRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
+    sync_key: str = Field(min_length=16, max_length=128)
     client_manifest: JournalImportClientManifest
+    evidence_mode: Literal['staging_only', 'quarantined'] = 'staging_only'
     observations: list[JournalObservationInput] = Field(default_factory=list, max_length=50_000)
+
+    @field_validator('sync_key')
+    @classmethod
+    def validate_sync_key(cls, value: str) -> str:
+        stripped = value.strip()
+        if stripped == 'legacy':
+            raise ValueError('sync_key="legacy" is reserved for migration')
+        if not _SYNC_KEY_RE.match(stripped):
+            raise ValueError('sync_key must be 16-128 chars, alphanumeric + "_" or "-" only.')
+        return stripped
 
 
 class JournalImportSummary(BaseModel):

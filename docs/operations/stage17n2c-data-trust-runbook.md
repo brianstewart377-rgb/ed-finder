@@ -197,6 +197,47 @@ The script does not clear Redis caches automatically. Cache clears remain a
 separate operator action after a verified successful rebuild when freshness is
 needed before TTL expiry.
 
+## Scheduled Production Invariants
+
+Seeded CI invariants are useful, but they are not proof of production health.
+Use the committed wrapper below for two operator paths:
+
+- post-deploy verification
+- weekly host-cron verification
+
+Wrapper:
+
+- `scripts/run_data_invariants_receipted.sh`
+
+Post-deploy path:
+
+- `scripts/deploy_main.sh` now runs the wrapper by default in
+  `--production-safe` mode unless `--skip-invariants` is supplied.
+- The deploy hook writes a transient receipt to
+  `/tmp/ed-finder-data-invariants-post-deploy.json` so the production checkout
+  stays free of new repo-root residue.
+
+Install this weekly host cron on the production box:
+
+```cron
+45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json >> /data/logs/data-invariants.log 2>&1
+```
+
+Recommended operator habit after a clean weekly run:
+
+1. copy the dated receipt into a reviewable artifact location
+2. note the result in the ops log / roadmap evidence trail
+3. only use `--skip-invariants` during deploy when there is an explicit,
+   documented reason
+
+Important scope note:
+
+- `data_invariants.py` enforces version uniformity for rebuild-eligible systems
+  (`has_body_data = TRUE`).
+- The separate non-eligible checks remain part of the same run and should be
+  read as carve-out guardrails, not as proof that every historical row belongs
+  to the active scorer generation.
+
 ## Body Order And Ring Facts
 
 Stage 17N.2d-M changes body display order to natural Elite hierarchy order.

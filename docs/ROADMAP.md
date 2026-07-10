@@ -5,21 +5,25 @@ document that should answer "what next?".
 
 ## Current State
 
-- Programme: Stage 25 is complete and closed.
+- Programme: Stage 25 product scope is complete on the active integration line;
+  promotion and foundation follow-through remain active.
 - Status: Stage 25A through Stage 25H are complete.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
-  broad local pytest burn-down is currently green at `1487 passed, 16 skipped`.
+  broad local pytest burn-down most recently observed green at
+  `1487 passed, 16 skipped` in the current workspace.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
   planning workspace.
-- Ratings posture: the canonical current scorer is **Ratings v3.4 Best-Build
-  Potential**. The full production rebaseline main pass has completed and the
-  steady-state dirty-ratings cron has been restored. The remaining ratings
-  integrity issue is post-rerate body-data contract drift
+- Scoring posture: player-facing UI continues to speak in **Development
+  Score**, API rerank helpers stay under **archetypes**, and the current DB
+  implementation still runs on the **Ratings v3.4** scorer/tables. The full
+  production rebaseline main pass has completed and the steady-state
+  dirty-ratings cron has been restored. The remaining ratings integrity issue
+  is post-rerate body-data contract drift
   (`systems.has_body_data` / `systems.body_count` versus actual `bodies`
   rows), not an active mixed-generation rerate backlog.
 - Data-trust follow-up posture: the next persisted-integrity hardening lane is
@@ -168,8 +172,8 @@ competing roadmap source.
 
 ## Current Next Steps
 
-- Stage 25 is closed. The next product programme or foundation lane must now
-  be selected explicitly rather than inferred from unfinished Stage 25 work.
+- Stage 25 product work is complete, but the closeout still has follow-through
+  work in branch promotion, operational evidence, and audit-response cleanup.
 
 ### Stage 25C
 
@@ -324,7 +328,7 @@ Read these when a task needs more detail than this roadmap provides:
 - [`operations/migration-ledger-implementation-plan.md`](./operations/migration-ledger-implementation-plan.md):
   detailed implementation plan for replacing replay-all SQL deploys with a
   ledgered migration path.
-- [`../ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md`](../ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md):
+- [`colonisation-redesign/journal-import-and-colonisation-routing-design-v1.md`](./colonisation-redesign/journal-import-and-colonisation-routing-design-v1.md):
   proposed sequencing and guardrails for journal import plus colonisation
   proximity / corridor features.
 - [`colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md`](./colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md):

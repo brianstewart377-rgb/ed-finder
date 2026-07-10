@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { importJournal } from '@/lib/api';
 import type { JournalImportReceipt } from '@/types/api';
+import { useSyncKeyStore } from '@/store/syncKeyStore';
 import { parseJournalFiles } from './parseJournalFiles';
 import type { JournalImportParseResult } from './types';
 
@@ -12,6 +13,7 @@ function formatEventCounts(eventCounts: Record<string, number>): string {
 }
 
 export function JournalImportPanel() {
+  const syncKey = useSyncKeyStore((state) => state.syncKey);
   const [files, setFiles] = useState<File[]>([]);
   const [parseResult, setParseResult] = useState<JournalImportParseResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -52,7 +54,9 @@ export function JournalImportPanel() {
   const handleImport = async () => {
     if (!parseResult || parseResult.observations.length === 0) return;
     await importMutation.mutateAsync({
+      sync_key: syncKey,
       client_manifest: parseResult.client_manifest,
+      evidence_mode: 'staging_only',
       observations: parseResult.observations,
     });
   };
@@ -74,7 +78,11 @@ export function JournalImportPanel() {
       </div>
 
       <div className="rounded-chunk-lg border border-cyan/30 bg-cyan/8 px-3 py-3 text-sm text-cyan">
-        Nothing else leaves your machine. The worker strips to an allowlist before upload and sends normalised observations only.
+        Nothing else leaves your machine. The worker strips to an allowlist before upload and sends normalised observations only, scoped to your sync key and staged without opening the canonical evidence lane.
+      </div>
+
+      <div className="rounded border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
+        Sync key scope: <span className="text-cyan">{syncKey}</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">

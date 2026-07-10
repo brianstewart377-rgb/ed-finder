@@ -51,6 +51,8 @@ describe('RegionalPositionPanel', () => {
     mockedGetRegionalAnalysis.mockResolvedValue({
       system_id64: 123,
       mechanics_version: 'colonisation-engine-v2.1',
+      claim_range_ly: 16,
+      analysis_radius_ly: 250,
       nearest_colonised_system: null,
       counts: { within_25ly: 0, within_50ly: 0, within_100ly: 0, within_250ly: 0 },
       scores: { isolation: 0, density: 0, expansion: 0, competition: 0 },
@@ -71,6 +73,8 @@ describe('RegionalPositionPanel', () => {
     mockedGetRegionalAnalysis.mockResolvedValue({
       system_id64: 123,
       mechanics_version: 'colonisation-engine-v2.1',
+      claim_range_ly: 16,
+      analysis_radius_ly: 250,
       nearest_colonised_system: { id64: 456, name: 'Frontier Stop', distance_ly: 74.2 },
       counts: { within_25ly: 0, within_50ly: 1, within_100ly: 3, within_250ly: 18 },
       scores: { isolation: 82, density: 31, expansion: 91, competition: 12 },
@@ -101,13 +105,15 @@ describe('RegionalPositionPanel', () => {
     expect(panel.textContent).toContain('Inferred');
     expect(panel.textContent).toContain('94 regional fit');
     expect(panel.textContent).toContain('Tourism fit is mixed.');
-    expect(panel.textContent).toContain('Measured star-to-star');
+    expect(panel.textContent).toContain('16 ly claim-range setting');
   });
 
   it('shows an in-range verdict when the nearest anchor is inside the claim range', async () => {
     mockedGetRegionalAnalysis.mockResolvedValue({
       system_id64: 123,
       mechanics_version: 'colonisation-engine-v2.1',
+      claim_range_ly: 16,
+      analysis_radius_ly: 250,
       nearest_colonised_system: { id64: 456, name: 'Claim Anchor', distance_ly: 11.2 },
       counts: { within_25ly: 1, within_50ly: 2, within_100ly: 4, within_250ly: 15 },
       scores: { isolation: 24, density: 76, expansion: 55, competition: 21 },
@@ -130,5 +136,34 @@ describe('RegionalPositionPanel', () => {
     expect(verdict.textContent).toContain('Within claim range');
     expect(verdict.textContent).toContain('Claim Anchor');
     expect(verdict.textContent).toContain('11.2 ly');
+  });
+
+  it('shows an explicit bounded-search empty state when no anchor is present', async () => {
+    mockedGetRegionalAnalysis.mockResolvedValue({
+      system_id64: 123,
+      mechanics_version: 'colonisation-engine-v2.1',
+      claim_range_ly: 16,
+      analysis_radius_ly: 250,
+      nearest_colonised_system: null,
+      counts: { within_25ly: 0, within_50ly: 0, within_100ly: 0, within_250ly: 0 },
+      scores: { isolation: 95, density: 4, expansion: 88, competition: 1 },
+      regional_role: 'isolated_frontier',
+      archetype_regional_fit: {},
+      rationale: {
+        summary: 'Deep-space candidate with no nearby colonised support.',
+        strengths: [],
+        warnings: [],
+        archetype_notes: {},
+      },
+      data_quality: { regional_position: 'inferred' },
+      confidence_signals: [{ area: 'regional_position', level: 'inferred', reason: 'Regional metrics are inferred.' }],
+      computed_at: '2026-05-13T00:00:00Z',
+    } satisfies RegionalAnalysisResponse);
+
+    renderPanel();
+
+    const emptyState = await screen.findByTestId('regional-position-no-anchor');
+    expect(emptyState.textContent).toContain('250 ly regional-analysis radius');
+    expect(screen.getByTestId('regional-position-verdict').textContent).toContain('16 ly claim-range setting');
   });
 });

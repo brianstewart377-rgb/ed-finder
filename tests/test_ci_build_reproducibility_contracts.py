@@ -16,6 +16,35 @@ def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
 
 
+def _normalise_nginx_config_for_drift_check(text: str) -> str:
+    replacements = {
+        '/var/www/app': '/tmp/ngx/www',
+        '/var/www/review': '/tmp/ngx/www',
+        '/var/www/certbot': '/tmp/ngx/www',
+        '/etc/nginx/snippets/security-headers.conf': '/tmp/ngx/snippets/security-headers.conf',
+        '/var/log/nginx-review/review-access.log': '/tmp/ngx/logs/review-access.log',
+        '/var/log/nginx-review/review-error.log': '/tmp/ngx/logs/review-error.log',
+        'http://api:8000': 'http://127.0.0.1:8000',
+        'http://review-api:8000': 'http://127.0.0.1:8000',
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        if ' # ' in line:
+            line = line.split(' # ', 1)[0].rstrip()
+        lines.append(line)
+    return '\n'.join(lines)
+
+
+def _production_nginx_http_and_review_slice(text: str) -> str:
+    marker = '    # ── HTTPS main server ────────────────────────────────────────────────────'
+    return text.split(marker, 1)[0].rstrip() + '\n}'
+
+
 def test_frontend_package_manager_is_pinned_to_committed_yarn_version():
     package_json = _read('frontend', 'package.json')
 
@@ -109,3 +138,15 @@ def test_ci_workflow_uses_pinned_yarn_lock_and_packages_frontend_bundle():
     assert 'yarn test:ci' in workflow
     assert 'bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz' in workflow
     assert 'artifacts/frontend-bundles/frontend-dist-ci.tar.gz.sha256' in workflow
+
+
+def test_nginx_ci_config_stays_structurally_aligned_with_production_http_and_review_blocks():
+    production = _read('config', 'nginx.conf')
+    ci = _read('config', 'nginx-ci.conf')
+
+    normalised_production = _normalise_nginx_config_for_drift_check(
+        _production_nginx_http_and_review_slice(production)
+    )
+    normalised_ci = _normalise_nginx_config_for_drift_check(ci)
+
+    assert normalised_ci == normalised_production

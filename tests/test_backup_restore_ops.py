@@ -71,3 +71,19 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     squashed = _squash(roadmap)
     assert 'Execute and record a real restore rehearsal on top of the committed backup + restore automation now in the repo (`scripts/rehearse_postgres_restore.sh` now provides the default operator path).' in squashed
     assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
+
+
+def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_host_cron():
+    deploy = _read('scripts', 'deploy_main.sh')
+    wrapper = _read('scripts', 'run_data_invariants_receipted.sh')
+    runbook = _read('docs', 'operations', 'stage17n2c-data-trust-runbook.md')
+
+    assert '--skip-invariants' in deploy
+    assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
+    assert '/tmp/ed-finder-data-invariants-post-deploy.json' in deploy
+    assert 'TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"' in wrapper
+    assert '--production-safe' in wrapper
+    assert '"status": "$status"' in wrapper
+    assert '45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh' in runbook
+    assert '/data/receipts/data-invariants/weekly-latest.json' in runbook
+    assert 'scripts/deploy_main.sh` now runs the wrapper by default' in runbook

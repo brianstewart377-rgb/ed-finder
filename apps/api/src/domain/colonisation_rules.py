@@ -2,8 +2,9 @@
 
 The rules in this module are derived from the repo's Mega Guide notes:
 
-* ``frontend/public/development.html`` body-to-economy table.
 * ``docs/colonisation-redesign/COLONISATION_ENGINE_REDESIGN.md``.
+* the current repo body-to-economy reference notes captured during the
+  Stage 25 mechanics consolidation.
 * Existing importer classifiers in ``build_ratings.py`` and
   ``build_topology.py``.
 

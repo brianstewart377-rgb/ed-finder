@@ -18,8 +18,6 @@ product/runtime paths indefinitely. The goal of this contract is simple:
 1. `docs/ROADMAP.md` is the only roadmap/control document.
    - Other docs may be implementation records, handoffs, references, or
      archives.
-   - If a root-level document is intentionally preserved, it must explain why
-     it still lives at repo root.
 
 2. Repo root is allowlist-only for visible files.
    - New visible root files are not allowed unless they are explicitly
@@ -75,7 +73,6 @@ Visible files currently allowed at repo root:
 - `docker-compose.review-hosted.yml`
 - `docker-compose.review.yml`
 - `docker-compose.yml`
-- `ED_FINDER_JOURNAL_IMPORT_AND_COLONISATION_ROUTING_DESIGN_V1.md`
 - `env.example`
 - `Makefile`
 - `pyproject.toml`
@@ -86,8 +83,6 @@ Notes:
 
 - Dotfiles such as `.gitignore` are expected and not part of the visible-file
   allowlist check.
-- The journal-import design report remains at repo root only because
-  `docs/ROADMAP.md` intentionally links to it as a historical design reference.
 - Scratch outputs and local clone residue should never be committed at repo
   root.
 - Local scratch clone trees such as `_promote_*` belong in ignored local-only

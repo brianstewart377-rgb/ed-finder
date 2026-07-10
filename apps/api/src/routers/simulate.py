@@ -337,7 +337,7 @@ async def _preview_context(pool: asyncpg.Pool, system_id64: int) -> tuple[Previe
         profile = profile_body(body)
         body_profiles[str(body['body_id'])] = profile.to_context_profile()
 
-    mechanics_notes = ['Body economy inheritance follows the repo Mega Guide table in frontend/public/development.html.']
+    mechanics_notes = ['Body economy inheritance follows the current repo colonisation rules table.']
     if body_profiles:
         mechanics_notes.append('Body economy is estimated from scan facts; confirm unusual cases in-game.')
     mechanics_notes.append(PREDICTION_DISCLAIMER)

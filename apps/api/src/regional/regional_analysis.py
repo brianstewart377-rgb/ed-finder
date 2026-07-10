@@ -10,6 +10,9 @@ from mechanics.versions import MECHANICS_VERSION
 from regional.regional_roles import classify_regional_role
 from regional.regional_scoring import archetype_regional_fit, regional_rationale, regional_scores
 
+COLONISATION_CLAIM_RANGE_LY = 16.0
+REGIONAL_ANALYSIS_RADIUS_LY = float(REGIONAL_DISTANCE_BUCKETS[-1])
+
 
 def distance_ly(a: dict[str, Any], b: dict[str, Any]) -> float:
     return math.sqrt(
@@ -103,6 +106,8 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
         return {
             'system_id64': system_id64,
             'mechanics_version': MECHANICS_VERSION,
+            'claim_range_ly': COLONISATION_CLAIM_RANGE_LY,
+            'analysis_radius_ly': REGIONAL_ANALYSIS_RADIUS_LY,
             'nearest_colonised_system': None,
             'counts': {'within_25ly': 0, 'within_50ly': 0, 'within_100ly': 0, 'within_250ly': 0},
             'scores': {'isolation': 0.0, 'density': 0.0, 'expansion': 0.0, 'competition': 0.0},
@@ -125,6 +130,8 @@ def response_from_row(row: dict[str, Any] | None, system_id64: int) -> dict[str,
     return {
         'system_id64': system_id64,
         'mechanics_version': MECHANICS_VERSION,
+        'claim_range_ly': COLONISATION_CLAIM_RANGE_LY,
+        'analysis_radius_ly': REGIONAL_ANALYSIS_RADIUS_LY,
         'nearest_colonised_system': {
             'id64': row.get('nearest_colonised_system_id64'),
             'name': row.get('nearest_colonised_system_name'),

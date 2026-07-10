@@ -9,12 +9,19 @@ from uuid import uuid4
 
 import asyncpg
 
-from journal_import.api_models import (
+from edfinder_api.journal_import.api_models import (
     JournalImportFileRef,
     JournalImportReceipt,
     JournalImportRequest,
     JournalImportSummary,
 )
+
+MAX_DAILY_ROWS_PER_SYNC_KEY = 200_000
+
+
+class JournalImportRateLimitError(RuntimeError):
+    """Raised when a bounded journal-import safety limit is exceeded."""
+
 
 
 def _json_dumps(value: object) -> str:
@@ -37,6 +44,20 @@ def _git_sha() -> str:
     raw = os.getenv('GIT_COMMIT_SHA') or os.getenv('RAILWAY_GIT_COMMIT_SHA') or 'unknown'
     raw = raw.strip()
     return raw[:40] if raw else 'unknown'
+
+
+async def _daily_rows_for_sync_key(conn: asyncpg.Connection, sync_key: str) -> int:
+    rows = await conn.fetchval(
+        '''
+        SELECT COALESCE(SUM(rows_read), 0)
+        FROM source_runs
+        WHERE source_name = 'frontier_journal'
+          AND started_at >= (NOW() - INTERVAL '1 day')
+          AND COALESCE(metadata->>'sync_key', '') = $1
+        ''',
+        sync_key,
+    )
+    return int(rows or 0)
 
 
 def _build_file_refs(files: list[dict[str, object]]) -> list[JournalImportFileRef]:
@@ -65,6 +86,14 @@ async def import_journal_batch(
 
     async with pool.acquire() as conn:
         async with conn.transaction():
+            daily_rows_before = await _daily_rows_for_sync_key(conn, request.sync_key)
+            if daily_rows_before + rows_read > MAX_DAILY_ROWS_PER_SYNC_KEY:
+                raise JournalImportRateLimitError(
+                    f'Journal import row budget exceeded for this sync key: '
+                    f'{daily_rows_before + rows_read:,} rows in the last 24h '
+                    f'(limit {MAX_DAILY_ROWS_PER_SYNC_KEY:,}).'
+                )
+
             await conn.execute(
                 '''
                 INSERT INTO source_runs (
@@ -100,6 +129,10 @@ async def import_journal_batch(
                     'privacy_strip_before_network': True,
                     'canonical_write_path_opened': False,
                     'allowlisted_client_parse': True,
+                    'sync_key': request.sync_key,
+                    'evidence_mode': request.evidence_mode,
+                    'daily_sync_key_row_limit': MAX_DAILY_ROWS_PER_SYNC_KEY,
+                    'daily_sync_key_rows_before_run': daily_rows_before,
                 }),
                 _json_dumps({
                     'parser_version': request.client_manifest.parser_version,
@@ -148,6 +181,9 @@ async def import_journal_batch(
                     continue
 
                 rows_staged += 1
+                if request.evidence_mode == 'staging_only':
+                    continue
+
                 observation_id = f'obs_{uuid4().hex}'
                 evidence_key = f'evd_{uuid4().hex}'
                 observed_value = {
@@ -158,6 +194,8 @@ async def import_journal_batch(
                 metadata = {
                     'source_name': 'frontier_journal',
                     'source_run_key': run_key,
+                    'sync_key': request.sync_key,
+                    'journal_import_evidence_mode': request.evidence_mode,
                     'source_file': observation.source_file,
                     'observation_key': observation.observation_key,
                 }
@@ -265,6 +303,9 @@ async def import_journal_batch(
                         'conflicts_flagged': 0,
                         'files_seen': len(request.client_manifest.files),
                         'event_counts': dict(event_counts),
+                        'evidence_mode': request.evidence_mode,
+                        'daily_sync_key_rows_before_run': daily_rows_before,
+                        'daily_sync_key_rows_after_run': daily_rows_before + rows_read,
                     },
                 }),
             )

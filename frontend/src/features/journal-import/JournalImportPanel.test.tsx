@@ -17,6 +17,10 @@ vi.mock('./parseJournalFiles', () => ({
   parseJournalFiles: vi.fn(),
 }));
 
+vi.mock('@/store/syncKeyStore', () => ({
+  useSyncKeyStore: (selector: (state: { syncKey: string }) => string) => selector({ syncKey: 'sync-key-1234567890' }),
+}));
+
 const mockedImportJournal = vi.mocked(importJournal);
 const mockedParseJournalFiles = vi.mocked(parseJournalFiles);
 
@@ -152,6 +156,10 @@ describe('JournalImportPanel', () => {
     fireEvent.click(screen.getByTestId('journal-import-submit'));
 
     await waitFor(() => expect(mockedImportJournal).toHaveBeenCalledTimes(1));
+    expect(mockedImportJournal.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      sync_key: 'sync-key-1234567890',
+      evidence_mode: 'staging_only',
+    }));
     expect(await screen.findByTestId('journal-import-receipt')).toBeTruthy();
     expect(screen.getByTestId('journal-import-receipt-files').textContent).toContain('Journal.demo.log');
     expect(screen.getByText(/Event mix: Scan 1/)).toBeTruthy();

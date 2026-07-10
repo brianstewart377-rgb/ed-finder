@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { ColonyEntry } from '@/features/colony/useColony';
 import {
   rehydrateColonyProjectStore,
   type ColonyProject,
@@ -41,6 +40,21 @@ interface PersistedStoreEnvelope<TState> {
   version?: number;
 }
 
+interface LegacyColonyEntry {
+  id: string;
+  name: string;
+  phase: 'planning' | 'building' | 'active' | 'complete';
+  target_population: number | null;
+  notes: string;
+  id64: number | null;
+  x: number | null;
+  y: number | null;
+  z: number | null;
+  current_population: number | null;
+  claimed_at: string;
+  updated_at: string;
+}
+
 /** What we serialise to the slot. Each top-level field maps 1:1 to the
  *  localStorage key used by the corresponding feature, so push/pull is a
  *  trivial copy. New tabs just add a key here and to gather/apply. */
@@ -49,7 +63,7 @@ export interface ProfileBlob {
   exported_at: string;
   ed_pinned?:    PinnedEntry[];
   ed_compare_v2?: SystemResult[];
-  ed_colony_v2?:  ColonyEntry[];
+  ed_colony_v2?:  LegacyColonyEntry[];
   ed_fc_v2?:      { waypoints: FcWaypoint[]; config: FcConfig };
   ed_my_work_v1?: PersistedStoreEnvelope<{ systems: Record<string, MyWorkSystemRecord> }>;
   ed_colony_projects_v1?: PersistedStoreEnvelope<{ projects: Record<string, ColonyProject> }>;
