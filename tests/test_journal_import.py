@@ -140,6 +140,20 @@ def test_journal_import_request_requires_sync_key():
 
 
 @pytest.mark.unit
+def test_journal_import_request_rejects_non_staging_evidence_modes():
+    with pytest.raises(Exception):
+        JournalImportRequest.model_validate({
+            'sync_key': 'sync-key-1234567890',
+            'client_manifest': {
+                'parser_version': 'journal-import-worker-v1',
+                'files': [],
+            },
+            'evidence_mode': 'quarantined',
+            'observations': [],
+        })
+
+
+@pytest.mark.unit
 def test_journal_import_migration_is_manifested_and_bounded():
     sql = SQL_PATH.read_text(encoding='utf-8')
     manifest = MANIFEST_PATH.read_text(encoding='utf-8')

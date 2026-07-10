@@ -25,16 +25,25 @@ def test_api_package_namespace_bridges_legacy_flat_import_tree():
 
 
 def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt():
-    journal_router = _read('apps', 'api', 'src', 'routers', 'journal_import.py')
-    journal_store = _read('apps', 'api', 'src', 'journal_import', 'store.py')
+    api_src = ROOT / 'apps' / 'api' / 'src'
+    package_aware_modules = []
 
-    assert 'from edfinder_api.config import limiter' in journal_router
-    assert 'from edfinder_api.deps import get_pool' in journal_router
-    assert 'from edfinder_api.journal_import.api_models import JournalImportReceipt, JournalImportRequest' in journal_router
-    assert 'from edfinder_api.journal_import import store' in journal_router
-    assert 'from deps import get_pool' not in journal_router
-    assert 'from config import limiter' not in journal_router
-    assert 'from journal_import import store' not in journal_router
+    for path in api_src.rglob('*.py'):
+        source = path.read_text(encoding='utf-8')
+        if 'from edfinder_api.' in source or 'import edfinder_api.' in source:
+            package_aware_modules.append((path.relative_to(ROOT).as_posix(), source))
 
-    assert 'from edfinder_api.journal_import.api_models import (' in journal_store
-    assert 'from journal_import.api_models import (' not in journal_store
+    assert package_aware_modules, 'expected at least one package-aware API module to enforce'
+
+    forbidden_flat_imports = (
+        'from config import ',
+        'from deps import ',
+        'from models import ',
+        'from helpers import ',
+        'from journal_import import ',
+        'from journal_import.api_models import ',
+    )
+
+    for relative_path, source in package_aware_modules:
+        for forbidden in forbidden_flat_imports:
+            assert forbidden not in source, f'{relative_path} still mixes package imports with flat import: {forbidden.strip()}'

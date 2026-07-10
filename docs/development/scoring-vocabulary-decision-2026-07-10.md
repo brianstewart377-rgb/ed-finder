@@ -25,3 +25,5 @@ audit.
 - The static `development.html` surface was removed.
 - Finder no longer links to a standalone scoring explainer page.
 - The shell no longer promotes Development Tuning as a peer of Finder and Map.
+- Finder now exposes one explicit in-product link into Development Tuning
+  without restoring it to the primary navigation hierarchy.

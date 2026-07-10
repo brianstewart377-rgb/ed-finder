@@ -119,7 +119,7 @@ export interface JournalImportObservationInput {
 export interface JournalImportRequest {
   sync_key: string;
   client_manifest: JournalImportClientManifest;
-  evidence_mode?: 'staging_only' | 'quarantined';
+  evidence_mode?: 'staging_only';
   observations: JournalImportObservationInput[];
 }
 

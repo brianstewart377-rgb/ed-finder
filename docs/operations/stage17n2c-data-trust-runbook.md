@@ -214,18 +214,20 @@ Post-deploy path:
 - `scripts/deploy_main.sh` now runs the wrapper by default in
   `--production-safe` mode unless `--skip-invariants` is supplied.
 - The deploy hook writes a transient receipt to
-  `/tmp/ed-finder-data-invariants-post-deploy.json` so the production checkout
-  stays free of new repo-root residue.
+  `/tmp/ed-finder-data-invariants-post-deploy.json` and also copies a dated
+  durable receipt into `/data/receipts/data-invariants/post-deploy/` so the
+  production checkout stays free of new repo-root residue without losing the
+  evidence trail.
 
 Install this weekly host cron on the production box:
 
 ```cron
-45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json >> /data/logs/data-invariants.log 2>&1
+45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
 ```
 
 Recommended operator habit after a clean weekly run:
 
-1. copy the dated receipt into a reviewable artifact location
+1. copy the durable dated receipt into a committed/reviewable artifact location
 2. note the result in the ops log / roadmap evidence trail
 3. only use `--skip-invariants` during deploy when there is an explicit,
    documented reason
@@ -807,7 +809,8 @@ $sql | ssh ed-finder-prod "cd /opt/ed-finder && docker compose exec -T postgres 
 
 Success criteria for this rollout:
 
-- `scripts/checks/data_invariants.py --production-safe` passes cleanly on production
+- preferred steady state: `scripts/checks/data_invariants.py --production-safe`
+  passes cleanly on production
 - `scripts/checks/data_trust_health_snapshot.py` reports:
   - `flagged_but_zero_count = 0`
   - `unflagged_but_positive_count = 0`
@@ -817,6 +820,17 @@ Success criteria for this rollout:
 - repaired station-link drift no longer appears in the preview
 - the follow-up dirty rebuild drains normally
 - the dirty-ratings cron log shows steady-state behavior, not rebuild-tail chaos
+
+Current production note (2026-07-10):
+
+- the large ring-drift bucket has already been repaired back to `0`
+- the stale no-body dirty tail was drained from the original audit-scale bucket
+  into a small live-churn retry band
+- the remaining persistent structural residue is a tiny body-contract tail:
+  `flagged_but_zero_count = 3`
+- on very large live databases, treat production-safe invariant receipts plus
+  bounded repair-script summaries as the closeout evidence path even if the
+  final receipt still shows a tiny live-churn tail
 
 Preferred path:
 

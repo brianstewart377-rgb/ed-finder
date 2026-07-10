@@ -1,0 +1,34 @@
+{
+  "artifact_type": "production_safe_invariants_transcription",
+  "captured_from": "post-deploy production-safe invariants wrapper output observed during live remediation",
+  "deployed_commit": "ee6707c",
+  "environment": "ed-finder-prod",
+  "observed_on_utc_date": "2026-07-10",
+  "query_profile": "production-safe",
+  "latest_receipted_counts": {
+    "stored_body_flag_drift": 3,
+    "missing_body_flag_rows": 0,
+    "zero_body_count_drift": 3,
+    "body_count_mismatches": "skipped",
+    "dirty_truthful_no_bodies": 67,
+    "stale_clean_ratings": "skipped",
+    "ring_status_drift": 0,
+    "trusted_rings_no_body": 0,
+    "trusted_ring_name_drift": 0,
+    "duplicate_trusted_rings": 0,
+    "confirmed_links_no_body": 0,
+    "link_body_system_drift": 0,
+    "link_station_system_drift": 0,
+    "link_body_name_drift": 0,
+    "confirmed_unknown_lane": 0,
+    "confirmed_non_exact": 0
+  },
+  "follow_up_live_probe": {
+    "reconcile_no_body_ratings_total_candidates": 27,
+    "repair_body_ring_association_status_total_drift": 0
+  },
+  "notes": [
+    "The wrapper's built-in JSON receipt currently records status/exit metadata only, so this committed artifact preserves the observed invariant counters explicitly.",
+    "The remaining persistent structural residue after the bounded repair runs was a 3-row body-contract tail."
+  ]
+}

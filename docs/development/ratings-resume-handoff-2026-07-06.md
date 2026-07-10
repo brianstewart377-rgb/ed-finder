@@ -15,6 +15,12 @@ migration has since been completed in the canonical local workspace.
   follow-up is contract/integrity hardening such as body-data truthfulness and
   related provenance/drift guardrails, not an active mixed-generation rerate
   backlog.
+- Stage 25 product work is complete on the integrated line, production is now
+  running deployed commit `ee6707c`, and the large post-deploy ring/no-body
+  repair buckets have already been drained.
+- The remaining production residue is small and explicit: ring drift is `0`,
+  the no-body dirty tail is now a small live-churn retry band, and the only
+  persistent structural tail still being tracked is `3` body-contract rows.
 - The local engineering environment is materially healthier than when this
   handoff was written: repo-local `.venv` execution is canonical, disposable
   Docker-backed Postgres/Redis preflight is green, and the broad local pytest

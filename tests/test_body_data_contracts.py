@@ -61,8 +61,10 @@ def test_repair_body_contract_script_is_guarded_and_marks_rows_dirty():
     assert "summary_skipped={report['summary_skipped']}" in source
     assert "rating_dirty  = TRUE" in source
     assert "cluster_dirty = TRUE" in source
-    assert "SET statement_timeout = 0" in source
-    assert "SET lock_timeout = 0" in source
+    assert 'SESSION_STATEMENT_TIMEOUT = "5min"' in source
+    assert 'SESSION_LOCK_TIMEOUT = "10s"' in source
+    assert 'SET statement_timeout = \'{SESSION_STATEMENT_TIMEOUT}\'' in source
+    assert 'SET lock_timeout = \'{SESSION_LOCK_TIMEOUT}\'' in source
     assert "mode={report['mode']}" in source
 
 

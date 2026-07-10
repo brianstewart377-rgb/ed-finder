@@ -18,6 +18,8 @@ from collections.abc import Sequence
 DEFAULT_BATCH_SIZE = 1000
 DEFAULT_FOCUS = "all"
 MISSING_BODIES_PREFILTER_MULTIPLIER = 10
+SESSION_STATEMENT_TIMEOUT = "5min"
+SESSION_LOCK_TIMEOUT = "10s"
 SUMMARY_KEYS = (
     "total_mismatches",
     "stored_body_flag_without_rows",
@@ -255,8 +257,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def configure_session(conn) -> None:
     with conn.cursor() as cur:
-        cur.execute("SET statement_timeout = 0")
-        cur.execute("SET lock_timeout = 0")
+        cur.execute(f"SET statement_timeout = '{SESSION_STATEMENT_TIMEOUT}'")
+        cur.execute(f"SET lock_timeout = '{SESSION_LOCK_TIMEOUT}'")
     conn.commit()
 
 

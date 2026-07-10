@@ -48,8 +48,10 @@ def test_repair_station_body_links_script_is_guarded():
     assert "repair_station_body_links: downgraded impossible confirmed link" in source
     assert "repair_station_body_links: resynced link system_id64 to owning station." in source
     assert "repair_station_body_links: resynced body_name from canonical bodies row." in source
-    assert "SET statement_timeout = 0" in source
-    assert "SET lock_timeout = 0" in source
+    assert 'SESSION_STATEMENT_TIMEOUT = "5min"' in source
+    assert 'SESSION_LOCK_TIMEOUT = "10s"' in source
+    assert 'SET statement_timeout = \'{SESSION_STATEMENT_TIMEOUT}\'' in source
+    assert 'SET lock_timeout = \'{SESSION_LOCK_TIMEOUT}\'' in source
     assert "mode={report['mode']}" in source
 
 

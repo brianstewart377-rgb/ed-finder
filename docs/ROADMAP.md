@@ -23,9 +23,11 @@ document that should answer "what next?".
   implementation still runs on the **Ratings v3.4** scorer/tables. The full
   production rebaseline main pass has completed and the steady-state
   dirty-ratings cron has been restored. The remaining ratings integrity issue
-  is post-rerate body-data contract drift
+  is a tiny post-rerate body-data contract tail
   (`systems.has_body_data` / `systems.body_count` versus actual `bodies`
-  rows), not an active mixed-generation rerate backlog.
+  rows), not an active mixed-generation rerate backlog. The larger no-body and
+  ring-drift repair buckets have already been drained on production into a
+  small live-churn retry band plus `3` persistent body-contract rows.
 - Data-trust follow-up posture: the next persisted-integrity hardening lane is
   `station_body_links` drift; Finder populated/uninhabited filter semantics now
   match end-to-end, but canonical population storage still needs a later
@@ -104,14 +106,17 @@ competing roadmap source.
 
 ### Do Now
 
-- Roll out the body-data contract hardening and reconcile drifted
-  `has_body_data` / `body_count` rows from the real `bodies` table.
-- Re-run the committed invariant checks after reconciliation so the post-rerate
-  end-state is evidenced, not assumed.
-- Roll out station/body link contract hardening so confirmed occupied-slot rows
-  cannot silently drift away from canonical station/body truth.
-- Keep Stage 25C shell/context work moving only where it does not distract from
-  the remaining ratings integrity cleanup.
+- Finish the last tiny production body-data contract tail
+  (`flagged_but_zero_count = 3`) without reopening expensive wide scans on the
+  live 120 GB database.
+- Keep receipting `scripts/run_data_invariants_receipted.sh --production-safe`
+  on production so the post-rerate end-state is evidenced, not assumed, and
+  persist the dated durable receipts under the production receipts path plus
+  committed review artifacts.
+- Preserve the now-clean ring and station-link lanes while the remaining
+  no-body dirty rows wobble inside a bounded live-churn retry band.
+- Keep Stage 25 shell/context work closed and stable while the audit-response
+  foundation follow-through finishes.
 
 ### Do Next
 

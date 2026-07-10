@@ -60,6 +60,12 @@ product/runtime paths indefinitely. The goal of this contract is simple:
    - Safety/checkpoint branches are allowed when they preserve unique history,
      but they should be clearly named (`safety/*`, `*-checkpoint`) and removed
      once that history is either merged or deliberately retired.
+   - Once a remote branch is fully merged into `origin/main`, delete the
+     remote ref promptly unless it is intentionally retained as a long-lived
+     support branch.
+   - Avoid throwaway or ambiguous branch names on `origin` such as all-caps
+     scratch refs (`TEST`); they create avoidable fetch/ref collisions on
+     Windows clients.
    - Detached or scratch worktrees should not accumulate indefinitely; once
      their content is promoted, archived, or preserved on a named branch, the
      extra worktree should be removed.
@@ -111,6 +117,8 @@ Use this steady-state workflow:
 4. After merge or closeout:
    - delete the merged local branch;
    - delete the merged remote branch;
+   - remove any temporary fetch exclusions added only to work around a bad
+     remote branch name once that remote ref is gone;
    - remove any extra worktree created only for that branch.
 
 The goal is simple: one clean `main`, one active topic branch per live task,

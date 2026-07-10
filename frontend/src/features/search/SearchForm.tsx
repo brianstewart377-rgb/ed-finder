@@ -58,6 +58,15 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
 
       <div className="rounded border border-orange/20 bg-orange/6 px-3 py-2 font-mono text-[10px] leading-relaxed text-silver-dk">
         Development score is a Finder-side triage signal. Inspect and Colony Planner remain the authoritative places for evidence-backed planning decisions.
+        <div className="mt-2">
+          <a
+            href="#search-tuning"
+            className="inline-flex items-center rounded border border-cyan/30 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-cyan transition-colors hover:border-cyan/50 hover:text-white"
+            data-testid="open-search-tuning-link"
+          >
+            Open Development Tuning
+          </a>
+        </div>
       </div>
       <Section title="Search Radius">
         <RangeRow

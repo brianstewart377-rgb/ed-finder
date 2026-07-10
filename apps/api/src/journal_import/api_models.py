@@ -93,7 +93,7 @@ class JournalImportRequest(BaseModel):
 
     sync_key: str = Field(min_length=16, max_length=128)
     client_manifest: JournalImportClientManifest
-    evidence_mode: Literal['staging_only', 'quarantined'] = 'staging_only'
+    evidence_mode: Literal['staging_only'] = 'staging_only'
     observations: list[JournalObservationInput] = Field(default_factory=list, max_length=50_000)
 
     @field_validator('sync_key')

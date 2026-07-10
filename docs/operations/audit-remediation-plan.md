@@ -45,13 +45,13 @@ response lane.
   - `flagged_but_zero_count = 3`
   - `unflagged_but_positive_count = 0`
   - `ring_status_drift = 0`
-  - `dirty_rows` now oscillates in a small live retry band after rerates and
-    no-body reconciles, rather than reflecting the original audit-scale
-    backlog.
+  - the stale no-body dirty tail has been drained from the original
+    audit-scale backlog into a small live retry band, rather than reflecting a
+    structural backlog.
   - station-link `total_mismatches = 0`
 - A committed lightweight closeout probe now exists at
   `scripts/checks/data_trust_health_snapshot.py`. The latest production snapshot
-  reported:
+  previously reported:
   - `flagged_but_zero_count = 0`
   - `unflagged_but_positive_count = 0`
   - `ring_status_drift = 0`
@@ -82,14 +82,15 @@ If a new chat needs to resume the Claude-report lane, use this summary:
   - ratings migration/cutover is complete;
   - production ratings is in healthy steady state, with remaining follow-up in
     contract/integrity hardening rather than a live mixed-generation backlog;
+  - production deploy/promotion is live on `ee6707c`, public health is green,
+    and the large no-body/ring drift buckets have been drained;
   - local preflight and disposable DB/Redis verification are green;
   - broad local pytest was most recently observed green at
     `1487 passed, 16 skipped` in the current workspace.
 - The next audit-response work is still:
-  1. finish production body-contract closeout evidence,
-  2. land migration-ledger discipline,
-  3. execute and record a real restore rehearsal,
-  4. carry the now-honest local verification posture into CI/build paths.
+  1. finish the last tiny production body-contract tail (`3` rows),
+  2. keep receipting production-safe invariants as the steady-state proof path,
+  3. preserve the now-honest local verification posture in CI/build paths.
 
 ## Sequence
 
@@ -159,24 +160,35 @@ Checkpoint note (2026-07-10):
   `3`.
 - `repair_body_ring_association_status.py` now provides the equivalent
   production-safe repair path for `body_rings.association_status` drift. On
-  production it repaired `428` rows to canonical status and reduced
-  `ring_status_drift` to `0`.
+  production it repaired the large initial drift bucket and the final
+  post-deploy verification pass now reports `ring_status_drift = 0`.
 - Repeated `reconcile_no_body_ratings.py` passes and dirty-rating retries
-  drained the stale no-body rating pockets and reduced the dirty queue to a
-  small live tail. Final observed production shape:
+  drained the stale no-body rating pockets from `10583` candidates to `0`
+  immediate candidates during bounded repair passes. The subsequent production
+  invariants receipt showed the remaining live shape:
   - `flagged_but_zero_count = 3`
   - `unflagged_but_positive_count = 0`
   - `ring_status_drift = 0`
+  - `dirty_truthful_no_bodies = 67`
   - `dirty_rows` / `dirty_truthful_no_bodies` continue to wobble in a bounded
     live-churn band after retries, rather than reopening the original backlog
+  - a follow-up dry-run immediately after the receipt already reduced the
+    current `reconcile_no_body_ratings.py` candidate pool further to `27`,
+    confirming the tail is active churn rather than a stuck bulk backlog
 - The new `data_trust_health_snapshot.py` probe makes that residue explicit:
   the live tail is a mixture of truthful no-body rows awaiting reconciliation
   and genuinely body-backed dirty rows awaiting the next rerate pass, not a
   reopened contract/integrity drift bucket.
 - `repair_station_body_links.py --json` now reports `total_mismatches = 0` on
   production.
-- The remaining residue is small enough to treat as steady-state retry/live
-  churn, not the original audit-scale body-contract backlog.
+- Production deploy/promotion is also now real rather than only local:
+  `ee6707c` is deployed on `ed-finder-prod`, `/api/health` is green, and the
+  remaining residue is small enough to treat as steady-state retry/live churn
+  plus a tiny persistent body-contract tail, not the original audit-scale
+  backlog.
+- The current committed evidence trail for this checkpoint now lives under:
+  - `artifacts/data-invariants/production-safe-post-deploy-2026-07-10.json`
+  - `artifacts/data-invariants/production-repair-drain-2026-07-10.md`
 
 ### 2. Migration Safety
 

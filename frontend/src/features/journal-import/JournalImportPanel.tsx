@@ -222,7 +222,7 @@ function ReceiptPanel({ receipt }: { receipt: JournalImportReceipt }) {
         </div>
       ) : null}
       <p className="mt-3 text-sm leading-relaxed text-silver">
-        Status {receipt.status}. Canonical data remains untouched in A-1; this run only writes staging plus evidence shelf records.
+        Status {receipt.status}. Canonical data remains untouched in A-1; this run writes staging records only.
       </p>
     </div>
   );

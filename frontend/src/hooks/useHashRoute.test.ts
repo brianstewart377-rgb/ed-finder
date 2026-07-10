@@ -41,34 +41,12 @@ describe('useHashRoute route parsing', () => {
     expect(result.current.plannerSystemId).toBeNull();
   });
 
-  it('redirects legacy #optimizer links onto the canonical search-tuning route', () => {
-    window.location.hash = '#optimizer';
-
-    const { result } = renderHook(() => useHashRoute());
-
-    expect(result.current.route).toBe('search-tuning');
-    expect(result.current.routeAlias).toBeNull();
-    expect(result.current.selectedSystemId).toBeNull();
-    expect(result.current.plannerSystemId).toBeNull();
-  });
-
   it('parses child system modal routes without changing the parent tab', () => {
     window.location.hash = '#compare/system/123456';
 
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('compare');
-    expect(result.current.selectedSystemId).toBe(123456);
-    expect(result.current.plannerSystemId).toBeNull();
-  });
-
-  it('parses legacy #optimizer/system links as canonical search-tuning modal routes', () => {
-    window.location.hash = '#optimizer/system/123456';
-
-    const { result } = renderHook(() => useHashRoute());
-
-    expect(result.current.route).toBe('search-tuning');
-    expect(result.current.routeAlias).toBeNull();
     expect(result.current.selectedSystemId).toBe(123456);
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -176,6 +154,16 @@ describe('useHashRoute route parsing', () => {
 
   it('falls back to Finder for unknown routes', () => {
     window.location.hash = '#does-not-exist';
+
+    const { result } = renderHook(() => useHashRoute());
+
+    expect(result.current.route).toBe('finder');
+    expect(result.current.selectedSystemId).toBeNull();
+    expect(result.current.plannerSystemId).toBeNull();
+  });
+
+  it('treats legacy #optimizer links as unknown routes after alias retirement', () => {
+    window.location.hash = '#optimizer';
 
     const { result } = renderHook(() => useHashRoute());
 

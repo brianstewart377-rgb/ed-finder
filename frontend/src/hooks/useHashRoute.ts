@@ -8,7 +8,7 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  *   #finder                       → route='finder',    selectedSystemId=null
  *   #pinned                       → route='my-work',   routeAlias='pinned',    selectedSystemId=null
  *   #pinned/system/12345678       → route='my-work',   routeAlias='pinned',    selectedSystemId=12345678
- *   #search-tuning                → route='search-tuning', selectedSystemId=null
+ *   #search-tuning                â†’ route='search-tuning', selectedSystemId=null
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   #my-work                      → route='my-work', selectedSystemId=null
  *   #watchlist                    → route='my-work', routeAlias='watchlist', selectedSystemId=null
@@ -79,10 +79,7 @@ function parseHash(): ParsedHash {
   let route: Route = 'finder';
   let routeAlias: ParsedHash['routeAlias'] = null;
   let i = 0;
-  if (parts[0] === 'optimizer') {
-    route = 'search-tuning';
-    i = 1;
-  } else if (parts[0] === 'watchlist' || parts[0] === 'pinned' || parts[0] === 'colony') {
+  if (parts[0] === 'watchlist' || parts[0] === 'pinned' || parts[0] === 'colony') {
     route = 'my-work';
     routeAlias = parts[0] as 'watchlist' | 'pinned' | 'colony';
     i = 1;

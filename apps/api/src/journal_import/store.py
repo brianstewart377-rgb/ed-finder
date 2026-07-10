@@ -130,7 +130,7 @@ async def import_journal_batch(
                     'canonical_write_path_opened': False,
                     'allowlisted_client_parse': True,
                     'sync_key': request.sync_key,
-                    'evidence_mode': request.evidence_mode,
+                    'evidence_mode': 'staging_only',
                     'daily_sync_key_row_limit': MAX_DAILY_ROWS_PER_SYNC_KEY,
                     'daily_sync_key_rows_before_run': daily_rows_before,
                 }),
@@ -181,99 +181,6 @@ async def import_journal_batch(
                     continue
 
                 rows_staged += 1
-                if request.evidence_mode == 'staging_only':
-                    continue
-
-                observation_id = f'obs_{uuid4().hex}'
-                evidence_key = f'evd_{uuid4().hex}'
-                observed_value = {
-                    'event_type': observation.event_type,
-                    'summary': observation.summary,
-                    'payload': observation.payload,
-                }
-                metadata = {
-                    'source_name': 'frontier_journal',
-                    'source_run_key': run_key,
-                    'sync_key': request.sync_key,
-                    'journal_import_evidence_mode': request.evidence_mode,
-                    'source_file': observation.source_file,
-                    'observation_key': observation.observation_key,
-                }
-
-                await conn.execute(
-                    '''
-                    INSERT INTO observed_facts (
-                        observation_id, system_id64, area, source, source_type, fact_type,
-                        subject_type, subject_id, status, observed_value, observed_value_json,
-                        expected_value_json, confidence, notes, build_fingerprint,
-                        simulation_fingerprint, target_archetype, facility_template_id,
-                        facility_id, local_body_id, body_id, service_id, economy, tags_json,
-                        metadata_json, created_at
-                    ) VALUES (
-                        $1, $2, 'note', 'imported', 'journal_upload', 'note',
-                        $3, $4, 'unverified', $5::jsonb, $5::jsonb,
-                        'null'::jsonb, 'medium', $6, NULL,
-                        NULL, NULL, NULL,
-                        NULL, NULL, NULL, NULL, NULL, $7::jsonb,
-                        $8::jsonb, NOW()
-                    )
-                    ''',
-                    observation_id,
-                    observation.system_id64,
-                    observation.subject_type,
-                    observation.subject_id,
-                    _json_dumps(observed_value),
-                    observation.summary,
-                    _json_dumps(['frontier_journal', observation.event_type]),
-                    _json_dumps(metadata),
-                )
-
-                await conn.execute(
-                    '''
-                    INSERT INTO evidence_records (
-                        evidence_key,
-                        system_id64,
-                        source_name,
-                        origin,
-                        subject_type,
-                        subject_id,
-                        evidence_type,
-                        record_status,
-                        freshness_status,
-                        confidence,
-                        summary,
-                        source_record_id,
-                        source_run_key,
-                        observed_at,
-                        collected_at,
-                        expires_at,
-                        value_json,
-                        provenance_json,
-                        tags_json,
-                        metadata_json
-                    ) VALUES (
-                        $1, $2, 'frontier_journal', 'imported', $3, $4, 'journal_observation',
-                        'active', 'current', 'medium', $5, $6, $7, $8::timestamptz, NOW(), NULL,
-                        $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb
-                    )
-                    ''',
-                    evidence_key,
-                    observation.system_id64,
-                    observation.subject_type,
-                    observation.subject_id,
-                    observation.summary,
-                    observation.observation_key,
-                    run_key,
-                    observation.observed_at,
-                    _json_dumps(observed_value),
-                    _json_dumps({
-                        'source_file': observation.source_file,
-                        'parser_version': request.client_manifest.parser_version,
-                        'privacy_boundary': observation.privacy_boundary,
-                    }),
-                    _json_dumps(['frontier_journal', observation.event_type]),
-                    _json_dumps(metadata),
-                )
 
             duration_ms = int((perf_counter() - started_perf) * 1000)
             await conn.execute(
@@ -303,7 +210,7 @@ async def import_journal_batch(
                         'conflicts_flagged': 0,
                         'files_seen': len(request.client_manifest.files),
                         'event_counts': dict(event_counts),
-                        'evidence_mode': request.evidence_mode,
+                        'evidence_mode': 'staging_only',
                         'daily_sync_key_rows_before_run': daily_rows_before,
                         'daily_sync_key_rows_after_run': daily_rows_before + rows_read,
                     },
