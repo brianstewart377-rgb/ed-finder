@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type { ReviewPreviewStatus } from './ReviewWorkflowRail';
 
 export function ReviewReadinessStrip({
@@ -74,7 +75,7 @@ function ReadinessChip({
   children,
   tone,
 }: {
-  children: string;
+  children: ReactNode;
   tone: 'good' | 'warn' | 'neutral';
 }) {
   const className = tone === 'good'
