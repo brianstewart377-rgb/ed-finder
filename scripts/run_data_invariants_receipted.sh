@@ -60,21 +60,41 @@ dc() {
   docker compose "${compose_args[@]}" "$@"
 }
 
+resolve_host_database_url() {
+  local container_url
+  container_url="$(dc exec -T api printenv DATABASE_URL | tr -d '\r' | tail -n 1)"
+  [[ -n "$container_url" ]] || die "could not read DATABASE_URL from api container"
+
+  case "$container_url" in
+    *@postgres:*|*@db:*)
+      printf '%s\n' "$container_url" | sed -E 's#@([^:/]+):#@127.0.0.1:#'
+      ;;
+    *)
+      printf '%s\n' "$container_url"
+      ;;
+  esac
+}
+
 command_args=(scripts/checks/data_invariants.py --target-rating-version "$TARGET_RATING_VERSION")
 if [[ "$PRODUCTION_SAFE" -eq 1 ]]; then
   command_args+=(--production-safe)
 fi
 
-mode="docker_compose_api"
+mode="host_database_url"
 runner=()
 if [[ -n "${DATABASE_URL:-}" ]]; then
-  command -v python >/dev/null 2>&1 || die "python not found for DATABASE_URL mode"
+  command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || die "python/python3 not found for DATABASE_URL mode"
   mode="database_url"
-  command_args=(python "${command_args[@]}" --database-url "$DATABASE_URL")
+  python_bin="$(command -v python3 || command -v python)"
+  command_args=("$python_bin" "${command_args[@]}" --database-url "$DATABASE_URL")
   runner=("${command_args[@]}")
 else
   command -v docker >/dev/null 2>&1 || die "docker not found"
-  runner=(dc exec -T api python "${command_args[@]}")
+  command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || die "python/python3 not found for host invariants mode"
+  host_database_url="$(resolve_host_database_url)"
+  python_bin="$(command -v python3 || command -v python)"
+  command_args=("$python_bin" "${command_args[@]}" --database-url "$host_database_url")
+  runner=("${command_args[@]}")
 fi
 
 started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
