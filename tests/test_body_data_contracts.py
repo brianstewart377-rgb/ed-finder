@@ -21,8 +21,11 @@ def test_data_invariants_check_reports_body_contract_drift():
     assert "Missing body flag rows" in source
     assert "Zero body_count drift" in source
     assert "Body count mismatches" in source
+    assert "Non-eligible with rating" in source
+    assert "Dirty truthful no-bodies" in source
     assert "has_body_data = TRUE" in source
     assert "has_body_data = FALSE" in source
+    assert "s.rating_dirty = TRUE" in source
     assert "body_count, 0) = 0" in source
     assert "IS DISTINCT FROM COALESCE(actual.actual_body_count, 0)" in source
     assert "FAIL: stored systems body-data flags/counts drift from actual bodies rows" in source
@@ -45,8 +48,31 @@ def test_repair_body_contract_script_is_guarded_and_marks_rows_dirty():
     source = (ROOT / "scripts" / "repair_body_contract.py").read_text(encoding="utf-8")
 
     assert "Apply the repair. Omit for dry-run summary only." in source
+    assert '"--skip-summary"' in source
+    assert "--skip-summary requires --apply" in source
+    assert "choices=(\"all\", \"missing-bodies-only\")" in source
+    assert "MISSING_BODIES_ONLY_SUMMARY_SQL" in source
+    assert "MISSING_BODIES_ONLY_FETCH_REPAIR_BATCH_SQL" in source
+    assert "MISSING_BODIES_ONLY_HYDRATE_BATCH_SQL" in source
+    assert "COALESCE(s.body_count, 0) = 0" in source
+    assert "systems.has_body_data = TRUE but no bodies rows exist" in source
+    assert "repair_body_contract starting " in source
+    assert "focus={report['focus']}" in source
+    assert "summary_skipped={report['summary_skipped']}" in source
     assert "rating_dirty  = TRUE" in source
     assert "cluster_dirty = TRUE" in source
     assert "SET statement_timeout = 0" in source
     assert "SET lock_timeout = 0" in source
     assert "mode={report['mode']}" in source
+
+
+def test_reconcile_no_body_ratings_script_clears_dirty_and_deletes_stale_rows():
+    source = (ROOT / "scripts" / "reconcile_no_body_ratings.py").read_text(encoding="utf-8")
+
+    assert "systems.rating_dirty = TRUE" in source
+    assert "systems.has_body_data = FALSE" in source
+    assert "DELETE FROM ratings" in source
+    assert "SET rating_dirty = FALSE" in source
+    assert "Apply the reconciliation. Omit for dry-run summary only." in source
+    assert "candidates_with_rating" in source
+    assert "candidates_without_rating" in source

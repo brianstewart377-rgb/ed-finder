@@ -16,6 +16,8 @@
 #   ./scripts/run_import.sh build_grid.py          # run build_grid
 #   ./scripts/run_import.sh build_ratings.py       # run build_ratings
 #   ./scripts/run_import.sh build_clusters.py      # run build_clusters
+#   ./scripts/run_import.sh scripts/repair_body_contract.py --json
+#   ./scripts/run_import.sh scripts/reconcile_no_body_ratings.py --apply --batch-size 5000
 #   ./scripts/run_import.sh build_grid.py --reset-cache    # force full rebuild
 #   ./scripts/run_import.sh build_ratings.py --rebuild
 #   ./scripts/run_import.sh build_clusters.py --rebuild
@@ -26,6 +28,12 @@
 #     is /opt/ed-finder. There is no longer a separate /opt/ed-finder-src.
 #   - Removed the file-sync block that copied Python scripts between directories.
 #   - Simplified .env detection to look only in the script's parent directory.
+#   - Added first-class support for repo-root helper scripts under scripts/.
+#   - Forces unbuffered Python output so long-running helper progress reaches
+#     the operator without waiting on stdio buffers.
+#   - Avoids attached `docker compose run` transport flakiness by starting the
+#     one-shot importer container detached, streaming logs explicitly, waiting
+#     for exit, and then removing the container.
 #
 # FIXES in v1.3 (retained):
 #   - Orphaned importer containers (ed-importer in Exited state) are removed
@@ -150,30 +158,57 @@ fi
 
 # ── Determine what to run ────────────────────────────────────────────────────
 if [[ $# -eq 0 ]]; then
-    SCRIPT="import_spansh.py"
-    ARGS="--status"
+    SCRIPT="/app/import_spansh.py"
+    SCRIPT_LABEL="import_spansh.py"
+    ARGS=(--status)
 elif [[ "$1" == build_*.py ]]; then
-    SCRIPT="$1"
+    SCRIPT="/app/$1"
+    SCRIPT_LABEL="$1"
     shift
-    ARGS="${*:-}"
+    ARGS=("$@")
+elif [[ "$1" == scripts/*.py ]]; then
+    SCRIPT="/opt/ed-finder/$1"
+    SCRIPT_LABEL="$1"
+    shift
+    ARGS=("$@")
 else
-    SCRIPT="import_spansh.py"
-    ARGS="$*"
+    SCRIPT="/app/import_spansh.py"
+    SCRIPT_LABEL="import_spansh.py"
+    ARGS=("$@")
 fi
 
 echo "=============================================="
 echo " ED Finder Import Runner v2.0"
-echo " Script : $SCRIPT ${ARGS:-}"
+echo " Script : $SCRIPT_LABEL ${ARGS[*]:-}"
 echo " Dir    : $INSTALL_DIR"
 echo " Env    : $ENV_FILE"
 echo " Network: ed-finder_default (via docker compose)"
 echo "=============================================="
 
-# Use docker compose run — always gets the right network and DNS.
-# --rm ensures the container is removed on clean exit.
-# The orphan cleanup above handles the case where --rm didn't fire.
-docker compose --profile import run --rm \
+# Use detached docker compose run plus explicit log follow + wait.
+# This avoids the flaky attached transport path we've seen with long-running
+# helper jobs, while still using compose for the right network, env, and mounts.
+JOB_NAME="ed-importer-job-$(date +%Y%m%d%H%M%S)-$$"
+
+cleanup_job() {
+    docker rm -f "$JOB_NAME" >/dev/null 2>&1 || true
+}
+
+docker compose --profile import run -d --name "$JOB_NAME" \
     --entrypoint python3 \
-    -e LOG_FILE="/data/logs/${SCRIPT%.py}.log" \
+    -e PYTHONUNBUFFERED=1 \
+    -e LOG_FILE="/data/logs/$(basename "${SCRIPT_LABEL%.py}").log" \
     importer \
-    "$SCRIPT" ${ARGS:-}
+    -u "$SCRIPT" "${ARGS[@]}"
+
+echo "[INFO] Job container: $JOB_NAME"
+
+docker logs -f "$JOB_NAME" &
+LOGS_PID=$!
+
+EXIT_CODE="$(docker wait "$JOB_NAME")"
+
+wait "$LOGS_PID" || true
+cleanup_job
+
+exit "$EXIT_CODE"
