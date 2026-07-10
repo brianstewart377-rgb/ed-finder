@@ -94,10 +94,41 @@ describe('RegionalPositionPanel', () => {
     renderPanel();
 
     const panel = await screen.findByTestId('regional-position-success');
+    expect(panel.textContent).toContain('Colonisation Proximity');
     expect(panel.textContent).toContain('Frontier Hub');
+    expect(panel.textContent).toContain('Out of claim range');
     expect(panel.textContent).toContain('Frontier Stop');
     expect(panel.textContent).toContain('Inferred');
     expect(panel.textContent).toContain('94 regional fit');
     expect(panel.textContent).toContain('Tourism fit is mixed.');
+    expect(panel.textContent).toContain('Measured star-to-star');
+  });
+
+  it('shows an in-range verdict when the nearest anchor is inside the claim range', async () => {
+    mockedGetRegionalAnalysis.mockResolvedValue({
+      system_id64: 123,
+      mechanics_version: 'colonisation-engine-v2.1',
+      nearest_colonised_system: { id64: 456, name: 'Claim Anchor', distance_ly: 11.2 },
+      counts: { within_25ly: 1, within_50ly: 2, within_100ly: 4, within_250ly: 15 },
+      scores: { isolation: 24, density: 76, expansion: 55, competition: 21 },
+      regional_role: 'cluster_adjacent',
+      archetype_regional_fit: {},
+      rationale: {
+        summary: 'Existing colonised support is already nearby.',
+        strengths: [],
+        warnings: [],
+        archetype_notes: {},
+      },
+      data_quality: { regional_position: 'inferred' },
+      confidence_signals: [{ area: 'regional_position', level: 'inferred', reason: 'Regional metrics are inferred.' }],
+      computed_at: '2026-05-13T00:00:00Z',
+    } satisfies RegionalAnalysisResponse);
+
+    renderPanel();
+
+    const verdict = await screen.findByTestId('regional-position-verdict');
+    expect(verdict.textContent).toContain('Within claim range');
+    expect(verdict.textContent).toContain('Claim Anchor');
+    expect(verdict.textContent).toContain('11.2 ly');
   });
 });

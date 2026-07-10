@@ -47,6 +47,7 @@ from routers.admin     import router as admin_router
 from routers.evidence  import router as evidence_router
 from routers.events    import router as events_router, eddn_pubsub_bridge
 from routers.map       import router as map_router
+from routers.journal_import import router as journal_import_router
 from routers.meta      import router as meta_router
 from routers.news      import router as news_router
 from routers.notes     import router as notes_router
@@ -280,6 +281,7 @@ app.include_router(profile_router)
 app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(evidence_router)
+app.include_router(journal_import_router)
 app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)

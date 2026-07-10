@@ -26,6 +26,7 @@ import {
   selectContinuation,
   type SavedSystemViewModel,
 } from './myWorkWorkspaceUtils';
+import { JournalImportPanel } from '@/features/journal-import/JournalImportPanel';
 
 type MyWorkSection = 'saved-systems' | 'plans' | 'my-colonies';
 
@@ -205,6 +206,7 @@ export function MyWorkWorkspace({
             {aliasNotice}
           </div>
         ) : null}
+        <JournalImportPanel />
         {continuation ? (
           <ContinueWhereLeftOff
             continuation={continuation}

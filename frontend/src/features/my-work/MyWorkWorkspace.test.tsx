@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MyWorkWorkspace } from './MyWorkWorkspace';
 import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
@@ -31,6 +32,20 @@ function makePinned(overrides: Partial<UsePinned> = {}): UsePinned {
   };
 }
 
+function renderWorkspace(ui: React.ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      {ui}
+    </QueryClientProvider>,
+  );
+}
+
 afterEach(() => {
   localStorage.clear();
   useColonyProjectStore.setState({ projects: {} });
@@ -39,7 +54,7 @@ afterEach(() => {
 
 describe('MyWorkWorkspace', () => {
   it('keeps the local My Work header concise with section tabs intact', () => {
-    render(
+    renderWorkspace(
       <MyWorkWorkspace
         watchlist={makeWatchlist()}
         pinned={makePinned()}
@@ -51,6 +66,7 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'My Work' })).toBeTruthy();
     expect(screen.queryByText('Player workspace')).toBeNull();
     expect(screen.getByText('Saved systems, plans, and colonies in one place.')).toBeTruthy();
+    expect(screen.getByText('Journal Import')).toBeTruthy();
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Saved Systems');
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Plans');
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('My Colonies');
@@ -96,7 +112,7 @@ describe('MyWorkWorkspace', () => {
       is_colonised: false,
     }, 'ready_to_plan', true);
 
-    render(
+    renderWorkspace(
       <MyWorkWorkspace
         watchlist={watchlist}
         pinned={pinned}
@@ -154,7 +170,7 @@ describe('MyWorkWorkspace', () => {
       is_colonised: false,
     }, 'ready_to_plan', true);
 
-    render(
+    renderWorkspace(
       <MyWorkWorkspace
         watchlist={watchlist}
         pinned={pinned}
@@ -207,7 +223,7 @@ describe('MyWorkWorkspace', () => {
       notes: '',
     });
 
-    render(
+    renderWorkspace(
       <MyWorkWorkspace
         initialSection="plans"
         watchlist={makeWatchlist()}
@@ -251,7 +267,7 @@ describe('MyWorkWorkspace', () => {
       created_from: 'system_detail',
     });
 
-    render(
+    renderWorkspace(
       <MyWorkWorkspace
         initialSection="my-colonies"
         watchlist={makeWatchlist()}
@@ -293,7 +309,7 @@ describe('MyWorkWorkspace', () => {
       },
     }));
 
-    const { rerender } = render(
+    const { rerender } = renderWorkspace(
       <MyWorkWorkspace
         watchlist={makeWatchlist()}
         pinned={makePinned()}
@@ -307,24 +323,31 @@ describe('MyWorkWorkspace', () => {
 
     useColonyProjectStore.setState({ projects: {} });
     rerender(
-      <MyWorkWorkspace
-        watchlist={makeWatchlist({
-          entries: [{
-            system_id64: 501,
-            name: 'Saved System',
-            x: null,
-            y: null,
-            z: null,
-            population: null,
-            is_colonised: false,
-            added_at: '2026-06-23T16:00:00.000Z',
-          }],
-          has: vi.fn((id64: number) => id64 === 501),
-        })}
-        pinned={makePinned()}
-        onOpenDetail={vi.fn()}
-        onOpenPlanner={vi.fn()}
-      />,
+      <QueryClientProvider client={new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })}>
+        <MyWorkWorkspace
+          watchlist={makeWatchlist({
+            entries: [{
+              system_id64: 501,
+              name: 'Saved System',
+              x: null,
+              y: null,
+              z: null,
+              population: null,
+              is_colonised: false,
+              added_at: '2026-06-23T16:00:00.000Z',
+            }],
+            has: vi.fn((id64: number) => id64 === 501),
+          })}
+          pinned={makePinned()}
+          onOpenDetail={vi.fn()}
+          onOpenPlanner={vi.fn()}
+        />
+      </QueryClientProvider>,
     );
 
     expect(screen.getByTestId('my-work-continuation').textContent).toContain('Ready to revisit');

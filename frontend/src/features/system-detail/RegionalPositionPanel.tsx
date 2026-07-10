@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { getRegionalAnalysis } from '@/lib/api';
 import type { RegionalAnalysisResponse } from '@/types/api';
 
+const COLONISATION_CLAIM_RANGE_LY = 16;
+
 export function RegionalPositionPanel({ id64 }: { id64: number }) {
   const { data, isLoading, isError, error, refetch } = useQuery<RegionalAnalysisResponse, Error>({
     queryKey: ['regional-analysis', id64],
@@ -49,6 +51,10 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
   const fitRows = Object.entries(data.archetype_regional_fit)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
+  const nearestDistance = data.nearest_colonised_system?.distance_ly ?? null;
+  const inClaimRange = nearestDistance != null && nearestDistance <= COLONISATION_CLAIM_RANGE_LY;
+  const proximityLabel = inClaimRange ? 'Within claim range' : 'Out of claim range';
+  const proximityTone = inClaimRange ? 'cyan' : 'orange';
 
   return (
     <section data-testid="regional-position-success" className="rounded-chunk-lg border border-orange/25 bg-bg1/60 p-4 shadow-metal">
@@ -57,13 +63,32 @@ export function RegionalPositionPanel({ id64 }: { id64: number }) {
         <div className="rounded-chunk-lg border border-orange/35 bg-orange/10 p-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge label={formatRole(data.regional_role)} tone="orange" />
+            <Badge label={proximityLabel} tone={proximityTone} />
             {data.nearest_colonised_system?.distance_ly != null && (
-              <Badge label={`${data.nearest_colonised_system.distance_ly.toFixed(0)} LY nearest`} tone="cyan" />
+              <Badge label={`${data.nearest_colonised_system.distance_ly.toFixed(1)} LY nearest`} tone="cyan" />
             )}
             {data.data_quality?.regional_position && (
               <Badge label={standardLabel(data.data_quality.regional_position)} tone="cyan" />
             )}
           </div>
+          {data.nearest_colonised_system?.name && nearestDistance != null && (
+            <div
+              data-testid="regional-position-verdict"
+              className="mt-3 rounded border border-border/60 bg-bg3/45 px-3 py-3"
+            >
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+                Colonisation proximity
+              </div>
+              <p className="mt-2 text-sm leading-snug text-silver">
+                {inClaimRange
+                  ? `Within claim range of ${data.nearest_colonised_system.name} at ${nearestDistance.toFixed(1)} ly.`
+                  : `Out of claim range. Nearest observed colonised anchor is ${data.nearest_colonised_system.name} at ${nearestDistance.toFixed(1)} ly.`}
+              </p>
+              <p className="mt-1 font-mono text-[10px] text-silver-dk">
+                Measured star-to-star against the current {COLONISATION_CLAIM_RANGE_LY} ly claim-range setting.
+              </p>
+            </div>
+          )}
           <p className="mt-3 text-sm leading-snug text-silver">
             {data.rationale?.summary}
           </p>
@@ -117,9 +142,9 @@ function Header() {
     <div className="mb-3 flex items-center gap-2">
       <Compass size={16} className="text-orange" />
       <div>
-        <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Regional Position</h3>
+        <h3 className="text-orange text-sm font-bold tracking-[0.18em] uppercase">Colonisation Proximity</h3>
         <p className="mt-1 text-[11px] text-silver-dk font-mono">
-          Strategic context relative to existing colonised systems.
+          Nearest colonised-anchor context for Inspect, measured star-to-star.
         </p>
       </div>
     </div>

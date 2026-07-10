@@ -9,6 +9,7 @@ import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';
 import { ArchetypeAssessment } from './ArchetypeAssessment';
+import { RegionalPositionPanel } from './RegionalPositionPanel';
 import { buildFallbackArchetype } from './systemDetailFallbackArchetype';
 import { ColonyPlannerEntryPoint } from './systemDetailPlannerEntry';
 import {
@@ -195,6 +196,7 @@ export function SystemDetailModal({
                   onRetry={refetchArchetype}
                 />
               </Section>
+              <RegionalPositionPanel id64={data.id64} />
               <SystemInfoGrid sys={data} />
               <BodiesSection bodies={data.bodies} systemName={data.name} />
               <StationsSection stations={data.stations} />

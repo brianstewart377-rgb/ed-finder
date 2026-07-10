@@ -175,6 +175,9 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
 
   const filtersActive = Boolean(factTypeFilter || statusFilter || confidenceFilter);
   const filteredCount = facts.length;
+  const openJournalImport = () => {
+    window.location.hash = '#my-work';
+  };
 
   return (
     <section
@@ -198,6 +201,24 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         totalCount={summary?.total_count ?? facts.length}
         filtered={filtersActive}
       />
+
+      <div className="mb-4 rounded border border-cyan/30 bg-cyan/8 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.14em] text-cyan">Journal import</div>
+            <p className="mt-1 text-sm leading-snug text-silver">
+              Have local in-game logs? Stage journal evidence from My Work, then review it here without opening a canonical write lane.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={openJournalImport}
+            className="rounded-chunk-sm border border-cyan/40 bg-bg2 px-3 py-1.5 text-[11px] text-cyan hover:border-cyan hover:bg-cyan/10"
+          >
+            Open Journal Import
+          </button>
+        </div>
+      </div>
 
       <div className="mb-4 rounded border border-border/60 bg-bg2/30 p-3">
         <div className="mb-2 text-[10px] uppercase tracking-[0.14em] text-silver-dk">Record manually observed evidence</div>

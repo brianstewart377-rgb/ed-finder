@@ -149,6 +149,11 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(
       screen.getByText(/Observed Evidence is for later, after checking in-game/),
     ).toBeTruthy();
+    expect(
+      screen.getByText(/Stage journal evidence from My Work/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open Journal Import' }));
+    expect(window.location.hash).toBe('#my-work');
   });
 
   it('lists existing observations returned by the backend for the current system', async () => {

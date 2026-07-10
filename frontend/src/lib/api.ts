@@ -20,6 +20,8 @@ import type {
   EnrichmentWarehouseStatus,
   AdminDataStatus,
   FacilityTemplate,
+  JournalImportReceipt,
+  JournalImportRequest,
   LayoutImportRequest,
   LayoutImportResponse,
   ListObservedFactsParams,
@@ -286,6 +288,17 @@ export const api = {
 
   warehousePlannerEvidence(id64: number): Promise<WarehousePlannerEvidenceContract> {
     return jsonFetch(`/colony-planner/system/${id64}/warehouse-planner-evidence`);
+  },
+
+  importJournal(request: JournalImportRequest): Promise<JournalImportReceipt> {
+    return jsonFetch('/journal/import', {
+      method: 'POST',
+      body:   JSON.stringify(request),
+    });
+  },
+
+  journalImportReceipt(runKey: string): Promise<JournalImportReceipt> {
+    return jsonFetch(`/journal/imports/${encodeURIComponent(runKey)}`);
   },
 
   regionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
@@ -580,6 +593,14 @@ export function getProvenanceCockpit(id64: number): Promise<ProvenanceCockpitRes
 
 export function getWarehousePlannerEvidence(id64: number): Promise<WarehousePlannerEvidenceContract> {
   return api.warehousePlannerEvidence(id64);
+}
+
+export function importJournal(request: JournalImportRequest): Promise<JournalImportReceipt> {
+  return api.importJournal(request);
+}
+
+export function getJournalImportReceipt(runKey: string): Promise<JournalImportReceipt> {
+  return api.journalImportReceipt(runKey);
 }
 
 export function fetchOptimiserCandidates(request: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {

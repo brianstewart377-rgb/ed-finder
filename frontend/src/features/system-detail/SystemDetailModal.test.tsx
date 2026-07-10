@@ -5,6 +5,12 @@ import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';
 import { SystemDetailModal } from './SystemDetailModal';
 
+vi.mock('./RegionalPositionPanel', () => ({
+  RegionalPositionPanel: ({ id64 }: { id64: number }) => (
+    <div data-testid="regional-position-panel">Regional position {id64}</div>
+  ),
+}));
+
 vi.mock('./useSystemDetail', () => ({
   useSystemDetail: vi.fn(),
 }));
@@ -221,6 +227,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(screen.getByText('System Detail')).toBeTruthy();
     expect(screen.getByText('Archetype assessment')).toBeTruthy();
     expect(screen.getByTestId('archetype-primary').textContent).toContain('Refinery / Industrial Megacomplex');
+    expect(screen.getByTestId('regional-position-panel').textContent).toContain('123');
     expect(screen.getByText('System info')).toBeTruthy();
     expect(screen.getByText('Coordinates')).toBeTruthy();
     expect(screen.getByText('External')).toBeTruthy();

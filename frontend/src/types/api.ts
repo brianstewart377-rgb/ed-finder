@@ -92,6 +92,54 @@ export type SimulationSummary     = Schemas['SimulationSummaryResponse'] & { reg
 export type BuildabilityResponse  = Schemas['BuildabilityResponse'];
 export type SystemBuildability    = BuildabilityResponse;
 
+export interface JournalImportFileRef {
+  name: string;
+  event_count: number;
+}
+
+export interface JournalImportClientManifest {
+  parser_version: string;
+  files: JournalImportFileRef[];
+}
+
+export interface JournalImportObservationInput {
+  observation_key: string;
+  source_file: string;
+  event_type: 'CarrierJump' | 'Docked' | 'FSDJump' | 'FSSAllBodiesFound' | 'FSSBodySignals' | 'FSSDiscoveryScan' | 'Location' | 'SAASignalsFound' | 'Scan';
+  observed_at?: string | null;
+  system_id64: number;
+  system_name?: string | null;
+  subject_type: 'system' | 'body';
+  subject_id?: string | null;
+  summary?: string | null;
+  payload: Record<string, unknown>;
+  privacy_boundary: Record<string, unknown>;
+}
+
+export interface JournalImportRequest {
+  client_manifest: JournalImportClientManifest;
+  observations: JournalImportObservationInput[];
+}
+
+export interface JournalImportSummary {
+  observations_received: number;
+  observations_staged: number;
+  duplicates_skipped: number;
+  conflicts_flagged: number;
+  files_seen: number;
+  event_counts: Record<string, number>;
+}
+
+export interface JournalImportReceipt {
+  run_key: string;
+  status: string;
+  parser_version: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  files: JournalImportFileRef[];
+  summary: JournalImportSummary;
+}
+
 export interface EnrichmentStatusArtifact {
   file_name: string;
   exists: boolean;
