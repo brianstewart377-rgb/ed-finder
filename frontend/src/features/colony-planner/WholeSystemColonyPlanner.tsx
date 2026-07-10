@@ -19,6 +19,7 @@ import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import {
   SystemBuildMapCanvas,
 } from './SystemBuildMapCanvas';
+import { WORKSPACE_MODE_META, workspaceModeLabel } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import {
   buildPlannerCanvasOccupancySummary,
   getPlannerLaneCapacityState,
@@ -35,10 +36,14 @@ import {
 export function WholeSystemColonyPlanner({
   system,
   initialProjectId = null,
+  initialCockpitMode = 'build-plan',
+  onCockpitModeChange,
   onProjectContextChange,
 }: {
   system: SystemDetail;
   initialProjectId?: string | null;
+  initialCockpitMode?: SimulationWorkspaceMode;
+  onCockpitModeChange?: (mode: SimulationWorkspaceMode) => void;
   onProjectContextChange?: (context: {
     activeProject: ReturnType<typeof useWorkspaceProjectState>['activeProject'];
     unsavedChanges: boolean;
@@ -107,6 +112,13 @@ export function WholeSystemColonyPlanner({
     setTargetArchetype(system.primary_archetype ?? archetypeFromEconomy(system.primary_economy) ?? 'refinery_industrial');
     appliedProjectFingerprint.current = null;
   }, [system.id64, system.primary_archetype, system.primary_economy]);
+
+  useEffect(() => {
+    setAdvancedInitialMode(initialCockpitMode);
+    if (initialCockpitMode !== 'build-plan') {
+      setAdvancedPanelOpen(true);
+    }
+  }, [initialCockpitMode]);
 
   useEffect(() => {
     if (placements.length > 0 || targetArchetype) return;
@@ -206,6 +218,11 @@ export function WholeSystemColonyPlanner({
     }
     return `${selectedContext.label} / ${counts.join(' / ')}`;
   }, [placements.length, projection, selectedContext.label]);
+  const activeCockpitModeMeta = WORKSPACE_MODE_META[advancedInitialMode];
+  const activeProjectLabel = projectState.activeProject?.project_name ?? 'Unsaved planning surface';
+  const contextSummary = selection.type === 'system'
+    ? 'System-wide planning focus'
+    : selectedContext.label;
 
   const requestAddStructure = useCallback((bodyId: string, lane: BodyPlannerLane) => {
     const state = getPlannerLaneCapacityState(system, planSnapshot, bodyId, lane);
@@ -280,6 +297,17 @@ export function WholeSystemColonyPlanner({
     setProjection((current) => projectionEqual(current, snapshot.projection) ? current : snapshot.projection ?? null);
   }, []);
 
+  const openCockpitMode = useCallback((mode: SimulationWorkspaceMode) => {
+    setAdvancedInitialMode(mode);
+    setAdvancedPanelOpen(true);
+    onCockpitModeChange?.(mode);
+  }, [onCockpitModeChange]);
+
+  const handleCockpitModeChange = useCallback((mode: SimulationWorkspaceMode) => {
+    setAdvancedInitialMode(mode);
+    onCockpitModeChange?.(mode);
+  }, [onCockpitModeChange]);
+
   return (
     <section
       aria-label="Whole-system colony planner"
@@ -343,6 +371,107 @@ export function WholeSystemColonyPlanner({
           onRequestAddStructure={requestAddStructure}
           prerequisiteIssues={prerequisiteIssues}
         />
+        <section
+          data-testid="colony-cockpit-launch-strip"
+          className="rounded-chunk-lg border border-cyan/25 bg-[linear-gradient(180deg,rgba(34,211,238,0.08),rgba(15,23,42,0.18))] p-3 shadow-[0_20px_40px_-34px_rgba(34,211,238,0.7)]"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Colony Cockpit</div>
+                <span
+                  data-testid="colony-cockpit-active-mode-chip"
+                  className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
+                >
+                  {workspaceModeLabel(advancedInitialMode)}
+                </span>
+                {advancedPanelOpen ? (
+                  <span className="rounded border border-cyan/35 bg-cyan/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-cyan">
+                    Live mode
+                  </span>
+                ) : (
+                  <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver-dk">
+                    Ready to open
+                  </span>
+                )}
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-silver">
+                {activeCockpitModeMeta.summary}
+              </p>
+              <p
+                data-testid="colony-cockpit-active-mode-emphasis"
+                className="mt-1 text-xs leading-relaxed text-silver-dk"
+              >
+                {activeCockpitModeMeta.emphasis}
+              </p>
+            </div>
+            <span className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+              Route-aware mode handoff
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 md:grid-cols-3">
+            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Project context</div>
+              <div className="mt-1 text-sm text-silver">{activeProjectLabel}</div>
+              <div className="mt-1 text-xs text-silver-dk">
+                {projectState.unsavedChanges ? 'Unsaved changes are still local to this browser.' : 'Planner state is saved locally or still blank.'}
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Planning focus</div>
+              <div className="mt-1 text-sm text-silver">{contextSummary}</div>
+              <div className="mt-1 text-xs text-silver-dk">
+                {placements.length} planned / {projection?.placements.length ?? 0} projected
+              </div>
+            </div>
+            <div className="rounded border border-border/60 bg-bg3/35 p-3">
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">Best next move</div>
+              <div className="mt-1 text-sm text-silver">{activeCockpitModeMeta.helper}</div>
+              <div className="mt-1 text-xs text-silver-dk">
+                Keep one canonical Plan surface while switching review depth intentionally.
+              </div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {([
+              ['build-plan', 'Build Plan'],
+              ['suggested-builds', 'Suggested Builds'],
+              ['preview', 'Preview'],
+              ['sequence', 'Sequence'],
+              ['evidence', 'Evidence'],
+              ['validation', 'Validation'],
+              ['export', 'Export'],
+            ] as Array<[SimulationWorkspaceMode, string]>).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                data-testid={`colony-cockpit-open-${mode}`}
+                onClick={() => openCockpitMode(mode)}
+                className={[
+                  'rounded border px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors',
+                  advancedPanelOpen && advancedInitialMode === mode
+                    ? 'border-orange/55 bg-orange/15 text-orange'
+                    : 'border-border/60 bg-bg3/35 text-silver-dk hover:border-cyan/45 hover:text-cyan',
+                ].join(' ')}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {activeCockpitModeMeta.nextModes.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                data-testid={`colony-cockpit-suggested-next-${mode}`}
+                onClick={() => openCockpitMode(mode)}
+                className="rounded border border-cyan/30 bg-cyan/10 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan transition-colors hover:border-cyan/50 hover:bg-cyan/15"
+              >
+                Next: {workspaceModeLabel(mode)}
+              </button>
+            ))}
+          </div>
+        </section>
         <AdvancedPlannerDrawer
           open={advancedPanelOpen}
           initialMode={advancedInitialMode}
@@ -353,9 +482,13 @@ export function WholeSystemColonyPlanner({
           workspaceCommand={workspaceCommand}
           lastHandledWorkspaceCommandToken={lastHandledWorkspaceCommandToken}
           onOpenChange={(open) => {
-            setAdvancedInitialMode('build-plan');
             setAdvancedPanelOpen(open);
+            if (!open) {
+              setAdvancedInitialMode('build-plan');
+              onCockpitModeChange?.('build-plan');
+            }
           }}
+          onActiveModeChange={handleCockpitModeChange}
           onPlanSnapshotChange={handleAdvancedPlanSnapshotChange}
           onWorkspaceCommandHandled={handleWorkspaceCommandHandled}
         />

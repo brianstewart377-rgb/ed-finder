@@ -380,11 +380,17 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(labels.length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /^Evidence/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Validation/i })).toBeTruthy();
+    expect(screen.getByTestId('colony-cockpit-command-deck')).toBeTruthy();
+    expect(screen.getByTestId('cockpit-intelligence-panel')).toBeTruthy();
+    expect(screen.getByTestId('cockpit-intelligence-next-actions').textContent).toMatch(/Seed the Build Plan/i);
+    expect(screen.getByTestId('colony-cockpit-command-active-mode').textContent).toContain('Build Plan');
+    expect(screen.getByTestId('colony-cockpit-command-next-preview')).toBeTruthy();
     expect(screen.queryByRole('region', { name: 'Observed Evidence' })).toBeNull();
     expect(screen.queryByRole('region', { name: 'Validation' })).toBeNull();
 
     await openEvidenceMode();
     expect(screen.getByRole('region', { name: 'Observed Evidence' })).toBeTruthy();
+    expect(screen.getByTestId('review-readiness-strip').textContent).toMatch(/Shared review readiness/);
     expect(
       screen.getByText(/Later step: Observed Evidence records what you see in-game after planning/),
     ).toBeTruthy();
@@ -499,6 +505,12 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(screen.getByText(/Advanced manual control/)).toBeTruthy();
     expect(screen.getByText(/0 placements in Build Plan/)).toBeTruthy();
     expect(screen.getAllByText(/Preview not run yet/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByTestId('colony-cockpit-command-next-preview'));
+    expect(await screen.findByTestId('preview-workspace-view')).toBeTruthy();
+    expect(screen.getByTestId('colony-cockpit-command-active-mode').textContent).toContain('Preview');
+
+    fireEvent.click(screen.getByTestId('workspace-mode-tab-build-plan'));
+    await screen.findByTestId('build-plan-workspace-view');
 
     await openSuggestedBuildsMode();
     fireEvent.click(await screen.findByRole('button', { name: 'Generate Suggested Builds' }));
@@ -933,9 +945,16 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     await openEvidenceMode();
     expect(screen.queryByTestId('validation-workspace-view')).toBeNull();
+    expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/Evidence in focus/);
+    expect(screen.getByTestId('review-workflow-next-move').textContent).toMatch(/Run Preview first/i);
 
     await openValidationMode();
     expect(screen.queryByTestId('evidence-workspace-view')).toBeNull();
+    expect(screen.getByTestId('colony-cockpit-command-active-mode').textContent).toContain('Validation');
+    expect(screen.getByTestId('colony-cockpit-command-next-export')).toBeTruthy();
+    expect(screen.getByTestId('review-readiness-strip').textContent).toMatch(/Validation blocked/);
+    expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/Validation in focus/);
+    expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/Needs preview/);
 
     fireEvent.click(screen.getByRole('button', { name: /^Build Plan/i }));
     expect(await screen.findByTestId('build-plan-workspace-view')).toBeTruthy();

@@ -17,9 +17,17 @@ export interface MapTabProps {
   systems:    SystemResult[];
   reference:  { name: string; x: number; z: number };
   initialSelectedSystemId?: number | null;
+  onReturnToFinder?: () => void;
+  onOpenSelectedSystem?: (id64: number) => void;
 }
 
-export function MapTab({ systems, reference, initialSelectedSystemId = null }: MapTabProps) {
+export function MapTab({
+  systems,
+  reference,
+  initialSelectedSystemId = null,
+  onReturnToFinder,
+  onOpenSelectedSystem,
+}: MapTabProps) {
   const [selected, setSelected] = useState<SystemResult | null>(null);
   const [viewMode, setViewMode] = useState<MapViewMode>('results');
   const [showFrame, setShowFrame] = useState(true);
@@ -63,6 +71,70 @@ export function MapTab({ systems, reference, initialSelectedSystemId = null }: M
 
   return (
     <section data-testid="map-tab" aria-label="Galactic map tab" className="space-y-5">
+      <section
+        data-testid="map-product-value-panel"
+        aria-labelledby="map-product-value-title"
+        className="premium-subpanel space-y-3 p-4"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-cyan/35 bg-cyan/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+            Secondary Explore surface
+          </span>
+          <span className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gold">
+            Stage 25G decision
+          </span>
+        </div>
+        <div className="space-y-2">
+          <h2 id="map-product-value-title" className="font-display text-base tracking-[0.12em] text-text">
+            Use Map for orientation, clustering, and inspect hand-off
+          </h2>
+          <p className="max-w-4xl text-sm leading-relaxed text-silver">
+            The map now makes one explicit product promise: it helps you orient the current Finder result set around {reference.name}, spot spread or clustering, and choose what to inspect next. It does not become the planning cockpit, validation surface, or export lane.
+          </p>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          <DecisionFact
+            title="Best when"
+            body={systems.length > 0
+              ? `You want spatial context for ${systems.length} Finder result${systems.length === 1 ? '' : 's'} before deciding what to inspect.`
+              : 'You want a spatial read once Finder has produced a real result set.'}
+          />
+          <DecisionFact
+            title="Current context"
+            body={selected
+              ? `${selected.name ?? 'Selected system'} is in focus for inspect hand-off.`
+              : 'No system is selected yet. Click a plotted star to move from orientation into Inspect.'}
+          />
+          <DecisionFact
+            title="Not for"
+            body="Build decisions, planner truth, validation judgement, or export closeout. Those remain in Plan and Review."
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            data-testid="map-return-to-finder"
+            onClick={onReturnToFinder}
+            className="btn-metal text-[11px] font-mono"
+          >
+            Back to Finder
+          </button>
+          <button
+            type="button"
+            data-testid="map-open-selected-system"
+            disabled={!selected || !onOpenSelectedSystem}
+            onClick={() => selected && onOpenSelectedSystem?.(selected.id64)}
+            className={[
+              'rounded-chunk-sm border px-3 py-1.5 font-mono text-[11px] transition-colors',
+              selected && onOpenSelectedSystem
+                ? 'border-orange/55 bg-orange/15 text-orange hover:border-orange hover:bg-orange/20'
+                : 'cursor-not-allowed border-border/45 bg-bg3/25 text-silver-dk opacity-60',
+            ].join(' ')}
+          >
+            Inspect selected system
+          </button>
+        </div>
+      </section>
       <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
         <h2 className="font-display text-orange tracking-[0.14em] text-lg">
           🗺️ Galactic Map
@@ -224,5 +296,14 @@ export function MapTab({ systems, reference, initialSelectedSystemId = null }: M
         </div>
       )}
     </section>
+  );
+}
+
+function DecisionFact({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-chunk-lg border border-border/60 bg-bg2/45 px-3 py-2">
+      <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-silver-dk">{title}</div>
+      <p className="mt-1 text-xs leading-relaxed text-silver">{body}</p>
+    </div>
   );
 }

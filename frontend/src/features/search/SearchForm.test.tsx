@@ -9,6 +9,27 @@ vi.mock('./useAutocomplete', () => ({
 }));
 
 describe('SearchForm reference autocomplete data trust', () => {
+  it('defaults colony status to non-colonised only on each fresh load', () => {
+    vi.mocked(useAutocomplete).mockReturnValue({
+      hits: [],
+      loading: false,
+      err: null,
+    });
+
+    render(
+      <SearchForm
+        filters={DEFAULT_FILTERS}
+        onChange={() => undefined}
+        onSubmit={() => undefined}
+        onReset={() => undefined}
+      />,
+    );
+
+    const colonyStatus = screen.getByLabelText('Colony status') as HTMLSelectElement;
+    expect(colonyStatus.value).toBe('uninhabited');
+    expect(screen.getByRole('option', { name: 'Non-colonised only' })).toBeTruthy();
+  });
+
   it('does not accept unknown-coordinate reference systems', () => {
     vi.mocked(useAutocomplete).mockReturnValue({
       hits: [{ id64: 2008132031194, name: 'Exioce', x: 0, y: 0, z: 0, population: 0 }],

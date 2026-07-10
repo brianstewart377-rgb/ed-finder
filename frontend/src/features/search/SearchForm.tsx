@@ -98,13 +98,13 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
 
       <Section title="Filters">
         <SelectRow
-          label="Population"
+          label="Colony status"
           value={filters.populated}
           onChange={(v) => onChange({ populated: v as SearchFilters['populated'] })}
           options={[
             { value: 'any',         label: 'Any' },
-            { value: 'populated',   label: 'Populated only' },
-            { value: 'uninhabited', label: 'Uninhabited only' },
+            { value: 'populated',   label: 'Inhabited only' },
+            { value: 'uninhabited', label: 'Non-colonised only' },
           ]}
         />
         <SelectRow

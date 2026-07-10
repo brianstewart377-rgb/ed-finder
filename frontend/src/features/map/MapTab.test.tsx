@@ -70,10 +70,39 @@ describe('MapTab', () => {
     render(<MapTab systems={[]} reference={reference} />);
 
     expect(screen.getByTestId('map-tab')).toBeTruthy();
+    expect(screen.getByTestId('map-product-value-panel').textContent).toContain('Secondary Explore surface');
+    expect(screen.getByTestId('map-product-value-panel').textContent).toContain('Use Map for orientation, clustering, and inspect hand-off');
     expect(screen.getByText('No systems to plot')).toBeTruthy();
     expect(
       screen.getByText(/Run a search in the Finder tab and switch back here/),
     ).toBeTruthy();
+  });
+
+  it('offers explicit Finder and Inspect hand-offs as part of the map product decision', () => {
+    const onReturnToFinder = vi.fn();
+    const onOpenSelectedSystem = vi.fn();
+    const systems = [
+      makeSystem({ id64: 1, name: 'Alpha Centauri', coords: { x: 10, y: 0, z: 5 } }),
+      makeSystem({ id64: 2, name: 'Beta', coords: { x: -20, y: 0, z: 10 } }),
+    ];
+    render(
+      <MapTab
+        systems={systems}
+        reference={reference}
+        initialSelectedSystemId={2}
+        onReturnToFinder={onReturnToFinder}
+        onOpenSelectedSystem={onOpenSelectedSystem}
+      />,
+    );
+
+    expect(screen.getByTestId('map-product-value-panel').textContent).toContain('It does not become the planning cockpit');
+    expect(screen.getByTestId('map-product-value-panel').textContent).toContain('Beta is in focus for inspect hand-off');
+
+    fireEvent.click(screen.getByTestId('map-return-to-finder'));
+    fireEvent.click(screen.getByTestId('map-open-selected-system'));
+
+    expect(onReturnToFinder).toHaveBeenCalledTimes(1);
+    expect(onOpenSelectedSystem).toHaveBeenCalledWith(2);
   });
 
   it('shows source/context badge when populated', () => {

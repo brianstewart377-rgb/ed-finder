@@ -10,6 +10,8 @@ import type {
 } from '@/types/api';
 import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
 import { buildExportArtifacts } from './exportArtifacts';
+import { ReviewReadinessStrip } from './ReviewReadinessStrip';
+import { ReviewWorkflowRail, type ReviewPreviewStatus } from './ReviewWorkflowRail';
 import { SelectedSystemReviewContext } from './SelectedSystemReviewContext';
 
 
@@ -21,6 +23,7 @@ export function ExportReadinessWorkspaceView({
   bodies,
   previewResult,
   previewResultStale,
+  previewStatus,
   roleReview,
 }: {
   system: SystemDetail;
@@ -30,6 +33,7 @@ export function ExportReadinessWorkspaceView({
   bodies: SystemBody[];
   previewResult: SimulateBuildResponse | null;
   previewResultStale: boolean;
+  previewStatus: ReviewPreviewStatus;
   roleReview?: RoleReviewResult;
 }) {
   const provenanceQuery = useQuery({
@@ -61,6 +65,7 @@ export function ExportReadinessWorkspaceView({
       }),
     [bodies, observedQuery.data?.facts, placements, previewResult, previewResultStale, provenanceQuery.data, roleReview, system, targetArchetype, templates],
   );
+  const observedFactsCount = observedQuery.data?.summary?.total_count ?? observedQuery.data?.facts?.length ?? 0;
 
   return (
     <div className="space-y-3" data-testid="export-readiness-workspace-view">
@@ -70,6 +75,19 @@ export function ExportReadinessWorkspaceView({
         modeLabel="Export mode"
         tone="report_only"
         summary={`${system.name ?? 'This system'} remains the active selected-system context while review-ready packs are assembled. Planned, projected, observed, inferred, and warehouse sections stay explicitly separate.`}
+      />
+      <ReviewWorkflowRail
+        activeMode="export"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
+        exportReady={artifacts.readiness.closeout_ready}
+      />
+      <ReviewReadinessStrip
+        activeMode="export"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
+        exportReady={artifacts.readiness.closeout_ready}
+        exportBlockerCount={artifacts.readiness.reasons.length}
       />
       <section className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         <span className="font-bold text-cyan">Export mode</span>

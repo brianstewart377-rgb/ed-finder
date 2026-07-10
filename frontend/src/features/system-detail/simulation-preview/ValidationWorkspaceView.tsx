@@ -2,7 +2,10 @@ import type { ReactNode } from 'react';
 import { RoleReviewCard } from '@/features/colony-planner/RoleReviewCard';
 import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
 import type { SystemDetail } from '@/types/api';
+import type { ReviewPreviewStatus } from './ReviewWorkflowRail';
 import type { UseSimulationPreviewRunResult } from './hooks/useSimulationPreviewRun';
+import { ReviewReadinessStrip } from './ReviewReadinessStrip';
+import { ReviewWorkflowRail } from './ReviewWorkflowRail';
 import { ValidationPanel } from './validation';
 import { SelectedSystemReviewContext } from './SelectedSystemReviewContext';
 
@@ -11,6 +14,7 @@ export function ValidationWorkspaceView({
   targetArchetype,
   previewResult,
   isPreviewResultStale,
+  observedFactsCount,
   roleContext,
   roleReview,
 }: {
@@ -18,10 +22,12 @@ export function ValidationWorkspaceView({
   targetArchetype: string;
   previewResult: UseSimulationPreviewRunResult['result'];
   isPreviewResultStale: boolean;
+  observedFactsCount: number;
   roleContext?: ReactNode;
   roleReview?: RoleReviewResult;
 }) {
   const status = previewResult ? (isPreviewResultStale ? 'Preview stale' : 'Preview ready') : 'Needs preview';
+  const previewStatus: ReviewPreviewStatus = !previewResult ? 'not_run' : isPreviewResultStale ? 'stale' : 'current';
 
   return (
     <div className="space-y-3" data-testid="validation-workspace-view">
@@ -31,6 +37,16 @@ export function ValidationWorkspaceView({
         modeLabel="Validation mode"
         tone={previewResult ? (isPreviewResultStale ? 'needs_review' : 'available') : 'needs_review'}
         summary={`${system.name ?? 'This system'} stays in focus while you compare manual validation notes against the current explicit Preview result. Validation never rewrites canonical planner truth.`}
+      />
+      <ReviewWorkflowRail
+        activeMode="validation"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
+      />
+      <ReviewReadinessStrip
+        activeMode="validation"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
       />
       <section className="rounded-chunk-lg border border-orange/25 bg-orange/5 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         <span className="font-bold text-orange">Validation mode: {status}</span>

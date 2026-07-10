@@ -31,6 +31,7 @@ function renderView() {
         bodies={[{ id: 12, name: 'Body A' }] as never}
         previewResult={{ final_score: 88, cp: null, cp_timeline: [], cp_repair_suggestions: [] } as never}
         previewResultStale={false}
+        previewStatus="current"
         roleReview={{ consistencyLabel: 'Aligned' } as never}
       />
     </QueryClientProvider>,
@@ -67,6 +68,7 @@ describe('ExportReadinessWorkspaceView', () => {
       },
     } as never);
     mockedListObservedFacts.mockResolvedValue({
+      summary: { total_count: 2, limit: 100, offset: 0 },
       facts: [{ fact_type: 'service_presence' }, { fact_type: 'cp_value' }],
     } as never);
 
@@ -74,6 +76,12 @@ describe('ExportReadinessWorkspaceView', () => {
 
     expect(await screen.findByTestId('export-markdown')).toBeTruthy();
     expect(screen.getByTestId('selected-system-review-context')).toBeTruthy();
+    expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/Export in focus/);
+    expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/Current/);
+    expect(screen.getByTestId('review-readiness-strip').textContent).toMatch(/Shared review readiness/);
+    await waitFor(() => expect(screen.getByTestId('review-workflow-rail').textContent).toMatch(/2 facts/));
+    await waitFor(() => expect(screen.getByTestId('review-readiness-strip').textContent).toMatch(/2 observed facts/));
+    await waitFor(() => expect(screen.getByTestId('review-readiness-strip').textContent).toMatch(/Validation ready/));
     expect(screen.getByTestId('selected-system-review-summary').textContent).toMatch(/active selected-system context/i);
     expect(screen.getByTestId('selected-system-review-context').textContent).toMatch(/Shinrarta Dezhra/);
     await waitFor(() => expect(screen.getByTestId('operator-review-references').textContent).toMatch(/run-20260617/));

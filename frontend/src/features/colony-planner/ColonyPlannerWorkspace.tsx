@@ -10,12 +10,15 @@ import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
 import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from './warehouseEvidenceBridge';
 import type { ColonyProject } from './colonyProjectStore';
+import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 
 export interface ColonyPlannerWorkspaceProps {
   id64: number | null;
   projectId?: string | null;
+  initialCockpitMode?: SimulationWorkspaceMode;
   onBackToFinder: () => void;
   onOpenSystemDetail: (id64: number) => void;
+  onCockpitModeChange?: (mode: SimulationWorkspaceMode) => void;
   onOpenMyWork?: () => void;
   onPlanDeleted?: (projectName: string) => void;
 }
@@ -23,8 +26,10 @@ export interface ColonyPlannerWorkspaceProps {
 export function ColonyPlannerWorkspace({
   id64,
   projectId = null,
+  initialCockpitMode = 'build-plan',
   onBackToFinder,
   onOpenSystemDetail,
+  onCockpitModeChange,
   onOpenMyWork,
   onPlanDeleted,
 }: ColonyPlannerWorkspaceProps) {
@@ -38,6 +43,7 @@ export function ColonyPlannerWorkspace({
     unsavedChanges: false,
     plannedStructureCount: 0,
   });
+  const [activeCockpitMode, setActiveCockpitMode] = useState<SimulationWorkspaceMode>(initialCockpitMode);
   const { data, loading, error, refetch } = useSystemDetail(id64);
   const warehouseEvidenceQuery = useQuery({
     queryKey: ['planner-workspace-warehouse-planner-evidence', id64],
@@ -120,10 +126,16 @@ export function ColonyPlannerWorkspace({
         unsavedChanges={projectContext.unsavedChanges}
         plannedStructureCount={projectContext.plannedStructureCount}
         onDeleteActiveProject={projectContext.deleteActiveProject}
+        activeCockpitMode={activeCockpitMode}
       />
       <WholeSystemColonyPlanner
         system={data}
         initialProjectId={projectId}
+        initialCockpitMode={initialCockpitMode}
+        onCockpitModeChange={(mode) => {
+          setActiveCockpitMode(mode);
+          onCockpitModeChange?.(mode);
+        }}
         onProjectContextChange={setProjectContext}
       />
       {/*

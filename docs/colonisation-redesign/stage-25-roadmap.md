@@ -14,8 +14,12 @@ Programme status after this reset:
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
-- Stage 25C Slice 1 is in progress and pending review.
-- Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.
+- Stage 25C is complete as the landed shell/context baseline.
+- Stage 25D is complete.
+- Stage 25E is complete.
+- Stage 25F is complete.
+- Stage 25G is complete.
+- Stage 25H is complete.
 
 The original roadmap-reset PR was documentation, roadmap authority, static
 tests, and guardrails only. Stage 25C runtime implementation now begins
@@ -125,10 +129,9 @@ Colony Planner; it is not a competing primary planning workspace.
 Colony Planner is the canonical live planning workspace and is the basis for the
 future Plan cockpit.
 
-simulation-preview is reusable implementation inventory but remains unwired to
-live routes; it is not wired here and must not be wired before Stage 25D.
-
-This reset does not wire simulation-preview into live routes.
+simulation-preview began as reusable implementation inventory. With Stage 25D
+in progress, its strongest planner/sequence/review surfaces are now promoted
+into the live Colony Cockpit inside the canonical Plan workspace.
 
 This reset does not redesign the map.
 
@@ -141,8 +144,9 @@ manual Firefox verification.
 
 That recovery does not make the map a primary planning surface.
 
-The map is therefore retained only as a secondary Explore surface until its
-value is proven by later evidence (see Stage 25G).
+The map is therefore retained only as a secondary Explore surface and now has
+one explicit product-value posture after Stage 25G: orientation, clustering,
+and inspect hand-off for current Finder results, without planner-map fusion.
 
 This roadmap does not authorize:
 
@@ -209,12 +213,12 @@ Stage 25 preserves evidence-language discipline:
 | --- | --- | --- |
 | Stage 25A | complete | Current-state audit, map product decision and visual-system baseline |
 | Stage 25B | complete (merged in PR #259) | Evidence language and visual-system primitives |
-| Stage 25C | Slice 1 in progress and pending review | Product shell, shared selected-system context, and cockpit visual foundation |
-| Stage 25D | unstarted | Canonical Colony Cockpit and planner/simulation integration |
-| Stage 25E | unstarted | Review, evidence, validation and export coherence |
-| Stage 25F | unstarted | Facility intelligence and explainable next actions |
-| Stage 25G | unstarted | Explore and map product-value decision |
-| Stage 25H | unstarted | Product consolidation, accessibility and closeout |
+| Stage 25C | complete | Product shell, shared selected-system context, and cockpit visual foundation |
+| Stage 25D | complete | Canonical Colony Cockpit and planner/simulation integration |
+| Stage 25E | complete | Review, evidence, validation and export coherence |
+| Stage 25F | complete | Facility intelligence and explainable next actions |
+| Stage 25G | complete | Explore and map product-value decision |
+| Stage 25H | complete | Product consolidation, accessibility and closeout |
 
 ### Stage 25A - Current-State Audit, Map Product Decision and Visual-System Baseline
 
@@ -229,7 +233,7 @@ broad polish.
 
 ### Stage 25C - Product Shell, Shared Context and Cockpit Visual Foundation
 
-Status: Slice 1 in progress and pending review.
+Status: complete.
 
 Primary objective: implement the first runtime slice of the coherent player
 product shell, the Explore/Plan/Review hierarchy, truthful shared-context
@@ -253,53 +257,114 @@ contracts unless a read-only adapter is proven necessary; Stage 19 or data-write
 activity.
 
 The full Stage 25C implementation contract lives in
-`stage-25c-product-shell-shared-context-contract.md`. Defining that contract
-did not by itself authorize runtime implementation; this first runtime slice is
-separately authorized and remains pending review.
+`stage-25c-product-shell-shared-context-contract.md`. The first runtime slice
+is now landed as the canonical shell/context baseline: Explore/Plan/Review
+framing, persistent selected-system context, explicit shell-level Plan hand-off,
+and separate operator/admin framing.
 
 ### Stage 25D - Canonical Colony Cockpit and Planner/Simulation Integration
 
-Status: unstarted.
+Status: complete.
 
 Purpose: use the Stage 25C shell and context model to integrate the strongest
 existing planner, sequence, simulation, validation, and evidence capabilities
 into one coherent Plan workspace. This stage must prevent the live Colony Planner
 and the reusable simulation-preview capability from becoming parallel competing
-products. It must not start until Stage 25C's navigation, context, and visual
-foundation are accepted.
+products.
+
+Current live 25D runtime slices:
+
+- canonical Colony Cockpit mode launch and route-aware mode continuity inside
+  the live Colony Planner;
+- in-cockpit command-deck guidance: active mode framing, planner-header mode
+  continuity, and explicit next-step hand-offs between Build Plan, Preview,
+  Sequence, Evidence, Validation, and Export;
+- `B-1` nearest-colonised proximity in Inspect as a fact-first bounded answer;
+- `A-1` journal import in My Work as privacy-bounded staging/evidence ingestion
+  with receipts and no direct canonical write path.
+
+Closeout note: the canonical Colony Cockpit is now the live planner baseline,
+so later stages build on this cockpit rather than treating simulation-preview as
+parallel inventory again.
 
 ### Stage 25E - Review, Evidence, Validation and Export Coherence
 
-Status: unstarted.
+Status: complete.
 
 Purpose: make Review/Export a coherent player flow for evidence, validation,
 plan review, comparison, and shareable outputs without letting report-only
 evidence become canonical planner truth.
 
+Current live 25E runtime slices:
+
+- shared review-flow continuity across Evidence, Validation, and Export so the
+  player can see one explicit journey from Preview through evidence review and
+  comparison into export readiness;
+- shared review-readiness summaries across Evidence, Validation, and Export so
+  the player can keep one explicit cross-mode view of preview freshness,
+  observed evidence, validation posture, and export closeout state;
+- mode-local best-next-move guidance in the review lanes so Evidence,
+  Validation, and Export no longer feel like isolated planner subpages;
+- preserved selected-system and review-only posture across those modes so
+  observed, inferred, planned, and export-ready states remain visibly separate.
+
 ### Stage 25F - Facility Intelligence and Explainable Next Actions
 
-Status: unstarted.
+Status: complete.
 
 Purpose: build a bounded Plan-context facility/role intelligence capability using
 existing planner rules and models where data supports it. This is not permission
 to create a broad standalone facility browser before the cockpit is coherent.
 
+Current live 25F runtime slices:
+
+- bounded cockpit-level facility intelligence built from the current planner
+  structure, body grouping, and role-signal utilities already in the live Plan
+  workspace;
+- explainable next actions derived from current planner state, preview
+  freshness, observed-evidence presence, and export closeout posture;
+- explicit facility-pressure and colony-anchor summaries that stay advisory and
+  do not mutate planner truth, ranking, mechanics, or declared strategy.
+
 ### Stage 25G - Explore and Map Product-Value Decision
 
-Status: unstarted.
+Status: complete.
 
 Purpose: test and define whether the map can materially improve candidate
 discovery, regional/sector orientation, or system selection before any
 substantial map product redesign is authorized. This stage may recommend no map
 expansion if player value is not demonstrated.
 
+Current live 25G runtime slices:
+
+- an explicit in-product map value panel that states what the map is for:
+  orientation, result clustering, and inspect hand-off for the current Finder
+  result set;
+- direct hand-offs back to Finder and into Inspect so the map stays a bounded
+  Explore aid instead of silently becoming another planning workspace;
+- a confirmed product decision to keep the map secondary and discovery-focused,
+  with no planner fusion or speculative redesign authorized by Stage 25.
+
 ### Stage 25H - Product Consolidation, Accessibility and Closeout
 
-Status: unstarted.
+Status: complete.
 
 Purpose: remove or alias obsolete secondary entry points, complete cross-surface
 visual and evidence consistency, complete accessibility and visual regression
 coverage, and close the Stage 25 programme.
+
+Current live 25H runtime slices:
+
+- obsolete direct player entry points now alias into the canonical My Work
+  route rather than pretending Watchlist, Pins, or Colony Tracker are still
+  independent primary destinations;
+- shell-level keyboard accessibility closeout via a skip-link to the main app
+  content;
+- Stage 25 closeout framing: one coherent Explore / Plan / Review shell with
+  the map explicitly retained as a bounded secondary Explore surface.
+
+Closeout note: Stage 25 is now complete. Any post-25 programme must be chosen
+explicitly rather than treated as an automatic continuation of this roadmap.
 
 ## Explicit Deferrals
 
@@ -353,8 +418,12 @@ This Stage 25 roadmap reset is acceptable only if:
 
 - Stage 24 remains closed;
 - Stage 25A is recorded as complete and Stage 25B as complete/merged;
-- Stage 25C is recorded as Slice 1 in progress and pending review rather than complete;
-- Stage 25D through Stage 25H are recorded as unstarted;
+- Stage 25C is recorded as complete once the runtime shell/context baseline is live;
+- Stage 25D is recorded as complete once the canonical cockpit integration is the live planner baseline;
+- Stage 25E is recorded as complete once review lanes share one explicit flow and readiness summary;
+- Stage 25F is recorded as complete once bounded facility intelligence and explainable next actions are live;
+- Stage 25G is recorded as complete once the map has one explicit bounded product-value posture and no planner-map expansion is implied;
+- Stage 25H is recorded as complete once obsolete direct player entry points are aliased into the canonical shell, accessibility closeout is landed, and the Stage 25 programme is explicitly closed.
 - PR #257 is recorded as the map recovery point;
 - the map remains a secondary Explore surface only and no deeper map integration
   is authorized;

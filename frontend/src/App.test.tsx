@@ -263,18 +263,23 @@ vi.mock('@/features/colony-planner/ColonyPlannerWorkspace', () => ({
   ColonyPlannerWorkspace: ({
     id64,
     projectId,
+    initialCockpitMode,
     onBackToFinder,
     onOpenSystemDetail,
+    onCockpitModeChange,
   }: {
     id64: number | null;
     projectId?: string | null;
+    initialCockpitMode?: string | null;
     onBackToFinder: () => void;
     onOpenSystemDetail: (id64: number) => void;
+    onCockpitModeChange?: (mode: string) => void;
   }) => (
     <div data-testid="colony-planner-workspace">
-      Colony Planner workspace {id64 ?? 'none'} / {projectId ?? 'no-project'}
+      Colony Planner workspace {id64 ?? 'none'} / {projectId ?? 'no-project'} / {initialCockpitMode ?? 'build-plan'}
       <button type="button" onClick={onBackToFinder}>Back to Finder</button>
       <button type="button" onClick={() => id64 != null && onOpenSystemDetail(id64)}>Open full system detail</button>
+      <button type="button" onClick={() => onCockpitModeChange?.('validation')}>Open validation mode</button>
     </div>
   ),
 }));
@@ -408,6 +413,33 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
   });
 
+  it('passes planner cockpit mode from the route into the dedicated planner workspace', async () => {
+    window.location.hash = '#colony-planner/system/123/mode/sequence';
+
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('/ sequence');
+    });
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 123');
+  });
+
+  it('updates the planner route when the cockpit mode changes inside Plan', async () => {
+    window.location.hash = '#colony-planner/system/123/project/draft-1/mode/preview';
+
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('/ preview');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open validation mode' }));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#colony-planner/system/123/project/draft-1/mode/validation');
+    });
+  });
+
   it('uses full-width main layout on the dedicated planner route only', async () => {
     window.location.hash = '#colony-planner/system/123';
     const { container, unmount } = await renderApp();
@@ -491,6 +523,7 @@ describe('App Colony Planner workspace route', () => {
     ['#my-work', null],
     ['#watchlist', 'Watchlist now opens the Saved Systems view inside My Work'],
     ['#pinned', 'Pins now open the Saved Systems view inside My Work'],
+    ['#colony', 'Colony Tracker remains available by route, while My Work now holds the player-facing colonies overview.'],
   ])('renders My Work with one local header and no shell context before a system is selected for %s', async (hash, aliasNotice) => {
     window.location.hash = hash;
 
@@ -502,6 +535,7 @@ describe('App Colony Planner workspace route', () => {
 
     expect(screen.queryByTestId('product-shell-context')).toBeNull();
     expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
+    expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
     expect(screen.getAllByRole('heading', { name: 'My Work' })).toHaveLength(1);
     expect(screen.getByTestId('my-work-workspace').textContent).toContain('Saved systems, plans, and colonies in one place.');
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Saved Systems');
@@ -516,6 +550,17 @@ describe('App Colony Planner workspace route', () => {
     }
   });
 
+  it('renders a skip link to main content for keyboard navigation', async () => {
+    window.location.hash = '#finder';
+
+    const { container } = await renderApp();
+
+    const skipLink = screen.getByRole('link', { name: 'Skip to main content' });
+    expect(skipLink.getAttribute('href')).toBe('#app-content');
+    const main = container.querySelector('main');
+    expect(main?.id).toBe('app-content');
+  });
+
   it('restores selected-system shell context from browser storage on direct My Work entry', async () => {
     localStorage.setItem('ed-finder:selected-system-context', '456');
     window.location.hash = '#my-work';
@@ -528,6 +573,24 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('product-shell-context').textContent).toContain('System 456');
     expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 456');
     expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
+  });
+
+  it('uses the shell context hand-off to open the selected system in Plan', async () => {
+    localStorage.setItem('ed-finder:selected-system-context', '456');
+    window.location.hash = '#my-work';
+
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('product-shell-context').textContent).toContain('System 456');
+    });
+
+    fireEvent.click(screen.getByTestId('nav-open-selected-system-plan'));
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe('#colony-planner/system/456/mode/build-plan');
+    });
+    expect(screen.getByTestId('colony-planner-workspace').textContent).toContain('456 / no-project / build-plan');
   });
 
   it('shows existing Watchlist saved systems in My Work from the current saved-system hook state', async () => {
@@ -813,6 +876,18 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByText('Operator tools')).toBeNull();
     expect(screen.queryByTestId('nav-admin')).toBeNull();
     expect(screen.queryByTestId('nav-operator')).toBeNull();
+  });
+
+  it('opens Finder empty and does not auto-run a search on load', async () => {
+    window.location.hash = '#finder';
+
+    await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByText('Ready to search')).toBeTruthy();
+    });
+    expect(screen.getByText('Adjust the filters on the left, then run a search.')).toBeTruthy();
+    expect(mockSearchRun).not.toHaveBeenCalled();
   });
 
   it('keeps admin and operator out of the normal mobile player menu', async () => {

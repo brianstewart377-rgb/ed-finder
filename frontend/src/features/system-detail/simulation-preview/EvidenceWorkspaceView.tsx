@@ -4,16 +4,22 @@ import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleRevie
 import type { SystemDetail } from '@/types/api';
 import { ObservedEvidencePanel } from './observations';
 import { ProvenanceCockpitPanel } from './provenance/ProvenanceCockpitPanel';
+import { ReviewReadinessStrip } from './ReviewReadinessStrip';
+import { ReviewWorkflowRail, type ReviewPreviewStatus } from './ReviewWorkflowRail';
 import { SelectedSystemReviewContext } from './SelectedSystemReviewContext';
 
 export function EvidenceWorkspaceView({
   system,
   targetArchetype,
+  previewStatus,
+  observedFactsCount,
   roleContext,
   roleReview,
 }: {
   system: SystemDetail;
   targetArchetype: string;
+  previewStatus: ReviewPreviewStatus;
+  observedFactsCount: number;
   roleContext?: ReactNode;
   roleReview?: RoleReviewResult;
 }) {
@@ -25,6 +31,16 @@ export function EvidenceWorkspaceView({
         modeLabel="Evidence mode"
         tone="report_only"
         summary={`${system.name ?? 'This system'} stays in focus while you review read-only provenance and observed evidence. Canonical planner truth remains separate from report-only context.`}
+      />
+      <ReviewWorkflowRail
+        activeMode="evidence"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
+      />
+      <ReviewReadinessStrip
+        activeMode="evidence"
+        previewStatus={previewStatus}
+        observedFactsCount={observedFactsCount}
       />
       <section className="rounded-chunk-lg border border-cyan/25 bg-cyan/5 px-3 py-2 font-mono text-[11px] leading-snug text-silver-dk">
         <span className="font-bold text-cyan">Evidence mode</span>

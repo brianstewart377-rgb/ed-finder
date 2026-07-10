@@ -227,7 +227,7 @@ export const DEFAULT_FILTERS: SearchFilters = {
   minDistance: 0,
   maxDistance: 200,
   size:        50,
-  populated:   'any',
+  populated:   'uninhabited',
   economy:     'any',
   minDevelopmentScore: 0,
   galaxyWide:  false,

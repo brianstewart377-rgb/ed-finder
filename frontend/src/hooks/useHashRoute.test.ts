@@ -8,23 +8,24 @@ afterEach(() => {
 
 describe('useHashRoute Development Tuning aliases', () => {
   it.each([
-    ['#finder', 'finder'],
-    ['#watchlist', 'watchlist'],
-    ['#pinned', 'pinned'],
-    ['#compare', 'compare'],
-    ['#map', 'map'],
-    ['#search-tuning', 'search-tuning'],
-    ['#fc', 'fc'],
-    ['#colony', 'colony'],
-    ['#admin', 'admin'],
-    ['#operator', 'operator'],
-    ['#colony-planner', 'colony-planner'],
-  ] as const)('parses %s as %s', (hash, route) => {
+    ['#finder', 'finder', null],
+    ['#watchlist', 'my-work', 'watchlist'],
+    ['#pinned', 'my-work', 'pinned'],
+    ['#compare', 'compare', null],
+    ['#map', 'map', null],
+    ['#search-tuning', 'search-tuning', null],
+    ['#fc', 'fc', null],
+    ['#colony', 'my-work', 'colony'],
+    ['#admin', 'admin', null],
+    ['#operator', 'operator', null],
+    ['#colony-planner', 'colony-planner', null],
+  ] as const)('parses %s as %s', (hash, route, routeAlias) => {
     window.location.hash = hash;
 
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe(route);
+    expect(result.current.routeAlias).toBe(routeAlias);
     expect(result.current.selectedSystemId).toBeNull();
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -35,6 +36,7 @@ describe('useHashRoute Development Tuning aliases', () => {
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('search-tuning');
+    expect(result.current.routeAlias).toBeNull();
     expect(result.current.selectedSystemId).toBeNull();
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -45,6 +47,7 @@ describe('useHashRoute Development Tuning aliases', () => {
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('search-tuning');
+    expect(result.current.routeAlias).toBe('optimizer');
     expect(result.current.selectedSystemId).toBeNull();
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -65,6 +68,7 @@ describe('useHashRoute Development Tuning aliases', () => {
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('search-tuning');
+    expect(result.current.routeAlias).toBe('optimizer');
     expect(result.current.selectedSystemId).toBe(123456);
     expect(result.current.plannerSystemId).toBeNull();
   });
@@ -90,14 +94,26 @@ describe('useHashRoute Development Tuning aliases', () => {
   });
 
   it('parses planner-owned detail routes without losing workspace context', () => {
-    window.location.hash = '#colony-planner/system/123456/project/draft-1/detail/654321';
+    window.location.hash = '#colony-planner/system/123456/project/draft-1/mode/sequence/detail/654321';
 
     const { result } = renderHook(() => useHashRoute());
 
     expect(result.current.route).toBe('colony-planner');
     expect(result.current.plannerSystemId).toBe(123456);
     expect(result.current.plannerProjectId).toBe('draft-1');
+    expect(result.current.plannerMode).toBe('sequence');
     expect(result.current.selectedSystemId).toBe(654321);
+  });
+
+  it('parses planner cockpit mode routes for direct Colony Planner deep links', () => {
+    window.location.hash = '#colony-planner/system/123456/mode/export';
+
+    const { result } = renderHook(() => useHashRoute());
+
+    expect(result.current.route).toBe('colony-planner');
+    expect(result.current.plannerSystemId).toBe(123456);
+    expect(result.current.plannerMode).toBe('export');
+    expect(result.current.selectedSystemId).toBeNull();
   });
 
   it.each(['#colony-planner', '#colony-planner/system/not-a-number', '#colony-planner/system/0'])(
@@ -124,6 +140,17 @@ describe('useHashRoute Development Tuning aliases', () => {
     expect(window.location.hash).toBe('#colony-planner/system/123456');
   });
 
+  it('opens the dedicated Colony Planner workspace with an explicit cockpit mode', () => {
+    window.location.hash = '#finder';
+    const { result } = renderHook(() => useHashRoute());
+
+    act(() => {
+      result.current.openColonyPlanner(123456, { mode: 'validation' });
+    });
+
+    expect(window.location.hash).toBe('#colony-planner/system/123456/mode/validation');
+  });
+
   it('navigates to an empty Colony Planner workspace when no planner system is selected', () => {
     window.location.hash = '#finder';
     const { result } = renderHook(() => useHashRoute());
@@ -136,14 +163,14 @@ describe('useHashRoute Development Tuning aliases', () => {
   });
 
   it('preserves the active planner system when navigating back to Colony Planner', () => {
-    window.location.hash = '#colony-planner/system/123456';
+    window.location.hash = '#colony-planner/system/123456/project/draft-1/mode/evidence';
     const { result } = renderHook(() => useHashRoute());
 
     act(() => {
       result.current.navigate('colony-planner');
     });
 
-    expect(window.location.hash).toBe('#colony-planner/system/123456');
+    expect(window.location.hash).toBe('#colony-planner/system/123456/project/draft-1/mode/evidence');
     expect(result.current.selectedSystemId).toBeNull();
   });
 
@@ -169,36 +196,36 @@ describe('useHashRoute Development Tuning aliases', () => {
   });
 
   it('keeps openSystem as a planner-owned detail route from the Colony Planner workspace', () => {
-    window.location.hash = '#colony-planner/system/123456';
+    window.location.hash = '#colony-planner/system/123456/mode/sequence';
     const { result } = renderHook(() => useHashRoute());
 
     act(() => {
       result.current.openSystem(123456);
     });
 
-    expect(window.location.hash).toBe('#colony-planner/system/123456/detail/123456');
+    expect(window.location.hash).toBe('#colony-planner/system/123456/mode/sequence/detail/123456');
   });
 
   it('allows planner flows to open system detail under an explicit planning host route', () => {
-    window.location.hash = '#colony-planner/system/123456';
+    window.location.hash = '#colony-planner/system/123456/mode/evidence';
     const { result } = renderHook(() => useHashRoute());
 
     act(() => {
       result.current.openSystem(123456, { hostRoute: 'colony-planner' });
     });
 
-    expect(window.location.hash).toBe('#colony-planner/system/123456/detail/123456');
+    expect(window.location.hash).toBe('#colony-planner/system/123456/mode/evidence/detail/123456');
   });
 
   it('closes planner-owned detail back to the planner workspace route', () => {
-    window.location.hash = '#colony-planner/system/123456/project/draft-1/detail/987654';
+    window.location.hash = '#colony-planner/system/123456/project/draft-1/mode/validation/detail/987654';
     const { result } = renderHook(() => useHashRoute());
 
     act(() => {
       result.current.closeSystem();
     });
 
-    expect(window.location.hash).toBe('#colony-planner/system/123456/project/draft-1');
+    expect(window.location.hash).toBe('#colony-planner/system/123456/project/draft-1/mode/validation');
   });
 
   it('navigates to the preferred #search-tuning route', () => {

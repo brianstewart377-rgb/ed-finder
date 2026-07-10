@@ -24,8 +24,9 @@ vi.mock('@/lib/api', () => ({
 vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
   const React = await import('react');
   return {
-    SimulationPreviewPanel: vi.fn(({ onPlanSnapshotChange }) => {
+    SimulationPreviewPanel: vi.fn(({ onPlanSnapshotChange, onActiveModeChange, initialMode }) => {
       React.useEffect(() => {
+        onActiveModeChange?.(initialMode ?? 'build-plan');
         onPlanSnapshotChange?.({
           placements: [
             { facility_template_id: 'orbital_port', local_body_id: 'body1', is_primary_port: true, build_order: 1 },
@@ -96,7 +97,14 @@ vi.mock('@/features/system-detail/SimulationPreviewPanel', async () => {
           },
         });
       }, [onPlanSnapshotChange]);
-      return <div>Reused Colony Planner panel</div>;
+      return (
+        <div>
+          Reused Colony Planner panel ({initialMode ?? 'build-plan'})
+          <button type="button" onClick={() => onActiveModeChange?.('validation')}>
+            Switch cockpit mode
+          </button>
+        </div>
+      );
     }),
   };
 });
@@ -516,11 +524,16 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByTestId('system-overview-map')).toBeNull();
     expect(screen.getByTestId('body1-orbital-slot-3')).toBeTruthy();
     expect(screen.getByTestId('body1-ground-slot-4')).toBeTruthy();
-    expect(screen.getByTestId('advanced-workspace-toggle')).toBeTruthy();
-    expect(screen.getByTestId('advanced-workspace-toggle').textContent).toContain('Open');
-    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(screen.getByTestId('colony-cockpit-toggle')).toBeTruthy();
+    expect(screen.getByTestId('colony-cockpit-toggle').textContent).toContain('Open');
+    expect(screen.queryByTestId('colony-cockpit-content')).toBeNull();
     expect(screen.queryByText('Reused Colony Planner panel')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+    expect(screen.getByTestId('colony-cockpit-launch-strip')).toBeTruthy();
+    expect(screen.getByTestId('colony-cockpit-active-mode-chip').textContent).toContain('Build Plan');
+    expect(screen.getByTestId('colony-cockpit-active-mode-emphasis').textContent).toContain('Best when you need to add, move, or replace facilities');
+    expect(screen.getByTestId('colony-cockpit-suggested-next-preview')).toBeTruthy();
+    expect(screen.getByTestId('colony-cockpit-open-sequence')).toBeTruthy();
     expect(screen.getByText('Planner summary')).toBeTruthy();
     await click(screen.getByTestId('summary-rail-collapse-toggle'));
     expect(await screen.findByTestId('project-card')).toBeTruthy();
@@ -557,9 +570,11 @@ describe('ColonyPlannerWorkspace', () => {
     expect(screen.queryByRole('combobox', { name: 'Declared role' })).toBeNull();
     expect(screen.queryByRole('textbox', { name: /role/i })).toBeNull();
 
-    await click(screen.getByTestId('advanced-workspace-toggle'));
-    expect(await screen.findByTestId('advanced-planner-content')).toBeTruthy();
-    expect(screen.getByText('Reused Colony Planner panel')).toBeTruthy();
+    await click(screen.getByTestId('colony-cockpit-toggle'));
+    expect(await screen.findByTestId('colony-cockpit-content')).toBeTruthy();
+    expect(screen.getByText('Reused Colony Planner panel (build-plan)')).toBeTruthy();
+    expect(screen.getByTestId('workspace-context-header').textContent).toContain('Cockpit');
+    expect(screen.getByTestId('workspace-context-header').textContent).toContain('Build Plan');
     expect((await screen.findAllByTestId('planner-canvas-projected-structure')).length).toBeGreaterThan(0);
     expect(screen.getByTestId('planner-canvas-body-row-body1').getAttribute('data-projected')).toBe('true');
     expect((screen.getByTestId('body1-ground-slot-0').textContent ?? '')).toMatch(/Surfa|Surface/i);
@@ -608,8 +623,30 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect((screen.getByTestId('body1-orbital-slot-0').textContent ?? '').trim().length).toBeGreaterThan(0);
     expect(screen.getByTestId('body1-orbital-slot-0').textContent).toMatch(/Orbital|Port/i);
-    expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(screen.queryByTestId('colony-cockpit-content')).toBeNull();
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();
+  });
+
+  it('opens the colony cockpit directly in the requested planner mode and reports mode changes upward', async () => {
+    const onCockpitModeChange = vi.fn();
+    mockedUseSystemDetail.mockReturnValue({
+      data: system,
+      loading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+
+    await renderPlanner({ initialCockpitMode: 'sequence', onCockpitModeChange });
+
+    expect(await screen.findByTestId('colony-cockpit-content')).toBeTruthy();
+    expect(screen.getByText('Reused Colony Planner panel (sequence)')).toBeTruthy();
+    expect(onCockpitModeChange).toHaveBeenCalledWith('sequence');
+    expect(screen.getByTestId('workspace-context-header').textContent).toContain('Sequence');
+    expect(screen.getByTestId('colony-cockpit-active-mode-chip').textContent).toContain('Sequence');
+
+    await click(screen.getByRole('button', { name: 'Switch cockpit mode' }));
+    expect(onCockpitModeChange).toHaveBeenLastCalledWith('validation');
+    await waitFor(() => expect(screen.getByTestId('workspace-context-header').textContent).toContain('Validation'));
   });
 
   it('keeps body clicks focused on planning rather than role editing side effects', async () => {

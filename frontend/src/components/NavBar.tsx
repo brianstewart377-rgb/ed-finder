@@ -25,6 +25,7 @@ export interface NavBarProps {
     evidenceTone: SemanticStatusTone;
     evidenceSummary: string;
   } | null;
+  onOpenSelectedSystemInPlan?: (() => void) | undefined;
 }
 
 type PrimaryWorkspace = 'explore' | 'plan' | 'review';
@@ -53,6 +54,7 @@ export function NavBar({
   health,
   fullWidth = false,
   selectedSystem = null,
+  onOpenSelectedSystemInPlan,
 }: NavBarProps) {
   const appVersionLabel = `v${__APP_VERSION__}`;
   const ok = (health ?? '').toLowerCase() === 'online';
@@ -279,6 +281,16 @@ export function NavBar({
                       tone={currentWorkspaceMeta.statusTone}
                     />
                   )}
+                  actions={selectedSystem && onOpenSelectedSystemInPlan ? (
+                    <button
+                      type="button"
+                      onClick={onOpenSelectedSystemInPlan}
+                      data-testid="nav-open-selected-system-plan"
+                      className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                    >
+                      Open in Plan
+                    </button>
+                  ) : undefined}
                   testId="product-shell-context"
                 />
               </div>
@@ -317,6 +329,16 @@ export function NavBar({
                     <p className="mt-2 text-xs leading-relaxed text-silver-dk">
                       {selectedSystem.evidenceSummary}
                     </p>
+                    {onOpenSelectedSystemInPlan ? (
+                      <button
+                        type="button"
+                        onClick={onOpenSelectedSystemInPlan}
+                        data-testid="nav-open-selected-system-plan-mobile"
+                        className="mt-3 w-full rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange transition-colors hover:border-orange hover:bg-orange/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80"
+                      >
+                        Open in Plan
+                      </button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

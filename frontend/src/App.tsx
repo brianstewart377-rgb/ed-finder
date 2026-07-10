@@ -38,7 +38,6 @@ import './index.css';
 
 const LazyCompareTab = lazy(async () => ({ default: (await import('@/features/compare/CompareTab')).CompareTab }));
 const LazyAdvancedSearchTuningTab = lazy(async () => ({ default: (await import('@/features/search-tuning/AdvancedSearchTuningTab')).AdvancedSearchTuningTab }));
-const LazyColonyTab = lazy(async () => ({ default: (await import('@/features/colony/ColonyTab')).ColonyTab }));
 const LazyFcPlannerTab = lazy(async () => ({ default: (await import('@/features/fc-planner/FcPlannerTab')).FcPlannerTab }));
 const LazyAdminTab = lazy(async () => ({ default: (await import('@/features/admin/AdminTab')).AdminTab }));
 const LazyOperatorCockpitTab = lazy(async () => ({ default: (await import('@/features/operator/OperatorCockpitTab')).OperatorCockpitTab }));
@@ -83,7 +82,18 @@ function AppInner() {
 }
 
 function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
-  const { route, selectedSystemId, plannerSystemId, plannerProjectId, navigate, openSystem, openColonyPlanner, closeSystem } = hashRoute;
+  const {
+    route,
+    routeAlias,
+    selectedSystemId,
+    plannerSystemId,
+    plannerProjectId,
+    plannerMode,
+    navigate,
+    openSystem,
+    openColonyPlanner,
+    closeSystem,
+  } = hashRoute;
   const search    = useSearch();
   const watchlist = useWatchlist();
   const pinned    = usePinned();
@@ -127,6 +137,14 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     setDetailFocus(null);
     setShellContextSystemId(systemId64);
     openColonyPlanner(systemId64);
+  };
+
+  const openShellContextInPlan = () => {
+    if (shellContextSystemId == null) return;
+    setDetailFocus(null);
+    openColonyPlanner(shellContextSystemId, {
+      mode: route === 'colony-planner' ? plannerMode : 'build-plan',
+    });
   };
 
   const closeSystemDetail = () => {
@@ -229,25 +247,32 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
     openColonyPlanner(system.id64, { projectId: saved.id });
   }, [openColonyPlanner, saveProject]);
 
-  // First-paint: health + default search.
+  // First-paint: health only. Finder should open calm and empty until the
+  // player explicitly runs a search.
   useEffect(() => {
     api.health()
       .then(() => setHealth('Online'))
       .catch(() => setHealth('API connection issue'));
-    void search.run();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const plannerWorkspaceRoute = route === 'colony-planner';
 
   return (
-    <main
-      className={[
-        'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
-        plannerWorkspaceRoute ? 'pb-10' : 'pb-28',
-        plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
-      ].join(' ')}
-    >
+    <>
+      <a
+        href="#app-content"
+        className="sr-only fixed left-4 top-4 z-[100] rounded-chunk-sm border border-orange/55 bg-bg2/95 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.14em] text-orange shadow-brand-glow focus:not-sr-only focus:outline-none focus:ring-2 focus:ring-orange/80"
+      >
+        Skip to main content
+      </a>
+      <main
+        id="app-content"
+        className={[
+          'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
+          plannerWorkspaceRoute ? 'pb-10' : 'pb-28',
+          plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
+        ].join(' ')}
+      >
       <NavBar
         current={route}
         onNavigate={navigate}
@@ -259,6 +284,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         health={health}
         fullWidth={plannerWorkspaceRoute}
         selectedSystem={shellSelectedSystem}
+        onOpenSelectedSystemInPlan={shellSelectedSystem && route !== 'colony-planner' ? openShellContextInPlan : undefined}
       />
 
       <SavedSystemNotice
@@ -284,11 +310,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       )}
 
       <Suspense fallback={<WorkspaceFallback label="Loading workspace" fullWidth={plannerWorkspaceRoute} />}>
-        {(route === 'my-work' || route === 'watchlist' || route === 'pinned') && (
+        {route === 'my-work' && (
           <LazyMyWorkWorkspace
             key={route}
             initialSection="saved-systems"
-            routeSource={route === 'my-work' ? 'my-work' : route}
+            routeSource={routeAlias === 'watchlist' || routeAlias === 'pinned' || routeAlias === 'colony' ? routeAlias : 'my-work'}
             watchlist={watchlist}
             pinned={pinned}
             onOpenDetail={openSystemDetail}
@@ -320,6 +346,14 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
             onBackToFinder={() => navigate('finder')}
             onOpenSystemDetail={(id64) => openSystemDetail(id64, { hostRoute: 'colony-planner' })}
             onOpenMyWork={() => navigate('my-work')}
+            initialCockpitMode={plannerMode ?? 'build-plan'}
+            onCockpitModeChange={(mode) => {
+              if (plannerSystemId == null) return;
+              openColonyPlanner(plannerSystemId, {
+                projectId: plannerProjectId,
+                mode,
+              });
+            }}
             onPlanDeleted={(projectName) => {
               setSavedSystemNotice({
                 tone: 'success',
@@ -336,10 +370,6 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
             onOpenDetail={openSystemDetail}
             selectedSystem={shellSelectedSystem}
           />
-        )}
-
-        {route === 'colony' && (
-          <LazyColonyTab colony={colony} onOpenDetail={openSystemDetail} />
         )}
 
         {route === 'admin' && (
@@ -359,6 +389,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               z:    search.filters.refCoords.z,
             }}
             initialSelectedSystemId={selectedSystemId}
+            onReturnToFinder={() => navigate('finder')}
+            onOpenSelectedSystem={(id64) => openSystemDetail(id64, { hostRoute: 'map' })}
           />
         )}
       </Suspense>
@@ -448,7 +480,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       )}
 
       {!plannerWorkspaceRoute && <EliteNewsBar />}
-    </main>
+      </main>
+    </>
   );
 }
 

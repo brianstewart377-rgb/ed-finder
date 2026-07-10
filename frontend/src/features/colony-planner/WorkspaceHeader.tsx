@@ -11,6 +11,7 @@ import {
   plannerNextActionCopy,
   startApproachLabel,
 } from './plannerDraftContext';
+import { workspaceModeLabel, type SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 
 function projectStatusLabel(status?: ColonyProject['status'] | null) {
   if (status === 'ready_to_build') return 'Ready to build';
@@ -73,6 +74,7 @@ export function WorkspaceHeader({
   unsavedChanges,
   plannedStructureCount = 0,
   onDeleteActiveProject,
+  activeCockpitMode = 'build-plan',
 }: {
   system: SystemDetail;
   onBackToFinder: () => void;
@@ -83,6 +85,7 @@ export function WorkspaceHeader({
   unsavedChanges?: boolean;
   plannedStructureCount?: number;
   onDeleteActiveProject?: () => boolean;
+  activeCockpitMode?: SimulationWorkspaceMode;
 }) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -129,6 +132,7 @@ export function WorkspaceHeader({
           { label: 'Coords', value: coords, tone: 'cyan' },
           { label: 'Archetype', value: system.primary_archetype ? formatArchetypeLabel(system.primary_archetype) : system.primary_economy ?? 'Unknown', tone: 'orange' },
           { label: 'Population', value: population },
+          { label: 'Cockpit', value: workspaceModeLabel(activeCockpitMode), tone: 'cyan' },
         ]}
         actions={(
           <>

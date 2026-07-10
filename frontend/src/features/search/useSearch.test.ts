@@ -46,4 +46,25 @@ describe('useSearch', () => {
       }),
     }));
   });
+
+  it('starts with non-colonised finder defaults and restores them on reset', () => {
+    const { result } = renderHook(() => useSearch());
+
+    expect(result.current.filters.populated).toBe('uninhabited');
+
+    act(() => {
+      result.current.setFilters({ populated: 'any', economy: 'Refinery' });
+    });
+
+    expect(result.current.filters.populated).toBe('any');
+    expect(result.current.filters.economy).toBe('Refinery');
+
+    act(() => {
+      result.current.reset();
+    });
+
+    expect(result.current.filters.populated).toBe('uninhabited');
+    expect(result.current.filters.economy).toBe('any');
+    expect(result.current.state).toEqual({ kind: 'idle' });
+  });
 });

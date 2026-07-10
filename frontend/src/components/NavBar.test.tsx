@@ -33,11 +33,13 @@ describe('NavBar', () => {
   });
 
   it('shows selected-system context with evidence posture when a shared shell context exists', () => {
+    const onOpenSelectedSystemInPlan = vi.fn();
     render(
       <NavBar
         current="map"
         onNavigate={vi.fn()}
         health="Online"
+        onOpenSelectedSystemInPlan={onOpenSelectedSystemInPlan}
         selectedSystem={{
           id64: 123,
           name: 'Shinrarta Dezhra',
@@ -53,6 +55,8 @@ describe('NavBar', () => {
     expect(screen.getByTestId('product-shell-context').textContent).toContain('ID64 123');
     expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
     expect(screen.getByTestId('product-shell-context').textContent).toContain('Candidate remains in focus across Explore, Inspect, Plan, and Review.');
+    fireEvent.click(screen.getByTestId('nav-open-selected-system-plan'));
+    expect(onOpenSelectedSystemInPlan).toHaveBeenCalledTimes(1);
 
     const plannerButton = screen.getByTestId('nav-colony-planner');
     plannerButton.focus();
@@ -101,6 +105,7 @@ describe('NavBar', () => {
 
     expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
     expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
+    expect(screen.queryByTestId('nav-open-selected-system-plan')).toBeNull();
 
     for (const route of ['my-work', 'watchlist', 'pinned'] as const) {
       rerender(
@@ -108,6 +113,7 @@ describe('NavBar', () => {
           current={route}
           onNavigate={vi.fn()}
           health="Online"
+          onOpenSelectedSystemInPlan={vi.fn()}
           selectedSystem={{
             id64: 123,
             name: 'Shinrarta Dezhra',
@@ -121,6 +127,7 @@ describe('NavBar', () => {
 
       expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
       expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
+      expect(screen.getByTestId('nav-open-selected-system-plan')).toBeTruthy();
     }
   });
 

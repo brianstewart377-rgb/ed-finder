@@ -18,6 +18,7 @@ export function SimulationPreviewPanel({
   workspaceDrawer,
   onWorkspaceDrawerChange,
   initialMode,
+  onActiveModeChange,
 }: {
   system: SystemDetail;
   selectedPlan: RecommendedBuildPlan | null;
@@ -31,6 +32,7 @@ export function SimulationPreviewPanel({
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
   initialMode?: SimulationWorkspaceMode;
+  onActiveModeChange?: (mode: SimulationWorkspaceMode) => void;
 }) {
   return (
     <SimulationPreview
@@ -47,6 +49,7 @@ export function SimulationPreviewPanel({
       workspaceDrawer={workspaceDrawer}
       onWorkspaceDrawerChange={onWorkspaceDrawerChange}
       initialMode={initialMode}
+      onActiveModeChange={onActiveModeChange}
     />
   );
 }

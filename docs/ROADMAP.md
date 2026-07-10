@@ -5,9 +5,8 @@ document that should answer "what next?".
 
 ## Current State
 
-- Programme: Stage 25 is the active product programme.
-- Status: Stage 25A and Stage 25B are complete; Stage 25C Slice 1 is in
-  progress and pending review; Stage 25D through Stage 25H are unstarted.
+- Programme: Stage 25 is complete and closed.
+- Status: Stage 25A through Stage 25H are complete.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -49,11 +48,15 @@ Stage 25 has exactly one primary objective:
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
-- Stage 25C Slice 1 is in progress and pending review.
-- Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.
+- Stage 25C is complete as the landed product-shell and shared-context baseline.
+- Stage 25D is complete.
+- Stage 25E is complete.
+- Stage 25F is complete.
+- Stage 25G is complete.
+- Stage 25H is complete.
 - The map is retained as a secondary Explore surface only.
 - Colony Planner: `canonical_live`.
-- simulation-preview: `reusable_but_unwired`.
+- simulation-preview: `integrated_into_stage25d_cockpit`.
 - map: `canonical_live` as a secondary Explore surface.
 - Explore -> Inspect -> Plan -> Simulate/Sequence -> Review Evidence -> Export/Share.
 - Stage 25 uses a restrained cockpit-oriented visual direction.
@@ -64,10 +67,11 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Finish the Stage 25C product-shell work so the app behaves like one coherent
-   product instead of a pile of loosely related tabs.
-2. Preserve a visible selected-system context across Explore, Inspect, Plan,
-   and Review / Export flows.
+1. Keep the landed Stage 25C shell/context baseline stable while Stage 25D
+   folds the strongest planner and simulation surfaces into one canonical Plan
+   workspace.
+2. Preserve a visible selected-system context and explicit Plan hand-off across
+   Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
    report-only context into fake canonical truth.
 4. Keep the live planner trustworthy, readable, and operationally boring while
@@ -164,22 +168,41 @@ competing roadmap source.
 
 ## Current Next Steps
 
+- Stage 25 is closed. The next product programme or foundation lane must now
+  be selected explicitly rather than inferred from unfinished Stage 25 work.
+
 ### Stage 25C
 
-- Complete the shared product shell and selected-system context spine.
-- Keep the current Stage 25C slice bounded to shell, navigation, context, and
-  cockpit visual foundation work.
-- Do not broaden Stage 25C into planner/simulation fusion, map redesign, or any
-  write-capable data lane.
+- Completed: shared product shell, selected-system context spine, and explicit
+  shell-level hand-off into Plan are now the live baseline.
+- Keep Stage 25C closed as the shell/context baseline; future work should build
+  on it rather than reopening route sprawl.
 
-### After Stage 25C
+### Stage 25D
 
-- Stage 25D: integrate the strongest existing planner and simulation surfaces
-  into a canonical Colony Cockpit once the shell and context model are stable.
-- Stage 25E: improve review, evidence, validation, and export coherence.
-- Stage 25F: add facility intelligence and explainable next actions.
-- Stage 25G: make an explicit product-value decision on the Explore/map lane.
-- Stage 25H: consolidate the product, accessibility, and closeout work.
+- Complete: the strongest existing planner and simulation surfaces are now
+  integrated into the canonical Colony Cockpit on top of the settled
+  shell/context model.
+- Current live 25D slices are the canonical cockpit mode hand-off inside Plan,
+  `B-1` nearest-colonised proximity in Inspect, and `A-1` journal import as
+  bounded staging/evidence ingestion only.
+- The current 25D runtime includes an in-workspace command deck: active
+  cockpit mode continuity in the planner header, mode-aware guidance, and quick
+  next-step hand-offs between Build Plan, Preview, Sequence, Evidence,
+  Validation, and Export.
+- Stage 25E is complete: the live review lanes now share one explicit
+  review-flow rail plus a shared readiness summary across Evidence,
+  Validation, and Export, with preserved selected-system review posture and
+  mode-local next-step guidance.
+- Stage 25F is complete: the cockpit now exposes bounded facility intelligence
+  and explainable next actions built from current planner structure, role
+  signals, preview posture, and observed-evidence state.
+- Stage 25G is complete: the map now carries one explicit product-value
+  posture as a secondary Explore surface, with bounded orientation/inspect
+  hand-offs instead of planner creep.
+- Stage 25H is complete: obsolete direct player entry points now alias into
+  the canonical My Work route, the app shell exposes a skip-link for keyboard
+  navigation, and Stage 25 closes with one coherent Explore/Plan/Review shell.
 
 ### Supporting Evidence / Ingestion Lane
 
@@ -195,18 +218,19 @@ competing roadmap source.
 - Treat canonical write lanes, rebaseline, scheduler activation, and broad
   automation as separately gated future work.
 
-### Bounded Post-25C Feature Incubation
+### Bounded Post-25D Feature Incubation
 
-- `B-1` nearest-colonised proximity is the cheapest acceptable product win once
-  the current Stage 25C shell/context slice is landed cleanly.
+- `B-1` nearest-colonised proximity is now the bounded Inspect-side fact-first
+  product win and should remain evidence-disciplined rather than expanding into
+  corridor routing by stealth.
 - `B-2` hop-count-only colonisation corridor routing is acceptable before the
   score-weighted variant because it does not depend on ratings trust for its
   core recommendation quality.
 - `B-3` score-weighted corridor ranking is explicitly gated on the ratings
   rebaseline closing and being verified.
-- `A-1` journal import is acceptable only as client-side parsed, privacy-bounded,
-  staging/evidence ingestion with reviewable receipts and no direct canonical
-  writes.
+- `A-1` journal import is now acceptable only as the current client-side parsed,
+  privacy-bounded staging/evidence lane with reviewable receipts and no direct
+  canonical writes.
 - `A-2` journal-driven canonical promotion must reuse guarded reconciliation and
   should not open until the migration ledger and backup/restore posture are in
   place.

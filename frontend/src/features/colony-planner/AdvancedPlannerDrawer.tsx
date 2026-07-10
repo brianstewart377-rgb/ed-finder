@@ -16,6 +16,7 @@ export function AdvancedPlannerDrawer({
   workspaceCommand,
   lastHandledWorkspaceCommandToken,
   onOpenChange,
+  onActiveModeChange,
   onPlanSnapshotChange,
   onWorkspaceCommandHandled,
 }: {
@@ -28,6 +29,7 @@ export function AdvancedPlannerDrawer({
   workspaceCommand: PlannerWorkspaceCommand | null;
   lastHandledWorkspaceCommandToken: number;
   onOpenChange: (open: boolean) => void;
+  onActiveModeChange?: (mode: SimulationWorkspaceMode) => void;
   onPlanSnapshotChange: (snapshot: TopologyPlanSnapshot) => void;
   onWorkspaceCommandHandled: (token: number) => void;
 }) {
@@ -38,17 +40,17 @@ export function AdvancedPlannerDrawer({
   }), [snapshot.placements, snapshot.targetArchetype, system.id64]);
 
   return (
-    <section className="mt-3 rounded-chunk-lg border border-border/55 bg-bg2/35" data-testid="advanced-planner-drawer">
+    <section className="mt-3 rounded-chunk-lg border border-border/55 bg-bg2/35" data-testid="colony-cockpit-drawer">
       <button
         type="button"
-        data-testid="advanced-workspace-toggle"
+        data-testid="colony-cockpit-toggle"
         onClick={() => onOpenChange(!open)}
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <div>
-          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Advanced Planner</div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-silver-dk">Colony Cockpit</div>
           <p className="mt-0.5 font-mono text-[10px] text-silver-dk">
-            Suggested Builds, Preview, and list editor remain explicit tools.
+            Suggested Builds, Preview, Sequence, Evidence, Validation, and Export now live as explicit planner modes inside the canonical cockpit.
           </p>
         </div>
         <span className="rounded border border-border/60 bg-bg3/45 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver">
@@ -56,11 +58,12 @@ export function AdvancedPlannerDrawer({
         </span>
       </button>
       {open && (
-        <div className="border-t border-border/60 px-2 pb-2 pt-2" data-testid="advanced-planner-content">
+        <div className="border-t border-border/60 px-2 pb-2 pt-2" data-testid="colony-cockpit-content">
           <SimulationPreviewPanel
             system={system}
             selectedPlan={null}
             initialMode={initialMode}
+            onActiveModeChange={onActiveModeChange}
             onPlanSnapshotChange={onPlanSnapshotChange}
             topologySelection={selection}
             initialRequest={initialRequest}

@@ -22,6 +22,7 @@ import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-pl
 import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
 import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
+import { CockpitIntelligencePanel } from './CockpitIntelligencePanel';
 import { EvidenceWorkspaceView } from './EvidenceWorkspaceView';
 import { ExportReadinessWorkspaceView } from './ExportReadinessWorkspaceView';
 import { MapFoundationWorkspaceView } from './MapFoundationWorkspaceView';
@@ -29,7 +30,7 @@ import { PreviewWorkspaceView } from './PreviewWorkspaceView';
 import { SequenceCockpitWorkspaceView } from './SequenceCockpitWorkspaceView';
 import { SuggestedBuildsWorkspaceView } from './SuggestedBuildsWorkspaceView';
 import { ValidationWorkspaceView } from './ValidationWorkspaceView';
-import { WorkspaceModeTabs, type SimulationWorkspaceMode } from './WorkspaceModeTabs';
+import { WORKSPACE_MODE_META, WorkspaceModeTabs, workspaceModeLabel, type SimulationWorkspaceMode } from './WorkspaceModeTabs';
 import {
   buildColonyRoleSummaryForGroup,
   primaryRoleHint,
@@ -58,6 +59,7 @@ export function SimulationPreview({
   workspaceDrawer,
   onWorkspaceDrawerChange,
   initialMode = 'build-plan',
+  onActiveModeChange,
 }: {
   system: SystemDetail;
   initialRequest?: SimulateBuildRequest | null;
@@ -72,6 +74,7 @@ export function SimulationPreview({
   workspaceDrawer?: ReviewDrawer;
   onWorkspaceDrawerChange?: (drawer: ReviewDrawer) => void;
   initialMode?: SimulationWorkspaceMode;
+  onActiveModeChange?: (mode: SimulationWorkspaceMode) => void;
 }) {
   const [localWorkspaceDrawer, setLocalWorkspaceDrawer] = useState<ReviewDrawer>(null);
   const activeWorkspaceDrawer = workspaceDrawer === undefined ? localWorkspaceDrawer : workspaceDrawer;
@@ -168,6 +171,16 @@ export function SimulationPreview({
     () => buildRoleReview({ declaredRoles, observedRoles }),
     [declaredRoles, observedRoles],
   );
+  const activeModeMeta = WORKSPACE_MODE_META[activeMode];
+  const previewStatusLabel = runState.result
+    ? (runState.isResultStale ? 'Preview stale' : 'Preview current')
+    : 'Preview not run';
+  const reviewPreviewStatus = !runState.result
+    ? 'not_run'
+    : runState.isResultStale
+      ? 'stale'
+      : 'current';
+  const observedFactsCount = observedFactsQuery.data?.summary?.total_count ?? observedFactsQuery.data?.facts?.length ?? 0;
   const lastEmittedPlanSnapshotFingerprintRef = useRef<string | null>(null);
   const initialRequestHydrationRef = useRef<{ fingerprint: string | null; hydrated: boolean }>({
     fingerprint: null,
@@ -224,6 +237,10 @@ export function SimulationPreview({
   useEffect(() => {
     setActiveMode(initialMode);
   }, [initialMode]);
+
+  useEffect(() => {
+    onActiveModeChange?.(activeMode);
+  }, [activeMode, onActiveModeChange]);
 
   useEffect(() => {
     if (!workspaceCommand) return;
@@ -304,6 +321,73 @@ export function SimulationPreview({
       />
 
       <WorkspaceModeTabs activeMode={activeMode} onModeChange={handleModeChange} />
+
+      <section
+        data-testid="colony-cockpit-command-deck"
+        className="border-b border-border/60 bg-[linear-gradient(180deg,rgba(34,211,238,0.08),rgba(17,24,39,0.24))] px-4 py-3"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">Active cockpit lane</span>
+              <span
+                data-testid="colony-cockpit-command-active-mode"
+                className="rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange"
+              >
+                {workspaceModeLabel(activeMode)}
+              </span>
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-silver">
+              {activeModeMeta.summary}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-silver-dk">
+              {activeModeMeta.emphasis}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-[10px] font-mono uppercase tracking-[0.12em]">
+            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+              {plan.placements.length} placements
+            </span>
+            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+              {previewStatusLabel}
+            </span>
+            <span className="rounded border border-border/60 bg-bg3/35 px-2 py-1 text-silver-dk">
+              {observedFactsCount} observed facts
+            </span>
+            {planningFocusLabel ? (
+              <span className="rounded border border-cyan/30 bg-cyan/10 px-2 py-1 text-cyan">
+                {planningFocusLabel}
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {activeModeMeta.nextModes.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              data-testid={`colony-cockpit-command-next-${mode}`}
+              onClick={() => handleModeChange(mode)}
+              className="rounded border border-cyan/30 bg-bg3/35 px-3 py-2 text-left transition-colors hover:border-cyan/45 hover:bg-cyan/10"
+            >
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-cyan">
+                Next: {workspaceModeLabel(mode)}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-silver-dk">
+                {WORKSPACE_MODE_META[mode].helper}. {WORKSPACE_MODE_META[mode].summary}
+              </p>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      <CockpitIntelligencePanel
+        placements={plan.placements}
+        templates={templates}
+        bodies={bodies}
+        previewStatus={reviewPreviewStatus}
+        observedFactsCount={observedFactsCount}
+      />
 
       <div className="p-4" data-testid="simulation-preview-active-mode" data-active-mode={activeMode}>
         {activeMode === 'build-plan' && (
@@ -424,6 +508,8 @@ export function SimulationPreview({
           <EvidenceWorkspaceView
             system={system}
             targetArchetype={plan.targetArchetype}
+            previewStatus={reviewPreviewStatus}
+            observedFactsCount={observedFactsCount}
             roleContext={(
               <WorkspaceRoleContext
                 mode="Evidence"
@@ -442,6 +528,7 @@ export function SimulationPreview({
             targetArchetype={plan.targetArchetype}
             previewResult={runState.result}
             isPreviewResultStale={runState.isResultStale}
+            observedFactsCount={observedFactsCount}
             roleContext={(
               <WorkspaceRoleContext
                 mode="Validation"
@@ -463,6 +550,7 @@ export function SimulationPreview({
             bodies={bodies}
             previewResult={runState.result}
             previewResultStale={runState.isResultStale}
+            previewStatus={reviewPreviewStatus}
             roleReview={roleReview}
           />
         )}

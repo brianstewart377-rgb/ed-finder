@@ -1,16 +1,19 @@
 import { useEffect, useState } from 'react';
+import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 
 /**
  * Hash-based router with optional `system/{id64}` sub-routes.
  *
  * Supported hash formats (in priority order):
  *   #finder                       → route='finder',    selectedSystemId=null
- *   #pinned                       → route='pinned',    selectedSystemId=null
- *   #pinned/system/12345678       → route='pinned',    selectedSystemId=12345678
+ *   #pinned                       → route='my-work',   routeAlias='pinned',    selectedSystemId=null
+ *   #pinned/system/12345678       → route='my-work',   routeAlias='pinned',    selectedSystemId=12345678
  *   #search-tuning                → route='search-tuning', selectedSystemId=null
- *   #optimizer                    → route='search-tuning', selectedSystemId=null (legacy alias)
+ *   #optimizer                    → route='search-tuning', routeAlias='optimizer', selectedSystemId=null
  *   #system/12345678              → route='finder',    selectedSystemId=12345678   (deep-link from external)
  *   #my-work                      → route='my-work', selectedSystemId=null
+ *   #watchlist                    → route='my-work', routeAlias='watchlist', selectedSystemId=null
+ *   #colony                       → route='my-work', routeAlias='colony', selectedSystemId=null
  *   #colony-planner/system/123    → route='colony-planner', plannerSystemId=123
  *   #colony-planner/system/123/project/abc → route='colony-planner', plannerSystemId=123, plannerProjectId='abc'
  *   #colony-planner/system/123/detail/456  → route='colony-planner', plannerSystemId=123, selectedSystemId=456
@@ -35,9 +38,29 @@ const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'comp
 
 export interface ParsedHash {
   route:            Route;
+  routeAlias:       'watchlist' | 'pinned' | 'colony' | 'optimizer' | null;
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
   plannerProjectId: string | null;
+  plannerMode: SimulationWorkspaceMode | null;
+}
+
+const VALID_PLANNER_MODES: SimulationWorkspaceMode[] = [
+  'build-plan',
+  'suggested-builds',
+  'preview',
+  'sequence',
+  'map',
+  'evidence',
+  'validation',
+  'export',
+];
+
+function parsePlannerMode(value: string | undefined): SimulationWorkspaceMode | null {
+  if (!value) return null;
+  return VALID_PLANNER_MODES.includes(value as SimulationWorkspaceMode)
+    ? value as SimulationWorkspaceMode
+    : null;
 }
 
 function parsePositiveId(value: string | undefined): number | null {
@@ -51,13 +74,19 @@ function parseHash(): ParsedHash {
   const parts = raw.split('/').filter(Boolean);
 
   if (parts.length === 0) {
-    return { route: 'finder', selectedSystemId: null, plannerSystemId: null, plannerProjectId: null };
+    return { route: 'finder', routeAlias: null, selectedSystemId: null, plannerSystemId: null, plannerProjectId: null, plannerMode: null };
   }
 
   let route: Route = 'finder';
+  let routeAlias: ParsedHash['routeAlias'] = null;
   let i = 0;
   if (parts[0] === 'optimizer') {
     route = 'search-tuning';
+    routeAlias = 'optimizer';
+    i = 1;
+  } else if (parts[0] === 'watchlist' || parts[0] === 'pinned' || parts[0] === 'colony') {
+    route = 'my-work';
+    routeAlias = parts[0] as 'watchlist' | 'pinned' | 'colony';
     i = 1;
   } else if ((VALID_ROUTES as string[]).includes(parts[0])) {
     route = parts[0] as Route;
@@ -67,6 +96,7 @@ function parseHash(): ParsedHash {
   let selectedSystemId: number | null = null;
   let plannerSystemId: number | null = null;
   let plannerProjectId: string | null = null;
+  let plannerMode: SimulationWorkspaceMode | null = null;
   if (parts[i] === 'system') {
     const id64 = parsePositiveId(parts[i + 1]);
     if (route === 'colony-planner') {
@@ -76,6 +106,12 @@ function parseHash(): ParsedHash {
         plannerProjectId = decodeURIComponent(parts[cursor + 1]);
         cursor += 2;
       }
+      if (parts[cursor] === 'mode') {
+        plannerMode = parsePlannerMode(parts[cursor + 1]);
+        if (plannerMode) {
+          cursor += 2;
+        }
+      }
       if (parts[cursor] === 'detail') {
         selectedSystemId = parsePositiveId(parts[cursor + 1]);
       }
@@ -84,7 +120,7 @@ function parseHash(): ParsedHash {
     }
   }
 
-  return { route, selectedSystemId, plannerSystemId, plannerProjectId };
+  return { route, routeAlias, selectedSystemId, plannerSystemId, plannerProjectId, plannerMode };
 }
 
 function buildHash(route: Route, selectedSystemId: number | null): string {
@@ -96,26 +132,30 @@ function buildHash(route: Route, selectedSystemId: number | null): string {
 function buildPlannerHash(
   plannerSystemId: number | null,
   plannerProjectId: string | null = null,
+  plannerMode: SimulationWorkspaceMode | null = null,
   selectedSystemId: number | null = null,
 ): string {
   const base = '#colony-planner';
   if (plannerSystemId == null) return base;
   const projectSegment = plannerProjectId ? `/project/${encodeURIComponent(plannerProjectId)}` : '';
+  const modeSegment = plannerMode ? `/mode/${plannerMode}` : '';
   const detailSegment = selectedSystemId != null ? `/detail/${selectedSystemId}` : '';
-  return `${base}/system/${plannerSystemId}${projectSegment}${detailSegment}`;
+  return `${base}/system/${plannerSystemId}${projectSegment}${modeSegment}${detailSegment}`;
 }
 
 export interface HashRoute {
   route:            Route;
+  routeAlias:       ParsedHash['routeAlias'];
   selectedSystemId: number | null;
   plannerSystemId:  number | null;
   plannerProjectId: string | null;
+  plannerMode: SimulationWorkspaceMode | null;
   /** Navigate to a tab. Preserves any open system modal. */
   navigate:    (r: Route) => void;
   /** Open the system detail modal on top of the current tab or an explicit host tab. */
   openSystem:  (id64: number, options?: { hostRoute?: Route }) => void;
   /** Open the dedicated Colony Planner workspace for a system. */
-  openColonyPlanner: (id64: number, options?: { projectId?: string | null }) => void;
+  openColonyPlanner: (id64: number, options?: { projectId?: string | null; mode?: SimulationWorkspaceMode | null }) => void;
   /** Close the modal — pops back to the current tab. */
   closeSystem: () => void;
 }
@@ -131,7 +171,7 @@ export function useHashRoute(): HashRoute {
 
   const navigate = (r: Route) => {
     if (r === 'colony-planner') {
-      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, null);
+      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, parsed.plannerMode, null);
       return;
     }
     window.location.hash = buildHash(r, parsed.selectedSystemId);
@@ -140,29 +180,31 @@ export function useHashRoute(): HashRoute {
   const openSystem = (id64: number, options?: { hostRoute?: Route }) => {
     const hostRoute = options?.hostRoute ?? parsed.route;
     if (hostRoute === 'colony-planner' && parsed.plannerSystemId != null) {
-      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, id64);
+      window.location.hash = buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, parsed.plannerMode, id64);
       return;
     }
     window.location.hash = buildHash(hostRoute, id64);
   };
 
-  const openColonyPlanner = (id64: number, options?: { projectId?: string | null }) => {
+  const openColonyPlanner = (id64: number, options?: { projectId?: string | null; mode?: SimulationWorkspaceMode | null }) => {
     const systemId64 = Number(id64);
     if (!Number.isFinite(systemId64) || systemId64 <= 0) return;
-    window.location.hash = buildPlannerHash(systemId64, options?.projectId ?? null, null);
+    window.location.hash = buildPlannerHash(systemId64, options?.projectId ?? null, options?.mode ?? null, null);
   };
 
   const closeSystem = () => {
     window.location.hash = parsed.route === 'colony-planner'
-      ? buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, null)
+      ? buildPlannerHash(parsed.plannerSystemId, parsed.plannerProjectId, parsed.plannerMode, null)
       : buildHash(parsed.route, null);
   };
 
   return {
     route:            parsed.route,
+    routeAlias: parsed.routeAlias,
     selectedSystemId: parsed.selectedSystemId,
     plannerSystemId:  parsed.plannerSystemId,
     plannerProjectId: parsed.plannerProjectId,
+    plannerMode: parsed.plannerMode,
     navigate, openSystem, openColonyPlanner, closeSystem,
   };
 }
