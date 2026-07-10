@@ -114,12 +114,10 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18jq_production_reconciliation_artifact_readiness.py \
     tests/test_stage18jq_chain_followons.py \
     tests/test_stage18jp_station_type_production_chain_closeout.py \
-    tests/test_stage22_planning_baseline.py \
     tests/test_stage22b_planner_evidence_hardening.py \
     tests/test_stage22c_operator_artifact_review_surfaces.py \
     tests/test_stage22d_export_documentation_governance.py \
     tests/test_stage22e_deferred_stage19_decision_gate_closeout.py \
-    tests/test_stage23_planning_baseline.py \
     tests/test_stage23a_live_per_system_evidence.py \
     tests/test_stage24_planning_baseline.py \
     tests/test_station_type_canonical_pilot.py \

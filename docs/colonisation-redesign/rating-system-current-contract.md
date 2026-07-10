@@ -1,4 +1,4 @@
-# Rating System Current Contract
+﻿# Rating System Current Contract
 
 ## Rating Generation Names
 

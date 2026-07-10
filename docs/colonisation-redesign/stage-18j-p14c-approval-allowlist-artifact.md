@@ -1,4 +1,4 @@
-# Stage 18J-P14C — Approval Allowlist Artifact
+﻿# Stage 18J-P14C — Approval Allowlist Artifact
 
 ## Purpose
 

@@ -1,4 +1,4 @@
-# Operator Command Contexts
+﻿# Operator Command Contexts
 
 ## Purpose
 
