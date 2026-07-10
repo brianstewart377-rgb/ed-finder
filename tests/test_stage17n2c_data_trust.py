@@ -252,11 +252,13 @@ def test_system_station_payload_ignores_transient_confirmed_links_for_occupancy(
     assert station['association_source'] == 'transient_non_slot'
 
 
-def test_local_search_galaxy_wide_projects_null_distance():
+def test_local_search_galaxy_wide_keeps_distance_when_reference_coords_exist():
     distance_source = inspect.getsource(_build_distance_expr)
     context_source = inspect.getsource(_parse_local_search_context)
 
     assert 'return "NULL::float"' in distance_source
+    assert 'ctx.galaxy_wide and not ctx.has_reference_coords' in distance_source
+    assert 'has_reference_coords=ref_has_coords' in context_source
     assert 'reference_coords must include x, y, z' in context_source
 
 

@@ -168,6 +168,7 @@ class LocalSearchContext:
     from_idx: int
     sort_by: str
     galaxy_wide: bool
+    has_reference_coords: bool
     rx: float
     ry: float
     rz: float
@@ -265,6 +266,7 @@ def _parse_local_search_context(body: dict) -> LocalSearchContext:
         from_idx=from_idx,
         sort_by=sort_by,
         galaxy_wide=galaxy_wide,
+        has_reference_coords=ref_has_coords,
         rx=rx,
         ry=ry,
         rz=rz,
@@ -377,7 +379,7 @@ def _build_distance_expr(ctx: LocalSearchContext, builder: SearchSqlBuilder) -> 
         f"CASE WHEN s.x = 0 AND s.y = 0 AND s.z = 0 AND s.id64 != {SOL_ID64} "
         "THEN NULL::float "
     )
-    if ctx.galaxy_wide:
+    if ctx.galaxy_wide and not ctx.has_reference_coords:
         return "NULL::float"
     return (
         f"{coord_guard}ELSE SQRT((s.x-{builder.add_select(ctx.rx)})*(s.x-{builder.add_select(ctx.rx)}) + "

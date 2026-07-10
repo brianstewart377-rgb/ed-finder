@@ -30,6 +30,8 @@ export interface SearchFormProps {
 }
 
 export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: SearchFormProps) {
+  const [referencePending, setReferencePending] = useState(false);
+
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
@@ -39,6 +41,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
       <Section title="Reference System">
         <RefSystemPicker
           value={filters.refName}
+          onPendingSelectionChange={setReferencePending}
           onPick={(hit) => {
             if (!hasKnownCoords(hit, hit.id64)) return;
             onChange({
@@ -47,8 +50,16 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
             });
           }}
         />
-        <p className="font-mono text-[10px] text-text-dim">
-          {filters.refCoords.x.toFixed(2)}, {filters.refCoords.y.toFixed(2)}, {filters.refCoords.z.toFixed(2)}
+        <p
+          className={[
+            'font-mono text-[10px]',
+            referencePending ? 'text-orange-lt' : 'text-text-dim',
+          ].join(' ')}
+          data-testid="reference-system-status"
+        >
+          {referencePending
+            ? 'Pick a system from autocomplete to update the active reference.'
+            : `${filters.refName}: ${filters.refCoords.x.toFixed(2)}, ${filters.refCoords.y.toFixed(2)}, ${filters.refCoords.z.toFixed(2)}`}
         </p>
       </Section>
 
@@ -179,11 +190,11 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
       <div className="flex gap-2 pt-1">
         <button
           type="submit"
-          disabled={loading}
+          disabled={loading || referencePending}
           data-testid="search-submit"
           className="btn-primary flex-1"
         >
-          {loading ? 'Scanning…' : 'Search'}
+          {loading ? 'Scanning…' : referencePending ? 'Pick reference' : 'Search'}
         </button>
         <button
           type="button"
@@ -356,12 +367,19 @@ function CheckboxRow({
 // ─────────────────────────────────────────────────────────────────────────
 
 function RefSystemPicker({
-  value, onPick,
-}: { value: string; onPick: (hit: AutocompleteHit) => void }) {
+  value, onPick, onPendingSelectionChange,
+}: {
+  value: string;
+  onPick: (hit: AutocompleteHit) => void;
+  onPendingSelectionChange?: (pending: boolean) => void;
+}) {
   const [text, setText]   = useState(value);
   const [open, setOpen]   = useState(false);
   const blurT              = useRef<number | null>(null);
   const { hits, loading }  = useAutocomplete(text);
+  const isPendingSelection =
+    text.trim().length > 0 &&
+    text.trim().toLocaleLowerCase() !== value.trim().toLocaleLowerCase();
 
   // Sync local text → parent value when parent resets/changes externally
   // (e.g. Reset button, or a future "Show on map" deep-link landing here).
@@ -369,6 +387,18 @@ function RefSystemPicker({
   useEffect(() => {
     setText(value);
   }, [value]);
+
+  useEffect(() => {
+    onPendingSelectionChange?.(isPendingSelection);
+  }, [isPendingSelection, onPendingSelectionChange]);
+
+  const selectHit = (hit: AutocompleteHit) => {
+    if (!hasKnownCoords(hit, hit.id64)) return;
+    if (blurT.current) window.clearTimeout(blurT.current);
+    setText(hit.name);
+    setOpen(false);
+    onPick(hit);
+  };
 
   // The form's `value` (parent state) only updates when a hit is picked.
   // Local `text` is the in-progress query. If the user wipes the input
@@ -381,9 +411,19 @@ function RefSystemPicker({
         placeholder={value || 'Type a system name…'}
         onChange={(e) => { setText(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          if (!isPendingSelection) return;
+          e.preventDefault();
+          const firstKnownHit = hits.find((hit) => hasKnownCoords(hit, hit.id64));
+          if (firstKnownHit) selectHit(firstKnownHit);
+        }}
         onBlur={() => {
           // Defer hiding so onClick on a list item fires first.
-          blurT.current = window.setTimeout(() => setOpen(false), 120);
+          blurT.current = window.setTimeout(() => {
+            setOpen(false);
+            if (text.trim().length === 0) setText(value);
+          }, 120);
         }}
         data-testid="ref-system-input"
         className="w-full px-3 py-2 rounded bg-bg4 border border-border font-mono text-sm text-text placeholder:text-text-dim/50 focus:border-orange-dk focus:outline-none"
@@ -410,13 +450,7 @@ function RefSystemPicker({
                 title={hasCoords ? undefined : 'Reference system coordinates are unknown'}
                 data-testid={`ref-system-option-${h.id64}`}
                 onMouseDown={(e) => e.preventDefault()}   // keep input focused
-                onClick={() => {
-                  if (!hasCoords) return;
-                  if (blurT.current) window.clearTimeout(blurT.current);
-                  setText(h.name);
-                  setOpen(false);
-                  onPick(h);
-                }}
+                onClick={() => { selectHit(h); }}
                 className={[
                   'flex items-center gap-3 px-3 py-1.5 hover:bg-bg4',
                   hasCoords ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',

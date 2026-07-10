@@ -67,3 +67,16 @@ async def test_local_search_total_is_not_capped(client):
     body = r.json()
     # Local search must not advertise truncation
     assert not body.get('total_is_capped'), body
+
+
+async def test_galaxy_wide_search_preserves_distance_when_reference_is_present(client):
+    r = await client.post('/api/local/search', json={
+        'reference_coords': {'x': 0, 'y': 0, 'z': 0},
+        'filters':          {'economy': 'any'},
+        'galaxy_wide':      True,
+        'sort_by':          'distance',
+        'size':             20,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(row.get('distance') is not None for row in body['results']), body['results']
