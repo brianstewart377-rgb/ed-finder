@@ -510,16 +510,9 @@ describe('ColonyPlannerWorkspace real planner passivity', () => {
     });
 
     expect(screen.queryByTestId('advanced-planner-content')).toBeNull();
+    expect(screen.queryByTestId('advanced-workspace-toggle')).toBeNull();
     expect(mockedSimulateBuild).not.toHaveBeenCalled();
     expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
     expect(screen.queryByRole('button', { name: /Copy to Build Plan/i })).toBeNull();
-
-    await click(screen.getByTestId('advanced-workspace-toggle'));
-    const advanced = await screen.findByTestId('advanced-planner-content');
-    expect(within(advanced).getByText('2 placements in Build Plan')).toBeTruthy();
-    expect(within(advanced).getAllByText(/Orbital Port/i).length).toBeGreaterThan(0);
-    expect(within(advanced).getAllByText(/Surface Hub/i).length).toBeGreaterThan(0);
-    expect(mockedSimulateBuild).not.toHaveBeenCalled();
-    expect(mockedFetchOptimiserCandidates).not.toHaveBeenCalled();
   });
 });
