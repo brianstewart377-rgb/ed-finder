@@ -54,6 +54,18 @@ product/runtime paths indefinitely. The goal of this contract is simple:
      - archiving historical wrappers;
      - updating guard tests if the repo shape changed intentionally.
 
+7. Branches and worktrees should have one obvious purpose each.
+   - `main` should stay in a clean dedicated worktree and be updated with
+     `git fetch --prune` plus `git pull --ff-only`.
+   - Active implementation should happen on short-lived topic branches, not on
+     `main`.
+   - Safety/checkpoint branches are allowed when they preserve unique history,
+     but they should be clearly named (`safety/*`, `*-checkpoint`) and removed
+     once that history is either merged or deliberately retired.
+   - Detached or scratch worktrees should not accumulate indefinitely; once
+     their content is promoted, archived, or preserved on a named branch, the
+     extra worktree should be removed.
+
 ## Repo Root Policy
 
 Visible files currently allowed at repo root:
@@ -80,6 +92,34 @@ Notes:
   root.
 - Local scratch clone trees such as `_promote_*` belong in ignored local-only
   space, not in the reviewable repo surface.
+
+## Development Docs Policy
+
+- Development audits, handoffs, and closeout reports belong under
+  `docs/development/`.
+- Prefer dated, lowercase, hyphenated names so the file purpose is obvious at a
+  glance, for example:
+  - `full-stack-adversarial-audit-2026-07-10.md`
+  - `ratings-resume-handoff-2026-07-06.md`
+- Avoid dropping review reports or prompt files at repo root unless they are
+  explicitly promoted as canonical root-level documents.
+
+## Branch and Worktree Discipline
+
+Use this steady-state workflow:
+
+1. Keep `main` boring and current in its dedicated worktree.
+2. Before starting new work:
+   - `git fetch origin --prune`
+   - `git pull --ff-only`
+3. Create a short-lived branch from fresh `main`.
+4. After merge or closeout:
+   - delete the merged local branch;
+   - delete the merged remote branch;
+   - remove any extra worktree created only for that branch.
+
+The goal is simple: one clean `main`, one active topic branch per live task,
+and no long-lived scratch worktrees hanging around after their job is done.
 
 ## PR Checklist
 
