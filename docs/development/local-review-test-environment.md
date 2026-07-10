@@ -14,6 +14,17 @@ not make either PR ready to merge, and does not authorize Stage 19, source
 acquisition, canonical apply, rebaseline, scheduler, or production database
 work.
 
+## Windows Entry Points
+
+On Windows, use the PowerShell wrappers and `.venv\Scripts\python.exe`
+equivalents documented in `docs/development/windows-dev-environment.md`.
+Recommended prep:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -RunDoctor
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/doctor.ps1 -RunPreflight
+```
+
 ## Review Lab Architecture
 
 `scripts/dev/review_environment.py` is a thin CLI over the Review Lab modules in
@@ -63,6 +74,12 @@ PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
   --confirm-local-review-environment
 ```
 
+Windows equivalent:
+
+```powershell
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
+```
+
 - The dedicated Review Lab lane does not call normal `yarn e2e` as a substitute
   for isolated review validation.
 - The Review Lab browser collector receives
@@ -99,6 +116,17 @@ PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.p
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py report --latest
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py down --confirm-local-review-environment
+```
+
+Windows equivalents:
+
+```powershell
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py preflight
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py list-scenarios
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode quick --scenario planner_core --confirm-local-review-environment
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py report --latest
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py down --confirm-local-review-environment
 ```
 
 - `preflight` is read-only and validates containment, review-only routing,

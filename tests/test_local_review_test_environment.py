@@ -1116,7 +1116,8 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
 
     monkeypatch.setenv('PATH', '/usr/local/bin:/usr/bin')
     monkeypatch.setattr(review_process_registry.subprocess, 'Popen', _fake_popen)
-    monkeypatch.setattr(review_process_registry.os, 'getpgid', lambda _pid: 98765)
+    monkeypatch.setattr(review_process_registry, '_process_group_popen_kwargs', lambda: {})
+    monkeypatch.setattr(review_process_registry, '_process_group_id', lambda _process: 98765)
 
     registry = review_env.ReviewProcessRegistry(tmp_path)
     registry.start(
@@ -1665,6 +1666,7 @@ def test_verify_phase_ordering_is_static_stack_api_browser_then_teardown(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1715,6 +1717,7 @@ def test_verify_fails_before_stack_start_when_static_phase_fails(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1772,6 +1775,7 @@ def test_verify_skips_browser_when_stack_phase_fails(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 
@@ -1839,6 +1843,7 @@ def test_verify_runs_cleanup_after_browser_failure(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
     monkeypatch.setattr(
         review_env,
         'list_review_owned_resources',
@@ -1905,6 +1910,7 @@ def test_quick_verify_skips_browser_phases_but_runs_teardown(
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: calls.append('down') or {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='quick', scenario='all')
 
@@ -2345,6 +2351,7 @@ def test_verify_reports_known_non_blocking_viewport_diagnostics_without_failing_
 
     monkeypatch.setattr(review_env, 'ReviewProcessRegistry', _Registry)
     monkeypatch.setattr(review_env, 'down_review_stack', lambda: {'ok': True})
+    monkeypatch.setattr(review_env, 'list_review_owned_resources', lambda: {'containers': [], 'volumes': []})
 
     report = review_env.verify_review_environment(mode='full', scenario='all')
 

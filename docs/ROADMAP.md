@@ -8,6 +8,10 @@ document that should answer "what next?".
 - Programme: Stage 25 is the active product programme.
 - Status: Stage 25A and Stage 25B are complete; Stage 25C Slice 1 is in
   progress and pending review; Stage 25D through Stage 25H are unstarted.
+- Local engineering posture: the repo-local Python 3.12 `.venv` path is now
+  the canonical local test runner, Docker-backed disposable Postgres/Redis on
+  `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
+  broad local pytest burn-down is currently green at `1487 passed, 16 skipped`.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
@@ -23,6 +27,10 @@ document that should answer "what next?".
   `station_body_links` drift; Finder populated/uninhabited filter semantics now
   match end-to-end, but canonical population storage still needs a later
   unknown-vs-zero migration.
+- Local test-environment posture: real-service readiness now proves live local
+  Postgres access without fake fallbacks, while historical Stage 19 checkpoint
+  assertions skip explicitly when the approved historical baseline rows are not
+  present in the empty disposable DB.
 - Legacy ratings posture: treat `rating_version IS NULL` rows as
   **Pre-v3.4 Unversioned Ratings**, not as one coherent legacy type. They may
   span multiple historical scorer generations and must be rebaselined before
@@ -69,11 +77,14 @@ Stage 25 has exactly one primary objective:
 6. Close out the ratings rebaseline properly so the live app does not quietly
    carry body-contract drift or unrated ingest edge cases behind the current
    Development Score / archetype-led product language.
-7. Use the external adversarial audit as an execution-order correction, not as
+7. Keep the now-green local test environment honest: preserve the repo-venv
+   runner, preflight path, explicit real-service skips, and broad pytest
+   coverage so local "green" continues to mean something.
+8. Use the external adversarial audit as an execution-order correction, not as
    a parallel roadmap: close the ratings integrity gap, then fix migration
    safety, backups, and CI/build reproducibility before opening new product
    lanes like accounts.
-8. Incubate only the safe slices of the next two opportunity lanes:
+9. Incubate only the safe slices of the next two opportunity lanes:
    `B-1` nearest-colonised proximity in Inspect, then `A-1` journal import as
    staging/evidence ingestion only, with no new canonical write shortcut.
 
@@ -100,11 +111,24 @@ competing roadmap source.
   every release.
 - Renumber or otherwise normalize duplicate migration numbering so order is
   explicit and auditable.
+- Run the reviewed pre-ledger baseline helper on any already-existing databases
+  that still predate `schema_migrations`, instead of treating cutover state as
+  implied. Current state: the canonical local `edfinder` DB cutover is now
+  recorded at
+  `artifacts/migration-baselines/local-edfinder-baseline-2026-07-09.json` and
+  `artifacts/migration-baselines/local-edfinder-cutover-2026-07-09.json`; the
+  remaining gap is any other pre-ledger DBs, including production if still
+  pending.
 - Execute and record a real restore rehearsal on top of the committed backup +
-  restore automation now in the repo.
-- Make CI/build reproducibility honest: use the committed lockfile, stop
-  certifying a dependency set different from what production may build, and run
-  materially more of the existing test estate in CI.
+  restore automation now in the repo (`scripts/rehearse_postgres_restore.sh`
+  now provides the default operator path).
+- Keep CI/build reproducibility honest: the pinned lockfile, packaged frontend
+  artifact path, and broader gated test surface are now in place; continue
+  converting remaining weak checks into outcome-based coverage.
+- Preserve the repaired local verification path: the Docker-backed preflight,
+  map MV latency guard, archetypes JSON-response normalization, and explicit
+  Stage 19 baseline/checkpoint skip semantics are now part of the expected
+  local trust boundary.
 - Keep the committed data-invariants check path wired into seeded CI/local
   verification and expand coverage for rating-version uniformity, rating
   coverage, and related trust signals.
@@ -197,11 +221,21 @@ competing roadmap source.
   acceptable.
 - 2. Add migration-ledger discipline and remove replay-all-migrations deploy
   semantics.
+- 2. Current remaining work: execute the reviewed baseline helper on any
+  already-existing pre-ledger databases that still need recorded cutover state
+  beyond the now-recorded local `edfinder` cutover.
 - 3. Add backup/restore automation plus a tested restore runbook.
 - 3. Add backup/restore automation plus a tested restore runbook.
-  Current state: automation and runbook are committed; rehearsal remains.
+  Current state: automation and runbook are committed, and a recorded local
+  disposable restore rehearsal now exists at
+  `artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json`.
 - 4. Tighten CI/test coverage and frontend build reproducibility so green means
   something.
+  Current state: frontend installs are pinned to `frontend/yarn.lock`, CI now
+  packages a deployable frontend bundle, and the release path can ship that
+  certified artifact instead of rebuilding JS dependencies on the server.
+  Current state: local broad pytest is green; carry that honesty into seeded CI
+  and keep the local preflight and integration stack stable.
 - 5. Run one bounded residue/hygiene pass on hidden routes, preview-only
   surfaces, stale operator one-shots, and naming drift.
 - 6. Re-evaluate accounts/auth only after steps 1-5 are complete.

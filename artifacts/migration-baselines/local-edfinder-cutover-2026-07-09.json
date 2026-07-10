@@ -1,0 +1,55 @@
+﻿{
+    "completed_at_utc":  "2026-07-09T22:20:08Z",
+    "database":  "edfinder",
+    "compose_file":  "docker-compose.local.yml",
+    "baseline_receipt":  "artifacts/migration-baselines/local-edfinder-baseline-2026-07-09.json",
+    "pre_cutover_findings":  {
+                                 "schema_migrations_present":  false,
+                                 "manual_status_present":  false,
+                                 "public_table_count":  53,
+                                 "highest_safe_baseline":  "029_create_source_runs.sql",
+                                 "manual_019_status":  "applied",
+                                 "missing_manifest_features":  [
+                                                                   "030_evidence_store_foundation.sql",
+                                                                   "032_journal_import_staging.sql",
+                                                                   "034_station_body_link_contract_hardening.sql",
+                                                                   "035_nullable_population.sql"
+                                                               ],
+                                 "missing_tables":  [
+                                                        "derived_features",
+                                                        "evidence_records",
+                                                        "journal_import_staging",
+                                                        "rule_decisions",
+                                                        "rule_proposals"
+                                                    ]
+                             },
+    "post_cutover":  {
+                         "schema_migration_rows":  51,
+                         "manual_status_rows":  [
+                                                    "019_nullable_coords.sql|applied"
+                                                ],
+                         "public_table_count":  54,
+                         "nullable_columns":  [
+                                                  "systems.population",
+                                                  "systems.x",
+                                                  "systems.y",
+                                                  "systems.z"
+                                              ],
+                         "applied_after_baseline":  [
+                                                        "030_evidence_store_foundation.sql",
+                                                        "032_journal_import_staging.sql",
+                                                        "033_body_data_contract_hardening.sql",
+                                                        "034_station_body_link_contract_hardening.sql",
+                                                        "035_nullable_population.sql"
+                                                    ],
+                         "parity_reference_database":  "edfinder_ledger_probe",
+                         "parity_scopes":  [
+                                               "tables",
+                                               "columns",
+                                               "matviews",
+                                               "indexes",
+                                               "triggers"
+                                           ],
+                         "schema_parity_ok":  true
+                     }
+}

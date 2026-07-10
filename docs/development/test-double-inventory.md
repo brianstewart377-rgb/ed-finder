@@ -1,4 +1,4 @@
-﻿# Test Double Inventory
+# Test Double Inventory
 
 ## Scope
 
@@ -22,7 +22,7 @@ unit-level fakes paired with real local Postgres readiness coverage
 
 `FakeConn` and `FakeCursor` are still useful for commit/rollback, validation, and artifact-guard tests. They are not accepted as Stage 19 readiness proof by themselves.
 
-The real-service pair is `tests/test_stage19_real_postgres_readiness.py`. It uses live Postgres through `psycopg2`, runs in read-only transaction mode, checks `SELECT 1`, and verifies the approved Stage 19AR baseline identity when local credentials and service are available. It skips explicitly for absent credentials or absent service and does not fall back to fakes.
+The real-service pair is `tests/test_stage19_real_postgres_readiness.py`. It uses live Postgres through `psycopg2`, runs in read-only transaction mode, checks `SELECT 1`, and verifies the approved Stage 19AR baseline identity when that canonical baseline is present locally. It skips explicitly for absent credentials, absent service, or absent baseline data and does not fall back to fakes.
 
 All optional Postgres smoke tests now route their DSN checks through
 `tests/helpers/db_isolation.py`. The helper rejects production-like hosts or

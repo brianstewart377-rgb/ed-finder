@@ -13,6 +13,7 @@ default.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import logging
@@ -28,6 +29,11 @@ from state    import (
 )
 
 log = logging.getLogger('ed_finder')
+
+
+# Cache is a latency optimization, not a correctness dependency. Keep Redis I/O
+# on a short leash so a slow cache does not dominate request time.
+_CACHE_IO_TIMEOUT_SECONDS = 0.1
 
 
 # ── DB / cache providers for Depends() ──────────────────────────────────
@@ -64,7 +70,7 @@ async def cache_get(
     if not r:
         return None
     try:
-        v = await r.get(key)
+        v = await asyncio.wait_for(r.get(key), timeout=_CACHE_IO_TIMEOUT_SECONDS)
         if v:
             metrics['cache_hits'] += 1
             return json.loads(v)
@@ -84,7 +90,10 @@ async def cache_set(
     if not r:
         return
     try:
-        await r.setex(key, ttl, json.dumps(value, default=str))
+        await asyncio.wait_for(
+            r.setex(key, ttl, json.dumps(value, default=str)),
+            timeout=_CACHE_IO_TIMEOUT_SECONDS,
+        )
     except Exception:
         pass
 

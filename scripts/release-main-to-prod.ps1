@@ -16,6 +16,7 @@ param(
   [switch]$SkipTests,
   [switch]$SkipPush,
   [switch]$SkipDeploy,
+  [switch]$SkipFrontendArtifact,
   [switch]$OpenApp,
   [string]$SshOptions = '-o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4'
 )
@@ -56,6 +57,7 @@ function Resolve-SshTarget {
     return @{
       Display = $DeployTarget
       SshArgs = @($DeployTarget)
+      ScpArgs = @($DeployTarget)
       CanProbeTcp = $false
     }
   }
@@ -67,6 +69,7 @@ function Resolve-SshTarget {
   return @{
     Display = "$DeployUser@$DeployHost`:$DeployPort"
     SshArgs = @('-p', "$DeployPort", "$DeployUser@$DeployHost")
+    ScpArgs = @('-P', "$DeployPort", "$DeployUser@$DeployHost")
     CanProbeTcp = $true
   }
 }
@@ -149,6 +152,19 @@ if (-not $SkipTests) {
 Set-Location $RepoPath
 
 $head = (git rev-parse --short HEAD).Trim()
+$frontendArchiveLocal = Join-Path $RepoPath "artifacts\frontend-bundles\frontend-dist-$head.tar.gz"
+$runBash = Join-Path $RepoPath 'scripts\dev\run-bash.ps1'
+
+if (-not $SkipFrontendArtifact) {
+  if (-not (Test-Path -LiteralPath $runBash)) {
+    throw "Git Bash wrapper not found: $runBash"
+  }
+  Write-Host "[release] Packaging frontend artifact: $frontendArchiveLocal"
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash `
+    -Script 'scripts/package_frontend_bundle.sh' `
+    -ScriptArgs '--output', $frontendArchiveLocal
+  if ($LASTEXITCODE -ne 0) { throw 'frontend artifact packaging failed' }
+}
 
 if (-not $SkipPush) {
   Write-Host "[release] Pushing main ($head)..."
@@ -175,6 +191,25 @@ setx EDFINDER_DEPLOY_PORT 22
     throw "SSH is not reachable on $DeployHost`:$DeployPort. Check host/port/firewall."
   }
 
+  $remoteFrontendArchive = "/tmp/frontend-dist-$head.tar.gz"
+  if (-not $SkipFrontendArtifact) {
+    if (-not (Get-Command scp -ErrorAction SilentlyContinue)) {
+      throw 'scp is not available in PATH.'
+    }
+    Write-Host "[release] Uploading frontend artifact to $($resolvedTarget.Display): $remoteFrontendArchive"
+    $scpArgs = @()
+    if ($SshOptions.Trim()) {
+      $scpArgs += $SshOptions.Trim().Split(' ')
+    }
+    $scpArgs += $resolvedTarget.ScpArgs
+    $scpArgs += $frontendArchiveLocal
+    $scpArgs += "$(($resolvedTarget.SshArgs | Select-Object -Last 1))`:$remoteFrontendArchive"
+    & scp @scpArgs
+    if ($LASTEXITCODE -ne 0) {
+      throw "Failed to upload frontend artifact to $($resolvedTarget.Display)"
+    }
+  }
+
   $remoteCmdParts = @(
     'set -euo pipefail',
     "cd ""$RemoteRepoPath""",
@@ -196,7 +231,12 @@ setx EDFINDER_DEPLOY_PORT 22
     $remoteCmdParts += 'exit 25'
   }
   $remoteCmdParts += 'fi'
-  $remoteCmdParts += 'bash scripts/deploy_main.sh'
+  if ($SkipFrontendArtifact) {
+    $remoteCmdParts += 'bash scripts/deploy_main.sh'
+  } else {
+    $remoteCmdParts += "bash scripts/deploy_main.sh --frontend-archive ""$remoteFrontendArchive"""
+    $remoteCmdParts += "rm -f ""$remoteFrontendArchive"""
+  }
   $remoteScript = ($remoteCmdParts -join "`n") + "`n"
   $remoteScriptLf = $remoteScript -replace "`r`n", "`n"
   if (-not (Get-Command ssh -ErrorAction SilentlyContinue)) {

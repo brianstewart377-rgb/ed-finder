@@ -16,7 +16,7 @@ concurrency:
 jobs:
   # ─── Backend ────────────────────────────────────────────────────────
   backend:
-    name: Backend smoke tests + compose validate
+    name: Backend unit tests + compose validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,19 +30,18 @@ jobs:
             apps/api/requirements.txt
             apps/eddn/requirements.txt
             apps/importer/requirements.txt
+            tests/requirements-ci.txt
 
-      - name: Install backend dependencies (api + eddn + importer)
+      - name: Install backend and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r apps/api/requirements.txt
-          pip install -r apps/eddn/requirements.txt
-          pip install -r apps/importer/requirements.txt
+          pip install -r tests/requirements-ci.txt
 
       - name: Python syntax check (py_compile, all .py under apps/)
         run: python -m compileall -q apps
 
-      - name: Run unit tests (no DB required)
-        run: python -m unittest discover -s tests -p "test_smoke.py"
+      - name: Run backend unit test suite (no DB required)
+        run: python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
 
       - name: Set up Docker buildx (for compose validate)
         uses: docker/setup-buildx-action@v3
@@ -71,6 +70,8 @@ jobs:
       - name: Shell syntax check for guarded script paths
         run: |
           bash -n scripts/apply_migrations.sh
+          bash -n scripts/baseline_migration_ledger.sh
+          bash -n scripts/package_frontend_bundle.sh
           bash -n scripts/seed_check.sh
           bash -n scripts/checks/local-ci-parity.sh
           bash -n scripts/run_canonical_safety_tests.sh
@@ -79,8 +80,13 @@ jobs:
         run: |
           python -m pytest \
             tests/test_migration_script_contracts.py \
+            tests/test_ci_dependency_contract.py \
+            tests/test_ci_build_reproducibility_contracts.py \
             tests/test_ci_data_invariants.py \
+            tests/test_bounded_hygiene_pass.py \
+            tests/test_repo_hygiene_contract.py \
             tests/test_backup_restore_ops.py \
+            tests/test_windows_local_db_reset_contract.py \
             -q
 
   # ─── Backend integration tests (Postgres + Redis) ──────────────────
@@ -173,7 +179,7 @@ jobs:
           CORS_ORIGINS: http://test
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
-        run: python -m pytest tests/integration/ -v
+        run: python -m pytest tests/integration/ tests/test_migration_applier_runtime.py tests/test_migration_ledger_baseline_runtime.py tests/test_data_trust_runtime.py -v
 
   # ─── Canonical safety tests ────────────────────────────────────────
   # Stage 18T: keep canonical-write-capable code behind deterministic
@@ -253,6 +259,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Verify required source files are present
         # Sanity check that catches the .gitignore-eating-lib regression
@@ -284,11 +295,16 @@ jobs:
       - name: Type-check
         run: yarn typecheck
 
-      - name: Vitest unit tests (Phase 7 stores + hooks)
-        run: yarn test --run
+      - name: Frontend CI test suite
+        run: yarn test:ci
 
       - name: Build
         run: yarn build
+
+      - name: Package frontend bundle
+        working-directory: .
+        run: |
+          bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz
 
       - name: Upload dist artefact
         # Lets us grab a build out of CI if we ever need to bypass the
@@ -296,7 +312,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: frontend-dist
-          path: frontend/dist
+          path: |
+            frontend/dist
+            artifacts/frontend-bundles/frontend-dist-ci.tar.gz
+            artifacts/frontend-bundles/frontend-dist-ci.tar.gz.sha256
           retention-days: 7
 
   # ─── Nginx config ───────────────────────────────────────────────────
@@ -319,32 +338,8 @@ jobs:
           set -e
           # Build a temporary tree that mimics the docker mount layout.
           mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2 /tmp/ngx/logs
-          cp config/nginx.conf            /tmp/ngx/nginx.conf
+          cp config/nginx-ci.conf         /tmp/ngx/nginx.conf
           cp config/security-headers.conf /tmp/ngx/snippets/security-headers.conf
-          # Patch paths that wouldn't exist in the runner sandbox.
-          sed -i 's|/etc/nginx/snippets/security-headers.conf|/tmp/ngx/snippets/security-headers.conf|g' /tmp/ngx/nginx.conf
-          sed -i 's|/var/log/nginx-review/|/tmp/ngx/logs/|g' /tmp/ngx/nginx.conf
-          # Replace upstream + comment out HTTPS server block (no certs in CI).
-          sed -i 's|server api:8000;|server 127.0.0.1:8000;|' /tmp/ngx/nginx.conf
-          python3 - <<'PY'
-          path = '/tmp/ngx/nginx.conf'
-          lines = open(path).read().split('\n')
-          out, inside, depth, started = [], False, 0, False
-          for line in lines:
-              if 'listen 443 ssl' in line:
-                  inside = True
-              if inside:
-                  out.append('# ' + line)
-                  depth += line.count('{')
-                  depth -= line.count('}')
-                  if started and depth == 0:
-                      inside = False
-                  if '{' in line:
-                      started = True
-              else:
-                  out.append(line)
-          open(path, 'w').write('\n'.join(out))
-          PY
           sudo nginx -t -c /tmp/ngx/nginx.conf -p /tmp/ngx
 
   # ─── OpenAPI type generation drift check ──────────────────────────
@@ -386,6 +381,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install API deps
         run: |
@@ -412,7 +412,7 @@ jobs:
           LOG_LEVEL:    WARNING
         working-directory: apps/api/src
         run: |
-          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
+          nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
               echo "API ready after ${i}s"
@@ -426,7 +426,7 @@ jobs:
 
       - name: Install frontend deps
         working-directory: frontend
-        run: yarn install --no-progress --non-interactive
+        run: yarn install --frozen-lockfile --no-progress --non-interactive
 
       - name: Regenerate types from running API
         working-directory: frontend
@@ -482,6 +482,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Enable Corepack
+        run: corepack enable
 
       - name: Install API deps
         run: |
@@ -535,7 +540,7 @@ jobs:
           LOG_LEVEL:    WARNING
         working-directory: apps/api/src
         run: |
-          nohup python -m uvicorn main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
+          nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
               echo "API ready after ${i}s"
@@ -549,7 +554,7 @@ jobs:
 
       - name: Install frontend deps
         working-directory: frontend
-        run: yarn install --no-progress --non-interactive
+        run: yarn install --frozen-lockfile --no-progress --non-interactive
 
       - name: Build production bundle
         working-directory: frontend

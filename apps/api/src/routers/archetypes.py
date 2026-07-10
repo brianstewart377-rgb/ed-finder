@@ -175,6 +175,24 @@ async def _cache_set(redis, key: str, value: Any, ttl: int = 300):
         pass
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    """Normalise JSON-ish DB values into plain dicts for response models.
+
+    Some environments hand JSONB columns back as already-decoded dicts,
+    while others surface text that still needs json.loads(). Keep the
+    response contract stable either way.
+    """
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # GET /api/archetypes/rankings
 # ---------------------------------------------------------------------------
@@ -420,7 +438,7 @@ async def post_archetype_rerank(request: Request, body: ArchetypeRerankRequest):
             'reranked_score':   int(round(raw)),
             'original_score':   round(float(row['archetype_score'] or 0), 2),
             'confidence':       round(float(row['confidence'] or 0.85), 3),
-            'rationale':        row['rationale'] or {},
+            'rationale':        _json_object(row['rationale']),
         })
 
     reranked.sort(key=lambda r: r['reranked_score'], reverse=True)
@@ -636,7 +654,7 @@ async def get_system_archetypes(request: Request, id64: int):
     # Add rationale to primary archetype entry
     primary = row['primary_archetype']
     if primary in archetypes_out and row['rationale']:
-        archetypes_out[primary]['rationale'] = row['rationale']
+        archetypes_out[primary]['rationale'] = _json_object(row['rationale'])
 
     topology_out = None
     if topo_row:
@@ -751,7 +769,8 @@ async def post_simulate(request: Request, body: BuildSimulateRequest):
         )
 
     planned = body.planned_archetype
-    pa_score = row['score_breakdown'].get('per_archetype', {}).get(planned, {})
+    score_breakdown = _json_object(row['score_breakdown'])
+    pa_score = score_breakdown.get('per_archetype', {}).get(planned, {})
     sim_score = int(pa_score.get('score', 0)) if pa_score else 0
 
     recs: list[str] = []

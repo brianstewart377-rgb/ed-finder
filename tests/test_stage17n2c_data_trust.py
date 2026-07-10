@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 import psycopg2
 
 from helpers import safe_coords_from_row, sys_row_to_dict
-from local_search import _build_system_record, _safe_distance, local_db_search
+from local_search import _build_distance_expr, _build_system_record, _parse_local_search_context, _safe_distance, local_db_search
 from models import AutocompleteHit, StationModel, SystemDetailRow, SystemRow
 from progress import ProgressReporter
 from routers.systems import _station_with_association
@@ -47,6 +47,20 @@ from dirty_flags import (
 
 def _schema_text(name: str) -> str:
     return Path(ROOT, 'sql', name).read_text(encoding='utf-8')
+
+
+def _migration_manifest_entries() -> list[tuple[str, str]]:
+    entries: list[tuple[str, str]] = []
+    manifest = Path(ROOT, 'sql', 'migration-manifest.txt').read_text(encoding='utf-8')
+    for raw_line in manifest.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith('#'):
+            continue
+        parts = [part.strip() for part in line.split('|', 1)]
+        if len(parts) == 1:
+            parts.append('auto')
+        entries.append((parts[0], parts[1]))
+    return entries
 
 
 def _table_definition(schema: str, table_name: str) -> str:
@@ -239,9 +253,11 @@ def test_system_station_payload_ignores_transient_confirmed_links_for_occupancy(
 
 
 def test_local_search_galaxy_wide_projects_null_distance():
-    source = inspect.getsource(local_db_search)
-    assert 'dist_expr = "NULL::float"' in source
-    assert 'reference_coords must include x, y, z' in source
+    distance_source = inspect.getsource(_build_distance_expr)
+    context_source = inspect.getsource(_parse_local_search_context)
+
+    assert 'return "NULL::float"' in distance_source
+    assert 'reference_coords must include x, y, z' in context_source
 
 
 def test_data_trust_cache_versions_are_bumped():
@@ -314,7 +330,7 @@ def test_base_schema_and_migration_include_body_rings_with_provenance():
 
 
 def test_eddn_ring_identity_hardening_migration_preserves_source_body_id_separately():
-    migration = _schema_text('025_eddn_ring_identity_hardening.sql')
+    migration = _schema_text('031_eddn_ring_identity_hardening.sql')
 
     assert 'ADD COLUMN IF NOT EXISTS source_body_id BIGINT DEFAULT NULL' in migration
     assert 'Journal BodyID is source identity' in migration
@@ -325,6 +341,27 @@ def test_eddn_ring_identity_hardening_migration_preserves_source_body_id_separat
     assert "'ambiguous_body_identity'" in migration
     assert "'belt_source_evidence'" in migration
     assert 'body_rings_eddn_identity_report' in migration
+
+
+def test_migration_manifest_tracks_manual_and_excludes_ops_only_sql():
+    entries = _migration_manifest_entries()
+    filenames = [filename for filename, _ in entries]
+
+    assert ('019_nullable_coords.sql', 'manual') in entries
+    assert '031_eddn_ring_identity_hardening.sql' in filenames
+    assert '025_eddn_ring_identity_hardening.sql' not in filenames
+    assert '999_refresh_materialized_views.sql' not in filenames
+    assert len(filenames) == len(set(filenames))
+
+
+def test_deploy_and_seed_scripts_use_manifested_migration_applier():
+    deploy_source = Path(ROOT, 'scripts', 'deploy_main.sh').read_text(encoding='utf-8')
+    seed_source = Path(ROOT, 'scripts', 'seed_check.sh').read_text(encoding='utf-8')
+
+    assert 'bash scripts/apply_migrations.sh' in deploy_source
+    assert "DATABASE_URL=\"$DB_URL\" bash \"$(dirname \"$0\")/apply_migrations.sh\" --include-manual" in seed_source
+    assert "find sql -maxdepth 1 -type f -name '[0-9][0-9][0-9]_*.sql'" not in deploy_source
+    assert 'for f in $(ls -1 "$SQL_DIR"/*.sql | sort); do' not in seed_source
 
 
 def test_ring_consumers_require_local_body_id_not_unresolved_name_fallback():

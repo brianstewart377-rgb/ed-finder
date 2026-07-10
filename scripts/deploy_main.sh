@@ -19,6 +19,7 @@
 #   bash scripts/deploy_main.sh --skip-pull
 #   bash scripts/deploy_main.sh --skip-migrations
 #   bash scripts/deploy_main.sh --skip-frontend
+#   bash scripts/deploy_main.sh --frontend-archive /tmp/frontend-dist.tar.gz
 #
 # Environment overrides:
 #   REPO_DIR=/opt/ed-finder
@@ -31,6 +32,7 @@ REPO_DIR="${REPO_DIR:-/opt/ed-finder}"
 BRANCH="${BRANCH:-main}"
 PUBLIC_URL="${PUBLIC_URL:-https://ed-finder.app}"
 FRONTEND_DIR="${FRONTEND_DIR:-frontend}"
+FRONTEND_ARCHIVE="${FRONTEND_ARCHIVE:-}"
 
 SKIP_PULL=0
 SKIP_MIGRATIONS=0
@@ -41,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --skip-pull)       SKIP_PULL=1; shift ;;
     --skip-migrations) SKIP_MIGRATIONS=1; shift ;;
     --skip-frontend)   SKIP_FRONTEND=1; shift ;;
+    --frontend-archive) FRONTEND_ARCHIVE="$2"; shift 2 ;;
     --branch)          BRANCH="$2"; shift 2 ;;
     --repo-dir)        REPO_DIR="$2"; shift 2 ;;
     --public-url)      PUBLIC_URL="$2"; shift 2 ;;
@@ -85,11 +88,16 @@ say "Sanity checks"
 [[ -f .env ]] || die ".env not found in $REPO_DIR"
 [[ -d "$FRONTEND_DIR" ]] || die "frontend directory not found: $FRONTEND_DIR"
 [[ -f "$FRONTEND_DIR/package.json" ]] || die "frontend manifest not found: $FRONTEND_DIR/package.json"
+[[ -f "$FRONTEND_DIR/yarn.lock" ]] || die "frontend lockfile not found: $FRONTEND_DIR/yarn.lock"
 command -v git >/dev/null || die "git not found"
 command -v docker >/dev/null || die "docker not found"
 command -v curl >/dev/null || die "curl not found"
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
-  command -v yarn >/dev/null || die "yarn not found; run corepack enable or install yarn"
+  if [[ -n "$FRONTEND_ARCHIVE" ]]; then
+    command -v tar >/dev/null || die "tar not found; required to extract --frontend-archive"
+  else
+    command -v yarn >/dev/null || die "yarn not found; run corepack enable or install yarn"
+  fi
 fi
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -125,13 +133,25 @@ else
 fi
 
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
+if [[ -n "$FRONTEND_ARCHIVE" ]]; then
+say "Install prebuilt frontend artifact"
+[[ -f "$FRONTEND_ARCHIVE" ]] || die "frontend archive not found: $FRONTEND_ARCHIVE"
+tmp_frontend_dir="$(mktemp -d)"
+tar -xzf "$FRONTEND_ARCHIVE" -C "$tmp_frontend_dir"
+[[ -f "$tmp_frontend_dir/dist/index.html" ]] || die "frontend archive did not contain dist/index.html"
+rm -rf "$FRONTEND_DIR/dist"
+mv "$tmp_frontend_dir/dist" "$FRONTEND_DIR/dist"
+rm -rf "$tmp_frontend_dir"
+ok "frontend artifact extracted from $FRONTEND_ARCHIVE"
+else
 say "Build $FRONTEND_DIR"
 (
   cd "$FRONTEND_DIR"
-  yarn install --frozen-lockfile
+  yarn install --frozen-lockfile --no-progress --non-interactive
   yarn build
 )
 ok "frontend built"
+fi
 else
   say "Skipping frontend build"
 fi

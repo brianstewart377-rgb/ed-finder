@@ -78,6 +78,8 @@ def test_preflight_uses_isolated_project_postgres_port_by_default():
 
 
 def test_command_failures_are_classified_without_secret_material():
+    attempted = {'db_probe': False}
+
     def failing_pg_isready(args, timeout):
         del timeout
         if args[0] == 'pg_isready':
@@ -87,9 +89,30 @@ def test_command_failures_are_classified_without_secret_material():
     result = preflight.run_preflight(
         env={'PGPASSWORD': 'hidden-password'},
         runner=failing_pg_isready,
-        db_probe=lambda _env, _database: preflight.CheckResult('db_read_only_select_1', True),
+        db_probe=lambda _env, _database: attempted.__setitem__('db_probe', True) or preflight.CheckResult('db_read_only_select_1', True),
     )
     encoded = json.dumps(result, sort_keys=True)
 
     assert result['checks']['pg_isready']['failure_category'] == 'postgres_unavailable'
+    assert result['checks']['db_read_only_select_1']['detail']['attempted'] is False
+    assert attempted['db_probe'] is False
     assert 'hidden-password' not in encoded
+
+
+def test_pg_isready_falls_back_to_docker_exec_when_host_binary_is_missing(monkeypatch):
+    def docker_exec_runner(args, timeout):
+        del timeout
+        if tuple(args[:2]) == ('docker', 'exec'):
+            return subprocess.CompletedProcess(args, 0, stdout='accepting connections\n', stderr='')
+        return successful_runner(args, timeout=5)
+
+    monkeypatch.setattr(preflight.shutil, 'which', lambda name: None if name == 'pg_isready' else f'/mock/{name}')
+
+    result = preflight.run_preflight(
+        env={'POSTGRES_PASSWORD': 'do-not-print-this'},
+        runner=docker_exec_runner,
+        db_probe=lambda _env, _database: preflight.CheckResult('db_read_only_select_1', True, None, {'attempted': True}),
+    )
+
+    assert result['checks']['pg_isready']['ok'] is True
+    assert result['checks']['db_read_only_select_1']['ok'] is True

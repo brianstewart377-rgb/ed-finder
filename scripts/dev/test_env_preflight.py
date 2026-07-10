@@ -64,18 +64,33 @@ def run_preflight(
     timeout: int = 5,
 ) -> dict[str, Any]:
     command_runner = runner or run_command
+    using_injected_runner = runner is not None
     database = resolve_db_config(env)
     checks = [
         check_pytest_available(),
         check_project_imports(),
-        check_docker_cli(command_runner, timeout),
-        check_docker_compose(command_runner, timeout),
-        check_postgres_container(command_runner, timeout),
-        check_pg_isready(command_runner, database, timeout),
+        check_docker_cli(command_runner, timeout, assume_available=using_injected_runner),
+        check_docker_compose(command_runner, timeout, assume_available=using_injected_runner),
+        check_postgres_container(command_runner, timeout, assume_available=using_injected_runner),
         check_db_credentials(env),
     ]
     if database['password_present']:
-        checks.append((db_probe or run_read_only_select_one)(env, database))
+        pg_isready_check = check_pg_isready(
+            command_runner,
+            database,
+            timeout,
+            assume_available=using_injected_runner,
+        )
+        checks.append(pg_isready_check)
+        if pg_isready_check.ok:
+            checks.append((db_probe or run_read_only_select_one)(env, database))
+        else:
+            checks.append(CheckResult(
+                'db_read_only_select_1',
+                False,
+                pg_isready_check.failure_category,
+                {'attempted': False},
+            ))
     else:
         checks.append(CheckResult(
             'db_read_only_select_1',
@@ -162,22 +177,22 @@ class sys_path:
                 pass
 
 
-def check_docker_cli(runner: CommandRunner, timeout: int) -> CheckResult:
-    if shutil.which('docker') is None:
+def check_docker_cli(runner: CommandRunner, timeout: int, *, assume_available: bool = False) -> CheckResult:
+    if not assume_available and shutil.which('docker') is None:
         return CheckResult('docker_cli', False, 'docker_cli_missing')
     completed = runner(('docker', 'version', '--format', '{{.Server.Version}}'), timeout)
     return command_result('docker_cli', completed, failure='docker_unavailable')
 
 
-def check_docker_compose(runner: CommandRunner, timeout: int) -> CheckResult:
-    if shutil.which('docker') is None:
+def check_docker_compose(runner: CommandRunner, timeout: int, *, assume_available: bool = False) -> CheckResult:
+    if not assume_available and shutil.which('docker') is None:
         return CheckResult('docker_compose', False, 'docker_cli_missing')
     completed = runner(('docker', 'compose', 'version'), timeout)
     return command_result('docker_compose', completed, failure='docker_compose_unavailable')
 
 
-def check_postgres_container(runner: CommandRunner, timeout: int) -> CheckResult:
-    if shutil.which('docker') is None:
+def check_postgres_container(runner: CommandRunner, timeout: int, *, assume_available: bool = False) -> CheckResult:
+    if not assume_available and shutil.which('docker') is None:
         return CheckResult('postgres_container', False, 'docker_cli_missing')
     completed = runner(('docker', 'ps', '--filter', 'name=ed-postgres', '--format', '{{.Names}}'), timeout)
     if completed.returncode != 0:
@@ -191,10 +206,30 @@ def check_postgres_container(runner: CommandRunner, timeout: int) -> CheckResult
     )
 
 
-def check_pg_isready(runner: CommandRunner, database: Mapping[str, Any], timeout: int) -> CheckResult:
-    if shutil.which('pg_isready') is None:
+def check_pg_isready(
+    runner: CommandRunner,
+    database: Mapping[str, Any],
+    timeout: int,
+    *,
+    assume_available: bool = False,
+) -> CheckResult:
+    if assume_available or shutil.which('pg_isready') is not None:
+        completed = runner(('pg_isready', '-h', str(database['host']), '-p', str(database['port'])), timeout)
+        return command_result('pg_isready', completed, failure='postgres_unavailable')
+
+    if shutil.which('docker') is None:
         return CheckResult('pg_isready', False, 'pg_isready_missing')
-    completed = runner(('pg_isready', '-h', str(database['host']), '-p', str(database['port'])), timeout)
+
+    completed = runner((
+        'docker',
+        'exec',
+        'ed-postgres',
+        'pg_isready',
+        '-U',
+        str(database['user']),
+        '-d',
+        str(database['database']),
+    ), timeout)
     return command_result('pg_isready', completed, failure='postgres_unavailable')
 
 

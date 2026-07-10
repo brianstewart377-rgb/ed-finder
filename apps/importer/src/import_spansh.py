@@ -695,9 +695,18 @@ def _parse_geo_signals(b: dict) -> int:
     return 0
 
 
+def _parse_system_population(sys_obj: dict) -> int | None:
+    value = sys_obj.get('population')
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # IMPORTER 1 — galaxy.json.gz  (systems + bodies + stations, all-in-one)
-# ---------------------------------------------------------------------------
 def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     """
     Parse galaxy.json.gz and upsert systems, bodies, and stations.
@@ -859,7 +868,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
-                        int(sys_obj.get('population') or 0),
+                        _parse_system_population(sys_obj),
                         bool(sys_obj.get('isColonised') or sys_obj.get('is_colonised', False)),
                         bool(sys_obj.get('isBeingColonised') or sys_obj.get('is_being_colonised', False)),
                         controlling,
@@ -1209,7 +1218,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
-                        int(sys_obj.get('population') or 0),
+                        _parse_system_population(sys_obj),
                         norm_security(sys_obj.get('security')),
                         norm_allegiance(sys_obj.get('allegiance')),
                         norm_government(sys_obj.get('government')),
@@ -1481,7 +1490,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     sx, sy, sz,
                     norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                     norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
-                    int(sys_obj.get('population') or 0),
+                    _parse_system_population(sys_obj),
                     norm_security(sys_obj.get('security')),
                     norm_allegiance(sys_obj.get('allegiance')),
                     norm_government(sys_obj.get('government')),

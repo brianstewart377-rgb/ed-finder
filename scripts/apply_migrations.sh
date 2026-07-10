@@ -23,6 +23,9 @@ MIGRATION_DB_SERVICE="${MIGRATION_DB_SERVICE:-postgres}"
 MIGRATION_DB_USER="${MIGRATION_DB_USER:-edfinder}"
 MIGRATION_DB_NAME="${MIGRATION_DB_NAME:-edfinder}"
 PGOPTIONS_VALUE="${PGOPTIONS_VALUE:--c statement_timeout=0 -c lock_timeout=0}"
+COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"
+COMPOSE_PROJECT_NAME_OVERRIDE="${EDFINDER_DOCKER_PROJECT_NAME:-}"
+compose_args=()
 
 say() { printf '\n[INFO] %s\n' "$*"; }
 ok()  { printf '[OK]   %s\n' "$*"; }
@@ -33,6 +36,14 @@ while [[ $# -gt 0 ]]; do
     --include-manual)
       INCLUDE_MANUAL=1
       shift
+      ;;
+    --compose-file)
+      COMPOSE_FILE_OVERRIDE="$2"
+      shift 2
+      ;;
+    --project-name)
+      COMPOSE_PROJECT_NAME_OVERRIDE="$2"
+      shift 2
       ;;
     -h|--help)
       sed -n '1,30p' "$0"
@@ -46,9 +57,25 @@ done
 
 [[ -d "$SQL_DIR" ]] || die "SQL directory not found: $SQL_DIR"
 [[ -f "$MANIFEST_FILE" ]] || die "Migration manifest not found: $MANIFEST_FILE"
+cd "$ROOT_DIR"
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+if [[ -n "$COMPOSE_FILE_OVERRIDE" ]]; then
+  [[ -f "$COMPOSE_FILE_OVERRIDE" ]] || die "compose file not found: $COMPOSE_FILE_OVERRIDE"
+  compose_args+=(-f "$COMPOSE_FILE_OVERRIDE")
+elif [[ -z "${DATABASE_URL:-}" ]]; then
+  [[ -f docker-compose.yml ]] || die "docker-compose.yml not found in $ROOT_DIR"
+fi
+
+if [[ -n "$COMPOSE_PROJECT_NAME_OVERRIDE" ]]; then
+  compose_args+=(-p "$COMPOSE_PROJECT_NAME_OVERRIDE")
+fi
+
+dc() {
+  docker compose "${compose_args[@]}" "$@"
 }
 
 sql_escape() {
@@ -95,7 +122,7 @@ run_sql_stdin() {
     if [[ "$at_mode" == "1" ]]; then
       extra_flags="$extra_flags -At"
     fi
-    docker compose exec -T "$MIGRATION_DB_SERVICE" sh -lc \
+    dc exec -T "$MIGRATION_DB_SERVICE" sh -lc \
       "PGOPTIONS='$PGOPTIONS_VALUE' exec psql -U '$MIGRATION_DB_USER' -d '$MIGRATION_DB_NAME' $extra_flags"
   fi
 }
@@ -152,9 +179,10 @@ WHERE filename = '${filename_sql}';
 "
 }
 
-need_cmd docker
 if [[ -n "${DATABASE_URL:-}" ]]; then
   need_cmd psql
+else
+  need_cmd docker
 fi
 
 say "Ensure migration ledger exists"

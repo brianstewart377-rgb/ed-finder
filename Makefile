@@ -3,27 +3,40 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
+.PHONY: help lint typecheck test seed-check data-invariants api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
 
+ifeq ($(OS),Windows_NT)
+VENV_PYTHON := .venv\Scripts\python.exe
+else
+VENV_PYTHON := .venv/bin/python
+endif
+
+ifeq ($(wildcard $(VENV_PYTHON)),)
 PYTHON ?= python
+else
+PYTHON ?= $(VENV_PYTHON)
+endif
 
 help:  ## Show this help
 	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ── DB / seed ────────────────────────────────────────────────────────────────
-seed-check:  ## Apply every sql/*.sql with ON_ERROR_STOP=1 + invariants
+seed-check:  ## Apply manifest-listed SQL migrations with ON_ERROR_STOP=1 + invariants
 	bash scripts/seed_check.sh
+
+data-invariants:  ## Run read-only data integrity checks against DATABASE_URL
+	$(PYTHON) scripts/checks/data_invariants.py
 
 # ── Backend ──────────────────────────────────────────────────────────────────
 test:  ## Run backend unit + integration tests
-	python -m unittest discover -s tests -p test_smoke.py
+	$(PYTHON) -m unittest discover -s tests -p test_smoke.py
 	DATABASE_URL=$${DATABASE_URL:-postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder} \
 	REDIS_URL=$${REDIS_URL:-redis://localhost:6379/15} \
 	CORS_ORIGINS=$${CORS_ORIGINS:-http://test} \
 	ADMIN_TOKEN=$${ADMIN_TOKEN:-test-admin-token} \
 	LOG_LEVEL=$${LOG_LEVEL:-WARNING} \
 	EXPOSE_ERROR_DETAIL=true \
-	python -m pytest tests/integration/ -q
+	$(PYTHON) -m pytest tests/integration/ -q
 
 test-env-check:  ## Run the local test-environment preflight without writes
 	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -B scripts/dev/test_env_preflight.py

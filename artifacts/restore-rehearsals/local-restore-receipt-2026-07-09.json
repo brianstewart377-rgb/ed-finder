@@ -1,0 +1,11 @@
+{
+  "started_at_utc": "2026-07-09T21:22:12Z",
+  "completed_at_utc": "2026-07-09T21:22:26Z",
+  "backup_file": "/c/Users/brian/Documents/trae_projects/ED-Finder/artifacts/restore-rehearsals/latest.dump",
+  "backup_mode": "postgres",
+  "source_db": "edfinder_restore_source",
+  "target_db": "edfinder_restore_rehearsal",
+  "public_tables": 68,
+  "schema_migrations": 35,
+  "keep_db": false
+}

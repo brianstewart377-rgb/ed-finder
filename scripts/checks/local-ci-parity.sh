@@ -114,11 +114,14 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage18jq_production_reconciliation_artifact_readiness.py \
     tests/test_stage18jq_chain_followons.py \
     tests/test_stage18jp_station_type_production_chain_closeout.py \
+    tests/test_stage22_planning_baseline.py \
     tests/test_stage22b_planner_evidence_hardening.py \
     tests/test_stage22c_operator_artifact_review_surfaces.py \
     tests/test_stage22d_export_documentation_governance.py \
     tests/test_stage22e_deferred_stage19_decision_gate_closeout.py \
+    tests/test_stage23_planning_baseline.py \
     tests/test_stage23a_live_per_system_evidence.py \
+    tests/test_stage24_planning_baseline.py \
     tests/test_station_type_canonical_pilot.py \
     tests/test_enrichment_staging_db_loader.py \
     tests/test_enrichment_staging_reconciliation.py \
@@ -129,6 +132,8 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_station_external_identity_review_packet.py \
     tests/test_station_external_identity_approval_allowlist.py \
     tests/test_station_external_identity_loader.py \
+    tests/test_stage20_planning_baseline.py \
+    tests/test_stage21_planning_baseline.py \
     tests/test_stage20a_implementation_contract.py \
     tests/test_stage20b_readonly_status_surfaces.py \
     tests/test_stage20c_map_foundation.py \
@@ -143,8 +148,15 @@ section "Migration/apply and CI contract tests"
   cd "$ROOT"
   "$PYTHON_BIN" -m pytest \
     tests/test_migration_script_contracts.py \
+    tests/test_migration_applier_runtime.py \
+    tests/test_migration_ledger_baseline_runtime.py \
+    tests/test_data_trust_runtime.py \
+    tests/test_ci_build_reproducibility_contracts.py \
     tests/test_ci_data_invariants.py \
+    tests/test_bounded_hygiene_pass.py \
+    tests/test_repo_hygiene_contract.py \
     tests/test_backup_restore_ops.py \
+    tests/test_windows_local_db_reset_contract.py \
     -q
 )
 

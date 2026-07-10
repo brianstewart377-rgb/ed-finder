@@ -298,12 +298,14 @@ def test_production_nginx_hosts_remain_intact():
     assert any('limit_req zone=search burst=20 nodelay;' in block for block in production_blocks)
 
 
-def test_ci_nginx_syntax_sandbox_maps_review_log_directory():
+def test_ci_nginx_syntax_uses_committed_sandbox_config():
     workflow = _read(CI_WORKFLOW)
 
     assert 'Nginx config syntax' in workflow
     assert 'mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2 /tmp/ngx/logs' in workflow
-    assert "sed -i 's|/var/log/nginx-review/|/tmp/ngx/logs/|g' /tmp/ngx/nginx.conf" in workflow
+    assert 'cp config/nginx-ci.conf         /tmp/ngx/nginx.conf' in workflow
+    assert "cp config/security-headers.conf /tmp/ngx/snippets/security-headers.conf" in workflow
+    assert "python3 - <<'PY'" not in workflow
 
 
 def test_hosted_review_deploy_tool_has_required_safety_guards():

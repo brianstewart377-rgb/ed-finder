@@ -1,5 +1,4 @@
 """Map data endpoints — galaxy regions, cluster hulls, heatmap, timeline."""
-import json
 from typing import Any, Optional
 
 import asyncpg
@@ -39,15 +38,9 @@ async def map_regions(
     (computed from the systems actually imported, so centres sit where the
     data is)."""
     cache_key = 'map:regions:v1'
-    if redis:
-        try:
-            cached = await redis.get(cache_key)
-            if cached:
-                _metrics['cache_hits'] += 1
-                return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
-    _metrics['cache_misses'] += 1
+    cached = await cache_get(cache_key, redis)
+    if cached is not None:
+        return JSONResponse(content=cached)
 
     async with pool.acquire() as conn:
         # Materialised view path (audit §C4 / Phase 5):
@@ -89,11 +82,7 @@ async def map_regions(
         'total_regions': len(rows),
     }
 
-    if redis:
-        try:
-            await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+    await cache_set(cache_key, result, settings.ttl_cluster, redis)
     return result
 
 
@@ -118,15 +107,9 @@ async def map_cluster_hulls(
     without pulling per-member coordinates.
     """
     cache_key = f'map:cluster_hulls:v1:{min_count}:{max_hulls}'
-    if redis:
-        try:
-            cached = await redis.get(cache_key)
-            if cached:
-                _metrics['cache_hits'] += 1
-                return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
-    _metrics['cache_misses'] += 1
+    cached = await cache_get(cache_key, redis)
+    if cached is not None:
+        return JSONResponse(content=cached)
 
     async with pool.acquire() as conn:
         rows = await conn.fetch(f"""
@@ -167,11 +150,7 @@ async def map_cluster_hulls(
         'count':    len(rows),
         'cached':   False,
     }
-    if redis:
-        try:
-            await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+    await cache_set(cache_key, result, settings.ttl_cluster, redis)
     return result
 
 
@@ -202,15 +181,9 @@ async def map_heatmap(
         eco_col = ratings_score_column(eco_key)
 
     cache_key = f'map:heatmap:v1:{voxel_size}:{min_systems}:{eco_col or "overall"}'
-    if redis:
-        try:
-            cached = await redis.get(cache_key)
-            if cached:
-                _metrics['cache_hits'] += 1
-                return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
-    _metrics['cache_misses'] += 1
+    cached = await cache_get(cache_key, redis)
+    if cached is not None:
+        return JSONResponse(content=cached)
 
     # Audit §C4 / Phase 5: pick the closest pre-aggregated MV resolution
     # to the request's voxel_size. Cache miss is now an indexed read
@@ -268,11 +241,7 @@ async def map_heatmap(
         'cells':      [dict(r) for r in rows],
         'count':      len(rows),
     }
-    if redis:
-        try:
-            await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+    await cache_set(cache_key, result, settings.ttl_cluster, redis)
     return result
 
 
@@ -299,15 +268,9 @@ async def map_timeline(
     }[bucket]
 
     cache_key = f'map:timeline:v1:{bucket}'
-    if redis:
-        try:
-            cached = await redis.get(cache_key)
-            if cached:
-                _metrics['cache_hits'] += 1
-                return JSONResponse(content=json.loads(cached))
-        except Exception:
-            pass
-    _metrics['cache_misses'] += 1
+    cached = await cache_get(cache_key, redis)
+    if cached is not None:
+        return JSONResponse(content=cached)
 
     async with pool.acquire() as conn:
         # Audit §C4 / Phase 5: read from mv_map_timeline_month
@@ -361,9 +324,5 @@ async def map_timeline(
         ],
         'total': sum(r['systems_discovered'] for r in rows),
     }
-    if redis:
-        try:
-            await redis.set(cache_key, json.dumps(result, default=str), ex=settings.ttl_cluster)
-        except Exception:
-            pass
+    await cache_set(cache_key, result, settings.ttl_cluster, redis)
     return result

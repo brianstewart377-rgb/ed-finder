@@ -4,6 +4,24 @@ This note was used to resume the ratings-overhaul work after a chat loss. The mi
 
 **Status (2026-07): completed.**
 
+## Current Position (2026-07-09)
+
+- The ratings migration itself is complete; this file remains historical and is
+  no longer the source of truth for active prioritization.
+- The canonical current scorer remains **Ratings v3.4 Best-Build Potential**,
+  with the archetype-led frontend/API cutover in place.
+- The production ratings closeout lane is in healthy steady state; the remaining
+  follow-up is contract/integrity hardening such as body-data truthfulness and
+  related provenance/drift guardrails, not an active mixed-generation rerate
+  backlog.
+- The local engineering environment is materially healthier than when this
+  handoff was written: repo-local `.venv` execution is canonical, disposable
+  Docker-backed Postgres/Redis preflight is green, and the broad local pytest
+  burn-down is currently green at `1487 passed, 16 skipped`.
+- The active product roadmap has moved on to Stage 25 shell/context work plus
+  foundation hardening around migration safety, backup/restore rehearsal, and
+  CI/build honesty. See [`../ROADMAP.md`](../ROADMAP.md) for the current queue.
+
 ## Use This File As Reference Only
 
 - [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap for current work.

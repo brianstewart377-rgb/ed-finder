@@ -13,13 +13,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# All API source modules live under src/. Flatten into /app so the
-# existing flat-import style (`from config import settings`) keeps
-# working without a package rename.
+# Copy the API source tree as-is. The committed `edfinder_api` package
+# namespace gives us a stable runtime entrypoint while the remaining
+# legacy flat imports are migrated incrementally.
 COPY src/ ./
 
 EXPOSE 8000
 # workers=1 — backend keeps per-process state (SSE clients, active jobs,
 # rate-limit buckets, metrics). Scale horizontally via more containers
 # behind nginx if needed, not via uvicorn workers.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+CMD ["uvicorn", "edfinder_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

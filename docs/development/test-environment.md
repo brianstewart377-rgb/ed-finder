@@ -1,8 +1,21 @@
-﻿# Test Environment
+# Test Environment
 
 ## Purpose
 
 The local test environment is a safety boundary for operator and data-workflow work. It must distinguish unit tests that intentionally use fakes from integration tests that prove the same path against local services.
+
+## Windows Entry Points
+
+If you are running locally on Windows, prefer the PowerShell wrappers in
+`scripts/dev/` instead of translating Unix examples by hand. The canonical
+Windows guide is `docs/development/windows-dev-environment.md`.
+
+Recommended sequence:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -RunDoctor
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/doctor.ps1 -RunPreflight
+```
 
 ## Canonical Local Preflight
 
@@ -10,6 +23,12 @@ Run the preflight from the repository root:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python -B scripts/dev/test_env_preflight.py
+```
+
+Windows equivalent:
+
+```powershell
+.venv\Scripts\python.exe -B scripts/dev/test_env_preflight.py
 ```
 
 The preflight is fail-closed and reports structured JSON. It checks:
@@ -54,6 +73,12 @@ Run the guardrails directly:
 PYTHONDONTWRITEBYTECODE=1 python -B -m pytest tests/test_db_isolation_guardrails.py -p no:cacheprovider
 ```
 
+Windows equivalent:
+
+```powershell
+.venv\Scripts\python.exe -B -m pytest tests/test_db_isolation_guardrails.py -p no:cacheprovider
+```
+
 Expected safety properties:
 
 ```text
@@ -78,7 +103,7 @@ The project registers these local markers:
 - `requires_postgres`
 - `requires_redis`
 
-Real-service tests must use the applicable service markers and skip explicitly when the service or credentials are absent. They must not silently pass by falling back to unit fakes.
+Real-service tests must use the applicable service markers and skip explicitly when the service, credentials, or required local baseline data are absent. They must not silently pass by falling back to unit fakes.
 
 ## Make Targets
 
@@ -96,7 +121,7 @@ The Makefile includes:
 
 ## Stage 19 Status
 
-Stage 19 remains paused for test-environment hardening. The fake-only readiness blocker is cleared: the real Stage 19 local Postgres readiness test passed against the approved Stage 19AR baseline on the recreated test-environment branch.
+Stage 19 remains paused for test-environment hardening. The fake-only readiness blocker is cleared: the real Stage 19 local Postgres readiness test proved live local Postgres access without fake fallbacks, and it verifies the approved Stage 19AR baseline when that canonical local baseline is present.
 
 Current real-service validation result:
 
@@ -117,6 +142,25 @@ Stage 19 remains paused until the next agreed test-env gate or operator decision
 
 Stage 19AS-AU must not run from this test-environment branch. Do not use `--commit`, do not rebaseline, and do not promote staged rows from this work.
 
+## Current Position
+
+For a fresh-chat resume, pair this file with:
+
+- [`../ROADMAP.md`](../ROADMAP.md) for the authoritative current priority order;
+- [`../operations/audit-remediation-plan.md`](../operations/audit-remediation-plan.md)
+  for the current Claude-report / adversarial-audit response lane;
+- [`ratings-resume-handoff-2026-07-06.md`](./ratings-resume-handoff-2026-07-06.md)
+  for the historical ratings migration context plus present-day status note.
+
+Current local test-environment posture:
+
+- repo-local `.venv` Python is the canonical runner;
+- Docker-backed local Postgres/Redis preflight is green;
+- broad local pytest is green at `1487 passed, 16 skipped`;
+- Stage 19 real-service tests prove live Postgres access without fake
+  fallbacks, but historical baseline/checkpoint assertions skip explicitly when
+  the disposable DB does not contain those old approved rows.
+
 ## State Authority
 
 Active Stage 19/test-environment truth lives in `docs/colonisation-redesign/stage-19-state-authority.json`, the latest merged docs checkpoint, and live git state.
@@ -129,6 +173,12 @@ Prompts must run the resolver before operational work:
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+```
+
+Windows equivalent:
+
+```powershell
+.venv\Scripts\python.exe -B scripts/dev/resolve_project_state.py --strict
 ```
 
 The resolver is fail-closed for source-of-truth unavailability, branch mismatch, and current branch/head matches in the active invalid-state denylist. The denylist is intentionally tiny; historical archive entries do not become operational blockers by implication.

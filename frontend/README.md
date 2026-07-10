@@ -72,6 +72,16 @@ src/
 
 ## Local dev
 
+Windows-first bootstrap:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\scripts\dev\bootstrap-windows.ps1 -RunDoctor
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\scripts\dev\start_local_dev.ps1 -EnsureServices
+```
+
+See `docs/development/windows-dev-environment.md` for the canonical Windows
+wrapper flow and Git Bash usage.
+
 ```bash
 cd frontend
 yarn install              # one-time
@@ -138,6 +148,17 @@ bash scripts/deploy_main.sh
 
 The canonical deploy recreates nginx when needed so mount/config changes are
 picked up reliably.
+
+Preferred release path:
+
+- build and test locally
+- package the already-built `frontend/dist` via
+  `scripts/package_frontend_bundle.sh`
+- let `scripts/release-main-to-prod.ps1` upload that archive and call
+  `scripts/deploy_main.sh --frontend-archive ...`
+
+That keeps production on the exact certified frontend bundle instead of doing a
+fresh dependency resolution on the server just to rebuild JS assets.
 
 ## Type generation
 

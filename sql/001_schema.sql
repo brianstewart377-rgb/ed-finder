@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS systems (
     secondary_economy   economy_type    NOT NULL DEFAULT 'None',
 
     -- Population & colonisation
-    population          BIGINT          NOT NULL DEFAULT 0,
+    population          BIGINT          DEFAULT NULL,
     is_colonised        BOOLEAN         NOT NULL DEFAULT FALSE,
     is_being_colonised  BOOLEAN         NOT NULL DEFAULT FALSE,
     controlling_faction TEXT,

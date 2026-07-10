@@ -50,12 +50,12 @@ class ReviewProcessRegistry:
             stdout=stdout_handle,
             stderr=stderr_handle,
             text=True,
-            preexec_fn=os.setsid,
+            **_process_group_popen_kwargs(),
         )
         record = ManagedProcessRecord(
             name=name,
             pid=process.pid,
-            pgid=os.getpgid(process.pid),
+            pgid=_process_group_id(process),
             command=command,
             stdout_log=stdout_log_name,
             stderr_log=stderr_log_name,
@@ -71,7 +71,7 @@ class ReviewProcessRegistry:
                 record.running = False
                 continue
             try:
-                os.killpg(record.pgid, signal.SIGTERM)
+                _terminate_process_group(process, record.pgid)
             except ProcessLookupError:
                 record.running = False
                 continue
@@ -83,7 +83,7 @@ class ReviewProcessRegistry:
         for process, record in reversed(list(zip(self._processes, self._records))):
             if process.poll() is None:
                 try:
-                    os.killpg(record.pgid, signal.SIGKILL)
+                    _kill_process_group(process, record.pgid)
                 except ProcessLookupError:
                     pass
             record.running = process.poll() is None
@@ -97,3 +97,29 @@ class ReviewProcessRegistry:
     def _write_registry(self) -> None:
         payload = {'processes': [asdict(record) for record in self._records]}
         self.registry_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+
+
+def _process_group_popen_kwargs() -> dict[str, object]:
+    if os.name == 'nt':
+        return {'creationflags': getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)}
+    return {'preexec_fn': os.setsid}
+
+
+def _process_group_id(process: subprocess.Popen[str]) -> int:
+    if os.name == 'nt':
+        return process.pid
+    return os.getpgid(process.pid)
+
+
+def _terminate_process_group(process: subprocess.Popen[str], pgid: int) -> None:
+    if os.name == 'nt':
+        process.terminate()
+        return
+    os.killpg(pgid, signal.SIGTERM)
+
+
+def _kill_process_group(process: subprocess.Popen[str], pgid: int) -> None:
+    if os.name == 'nt':
+        process.kill()
+        return
+    os.killpg(pgid, signal.SIGKILL)

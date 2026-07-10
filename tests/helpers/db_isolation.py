@@ -121,7 +121,10 @@ def confirmed_target_or_skip(
     dsn = source_env.get(dsn_env)
     confirmed = source_env.get(confirm_env) == 'yes'
     if not dsn or not confirmed:
-        pytest.skip(f'{purpose} requires {dsn_env} and {confirm_env}=yes')
+        pytest.skip(
+            f'{purpose} requires {dsn_env} and {confirm_env}=yes',
+            allow_module_level=True,
+        )
     try:
         return validate_test_db_target(dsn, env=source_env, source=dsn_env)
     except DbIsolationError as exc:

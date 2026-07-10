@@ -11,10 +11,11 @@ RUN apk add --no-cache dcron tini bash
 
 WORKDIR /maintenance
 
-# Copy the maintenance script and crontab.
+# Copy the maintenance/backup scripts and crontab.
 COPY scripts/run_maintenance.sh /usr/local/bin/run_maintenance.sh
+COPY scripts/run_backup.sh      /usr/local/bin/run_backup.sh
 COPY scripts/crontab            /etc/crontabs/root
-RUN chmod +x /usr/local/bin/run_maintenance.sh
+RUN chmod +x /usr/local/bin/run_maintenance.sh /usr/local/bin/run_backup.sh
 
 # tini = proper PID 1 so SIGTERM from `docker stop` actually reaches
 # crond and any in-progress psql.
