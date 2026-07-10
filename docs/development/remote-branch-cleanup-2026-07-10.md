@@ -87,6 +87,23 @@ git for-each-ref --format="%(refname:short) %(objectname:short) %(committerdate:
 Then evaluate the older `docs-*`, `stage-*`, and `feat/*` refs in batches
 rather than deleting them blind.
 
+Current remaining remote-head inventory after the safe-now and duplicate-alias
+cleanup:
+
+- `docs*`: 53
+- `stage-*`: 30
+- `feat/*`: 10
+- `fix/*`: 3
+- `chore/*`: 2
+- `other`: 2
+
+That means the next meaningful cleanup should be done by family, not one branch
+at a time:
+
+1. `docs*` historical closeout/design branches
+2. `stage-*` implementation-history branches
+3. `feat/*` and `fix/*` branches that may still hold unique non-ancestor tips
+
 One safe pattern already used in the second pass:
 
 - if two remote refs point at the exact same SHA, delete the scratchier alias
