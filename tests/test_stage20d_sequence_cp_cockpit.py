@@ -10,9 +10,9 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE20D_DOC_PATH = DOCS / 'stage-20d-planner-sequence-cp-curve-cockpit.md'
 README_PATH = DOCS / 'README.md'
 ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
-WORKSPACE_TABS_PATH = ROOT / 'frontend-v2' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
-PREVIEW_PATH = ROOT / 'frontend-v2' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
-SEQUENCE_VIEW_PATH = ROOT / 'frontend-v2' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SequenceCockpitWorkspaceView.tsx'
+WORKSPACE_TABS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
+PREVIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
+SEQUENCE_VIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SequenceCockpitWorkspaceView.tsx'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
 

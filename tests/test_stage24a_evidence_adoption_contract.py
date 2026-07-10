@@ -82,10 +82,10 @@ def test_stage24a_document_defines_one_contract_purpose_and_surface_classes():
     assert '### In Scope For Stage 24B' in text
     assert '### Candidate For Stage 24C' in text
     assert '### Out Of Scope For Stage 24' in text
-    assert 'frontend-v2/src/features/colony-planner/ColonyPlannerWorkspace.tsx' in text
-    assert 'frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx' in text
-    assert 'frontend-v2/src/features/colony-planner/warehouseEvidenceBridge.ts' in text
-    assert 'frontend-v2/src/types/api.ts' in text
+    assert 'frontend/src/features/colony-planner/ColonyPlannerWorkspace.tsx' in text
+    assert 'frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx' in text
+    assert 'frontend/src/features/colony-planner/warehouseEvidenceBridge.ts' in text
+    assert 'frontend/src/types/api.ts' in text
     assert 'simulation and export-readiness surfaces' in squashed.lower()
     assert 'Operator-facing execution, ingestion, or activation surfaces.' in text
 

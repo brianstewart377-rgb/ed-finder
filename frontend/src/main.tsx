@@ -8,45 +8,16 @@ if (!rootEl) {
 }
 const root = createRoot(rootEl);
 
-const REDESIGN_PREVIEW_KEY = 'uiPreview';
-
-// The redesign remains an opt-in preview shell with a single current flag
-// contract so old rollout naming no longer leaks into active code paths.
-function shouldUseRedesign(): boolean {
-  const params = new URLSearchParams(window.location.search);
-  const q = params.get('ui');
-  if (q === 'preview') {
-    localStorage.setItem(REDESIGN_PREVIEW_KEY, '1');
-    return true;
-  }
-  if (q === 'live') {
-    localStorage.removeItem(REDESIGN_PREVIEW_KEY);
-    return false;
-  }
-  return localStorage.getItem(REDESIGN_PREVIEW_KEY) === '1';
-}
-
 async function bootstrap() {
-  if (shouldUseRedesign()) {
-    const { default: RedesignApp } = await import('./_redesign/RedesignApp.jsx');
-    root.render(
-      <StrictMode>
-        <ErrorBoundary>
-          <RedesignApp />
-        </ErrorBoundary>
-      </StrictMode>,
-    );
-  } else {
-    await import('./index.css');
-    const { default: App } = await import('./App');
-    root.render(
-      <StrictMode>
-        <ErrorBoundary>
-          <App />
-        </ErrorBoundary>
-      </StrictMode>,
-    );
-  }
+  await import('./index.css');
+  const { default: App } = await import('./App');
+  root.render(
+    <StrictMode>
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
+    </StrictMode>,
+  );
 }
 
 void bootstrap();

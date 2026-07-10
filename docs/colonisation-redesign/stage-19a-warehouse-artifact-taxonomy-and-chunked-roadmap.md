@@ -171,7 +171,7 @@ contexts:
   operator-approved production commands.
 
 Stage 19A.1 adds `scripts/operator/require_hetzner_operator_env.sh` and
-`scripts/operator/stage18j_run_compact_summary.sh`. Server-only scripts should
+`scripts/operator/archive/stage18j/stage18j_run_compact_summary.sh`. Server-only scripts should
 call the shared guard and fail fast outside the expected Hetzner host/path.
 This does not run production commands from Codex, touch production DBs, run
 imports, run reconciliation, run station-type dry-run, run apply, implement

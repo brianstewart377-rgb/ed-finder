@@ -54,7 +54,7 @@ def test_stage22_authority_prepares_the_post182021_control_baseline():
     assert stage22['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage22['current_checkpoint'] == 'Stage 22E - Deferred Stage 19 decision gate and closeout'
     assert stage22['next_checkpoint'] is None
-    assert stage22['roadmap'] == 'docs/colonisation-redesign/stage-22-roadmap.md'
+    assert stage22['roadmap'] == 'docs/ROADMAP.md'
     assert stage22['stage18_complete_for_reviewed_scope'] is True
     assert stage22['stage20_complete'] is True
     assert stage22['stage21_complete'] is True
@@ -70,7 +70,7 @@ def test_stage22_authority_prepares_the_post182021_control_baseline():
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['historical_snapshot'] is True
     assert baseline['docs_static_only'] is True
-    assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-22-roadmap.md'
+    assert baseline['roadmap'] == 'docs/ROADMAP.md'
     assert baseline['primary_objective'] == PRIMARY_OBJECTIVE
     assert baseline['checkpoint_count'] == 5
     assert len(baseline['checkpoints']) == 5

@@ -34,12 +34,12 @@ export const CORE_ECONOMY_ORDER: CoreEconomyName[] = [
 
 export const ECONOMY_VISUALS: Record<EconomyVisualName, EconomyVisual> = {
   Agriculture: { label: 'Agriculture', compactLabel: 'Agri', color: '#4f9a4f', softColor: 'rgba(79,154,79,0.24)' },
-  Refinery: { label: 'Refinery', compactLabel: 'Ref', color: '#da8b18', softColor: 'rgba(218,139,24,0.24)' },
-  Industrial: { label: 'Industrial', compactLabel: 'Ind', color: '#b96d17', softColor: 'rgba(185,109,23,0.22)' },
+  Refinery: { label: 'Refinery', compactLabel: 'Ref', color: '#fbbf24', softColor: 'rgba(251,191,36,0.24)' },
+  Industrial: { label: 'Industrial', compactLabel: 'Ind', color: '#ff7a14', softColor: 'rgba(255,122,20,0.22)' },
   HighTech: { label: 'HighTech', compactLabel: 'HiTech', color: '#4688cf', softColor: 'rgba(70,136,207,0.22)' },
   Military: { label: 'Military', compactLabel: 'Mil', color: '#9a4242', softColor: 'rgba(154,66,66,0.22)' },
   Tourism: { label: 'Tourism', compactLabel: 'Tour', color: '#8460c4', softColor: 'rgba(132,96,196,0.22)' },
-  Extraction: { label: 'Extraction', compactLabel: 'Ext', color: '#cf3939', softColor: 'rgba(207,57,57,0.24)' },
+  Extraction: { label: 'Extraction', compactLabel: 'Ext', color: '#94a3b8', softColor: 'rgba(148,163,184,0.24)' },
   Terraforming: { label: 'Terraforming', compactLabel: 'Terra', color: '#3b977a', softColor: 'rgba(59,151,122,0.22)' },
   Civilian: { label: 'Civilian', compactLabel: 'Civ', color: '#c8ccd1', softColor: 'rgba(200,204,209,0.18)' },
   Support: { label: 'Support', compactLabel: 'Supp', color: '#a3a3a3', softColor: 'rgba(163,163,163,0.18)' },

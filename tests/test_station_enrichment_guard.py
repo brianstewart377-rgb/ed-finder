@@ -590,15 +590,13 @@ def test_run_docker_compose_command_streams_and_counts_429(tmp_path, capsys):
     detects consecutive 429 lines so the guard can warn the operator.
     """
     output_path = tmp_path / 'phase.json'
-    # /bin/sh script that emits a tiny JSON report to stdout and 4 fake 429
-    # log lines to stderr (above the warning threshold of 3).
     script = (
-        r'''printf '{"stations":{"systems":[]}}' && \
-        for i in 1 2 3 4; do \
-          echo "EDSM rate limit retry system=Test endpoint=stations next_attempt=$i/5 reason=429 Too Many Requests" 1>&2; \
-        done'''
+        "import sys; "
+        "sys.stdout.write('{\"stations\":{\"systems\":[]}}'); "
+        "sys.stdout.flush(); "
+        "[(sys.stderr.write(f'EDSM rate limit retry system=Test endpoint=stations next_attempt={i}/5 reason=429 Too Many Requests\\n'), sys.stderr.flush()) for i in range(1, 5)]"
     )
-    cmd = ['/bin/sh', '-c', script]
+    cmd = [sys.executable, '-c', script]
 
     result = guard.run_docker_compose_command(cmd, tmp_path, output_path)
 
@@ -625,14 +623,18 @@ def test_run_docker_compose_command_resets_429_counter_on_normal_output(tmp_path
     """
     output_path = tmp_path / 'phase.json'
     script = (
-        r'''printf '{"stations":{"systems":[]}}' && \
-        echo "Fetching EDSM station enrichment system=Alpha id64=1" 1>&2 && \
-        echo "http 429 Too Many Requests" 1>&2 && \
-        echo "Fetching EDSM station enrichment system=Beta id64=2" 1>&2 && \
-        echo "http 429 Too Many Requests" 1>&2 && \
-        echo "Fetching EDSM station enrichment system=Gamma id64=3" 1>&2'''
+        "import sys; "
+        "sys.stdout.write('{\"stations\":{\"systems\":[]}}'); "
+        "sys.stdout.flush(); "
+        "lines = ["
+        "'Fetching EDSM station enrichment system=Alpha id64=1', "
+        "'http 429 Too Many Requests', "
+        "'Fetching EDSM station enrichment system=Beta id64=2', "
+        "'http 429 Too Many Requests', "
+        "'Fetching EDSM station enrichment system=Gamma id64=3']; "
+        "[sys.stderr.write(line + '\\n') or sys.stderr.flush() for line in lines]"
     )
-    cmd = ['/bin/sh', '-c', script]
+    cmd = [sys.executable, '-c', script]
 
     result = guard.run_docker_compose_command(cmd, tmp_path, output_path)
 

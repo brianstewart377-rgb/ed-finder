@@ -120,6 +120,15 @@ not. `body_rings` changes are applied by importer/upsert paths, not by a
 database trigger, so those paths must explicitly mark affected systems
 `rating_dirty` after ring facts change.
 
+Steady-state dirty-tail rule:
+
+- Systems are rating-eligible only when body data actually exists.
+- If a system becomes truthfully `has_body_data = FALSE` and has no local
+  `bodies` rows, it is no longer eligible for a rating rebuild.
+- In that state, the correct cleanup is to remove any stale `ratings` row for
+  the system and clear `rating_dirty`; repeated dirty rebuild passes are not the
+  intended recovery mechanism.
+
 Station rows and `station_body_links` do not affect rating v3.4. They affect
 system detail and occupied-slot presentation; cached `sys:*` and simulation
 payloads may be stale until TTL expiry or an operator cache clear. The

@@ -5,6 +5,7 @@ import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectSt
 import { useMyWorkStore } from '@/features/my-work/myWorkStore';
 
 const {
+  mockImportJournal,
   mockWatchlistAdd,
   mockWatchlistRemove,
   mockWatchlistHas,
@@ -13,6 +14,13 @@ const {
   mockSearchResults,
   mockSearchState,
 } = vi.hoisted(() => ({
+  mockImportJournal: vi.fn().mockResolvedValue({
+    import_id: 'test-import',
+    systems_processed: 0,
+    bodies_processed: 0,
+    journal_entries_processed: 0,
+    warnings: [],
+  }),
   mockWatchlistAdd: vi.fn(),
   mockWatchlistRemove: vi.fn(),
   mockWatchlistHas: vi.fn((_id64: number) => false),
@@ -41,6 +49,7 @@ vi.mock('@/lib/api', () => {
     api: {
       health: vi.fn().mockResolvedValue({ status: 'ok', database: 'connected', version: 'test' }),
     },
+    importJournal: mockImportJournal,
   };
 });
 
@@ -299,6 +308,7 @@ afterEach(() => {
   mockWatchlistRemove.mockReset();
   mockWatchlistHas.mockReset();
   mockWatchlistHas.mockReturnValue(false);
+  mockImportJournal.mockClear();
   mockWatchlistEntries.length = 0;
   mockSearchRun.mockClear();
   mockSearchResults.length = 0;
@@ -429,30 +439,6 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('product-shell-context')).toBeNull();
     expect(screen.queryByTestId('product-shell-context-mobile')).toBeNull();
     expect(screen.queryByTestId('system-detail-modal')).toBeNull();
-  });
-
-  it('renders the isolated planner preview on its own safe route', async () => {
-    window.location.hash = '#planner-preview';
-
-    const { container } = await renderApp();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('planner-canvas-preview')).toBeTruthy();
-    });
-    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
-    expect(container.querySelector('main')?.className).toContain('max-w-none');
-  });
-
-  it('renders the isolated chip preview on its own safe route', async () => {
-    window.location.hash = '#chip-preview';
-
-    const { container } = await renderApp();
-
-    await waitFor(() => {
-      expect(screen.getByTestId('chip-preview')).toBeTruthy();
-    });
-    expect(screen.queryByTestId('system-detail-modal')).toBeNull();
-    expect(container.querySelector('main')?.className).toContain('max-w-none');
   });
 
   it('opens full System Detail from the workspace through a planning-owned modal route', async () => {

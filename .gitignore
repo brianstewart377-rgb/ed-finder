@@ -151,3 +151,12 @@ credentials.json
 .credentials
 .secrets/
 .review/
+
+# Local scratch clones / promotion worktrees kept outside git history
+_promote_chip/
+_promote_main_cleanup/
+
+# Generated artifact outputs; keep durable receipts, ignore disposable binaries
+artifacts/frontend-bundles/*.tar.gz
+artifacts/frontend-bundles/*.tar.gz.sha256
+artifacts/restore-rehearsals/latest.dump

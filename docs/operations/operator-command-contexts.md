@@ -1,4 +1,4 @@
-﻿# Operator Command Contexts
+# Operator Command Contexts
 
 ## Purpose
 
@@ -153,7 +153,7 @@ For Stage 18J compact summary generation, run from Hetzner only:
 
 ```sh
 cd /opt/ed-finder
-scripts/operator/stage18j_run_compact_summary.sh
+scripts/operator/archive/stage18j/stage18j_run_compact_summary.sh
 ```
 
 Optional environment overrides:

@@ -20,6 +20,7 @@ EXPECTED_WAREHOUSE_TABLES = {
     'enrichment_source_runs',
     'enrichment_source_files',
     'enrichment_raw_records',
+    'evidence_records',
     'staging_edsm_stations',
     'staging_edsm_bodies',
     'staging_body_rings',
@@ -38,6 +39,7 @@ def test_warehouse_table_constants_match_existing_names():
     assert warehouse.WAREHOUSE_SOURCE_RUNS_TABLE == 'enrichment_source_runs'
     assert warehouse.WAREHOUSE_SOURCE_FILES_TABLE == 'enrichment_source_files'
     assert warehouse.WAREHOUSE_RAW_RECORDS_TABLE == 'enrichment_raw_records'
+    assert warehouse.EVIDENCE_RECORDS_TABLE == 'evidence_records'
     assert warehouse.WAREHOUSE_STAGING_STATIONS_TABLE == 'staging_edsm_stations'
     assert warehouse.WAREHOUSE_STAGING_BODIES_TABLE == 'staging_edsm_bodies'
     assert warehouse.WAREHOUSE_STAGING_BODY_RINGS_TABLE == 'staging_body_rings'
@@ -53,6 +55,7 @@ def test_write_allowlist_and_canonical_denylist_are_disjoint():
         'enrichment_source_files',
         'enrichment_raw_records',
         'staging_edsm_stations',
+        'evidence_records',
     )
     assert warehouse.warehouse_write_tables_for_source('edsm_nightly_bodies') == (
         'enrichment_source_runs',
@@ -180,7 +183,12 @@ def test_extract_referenced_table_names_is_deterministic():
 
 
 def test_warehouse_table_constants_appear_in_foundation_migration():
-    migration = (ROOT / 'sql' / '026_enrichment_staging_foundation.sql').read_text(encoding='utf-8')
+    staging_migration = (ROOT / 'sql' / '026_enrichment_staging_foundation.sql').read_text(encoding='utf-8')
+    evidence_migration = (ROOT / 'sql' / '030_evidence_store_foundation.sql').read_text(encoding='utf-8')
 
-    for table_name in warehouse.WAREHOUSE_WRITE_TABLES:
-        assert table_name in migration
+    for table_name in warehouse.WAREHOUSE_BASE_TABLES:
+        assert table_name in staging_migration
+    assert warehouse.WAREHOUSE_STAGING_STATIONS_TABLE in staging_migration
+    assert warehouse.WAREHOUSE_STAGING_BODIES_TABLE in staging_migration
+    assert warehouse.WAREHOUSE_STAGING_BODY_RINGS_TABLE in staging_migration
+    assert warehouse.EVIDENCE_RECORDS_TABLE in evidence_migration

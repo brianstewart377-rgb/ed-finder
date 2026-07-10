@@ -10,8 +10,8 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 README_PATH = DOCS / 'README.md'
 STAGE22D_PATH = DOCS / 'stage-22d-export-and-documentation-governance-consolidation.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
-EXPORT_BUILDER_PATH = ROOT / 'frontend-v2' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'exportArtifacts.ts'
-EXPORT_VIEW_PATH = ROOT / 'frontend-v2' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'ExportReadinessWorkspaceView.tsx'
+EXPORT_BUILDER_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'exportArtifacts.ts'
+EXPORT_VIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'ExportReadinessWorkspaceView.tsx'
 
 
 def _read(path: Path) -> str:
@@ -27,8 +27,8 @@ def test_stage22d_authority_records_export_governance_completion():
     stage22 = authority['stage22']
     stage22d = authority['stage22d']
 
-    assert stage22['current_checkpoint'] == 'Stage 22D - Export and documentation governance consolidation'
-    assert stage22['next_checkpoint'] == 'Stage 22E - Deferred Stage 19 decision gate and closeout'
+    assert stage22['current_checkpoint'] == 'Stage 22E - Deferred Stage 19 decision gate and closeout'
+    assert stage22['next_checkpoint'] is None
     assert stage22['stage22d_export_governance_consolidation_completed'] is True
 
     assert stage22d['status'] == 'completed'

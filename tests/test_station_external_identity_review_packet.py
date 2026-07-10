@@ -128,7 +128,7 @@ def load_plan_artifact(rows: list[dict[str, object]]) -> dict[str, object]:
 def write_load_plan(tmp_path: Path, artifact: dict[str, object]) -> tuple[Path, str]:
     path = tmp_path / 'load-plan.json'
     payload = json.dumps(artifact, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
-    path.write_text(payload + '\n', encoding='utf-8')
+    path.write_text(payload + '\n', encoding='utf-8', newline='\n')
     return path, hashlib.sha256((payload + '\n').encode('utf-8')).hexdigest()
 
 

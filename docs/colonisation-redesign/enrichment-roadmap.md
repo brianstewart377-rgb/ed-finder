@@ -664,7 +664,7 @@ Stage 18J-P12/P13 implements Chunk A from that board. It records the bounded
 load-plan artifact review and adds the offline planned-row review packet
 generator in `apps/importer/src/station_external_identity_review_packet.py`,
 plus a Hetzner-only wrapper in
-`scripts/operator/stage18j_run_identity_review_packet.sh`. The packet tool
+`scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh`. The packet tool
 verifies the exact load-plan artifact SHA-256, reads only local JSON, accepts
 no DSN, caps planned rows at `20`, and defaults every row review item to
 `needs_manual_review`. The readiness verdict is
@@ -681,7 +681,7 @@ generated.
 
 Stage 18J-P14 adds controlled external identity load tooling in
 `apps/importer/src/station_external_identity_loader.py` and a dry-run-only
-Hetzner wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+Hetzner wrapper in `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh`.
 The loader validates verified review packets and emits
 `station_external_identity_load_execution_plan/v1`; write mode requires a
 separate `station_external_identity_load_approval_allowlist/v1` artifact plus
@@ -702,7 +702,7 @@ The verdict is `Ready only after approval allowlist artifact`. See
 Stage 18J-P14C adds the offline approval allowlist artifact generator in
 `apps/importer/src/station_external_identity_approval_allowlist.py` and a
 Hetzner-only wrapper in
-`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The allowlist
+`scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`. The allowlist
 approves exact external identity evidence rows only; it is not station-type
 approval, canonical apply approval, or a production approval record. See
 [`stage-18j-p14c-approval-allowlist-artifact.md`](./stage-18j-p14c-approval-allowlist-artifact.md).

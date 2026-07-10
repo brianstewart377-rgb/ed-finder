@@ -42,7 +42,7 @@ def test_stage24c_authority_records_one_narrow_adjacent_surface_slice():
     assert stage24c['checkpoint_type'] == 'cross_surface_evidence_consistency'
     assert stage24c['document'] == 'docs/colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md'
     assert stage24c['selected_surface'] == 'system_detail_evidence_mode_provenance_cockpit_panel'
-    assert stage24c['supporting_surface'] == 'frontend-v2/src/features/colony-planner/WarehouseEvidenceCard.tsx'
+    assert stage24c['supporting_surface'] == 'frontend/src/features/colony-planner/WarehouseEvidenceCard.tsx'
     assert stage24c['candidate_surfaces_considered'] == [
         'system_detail_review_surface',
         'simulation_export_readiness_surface',

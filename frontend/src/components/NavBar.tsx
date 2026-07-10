@@ -691,23 +691,5 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         statusLabel: 'Operator-only tools',
         statusTone: 'caution',
       };
-    case 'planner-preview':
-      return {
-        title: 'Planner Preview',
-        primaryLabel: 'Preview',
-        supportingText: 'The isolated planner preview stays separate from the live planner so visual experiments never blur into real player workflows.',
-        nextAction: 'Return to the live planner for real player workflows.',
-        statusLabel: 'Preview-only route',
-        statusTone: 'caution',
-      };
-    case 'chip-preview':
-      return {
-        title: 'Chip Preview',
-        primaryLabel: 'Preview',
-        supportingText: 'This isolated route renders the paired economy chip on its own so shape and chrome tweaks stay separate from live Finder workflows.',
-        nextAction: 'Judge the chip shape here, then return to Finder once it feels right.',
-        statusLabel: 'Preview-only route',
-        statusTone: 'caution',
-      };
   }
 }

@@ -1,4 +1,4 @@
-﻿# Stage 18J-P14B — Identity Load Dry-Run Review
+# Stage 18J-P14B — Identity Load Dry-Run Review
 
 ## Purpose
 
@@ -128,7 +128,7 @@ Before any controlled write-reviewed load:
 Stage 18J-P14C adds this offline allowlist artifact tooling in
 `apps/importer/src/station_external_identity_approval_allowlist.py` and a
 Hetzner-only wrapper in
-`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The allowlist
+`scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`. The allowlist
 approves only external identity evidence loading for exact selected rows. It
 does not approve station-type writes, canonical apply, or production
 approval-record creation. See

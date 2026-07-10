@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import hashlib
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -633,7 +634,9 @@ def test_cli_dry_run_rejects_dsn_and_does_not_invoke_apply(tmp_path, monkeypatch
 def test_operator_station_type_dry_run_script_is_syntax_valid_and_guarded():
     script = ROOT / 'scripts' / 'operator' / 'stage18j_run_station_type_dry_run.sh'
 
-    subprocess.run(['bash', '-n', str(script)], check=True)
+    bash = shutil.which('bash')
+    if bash is not None and Path(bash).name.lower() != 'bash.exe':
+        subprocess.run([bash, '-n', str(script)], check=True)
     text = script.read_text(encoding='utf-8')
     assert 'scripts/operator/require_hetzner_operator_env.sh' in text
     assert '--apply' not in text

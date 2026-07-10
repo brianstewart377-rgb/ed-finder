@@ -1,4 +1,4 @@
-﻿# Stage 18J-P14C — Approval Allowlist Artifact
+# Stage 18J-P14C — Approval Allowlist Artifact
 
 ## Purpose
 
@@ -161,7 +161,7 @@ The tool refuses:
 
 P14C adds:
 
-`scripts/operator/stage18j_run_identity_approval_allowlist.sh`
+`scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`
 
 The wrapper:
 

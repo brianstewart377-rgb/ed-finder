@@ -45,7 +45,7 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert stage23['first_executable_checkpoint'] == 'Stage 23A - First bounded live per-system evidence provider'
     assert stage23['current_checkpoint'] == 'Stage 23E - Closeout or next-control handoff'
     assert stage23['next_checkpoint'] is None
-    assert stage23['roadmap'] == 'docs/colonisation-redesign/stage-23-roadmap.md'
+    assert stage23['roadmap'] == 'docs/ROADMAP.md'
     assert stage23['stage22_complete'] is True
     assert stage23['stage23a_live_provider_completed'] is True
     assert stage23['stage19bb_execution_dependency_satisfied'] is True
@@ -140,7 +140,7 @@ def test_stage23_authority_activates_the_next_post22_control_baseline():
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['historical_snapshot'] is True
     assert baseline['docs_static_only'] is True
-    assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-23-roadmap.md'
+    assert baseline['roadmap'] == 'docs/ROADMAP.md'
     assert baseline['first_executable_checkpoint'] == 'Stage 23A - First bounded live per-system evidence provider'
     assert baseline['stage22_complete'] is True
     assert baseline['stage23_implementation_started'] is True

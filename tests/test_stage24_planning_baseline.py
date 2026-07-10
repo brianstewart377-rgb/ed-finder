@@ -56,7 +56,7 @@ def test_stage24_authority_records_the_closed_post_stage23_control():
     assert stage24['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage24['current_checkpoint'] == FINAL_CHECKPOINT
     assert stage24['next_checkpoint'] is None
-    assert stage24['roadmap'] == 'docs/colonisation-redesign/stage-24-roadmap.md'
+    assert stage24['roadmap'] == 'docs/ROADMAP.md'
     assert stage24['stage23_closed'] is True
     assert stage24['stage23_readonly_baseline_complete'] is True
     assert stage24['selected_workstream'] == SELECTED_WORKSTREAM
@@ -87,7 +87,7 @@ def test_stage24_authority_records_the_closed_post_stage23_control():
     assert baseline['status'] == 'completed'
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['docs_static_only'] is True
-    assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-24-roadmap.md'
+    assert baseline['roadmap'] == 'docs/ROADMAP.md'
     assert baseline['primary_objective'] == PRIMARY_OBJECTIVE
     assert baseline['selected_workstream'] == SELECTED_WORKSTREAM
     assert baseline['first_executable_checkpoint'] == FIRST_CHECKPOINT

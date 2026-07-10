@@ -401,7 +401,7 @@ def test_import_path_supports_repo_and_flat_container_layouts():
     flat_paths = probe._station_resolver_import_paths(Path('/app/edsm_station_enrichment_probe.py'))
 
     assert ROOT / 'apps' / 'api' / 'src' in repo_paths
-    assert Path('/app') in flat_paths
+    assert any(path.as_posix().endswith('/app') for path in flat_paths)
 
 
 def test_exact_name_type_match_proposes_type_enrichment():

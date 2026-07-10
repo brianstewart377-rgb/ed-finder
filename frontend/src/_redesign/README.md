@@ -1,4 +1,4 @@
-# `_redesign/` — UIItty4 design system, quarantined
+# `_redesign/` — archived prototype, quarantined
 
 This directory is the **landing zone for the UIItty4 prototype** (see
 `UX_AUDIT.md` on the `UIItty4` branch for the design rationale). It is
@@ -12,21 +12,11 @@ deliberately isolated from the rest of `frontend/src/` while we migrate.
   real API (`/api/local/search`, `/api/map/*`, `/api/watchlist`, etc.) lands
   in Phase 2 via an adapter layer and per-workspace hooks.
 
-## How users opt in
+## Current status
 
-The redesign is gated by a preview flag in `src/main.tsx`. It does **not** load
-for default users:
-
-| Action                                   | Effect                                      |
-|------------------------------------------|---------------------------------------------|
-| Visit `…/?ui=preview`                    | Open New UI Preview and remember this device |
-| Visit `…/?ui=live`                       | Return to Live UI and clear preview choice   |
-| `localStorage.setItem('uiPreview','1')` + reload | Keep New UI Preview enabled        |
-| `localStorage.removeItem('uiPreview')` + reload | Return to Live UI                   |
-
-The redesign bundle (`RedesignApp-*.js`) and its CSS (`RedesignApp-*.css`) are
-emitted as **separate chunks** by Vite's dynamic-import code splitting, so
-opt-out users never download them.
+The redesign is no longer wired into `src/main.tsx` and is not reachable
+through the live app entrypoint. It remains in-tree only as archived reference
+material while the active Stage 25 shell continues on the canonical app path.
 
 ## Layout
 
@@ -49,12 +39,12 @@ _redesign/
 ## What NOT to do
 
 - ❌ Don't import anything from `_redesign/` outside `_redesign/` itself or
-  `main.tsx`. The folder must remain easy to delete in one rm if we abandon
-  the design.
+  explicit archive/reference docs. The folder must remain easy to delete in one
+  rm if we abandon the design.
 - ❌ Don't import anything from `@/` (the rest of `src/`) into this folder
   yet. Until Phase 2, the prototype is **fully self-contained**.
-- ❌ Don't add the redesign to the default render path in `main.tsx`. The
-  flag-gate is the entire safety story for production.
+- ❌ Don't reintroduce the redesign into `main.tsx` or any other live render
+  path. The current app shell is the only canonical runtime entrypoint.
 
 ## Phase 2 (next PR): wire to the real backend
 
@@ -69,6 +59,5 @@ objects from the live endpoints, then replace the `import { SYSTEMS, … } from
 | Drawer    | `SYSTEMS[i]` detail          | `GET /api/system/{id64}`              |
 | Tabs      | hard-coded stubs             | `/api/watchlist`, `/api/archetypes/rerank`, etc. |
 
-Until those land, anyone opening the redesign sees the prototype's hand-picked
-mock data and not real galactic data — which is the desired behaviour for an
-opt-in preview.
+Until those land, this folder remains a quarantined prototype snapshot with
+hand-picked mock data rather than a supported preview surface.

@@ -40,13 +40,13 @@ def test_stage20a_contract_doc_records_concrete_backend_and_frontend_ownership()
         'apps/api/src/enrichment_operator_status.py',
         'apps/api/src/routers/systems.py',
         'apps/api/src/routers/simulation.py',
-        'frontend-v2/src/features/system-detail/SimulationPreviewPanel.tsx',
-        'frontend-v2/src/features/system-detail/simulation-preview/SimulationPreview.tsx',
-        'frontend-v2/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx',
-        'frontend-v2/src/lib/api.ts',
-        'frontend-v2/src/types/api.ts',
+        'frontend/src/features/system-detail/SimulationPreviewPanel.tsx',
+        'frontend/src/features/system-detail/simulation-preview/SimulationPreview.tsx',
+        'frontend/src/features/system-detail/simulation-preview/EvidenceWorkspaceView.tsx',
+        'frontend/src/lib/api.ts',
+        'frontend/src/types/api.ts',
         'apps/api/src/routers/provenance_cockpit.py',
-        'frontend-v2/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx',
+        'frontend/src/features/system-detail/simulation-preview/provenance/ProvenanceCockpitPanel.tsx',
     ):
         assert fragment in contract
 

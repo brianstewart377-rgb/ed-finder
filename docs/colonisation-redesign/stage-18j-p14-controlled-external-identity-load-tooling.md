@@ -1,4 +1,4 @@
-﻿# Stage 18J-P14 — Controlled External Identity Load Tooling
+# Stage 18J-P14 — Controlled External Identity Load Tooling
 
 ## Purpose
 
@@ -137,7 +137,7 @@ P14 implements a separate approval allowlist artifact for write mode:
 Stage 18J-P14C adds offline allowlist artifact tooling in
 `apps/importer/src/station_external_identity_approval_allowlist.py` and a
 Hetzner-only wrapper in
-`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The generated
+`scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`. The generated
 artifact also records `offline = true`, `read_only = true`,
 `approval_record_created = false`, source review packet basename/checksum,
 source review packet integrity checksum, reviewer attestation, approved row
@@ -221,7 +221,7 @@ This PR does not add a production write operator script.
 
 P14 adds:
 
-- `scripts/operator/stage18j_run_identity_load_dry_run.sh`
+- `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh`
 
 The wrapper:
 

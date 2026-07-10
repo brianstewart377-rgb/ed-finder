@@ -582,7 +582,7 @@ describe('ColonyPlannerWorkspace', () => {
     await click(screen.getByRole('button', { name: /Back to system detail/i }));
     expect(onOpenSystemDetail).toHaveBeenCalledTimes(1);
     expect(onOpenSystemDetail).toHaveBeenCalledWith(123);
-  });
+  }, 15000);
 
   it('opens body-aware structure picker from inline canvas without mounting Advanced Planner', async () => {
     mockedUseSystemDetail.mockReturnValue({

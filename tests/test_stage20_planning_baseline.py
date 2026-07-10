@@ -66,7 +66,7 @@ def test_stage20_authority_preserves_planning_baseline_after_later_stage20_progr
     assert baseline['status'] == 'prepared'
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['docs_static_only'] is True
-    assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-20-roadmap.md'
+    assert baseline['roadmap'] == 'docs/ROADMAP.md'
     assert baseline['stage20_implementation_started'] is False
     assert baseline['stage19_test_environment_safety_programme_complete'] is True
     assert baseline['stage19_remains_paused'] is True

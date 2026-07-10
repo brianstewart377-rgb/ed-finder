@@ -603,7 +603,7 @@ operator shell. The Stage 18J compact summary operator wrapper is:
 
 ```sh
 cd /opt/ed-finder
-scripts/operator/stage18j_run_compact_summary.sh
+scripts/operator/archive/stage18j/stage18j_run_compact_summary.sh
 ```
 
 That wrapper checks the expected host, `/opt/ed-finder`, Docker Compose
@@ -769,7 +769,7 @@ Stage 18J-P12/P13 records the bounded no-write identity load-plan review and
 adds the offline planned-row review packet generator in
 `apps/importer/src/station_external_identity_review_packet.py`. The
 Hetzner-only wrapper is
-`scripts/operator/stage18j_run_identity_review_packet.sh`. It calls the
+`scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh`. It calls the
 operator environment guard, verifies the exact load-plan artifact SHA-256
 `3da39530223f92e89d7129d447944d39199b6510eee473ba1e84ceeb168c9db1`, writes
 the review packet under
@@ -793,7 +793,7 @@ apply.
 
 Stage 18J-P14 adds controlled external identity load tooling in
 `apps/importer/src/station_external_identity_loader.py` and a dry-run-only
-operator wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+operator wrapper in `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh`.
 The wrapper validates the verified review packet
 `station_external_identity_review_packet_20260603T110848Z.json` with expected
 SHA-256 `8cf118d552e6bc35d23ab302d9e1020092385b372729dbb9b2bae5cd5f0758b6`,
@@ -820,7 +820,7 @@ approval.
 Stage 18J-P14C adds the offline allowlist artifact generator in
 `apps/importer/src/station_external_identity_approval_allowlist.py` and a
 Hetzner-only wrapper in
-`scripts/operator/stage18j_run_identity_approval_allowlist.sh`. The wrapper
+`scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`. The wrapper
 requires `CONFIRM_IDENTITY_ALLOWLIST=yes`, verifies the review packet checksum,
 caps selected rows at `20`, and writes only
 `station_external_identity_load_approval_allowlist/v1` under the Stage 18J

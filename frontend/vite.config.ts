@@ -11,14 +11,13 @@ const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8')) as { v
 const appVersion = packageJson.version ?? '0.0.0';
 
 // ────────────────────────────────────────────────────────────────────────────
-// Vite config for the React frontend — Emergent preview / dev variant.
+// Vite config for the React frontend in local/review environments.
 //
 // Differences from production config:
 //   • `base: '/'` — preview serves the live React app at the root, not /v2/.
-//   • Port 3000 + 0.0.0.0 host so Emergent's ingress can route to it.
+//   • Port 3000 + 0.0.0.0 host so shared review environments can route to it.
 //   • PWA plugin disabled (avoids stale SW caching during rapid iteration).
-//   • allowedHosts: 'all' so the preview hostname (*.preview.emergentagent.com)
-//     is accepted by Vite's HMR / host-check.
+//   • allowedHosts: 'all' so review hostnames can pass Vite's HMR / host-check.
 //   • /api proxied to local FastAPI on :8001 (the supervisor backend).
 // ────────────────────────────────────────────────────────────────────────────
 export default defineConfig(({ mode }) => {

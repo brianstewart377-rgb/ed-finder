@@ -1,4 +1,4 @@
-﻿# Stage 17I: Static Planner Canvas Preview
+# Stage 17I: Static Planner Canvas Preview
 
 Stage 17I is a visual wireframe/preview only.
 
@@ -40,9 +40,10 @@ Observed ED-Finder failure mode:
 
 ## Implemented Prototype
 
-Route:
+Historical prototype route:
 
-- `#planner-preview`
+- `#planner-preview` (retired during the bounded hygiene pass; kept here only
+  as historical context for the mock canvas work)
 
 Component:
 
@@ -126,7 +127,10 @@ Stage 17K maps existing ED-Finder state into this canvas for the real dedicated 
 - project save/load state
 - explicit Preview status
 
-The mock preview remains available at `#planner-preview` for visual iteration, while the real route is `#colony-planner/system/{id64}`.
+The mock preview route was retired during the bounded hygiene pass so the live
+app no longer ships a top-level visual-only planner path. The real route is
+`#colony-planner/system/{id64}`, and the preview component remains reference
+material only.
 
 Stage 17K preserves the existing safety boundaries: no automatic generation, no automatic load, no automatic Preview, and no mechanics changes unless separately scoped.
 

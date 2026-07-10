@@ -1,4 +1,4 @@
-﻿# Stage 4F: Simulation Preview UI Architecture
+# Stage 4F: Simulation Preview UI Architecture
 
 Stage 4F decomposes the frontend Simulation Preview area so it remains maintainable before Stage 5 optimiser UI work begins. This is a **UI organisation refactor only**. It does not change simulation mechanics, backend API calls, request or response types, scoring, CP logic, economy logic, service logic, observation comparison, or the visual design language.
 
@@ -1025,12 +1025,12 @@ Passive default-route guarantees:
 
 ## Stage 17I Static Visual Prototype Boundary
 
-Stage 17I adds a separate visual-preview route instead of changing the Simulation Preview or live planner stack.
+Stage 17I added a separate visual-preview route instead of changing the Simulation Preview or live planner stack. That route has since been retired from the live app during the bounded hygiene pass.
 
 Prototype ownership:
 
 - `PlannerCanvasPreview.tsx` owns the static mock canvas.
-- `#planner-preview` opens the canvas for review.
+- `#planner-preview` was the original review route and is now historical only.
 - The component uses hardcoded mock bodies, slots, projected structures, economy strips, and telemetry placeholders.
 - It does not import Simulation Preview hooks, optimiser hooks, project state, slot prediction responses, or backend API helpers.
 
@@ -1060,7 +1060,8 @@ Route ownership:
 
 - `#colony-planner/system/{id64}` uses `WholeSystemColonyPlanner.tsx`.
 - `WholeSystemColonyPlanner.tsx` now renders `SystemBuildMapCanvas.tsx` as the primary whole-system canvas.
-- `#planner-preview` remains isolated and mock-only.
+- the former `#planner-preview` route no longer ships in the live app; the
+  mock preview implementation remains isolated reference material.
 
 Real data consumed by the whole-system planner canvas:
 

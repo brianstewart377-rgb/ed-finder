@@ -105,7 +105,7 @@ def review_packet(rows):
 def write_json(tmp_path: Path, name: str, payload: dict) -> tuple[Path, str]:
     path = tmp_path / name
     text = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=True, allow_nan=False)
-    path.write_text(text + '\n', encoding='utf-8')
+    path.write_text(text + '\n', encoding='utf-8', newline='\n')
     return path, hashlib.sha256((text + '\n').encode('utf-8')).hexdigest()
 
 

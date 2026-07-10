@@ -1,4 +1,4 @@
-﻿# Stage 18J-P12/P13 — Load-Plan Review + Planned Row Review Packet
+# Stage 18J-P12/P13 — Load-Plan Review + Planned Row Review Packet
 
 ## Purpose
 
@@ -92,7 +92,7 @@ planned-row review packet. It does not authorize a controlled insert into
 P13 adds:
 
 - `apps/importer/src/station_external_identity_review_packet.py`;
-- `scripts/operator/stage18j_run_identity_review_packet.sh`;
+- `scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh`;
 - synthetic tests in
   `tests/test_station_external_identity_review_packet.py`.
 
@@ -192,7 +192,7 @@ packet rerun suitable for manual row inspection.
 
 Stage 18J-P14 adds controlled external identity load tooling in
 `apps/importer/src/station_external_identity_loader.py` and a dry-run-only
-Hetzner wrapper in `scripts/operator/stage18j_run_identity_load_dry_run.sh`.
+Hetzner wrapper in `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh`.
 
 The fixed review packet from the P13A rerun is reviewable:
 
@@ -253,7 +253,7 @@ After this PR merges, a future Hetzner operator action may run the offline
 review packet wrapper:
 
 ```sh
-scripts/operator/stage18j_run_identity_review_packet.sh
+scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh
 ```
 
 The wrapper:

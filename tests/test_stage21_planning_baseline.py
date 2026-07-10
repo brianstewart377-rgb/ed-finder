@@ -56,7 +56,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert stage21['first_executable_checkpoint'] == FIRST_CHECKPOINT
     assert stage21['current_checkpoint'] == 'Stage 21 closeout'
     assert stage21['next_checkpoint'] == NEXT_CHECKPOINT
-    assert stage21['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
+    assert stage21['roadmap'] == 'docs/ROADMAP.md'
     assert stage21['stage20_complete'] is True
     assert stage21['stage21a_roadmap_reconciliation_completed'] is True
     assert stage21['stage21b_planner_trust_audit_advanced'] is True
@@ -75,7 +75,7 @@ def test_stage21_authority_prepares_a_post20_control_baseline_without_reopening_
     assert baseline['status'] == 'completed'
     assert baseline['checkpoint_type'] == 'planning_baseline'
     assert baseline['historical_snapshot'] is True
-    assert baseline['roadmap'] == 'docs/colonisation-redesign/stage-21-roadmap.md'
+    assert baseline['roadmap'] == 'docs/ROADMAP.md'
     assert baseline['primary_objective'] == PRIMARY_OBJECTIVE
     assert baseline['stage17q_effectively_complete'] is True
     assert baseline['stage18a_effectively_complete'] is True

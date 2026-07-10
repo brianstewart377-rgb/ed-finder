@@ -384,7 +384,7 @@ Why it exists:
 Delivered boundary:
 
 - `frontend/src/features/colony-planner/preview/PlannerCanvasPreview.tsx`
-- safe review route: `#planner-preview`
+- historical review route: `#planner-preview` (now retired from the live app)
 - hardcoded/mock system data only
 - no backend fetches, no Build Plan state, no local project mutation, no persistence
 - no optimiser, slot prediction, Simulation Preview, CP, economy, service, Search Tuning, import, or EDMC logic changes
@@ -475,12 +475,13 @@ Stage 17H supersession note: Stage 17F's graphical lane work remains part of the
 
 ## Stage 17K Planner Real Data Wire-Up
 
-Stage 17K wires the accepted whole-system planner direction into the real dedicated Colony Planner route while keeping the isolated preview route for visual testing.
+Stage 17K wires the accepted whole-system planner direction into the real dedicated Colony Planner route while preserving the isolated preview implementation as reference material only.
 
 Implemented Stage 17K changes:
 
 - `#colony-planner/system/{id64}` now renders a data-driven whole-system planner canvas as the first planner surface.
-- `#planner-preview` remains mock-only for visual iteration.
+- the former `#planner-preview` route has been retired from the live app; the
+  mock-only canvas remains in-tree as historical reference material.
 - the real canvas consumes the existing planner snapshot:
   - loaded system detail and real body hierarchy
   - canonical slot-prediction response

@@ -1303,7 +1303,7 @@ Scope:
 - Keep `canonical_writes_planned = 0`,
   `station_type_writes_planned = 0`, `identity_rows_written = 0`, and
   `approval_record_created = false`.
-- Add `scripts/operator/stage18j_run_identity_review_packet.sh` as a
+- Add `scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh` as a
   Hetzner-only offline wrapper guarded by
   `scripts/operator/require_hetzner_operator_env.sh`.
 - Add synthetic tests for checksum enforcement, missing artifacts, row caps,
@@ -1381,7 +1381,7 @@ Scope:
   external IDs.
 - Reject import, reconciliation, summarizer, station-type dry-run, canonical
   apply, generic write, and commit flags.
-- Add `scripts/operator/stage18j_run_identity_load_dry_run.sh` as a
+- Add `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh` as a
   Hetzner-only dry-run wrapper guarded by
   `scripts/operator/require_hetzner_operator_env.sh`.
 - Add synthetic tests for dry-run refusal modes, approval allowlist handling,
@@ -1465,7 +1465,7 @@ Scope:
 - Record `identity_rows_written = 0`.
 - Record `canonical_writes_planned = 0`.
 - Record `station_type_writes_planned = 0`.
-- Add `scripts/operator/stage18j_run_identity_approval_allowlist.sh` as a
+- Add `scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh` as a
   Hetzner-only offline wrapper.
 - Add synthetic tests and docs/runbook updates.
 
@@ -1544,7 +1544,11 @@ Current status after Stage 20 and the first Stage 21 execution pass:
 
 Use `docs/ROADMAP.md` as the current control document and
 `stage-21b-to-21f-stage17-stage18-burn-down.md` as the record of how the Stage
-17 and Stage 18 backlog was burned down or reclassified.
+17 and Stage 18 backlog was burned down or reclassified. Historical follow-on
+roadmaps remain available in `docs/colonisation-redesign/stage-22-roadmap.md`
+and `docs/colonisation-redesign/stage-23-roadmap.md`. The first live selected
+system evidence checkpoint is recorded in
+`docs/colonisation-redesign/stage-23a-first-live-per-system-evidence-provider.md`.
 30. Stage 18J-P-filter strict station-type dry-run filter hardening.
 31. Stage 18J-P-dryrun-ops operator-safe station-type dry-run wrapper.
 32. Stage 18J-P2 station-type identity coverage diagnostics.

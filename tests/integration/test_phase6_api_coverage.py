@@ -156,6 +156,8 @@ async def test_archetype_rerank_default_weights(client, pool):
     for row in body['results']:
         assert row['id64'] in ids
         assert isinstance(row['reranked_score'], int)
+        assert isinstance(row['rationale'], dict)
+        assert row['rationale']['summary'].startswith('Seeded rationale')
 
 
 async def test_archetype_rerank_custom_weights(client, pool):
