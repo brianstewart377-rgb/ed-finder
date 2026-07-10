@@ -9,8 +9,12 @@ Status:
   - `origin/devscore-retire-ratings`
   - `origin/stage25-closeout-checkpoint`
   - `origin/TEST`
+- completed on a second-pass duplicate cleanup for:
+  - `origin/work/r1-canonical-body-evidence`
 - the temporary local fetch exclusion for `^refs/heads/TEST` was also removed
-- the local `devscore-retire-ratings` branch now tracks `origin/main`
+- the current local worktree branch was renamed to
+  `work/post-audit-followthrough-20260710` and tracks `origin/main`
+- the dedicated `main` worktree was fast-forwarded to `20c25b2`
 
 ## Safe Now
 
@@ -62,8 +66,7 @@ git branch -r --merged origin/main
 
 `git branch -r --merged origin/main` currently shows only:
 
-- `origin/devscore-retire-ratings`
-- `origin/stage25-closeout-checkpoint`
+- `origin/main`
 
 That means the large historical docs/stage branch pile should not be deleted as
 an "obviously safe" batch without a second pass that explicitly decides whether
@@ -83,3 +86,11 @@ git for-each-ref --format="%(refname:short) %(objectname:short) %(committerdate:
 
 Then evaluate the older `docs-*`, `stage-*`, and `feat/*` refs in batches
 rather than deleting them blind.
+
+One safe pattern already used in the second pass:
+
+- if two remote refs point at the exact same SHA, delete the scratchier alias
+  and keep the clearer canonical name
+- example completed here:
+  - kept `origin/feat/stage25d-b-plan-outcome-loop`
+  - deleted duplicate alias `origin/work/r1-canonical-body-evidence`
