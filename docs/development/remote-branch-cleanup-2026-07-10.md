@@ -1,7 +1,7 @@
 # Remote Branch Cleanup 2026-07-10
 
-This note captures the safe immediate remote-branch cleanup from the integrated
-post-deploy line at `ee6707c`.
+This note captures the full remote-branch cleanup from the integrated
+post-deploy line through the final archive/delete sweep on 2026-07-10.
 
 Status:
 
@@ -11,10 +11,34 @@ Status:
   - `origin/TEST`
 - completed on a second-pass duplicate cleanup for:
   - `origin/work/r1-canonical-body-evidence`
+- completed on a final archive/delete sweep for every remaining non-`main`
+  remote head under `origin/chore/*`, `origin/feat/*`, `origin/fix/*`, and
+  `origin/fix-*`
 - the temporary local fetch exclusion for `^refs/heads/TEST` was also removed
 - the current local worktree branch was renamed to
   `work/post-audit-followthrough-20260710` and tracks `origin/main`
-- the dedicated `main` worktree was fast-forwarded to `20c25b2`
+- the dedicated `main` worktree was fast-forwarded to the current `origin/main`
+- `99` archive tags were created and pushed under
+  `archive/remote-branches/2026-07-10/*`
+- the remote branch list now contains only:
+  - `origin/HEAD -> origin/main`
+  - `origin/main`
+
+## Final Outcome
+
+Remote branch clutter is now fully drained. Historical work is preserved by the
+archive-tag namespace, while the live remote branch surface is reduced to the
+single canonical branch:
+
+- `origin/main`
+
+That leaves local/worktree discipline straightforward:
+
+- `git fetch --prune`
+- `git pull --ff-only`
+- branch from `main` when new work actually begins
+- delete remote heads promptly after merge or archive-tag them if they are being
+  retired as historical snapshots instead of active integration branches
 
 ## Safe Now
 
@@ -62,52 +86,63 @@ git fetch origin --prune
 git branch -r --merged origin/main
 ```
 
-## Why Not Delete More Right Now
+## Final Sweep Method
 
-`git branch -r --merged origin/main` currently shows only:
-
-- `origin/main`
-
-That means the large historical docs/stage branch pile should not be deleted as
-an "obviously safe" batch without a second pass that explicitly decides whether
-each branch should be:
-
-- deleted as merged,
-- tagged then deleted,
-- or retained for a deliberate historical reason.
-
-## Recommended Next Pass
-
-Use this review command to build the next archival/delete shortlist:
+The historical `docs*` and `stage-*` families were already archive-tagged and
+deleted in the earlier sweep. The remaining families were then evaluated with
+divergence counts against `origin/main`:
 
 ```powershell
-git for-each-ref --format="%(refname:short) %(objectname:short) %(committerdate:short) %(subject)" refs/remotes/origin
+$branches = git for-each-ref --format='%(refname:short)' refs/remotes/origin |
+  Where-Object { $_ -notin @('origin','origin/HEAD','origin/main') }
+foreach ($branch in $branches) {
+  $counts = git rev-list --left-right --count origin/main...$branch
+  '{0} {1}' -f $branch, $counts
+}
 ```
 
-Then evaluate the older `docs-*`, `stage-*`, and `feat/*` refs in batches
-rather than deleting them blind.
+Those counts confirmed that the remaining refs still carried unique historical
+tips rather than being clean merge-ancestors. We therefore used the same
+preserve-then-delete pattern as the earlier sweep:
 
-Current remaining remote-head inventory after the safe-now and duplicate-alias
-cleanup:
+1. create archive tags for every remaining remote head
+2. push the archive tags
+3. delete the remote heads
+4. `git fetch --prune`
 
-- `docs*`: 53
-- `stage-*`: 30
-- `feat/*`: 10
-- `fix/*`: 3
-- `chore/*`: 2
-- `other`: 2
+Representative branches archived and deleted in that final pass:
 
-That means the next meaningful cleanup should be done by family, not one branch
-at a time:
+- `origin/chore/ai-continuity-protocol`
+- `origin/chore/review-lab-product-pr-gate`
+- `origin/feat/colonisation-access`
+- `origin/feat/local-review-test-environment`
+- `origin/feat/r1-assessment-core`
+- `origin/feat/r1-assessment-lab-presentation`
+- `origin/feat/r1-lab-entry-boundary`
+- `origin/feat/r1-plan-fit-core`
+- `origin/feat/r1-stage4c-plan-fit-lab`
+- `origin/feat/stage25c-selected-system-context`
+- `origin/feat/stage25c-selected-system-context-clean`
+- `origin/feat/stage25d-b-plan-outcome-loop`
+- `origin/fix-hetzner-operator-ssh-key-newline`
+- `origin/fix/db-isolation-explicit-empty-env`
+- `origin/fix/local-single-user-readiness`
+- `origin/fix/stage23a-live-evidence-provider`
 
-1. `docs*` historical closeout/design branches
-2. `stage-*` implementation-history branches
-3. `feat/*` and `fix/*` branches that may still hold unique non-ancestor tips
+## Practical Result
 
-One safe pattern already used in the second pass:
+Going forward, a healthy local sync loop is now simple again:
 
-- if two remote refs point at the exact same SHA, delete the scratchier alias
-  and keep the clearer canonical name
-- example completed here:
-  - kept `origin/feat/stage25d-b-plan-outcome-loop`
-  - deleted duplicate alias `origin/work/r1-canonical-body-evidence`
+```powershell
+git fetch origin --prune
+git switch main
+git pull --ff-only
+git branch -r
+```
+
+Expected remote-branch output now:
+
+```text
+origin/HEAD -> origin/main
+origin/main
+```
