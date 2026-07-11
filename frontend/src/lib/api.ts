@@ -63,6 +63,7 @@ import type {
   ValidationReviewResponse,
   WarehousePlannerEvidenceContract,
 } from '@/types/api';
+import { readSessionStorageItem } from '@/lib/browserStorage';
 
 type LocalSearchBody = {
   reference_coords?: { x: number; y: number; z: number };
@@ -102,12 +103,7 @@ function resolveApiUrl(path: string): string {
 }
 
 function readSessionAdminToken(): string {
-  if (typeof window === 'undefined') return '';
-  try {
-    return window.sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY) ?? '';
-  } catch {
-    return '';
-  }
+  return readSessionStorageItem(ADMIN_TOKEN_SESSION_KEY) ?? '';
 }
 
 function operatorMutationHeaders(): HeadersInit | undefined {

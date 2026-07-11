@@ -10,6 +10,13 @@ import {
 } from '@/features/my-work/myWorkStore';
 import type { PinnedEntry } from '@/features/pinned/usePinned';
 import { api, ApiError } from '@/lib/api';
+import {
+  readJsonStorage,
+  readStorageItem,
+  removeStorageItem,
+  writeJsonStorage,
+  writeStorageItem,
+} from '@/lib/browserStorage';
 import { rehydratePinnedStore } from '@/store/pinnedStore';
 import type { SystemResult } from '@/types/api';
 
@@ -71,10 +78,8 @@ export interface ProfileBlob {
 
 function gatherLocalBlob(): ProfileBlob {
   const read = <T,>(key: string): T | undefined => {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? (JSON.parse(raw) as T) : undefined;
-    } catch { return undefined; }
+    const value = readJsonStorage<T | undefined>(key, undefined);
+    return value;
   };
   return {
     version:        1,
@@ -94,8 +99,7 @@ function applyLocalBlob(blob: ProfileBlob): void {
   // wipe local-only branches that the remote slot doesn't know about.
   const writeIf = (key: string, value: unknown) => {
     if (value !== undefined && value !== null) {
-      try { localStorage.setItem(key, JSON.stringify(value)); }
-      catch { /* quota / private mode */ }
+      writeJsonStorage(key, value);
     }
   };
   writeIf('ed_pinned',     blob.ed_pinned);
@@ -109,8 +113,6 @@ function applyLocalBlob(blob: ProfileBlob): void {
   void rehydrateMyWorkStore();
   void rehydrateColonyProjectStore();
 
-  void rehydratePinnedStore();
-
   // Force the in-memory hooks to re-read by firing a synthetic 'storage'
   // event. They listen for it to support cross-tab sync; we get a
   // free re-render in this tab too.
@@ -118,7 +120,7 @@ function applyLocalBlob(blob: ProfileBlob): void {
   // one per key — so all listening hooks pick up the change.)
   for (const key of ['ed_pinned', 'ed_compare_v2', 'ed_colony_v2', 'ed_fc_v2', 'ed_my_work_v1', 'ed_colony_projects_v1']) {
     window.dispatchEvent(new StorageEvent('storage', {
-      key, newValue: localStorage.getItem(key),
+      key, newValue: readStorageItem(key),
     }));
   }
 }
@@ -146,10 +148,10 @@ export interface UseProfileSync {
 
 export function useProfileSync(): UseProfileSync {
   const [syncKey, setSyncKeyState] = useState<string>(
-    () => localStorage.getItem(SYNC_KEY_STORAGE) ?? '',
+    () => readStorageItem(SYNC_KEY_STORAGE) ?? '',
   );
   const [lastPushAt, setLastPushAt] = useState<string | null>(
-    () => localStorage.getItem(LAST_PUSH_STORAGE),
+    () => readStorageItem(LAST_PUSH_STORAGE),
   );
   const [state, setState] = useState<SyncState>({ kind: 'idle' });
 
@@ -166,8 +168,8 @@ export function useProfileSync(): UseProfileSync {
 
   const setSyncKey = useCallback((k: string) => {
     setSyncKeyState(k);
-    if (k) localStorage.setItem(SYNC_KEY_STORAGE, k);
-    else   localStorage.removeItem(SYNC_KEY_STORAGE);
+    if (k) writeStorageItem(SYNC_KEY_STORAGE, k);
+    else removeStorageItem(SYNC_KEY_STORAGE);
   }, []);
 
   const pull = useCallback(async () => {
@@ -195,7 +197,7 @@ export function useProfileSync(): UseProfileSync {
     try {
       const blob = gatherLocalBlob();
       const data = await api.profileSyncPush(syncKey, blob);
-      localStorage.setItem(LAST_PUSH_STORAGE, data.updated_at);
+      writeStorageItem(LAST_PUSH_STORAGE, data.updated_at);
       setLastPushAt(data.updated_at);
       setState({ kind: 'ok', what: 'push', bytes: data.blob_bytes, updated_at: data.updated_at });
     } catch (e: unknown) {

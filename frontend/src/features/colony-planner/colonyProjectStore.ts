@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { localStateStorage } from '@/lib/browserStorage';
 import type { SimulateBuildPlacement } from '@/types/api';
 import { normaliseDeclaredRoles, type DeclaredColonyRole } from './colonyRoles';
 import type {
@@ -149,7 +150,7 @@ export const useColonyProjectStore = create<ColonyProjectState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => localStateStorage),
       skipHydration: SKIP_PERSIST_HYDRATION,
       version: 3,
       migrate: (persistedState) => ({

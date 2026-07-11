@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { readJsonStorage, writeJsonStorage } from '@/lib/browserStorage';
 
 /**
  * FC Planner = Fleet Carrier route planning.
@@ -59,22 +60,15 @@ const STORAGE_KEY = 'ed_fc_v2';
 interface PersistedShape { waypoints: FcWaypoint[]; config: FcConfig }
 
 function readStorage(): PersistedShape {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { waypoints: [], config: DEFAULT_FC_CONFIG };
-    const parsed = JSON.parse(raw) as Partial<PersistedShape>;
-    return {
-      waypoints: Array.isArray(parsed.waypoints) ? parsed.waypoints : [],
-      config:    { ...DEFAULT_FC_CONFIG, ...(parsed.config ?? {}) },
-    };
-  } catch {
-    return { waypoints: [], config: DEFAULT_FC_CONFIG };
-  }
+  const parsed = readJsonStorage<Partial<PersistedShape>>(STORAGE_KEY, {});
+  return {
+    waypoints: Array.isArray(parsed.waypoints) ? parsed.waypoints : [],
+    config: { ...DEFAULT_FC_CONFIG, ...(parsed.config ?? {}) },
+  };
 }
 
 function writeStorage(state: PersistedShape): void {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  catch { /* quota / private mode */ }
+  writeJsonStorage(STORAGE_KEY, state);
 }
 
 function uid(): string {

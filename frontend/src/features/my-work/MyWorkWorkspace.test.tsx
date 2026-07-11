@@ -7,12 +7,23 @@ import { useMyWorkStore } from './myWorkStore';
 import type { UseWatchlist } from '@/features/watchlist/useWatchlist';
 import type { UsePinned } from '@/features/pinned/usePinned';
 import { useJournalTelemetrySummary } from './useJournalTelemetrySummary';
+import type { JournalTelemetrySummaryResponse } from '@/types/api';
 
 vi.mock('./useJournalTelemetrySummary', () => ({
   useJournalTelemetrySummary: vi.fn(),
 }));
 
 const mockUseJournalTelemetrySummary = vi.mocked(useJournalTelemetrySummary);
+
+function makeJournalTelemetryQueryResult(
+  data?: JournalTelemetrySummaryResponse,
+): ReturnType<typeof useJournalTelemetrySummary> {
+  return {
+    data,
+    isLoading: false,
+    error: null,
+  } as unknown as ReturnType<typeof useJournalTelemetrySummary>;
+}
 
 function makeWatchlist(overrides: Partial<UseWatchlist> = {}): UseWatchlist {
   return {
@@ -70,11 +81,7 @@ afterEach(() => {
 
 describe('MyWorkWorkspace', () => {
   it('shows a telemetry section tab alongside saved systems, plans, and colonies', () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -89,11 +96,7 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('keeps the local My Work header concise with section tabs intact', () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -114,8 +117,7 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Telemetry');
   });
   it('merges existing Watchlist, Pins, and local ready-to-plan labels into Saved Systems', async () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: {
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult({
         sync_key: 'sync-key-1234567890',
         runs_count: 1,
         last_imported_at: '2026-07-11T11:00:00.000Z',
@@ -133,10 +135,7 @@ describe('MyWorkWorkspace', () => {
           event_count: 3,
           event_types: ['Docked', 'Scan'],
         }],
-      },
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+      }));
 
     const watchlist = makeWatchlist({
       entries: [{
@@ -199,11 +198,7 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('removes saved systems safely across Watchlist, Pins, and local saved labels', async () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     const watchlistRemove = vi.fn().mockResolvedValue(undefined);
     const pinnedRemove = vi.fn();
@@ -267,11 +262,7 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('groups plans by system, supports rename, duplication, status changes, and continue-plan routing', async () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     const onOpenPlanner = vi.fn();
     let projectB: ColonyProject | undefined;
@@ -342,11 +333,7 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('shows established plans in My Colonies and updates safely when status changes', async () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     let project: ColonyProject | undefined;
     runStoreUpdate(() => {
@@ -388,11 +375,7 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('prefers the most recently updated active plan for continuation and falls back to a recent saved system', () => {
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
 
     let activePlan: ColonyProject | undefined;
     runStoreUpdate(() => {
@@ -464,8 +447,7 @@ describe('MyWorkWorkspace', () => {
 
   it('renders a telemetry section with recent runs and observed systems', () => {
     const onOpenDetail = vi.fn();
-    mockUseJournalTelemetrySummary.mockReturnValue({
-      data: {
+    mockUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult({
         sync_key: 'sync-key-1234567890',
         runs_count: 2,
         last_imported_at: '2026-07-11T12:00:00.000Z',
@@ -491,10 +473,7 @@ describe('MyWorkWorkspace', () => {
           event_count: 3,
           event_types: ['Docked', 'Scan'],
         }],
-      },
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+      }));
 
     renderWorkspace(
       <MyWorkWorkspace

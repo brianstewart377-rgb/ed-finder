@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { localStateStorage } from '@/lib/browserStorage';
 
 export type SavedSystemLabel = 'considering' | 'favourite' | 'ready_to_plan';
 
@@ -98,7 +99,7 @@ export const useMyWorkStore = create<MyWorkState>()(
     }),
     {
       name: STORAGE_KEY,
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => localStateStorage),
       skipHydration: SKIP_PERSIST_HYDRATION,
       version: 1,
       migrate: (persistedState) => ({

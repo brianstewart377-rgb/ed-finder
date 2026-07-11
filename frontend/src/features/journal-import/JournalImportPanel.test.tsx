@@ -5,6 +5,7 @@ import { importJournal } from '@/lib/api';
 import { useJournalTelemetrySummary } from '@/features/my-work/useJournalTelemetrySummary';
 import { JournalImportPanel } from './JournalImportPanel';
 import { parseJournalFiles } from './parseJournalFiles';
+import type { JournalTelemetrySummaryResponse } from '@/types/api';
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
@@ -30,6 +31,16 @@ const mockedImportJournal = vi.mocked(importJournal);
 const mockedParseJournalFiles = vi.mocked(parseJournalFiles);
 const mockedUseJournalTelemetrySummary = vi.mocked(useJournalTelemetrySummary);
 
+function makeJournalTelemetryQueryResult(
+  data?: JournalTelemetrySummaryResponse,
+): ReturnType<typeof useJournalTelemetrySummary> {
+  return {
+    data,
+    isLoading: false,
+    error: null,
+  } as unknown as ReturnType<typeof useJournalTelemetrySummary>;
+}
+
 function renderPanel() {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -52,11 +63,7 @@ describe('JournalImportPanel', () => {
   });
 
   it('parses selected files and shows preview details', async () => {
-    mockedUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockedUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
     mockedParseJournalFiles.mockResolvedValue({
       client_manifest: {
         parser_version: 'journal-import-worker-v1',
@@ -112,11 +119,7 @@ describe('JournalImportPanel', () => {
   });
 
   it('submits parsed observations and shows a receipt', async () => {
-    mockedUseJournalTelemetrySummary.mockReturnValue({
-      data: null,
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    mockedUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult());
     mockedParseJournalFiles.mockResolvedValue({
       client_manifest: {
         parser_version: 'journal-import-worker-v1',
@@ -183,8 +186,7 @@ describe('JournalImportPanel', () => {
   });
 
   it('shows a personal telemetry snapshot when sync-key telemetry already exists', () => {
-    mockedUseJournalTelemetrySummary.mockReturnValue({
-      data: {
+    mockedUseJournalTelemetrySummary.mockReturnValue(makeJournalTelemetryQueryResult({
         sync_key: 'sync-key-1234567890',
         runs_count: 2,
         last_imported_at: '2026-07-11T12:00:00.000Z',
@@ -196,10 +198,7 @@ describe('JournalImportPanel', () => {
         event_counts: { Scan: 4, Docked: 1 },
         recent_runs: [],
         recent_systems: [],
-      },
-      isLoading: false,
-      error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+      }));
 
     renderPanel();
 

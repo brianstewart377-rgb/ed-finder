@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { readStorageItem, writeStorageItem } from '@/lib/browserStorage';
 
 /**
  * UI density toggle. Persists across reloads in localStorage and applies
@@ -17,8 +18,7 @@ const STORAGE_KEY = 'ed_density_v1';
 const ORDER: Density[] = ['compact', 'comfortable', 'spacious'];
 
 function readInitial(): Density {
-  if (typeof window === 'undefined') return 'comfortable';
-  const raw = window.localStorage.getItem(STORAGE_KEY);
+  const raw = readStorageItem(STORAGE_KEY);
   return raw === 'compact' || raw === 'spacious' ? raw : 'comfortable';
 }
 
@@ -34,7 +34,7 @@ export function useDensity() {
 
   useEffect(() => {
     applyToDom(density);
-    try { window.localStorage.setItem(STORAGE_KEY, density); } catch { /* quota / private mode */ }
+    writeStorageItem(STORAGE_KEY, density);
   }, [density]);
 
   const setDensity = useCallback((d: Density) => setDensityState(d), []);

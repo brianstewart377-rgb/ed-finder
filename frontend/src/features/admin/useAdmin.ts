@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { readSessionStorageItem, removeSessionStorageItem, writeSessionStorageItem } from '@/lib/browserStorage';
 import type {
   AppStatus,
   CacheStats,
@@ -75,7 +76,7 @@ export interface UseAdmin {
 
 export function useAdmin(): UseAdmin {
   const [token, setTokenState] = useState<string>(
-    () => sessionStorage.getItem(TOKEN_KEY) ?? ''
+    () => readSessionStorageItem(TOKEN_KEY) ?? '',
   );
   const [status,      setStatus]      = useState<AppStatus | null>(null);
   const [cache,       setCache]       = useState<CacheStats | null>(null);
@@ -105,8 +106,8 @@ export function useAdmin(): UseAdmin {
 
   const setToken = useCallback((t: string) => {
     setTokenState(t);
-    if (t) sessionStorage.setItem(TOKEN_KEY, t);
-    else   sessionStorage.removeItem(TOKEN_KEY);
+    if (t) writeSessionStorageItem(TOKEN_KEY, t);
+    else removeSessionStorageItem(TOKEN_KEY);
   }, []);
 
   const forgetToken = useCallback(() => setToken(''), [setToken]);

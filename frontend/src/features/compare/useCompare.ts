@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SystemResult } from '@/types/api';
 import { formatArchetypeLabel, getDevelopmentScore } from '@/lib/archetypes';
+import { readJsonStorage, writeJsonStorage } from '@/lib/browserStorage';
 import { formatPopulationForSystem, systemStatusLabel } from '@/lib/format';
 
 /**
@@ -18,20 +19,12 @@ export const COMPARE_MAX = 6;
 const STORAGE_KEY = 'ed_compare_v2';
 
 function readStorage(): SystemResult[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as SystemResult[]) : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonStorage<unknown>(STORAGE_KEY, []);
+  return Array.isArray(parsed) ? (parsed as SystemResult[]) : [];
 }
 
 function writeStorage(entries: SystemResult[]): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  } catch { /* quota / private-mode — degrade silently */ }
+  writeJsonStorage(STORAGE_KEY, entries);
 }
 
 export interface UseCompare {

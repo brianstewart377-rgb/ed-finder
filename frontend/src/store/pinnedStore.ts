@@ -15,6 +15,7 @@
  */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { readJsonStorage, readStorageItem, removeStorageItem, writeJsonStorage } from '@/lib/browserStorage';
 
 export interface PinnedEntry {
   id64:          number;
@@ -48,14 +49,8 @@ interface PinnedState {
 const STORAGE_KEY = 'ed_pinned';
 
 function readLegacyEntries(): PinnedEntry[] {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as PinnedEntry[]) : [];
-  } catch {
-    return [];
-  }
+  const parsed = readJsonStorage<unknown>(STORAGE_KEY, []);
+  return Array.isArray(parsed) ? (parsed as PinnedEntry[]) : [];
 }
 
 /**
@@ -68,7 +63,7 @@ const legacyStorage = {
   getItem: (name: string) => {
     if (name !== STORAGE_KEY) return null;
     const entries = readLegacyEntries();
-    if (entries.length === 0 && !localStorage.getItem(STORAGE_KEY)) return null;
+    if (entries.length === 0 && !readStorageItem(STORAGE_KEY)) return null;
     // Re-wrap the legacy bare array into Zustand's expected envelope.
     return JSON.stringify({ state: { entries }, version: 0 });
   },
@@ -77,13 +72,13 @@ const legacyStorage = {
     try {
       const parsed = JSON.parse(value);
       const entries = parsed?.state?.entries ?? [];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+      writeJsonStorage(STORAGE_KEY, entries);
     } catch {
       /* ignore quota / private-mode errors — same posture as legacy */
     }
   },
   removeItem: (name: string) => {
-    if (name === STORAGE_KEY) localStorage.removeItem(STORAGE_KEY);
+    if (name === STORAGE_KEY) removeStorageItem(STORAGE_KEY);
   },
 };
 

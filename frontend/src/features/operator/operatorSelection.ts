@@ -1,24 +1,16 @@
+import { readSessionStorageItem, removeSessionStorageItem, writeSessionStorageItem } from '@/lib/browserStorage';
+
 const OPERATOR_SELECTED_SOURCE_RUN_KEY = 'ed_operator_selected_source_run';
 
 export function readSelectedOperatorSourceRun(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const value = window.sessionStorage.getItem(OPERATOR_SELECTED_SOURCE_RUN_KEY)?.trim() ?? '';
-    return value || null;
-  } catch {
-    return null;
-  }
+  const value = readSessionStorageItem(OPERATOR_SELECTED_SOURCE_RUN_KEY)?.trim() ?? '';
+  return value || null;
 }
 
 export function writeSelectedOperatorSourceRun(sourceRunKey: string | null) {
-  if (typeof window === 'undefined') return;
-  try {
-    if (!sourceRunKey?.trim()) {
-      window.sessionStorage.removeItem(OPERATOR_SELECTED_SOURCE_RUN_KEY);
-      return;
-    }
-    window.sessionStorage.setItem(OPERATOR_SELECTED_SOURCE_RUN_KEY, sourceRunKey.trim());
-  } catch {
-    // Best-effort UI handoff only.
+  if (!sourceRunKey?.trim()) {
+    removeSessionStorageItem(OPERATOR_SELECTED_SOURCE_RUN_KEY);
+    return;
   }
+  writeSessionStorageItem(OPERATOR_SELECTED_SOURCE_RUN_KEY, sourceRunKey.trim());
 }

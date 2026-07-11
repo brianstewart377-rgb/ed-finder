@@ -13,6 +13,7 @@
  */
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { localStateStorage } from '@/lib/browserStorage';
 
 const ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -44,6 +45,8 @@ interface SyncKeyState {
   setKey: (key: string) => boolean;
 }
 
+const SKIP_PERSIST_HYDRATION = import.meta.env.MODE === 'test';
+
 export const useSyncKeyStore = create<SyncKeyState>()(
   persist(
     (set) => ({
@@ -58,7 +61,12 @@ export const useSyncKeyStore = create<SyncKeyState>()(
     }),
     {
       name:    'ed_sync_key',
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => localStateStorage),
+      skipHydration: SKIP_PERSIST_HYDRATION,
     },
   ),
 );
+
+export function rehydrateSyncKeyStore(): Promise<void> {
+  return Promise.resolve(useSyncKeyStore.persist.rehydrate());
+}
