@@ -5,12 +5,21 @@ import logging
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
-from deps import get_pool
-from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
-from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
-from optimiser.candidate_generator import generate_candidates
-from optimiser.models import CandidateGenerationRequest, candidate_result_to_dict, ranking_result_to_dict
-from optimiser.ranker import rank_candidates
+from edfinder_api.deps import get_pool
+from edfinder_api.domain.facilities import (
+    FacilityTemplate,
+    get_catalogue,
+    load_bundled_catalogue,
+    load_catalogue_from_rows,
+)
+from edfinder_api.models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
+from edfinder_api.optimiser.candidate_generator import generate_candidates
+from edfinder_api.optimiser.models import (
+    CandidateGenerationRequest,
+    candidate_result_to_dict,
+    ranking_result_to_dict,
+)
+from edfinder_api.optimiser.ranker import rank_candidates
 
 
 router = APIRouter(tags=['optimiser'])

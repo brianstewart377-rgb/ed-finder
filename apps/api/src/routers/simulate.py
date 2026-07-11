@@ -6,25 +6,34 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
-from deps import get_pool
-from domain.colonisation_rules import get_target_profile, profile_body
-from domain.facilities import FacilityTemplate, get_catalogue, load_bundled_catalogue, load_catalogue_from_rows
-from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, PREDICTION_DISCLAIMER, predict_system_slots
-from mechanics.scoring_rules import REGIONAL_RECOMMENDATION_WEIGHT, SIMULATION_RECOMMENDATION_WEIGHT
-from mechanics.versions import MECHANICS_VERSION
-from models import (
+from edfinder_api.deps import get_pool
+from edfinder_api.domain.colonisation_rules import get_target_profile, profile_body
+from edfinder_api.domain.facilities import (
+    FacilityTemplate,
+    get_catalogue,
+    load_bundled_catalogue,
+    load_catalogue_from_rows,
+)
+from edfinder_api.ingest.slot_prediction import (
+    INSUFFICIENT_DATA_REASON,
+    PREDICTION_DISCLAIMER,
+    predict_system_slots,
+)
+from edfinder_api.mechanics.scoring_rules import REGIONAL_RECOMMENDATION_WEIGHT, SIMULATION_RECOMMENDATION_WEIGHT
+from edfinder_api.mechanics.versions import MECHANICS_VERSION
+from edfinder_api.models import (
     FacilityTemplateResponse,
     RecommendedBuildPlan,
     RecommendedBuildsResponse,
     SimulateBuildRequest,
     SimulateBuildResponse,
 )
-from regional.regional_analysis import response_from_row
-from recommendations.body_selector import select_body_candidates
-from recommendations.build_generator import generate_build_drafts
-from recommendations.plan_ranker import rank_plans
-from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
-from simulation.mechanics_trace import regional_trace_event
+from edfinder_api.regional.regional_analysis import response_from_row
+from edfinder_api.recommendations.body_selector import select_body_candidates
+from edfinder_api.recommendations.build_generator import generate_build_drafts
+from edfinder_api.recommendations.plan_ranker import rank_plans
+from edfinder_api.simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
+from edfinder_api.simulation.mechanics_trace import regional_trace_event
 
 
 router = APIRouter(tags=['simulation-preview'])
