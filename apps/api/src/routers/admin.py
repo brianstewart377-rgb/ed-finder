@@ -12,21 +12,21 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from config  import limiter, settings
-from deps    import get_pool, get_readonly_pool, get_redis, require_admin
-from enrichment_operator_status import (
+from edfinder_api.config import limiter, settings
+from edfinder_api.deps import get_pool, get_readonly_pool, get_redis, require_admin
+from edfinder_api.enrichment_operator_status import (
     read_enrichment_status_snapshot,
     read_warehouse_status_snapshot,
 )
-from helpers import run_cluster_rebuild
-from models  import CacheStatsResponse
+from edfinder_api.helpers import run_cluster_rebuild
+from edfinder_api.models import CacheStatsResponse
 from shared_contracts.data_invariant_contracts import (
     ADMIN_DATA_INVARIANT_CHECK_KEYS as _ADMIN_DATA_INVARIANT_CHECK_KEYS,
     COLONISATION_STATUS_AGE_BUCKETS_SQL,
     SHARED_DATA_INVARIANT_SCALAR_CHECKS_BY_KEY,
     normalise_colonisation_status_age_buckets,
 )
-from state   import active_jobs, active_jobs_lock, metrics
+from edfinder_api.state import active_jobs, active_jobs_lock, metrics
 
 router = APIRouter(tags=['admin'])
 
