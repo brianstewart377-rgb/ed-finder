@@ -29,7 +29,7 @@ def _normalise_economy_name(v: Any) -> Any:
     if s.lower() in ('any', 'unknown'):
         return 'any'
     try:
-        from search_economies import economy_enum_value  # type: ignore
+        from edfinder_api.search_economies import economy_enum_value  # type: ignore
     except ImportError:
         return s
     enum_val = economy_enum_value(s)

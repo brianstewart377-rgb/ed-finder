@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
-from station_body_resolver_utils import (
+from edfinder_api.station_body_resolver_utils import (
     DISTANCE_MATCH_TOLERANCE_LS,
     LANE_NON_COLONY_TYPES,
     LANE_ORBITAL_TYPES,
