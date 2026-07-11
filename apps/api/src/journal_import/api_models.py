@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -58,7 +59,7 @@ class JournalObservationInput(BaseModel):
     observation_key: str = Field(min_length=16, max_length=128)
     source_file: str = Field(min_length=1, max_length=255)
     event_type: str = Field(min_length=1, max_length=64)
-    observed_at: str | None = None
+    observed_at: datetime | None = None
     system_id64: int = Field(gt=0)
     system_name: str | None = Field(default=None, max_length=128)
     subject_type: Literal['system', 'body']
@@ -79,6 +80,22 @@ class JournalObservationInput(BaseModel):
         if stripped not in _ALLOWED_EVENT_TYPES:
             raise ValueError(f'event_type must be one of {sorted(_ALLOWED_EVENT_TYPES)}')
         return stripped
+
+    @field_validator('observed_at', mode='before')
+    @classmethod
+    def validate_observed_at(cls, value: object) -> datetime | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            value = datetime.fromisoformat(stripped.replace('Z', '+00:00'))
+        if not isinstance(value, datetime):
+            raise ValueError('observed_at must be an ISO-8601 timestamp')
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
     @field_validator('payload', 'privacy_boundary')
     @classmethod
@@ -128,3 +145,67 @@ class JournalImportReceipt(BaseModel):
     finished_at: str | None = None
     files: list[JournalImportFileRef] = Field(default_factory=list)
     summary: JournalImportSummary
+
+
+class JournalPromotionSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    staged_rows_seen: int
+    eligible_rows: int
+    skipped_rows: int
+    facts_promoted: int
+    ring_rows_promoted: int
+    ring_rows_unresolved: int
+    dirty_systems_marked: int
+    canonical_evidence_promoted: int = 0
+    canonical_evidence_deduped: int = 0
+    event_counts: dict[str, int] = Field(default_factory=dict)
+    resolution_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class JournalPromotionReceipt(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    run_key: str
+    status: str
+    promoted_at: str | None = None
+    duration_ms: int = 0
+    summary: JournalPromotionSummary
+
+
+class JournalTelemetryRecentRun(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    run_key: str
+    status: str
+    started_at: str | None = None
+    finished_at: str | None = None
+    observations_staged: int = 0
+    duplicates_skipped: int = 0
+    event_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class JournalTelemetryRecentSystem(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int = Field(gt=0)
+    system_name: str
+    last_observed_at: str | None = None
+    event_count: int = 0
+    event_types: list[str] = Field(default_factory=list)
+
+
+class JournalTelemetrySummaryResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sync_key: str = Field(min_length=16, max_length=128)
+    runs_count: int = 0
+    last_imported_at: str | None = None
+    observations_staged: int = 0
+    duplicates_skipped: int = 0
+    systems_observed: int = 0
+    body_observation_count: int = 0
+    docked_observation_count: int = 0
+    event_counts: dict[str, int] = Field(default_factory=dict)
+    recent_runs: list[JournalTelemetryRecentRun] = Field(default_factory=list)
+    recent_systems: list[JournalTelemetryRecentSystem] = Field(default_factory=list)
