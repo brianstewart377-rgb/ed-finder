@@ -49,6 +49,7 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/journal_import/store.py',
         'apps/api/src/ingest/eddn_client.py',
         'apps/api/src/ingest/journal_normaliser.py',
+        'apps/api/src/deps.py',
         'apps/api/src/models.py',
         'apps/api/src/models_economy.py',
         'apps/api/src/optimiser/__init__.py',
@@ -64,6 +65,7 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/optimiser/ranker.py',
         'apps/api/src/provenance_cockpit.py',
         'apps/api/src/regional/regional_analysis.py',
+        'apps/api/src/review_support_routes.py',
         'apps/api/src/recommendations/body_selector.py',
         'apps/api/src/recommendations/build_generator.py',
         'apps/api/src/recommendations/plan_ranker.py',
@@ -82,6 +84,10 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/review_provenance_cockpit.py',
         'apps/api/src/review_warehouse_planner_evidence.py',
         'apps/api/src/review_contract_store.py',
+        'apps/api/src/routers/archetypes.py',
+        'apps/api/src/routers/colony_planner.py',
+        'apps/api/src/routers/evidence.py',
+        'apps/api/src/routers/observations.py',
     }
 
     for path in api_src.rglob('*.py'):
@@ -111,6 +117,9 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'from provenance_cockpit_models import ',
         'from warehouse_planner_evidence import ',
         'from warehouse_planner_evidence_models import ',
+        'from observations.',
+        'from evidence_store.',
+        'from colony_planner.',
         'from review_contract_store import ',
         'from review_environment_fixtures import ',
         'from review_runtime_guard import ',

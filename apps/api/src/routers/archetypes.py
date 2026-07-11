@@ -33,9 +33,9 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from config import log, limiter
-from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
-from models import (
+from edfinder_api.config import log, limiter
+from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
+from edfinder_api.models import (
     ArchetypeRankingsResponse,
     ArchetypeRerankRequest,
     ArchetypeRerankResponse,
@@ -47,7 +47,7 @@ from models import (
     BuildSimulateResponse,
     SystemArchetypeResponse,
 )
-from state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
+from edfinder_api.state import get_pool_singleton as get_pool, get_redis_singleton as get_redis
 
 router = APIRouter(prefix='/api/archetypes', tags=['archetypes'])
 

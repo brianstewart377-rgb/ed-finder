@@ -5,7 +5,7 @@ import asyncio
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from models import CacheStatsResponse
+from edfinder_api.models import CacheStatsResponse
 
 
 router = APIRouter(tags=['review-support'])
