@@ -17,8 +17,8 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from deps  import get_pool, get_redis
-from state import active_jobs, sse_clients, get_redis_singleton
+from edfinder_api.deps import get_pool, get_redis
+from edfinder_api.state import active_jobs, sse_clients, get_redis_singleton
 
 log = logging.getLogger('ed_finder')
 

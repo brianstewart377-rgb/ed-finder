@@ -6,8 +6,8 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from deps import get_pool, require_admin
-from operator_visibility import (
+from edfinder_api.deps import get_pool, require_admin
+from edfinder_api.operator_visibility import (
     get_legacy_bridge_for_source_run,
     get_operator_safety_gates,
     get_source_run_artifacts,

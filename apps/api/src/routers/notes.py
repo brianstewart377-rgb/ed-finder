@@ -10,9 +10,9 @@ import re
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
-from config import limiter
-from deps   import get_pool
-from models import NoteBody
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool
+from edfinder_api.models import NoteBody
 
 router = APIRouter(tags=['notes'])
 
