@@ -21,12 +21,18 @@ import redis.asyncio as aioredis
 
 # ── Connection singletons, set by the lifespan at startup. ──────────────
 _pool:  Optional[asyncpg.Pool]      = None
+_readonly_pool: Optional[asyncpg.Pool] = None
 _redis: Optional[aioredis.Redis]    = None
 
 
 def set_pool(pool: Optional[asyncpg.Pool]) -> None:
     global _pool
     _pool = pool
+
+
+def set_readonly_pool(pool: Optional[asyncpg.Pool]) -> None:
+    global _readonly_pool
+    _readonly_pool = pool
 
 
 def set_redis(redis: Optional[aioredis.Redis]) -> None:
@@ -36,6 +42,10 @@ def set_redis(redis: Optional[aioredis.Redis]) -> None:
 
 def get_pool_singleton() -> Optional[asyncpg.Pool]:
     return _pool
+
+
+def get_readonly_pool_singleton() -> Optional[asyncpg.Pool]:
+    return _readonly_pool
 
 
 def get_redis_singleton() -> Optional[aioredis.Redis]:

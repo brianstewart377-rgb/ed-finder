@@ -8,6 +8,8 @@ Current focus:
   - coherence of the stored body-data contract on systems rows
   - coherence of trusted body_rings identity/status rows
   - stale clean ratings whose inputs are newer than the stored rating row
+  - evidence-store lifecycle coherence for active/superseded records
+  - colonisation-status freshness distribution for recommendation-critical rows
 
 This script is intentionally safe to run against production read-only access.
 It performs SELECTs only.
@@ -18,9 +20,20 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 import psycopg2
 
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from shared_contracts.data_invariant_contracts import (
+    ADMIN_DATA_INVARIANT_CHECK_KEYS,
+    COLONISATION_STATUS_AGE_BUCKETS_SQL,
+    SHARED_DATA_INVARIANT_SCALAR_CHECKS_BY_KEY,
+    normalise_colonisation_status_age_buckets,
+)
 
 SKIPPED = None
 
@@ -89,20 +102,6 @@ WHERE s.has_body_data = FALSE
   );
 """
 
-PRODUCTION_SAFE_STORED_MISSING_BODY_FLAG_SQL = """
-SELECT COUNT(*)
-FROM systems
-WHERE COALESCE(has_body_data, FALSE) = FALSE
-  AND COALESCE(body_count, 0) > 0;
-"""
-
-STORED_ZERO_BODY_COUNT_SQL = """
-SELECT COUNT(*)
-FROM systems
-WHERE has_body_data = TRUE
-  AND COALESCE(body_count, 0) = 0;
-"""
-
 STORED_BODY_COUNT_MISMATCH_SQL = """
 WITH actual AS (
     SELECT system_id64,
@@ -115,18 +114,6 @@ FROM systems s
 LEFT JOIN actual ON actual.system_id64 = s.id64
 WHERE COALESCE(s.body_count, 0)
       IS DISTINCT FROM COALESCE(actual.actual_body_count, 0);
-"""
-
-DIRTY_TRUTHFUL_NO_BODIES_SQL = """
-SELECT COUNT(*)
-FROM systems s
-WHERE s.rating_dirty = TRUE
-  AND COALESCE(s.has_body_data, FALSE) = FALSE
-  AND NOT EXISTS (
-      SELECT 1
-      FROM bodies b
-      WHERE b.system_id64 = s.id64
-  );
 """
 
 STALE_CLEAN_RATINGS_SQL = """
@@ -157,6 +144,19 @@ WHERE s.has_body_data = TRUE
   ) > COALESCE(r.updated_at, TIMESTAMPTZ 'epoch');
 """
 
+SCRIPT_DATA_INVARIANT_CHECK_KEYS = (
+    'eligible_systems',
+    'eligible_rated',
+    'eligible_unrated',
+    'eligible_wrong_version',
+    'noneligible_with_rating',
+    'noneligible_null',
+    'stored_body_flag_without_rows',
+    *ADMIN_DATA_INVARIANT_CHECK_KEYS,
+    'stored_body_count_mismatch',
+    'stale_clean_ratings',
+)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Check ED-Finder data invariants")
@@ -186,6 +186,14 @@ def parse_args() -> argparse.Namespace:
         help=(
             "Do not fail if non-eligible systems still carry stale ratings or "
             "truthful no-body rows are still dirty during a bounded cleanup window."
+        ),
+    )
+    parser.add_argument(
+        "--allow-stale-colonisation-status",
+        action="store_true",
+        help=(
+            "Do not fail if colonised / being-colonised systems have a >14 day "
+            "status freshness tail."
         ),
     )
     parser.add_argument(
@@ -260,199 +268,22 @@ def main() -> int:
                 noneligible_with_rating = fetch_count(cur, NONELIGIBLE_WITH_RATING_SQL)
                 noneligible_null = fetch_count(cur, NONELIGIBLE_NULL_SQL)
 
+            shared_counts = {
+                key: fetch_count(cur, SHARED_DATA_INVARIANT_SCALAR_CHECKS_BY_KEY[key].sql)
+                for key in ADMIN_DATA_INVARIANT_CHECK_KEYS
+            }
+
             if args.production_safe:
-                stored_zero_body_count = fetch_count(cur, STORED_ZERO_BODY_COUNT_SQL)
-                stored_body_flag_without_rows = stored_zero_body_count
-                stored_missing_body_flag = fetch_count(cur, PRODUCTION_SAFE_STORED_MISSING_BODY_FLAG_SQL)
+                stored_body_flag_without_rows = shared_counts['stored_zero_body_count']
                 stored_body_count_mismatch = SKIPPED
             else:
                 stored_body_flag_without_rows = fetch_count(cur, STORED_BODY_FLAG_WITHOUT_ROWS_SQL)
-                stored_missing_body_flag = fetch_count(cur, STORED_MISSING_BODY_FLAG_SQL)
-                stored_zero_body_count = fetch_count(cur, STORED_ZERO_BODY_COUNT_SQL)
                 stored_body_count_mismatch = fetch_count(cur, STORED_BODY_COUNT_MISMATCH_SQL)
-            dirty_truthful_no_bodies = fetch_count(cur, DIRTY_TRUTHFUL_NO_BODIES_SQL)
             stale_clean_ratings = (
                 SKIPPED if args.production_safe else fetch_count(cur, STALE_CLEAN_RATINGS_SQL)
             )
-
-            cur.execute(
-                """
-                WITH name_matches AS (
-                    SELECT br.id AS ring_id,
-                           COUNT(b.id)::integer AS match_count
-                    FROM body_rings br
-                    LEFT JOIN bodies b
-                      ON b.system_id64 = br.system_id64
-                     AND b.name = br.body_name
-                    GROUP BY br.id
-                ),
-                classified AS (
-                    SELECT br.id,
-                           CASE
-                               WHEN br.source = 'eddn_scan'
-                                    AND same_system_body.id IS NULL
-                                    AND (
-                                        br.source_body_id = 0
-                                        OR br.body_id = 0
-                                        OR br.body_name ILIKE '% belt%'
-                                        OR br.ring_name ILIKE '% belt%'
-                                    )
-                                   THEN 'belt_source_evidence'
-                               WHEN same_system_body.id IS NOT NULL
-                                    AND (
-                                        br.body_name IS NULL
-                                        OR same_system_body.name = br.body_name
-                                    )
-                                   THEN 'local_matched'
-                               WHEN same_system_body.id IS NOT NULL
-                                    AND br.body_name IS DISTINCT FROM same_system_body.name
-                                   THEN 'conflict'
-                               WHEN COALESCE(nm.match_count, 0) > 1
-                                   THEN 'ambiguous_body_identity'
-                               WHEN br.body_id IS NULL OR same_system_body.id IS NULL
-                                   THEN 'unresolved_body_identity'
-                               ELSE 'local_matched'
-                           END AS expected_association_status
-                    FROM body_rings br
-                    LEFT JOIN bodies same_system_body
-                      ON same_system_body.system_id64 = br.system_id64
-                     AND same_system_body.id = br.body_id
-                    LEFT JOIN name_matches nm ON nm.ring_id = br.id
-                ),
-                ranked_local AS (
-                    SELECT br.id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY br.system_id64, br.body_id, br.ring_name, br.source
-                               ORDER BY br.id
-                           ) AS duplicate_rank
-                    FROM body_rings br
-                    JOIN classified c ON c.id = br.id
-                    WHERE br.body_id IS NOT NULL
-                      AND c.expected_association_status = 'local_matched'
-                ),
-                final_status AS (
-                    SELECT br.id,
-                           CASE
-                               WHEN COALESCE(rl.duplicate_rank, 1) > 1 THEN 'conflict'
-                               ELSE c.expected_association_status
-                           END AS expected_association_status
-                    FROM body_rings br
-                    JOIN classified c ON c.id = br.id
-                    LEFT JOIN ranked_local rl ON rl.id = br.id
-                )
-                SELECT COUNT(*)
-                FROM body_rings br
-                JOIN final_status fs ON fs.id = br.id
-                WHERE br.association_status IS DISTINCT FROM fs.expected_association_status;
-                """
-            )
-            ring_association_status_drift = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM body_rings br
-                LEFT JOIN bodies b
-                  ON b.system_id64 = br.system_id64
-                 AND b.id = br.body_id
-                WHERE br.association_status = 'local_matched'
-                  AND (br.body_id IS NULL OR b.id IS NULL);
-                """
-            )
-            trusted_ring_rows_without_local_body = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM body_rings br
-                JOIN bodies b
-                  ON b.system_id64 = br.system_id64
-                 AND b.id = br.body_id
-                WHERE br.association_status = 'local_matched'
-                  AND br.body_name IS NOT NULL
-                  AND br.body_name IS DISTINCT FROM b.name;
-                """
-            )
-            trusted_ring_body_name_mismatch = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                WITH ranked AS (
-                    SELECT id,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY system_id64, body_id, ring_name, source
-                               ORDER BY id
-                           ) AS duplicate_rank
-                    FROM body_rings
-                    WHERE body_id IS NOT NULL
-                      AND association_status = 'local_matched'
-                )
-                SELECT COUNT(*)
-                FROM ranked
-                WHERE duplicate_rank > 1;
-                """
-            )
-            duplicate_trusted_ring_rows = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links
-                WHERE association_status = 'confirmed'
-                  AND body_id IS NULL;
-                """
-            )
-            confirmed_station_links_without_body = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links l
-                JOIN bodies b ON b.id = l.body_id
-                WHERE l.system_id64 IS DISTINCT FROM b.system_id64;
-                """
-            )
-            station_link_body_system_mismatch = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links l
-                JOIN stations st ON st.id = l.station_id
-                WHERE l.system_id64 IS DISTINCT FROM st.system_id64;
-                """
-            )
-            station_link_station_system_mismatch = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links l
-                JOIN bodies b ON b.id = l.body_id
-                WHERE COALESCE(l.body_name, '') IS DISTINCT FROM COALESCE(b.name, '');
-                """
-            )
-            station_link_body_name_mismatch = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links
-                WHERE association_status = 'confirmed'
-                  AND lane NOT IN ('orbital', 'surface');
-                """
-            )
-            confirmed_station_links_unknown_lane = cur.fetchone()[0]
-
-            cur.execute(
-                """
-                SELECT COUNT(*)
-                FROM station_body_links
-                WHERE association_status = 'confirmed'
-                  AND association_confidence IS DISTINCT FROM 'exact';
-                """
-            )
-            confirmed_station_links_nonexact = cur.fetchone()[0]
+            cur.execute(COLONISATION_STATUS_AGE_BUCKETS_SQL)
+            colonisation_status_age_buckets = normalise_colonisation_status_age_buckets(cur.fetchone())
 
         print("ED-Finder data invariants")
         print(f"  Query profile             : {'production-safe' if args.production_safe else 'full'}")
@@ -463,21 +294,32 @@ def main() -> int:
         print(f"  Non-eligible with rating  : {fmt_metric(noneligible_with_rating)}")
         print(f"  Non-eligible NULL rows    : {fmt_metric(noneligible_null)}")
         print(f"  Stored body flag drift    : {fmt_num(stored_body_flag_without_rows)}")
-        print(f"  Missing body flag rows    : {fmt_num(stored_missing_body_flag)}")
-        print(f"  Zero body_count drift     : {fmt_num(stored_zero_body_count)}")
+        print(f"  Missing body flag rows    : {fmt_num(shared_counts['stored_missing_body_flag'])}")
+        print(f"  Zero body_count drift     : {fmt_num(shared_counts['stored_zero_body_count'])}")
         print(f"  Body count mismatches     : {fmt_metric(stored_body_count_mismatch)}")
-        print(f"  Dirty truthful no-bodies  : {fmt_num(dirty_truthful_no_bodies)}")
+        print(f"  Dirty truthful no-bodies  : {fmt_num(shared_counts['dirty_truthful_no_bodies'])}")
         print(f"  Stale clean ratings       : {fmt_metric(stale_clean_ratings)}")
-        print(f"  Ring status drift         : {fmt_num(ring_association_status_drift)}")
-        print(f"  Trusted rings no body     : {fmt_num(trusted_ring_rows_without_local_body)}")
-        print(f"  Trusted ring name drift   : {fmt_num(trusted_ring_body_name_mismatch)}")
-        print(f"  Duplicate trusted rings   : {fmt_num(duplicate_trusted_ring_rows)}")
-        print(f"  Confirmed links no body   : {fmt_num(confirmed_station_links_without_body)}")
-        print(f"  Link/body system drift    : {fmt_num(station_link_body_system_mismatch)}")
-        print(f"  Link/station system drift : {fmt_num(station_link_station_system_mismatch)}")
-        print(f"  Link body_name drift      : {fmt_num(station_link_body_name_mismatch)}")
-        print(f"  Confirmed unknown lane    : {fmt_num(confirmed_station_links_unknown_lane)}")
-        print(f"  Confirmed non-exact       : {fmt_num(confirmed_station_links_nonexact)}")
+        print(f"  Evidence active dupes     : {fmt_num(shared_counts['evidence_active_duplicate_subjects'])}")
+        print(f"  Evidence superseded drift : {fmt_num(shared_counts['evidence_superseded_freshness_drift'])}")
+        print(f"  Evidence active/freshness : {fmt_num(shared_counts['evidence_active_superseded_freshness'])}")
+        print(
+            "  Colonisation freshness    : "
+            f"tracked={fmt_num(colonisation_status_age_buckets['tracked_total'])} "
+            f"0-3d={fmt_num(colonisation_status_age_buckets['age_0_3d'])} "
+            f"3-7d={fmt_num(colonisation_status_age_buckets['age_3_7d'])} "
+            f"7-14d={fmt_num(colonisation_status_age_buckets['age_7_14d'])} "
+            f">14d={fmt_num(colonisation_status_age_buckets['age_over_14d'])}"
+        )
+        print(f"  Ring status drift         : {fmt_num(shared_counts['ring_association_status_drift'])}")
+        print(f"  Trusted rings no body     : {fmt_num(shared_counts['trusted_ring_rows_without_local_body'])}")
+        print(f"  Trusted ring name drift   : {fmt_num(shared_counts['trusted_ring_body_name_mismatch'])}")
+        print(f"  Duplicate trusted rings   : {fmt_num(shared_counts['duplicate_trusted_ring_rows'])}")
+        print(f"  Confirmed links no body   : {fmt_num(shared_counts['confirmed_station_links_without_body'])}")
+        print(f"  Link/body system drift    : {fmt_num(shared_counts['station_link_body_system_mismatch'])}")
+        print(f"  Link/station system drift : {fmt_num(shared_counts['station_link_station_system_mismatch'])}")
+        print(f"  Link body_name drift      : {fmt_num(shared_counts['station_link_body_name_mismatch'])}")
+        print(f"  Confirmed unknown lane    : {fmt_num(shared_counts['confirmed_station_links_unknown_lane'])}")
+        print(f"  Confirmed non-exact       : {fmt_num(shared_counts['confirmed_station_links_nonexact'])}")
         print("  Eligible version split    :")
         if eligible_versions:
             for version, row_count in eligible_versions:
@@ -500,8 +342,8 @@ def main() -> int:
             failed = True
         if (
             stored_body_flag_without_rows
-            or stored_missing_body_flag
-            or stored_zero_body_count
+            or shared_counts['stored_missing_body_flag']
+            or shared_counts['stored_zero_body_count']
             or (stored_body_count_mismatch or 0)
         ):
             print(
@@ -510,17 +352,17 @@ def main() -> int:
             )
             failed = True
         if (
-            ring_association_status_drift
-            or trusted_ring_rows_without_local_body
-            or trusted_ring_body_name_mismatch
-            or duplicate_trusted_ring_rows
+            shared_counts['ring_association_status_drift']
+            or shared_counts['trusted_ring_rows_without_local_body']
+            or shared_counts['trusted_ring_body_name_mismatch']
+            or shared_counts['duplicate_trusted_ring_rows']
         ):
             print(
                 "FAIL: stored body_rings rows drift from canonical ring identity truth",
                 file=sys.stderr,
             )
             failed = True
-        if ((noneligible_with_rating or 0) or dirty_truthful_no_bodies) and not args.allow_stale_noneligible:
+        if ((noneligible_with_rating or 0) or shared_counts['dirty_truthful_no_bodies']) and not args.allow_stale_noneligible:
             print(
                 "FAIL: stale non-eligible systems still carry ratings and/or dirty flags",
                 file=sys.stderr,
@@ -533,12 +375,31 @@ def main() -> int:
             )
             failed = True
         if (
-            confirmed_station_links_without_body
-            or station_link_body_system_mismatch
-            or station_link_station_system_mismatch
-            or station_link_body_name_mismatch
-            or confirmed_station_links_unknown_lane
-            or confirmed_station_links_nonexact
+            shared_counts['evidence_active_duplicate_subjects']
+            or shared_counts['evidence_superseded_freshness_drift']
+            or shared_counts['evidence_active_superseded_freshness']
+        ):
+            print(
+                "FAIL: evidence-store lifecycle rows drift from the active/superseded contract",
+                file=sys.stderr,
+            )
+            failed = True
+        if (
+            colonisation_status_age_buckets['age_over_14d'] > 0
+            and not args.allow_stale_colonisation_status
+        ):
+            print(
+                "FAIL: colonisation-status freshness has drifted beyond the 14-day tail threshold",
+                file=sys.stderr,
+            )
+            failed = True
+        if (
+            shared_counts['confirmed_station_links_without_body']
+            or shared_counts['station_link_body_system_mismatch']
+            or shared_counts['station_link_station_system_mismatch']
+            or shared_counts['station_link_body_name_mismatch']
+            or shared_counts['confirmed_station_links_unknown_lane']
+            or shared_counts['confirmed_station_links_nonexact']
         ):
             print(
                 "FAIL: stored station_body_links rows drift from canonical station/body truth",

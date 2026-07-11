@@ -9,14 +9,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg62-turbo zlib1g libfreetype6 fonts-dejavu-core && \
     rm -rf /var/lib/apt/lists/*
 
-# Build context = apps/api/, so requirements.txt sits at context root.
-COPY requirements.txt .
+# Build context = repo root so the image can vendor shared_contracts.
+COPY apps/api/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the API source tree as-is. The committed `edfinder_api` package
 # namespace gives us a stable runtime entrypoint while the remaining
 # legacy flat imports are migrated incrementally.
-COPY src/ ./
+COPY apps/api/src/ ./
+COPY shared_contracts/ ./shared_contracts/
 
 EXPOSE 8000
 # workers=1 — backend keeps per-process state (SSE clients, active jobs,

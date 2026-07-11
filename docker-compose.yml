@@ -147,8 +147,8 @@ services:
   # ── FastAPI backend ────────────────────────────────────────────────────────
   api:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
     container_name: ed-api
     restart: unless-stopped
     logging: *default-logging
@@ -179,6 +179,7 @@ services:
       # api(20) + eddn(5) + importer(short-lived) + monitoring leave
       # ~150 connections of headroom.
       DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DATABASE_READONLY_URL: ${DATABASE_READONLY_URL:-}
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       TTL_SEARCH:           3600
@@ -272,6 +273,8 @@ services:
       LOG_FILE:      /data/logs/maintenance.log
       BACKUP_DIR:    /data/backups/postgres
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      EVIDENCE_RECORD_RETENTION_DAYS: ${EVIDENCE_RECORD_RETENTION_DAYS:-90}
+      ADMIN_JOB_RUN_RETENTION_DAYS: ${ADMIN_JOB_RUN_RETENTION_DAYS:-60}
       BACKUP_LOG_FILE: /data/logs/backup.log
       TZ:            UTC
     volumes:
@@ -325,8 +328,8 @@ services:
   # Always use docker compose --profile import run --rm importer <args>
   importer:
     build:
-      context: ./apps/importer
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/importer/Dockerfile
     container_name: ed-importer
     profiles: ["import"]
     logging: *default-logging

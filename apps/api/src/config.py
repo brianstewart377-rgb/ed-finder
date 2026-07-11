@@ -25,6 +25,7 @@ from slowapi.util import get_remote_address
 
 class Settings(BaseSettings):
     database_url:       str  = 'postgresql://postgres:password@localhost:5432/postgres'
+    database_readonly_url: Optional[str] = None
     redis_url:          str  = 'redis://redis:6379/0'
     log_level:          str  = 'INFO'
     redis_max_connections: int = 20
@@ -59,6 +60,18 @@ class Settings(BaseSettings):
     expose_error_detail: bool = False
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
+
+    @field_validator(
+        'database_readonly_url',
+        'enrichment_status_json_path',
+        'enrichment_warehouse_status_json_path',
+        mode='before',
+    )
+    @classmethod
+    def _blank_optional_to_none(cls, v: object) -> object:
+        if isinstance(v, str) and not v.strip():
+            return None
+        return v
 
     @field_validator('cors_origins')
     @classmethod

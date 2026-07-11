@@ -1,0 +1,72 @@
+name: Container image parity
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/container-image-parity.yml'
+      - 'apps/api/Dockerfile'
+      - 'apps/eddn/Dockerfile'
+      - 'apps/importer/Dockerfile'
+      - 'apps/api/src/**'
+      - 'apps/eddn/src/**'
+      - 'apps/importer/src/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.review.yml'
+      - 'env.example'
+      - 'shared_contracts/**'
+      - 'tests/test_container_image_parity.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/container-image-parity.yml'
+      - 'apps/api/Dockerfile'
+      - 'apps/eddn/Dockerfile'
+      - 'apps/importer/Dockerfile'
+      - 'apps/api/src/**'
+      - 'apps/eddn/src/**'
+      - 'apps/importer/src/**'
+      - 'docker-compose.yml'
+      - 'docker-compose.review.yml'
+      - 'env.example'
+      - 'shared_contracts/**'
+      - 'tests/test_container_image_parity.py'
+  schedule:
+    - cron: '0 7 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: container-image-parity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  parity:
+    name: Built image parity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: tests/requirements-ci.txt
+
+      - name: Install parity test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements-ci.txt
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Run static container parity contracts
+        run: python -m pytest tests/test_container_image_parity.py -q
+
+      - name: Run built image parity smoke
+        env:
+          EDFINDER_RUN_CONTAINER_PARITY: 'yes'
+        run: |
+          python -m pytest tests/test_container_image_parity.py \
+            -k built_api_eddn_and_importer_images_pass_runtime_import_parity \
+            -q
