@@ -1,9 +1,8 @@
-from __future__ import annotations
-
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from deps import get_pool
+from config import limiter
+from deps import get_pool, require_admin
 from observations import store
 from observations.api_models import (
     ObservedFactCreateRequest,
@@ -30,6 +29,8 @@ from observations.review_models import review_result_to_dict
 
 router = APIRouter(tags=['observations'])
 
+_OPERATOR_MUTATION_LIMIT = '20/minute'
+
 
 async def _load_or_convert_comparison_facts(
     *,
@@ -49,8 +50,14 @@ async def _load_or_convert_comparison_facts(
     return [fact_input.to_persisted() for fact_input in body.observed_facts]
 
 
-@router.post('/api/observations/facts', response_model=ObservedFactResponse)
+@router.post(
+    '/api/observations/facts',
+    response_model=ObservedFactResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def create_observed_fact(
+    request: Request,
     body: ObservedFactCreateRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> ObservedFactResponse:
@@ -116,8 +123,14 @@ async def get_observed_fact(
     return ObservedFactResponse.from_domain(fact)
 
 
-@router.patch('/api/observations/facts/{observation_id}', response_model=ObservedFactResponse)
+@router.patch(
+    '/api/observations/facts/{observation_id}',
+    response_model=ObservedFactResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def update_observed_fact(
+    request: Request,
     observation_id: str,
     body: ObservedFactUpdateRequest,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -128,8 +141,14 @@ async def update_observed_fact(
     return ObservedFactResponse.from_domain(fact)
 
 
-@router.delete('/api/observations/facts/{observation_id}', response_model=ObservedFactDeleteResponse)
+@router.delete(
+    '/api/observations/facts/{observation_id}',
+    response_model=ObservedFactDeleteResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def delete_observed_fact(
+    request: Request,
     observation_id: str,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> ObservedFactDeleteResponse:

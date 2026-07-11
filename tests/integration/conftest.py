@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import os
 import sys
+import importlib
 from pathlib import Path
 from typing import AsyncGenerator
 
@@ -67,6 +68,12 @@ async def app():
 
 @pytest_asyncio.fixture
 async def client(app) -> AsyncGenerator[AsyncClient, None]:
+    for module_name in ('config', 'edfinder_api.config'):
+        try:
+            limiter = importlib.import_module(module_name).limiter
+            limiter._storage.reset()  # pyright: ignore[reportPrivateUsage]
+        except Exception:
+            continue
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url='http://test') as c:
         yield c
@@ -129,5 +136,15 @@ async def clean_db():
         await r.aclose()
     except Exception:
         pass
+
+    # SlowAPI uses in-memory buckets in test/dev config. Reset them between
+    # tests so route-limit coverage stays deterministic instead of depending
+    # on how many requests earlier tests happened to make.
+    for module_name in ('config', 'edfinder_api.config'):
+        try:
+            limiter = importlib.import_module(module_name).limiter
+            limiter._storage.reset()  # pyright: ignore[reportPrivateUsage]
+        except Exception:
+            continue
 
     yield

@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from deps import get_pool
+from config import limiter
+from deps import get_pool, require_admin
 from evidence_store import store
 from evidence_store.api_models import (
+    CanonicalEvidencePromotionRequest,
+    CanonicalEvidencePromotionResponse,
     DerivedFeatureCreateRequest,
     DerivedFeatureListResponse,
     DerivedFeatureResponse,
@@ -25,6 +26,8 @@ from evidence_store.source_catalog import SCHEMA_VERSION as SOURCE_CATALOG_SCHEM
 
 router = APIRouter(tags=['evidence'])
 
+_OPERATOR_MUTATION_LIMIT = '20/minute'
+
 
 @router.get('/api/evidence/sources', response_model=EvidenceSourceCatalogResponse)
 async def evidence_source_catalog() -> EvidenceSourceCatalogResponse:
@@ -34,8 +37,14 @@ async def evidence_source_catalog() -> EvidenceSourceCatalogResponse:
     )
 
 
-@router.post('/api/evidence/records', response_model=EvidenceRecordResponse)
+@router.post(
+    '/api/evidence/records',
+    response_model=EvidenceRecordResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def create_evidence_record(
+    request: Request,
     body: EvidenceRecordCreateRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> EvidenceRecordResponse:
@@ -48,6 +57,7 @@ async def list_evidence_records(
     system_id64: int | None = Query(default=None, gt=0),
     source_name: str | None = None,
     origin: str | None = None,
+    record_status: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     pool: asyncpg.Pool = Depends(get_pool),
@@ -57,6 +67,7 @@ async def list_evidence_records(
         system_id64=system_id64,
         source_name=source_name,
         origin=origin,
+        record_status=record_status,
         limit=limit,
         offset=offset,
     )
@@ -68,8 +79,14 @@ async def list_evidence_records(
     )
 
 
-@router.post('/api/evidence/features', response_model=DerivedFeatureResponse)
+@router.post(
+    '/api/evidence/features',
+    response_model=DerivedFeatureResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def create_derived_feature(
+    request: Request,
     body: DerivedFeatureCreateRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> DerivedFeatureResponse:
@@ -100,8 +117,14 @@ async def list_derived_features(
     )
 
 
-@router.post('/api/evidence/rule-proposals', response_model=RuleProposalResponse)
+@router.post(
+    '/api/evidence/rule-proposals',
+    response_model=RuleProposalResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def create_rule_proposal(
+    request: Request,
     body: RuleProposalCreateRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> RuleProposalResponse:
@@ -134,8 +157,14 @@ async def list_rule_proposals(
     )
 
 
-@router.post('/api/evidence/rule-proposals/{proposal_key}/decisions', response_model=RuleDecisionResponse)
+@router.post(
+    '/api/evidence/rule-proposals/{proposal_key}/decisions',
+    response_model=RuleDecisionResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit(_OPERATOR_MUTATION_LIMIT)
 async def decide_rule_proposal(
+    request: Request,
     proposal_key: str,
     body: RuleDecisionRequest,
     pool: asyncpg.Pool = Depends(get_pool),
@@ -153,3 +182,29 @@ async def evidence_system_summary(
 ) -> EvidenceSystemSummaryResponse:
     summary = await store.build_evidence_system_summary(pool, system_id64)
     return EvidenceSystemSummaryResponse.from_domain(summary)
+
+
+@router.post(
+    '/api/evidence/systems/{system_id64}/promote-canonical',
+    response_model=CanonicalEvidencePromotionResponse,
+    dependencies=[Depends(require_admin)],
+)
+@limiter.limit('10/minute')
+async def promote_system_canonical_evidence(
+    request: Request,
+    system_id64: int,
+    body: CanonicalEvidencePromotionRequest,
+    pool: asyncpg.Pool = Depends(get_pool),
+) -> CanonicalEvidencePromotionResponse:
+    try:
+        records, warnings = await store.promote_system_canonical_evidence(pool, system_id64, body)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+    return CanonicalEvidencePromotionResponse(
+        schema_version='evidence_store_canonical_promotion/v1',
+        system_id64=system_id64,
+        promoted_count=len(records),
+        warnings=warnings,
+        records=[EvidenceRecordResponse.from_domain(record) for record in records],
+    )

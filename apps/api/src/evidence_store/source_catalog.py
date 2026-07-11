@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from typing import Any
 
@@ -7,6 +7,20 @@ SCHEMA_VERSION = 'evidence_sources/v1'
 
 
 _SOURCE_CATALOG: list[dict[str, Any]] = [
+    {
+        'source_name': 'canonical_app_data',
+        'label': 'Canonical App Data',
+        'site_url': None,
+        'implementation_status': 'live',
+        'current_usage': 'Lifecycle-managed evidence promotions derived from already-ingested canonical system, body, station, and ring tables.',
+        'source_category': 'derived_source',
+        'domains': ['systems', 'bodies', 'stations', 'rings'],
+        'recommended_priority': 4,
+        'ingestion_modes': ['canonical_snapshot_promotion'],
+        'repo_surfaces': ['apps/api/src/evidence_store/store.py'],
+        'why_this_matters': 'It turns known canonical coverage into inspectable evidence instead of leaving player trust surfaces at unknown.',
+        'notes': 'Use only for derived evidence promotions from already-trusted canonical tables, not raw external ingestion.',
+    },
     {
         'source_name': 'spansh',
         'label': 'Spansh',

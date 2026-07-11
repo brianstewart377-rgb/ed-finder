@@ -2,14 +2,21 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .models import DerivedFeature, EvidenceRecord, EvidenceSystemSummary, RuleDecision, RuleProposal
+from .models import (
+    DerivedFeature,
+    EvidenceRecord,
+    EvidenceSystemFocusArea,
+    EvidenceSystemSummary,
+    RuleDecision,
+    RuleProposal,
+)
 
 JsonObject = dict[str, Any]
 
 _ALLOWED_ORIGINS = {'manual', 'imported', 'inferred', 'derived', 'test_fixture'}
-_ALLOWED_RECORD_STATUSES = {'active', 'superseded', 'rejected', 'archived'}
+_ALLOWED_RECORD_STATUSES = {'active', 'superseded', 'rejected', 'archived', 'quarantined'}
 _ALLOWED_FRESHNESS = {'current', 'stale', 'superseded', 'expired', 'unknown'}
 _ALLOWED_FEATURE_STATUSES = {'active', 'stale', 'superseded'}
 _ALLOWED_CONFIDENCE = {'low', 'medium', 'high'}
@@ -17,6 +24,7 @@ _ALLOWED_PROPOSAL_STATUSES = {'pending_review', 'approved', 'rejected', 'auto_ap
 _ALLOWED_PRIORITY = {'low', 'medium', 'high', 'critical'}
 _ALLOWED_RISK = {'low', 'medium', 'high'}
 _ALLOWED_DECISIONS = {'approved', 'rejected', 'superseded', 'rolled_back'}
+_ALLOWED_CANONICAL_PROMOTION_TYPES = {'body_completeness', 'station_set', 'colonisation_status', 'ring_composition'}
 
 
 def _strip_optional(value: str | None) -> str | None:
@@ -123,6 +131,14 @@ class EvidenceRecordBase(BaseModel):
     def dedupe_tags(cls, value: list[str]) -> list[str]:
         return _dedupe_text_list(value)
 
+    @model_validator(mode='after')
+    def validate_lifecycle_consistency(self) -> 'EvidenceRecordBase':
+        if self.record_status == 'active' and self.freshness_status == 'superseded':
+            raise ValueError('active evidence records cannot carry freshness_status=superseded')
+        if self.record_status == 'superseded' and self.freshness_status != 'superseded':
+            raise ValueError('superseded evidence records must carry freshness_status=superseded')
+        return self
+
 
 class EvidenceRecordCreateRequest(EvidenceRecordBase):
     pass
@@ -145,6 +161,35 @@ class EvidenceRecordListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CanonicalEvidencePromotionRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    evidence_types: list[str] = Field(default_factory=lambda: ['body_completeness', 'station_set'])
+
+    @field_validator('evidence_types')
+    @classmethod
+    def validate_evidence_types(cls, value: list[str]) -> list[str]:
+        deduped = _dedupe_text_list(value or [])
+        if not deduped:
+            raise ValueError('evidence_types must include at least one canonical evidence type')
+        invalid = [item for item in deduped if item not in _ALLOWED_CANONICAL_PROMOTION_TYPES]
+        if invalid:
+            raise ValueError(
+                f'evidence_types must be drawn from {sorted(_ALLOWED_CANONICAL_PROMOTION_TYPES)}'
+            )
+        return deduped
+
+
+class CanonicalEvidencePromotionResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    schema_version: str
+    system_id64: int
+    promoted_count: int
+    warnings: list[str] = Field(default_factory=list)
+    records: list[EvidenceRecordResponse] = Field(default_factory=list)
 
 
 class DerivedFeatureBase(BaseModel):
@@ -324,6 +369,21 @@ class RuleDecisionResponse(BaseModel):
         return cls.model_validate(decision.to_dict())
 
 
+class EvidenceSystemFocusAreaResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    key: str
+    label: str
+    posture: str
+    summary: str
+    evidence_type: str | None = None
+    evidence_key: str | None = None
+
+    @classmethod
+    def from_domain(cls, focus_area: EvidenceSystemFocusArea) -> 'EvidenceSystemFocusAreaResponse':
+        return cls.model_validate(focus_area.to_dict())
+
+
 class EvidenceSystemSummaryResponse(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -333,6 +393,7 @@ class EvidenceSystemSummaryResponse(BaseModel):
     imported_record_count: int
     derived_feature_count: int
     open_rule_proposal_count: int
+    focus_areas: list[EvidenceSystemFocusAreaResponse]
     records: list[EvidenceRecordResponse]
     derived_features: list[DerivedFeatureResponse]
     open_rule_proposals: list[RuleProposalResponse]
