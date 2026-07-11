@@ -141,7 +141,7 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
 
             # ── Normalise ─────────────────────────────────────────────────
             try:
-                from ingest.journal_normaliser import (
+                from edfinder_api.ingest.journal_normaliser import (
                     build_journal_event_row,
                     event_type_to_normaliser,
                 )

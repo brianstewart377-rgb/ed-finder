@@ -56,7 +56,7 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
-from models_economy import EconomyFilterField, EconomyFilter, EconomyName, EconomyNameField
+from edfinder_api.models_economy import EconomyFilterField, EconomyFilter, EconomyName, EconomyNameField
 
 
 

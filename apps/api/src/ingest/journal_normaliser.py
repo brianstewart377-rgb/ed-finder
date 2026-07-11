@@ -21,7 +21,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from ring_facts import normalise_ring_payload
+from edfinder_api.ring_facts import normalise_ring_payload
 
 log = logging.getLogger('ed_finder')
 
