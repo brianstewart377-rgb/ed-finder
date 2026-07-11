@@ -197,7 +197,7 @@ async def lifespan(app: FastAPI):
     try:
         async with pool.acquire() as _conn:
             _rows = await _conn.fetch('SELECT * FROM facility_templates ORDER BY tier, id')
-            from domain.facilities import load_bundled_catalogue, load_catalogue_from_rows
+            from edfinder_api.domain.facilities import load_bundled_catalogue, load_catalogue_from_rows
             if _rows:
                 load_catalogue_from_rows([dict(r) for r in _rows])
                 log.info(f"Facility catalogue loaded ✓ ({len(_rows)} facilities)")
@@ -206,7 +206,7 @@ async def lifespan(app: FastAPI):
                 log.info(f"Bundled facility catalogue loaded ✓ ({len(_catalogue)} facilities)")
     except Exception as _e:
         try:
-            from domain.facilities import load_bundled_catalogue
+            from edfinder_api.domain.facilities import load_bundled_catalogue
             _catalogue = load_bundled_catalogue()
             log.warning(f"Facility catalogue DB load failed ({_e}) — using bundled catalogue ({len(_catalogue)} facilities)")
         except Exception as _fallback_e:

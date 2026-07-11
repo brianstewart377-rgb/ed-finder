@@ -4,16 +4,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from domain.colonisation_rules import TargetProfile
-from domain.facilities import FacilityTemplate
-from mechanics.scoring_rules import (
+from edfinder_api.domain.colonisation_rules import TargetProfile
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.mechanics.scoring_rules import (
     ADVANCED_PLAN_MIN_BODY_SCORE,
     ADVANCED_PLAN_MIN_SLOT_CONFIDENCE,
     ADVANCED_PLAN_MIN_TOTAL_SLOTS,
     MAX_RECOMMENDED_DRAFTS,
 )
-from models import SimulateBuildPlacement, SimulateBuildRequest
-from recommendations.body_selector import BodyCandidate
+from edfinder_api.models import SimulateBuildPlacement, SimulateBuildRequest
+from edfinder_api.recommendations.body_selector import BodyCandidate
 
 
 @dataclass(frozen=True)

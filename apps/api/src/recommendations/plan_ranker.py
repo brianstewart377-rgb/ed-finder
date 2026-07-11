@@ -4,15 +4,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-from mechanics.scoring_rules import (
+from edfinder_api.mechanics.scoring_rules import (
     COMPLEXITY_PENALTY,
     MAX_WARNING_PENALTY,
     REGIONAL_RECOMMENDATION_WEIGHT,
     RANK_SCORE_WEIGHTS,
     WARNING_PENALTY_PER_WARNING,
 )
-from models import SimulateBuildResponse
-from recommendations.build_generator import BuildPlanDraft
+from edfinder_api.models import SimulateBuildResponse
+from edfinder_api.recommendations.build_generator import BuildPlanDraft
 
 
 @dataclass(frozen=True)

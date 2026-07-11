@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from simulation.build_preview import PreviewPlacement
+from edfinder_api.simulation.build_preview import PreviewPlacement
 
 
 @dataclass(frozen=True)
