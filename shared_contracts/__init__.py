@@ -1,2 +1,2 @@
-"""Shared artifact contracts used across importer and API tests."""
+"""Shared contracts and identity helpers used across ED-Finder runtimes."""
 
