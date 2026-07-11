@@ -53,6 +53,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     compose = _read('docker-compose.yml')
     review_compose = _read('docker-compose.review.yml')
     api_dockerfile = _read('apps', 'api', 'Dockerfile')
+    eddn_dockerfile = _read('apps', 'eddn', 'Dockerfile')
     importer_dockerfile = _read('apps', 'importer', 'Dockerfile')
     workflow = _read('.github', 'workflows', 'container-image-parity.yml')
 
@@ -61,9 +62,11 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert '${DATABASE_READONLY_URL:-}' in compose
     assert 'context: .' in compose
     assert 'dockerfile: apps/api/Dockerfile' in compose
+    assert 'dockerfile: apps/eddn/Dockerfile' in compose
     assert 'dockerfile: apps/importer/Dockerfile' in compose
     assert 'dockerfile: apps/api/Dockerfile' in review_compose
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
+    assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow
     assert "'apps/api/requirements.txt'" in workflow
@@ -170,7 +173,8 @@ def test_built_api_eddn_and_importer_images_pass_runtime_import_parity():
     assert 'api-parity-ok' in api.stdout
 
     eddn_probe = (
-        "import eddn_listener; import canonical_evidence; "
+        "import eddn_listener; import canonical_evidence; from shared_contracts import evidence_identity; "
+        "assert callable(evidence_identity.content_addressed_evidence_key); "
         "assert eddn_listener.promote_canonical_evidence_for_systems.__module__ == 'canonical_evidence'; "
         "print('eddn-parity-ok')"
     )

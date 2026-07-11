@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping
-from datetime import datetime, timezone
 from typing import Any, Iterable
 
 import asyncpg
+from shared_contracts.evidence_identity import (
+    coerce_optional_datetime as _coerce_optional_datetime,
+    content_addressed_evidence_key as _content_addressed_evidence_key,
+    datetime_to_utc_isoformat as _dt_to_str,
+)
 
 
 _CANONICAL_PROMOTION_SOURCE = 'canonical_app_data'
@@ -25,34 +28,6 @@ def _json_loads(value: Any, default: Any) -> Any:
     return value
 
 
-def _dt_to_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
-    return str(value)
-
-
-def _coerce_optional_datetime(value: Any) -> datetime | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
-    if isinstance(value, str):
-        stripped = value.strip()
-        if not stripped:
-            return None
-        parsed = datetime.fromisoformat(stripped.replace('Z', '+00:00'))
-        if parsed.tzinfo is None:
-            return parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    raise TypeError('expected datetime, ISO-8601 string, or None')
-
-
 def _stamp_supersession_metadata(metadata: Mapping[str, Any] | None, superseded_count: int) -> dict[str, Any]:
     stamped = dict(metadata or {})
     lifecycle_value = stamped.get('lifecycle')
@@ -60,21 +35,6 @@ def _stamp_supersession_metadata(metadata: Mapping[str, Any] | None, superseded_
     lifecycle['superseded_record_count'] = superseded_count
     stamped['lifecycle'] = lifecycle
     return stamped
-
-
-def _content_addressed_evidence_key(payload: Mapping[str, Any]) -> str:
-    canonical = {
-        'system_id64': payload['system_id64'],
-        'source_name': payload['source_name'],
-        'subject_type': payload['subject_type'],
-        'subject_id': payload.get('subject_id'),
-        'evidence_type': payload['evidence_type'],
-        'observed_at': _dt_to_str(_coerce_optional_datetime(payload.get('observed_at'))),
-        'source_record_id': payload.get('source_record_id'),
-        'value': payload.get('value') or {},
-    }
-    digest = hashlib.sha256(_json_dumps(canonical).encode('utf-8')).hexdigest()
-    return f'evd_{digest}'
 
 
 async def _find_equivalent_active_evidence_record(

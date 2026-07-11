@@ -10,17 +10,19 @@ Safe defaults:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sys
 from collections import Counter
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, execute_values
+from shared_contracts.evidence_identity import (
+    content_addressed_evidence_key as _content_addressed_evidence_key,
+    datetime_to_utc_isoformat as _dt_to_str,
+)
 
 API_SRC = Path(__file__).resolve().parents[2] / 'api' / 'src'
 if str(API_SRC) not in sys.path:
@@ -48,31 +50,6 @@ CANONICAL_EVIDENCE_TRIGGER = 'station_body_link_backfill'
 
 def _json_dumps(value: Any) -> str:
     return json.dumps(value, separators=(',', ':'), sort_keys=True)
-
-
-def _dt_to_str(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, datetime):
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
-    return str(value)
-
-
-def _content_addressed_evidence_key(payload: dict[str, Any]) -> str:
-    canonical = {
-        'system_id64': payload['system_id64'],
-        'source_name': payload['source_name'],
-        'subject_type': payload['subject_type'],
-        'subject_id': payload.get('subject_id'),
-        'evidence_type': payload['evidence_type'],
-        'observed_at': payload.get('observed_at'),
-        'source_record_id': payload.get('source_record_id'),
-        'value': payload.get('value') or {},
-    }
-    digest = hashlib.sha256(_json_dumps(canonical).encode('utf-8')).hexdigest()
-    return f'evd_{digest}'
 
 
 def parse_args() -> argparse.Namespace:

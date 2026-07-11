@@ -19,10 +19,12 @@ os.environ.setdefault('CORS_ORIGINS', 'http://localhost:3000')
 
 from evidence_store import store as api_store  # noqa: E402
 import canonical_evidence as eddn_canonical  # noqa: E402
+import backfill_station_body_links as importer_backfill  # noqa: E402
 import canonical_evidence_promotion as importer_promotion  # noqa: E402
+from shared_contracts import evidence_identity  # noqa: E402
 
 
-def test_content_addressed_evidence_key_matches_across_api_importer_and_eddn():
+def test_content_addressed_evidence_key_matches_across_api_importer_eddn_and_backfill():
     payload = {
         'system_id64': 4242424242,
         'source_name': 'canonical_app_data',
@@ -41,8 +43,10 @@ def test_content_addressed_evidence_key_matches_across_api_importer_and_eddn():
     api_key = api_store._content_addressed_evidence_key(payload)
     importer_key = importer_promotion._content_addressed_evidence_key(payload)
     eddn_key = eddn_canonical._content_addressed_evidence_key(payload)
+    backfill_key = importer_backfill._content_addressed_evidence_key(payload)
+    shared_key = evidence_identity.content_addressed_evidence_key(payload)
 
-    assert api_key == importer_key == eddn_key
+    assert api_key == importer_key == eddn_key == backfill_key == shared_key
 
 
 def test_content_addressed_evidence_key_normalises_iso8601_z_suffix_consistently():
@@ -63,5 +67,7 @@ def test_content_addressed_evidence_key_normalises_iso8601_z_suffix_consistently
     api_key = api_store._content_addressed_evidence_key(payload)
     importer_key = importer_promotion._content_addressed_evidence_key(payload)
     eddn_key = eddn_canonical._content_addressed_evidence_key(payload)
+    backfill_key = importer_backfill._content_addressed_evidence_key(payload)
+    shared_key = evidence_identity.content_addressed_evidence_key(payload)
 
-    assert api_key == importer_key == eddn_key
+    assert api_key == importer_key == eddn_key == backfill_key == shared_key
