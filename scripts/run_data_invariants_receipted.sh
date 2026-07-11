@@ -11,8 +11,11 @@
 #   2. DATA_INVARIANTS_DATABASE_URL
 #   3. DATABASE_READONLY_URL
 #   4. DATABASE_URL
-#   5. api container DATABASE_READONLY_URL
-#   6. api container DATABASE_URL
+#   5. maintenance container DATA_INVARIANTS_DATABASE_URL
+#   6. maintenance container DATABASE_READONLY_URL
+#   7. maintenance container DATABASE_URL
+#   8. api container DATABASE_READONLY_URL
+#   9. api container DATABASE_URL
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -74,6 +77,35 @@ dc() {
   docker compose "${compose_args[@]}" "$@"
 }
 
+compose_has_service() {
+  dc config --services | grep -Fxq "$1"
+}
+
+read_service_env() {
+  local service="$1"
+  local env_name="$2"
+  local command=""
+
+  case "$env_name" in
+    DATA_INVARIANTS_DATABASE_URL)
+      command='if [ -n "${DATA_INVARIANTS_DATABASE_URL:-}" ]; then printf "%s\n" "$DATA_INVARIANTS_DATABASE_URL"; fi'
+      ;;
+    DATABASE_READONLY_URL)
+      command='if [ -n "${DATABASE_READONLY_URL:-}" ]; then printf "%s\n" "$DATABASE_READONLY_URL"; fi'
+      ;;
+    DATABASE_URL)
+      command='if [ -n "${DATABASE_URL:-}" ]; then printf "%s\n" "$DATABASE_URL"; fi'
+      ;;
+    *)
+      die "unsupported service env probe: $env_name"
+      ;;
+  esac
+
+  (
+    dc exec -T "$service" sh -lc "$command" 2>/dev/null || true
+  ) | tr -d '\r' | tail -n 1
+}
+
 normalize_host_database_url() {
   local candidate="$1"
   case "$candidate" in
@@ -89,15 +121,38 @@ normalize_host_database_url() {
 resolve_host_database_url() {
   local container_url
 
-  container_url="$(dc exec -T api sh -lc 'if [ -n "${DATABASE_READONLY_URL:-}" ]; then printf "%s\n" "$DATABASE_READONLY_URL"; fi' | tr -d '\r' | tail -n 1)"
+  if compose_has_service maintenance; then
+    container_url="$(read_service_env maintenance DATA_INVARIANTS_DATABASE_URL)"
+    if [[ -n "$container_url" ]]; then
+      HOST_DATABASE_SOURCE="maintenance_container_data_invariants_database_url"
+      normalize_host_database_url "$container_url"
+      return 0
+    fi
+
+    container_url="$(read_service_env maintenance DATABASE_READONLY_URL)"
+    if [[ -n "$container_url" ]]; then
+      HOST_DATABASE_SOURCE="maintenance_container_database_readonly_url"
+      normalize_host_database_url "$container_url"
+      return 0
+    fi
+
+    container_url="$(read_service_env maintenance DATABASE_URL)"
+    if [[ -n "$container_url" ]]; then
+      HOST_DATABASE_SOURCE="maintenance_container_database_url"
+      normalize_host_database_url "$container_url"
+      return 0
+    fi
+  fi
+
+  container_url="$(read_service_env api DATABASE_READONLY_URL)"
   if [[ -n "$container_url" ]]; then
     HOST_DATABASE_SOURCE="api_container_database_readonly_url"
     normalize_host_database_url "$container_url"
     return 0
   fi
 
-  container_url="$(dc exec -T api sh -lc 'if [ -n "${DATABASE_URL:-}" ]; then printf "%s\n" "$DATABASE_URL"; fi' | tr -d '\r' | tail -n 1)"
-  [[ -n "$container_url" ]] || die "could not read DATABASE_READONLY_URL or DATABASE_URL from api container"
+  container_url="$(read_service_env api DATABASE_URL)"
+  [[ -n "$container_url" ]] || die "could not read invariants DSN, DATABASE_READONLY_URL, or DATABASE_URL from maintenance/api containers"
   HOST_DATABASE_SOURCE="api_container_database_url"
   normalize_host_database_url "$container_url"
 }
@@ -141,7 +196,7 @@ else
 fi
 
 case "$database_source" in
-  database_url|api_container_database_url)
+  database_url|maintenance_container_database_url|api_container_database_url)
     warn "no dedicated read-only invariants DSN configured; falling back to writer-capable DATABASE_URL"
     ;;
 esac

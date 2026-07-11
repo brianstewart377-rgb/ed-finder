@@ -45,6 +45,7 @@ def test_restore_helper_defaults_to_safe_non_live_target():
 
 def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     rehearsal = _read('scripts', 'rehearse_postgres_restore.sh')
+    status = _read('scripts', 'check_restore_rehearsal_status.sh')
 
     assert 'TARGET_DB="${TARGET_DB:-edfinder_restore_rehearsal}"' in rehearsal
     assert 'SOURCE_DB="${SOURCE_DB:-edfinder}"' in rehearsal
@@ -59,6 +60,16 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert 'SELECT COUNT(*) FROM schema_migrations;' in rehearsal
     assert 'dropdb -U edfinder --if-exists "$TARGET_DB"' in rehearsal
     assert '--receipt-file' in rehearsal
+    assert 'TARGET_DB="${TARGET_DB:-edfinder_restore_rehearsal}"' in status
+    assert 'WAIT_FOR_FINISH=0' in status
+    assert 'restore_process_lines()' in status
+    assert 'grep -F " -d $TARGET_DB"' in status
+    assert 'database_exists()' in status
+    assert 'show_database_smoke()' in status
+    assert 'SELECT COUNT(*) FROM schema_migrations;' in status
+    assert '--wait' in status
+    assert '--poll-seconds' in status
+    assert 'cat "$RECEIPT_FILE"' in status
 
 
 def test_backup_script_can_optionally_mirror_archives_offsite():
@@ -88,6 +99,9 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'docker-compose.local.yml' in runbook
     assert 'falls back to a direct `pg_dump` via the `postgres` service' in _squash(runbook)
     assert 'schema-migration count' in runbook
+    assert 'scripts/check_restore_rehearsal_status.sh' in runbook
+    assert '--wait' in runbook
+    assert 'stays read-only' in runbook
     assert '- [x] Add scheduled Postgres backups through the maintained ops path.' in remediation
     assert '- [x] Execute and record at least one real restore rehearsal.' in remediation
     assert '- `scripts/rehearse_postgres_restore.sh`' in remediation
@@ -104,7 +118,8 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     wrapper = _read('scripts', 'run_data_invariants_receipted.sh')
     runbook = _read('docs', 'operations', 'stage17n2c-data-trust-runbook.md')
 
-    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}}' in compose
+    assert 'DATABASE_READONLY_URL: ${DATABASE_READONLY_URL:-}' in compose
+    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-}' in compose
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--skip-invariants' in deploy
     assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
@@ -118,8 +133,14 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     assert 'DATABASE_URL_OVERRIDE="${DATABASE_URL:-}"' in wrapper
     assert '--database-url) CLI_DATABASE_URL_OVERRIDE="$2"; shift 2 ;;' in wrapper
     assert '--durable-receipt-dir) DURABLE_RECEIPT_DIR="$2"; shift 2 ;;' in wrapper
+    assert 'compose_has_service()' in wrapper
+    assert 'read_service_env()' in wrapper
+    assert 'HOST_DATABASE_SOURCE="maintenance_container_data_invariants_database_url"' in wrapper
+    assert 'HOST_DATABASE_SOURCE="maintenance_container_database_readonly_url"' in wrapper
+    assert 'HOST_DATABASE_SOURCE="maintenance_container_database_url"' in wrapper
     assert 'HOST_DATABASE_SOURCE="api_container_database_readonly_url"' in wrapper
     assert 'HOST_DATABASE_SOURCE="api_container_database_url"' in wrapper
+    assert 'database_url|maintenance_container_database_url|api_container_database_url' in wrapper
     assert 'warn "no dedicated read-only invariants DSN configured; falling back to writer-capable DATABASE_URL"' in wrapper
     assert '--production-safe' in wrapper
     assert '"status": "$status"' in wrapper

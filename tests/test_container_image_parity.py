@@ -67,7 +67,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'DATABASE_MIGRATION_URL=' in env_example
     assert 'DATABASE_READONLY_URL:' in compose
     assert '${DATABASE_READONLY_URL:-}' in compose
-    assert '${DATA_INVARIANTS_DATABASE_URL:-${DATABASE_READONLY_URL:-' in compose
+    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-}' in compose
     assert 'DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose
     assert 'DATABASE_IMPORT_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose
     assert 'DATABASE_MAINTENANCE_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose

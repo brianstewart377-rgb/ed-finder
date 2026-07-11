@@ -118,6 +118,38 @@ The helper:
 4. drops the disposable rehearsal database again unless `--keep-db` is supplied
 5. optionally writes a small JSON receipt for the ops log
 
+Finish-state helper:
+
+- script: `scripts/check_restore_rehearsal_status.sh`
+
+Use it for either a light pulse or a wait-until-finished probe that immediately
+checks the receipt plus any surviving restore database:
+
+```bash
+cd /opt/ed-finder
+bash scripts/check_restore_rehearsal_status.sh \
+  --target-db edfinder_restore_rehearsal \
+  --receipt-file /opt/ed-finder/artifacts/restore-rehearsals/production-restore-receipt-2026-07-11.json
+```
+
+```bash
+cd /opt/ed-finder
+bash scripts/check_restore_rehearsal_status.sh \
+  --wait \
+  --poll-seconds 60 \
+  --target-db edfinder_restore_rehearsal \
+  --receipt-file /opt/ed-finder/artifacts/restore-rehearsals/production-restore-receipt-2026-07-11.json
+```
+
+The status helper stays read-only. It:
+
+1. checks whether a matching `pg_restore` is still running
+2. confirms whether the target rehearsal database still exists
+3. runs the same public-table and `schema_migrations` smoke checks after the
+   restore process has finished, if the target DB still exists
+4. prints the receipt file when present so the operator can compare the final
+   outcome against the observed runtime state
+
 For the canonical local Windows/disposable stack, point the helper at
 `docker-compose.local.yml`. That stack has no `maintenance` service, so the
 script automatically falls back to a direct `pg_dump` via the `postgres`

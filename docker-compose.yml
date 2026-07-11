@@ -270,7 +270,8 @@ services:
     cpus: 1.0
     environment:
       DATABASE_URL:  ${DATABASE_MAINTENANCE_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
-      DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}}
+      DATABASE_READONLY_URL: ${DATABASE_READONLY_URL:-}
+      DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-}
       LOG_FILE:      /data/logs/maintenance.log
       BACKUP_DIR:    /data/backups/postgres
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
