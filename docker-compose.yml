@@ -261,8 +261,8 @@ services:
   #   docker compose run --rm maintenance run_maintenance.sh smoke
   maintenance:
     build:
-      context: ./apps/maintenance
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/maintenance/Dockerfile
     container_name: ed-maintenance
     restart: unless-stopped
     logging: *default-logging
@@ -270,9 +270,11 @@ services:
     cpus: 1.0
     environment:
       DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
       LOG_FILE:      /data/logs/maintenance.log
       BACKUP_DIR:    /data/backups/postgres
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}
       EVIDENCE_RECORD_RETENTION_DAYS: ${EVIDENCE_RECORD_RETENTION_DAYS:-90}
       ADMIN_JOB_RUN_RETENTION_DAYS: ${ADMIN_JOB_RUN_RETENTION_DAYS:-60}
       BACKUP_LOG_FILE: /data/logs/backup.log
@@ -280,6 +282,7 @@ services:
     volumes:
       - /data/logs:/data/logs
       - /data/backups:/data/backups
+      - /data/receipts:/data/receipts
     depends_on:
       postgres:
         condition: service_healthy

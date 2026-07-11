@@ -7,11 +7,12 @@ It is intentionally the smallest real safety improvement:
 - nightly custom-format `pg_dump` archives
 - local retention under `/data/backups/postgres`
 - archive validation with `pg_restore --list`
+- optional offsite mirror via `rclone`
 - guarded restore into a disposable database by default
 
-This is a stopgap, not the end state. It removes "no backup path in repo" while
-keeping the operational path boring. Offsite storage, WAL archiving, and
-point-in-time recovery remain future hardening work.
+This is still a stopgap, not the end state. It removes "no backup path in repo"
+while keeping the operational path boring. WAL archiving and point-in-time
+recovery remain future hardening work.
 
 ## Backup Path
 
@@ -28,6 +29,7 @@ Current defaults:
 - schedule: daily at `02:10 UTC`
 - retention: `14` days
 - logs: `/data/logs/backup.log`
+- offsite: optional `BACKUP_OFFSITE_REMOTE` mirror when configured
 
 Each run writes:
 
@@ -36,6 +38,16 @@ Each run writes:
 - `edfinder_<timestamp>.dump.json`
 - `latest.dump` symlink
 - `latest.json` symlink
+
+When `BACKUP_OFFSITE_REMOTE` is set, the sidecar also copies the archive,
+checksum, and metadata JSON to that `rclone` remote, then updates a remote
+`latest.json` pointer. Example remote values:
+
+- `s3:ed-finder-prod/postgres`
+- `storagebox:ed-finder/backups/postgres`
+
+The run still creates and validates the local archive first. A failed offsite
+sync makes the backup job fail loudly rather than pretending the mirror exists.
 
 ## Manual Backup
 
@@ -163,7 +175,8 @@ Recorded local disposable rehearsal:
 
 ## Current Limits
 
-- Backups are still local-disk only.
+- Offsite sync is optional and must be explicitly configured with an `rclone`
+  remote plus remote-side retention/lifecycle policy.
 - There is no WAL archiving or point-in-time recovery yet.
 - Retention is finite and local to the server.
 - A backup is only operationally trusted once the restore rehearsal has been

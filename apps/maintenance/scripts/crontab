@@ -9,6 +9,7 @@
 #               post-midnight UTC) Spansh import window so stats are
 #               fresh by the time European morning traffic hits.
 # 04:00 Sunday — weekly REINDEX + VACUUM ANALYZE.
+# 04:45 Sunday — production-safe invariants receipt with durable history.
 #
 # Output is captured by `crond -f -L /dev/stdout` and tee'd to
 # /data/logs/maintenance.log inside the script itself.
@@ -16,3 +17,4 @@
 10 2 * * *   /usr/local/bin/run_backup.sh nightly
 15 3 * * *   /usr/local/bin/run_maintenance.sh nightly
  0 4 * * 0   /usr/local/bin/run_maintenance.sh weekly
+45 4 * * 0   /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
