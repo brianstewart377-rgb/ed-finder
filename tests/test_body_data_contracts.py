@@ -16,6 +16,10 @@ def test_worker_process_leaves_empty_body_systems_dirty_for_retry():
 
 def test_data_invariants_check_reports_body_contract_drift():
     source = (ROOT / "scripts" / "checks" / "data_invariants.py").read_text(encoding="utf-8")
+    shared_source = (ROOT / "shared_contracts" / "data_invariant_contracts.py").read_text(
+        encoding="utf-8"
+    )
+    combined = "\n".join((source, shared_source))
 
     assert "Stored body flag drift" in source
     assert "Missing body flag rows" in source
@@ -23,11 +27,11 @@ def test_data_invariants_check_reports_body_contract_drift():
     assert "Body count mismatches" in source
     assert "Non-eligible with rating" in source
     assert "Dirty truthful no-bodies" in source
-    assert "has_body_data = TRUE" in source
-    assert "has_body_data = FALSE" in source
-    assert "s.rating_dirty = TRUE" in source
-    assert "body_count, 0) = 0" in source
-    assert "IS DISTINCT FROM COALESCE(actual.actual_body_count, 0)" in source
+    assert "has_body_data = TRUE" in combined
+    assert "has_body_data = FALSE" in combined
+    assert "s.rating_dirty = TRUE" in combined
+    assert "body_count, 0) = 0" in combined
+    assert "IS DISTINCT FROM COALESCE(actual.actual_body_count, 0)" in combined
     assert "FAIL: stored systems body-data flags/counts drift from actual bodies rows" in source
 
 
@@ -42,6 +46,23 @@ def test_body_data_contract_hardening_migration_is_manifested():
     assert "COUNT(b.id)::INTEGER AS actual_body_count" in migration
     assert "has_body_data = (c.actual_body_count > 0)" in migration
     assert "body_count    = c.actual_body_count" in migration
+
+
+def test_body_trigger_hardening_also_reclassifies_ring_status_for_affected_systems():
+    manifest = (ROOT / "sql" / "migration-manifest.txt").read_text(encoding="utf-8")
+    migration = (ROOT / "sql" / "039_body_ring_status_trigger_hardening.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "039_body_ring_status_trigger_hardening.sql" in manifest
+    assert "CREATE OR REPLACE FUNCTION fn_mark_body_system_dirty()" in migration
+    assert "UPDATE body_rings br" in migration
+    assert "association_status = fs.expected_association_status" in migration
+    assert "expected_association_status" in migration
+    assert "unresolved_body_identity" in migration
+    assert "ambiguous_body_identity" in migration
+    assert "belt_source_evidence" in migration
+    assert "duplicate_rank" in migration
 
 
 def test_repair_body_contract_script_is_guarded_and_marks_rows_dirty():

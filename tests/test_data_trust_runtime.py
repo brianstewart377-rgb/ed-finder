@@ -346,6 +346,113 @@ def test_station_body_link_repair_restores_clean_invariants():
         admin_conn.close()
 
 
+def test_body_delete_trigger_reclassifies_orphaned_ring_rows():
+    psycopg2 = pytest.importorskip('psycopg2')
+    bash = shutil.which('bash')
+    psql = shutil.which('psql')
+    if bash is None or psql is None:
+        pytest.skip('bash and psql are required to apply schema migrations for runtime trust tests')
+
+    try:
+        db_isolation.require_destructive_reset_opt_in(os.environ)
+        db_target = db_isolation.target_from_env(os.environ)
+    except db_isolation.DbIsolationError as exc:
+        pytest.skip(str(exc))
+
+    runtime_db = f'data_trust_ring_trigger_{uuid.uuid4().hex[:12]}'
+    runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
+
+    try:
+        admin_conn = psycopg2.connect(db_target.dsn)
+    except Exception as exc:  # pragma: no cover - explicit local skip path
+        pytest.skip(f'disposable Postgres unavailable for ring trigger runtime test: {exc}')
+
+    admin_conn.autocommit = True
+    try:
+        with admin_conn.cursor() as cur:
+            cur.execute(f'DROP DATABASE IF EXISTS "{runtime_db}"')
+            cur.execute(f'CREATE DATABASE "{runtime_db}"')
+
+        _apply_schema_via_migrations(bash, runtime_dsn)
+        _exec_sql(
+            runtime_dsn,
+            """
+            INSERT INTO systems (
+              id64, name, x, y, z, population,
+              has_body_data, body_count, rating_dirty, cluster_dirty
+            )
+            VALUES (6301, 'Runtime Ring Trigger', 1, 2, 3, NULL, TRUE, 1, FALSE, FALSE);
+
+            INSERT INTO bodies (id, system_id64, name, body_type)
+            VALUES (7301, 6301, 'Runtime Ring Trigger 1', 'Planet');
+
+            INSERT INTO body_rings (
+              system_id64,
+              body_id,
+              source_body_id,
+              body_name,
+              ring_name,
+              ring_type,
+              ring_class,
+              source,
+              confidence,
+              association_status
+            )
+            VALUES (
+              6301,
+              7301,
+              7301,
+              'Runtime Ring Trigger 1',
+              'Runtime Ring Trigger 1 A Ring',
+              'Metal Rich',
+              'A',
+              'eddn_scan',
+              'measured',
+              'local_matched'
+            );
+
+            DELETE FROM bodies WHERE id = 7301;
+            """,
+        )
+
+        with psycopg2.connect(runtime_dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT has_body_data, body_count, rating_dirty, cluster_dirty
+                FROM systems
+                WHERE id64 = 6301
+                """
+            )
+            assert cur.fetchone() == (False, 0, True, True)
+            cur.execute(
+                """
+                SELECT body_id, association_status
+                FROM body_rings
+                WHERE system_id64 = 6301
+                """
+            )
+            assert cur.fetchone() == (None, 'unresolved_body_identity')
+
+        snapshot = _run_python(
+            DATA_TRUST_HEALTH_SNAPSHOT,
+            '--database-url',
+            runtime_dsn,
+            '--json',
+        )
+        assert snapshot.returncode == 0, snapshot.stderr
+        report = json.loads(snapshot.stdout)
+        assert report['ring_status'] == {'ring_status_drift': 0}
+    finally:
+        with admin_conn.cursor() as cur:
+            cur.execute(
+                'SELECT pg_terminate_backend(pid) FROM pg_stat_activity '
+                'WHERE datname = %s AND pid <> pg_backend_pid()',
+                (runtime_db,),
+            )
+            cur.execute(f'DROP DATABASE IF EXISTS "{runtime_db}"')
+        admin_conn.close()
+
+
 def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
     psycopg2 = pytest.importorskip('psycopg2')
     bash = shutil.which('bash')
