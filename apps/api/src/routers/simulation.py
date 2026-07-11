@@ -32,9 +32,9 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from config import log
-from deps import get_pool, get_redis, cache_get, cache_set
-from ingest.slot_prediction import (
+from edfinder_api.config import log
+from edfinder_api.deps import cache_get, cache_set, get_pool, get_redis
+from edfinder_api.ingest.slot_prediction import (
     INSUFFICIENT_DATA_REASON,
     PREDICTION_DISCLAIMER,
     PREDICTION_VERSION,
@@ -42,16 +42,16 @@ from ingest.slot_prediction import (
     confidence_label,
     predict_system_slots,
 )
-from mechanics.versions import MECHANICS_VERSION
-from models import (
+from edfinder_api.mechanics.versions import MECHANICS_VERSION
+from edfinder_api.models import (
     BuildabilityResponse,
     RegionalAnalysisResponse,
     SimulationSummaryResponse,
     SlotPredictionResponse,
 )
-from regional.regional_analysis import response_from_row
-from simulation.buildability import analyse_buildability
-from simulation.topology_simulator import (
+from edfinder_api.regional.regional_analysis import response_from_row
+from edfinder_api.simulation.buildability import analyse_buildability
+from edfinder_api.simulation.topology_simulator import (
     topology_from_row, summarise_topology,
 )
 
@@ -531,7 +531,7 @@ async def get_simulation_summary(
                 mv_row['has_ringed_body'] if mv_row else any(bool(f.get('is_ringed')) for f in slot_facts)
             ),
         }
-        from simulation.topology_simulator import topology_from_row
+        from edfinder_api.simulation.topology_simulator import topology_from_row
         ctx = topology_from_row(topo_dict)
         ctx.slot_confidence = float(predicted_slot_confidence or 0.0)
         ba = analyse_buildability(
@@ -571,7 +571,7 @@ async def get_simulation_summary(
                 mv_row['has_ringed_body'] if mv_row else any(bool(f.get('is_ringed')) for f in slot_facts)
             ),
         }
-        from simulation.topology_simulator import topology_from_row
+        from edfinder_api.simulation.topology_simulator import topology_from_row
         ctx = topology_from_row(topo_dict_for_ctx)
         ctx.slot_confidence = float(predicted_slot_confidence or 0.0)
         response['topology_summary'] = summarise_topology(ctx)

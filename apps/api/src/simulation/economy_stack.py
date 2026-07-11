@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.colonisation_rules import get_target_profile
-from mechanics.economy_rules import (
+from edfinder_api.domain.colonisation_rules import get_target_profile
+from edfinder_api.mechanics.economy_rules import (
     BROAD_STACK_ALLOWED_COUNT,
     BROAD_STACK_PENALTY_PER_ECONOMY,
     BROAD_STACK_THRESHOLD,

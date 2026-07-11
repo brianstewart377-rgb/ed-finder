@@ -9,13 +9,13 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from mechanics.service_rules import (
+from edfinder_api.mechanics.service_rules import (
     MODELLED_SERVICES,
     SERVICE_STATUS_ACTIVE,
     SERVICE_STATUS_LOCKED,
     SERVICE_STATUS_UNKNOWN,
 )
-from simulation.services import SERVICE_PHRASES
+from edfinder_api.simulation.services import SERVICE_PHRASES
 
 
 UNLOCK_PORT_DEFAULT = 'port_default'
