@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from domain.colonisation_rules import BodyEconomyProfile, TargetProfile, profile_body
-from mechanics.scoring_rules import BODY_SELECTOR_BASE_WEIGHTS, BODY_SELECTOR_POINTS
+from edfinder_api.domain.colonisation_rules import BodyEconomyProfile, TargetProfile, profile_body
+from edfinder_api.mechanics.scoring_rules import BODY_SELECTOR_BASE_WEIGHTS, BODY_SELECTOR_POINTS
 
 
 @dataclass(frozen=True)

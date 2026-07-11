@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from optimiser.models import CandidatePreviewSummary
+from edfinder_api.optimiser.models import CandidatePreviewSummary
 
 
 def preview_summary_from_response(response: dict[str, Any]) -> CandidatePreviewSummary:
