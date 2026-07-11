@@ -32,7 +32,8 @@ services:
 
   review-api:
     build:
-      context: ./apps/api
+      context: .
+      dockerfile: apps/api/Dockerfile
     command: ["uvicorn", "review_main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     depends_on:
       review-postgres:

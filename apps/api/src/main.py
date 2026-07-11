@@ -40,10 +40,10 @@ from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
 from config  import settings, log, limiter
-from state   import set_pool, set_redis, metrics as _metrics
+from state   import set_pool, set_readonly_pool, set_redis, metrics as _metrics
 
 # Routers
-from routers.admin     import router as admin_router
+from routers.admin     import router as admin_router, reap_stale_admin_operation_runs
 from routers.evidence  import router as evidence_router
 from routers.events    import router as events_router, eddn_pubsub_bridge
 from routers.map       import router as map_router
@@ -108,32 +108,68 @@ async def lifespan(app: FastAPI):
             schema='pg_catalog',
         )
 
-    pool = await asyncpg.create_pool(
-        dsn=settings.database_url,
-        min_size=5, max_size=20,
-        # asyncpg's client-side ceiling — kept generous as a final
-        # backstop. The real query budget is enforced server-side via
-        # `statement_timeout` below.
-        command_timeout=300,
-        # pgBouncer transaction-pool mode requires prepared-statement cache off.
-        statement_cache_size=0,
-        server_settings={
-            'application_name': 'ed_finder_api',
-            # `statement_timeout` MUST live here, not in `init=_init_conn`.
-            # asyncpg sends `server_settings` as protocol-level startup
-            # parameters which pgBouncer transaction-pool mode preserves
-            # across pooled connections, whereas a `SET statement_timeout`
-            # issued from the init callback is wiped by pgBouncer's
-            # implicit `DISCARD ALL` / `RESET` between transactions.
-            # Verified in prod 2026-05-09: `SHOW statement_timeout` over
-            # an asyncpg+pgbouncer pooled conn returned `0` (= unlimited)
-            # despite the init callback running. Making it a startup
-            # parameter fixes this without disabling pgbouncer pooling.
-            'statement_timeout': str(settings.statement_timeout_ms),
-        },
-        init=_init_conn,
+    async def _create_pool(
+        dsn: str,
+        *,
+        application_name: str,
+        min_size: int,
+        max_size: int,
+    ) -> asyncpg.Pool:
+        return await asyncpg.create_pool(
+            dsn=dsn,
+            min_size=min_size,
+            max_size=max_size,
+            # asyncpg's client-side ceiling — kept generous as a final
+            # backstop. The real query budget is enforced server-side via
+            # `statement_timeout` below.
+            command_timeout=300,
+            # pgBouncer transaction-pool mode requires prepared-statement cache off.
+            statement_cache_size=0,
+            server_settings={
+                'application_name': application_name,
+                # `statement_timeout` MUST live here, not in `init=_init_conn`.
+                # asyncpg sends `server_settings` as protocol-level startup
+                # parameters which pgBouncer transaction-pool mode preserves
+                # across pooled connections, whereas a `SET statement_timeout`
+                # issued from the init callback is wiped by pgBouncer's
+                # implicit `DISCARD ALL` / `RESET` between transactions.
+                # Verified in prod 2026-05-09: `SHOW statement_timeout` over
+                # an asyncpg+pgbouncer pooled conn returned `0` (= unlimited)
+                # despite the init callback running. Making it a startup
+                # parameter fixes this without disabling pgbouncer pooling.
+                'statement_timeout': str(settings.statement_timeout_ms),
+            },
+            init=_init_conn,
+        )
+
+    pool = await _create_pool(
+        settings.database_url,
+        application_name='ed_finder_api',
+        min_size=5,
+        max_size=20,
     )
     set_pool(pool)
+
+    readonly_pool = pool
+    readonly_dsn = settings.database_readonly_url
+    if readonly_dsn and readonly_dsn != settings.database_url:
+        readonly_pool = await _create_pool(
+            readonly_dsn,
+            application_name='ed_finder_api_readonly',
+            min_size=1,
+            max_size=5,
+        )
+        log.info('PostgreSQL read-only pool ready ✓')
+    else:
+        log.info('PostgreSQL read-only pool not configured; reusing primary pool')
+    set_readonly_pool(readonly_pool)
+
+    try:
+        reaped = await reap_stale_admin_operation_runs(pool)
+        if reaped:
+            log.warning('Reaped %d stale admin operation runs during startup', reaped)
+    except asyncpg.exceptions.UndefinedTableError:
+        log.warning('admin_job_runs table missing during startup reap; skipping stale admin run cleanup')
 
     redis = None
     try:
@@ -181,6 +217,7 @@ async def lifespan(app: FastAPI):
 
     log.info("PostgreSQL pool ready ✓")
     app.state.pool  = pool
+    app.state.readonly_pool = readonly_pool
     app.state.redis = redis
     yield
 
@@ -190,6 +227,8 @@ async def lifespan(app: FastAPI):
             await _sse_pubsub_task
         except (asyncio.CancelledError, Exception):
             pass
+    if readonly_pool and readonly_pool is not pool:
+        await readonly_pool.close()
     if pool:   await pool.close()
     if redis:  await redis.aclose()
     log.info("Shutdown complete")

@@ -11,6 +11,9 @@ import asyncpg
 from observations.store import observed_fact_summary
 from warehouse_planner_evidence_models import (
     WarehousePlannerEvidenceBoundedStaging,
+    WarehousePlannerEvidenceCoverage,
+    WarehousePlannerEvidenceCoverageFreshness,
+    WarehousePlannerEvidenceCoverageMetric,
     WarehousePlannerEvidenceItem,
 )
 
@@ -36,6 +39,7 @@ class LivePlannerEvidenceResult:
     evaluated_at: str | None
     manual_review_required: bool
     bounded_staging: WarehousePlannerEvidenceBoundedStaging
+    coverage: WarehousePlannerEvidenceCoverage
     warnings: list[str] = field(default_factory=list)
 
 
@@ -71,6 +75,9 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
                 evaluated_at=None,
                 manual_review_required=True,
                 bounded_staging=_default_bounded_staging(status='unavailable'),
+                coverage=_unknown_coverage(
+                    'System is not present in canonical app data, so selected-system coverage remains unavailable.',
+                ),
                 warnings=[
                     'System is not present in canonical app data; selected-system evidence remains unavailable.',
                 ],
@@ -82,6 +89,10 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
         ) or 0
         station_count = await conn.fetchval(
             'SELECT COUNT(*)::int FROM stations WHERE system_id64 = $1',
+            id64,
+        ) or 0
+        scan_fact_count = await conn.fetchval(
+            'SELECT COUNT(*)::int FROM body_scan_facts WHERE system_address = $1',
             id64,
         ) or 0
 
@@ -100,6 +111,25 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
                 """,
                 id64,
             ) or 0
+        ringed_body_count = await conn.fetchval(
+            """
+            SELECT COUNT(*)::int
+            FROM body_scan_facts
+            WHERE system_address = $1
+              AND ring_count > 0
+            """,
+            id64,
+        ) or 0
+        ring_identity_count = await conn.fetchval(
+            """
+            SELECT COUNT(DISTINCT body_id)::int
+            FROM body_rings
+            WHERE system_id64 = $1
+              AND body_id IS NOT NULL
+              AND association_status = 'local_matched'
+            """,
+            id64,
+        ) or 0
 
         latest_canonical_at = await _safe_fetchval(
             conn,
@@ -125,15 +155,37 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             """,
             id64,
         )
+        latest_status_at = await _safe_fetchval(
+            conn,
+            """
+            SELECT COALESCE(eddn_updated_at, updated_at)::text
+            FROM systems
+            WHERE id64 = $1
+            """,
+            id64,
+        )
         if latest_canonical_at is None:
             warnings.append(
                 'Canonical evidence timestamps are unavailable; freshness remains conservative.'
             )
         bounded_staging = await _load_stage19bb_bounded_staging_evidence(conn, id64)
 
+
     observed_summary = await _safe_observed_summary(pool, id64)
     observed_total = _int_or_zero(observed_summary.get('total_count'))
     observed_latest_at = _text_or_none(observed_summary.get('latest_observed_at'))
+    coverage = _build_coverage(
+        body_count=body_count,
+        scan_fact_count=scan_fact_count,
+        station_count=station_count,
+        linked_station_count=linked_station_count,
+        ringed_body_count=ringed_body_count,
+        ring_identity_count=ring_identity_count,
+        canonical_updated_at=latest_canonical_at,
+        observed_updated_at=observed_latest_at,
+        bounded_staging_updated_at=bounded_staging.latest_source_updated_at,
+        status_updated_at=latest_status_at,
+    )
 
     items: list[WarehousePlannerEvidenceItem] = []
 
@@ -197,6 +249,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
             evaluated_at=None,
             manual_review_required=True,
             bounded_staging=bounded_staging,
+                coverage=coverage,
             warnings=[
                 'No safe selected-system evidence is currently linked for this system; unavailable remains unknown.',
                 *bounded_staging_warnings(bounded_staging),
@@ -219,6 +272,7 @@ async def load_live_planner_evidence(pool: asyncpg.Pool, id64: int) -> LivePlann
         evaluated_at=_max_timestamp(latest_canonical_at, observed_latest_at, bounded_staging.latest_source_updated_at),
         manual_review_required=any(item.label in {'needs_review', 'verify', 'unresolved'} for item in items),
         bounded_staging=bounded_staging,
+        coverage=coverage,
         warnings=warnings[:8],
     )
 
@@ -299,6 +353,132 @@ def _default_bounded_staging(
         latest_source_updated_at=latest_source_updated_at,
         summary=summary,
     )
+
+
+def _unknown_coverage(summary: str) -> WarehousePlannerEvidenceCoverage:
+    unknown_metric = WarehousePlannerEvidenceCoverageMetric(
+        status='unknown',
+        summary='Coverage is unknown for this metric in the current runtime.',
+    )
+    return WarehousePlannerEvidenceCoverage(
+        body_scan=unknown_metric,
+        station_links=unknown_metric,
+        ring_identity=unknown_metric,
+        source_freshness=WarehousePlannerEvidenceCoverageFreshness(),
+        thin_data_reasons=[summary],
+        summary=summary,
+    )
+
+
+def _build_coverage(
+    *,
+    body_count: int,
+    scan_fact_count: int,
+    station_count: int,
+    linked_station_count: int | None,
+    ringed_body_count: int,
+    ring_identity_count: int,
+    canonical_updated_at: str | None,
+    observed_updated_at: str | None,
+    bounded_staging_updated_at: str | None,
+    status_updated_at: str | None,
+) -> WarehousePlannerEvidenceCoverage:
+    body_scan = _coverage_metric(
+        label='body scans',
+        known_count=scan_fact_count,
+        total_count=body_count,
+    )
+    station_links = _coverage_metric(
+        label='station links',
+        known_count=linked_station_count,
+        total_count=station_count,
+    )
+    ring_identity = _coverage_metric(
+        label='ring identities',
+        known_count=ring_identity_count,
+        total_count=ringed_body_count,
+        not_applicable_label='No ring-bearing bodies are currently known in canonical scan facts.',
+    )
+
+    thin_data_reasons: list[str] = []
+    for reason in (
+        _thin_reason('Body scan coverage', body_scan),
+        _thin_reason('Station-link coverage', station_links),
+        _thin_reason('Ring identity coverage', ring_identity),
+    ):
+        if reason:
+            thin_data_reasons.append(reason)
+
+    summary = (
+        f'Coverage summary: {body_scan.summary} {station_links.summary} {ring_identity.summary}'
+    )
+    if not thin_data_reasons:
+        thin_data_reasons.append('Selected-system coverage is coherent across the currently linked canonical lanes.')
+
+    return WarehousePlannerEvidenceCoverage(
+        body_scan=body_scan,
+        station_links=station_links,
+        ring_identity=ring_identity,
+        source_freshness=WarehousePlannerEvidenceCoverageFreshness(
+            canonical_updated_at=canonical_updated_at,
+            observed_updated_at=observed_updated_at,
+            bounded_staging_updated_at=bounded_staging_updated_at,
+            status_updated_at=status_updated_at,
+        ),
+        thin_data_reasons=thin_data_reasons[:4],
+        summary=summary,
+    )
+
+
+def _coverage_metric(
+    *,
+    label: str,
+    known_count: int | None,
+    total_count: int,
+    not_applicable_label: str | None = None,
+) -> WarehousePlannerEvidenceCoverageMetric:
+    if known_count is None:
+        return WarehousePlannerEvidenceCoverageMetric(
+            status='unknown',
+            known_count=None,
+            total_count=total_count,
+            coverage_ratio=None,
+            summary=f'{label.capitalize()} remain unknown in this runtime.',
+        )
+    if total_count <= 0:
+        return WarehousePlannerEvidenceCoverageMetric(
+            status='not_applicable',
+            known_count=known_count,
+            total_count=total_count,
+            coverage_ratio=None,
+            summary=not_applicable_label or f'No {label} are required for this selected system yet.',
+        )
+
+    ratio = min(1.0, max(0.0, known_count / total_count))
+    if known_count >= total_count:
+        status = 'complete'
+    elif known_count > 0:
+        status = 'partial'
+    else:
+        status = 'missing'
+
+    return WarehousePlannerEvidenceCoverageMetric(
+        status=status,
+        known_count=known_count,
+        total_count=total_count,
+        coverage_ratio=round(ratio, 4),
+        summary=f'{known_count}/{total_count} {label} are currently covered.',
+    )
+
+
+def _thin_reason(prefix: str, metric: WarehousePlannerEvidenceCoverageMetric) -> str | None:
+    if metric.status == 'partial':
+        return f'{prefix} is partial: {metric.summary}'
+    if metric.status == 'missing':
+        return f'{prefix} is missing: {metric.summary}'
+    if metric.status == 'unknown':
+        return f'{prefix} is unknown: {metric.summary}'
+    return None
 
 
 def bounded_staging_warnings(value: WarehousePlannerEvidenceBoundedStaging) -> list[str]:

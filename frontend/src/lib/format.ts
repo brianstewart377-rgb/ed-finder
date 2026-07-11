@@ -106,3 +106,29 @@ export function systemStatusLabel(sys: {
   if (sys.is_being_colonised) return 'Colonising';
   return 'Available';
 }
+
+export function formatTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+}
+
+export function formatEvidenceSourceList(
+  values: string[] | null | undefined,
+): string | null {
+  if (!values || values.length === 0) return null;
+  const labels = values
+    .map((value) => {
+      const key = value.trim().toLowerCase();
+      if (!key) return null;
+      if (key.startsWith('frontier_journal')) return 'Frontier Journal';
+      if (key.startsWith('eddn')) return 'EDDN';
+      if (key.startsWith('spansh')) return 'Spansh';
+      if (key === 'canonical') return 'Canonical record';
+      return value;
+    })
+    .filter((value): value is string => Boolean(value));
+  if (labels.length === 0) return null;
+  return Array.from(new Set(labels)).join(', ');
+}

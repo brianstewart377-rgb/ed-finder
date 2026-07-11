@@ -53,6 +53,8 @@ import zmq.asyncio
 import asyncpg
 import redis.asyncio as aioredis
 
+from canonical_evidence import promote_canonical_evidence_for_systems
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -665,6 +667,70 @@ async def handle_location_or_jump(pool: asyncpg.Pool, header: dict, message: dic
     _pending_systems[id64] = existing
 
 
+def _colonisation_status_from_message(message: dict) -> tuple[bool | None, bool | None]:
+    state_fields = [
+        message.get('ColonisationState'),
+        message.get('ColonisationStatus'),
+        message.get('State'),
+        message.get('Status'),
+    ]
+    for raw in state_fields:
+        if raw is None:
+            continue
+        text = str(raw).strip().lower().replace('-', '_').replace(' ', '_')
+        if text in {'colonised', 'complete', 'completed', 'established'}:
+            return True, False
+        if text in {
+            'being_colonised',
+            'colonising',
+            'under_construction',
+            'construction',
+            'construction_depot',
+            'beacon_deployed',
+            'contributing',
+        }:
+            return False, True
+
+    if 'IsColonised' in message:
+        is_colonised = bool(message.get('IsColonised'))
+        return is_colonised, bool(message.get('IsBeingColonised')) if 'IsBeingColonised' in message else (False if is_colonised else None)
+    if 'IsBeingColonised' in message:
+        is_being_colonised = bool(message.get('IsBeingColonised'))
+        return False if is_being_colonised else None, is_being_colonised
+
+    event_name = str(message.get('event') or '').strip()
+    if event_name.startswith('Colonisation'):
+        return False, True
+    return None, None
+
+
+async def handle_colonisation_status(pool: asyncpg.Pool, header: dict, message: dict):
+    """Colonisation-related journal event — update canonical system status flags."""
+    del pool, header
+    id64 = safe_int(message.get('SystemAddress'))
+    if not id64:
+        return
+
+    is_colonised, is_being_colonised = _colonisation_status_from_message(message)
+    if is_colonised is None and is_being_colonised is None:
+        return
+
+    upd = {
+        'id64': id64,
+        'dirty': True,
+        'updated': utcnow(),
+        'is_colonised': is_colonised,
+        'is_being_colonised': is_being_colonised,
+    }
+    name = message.get('StarSystem')
+    if name:
+        upd['name'] = name
+
+    existing = _pending_systems.get(id64, {})
+    existing.update(upd)
+    _pending_systems[id64] = existing
+
+
 # ---------------------------------------------------------------------------
 # Batch DB flush
 # ---------------------------------------------------------------------------
@@ -701,6 +767,7 @@ async def flush_pending(pool: asyncpg.Pool):
     flushed_rings   = 0
     flush_errors    = 0
     affected_dirty_system_ids: set[int] = set()
+    affected_colonisation_system_ids: set[int] = set()
     ring_skip_counts = {
         'rings_skipped_unmatched_body': 0,
         'rings_skipped_ambiguous_body': 0,
@@ -718,11 +785,12 @@ async def flush_pending(pool: asyncpg.Pool):
                                 id64, name, x, y, z,
                                 primary_economy, population,
                                 main_star_type, main_star_subtype, main_star_is_scoopable,
+                                is_colonised, is_being_colonised,
                                 rating_dirty, cluster_dirty,
                                 eddn_updated_at, updated_at
                             ) VALUES (
                                 $1,$2,$3,$4,$5,$6::economy_type,$7::bigint,
-                                $8,$9,$10,
+                                $8,$9,$10,$11,$12,
                                 TRUE,TRUE,NOW(),NOW()
                             )
                             ON CONFLICT (id64) DO UPDATE SET
@@ -737,6 +805,8 @@ async def flush_pending(pool: asyncpg.Pool):
                                 main_star_type  = COALESCE($8, systems.main_star_type),
                                 main_star_subtype = COALESCE($9, systems.main_star_subtype),
                                 main_star_is_scoopable = COALESCE($10, systems.main_star_is_scoopable),
+                                is_colonised    = COALESCE($11, systems.is_colonised),
+                                is_being_colonised = COALESCE($12, systems.is_being_colonised),
                                 rating_dirty    = TRUE,
                                 cluster_dirty   = TRUE,
                                 eddn_updated_at = NOW(),
@@ -751,6 +821,8 @@ async def flush_pending(pool: asyncpg.Pool):
                                 OR ($8 IS NOT NULL AND systems.main_star_type IS DISTINCT FROM $8)
                                 OR ($9 IS NOT NULL AND systems.main_star_subtype IS DISTINCT FROM $9)
                                 OR ($10 IS NOT NULL AND systems.main_star_is_scoopable IS DISTINCT FROM $10)
+                                OR ($11 IS NOT NULL AND systems.is_colonised IS DISTINCT FROM $11)
+                                OR ($12 IS NOT NULL AND systems.is_being_colonised IS DISTINCT FROM $12)
                         """,
                             sys['id64'],
                             sys.get('name', 'Unknown'),
@@ -762,12 +834,16 @@ async def flush_pending(pool: asyncpg.Pool):
                             sys.get('main_star_type'),
                             sys.get('main_star_subtype'),
                             sys.get('main_star_is_scoopable'),
+                            sys.get('is_colonised'),
+                            sys.get('is_being_colonised'),
                         )
                         changed = _command_row_count(status)
                         if changed:
                             flushed_systems += changed
                             _stats['systems_upserted'] += changed
                             affected_dirty_system_ids.add(int(sys['id64']))
+                            if 'is_colonised' in sys or 'is_being_colonised' in sys:
+                                affected_colonisation_system_ids.add(int(sys['id64']))
                     except Exception as e:
                         flush_errors += 1
                         _stats['errors'] += 1
@@ -933,6 +1009,50 @@ async def flush_pending(pool: asyncpg.Pool):
                         _stats['errors'] += 1
                         _stats['ring_write_errors'] += 1
                         log.warning(f"Ring upsert error (body_id={ring.get('body_id')}): {e}")
+
+                if affected_colonisation_system_ids:
+                    try:
+                        evidence_promotion = await promote_canonical_evidence_for_systems(
+                            conn,
+                            system_ids=affected_colonisation_system_ids,
+                            evidence_types=['colonisation_status'],
+                            trigger_context='eddn_colonisation_listener',
+                        )
+                        if evidence_promotion['warnings']:
+                            log.debug(
+                                'EDDN colonisation evidence promotion warnings',
+                                extra={'warnings': evidence_promotion['warnings']},
+                            )
+                    except Exception as promotion_exc:
+                        log.warning(
+                            'EDDN colonisation evidence promotion failed; canonical ingest will still commit',
+                            extra={
+                                'system_ids': sorted(affected_colonisation_system_ids),
+                                'error': str(promotion_exc),
+                            },
+                        )
+
+                if affected_dirty_system_ids:
+                    try:
+                        coverage_evidence = await promote_canonical_evidence_for_systems(
+                            conn,
+                            system_ids=affected_dirty_system_ids,
+                            evidence_types=['body_completeness', 'ring_composition'],
+                            trigger_context='eddn_full_listener',
+                        )
+                        if coverage_evidence['warnings']:
+                            log.debug(
+                                'EDDN canonical coverage evidence promotion warnings',
+                                extra={'warnings': coverage_evidence['warnings']},
+                            )
+                    except Exception as promotion_exc:
+                        log.warning(
+                            'EDDN coverage evidence promotion failed; canonical ingest will still commit',
+                            extra={
+                                'system_ids': sorted(affected_dirty_system_ids),
+                                'error': str(promotion_exc),
+                            },
+                        )
 
         # ── Transaction succeeded — NOW clear the flushed items ───────────
         # Remove only the system IDs we attempted; any new ones that arrived
@@ -1150,6 +1270,10 @@ JOURNAL_HANDLERS = {
     'Location':         handle_location_or_jump,
     'FSDJump':          handle_location_or_jump,
     'CarrierJump':      handle_location_or_jump,
+    'Colonisation':     handle_colonisation_status,
+    'ColonisationConstructionDepot': handle_colonisation_status,
+    'ColonisationContribution': handle_colonisation_status,
+    'ColonisationBeaconDeployed': handle_colonisation_status,
 }
 
 
@@ -1183,6 +1307,8 @@ async def run_eddn_listener(pool: asyncpg.Pool, redis: Optional[aioredis.Redis] 
             if schema.startswith('https://eddn.edcd.io/schemas/journal'):
                 event_type = message.get('event')
                 handler = JOURNAL_HANDLERS.get(event_type)
+                if handler is None and isinstance(event_type, str) and event_type.startswith('Colonisation'):
+                    handler = handle_colonisation_status
 
             if handler:
                 await handler(pool, header, message)

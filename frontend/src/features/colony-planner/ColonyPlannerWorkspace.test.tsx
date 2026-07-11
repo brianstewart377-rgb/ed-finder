@@ -198,6 +198,37 @@ function warehousePlannerEvidenceResponse(
       bounded_staging_only: true,
       available_row_limits: [],
     },
+    coverage: {
+      body_scan: {
+        status: 'partial',
+        known_count: 2,
+        total_count: 4,
+        coverage_ratio: 0.5,
+        summary: '2/4 body scans are currently covered.',
+      },
+      station_links: {
+        status: 'complete',
+        known_count: 1,
+        total_count: 1,
+        coverage_ratio: 1,
+        summary: '1/1 station links are currently covered.',
+      },
+      ring_identity: {
+        status: 'not_applicable',
+        known_count: 0,
+        total_count: 0,
+        coverage_ratio: null,
+        summary: 'No ring-bearing bodies are currently known in canonical scan facts.',
+      },
+      source_freshness: {
+        canonical_updated_at: '2026-06-17T14:00:00Z',
+        observed_updated_at: '2026-06-18T09:30:00Z',
+        bounded_staging_updated_at: null,
+        status_updated_at: '2026-06-17T14:05:00Z',
+      },
+      thin_data_reasons: ['Body scan coverage is partial: 2/4 body scans are currently covered.'],
+      summary: 'Coverage summary: 2/4 body scans are currently covered. 1/1 station links are currently covered. No ring-bearing bodies are currently known in canonical scan facts.',
+    },
     evidence_summary: {
       availability: 'report_only',
       report_only: true,

@@ -218,6 +218,13 @@ competing roadmap source.
 - Keep building the source-run ledger, importer safety wrapper, and audit trail.
 - Expand safe source ingestion in priority order:
   `Spansh -> EDDN -> EDSM -> Inara -> Frontier Journal`.
+- Before personal telemetry opens up, keep raw evidence on a bounded hot-log
+  posture: curated `evidence_records` remain the durable trust layer, while
+  high-volume `observed_facts` must move toward partitioned/archive retention
+  instead of unbounded primary-DB growth.
+- Use `scripts/checks/telemetry_hot_log_snapshot.py` as the read-only
+  posture check for journal telemetry hot-log growth until partition/archive
+  work is actually implemented.
 - Frontier Journal sequencing is explicitly bounded:
   `A-1` staging/evidence import first, `A-2` guarded canonical promotion only
   after migration-ledger and backup foundations are in place, and `A-3`

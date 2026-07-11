@@ -8,10 +8,12 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 IMPORTER_SRC = ROOT / 'apps' / 'importer' / 'src'
+FIXTURES = ROOT / 'tests' / 'fixtures'
 if str(IMPORTER_SRC) not in sys.path:
     sys.path.insert(0, str(IMPORTER_SRC))
 
 import reconciliation_artifact_summary as summary_tool  # noqa: E402
+from shared_contracts.enrichment_artifact_contracts import validate_compact_warehouse_status_artifact  # noqa: E402
 
 
 def write_artifact(path: Path, payload: dict) -> Path:
@@ -205,3 +207,14 @@ def test_tool_runs_without_db_access(tmp_path, monkeypatch):
     payload = json.loads(output.read_text(encoding='utf-8'))
     assert payload['candidate_samples']['samples_included'] == 1
     assert payload['safe_for_git'] is False
+
+
+def test_compact_summary_shared_fixture_matches_contract():
+    payload = json.loads(
+        (FIXTURES / 'enrichment_reconciliation_artifact_summary_fixture.json').read_text(encoding='utf-8')
+    )
+
+    validated = validate_compact_warehouse_status_artifact(payload)
+
+    assert validated.schema_version == 'enrichment_reconciliation_artifact_summary/v1'
+    assert validated.artifact_schema_version == 'enrichment_staging_reconciliation/v1'

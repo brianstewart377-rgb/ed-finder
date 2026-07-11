@@ -1,0 +1,78 @@
+{
+  "artifact_schema_version": "enrichment_staging_reconciliation/v1",
+  "artifact_summary_counts": {
+    "ambiguous_matches": 1,
+    "canonical_matches_found": 10,
+    "canonical_misses": 2,
+    "canonical_writes_planned": 0,
+    "errors": 0,
+    "insufficient_evidence": 1,
+    "staged_body_rows_considered": 8,
+    "staged_ring_rows_considered": 3,
+    "staged_station_rows_considered": 12,
+    "warnings": 2
+  },
+  "candidate_action_counts": {
+    "all": {
+      "candidate_update": 2
+    },
+    "body_candidates": {},
+    "ring_candidates": {},
+    "station_body_association_candidates": {},
+    "station_candidates": {
+      "candidate_update": 2
+    }
+  },
+  "candidate_counts": {
+    "body_candidates": 0,
+    "ring_candidates": 0,
+    "station_body_association_candidates": 0,
+    "station_candidates": 2
+  },
+  "candidate_samples": {
+    "max_samples": 2,
+    "samples": [
+      {
+        "candidate_action": "candidate_update",
+        "confidence": "high",
+        "confidence_level": "high",
+        "entity": "station",
+        "reconciliation_state": "confirmed",
+        "risk_class": "clear",
+        "section": "station_candidates",
+        "source_identity": {
+          "source": "synthetic_fixture",
+          "source_record_hash": "hash-1",
+          "station_name": "Synthetic Port 1",
+          "system_id64": 1001,
+          "system_name": "Synthetic System 1"
+        }
+      }
+    ],
+    "samples_included": 1
+  },
+  "canonical_writes_planned": 0,
+  "confidence_risk_counts": {
+    "risk_class_distribution": {
+      "clear": 1
+    }
+  },
+  "safe_for_git": false,
+  "schema_version": "enrichment_reconciliation_artifact_summary/v1",
+  "source_artifact_basename": "synthetic-reconciliation.json",
+  "source_artifact_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "source_artifact_size_bytes": 1234,
+  "source_coverage_summary_counts": {
+    "entities": {
+      "station": {
+        "candidates": 1
+      }
+    }
+  },
+  "warehouse_coverage_summary_counts": {
+    "summary": {
+      "source_files_considered": 1,
+      "systems_with_station_evidence": 1
+    }
+  }
+}

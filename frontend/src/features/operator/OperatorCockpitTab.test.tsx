@@ -236,6 +236,17 @@ describe('OperatorCockpitTab', () => {
     expect(screen.getByText('Pilot remains blocked until gates stay green.')).toBeTruthy();
   });
 
+  it('auto-loads the selected source run passed from admin handoff state', async () => {
+    sessionStorage.setItem('ed_operator_selected_source_run', 'run-001');
+    arrange();
+
+    await waitFor(() => {
+      expect(apiMock.operatorSourceRunDetail).toHaveBeenCalledWith('test-token', 'run-001');
+    });
+    expect(await screen.findByText('Artifact summary')).toBeTruthy();
+    expect(sessionStorage.getItem('ed_operator_selected_source_run')).toBeNull();
+  });
+
   it('ignores stale detail and diagnostic responses from an earlier selected source run', async () => {
     const detailA = deferred<OperatorSourceRunDetail>();
     const diagnosticsA = deferred<OperatorDiagnosticRowSummary[]>();

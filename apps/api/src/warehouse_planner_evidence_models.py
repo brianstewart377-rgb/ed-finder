@@ -12,6 +12,7 @@ WarehouseEvidenceFreshnessStatus = Literal['fresh', 'stale', 'unknown', 'not_eva
 WarehouseBoundedStagingStatus = Literal['available', 'unavailable', 'not_evaluated']
 WarehouseEvidenceEnvelopeStatus = Literal['available', 'unavailable', 'not_evaluated', 'unknown']
 WarehouseEvidenceSourceClass = Literal['canonical', 'observed_facts', 'bounded_staging', 'derived_report', 'unavailable']
+WarehouseCoverageStatus = Literal['complete', 'partial', 'missing', 'not_applicable', 'unknown']
 WarehouseEvidenceSemantics = Literal[
     'canonical_truth',
     'observed_report',
@@ -70,6 +71,36 @@ class WarehousePlannerEvidenceBoundedStaging(BaseModel):
     summary: str | None = None
 
 
+class WarehousePlannerEvidenceCoverageMetric(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    status: WarehouseCoverageStatus
+    known_count: int | None = None
+    total_count: int | None = None
+    coverage_ratio: float | None = None
+    summary: str
+
+
+class WarehousePlannerEvidenceCoverageFreshness(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    canonical_updated_at: str | None = None
+    observed_updated_at: str | None = None
+    bounded_staging_updated_at: str | None = None
+    status_updated_at: str | None = None
+
+
+class WarehousePlannerEvidenceCoverage(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    body_scan: WarehousePlannerEvidenceCoverageMetric
+    station_links: WarehousePlannerEvidenceCoverageMetric
+    ring_identity: WarehousePlannerEvidenceCoverageMetric
+    source_freshness: WarehousePlannerEvidenceCoverageFreshness
+    thin_data_reasons: list[str]
+    summary: str
+
+
 class WarehousePlannerEvidenceEnvelope(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -94,5 +125,6 @@ class WarehousePlannerEvidenceContract(BaseModel):
     source_run: WarehousePlannerEvidenceSourceRun
     evidence_envelope: WarehousePlannerEvidenceEnvelope
     bounded_staging: WarehousePlannerEvidenceBoundedStaging
+    coverage: WarehousePlannerEvidenceCoverage
     evidence_summary: WarehousePlannerEvidenceSummary
     warnings: list[str]

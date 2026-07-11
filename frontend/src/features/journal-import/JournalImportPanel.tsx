@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { importJournal } from '@/lib/api';
 import type { JournalImportReceipt } from '@/types/api';
+import { useJournalTelemetrySummary } from '@/features/my-work/useJournalTelemetrySummary';
 import { useSyncKeyStore } from '@/store/syncKeyStore';
 import { parseJournalFiles } from './parseJournalFiles';
 import type { JournalImportParseResult } from './types';
@@ -14,6 +15,8 @@ function formatEventCounts(eventCounts: Record<string, number>): string {
 
 export function JournalImportPanel() {
   const syncKey = useSyncKeyStore((state) => state.syncKey);
+  const queryClient = useQueryClient();
+  const telemetryQuery = useJournalTelemetrySummary(syncKey);
   const [files, setFiles] = useState<File[]>([]);
   const [parseResult, setParseResult] = useState<JournalImportParseResult | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -21,6 +24,9 @@ export function JournalImportPanel() {
 
   const importMutation = useMutation({
     mutationFn: importJournal,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['journal-telemetry', syncKey] });
+    },
   });
 
   const selectionLabel = useMemo(() => {
@@ -84,6 +90,33 @@ export function JournalImportPanel() {
       <div className="rounded border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
         Sync key scope: <span className="text-cyan">{syncKey}</span>
       </div>
+
+      {telemetryQuery.isLoading ? (
+        <div className="rounded border border-border/50 bg-bg1/35 px-3 py-2 text-sm text-silver-dk" data-testid="journal-import-telemetry-loading">
+          Loading telemetry snapshot...
+        </div>
+      ) : null}
+
+      {telemetryQuery.data && telemetryQuery.data.runs_count > 0 ? (
+        <div className="rounded-chunk-lg border border-cyan/25 bg-cyan/6 p-3" data-testid="journal-import-telemetry-summary">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+                Personal telemetry snapshot
+              </div>
+              <p className="mt-1 text-sm text-silver">
+                {telemetryQuery.data.runs_count} import{telemetryQuery.data.runs_count === 1 ? '' : 's'} | {telemetryQuery.data.systems_observed} systems observed | {telemetryQuery.data.observations_staged} staged observations
+              </p>
+            </div>
+            <div className="text-right text-sm text-silver-dk">
+              {telemetryQuery.data.last_imported_at ? `Last import ${telemetryQuery.data.last_imported_at}` : 'No completed import timestamp'}
+            </div>
+          </div>
+          <p className="mt-2 text-sm text-silver-dk">
+            Event mix: {formatEventCounts(telemetryQuery.data.event_counts)}
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <label className="btn-metal cursor-pointer text-[11px] font-mono">

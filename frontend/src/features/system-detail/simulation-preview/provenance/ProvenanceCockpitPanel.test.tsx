@@ -114,6 +114,40 @@ function warehouseEvidenceResponse(overrides: Partial<WarehousePlannerEvidenceCo
       latest_source_updated_at: '2026-06-18T00:00:00Z',
       summary: 'Bounded staging evidence is available for this selected system as read-only review context.',
     },
+    coverage: {
+      body_scan: {
+        status: 'partial',
+        known_count: 3,
+        total_count: 5,
+        coverage_ratio: 0.6,
+        summary: '3/5 body scans are currently covered.',
+      },
+      station_links: {
+        status: 'complete',
+        known_count: 2,
+        total_count: 2,
+        coverage_ratio: 1,
+        summary: '2/2 station links are currently covered.',
+      },
+      ring_identity: {
+        status: 'partial',
+        known_count: 1,
+        total_count: 2,
+        coverage_ratio: 0.5,
+        summary: '1/2 ring identities are currently covered.',
+      },
+      source_freshness: {
+        canonical_updated_at: '2026-06-19T00:00:00Z',
+        observed_updated_at: '2026-06-18T09:30:00Z',
+        bounded_staging_updated_at: '2026-06-18T00:00:00Z',
+        status_updated_at: '2026-06-19T01:00:00Z',
+      },
+      thin_data_reasons: [
+        'Body scan coverage is partial: 3/5 body scans are currently covered.',
+        'Ring identity coverage is partial: 1/2 ring identities are currently covered.',
+      ],
+      summary: 'Coverage summary: 3/5 body scans are currently covered. 2/2 station links are currently covered. 1/2 ring identities are currently covered.',
+    },
     evidence_summary: {
       availability: 'report_only',
       report_only: true,

@@ -16,12 +16,17 @@ import type {
   CacheStats,
   DevelopmentRerankRequest,
   DevelopmentRerankResponse,
+  EvidenceSystemSummaryResponse,
   EnrichmentStationStatus,
   EnrichmentWarehouseStatus,
   AdminDataStatus,
+  AdminCronStatus,
+  AdminOperationHistoryResponse,
+  AdminOperationRunResponse,
   FacilityTemplate,
   JournalImportReceipt,
   JournalImportRequest,
+  JournalTelemetrySummaryResponse,
   LayoutImportRequest,
   LayoutImportResponse,
   ListObservedFactsParams,
@@ -84,6 +89,8 @@ const API_BASE = (
   '/api'
 );
 
+const ADMIN_TOKEN_SESSION_KEY = 'ed_admin_token';
+
 function resolveApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   // Allow callers to force an /api-prefixed endpoint without doubling when
@@ -92,6 +99,21 @@ function resolveApiUrl(path: string): string {
     return `${API_BASE}${path.slice(4)}`;
   }
   return `${API_BASE}${path}`;
+}
+
+function readSessionAdminToken(): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function operatorMutationHeaders(): HeadersInit | undefined {
+  const token = readSessionAdminToken().trim();
+  if (!token) return undefined;
+  return { 'X-Admin-Token': token };
 }
 
 export class ApiError extends Error {
@@ -290,6 +312,10 @@ export const api = {
     return jsonFetch(`/colony-planner/system/${id64}/warehouse-planner-evidence`);
   },
 
+  evidenceSystemSummary(id64: number): Promise<EvidenceSystemSummaryResponse> {
+    return jsonFetch(`/evidence/systems/${id64}/summary`);
+  },
+
   importJournal(request: JournalImportRequest): Promise<JournalImportReceipt> {
     return jsonFetch('/journal/import', {
       method: 'POST',
@@ -299,6 +325,10 @@ export const api = {
 
   journalImportReceipt(runKey: string): Promise<JournalImportReceipt> {
     return jsonFetch(`/journal/imports/${encodeURIComponent(runKey)}`);
+  },
+
+  journalTelemetry(syncKey: string): Promise<JournalTelemetrySummaryResponse> {
+    return jsonFetch(`/journal/telemetry/${encodeURIComponent(syncKey)}`);
   },
 
   regionalAnalysis(id64: number): Promise<RegionalAnalysisResponse> {
@@ -412,6 +442,23 @@ export const api = {
       headers: { 'X-Admin-Token': token },
     });
   },
+  adminCronStatus(token: string): Promise<AdminCronStatus> {
+    return jsonFetch('/admin/cron-status', {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  adminRunOperation(token: string, operationKey: string): Promise<AdminOperationRunResponse> {
+    return jsonFetch(`/admin/operations/${encodeURIComponent(operationKey)}`, {
+      method: 'POST',
+      headers: { 'X-Admin-Token': token },
+    });
+  },
+  adminOperationHistory(token: string, limit = 6): Promise<AdminOperationHistoryResponse> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    return jsonFetch(`/admin/operations/history?${params.toString()}`, {
+      headers: { 'X-Admin-Token': token },
+    });
+  },
   operatorSafetyGates(token: string): Promise<OperatorSafetyGateSummary> {
     return jsonFetch('/api/operator/safety-gates', {
       headers: { 'X-Admin-Token': token },
@@ -490,6 +537,7 @@ export const api = {
     return jsonFetch('/observations/facts', {
       method: 'POST',
       body:   JSON.stringify(request),
+      headers: operatorMutationHeaders(),
     });
   },
 
@@ -497,12 +545,14 @@ export const api = {
     return jsonFetch(`/observations/facts/${encodeURIComponent(observationId)}`, {
       method: 'PATCH',
       body:   JSON.stringify(request),
+      headers: operatorMutationHeaders(),
     });
   },
 
   deleteObservedFact(observationId: string): Promise<ObservedFactDeleteResponse> {
     return jsonFetch(`/observations/facts/${encodeURIComponent(observationId)}`, {
       method: 'DELETE',
+      headers: operatorMutationHeaders(),
     });
   },
 
@@ -595,12 +645,20 @@ export function getWarehousePlannerEvidence(id64: number): Promise<WarehousePlan
   return api.warehousePlannerEvidence(id64);
 }
 
+export function getEvidenceSystemSummary(id64: number): Promise<EvidenceSystemSummaryResponse> {
+  return api.evidenceSystemSummary(id64);
+}
+
 export function importJournal(request: JournalImportRequest): Promise<JournalImportReceipt> {
   return api.importJournal(request);
 }
 
 export function getJournalImportReceipt(runKey: string): Promise<JournalImportReceipt> {
   return api.journalImportReceipt(runKey);
+}
+
+export function getJournalTelemetry(syncKey: string): Promise<JournalTelemetrySummaryResponse> {
+  return api.journalTelemetry(syncKey);
 }
 
 export function fetchOptimiserCandidates(request: OptimiserCandidatesRequest): Promise<OptimiserCandidatesResponse> {

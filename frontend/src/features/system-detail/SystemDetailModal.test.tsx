@@ -1,8 +1,9 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SystemArchetypeResponse, SystemDetail } from '@/types/api';
+import type { EvidenceSystemSummaryResponse, SystemArchetypeResponse, SystemDetail } from '@/types/api';
 import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';
+import { useSystemEvidenceSummary } from './useSystemEvidenceSummary';
 import { SystemDetailModal } from './SystemDetailModal';
 
 vi.mock('./RegionalPositionPanel', () => ({
@@ -19,8 +20,13 @@ vi.mock('./useSystemArchetype', () => ({
   useSystemArchetype: vi.fn(),
 }));
 
+vi.mock('./useSystemEvidenceSummary', () => ({
+  useSystemEvidenceSummary: vi.fn(),
+}));
+
 const mockedUseSystemDetail = vi.mocked(useSystemDetail);
 const mockedUseSystemArchetype = vi.mocked(useSystemArchetype);
+const mockedUseSystemEvidenceSummary = vi.mocked(useSystemEvidenceSummary);
 
 const system = {
   id64: 123,
@@ -39,6 +45,7 @@ function mockLoadedSystem(overrides: Partial<SystemDetail> = {}) {
     error: null,
     refetch: vi.fn(),
   });
+  mockLoadedEvidenceSummary();
 }
 
 function mockLoadedArchetype(overrides: Partial<SystemArchetypeResponse> = {}) {
@@ -74,10 +81,32 @@ function mockLoadedArchetype(overrides: Partial<SystemArchetypeResponse> = {}) {
   });
 }
 
+function mockLoadedEvidenceSummary(overrides: Partial<EvidenceSystemSummaryResponse> = {}) {
+  mockedUseSystemEvidenceSummary.mockReturnValue({
+    data: {
+      schema_version: 'evidence_store/v1',
+      system_id64: 123,
+      observed_fact_count: 0,
+      imported_record_count: 0,
+      derived_feature_count: 0,
+      open_rule_proposal_count: 0,
+      focus_areas: [],
+      records: [],
+      derived_features: [],
+      open_rule_proposals: [],
+      ...overrides,
+    } as EvidenceSystemSummaryResponse,
+    loading: false,
+    error: null,
+    refetch: vi.fn(),
+  });
+}
+
 describe('SystemDetailModal Colony Planner entry point', () => {
   afterEach(() => {
     mockedUseSystemDetail.mockReset();
     mockedUseSystemArchetype.mockReset();
+    mockedUseSystemEvidenceSummary.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -314,6 +343,215 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     expect(within(carrierRow).getByText('Fleet Carrier / transient / ignored for colony planning')).toBeTruthy();
   });
 
+  it('surfaces body-data and colonisation freshness cues in system info', () => {
+    mockLoadedSystem({
+      body_data_updated_at: '2026-07-11T09:00:00Z',
+      body_data_sources: ['eddn_scan', 'frontier_journal_scan'],
+      status_updated_at: '2026-07-11T10:15:00Z',
+      status_source: 'eddn',
+    } as Partial<SystemDetail>);
+    mockLoadedArchetype();
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('Body data freshness')).toBeTruthy();
+    expect(screen.getByText(/Frontier Journal/i)).toBeTruthy();
+    expect(screen.getByText('Colonisation state')).toBeTruthy();
+    expect(screen.getAllByText(/EDDN/i).length).toBeGreaterThan(0);
+  });
+
+  it('renders the new evidence panel with active lifecycle-managed records', () => {
+    mockLoadedSystem();
+    mockLoadedArchetype();
+    mockLoadedEvidenceSummary({
+      observed_fact_count: 6,
+      imported_record_count: 2,
+      derived_feature_count: 1,
+      open_rule_proposal_count: 1,
+      focus_areas: [
+        {
+          key: 'colonisation_status',
+          label: 'Colonisation status',
+          posture: 'evidence_linked',
+          summary: 'Colonisation state observed from the live relay.',
+          evidence_type: 'colonisation_status',
+          evidence_key: 'evd_col_status',
+        },
+        {
+          key: 'station_set',
+          label: 'Station set',
+          posture: 'canonical_present',
+          summary: 'Canonical station data currently includes 4 stations for this system.',
+          evidence_type: null,
+          evidence_key: null,
+        },
+      ],
+      records: [
+        {
+          evidence_key: 'evd_col_status',
+          system_id64: 123,
+          source_name: 'eddn',
+          origin: 'imported',
+          subject_type: 'system',
+          subject_id: '123',
+          evidence_type: 'colonisation_status',
+          record_status: 'active',
+          freshness_status: 'current',
+          confidence: 'high',
+          summary: 'Colonisation state observed from the live relay.',
+          source_record_id: null,
+          source_run_key: 'run_eddn_1',
+          observed_at: '2026-07-11T10:15:00Z',
+          collected_at: '2026-07-11T10:15:30Z',
+          expires_at: null,
+          value: { is_colonised: true },
+          provenance: {},
+          tags: [],
+          metadata: {},
+          created_at: '2026-07-11T10:15:30Z',
+          updated_at: '2026-07-11T10:15:30Z',
+        },
+      ],
+      derived_features: [
+        {
+          feature_key: 'feat_station_set',
+          system_id64: 123,
+          feature_name: 'station_set_completeness',
+          feature_version: 'v1',
+          feature_status: 'active',
+          confidence: 'medium',
+          summary: 'Station-set evidence looks complete for the current relay horizon.',
+          derived_from_run_key: 'run_eddn_1',
+          derived_at: '2026-07-11T10:16:00Z',
+          expires_at: null,
+          value: {},
+          evidence_refs: ['evd_col_status'],
+          metadata: {},
+          created_at: '2026-07-11T10:16:00Z',
+          updated_at: '2026-07-11T10:16:00Z',
+        },
+      ],
+      open_rule_proposals: [
+        {
+          proposal_key: 'prop_station_review',
+          proposal_type: 'station_set_review',
+          domain: 'system_detail',
+          scope_type: 'system',
+          scope_key: '123',
+          status: 'pending_review',
+          priority: 'medium',
+          risk_level: 'low',
+          auto_approval_eligible: false,
+          summary: 'Review the current station-set evidence against operator notes.',
+          proposed_by: 'evidence-pipeline',
+          decided_by: null,
+          decision_notes: null,
+          proposed_change: {},
+          evidence_refs: ['evd_col_status'],
+          impact_summary: {},
+          metadata: {},
+          created_at: '2026-07-11T10:17:00Z',
+          updated_at: '2026-07-11T10:17:00Z',
+          decided_at: null,
+        },
+      ],
+    });
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    const evidenceSection = screen.getByTestId('system-detail-evidence-section');
+    expect(screen.getByText('Evidence')).toBeTruthy();
+    expect(evidenceSection).toBeTruthy();
+    expect(screen.getByText('Active evidence linked')).toBeTruthy();
+    expect(screen.getAllByText(/Colonisation state observed from the live relay/i).length).toBeGreaterThan(0);
+    expect(evidenceSection.textContent).toContain('Observed facts: 6');
+    expect(evidenceSection.textContent).toContain('Derived features: 1');
+    expect(evidenceSection.textContent).toContain('Open proposals: 1');
+    expect(screen.getByTestId('system-evidence-focus-colonisation_status').textContent).toContain('Evidence linked');
+    expect(screen.getByTestId('system-evidence-focus-station_set').textContent).toContain('Canonical present');
+    expect(screen.getByText(/Station set completeness/i)).toBeTruthy();
+    expect(screen.getByText(/Review the current station-set evidence against operator notes/i)).toBeTruthy();
+  });
+
+  it('uses canonical fallback focus areas so known system facts do not read as unknown', () => {
+    mockLoadedSystem();
+    mockLoadedArchetype();
+    mockLoadedEvidenceSummary({
+      observed_fact_count: 0,
+      imported_record_count: 0,
+      derived_feature_count: 0,
+      open_rule_proposal_count: 0,
+      focus_areas: [
+        {
+          key: 'body_completeness',
+          label: 'Body coverage',
+          posture: 'canonical_present',
+          summary: 'Canonical body data currently covers 12/15 scanned bodies for this system.',
+          evidence_type: null,
+          evidence_key: null,
+        },
+        {
+          key: 'station_set',
+          label: 'Station set',
+          posture: 'canonical_present',
+          summary: 'Canonical station data currently includes 3 stations for this system.',
+          evidence_type: null,
+          evidence_key: null,
+        },
+      ],
+    });
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('Canonical data linked')).toBeTruthy();
+    expect(screen.getByTestId('system-evidence-focus-body_completeness').textContent).toContain('Canonical present');
+    expect(screen.getByText(/covers 12\/15 scanned bodies/i)).toBeTruthy();
+    expect(screen.queryByText('No evidence linked')).toBeNull();
+  });
+
+  it('shows the compact evidence-unavailable state without hiding canonical system detail', () => {
+    const retryEvidence = vi.fn();
+    mockLoadedSystem();
+    mockLoadedArchetype();
+    mockedUseSystemEvidenceSummary.mockReturnValue({
+      data: null,
+      loading: false,
+      error: 'evidence fetch failed',
+      refetch: retryEvidence,
+    });
+
+    render(
+      <SystemDetailModal
+        id64={123}
+        onClose={() => undefined}
+        onStartPlan={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText(/Evidence detail is unavailable right now/i)).toBeTruthy();
+    expect(screen.getByText('System info')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Retry/i }));
+    expect(retryEvidence).toHaveBeenCalledTimes(1);
+  });
+
   it('shows a friendly disabled planner state when no workspace handler is available', () => {
     mockLoadedSystem();
     mockLoadedArchetype();
@@ -351,6 +589,7 @@ describe('SystemDetailModal Colony Planner entry point', () => {
 
   it('does not expose raw backend errors in the compact System Detail error state', () => {
     mockLoadedArchetype();
+    mockLoadedEvidenceSummary();
     mockedUseSystemDetail.mockReturnValue({
       data: null,
       loading: false,

@@ -89,6 +89,8 @@ def test_stage18h2_backend_builder_returns_conservative_states_without_runtime_f
     assert known_system.evidence_summary.items == []
     assert known_system.freshness.status == 'not_evaluated'
     assert known_system.freshness.evaluated_at is None
+    assert known_system.coverage.summary.startswith('Coverage remains unknown')
+    assert known_system.coverage.body_scan.status == 'unknown'
     assert all('non-live example data' not in warning.lower() for warning in known_system.warnings)
 
     assert fallback.evidence_summary.availability == 'unavailable'
@@ -97,6 +99,7 @@ def test_stage18h2_backend_builder_returns_conservative_states_without_runtime_f
     assert fallback.evidence_summary.items == []
     assert fallback.freshness.status == 'not_evaluated'
     assert fallback.freshness.evaluated_at is None
+    assert fallback.coverage.thin_data_reasons == ['Selected-system coverage has not been evaluated in this runtime yet.']
     assert any('fallback' in warning.lower() for warning in fallback.warnings)
 
 

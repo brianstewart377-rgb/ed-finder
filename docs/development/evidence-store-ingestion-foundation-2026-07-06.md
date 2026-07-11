@@ -1,4 +1,4 @@
-﻿# Evidence Store And Ingestion Foundation
+# Evidence Store And Ingestion Foundation
 
 Date: 2026-07-06
 
@@ -48,6 +48,24 @@ What it did not have was a single place to store:
 - decision audit for proposal review
 
 This MVP fills that gap without disturbing the existing planner evidence contract.
+
+## Layer Contract
+
+The split between `observed_facts` and `evidence_records` is now intentional and should remain explicit:
+
+- `observed_facts`
+  - raw observation log
+  - append-oriented
+  - broad source coverage, including manual/test-fixture and future imported lanes
+  - useful for comparisons, debugging, and low-level traceability
+
+- `evidence_records`
+  - lifecycle-managed explanation layer
+  - one active record per `(system, subject, evidence_type)` contract
+  - supports quarantine, supersession, freshness aging, and player-facing trust surfaces
+  - this is the layer future enrichment decisions and Evidence-panel reads should consume by default
+
+Put differently: `observed_facts` answers "what did we see?", while `evidence_records` answers "what fact are we currently standing behind, and why?"
 
 ## Import Source Priority
 
@@ -115,4 +133,49 @@ Status after this slice:
 - Evidence Store does not auto-apply rule changes.
 - Rule proposals remain review-first.
 - Future low-risk auto-approval should be policy-gated and auditable through `rule_decisions`.
+
+## Retention Posture Before Personal Telemetry
+
+Before journal Lane 2 or any other high-volume personal telemetry lane opens, retention needs to be explicit:
+
+- `observed_facts`
+  - remains the hot raw log, not the forever store
+  - operator/manual/test-fixture observations can stay durable
+  - imported high-volume telemetry should be treated as hot retention with a planned archive/export path, not endless primary-DB growth
+  - future implementation target: monthly partitioning before commander-local telemetry is allowed to scale up
+
+- `evidence_records`
+  - remains the durable trust layer because it stores the curated fact we currently stand behind
+  - active, superseded, and quarantined records stay longer than raw observations because they are the player-facing and operator-facing explanation surface
+  - expired or rejected records can eventually move to colder storage, but only after their source-run provenance and review trail remain reproducible
+
+- `source_runs` and import artifacts
+  - keep compact receipts and provenance records durable
+  - raw import artifacts can use bounded retention once the curated evidence layer and checksums make replay/audit possible
+
+- admission control
+  - every incoming fact still has to do one of three useful things: dedupe to an existing record, replace the currently active record, or land quarantined for later promotion
+  - raw observations that never promote should age out with the hot-log window instead of accumulating forever
+  - large journal syncs should be sharded into bounded batches so one commander import cannot silently create an unreviewable storage spike
+
+Practical policy direction:
+
+1. keep the primary app database optimized for hot observations plus durable curated evidence
+2. push long-tail raw history into partitioned or archived storage, not one ever-growing heap table
+3. preserve enough source-run artifact data to replay or explain any promoted evidence record later
+
+Current operational guardrail:
+
+- use `scripts/checks/telemetry_hot_log_snapshot.py` as the read-only operator snapshot for this posture
+- treat `journal_import_staging` as the first hot-log pressure gauge because A-1 personal telemetry lands there today
+- preferred working thresholds before Lane 2 broadens:
+  - `journal_import_staging`
+    - healthy: mostly inside 30 days
+    - warning: meaningful tail beyond 30 days
+    - action-needed: persistent tail beyond 90 days without an archive/export path
+  - `observed_facts` imported telemetry rows
+    - healthy: bounded hot working set only
+    - action-needed: imported telemetry building a long-lived 90+ day heap without partition or archive
+  - `source_runs`
+    - receipts remain durable, but raw bulky artifacts should not quietly become the forever store
 

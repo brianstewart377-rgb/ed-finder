@@ -165,6 +165,26 @@ class RuleDecision:
 
 
 @dataclass(slots=True)
+class EvidenceSystemFocusArea:
+    key: str
+    label: str
+    posture: str
+    summary: str
+    evidence_type: str | None = None
+    evidence_key: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            'key': self.key,
+            'label': self.label,
+            'posture': self.posture,
+            'summary': self.summary,
+            'evidence_type': self.evidence_type,
+            'evidence_key': self.evidence_key,
+        }
+
+
+@dataclass(slots=True)
 class EvidenceSystemSummary:
     schema_version: str
     system_id64: int
@@ -172,6 +192,7 @@ class EvidenceSystemSummary:
     imported_record_count: int
     derived_feature_count: int
     open_rule_proposal_count: int
+    focus_areas: list[EvidenceSystemFocusArea] = field(default_factory=list)
     records: list[EvidenceRecord] = field(default_factory=list)
     derived_features: list[DerivedFeature] = field(default_factory=list)
     open_rule_proposals: list[RuleProposal] = field(default_factory=list)
@@ -184,6 +205,7 @@ class EvidenceSystemSummary:
             'imported_record_count': self.imported_record_count,
             'derived_feature_count': self.derived_feature_count,
             'open_rule_proposal_count': self.open_rule_proposal_count,
+            'focus_areas': [focus_area.to_dict() for focus_area in self.focus_areas],
             'records': [record.to_dict() for record in self.records],
             'derived_features': [feature.to_dict() for feature in self.derived_features],
             'open_rule_proposals': [proposal.to_dict() for proposal in self.open_rule_proposals],

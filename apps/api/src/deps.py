@@ -25,7 +25,7 @@ from fastapi import HTTPException, Request
 
 from config   import settings
 from state    import (
-    get_pool_singleton, get_redis_singleton, metrics,
+    get_pool_singleton, get_readonly_pool_singleton, get_redis_singleton, metrics,
 )
 
 log = logging.getLogger('ed_finder')
@@ -39,6 +39,13 @@ _CACHE_IO_TIMEOUT_SECONDS = 0.1
 # ── DB / cache providers for Depends() ──────────────────────────────────
 async def get_pool() -> asyncpg.Pool:
     pool = get_pool_singleton()
+    if pool is None:
+        raise HTTPException(503, 'Database pool not initialised')
+    return pool
+
+
+async def get_readonly_pool() -> asyncpg.Pool:
+    pool = get_readonly_pool_singleton() or get_pool_singleton()
     if pool is None:
         raise HTTPException(503, 'Database pool not initialised')
     return pool

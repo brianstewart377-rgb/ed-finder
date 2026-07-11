@@ -25,6 +25,8 @@ set -uo pipefail
 TASK="${1:-nightly}"
 LOG_FILE="${LOG_FILE:-/data/logs/maintenance.log}"
 DB_URL="${DATABASE_URL:?DATABASE_URL must be set}"
+EVIDENCE_RECORD_RETENTION_DAYS="${EVIDENCE_RECORD_RETENTION_DAYS:-90}"
+ADMIN_JOB_RUN_RETENTION_DAYS="${ADMIN_JOB_RUN_RETENTION_DAYS:-60}"
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -57,6 +59,90 @@ case "$TASK" in
         run_step "ANALYZE bodies"    "ANALYZE bodies;"
         run_step "ANALYZE ratings"   "ANALYZE ratings;"
         run_step "ANALYZE stations"  "ANALYZE stations;"
+        run_step "expire evidence by explicit expires_at" "$(cat <<'SQL'
+WITH updated AS (
+    UPDATE evidence_records
+       SET freshness_status = 'expired',
+           updated_at = NOW()
+     WHERE record_status = 'active'
+       AND freshness_status <> 'expired'
+       AND expires_at IS NOT NULL
+       AND expires_at <= NOW()
+    RETURNING 1
+)
+SELECT COUNT(*)::int AS expired_by_expires_at FROM updated;
+SQL
+)"
+        run_step "expire aged evidence by policy" "$(cat <<'SQL'
+WITH policies(evidence_type, stale_days, expired_days) AS (
+    VALUES
+        ('body_completeness', 90, 365),
+        ('body_scan', 90, 365),
+        ('body_signal_scan', 30, 180),
+        ('colonisation_status', 3, 14),
+        ('operator_note', 30, 180),
+        ('ring_composition', 90, 365),
+        ('service_snapshot', 7, 30),
+        ('station_set', 7, 30)
+),
+policy_rows AS (
+    SELECT
+        er.evidence_key,
+        COALESCE(p.expired_days, 180) AS expired_days
+    FROM evidence_records er
+    LEFT JOIN policies p
+      ON p.evidence_type = er.evidence_type
+    WHERE er.record_status = 'active'
+),
+updated AS (
+    UPDATE evidence_records er
+       SET freshness_status = 'expired',
+           updated_at = NOW()
+      FROM policy_rows pr
+     WHERE er.evidence_key = pr.evidence_key
+       AND er.freshness_status = ANY(ARRAY['current', 'stale', 'unknown'])
+       AND COALESCE(er.observed_at, er.collected_at, er.created_at)
+           <= NOW() - make_interval(days => pr.expired_days)
+    RETURNING 1
+)
+SELECT COUNT(*)::int AS expired_by_age FROM updated;
+SQL
+)"
+        run_step "mark stale evidence by policy" "$(cat <<'SQL'
+WITH policies(evidence_type, stale_days, expired_days) AS (
+    VALUES
+        ('body_completeness', 90, 365),
+        ('body_scan', 90, 365),
+        ('body_signal_scan', 30, 180),
+        ('colonisation_status', 3, 14),
+        ('operator_note', 30, 180),
+        ('ring_composition', 90, 365),
+        ('service_snapshot', 7, 30),
+        ('station_set', 7, 30)
+),
+policy_rows AS (
+    SELECT
+        er.evidence_key,
+        COALESCE(p.stale_days, 30) AS stale_days
+    FROM evidence_records er
+    LEFT JOIN policies p
+      ON p.evidence_type = er.evidence_type
+    WHERE er.record_status = 'active'
+),
+updated AS (
+    UPDATE evidence_records er
+       SET freshness_status = 'stale',
+           updated_at = NOW()
+      FROM policy_rows pr
+     WHERE er.evidence_key = pr.evidence_key
+       AND er.freshness_status = ANY(ARRAY['current', 'unknown'])
+       AND COALESCE(er.observed_at, er.collected_at, er.created_at)
+           <= NOW() - make_interval(days => pr.stale_days)
+    RETURNING 1
+)
+SELECT COUNT(*)::int AS stale_by_age FROM updated;
+SQL
+)"
         # Refresh map materialised views — concurrently when supported,
         # falls back to plain refresh on first build.
         run_step "refresh_map_mviews()"  "SELECT * FROM refresh_map_mviews(FALSE);"
@@ -83,6 +169,44 @@ case "$TASK" in
         run_step "VACUUM ANALYZE systems" "VACUUM (ANALYZE) systems;"
         run_step "VACUUM ANALYZE bodies"  "VACUUM (ANALYZE) bodies;"
         run_step "VACUUM ANALYZE ratings" "VACUUM (ANALYZE) ratings;"
+        run_step "prune retained evidence history" "$(cat <<SQL
+WITH ranked AS (
+    SELECT
+        evidence_key,
+        ROW_NUMBER() OVER (
+            PARTITION BY system_id64, subject_type, COALESCE(subject_id, ''), evidence_type
+            ORDER BY COALESCE(observed_at, collected_at, created_at) DESC, evidence_key DESC
+        ) AS archive_rank,
+        COALESCE(observed_at, collected_at, created_at, updated_at) AS record_time
+    FROM evidence_records
+    WHERE record_status = 'superseded'
+       OR (
+            record_status = 'active'
+        AND freshness_status = 'expired'
+       )
+       OR record_status = 'archived'
+),
+deleted AS (
+    DELETE FROM evidence_records er
+    USING ranked r
+    WHERE er.evidence_key = r.evidence_key
+      AND r.archive_rank > 1
+      AND r.record_time < NOW() - make_interval(days => ${EVIDENCE_RECORD_RETENTION_DAYS}::int)
+    RETURNING 1
+)
+SELECT COUNT(*)::int AS retained_history_rows_deleted FROM deleted;
+SQL
+)"
+        run_step "prune admin job history" "$(cat <<SQL
+WITH deleted AS (
+    DELETE FROM admin_job_runs
+    WHERE status IN ('completed', 'failed')
+      AND COALESCE(finished_at, started_at) < NOW() - make_interval(days => ${ADMIN_JOB_RUN_RETENTION_DAYS}::int)
+    RETURNING 1
+)
+SELECT COUNT(*)::int AS admin_job_rows_deleted FROM deleted;
+SQL
+)"
         echo "===== Weekly maintenance complete ====="
         ;;
     smoke)

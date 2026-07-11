@@ -40,4 +40,38 @@ describe('provenance cockpit API helpers', () => {
     expect(['GET', undefined]).toContain(calls[0][1]?.method);
     expect(String(calls[0][1]?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
   });
+
+  it('call the system evidence summary endpoint with a GET/read-only request only', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({}),
+    } as Response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.evidenceSystemSummary(12866676218109);
+
+    const calls = fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit | undefined]>;
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][0])).toBe('/api/evidence/systems/12866676218109/summary');
+    expect(['GET', undefined]).toContain(calls[0][1]?.method);
+    expect(String(calls[0][1]?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
+  });
+
+  it('call the journal telemetry summary endpoint with a GET/read-only request only', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => ({
+      ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: async () => ({}),
+    } as Response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await api.journalTelemetry('sync-key-1234567890');
+
+    const calls = fetchMock.mock.calls as Array<[RequestInfo | URL, RequestInit | undefined]>;
+    expect(calls).toHaveLength(1);
+    expect(String(calls[0][0])).toBe('/api/journal/telemetry/sync-key-1234567890');
+    expect(['GET', undefined]).toContain(calls[0][1]?.method);
+    expect(String(calls[0][1]?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
+  });
 });
