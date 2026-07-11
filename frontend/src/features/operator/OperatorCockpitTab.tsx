@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import type { UseAdmin } from '@/features/admin/useAdmin';
+import { readSelectedOperatorSourceRun, writeSelectedOperatorSourceRun } from './operatorSelection';
 import type {
   OperatorDiagnosticRowSummary,
   OperatorSafetyGateSummary,
@@ -28,6 +29,7 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
   const [detail, setDetail] = useState<OperatorSourceRunDetail | null>(null);
   const [detailState, setDetailState] = useState<LoadState>('idle');
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [pendingSourceRunKey, setPendingSourceRunKey] = useState<string | null>(() => readSelectedOperatorSourceRun());
   const cockpitRequestSeq = useRef(0);
   const detailRequestSeq = useRef(0);
 
@@ -85,6 +87,8 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
 
   const selectSourceRun = useCallback(async (sourceRunKey: string) => {
     if (!admin.token) return;
+    writeSelectedOperatorSourceRun(sourceRunKey);
+    setPendingSourceRunKey(null);
     cockpitRequestSeq.current += 1;
     const requestSeq = detailRequestSeq.current + 1;
     detailRequestSeq.current = requestSeq;
@@ -109,6 +113,15 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
       setDetailError(caught instanceof Error ? caught.message : String(caught));
     }
   }, [admin.token]);
+
+  useEffect(() => {
+    if (!pendingSourceRunKey || !admin.token || loadState !== 'ok') return;
+    const matchingRun = sourceRuns.find((run) => run.source_run_key === pendingSourceRunKey);
+    if (!matchingRun) return;
+    void selectSourceRun(matchingRun.source_run_key);
+    writeSelectedOperatorSourceRun(null);
+    setPendingSourceRunKey(null);
+  }, [admin.token, loadState, pendingSourceRunKey, selectSourceRun, sourceRuns]);
 
   return (
     <section data-testid="operator-cockpit" className="space-y-5">

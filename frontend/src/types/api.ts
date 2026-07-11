@@ -74,6 +74,10 @@ export type SystemDetail          = Schemas['SystemDetailRow'] & {
   purity_score?: number | null;
   contamination_risk?: number | null;
   est_total_slots?: number | null;
+  body_data_updated_at?: string | null;
+  body_data_sources?: string[] | null;
+  status_updated_at?: string | null;
+  status_source?: string | null;
 };
 export type SystemDetailResponse  = Schemas['SystemDetailResponse'];
 export type AppStatus             = Schemas['StatusResponse'];
@@ -140,6 +144,38 @@ export interface JournalImportReceipt {
   finished_at?: string | null;
   files: JournalImportFileRef[];
   summary: JournalImportSummary;
+}
+
+export interface JournalTelemetryRecentRun {
+  run_key: string;
+  status: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  observations_staged: number;
+  duplicates_skipped: number;
+  event_counts: Record<string, number>;
+}
+
+export interface JournalTelemetryRecentSystem {
+  system_id64: number;
+  system_name: string;
+  last_observed_at?: string | null;
+  event_count: number;
+  event_types: string[];
+}
+
+export interface JournalTelemetrySummaryResponse {
+  sync_key: string;
+  runs_count: number;
+  last_imported_at?: string | null;
+  observations_staged: number;
+  duplicates_skipped: number;
+  systems_observed: number;
+  body_observation_count: number;
+  docked_observation_count: number;
+  event_counts: Record<string, number>;
+  recent_runs: JournalTelemetryRecentRun[];
+  recent_systems: JournalTelemetryRecentSystem[];
 }
 
 export interface EnrichmentStatusArtifact {
@@ -338,6 +374,78 @@ export interface AdminDataStatus {
   };
 }
 
+export interface AdminCronJobState {
+  status: string;
+  start_time: string | null;
+  end_time: string | null;
+  exit_code: number | null;
+  error: string | null;
+  dirty_before?: number | null;
+  cleared?: number | null;
+}
+
+export interface AdminCronRecentSource {
+  source_name: string | null;
+  domain: string | null;
+  trigger_context: string | null;
+  status: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  rows_read: number;
+  rows_staged: number;
+}
+
+export interface AdminCronStatus {
+  schema_version: 'admin_cron_status/v1';
+  read_only: boolean;
+  last_nightly_update: string;
+  scheduled_source_runs: {
+    runs_last_24h: number;
+    failed_runs_last_24h: number;
+    latest_started_at: string | null;
+    latest_finished_at: string | null;
+    recent_sources: AdminCronRecentSource[];
+  };
+  ratings_backlog: {
+    dirty_systems: number;
+    oldest_dirty_updated_at: string | null;
+    newest_dirty_updated_at: string | null;
+  };
+  jobs: {
+    cluster_rebuild: AdminCronJobState | null;
+    ratings_rebuild: AdminCronJobState | null;
+  };
+}
+
+export interface AdminOperationRunResponse {
+  ok: boolean;
+  message: string;
+  operation_key: string;
+  job_run_id: number;
+  status: string;
+  exit_code: number | null;
+  output_text: string;
+}
+
+export interface AdminOperationHistoryEntry {
+  job_run_id: number;
+  job_key: string;
+  operation_key?: string | null;
+  script_name?: string | null;
+  status: string;
+  started_at: string | null;
+  finished_at: string | null;
+  exit_code: number | null;
+  error_text?: string | null;
+  output_text?: string | null;
+}
+
+export interface AdminOperationHistoryResponse {
+  schema_version: 'admin_operation_history/v1';
+  read_only: boolean;
+  operations: AdminOperationHistoryEntry[];
+}
+
 export interface OperatorSourceRunSummary {
   source_run_key: string;
   source_name: string | null;
@@ -448,6 +556,94 @@ export interface OperatorSafetyGateSummary {
   notes: string[];
 }
 
+export interface EvidenceRecord {
+  evidence_key: string;
+  system_id64: number;
+  source_name: string;
+  origin: string;
+  subject_type: string;
+  subject_id?: string | null;
+  evidence_type: string;
+  record_status: string;
+  freshness_status: string;
+  confidence: string;
+  summary?: string | null;
+  source_record_id?: string | null;
+  source_run_key?: string | null;
+  observed_at?: string | null;
+  collected_at?: string | null;
+  expires_at?: string | null;
+  value: Record<string, unknown>;
+  provenance: Record<string, unknown>;
+  tags: string[];
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface DerivedFeature {
+  feature_key: string;
+  system_id64: number;
+  feature_name: string;
+  feature_version: string;
+  feature_status: string;
+  confidence: string;
+  summary?: string | null;
+  derived_from_run_key?: string | null;
+  derived_at?: string | null;
+  expires_at?: string | null;
+  value: Record<string, unknown>;
+  evidence_refs: string[];
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface RuleProposal {
+  proposal_key: string;
+  proposal_type: string;
+  domain: string;
+  scope_type: string;
+  scope_key: string;
+  status: string;
+  priority: string;
+  risk_level: string;
+  auto_approval_eligible: boolean;
+  summary: string;
+  proposed_by: string;
+  decided_by?: string | null;
+  decision_notes?: string | null;
+  proposed_change: Record<string, unknown>;
+  evidence_refs: string[];
+  impact_summary: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  decided_at?: string | null;
+}
+
+export interface EvidenceSystemFocusArea {
+  key: string;
+  label: string;
+  posture: 'evidence_linked' | 'canonical_present' | 'observed_only' | 'missing' | string;
+  summary: string;
+  evidence_type?: string | null;
+  evidence_key?: string | null;
+}
+
+export interface EvidenceSystemSummaryResponse {
+  schema_version: 'evidence_store/v1' | string;
+  system_id64: number;
+  observed_fact_count: number;
+  imported_record_count: number;
+  derived_feature_count: number;
+  open_rule_proposal_count: number;
+  focus_areas: EvidenceSystemFocusArea[];
+  records: EvidenceRecord[];
+  derived_features: DerivedFeature[];
+  open_rule_proposals: RuleProposal[];
+}
+
 
 // ─── Stage 18H Warehouse-to-Planner Evidence Bridge (read-only) ───────────
 //
@@ -518,6 +714,13 @@ export type WarehouseEvidenceSemantic =
   | 'report_only_review_context'
   | 'not_full_coverage';
 
+export type WarehouseCoverageStatus =
+  | 'complete'
+  | 'partial'
+  | 'missing'
+  | 'not_applicable'
+  | 'unknown';
+
 export interface PlannerWarehouseBoundedStaging {
   status: WarehouseBoundedStagingStatus;
   reportOnly: true;
@@ -532,6 +735,30 @@ export interface PlannerWarehouseBoundedStaging {
   matchedRowCount?: number | null;
   latestSourceUpdatedAt?: string | null;
   summary?: string | null;
+}
+
+export interface PlannerWarehouseCoverageMetric {
+  status: WarehouseCoverageStatus;
+  knownCount?: number | null;
+  totalCount?: number | null;
+  coverageRatio?: number | null;
+  summary: string;
+}
+
+export interface PlannerWarehouseCoverageFreshness {
+  canonicalUpdatedAt?: string | null;
+  observedUpdatedAt?: string | null;
+  boundedStagingUpdatedAt?: string | null;
+  statusUpdatedAt?: string | null;
+}
+
+export interface PlannerWarehouseCoverage {
+  bodyScan: PlannerWarehouseCoverageMetric;
+  stationLinks: PlannerWarehouseCoverageMetric;
+  ringIdentity: PlannerWarehouseCoverageMetric;
+  sourceFreshness: PlannerWarehouseCoverageFreshness;
+  thinDataReasons: string[];
+  summary: string;
 }
 
 export interface PlannerWarehouseEvidenceEnvelope {
@@ -563,6 +790,7 @@ export interface PlannerWarehouseEvidence {
   sourcePosture?: 'dedicated_contract' | 'provenance_bridge' | 'unknown';
   evidenceEnvelope?: PlannerWarehouseEvidenceEnvelope;
   boundedStaging?: PlannerWarehouseBoundedStaging;
+  coverage?: PlannerWarehouseCoverage | null;
   warnings?: string[];
 }
 
@@ -610,6 +838,30 @@ export interface WarehousePlannerEvidenceEnvelopeContract {
   summary: string;
 }
 
+export interface WarehousePlannerEvidenceCoverageMetricContract {
+  status: WarehouseCoverageStatus;
+  known_count?: number | null;
+  total_count?: number | null;
+  coverage_ratio?: number | null;
+  summary: string;
+}
+
+export interface WarehousePlannerEvidenceCoverageFreshnessContract {
+  canonical_updated_at?: string | null;
+  observed_updated_at?: string | null;
+  bounded_staging_updated_at?: string | null;
+  status_updated_at?: string | null;
+}
+
+export interface WarehousePlannerEvidenceCoverageContract {
+  body_scan: WarehousePlannerEvidenceCoverageMetricContract;
+  station_links: WarehousePlannerEvidenceCoverageMetricContract;
+  ring_identity: WarehousePlannerEvidenceCoverageMetricContract;
+  source_freshness: WarehousePlannerEvidenceCoverageFreshnessContract;
+  thin_data_reasons: string[];
+  summary: string;
+}
+
 export interface WarehousePlannerEvidenceContract {
   schema_version: 'warehouse_planner_evidence/v1';
   system_id64: number;
@@ -618,6 +870,7 @@ export interface WarehousePlannerEvidenceContract {
   source_run: WarehousePlannerEvidenceSourceRun;
   evidence_envelope: WarehousePlannerEvidenceEnvelopeContract;
   bounded_staging: WarehousePlannerEvidenceBoundedStagingContract;
+  coverage: WarehousePlannerEvidenceCoverageContract;
   evidence_summary: {
     availability: WarehouseEvidenceAvailability;
     report_only: true;

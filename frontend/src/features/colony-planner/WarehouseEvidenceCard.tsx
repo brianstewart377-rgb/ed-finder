@@ -1,10 +1,12 @@
 import type {
   PlannerWarehouseBoundedStaging,
+  PlannerWarehouseCoverageMetric,
   PlannerWarehouseEvidence,
   WarehouseEvidenceEnvelopeStatus,
   WarehouseEvidenceLabel,
   WarehouseEvidenceSemantic,
   WarehouseEvidenceSourceClass,
+  WarehouseCoverageStatus,
   WarehouseBoundedStagingStatus,
   WarehousePlannerEvidenceFreshnessStatus,
   WarehouseEvidenceSource,
@@ -99,6 +101,14 @@ const SEMANTIC_LABEL: Record<WarehouseEvidenceSemantic, string> = {
   not_full_coverage: 'Not full EDSM coverage',
 };
 
+const COVERAGE_STATUS_LABEL: Record<WarehouseCoverageStatus, string> = {
+  complete: 'Complete',
+  partial: 'Partial',
+  missing: 'Missing',
+  not_applicable: 'Not applicable',
+  unknown: 'Unknown',
+};
+
 export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) {
   const isUnavailable =
     !evidence ||
@@ -124,6 +134,7 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
     boundedStagingOnly: true,
   };
   const warnings = evidence?.warnings ?? [];
+  const coverage = evidence?.coverage ?? null;
   const posture = evidencePostureContent(evidenceEnvelope.status, {
     freshnessStatus: freshness,
     manualReviewRequired: evidence?.manualReviewRequired,
@@ -236,6 +247,9 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
                 ))}
               </div>
             </section>
+            {coverage ? (
+              <CoverageDetail coverage={coverage} />
+            ) : null}
             {warnings.length > 0 ? (
               <ul
                 data-testid="warehouse-evidence-warnings"
@@ -417,6 +431,10 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
                 </div>
               ) : null}
             </section>
+
+            {coverage ? (
+              <CoverageDetail coverage={coverage} />
+            ) : null}
           </>
         )}
       />
@@ -455,6 +473,95 @@ export function WarehouseEvidenceCard({ evidence }: WarehouseEvidenceCardProps) 
         </ul>
       ) : null}
     </aside>
+  );
+}
+
+function CoverageDetail({ coverage }: { coverage: NonNullable<PlannerWarehouseEvidence['coverage']> }) {
+  return (
+    <section
+      data-testid="warehouse-evidence-coverage-summary"
+      className="space-y-2"
+    >
+      <h3 className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver">
+        Coverage map
+      </h3>
+      <p>{coverage.summary}</p>
+      <div className="grid gap-2 md:grid-cols-3">
+        <CoverageMetricCard
+          testId="warehouse-evidence-coverage-body-scan"
+          label="Body scan coverage"
+          metric={coverage.bodyScan}
+        />
+        <CoverageMetricCard
+          testId="warehouse-evidence-coverage-station-links"
+          label="Station-link coverage"
+          metric={coverage.stationLinks}
+        />
+        <CoverageMetricCard
+          testId="warehouse-evidence-coverage-ring-identity"
+          label="Ring identity coverage"
+          metric={coverage.ringIdentity}
+        />
+      </div>
+      {coverage.thinDataReasons.length > 0 ? (
+        <ul
+          data-testid="warehouse-evidence-thin-data-reasons"
+          className="space-y-1 rounded border border-border bg-bg1/60 p-3"
+        >
+          {coverage.thinDataReasons.map((reason, index) => (
+            <li key={`${reason}-${index}`}>{reason}</li>
+          ))}
+        </ul>
+      ) : null}
+      <p
+        data-testid="warehouse-evidence-source-freshness"
+        className="text-text-dim"
+      >
+        Source freshness:{' '}
+        {[
+          coverage.sourceFreshness.canonicalUpdatedAt ? `canonical ${coverage.sourceFreshness.canonicalUpdatedAt}` : null,
+          coverage.sourceFreshness.observedUpdatedAt ? `observed ${coverage.sourceFreshness.observedUpdatedAt}` : null,
+          coverage.sourceFreshness.boundedStagingUpdatedAt ? `bounded staging ${coverage.sourceFreshness.boundedStagingUpdatedAt}` : null,
+          coverage.sourceFreshness.statusUpdatedAt ? `status ${coverage.sourceFreshness.statusUpdatedAt}` : null,
+        ].filter(Boolean).join(' · ') || 'unknown'}
+      </p>
+    </section>
+  );
+}
+
+function CoverageMetricCard({
+  label,
+  metric,
+  testId,
+}: {
+  label: string;
+  metric: PlannerWarehouseCoverageMetric;
+  testId: string;
+}) {
+  const ratio = typeof metric.coverageRatio === 'number'
+    ? `${Math.round(metric.coverageRatio * 100)}%`
+    : 'n/a';
+
+  return (
+    <article
+      data-testid={testId}
+      className="rounded border border-border bg-bg1/60 p-3 space-y-2"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span>{label}</span>
+        <SemanticStatusBadge
+          label={COVERAGE_STATUS_LABEL[metric.status]}
+          tone={coverageTone(metric.status)}
+        />
+      </div>
+      <p className="text-silver">{metric.summary}</p>
+      <p className="text-text-dim">
+        Coverage ratio: {ratio}
+        {metric.knownCount != null || metric.totalCount != null
+          ? ` (${metric.knownCount ?? '?'} / ${metric.totalCount ?? '?'})`
+          : ''}
+      </p>
+    </article>
   );
 }
 
@@ -503,4 +610,11 @@ function findingTone(label: WarehouseEvidenceLabel) {
   if (label === 'blocked') return 'blocked';
   if (label === 'unknown' || label === 'unresolved') return 'unknown';
   return 'report_only';
+}
+
+function coverageTone(status: WarehouseCoverageStatus) {
+  if (status === 'complete' || status === 'not_applicable') return 'canonical';
+  if (status === 'partial') return 'caution';
+  if (status === 'missing') return 'blocked';
+  return 'unknown';
 }

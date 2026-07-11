@@ -58,10 +58,35 @@ async def get_system(
                 r.neutron_count, r.black_hole_count, r.white_dwarf_count,
                 r.score_breakdown,
                 r.terraforming_potential, r.body_diversity,
-                r.confidence, r.rationale, r.rating_version
+                r.confidence, r.rationale, r.rating_version,
+                body_fresh.body_data_updated_at,
+                body_fresh.body_data_sources,
+                COALESCE(s.eddn_updated_at, s.updated_at) AS status_updated_at,
+                CASE
+                    WHEN s.eddn_updated_at IS NOT NULL THEN 'eddn'
+                    WHEN s.updated_at IS NOT NULL THEN 'canonical'
+                    ELSE NULL
+                END AS status_source
             FROM systems s
             LEFT JOIN mv_archetype_rankings m ON m.id64 = s.id64
             LEFT JOIN ratings r ON r.system_id64 = s.id64
+            LEFT JOIN LATERAL (
+                SELECT
+                    MAX(sf.updated_at) AS body_data_updated_at,
+                    ARRAY(
+                        SELECT DISTINCT src.source
+                        FROM (
+                            SELECT unnest(COALESCE(sf2.data_sources, ARRAY[]::text[])) AS source
+                              FROM body_scan_facts sf2
+                             WHERE sf2.system_address = s.id64
+                        ) src
+                        WHERE src.source IS NOT NULL
+                          AND src.source <> ''
+                        ORDER BY src.source
+                    ) AS body_data_sources
+                FROM body_scan_facts sf
+                WHERE sf.system_address = s.id64
+            ) body_fresh ON TRUE
             WHERE s.id64 = $1
         """, id64)
 

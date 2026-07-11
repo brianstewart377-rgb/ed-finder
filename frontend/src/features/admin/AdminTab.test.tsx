@@ -1,5 +1,6 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AdminOperationHistoryEntry } from '@/types/api';
 import type { UseAdmin } from './useAdmin';
 import { AdminTab } from './AdminTab';
 
@@ -27,18 +28,32 @@ function admin(overrides: Partial<UseAdmin> = {}): UseAdmin {
     cache: null,
     enrichmentStatus: null,
     warehouseStatus: null,
+    cronStatus: null,
     metaLoading: false,
     metaError: null,
     enrichmentLoading: false,
     enrichmentError: null,
     warehouseLoading: false,
     warehouseError: null,
+    cronStatusLoading: false,
+    cronStatusError: null,
+    importSafetyGates: null,
+    importSourceRuns: [],
+    operationHistory: [],
     refresh: vi.fn(),
+    importDashboardLoading: false,
+    importDashboardError: null,
+    operationHistoryLoading: false,
+    operationHistoryError: null,
+    lastOperationResult: null,
     actionState: { kind: 'idle' },
     clearCache: vi.fn(),
     rebuildClusters: vi.fn(),
     rebuildRatings: vi.fn(),
+    runTelemetryHotLogSnapshot: vi.fn(),
+    runDataInvariants: vi.fn(),
     resetActionState: vi.fn(),
+    clearLastOperationResult: vi.fn(),
     ...overrides,
     dataStatus: overrides.dataStatus ?? null,
     dataStatusLoading: overrides.dataStatusLoading ?? false,
@@ -52,8 +67,310 @@ describe('AdminTab enrichment status', () => {
   it('keeps enrichment status behind the admin token state', () => {
     render(<AdminTab admin={admin()} />);
 
-    expect(screen.getByText('3. Enrichment status')).toBeTruthy();
+    expect(screen.getByText('5. Enrichment status')).toBeTruthy();
     expect(screen.getByText(/Set an admin token to view read-only enrichment status/i)).toBeTruthy();
+  });
+
+  it('keeps scheduler status behind the admin token state', () => {
+    render(<AdminTab admin={admin()} />);
+
+    expect(screen.getByText('4. Scheduler status')).toBeTruthy();
+    expect(screen.getByText(/Set an admin token to view scheduler and cron recency/i)).toBeTruthy();
+  });
+
+  it('renders scheduler and cron recency details', () => {
+    render(
+      <AdminTab
+        admin={admin({
+          token: 'token',
+          hasToken: true,
+          cronStatus: {
+            schema_version: 'admin_cron_status/v1',
+            read_only: true,
+            last_nightly_update: '2026-07-11T01:30:00Z',
+            scheduled_source_runs: {
+              runs_last_24h: 4,
+              failed_runs_last_24h: 1,
+              latest_started_at: '2026-07-11T02:00:00Z',
+              latest_finished_at: '2026-07-11T02:05:00Z',
+              recent_sources: [
+                {
+                  source_name: 'spansh_import',
+                  domain: 'canonical',
+                  trigger_context: 'scheduled_nightly',
+                  status: 'succeeded',
+                  started_at: '2026-07-11T02:00:00Z',
+                  finished_at: '2026-07-11T02:05:00Z',
+                  rows_read: 900,
+                  rows_staged: 850,
+                },
+              ],
+            },
+            ratings_backlog: {
+              dirty_systems: 12,
+              oldest_dirty_updated_at: '2026-07-10T23:30:00Z',
+              newest_dirty_updated_at: '2026-07-11T02:15:00Z',
+            },
+            jobs: {
+              cluster_rebuild: {
+                status: 'completed',
+                start_time: '2026-07-11T02:10:00Z',
+                end_time: '2026-07-11T02:12:00Z',
+                exit_code: 0,
+                error: null,
+              },
+              ratings_rebuild: {
+                status: 'completed',
+                start_time: '2026-07-11T02:15:00Z',
+                end_time: '2026-07-11T02:16:00Z',
+                exit_code: 0,
+                error: null,
+                dirty_before: 12,
+                cleared: 12,
+              },
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-cron-status').textContent).toContain('Scheduled runs (24h)');
+    expect(screen.getByTestId('admin-cron-status').textContent).toContain('Dirty ratings backlog');
+    expect(screen.getByText(/Cluster rebuild/i)).toBeTruthy();
+    expect(screen.getByText(/Ratings rebuild/i)).toBeTruthy();
+    expect(screen.getByText(/spansh_import \(canonical\)/i)).toBeTruthy();
+    expect(screen.getByText(/900 read \| 850 staged/i)).toBeTruthy();
+  });
+
+  it('keeps the import dashboard behind the admin token state', () => {
+    render(<AdminTab admin={admin()} />);
+
+    expect(screen.getByText('3. Import dashboard')).toBeTruthy();
+    expect(screen.getByText(/Set an admin token to view import runs, safety posture, and recent ingest health/i)).toBeTruthy();
+  });
+
+  it('shows approved operations inside the admin actions panel', () => {
+    render(<AdminTab admin={admin()} />);
+
+    expect(screen.getByText('8. Actions & operations')).toBeTruthy();
+    expect(screen.getByText(/Telemetry hot-log snapshot/i)).toBeTruthy();
+    expect(screen.getByText(/Data invariants/i)).toBeTruthy();
+  });
+
+  it('renders the latest admin operation output in the admin panel', () => {
+    render(
+      <AdminTab
+        admin={admin({
+          token: 'token',
+          hasToken: true,
+          lastOperationResult: {
+            what: 'telemetryHotLogSnapshot',
+            status: 'completed',
+            exitCode: 0,
+            jobRunId: 77,
+            outputText: 'ED-Finder telemetry hot-log snapshot\njournal_import_staging:\n  total_rows: 26',
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-operation-output').textContent).toContain('job #77');
+    expect(screen.getByTestId('admin-operation-output').textContent).toContain('ED-Finder telemetry hot-log snapshot');
+    expect(screen.getByTestId('admin-operation-output').textContent).toContain('journal_import_staging');
+  });
+
+  it('renders persisted admin operation history with captured output', () => {
+    const history: AdminOperationHistoryEntry[] = [
+      {
+        job_run_id: 91,
+        job_key: 'telemetry_hot_log_snapshot',
+        operation_key: 'telemetry_hot_log_snapshot',
+        script_name: 'telemetry_hot_log_snapshot.py',
+        status: 'completed',
+        started_at: '2026-07-11T12:30:00Z',
+        finished_at: '2026-07-11T12:30:04Z',
+        exit_code: 0,
+        error_text: null,
+        output_text: 'ED-Finder telemetry hot-log snapshot\njournal_import_staging:\n  total_rows: 26',
+      },
+    ];
+
+    render(
+      <AdminTab
+        admin={admin({
+          token: 'token',
+          hasToken: true,
+          operationHistory: history,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-operation-history').textContent).toContain('Recent persisted operation history');
+    expect(screen.getByTestId('admin-operation-history-91').textContent).toContain('telemetry_hot_log_snapshot');
+    expect(screen.getByTestId('admin-operation-history-91').textContent).toContain('telemetry_hot_log_snapshot.py');
+    expect(screen.getByTestId('admin-operation-history-91').textContent).toContain('journal_import_staging');
+  });
+
+  it('renders recent import status in the admin dashboard', () => {
+    render(
+      <AdminTab
+        admin={admin({
+          token: 'token',
+          hasToken: true,
+          importSafetyGates: {
+            no_running_source_runs: true,
+            latest_artifacts_present: true,
+            bridge_fk_path_verified: true,
+            diagnostic_rows_isolated: true,
+            no_failed_unrecovered_source_runs: false,
+            scheduler_assumed_disabled: true,
+            canonical_apply_assumed_disabled: true,
+            safe_to_proceed: false,
+            blockers: ['A failed run needs review before proceeding.'],
+            latest_source_run_key: 'run_frontier_002',
+            notes: [],
+          },
+          importSourceRuns: [
+            {
+              source_run_key: 'run_frontier_002',
+              source_name: 'frontier_journal',
+              source_category: 'journal',
+              domain: 'telemetry',
+              import_scope: 'sync_key',
+              status: 'failed',
+              started_at: '2026-07-11T12:00:00Z',
+              finished_at: '2026-07-11T12:05:00Z',
+              duration_ms: 300000,
+              rows_read: 120,
+              rows_staged: 100,
+              rows_rejected: 0,
+              rows_skipped: 20,
+              artifact_present: true,
+              artifact_hash_present: true,
+              bridge_present: false,
+              staging_rows_known: true,
+              trigger_context: 'manual',
+              git_commit_sha: 'abc123',
+              error_code: 'import_failed',
+              error_summary: 'Importer stopped after a malformed batch.',
+            },
+            {
+              source_run_key: 'run_spansh_001',
+              source_name: 'spansh_import',
+              source_category: 'import',
+              domain: 'canonical',
+              import_scope: 'bulk',
+              status: 'succeeded',
+              started_at: '2026-07-11T09:00:00Z',
+              finished_at: '2026-07-11T09:10:00Z',
+              duration_ms: 600000,
+              rows_read: 900,
+              rows_staged: 850,
+              rows_rejected: 0,
+              rows_skipped: 50,
+              artifact_present: true,
+              artifact_hash_present: true,
+              bridge_present: true,
+              staging_rows_known: true,
+              trigger_context: 'scheduled',
+              git_commit_sha: 'def456',
+              error_code: null,
+              error_summary: null,
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-import-dashboard').textContent).toContain('Recent runs');
+    expect(screen.getByTestId('admin-import-dashboard').textContent).toContain('A failed run needs review before proceeding.');
+    expect(screen.getByTestId('admin-import-run-run_frontier_002').textContent).toContain('frontier_journal');
+    expect(screen.getByTestId('admin-import-run-run_frontier_002').textContent).toContain('Importer stopped after a malformed batch.');
+    expect(screen.getByTestId('admin-import-run-run_spansh_001').textContent).toContain('spansh_import');
+  });
+
+  it('filters recent imports by source and hands off a selected run to operator', () => {
+    const onOpenOperator = vi.fn();
+    render(
+      <AdminTab
+        admin={admin({
+          token: 'token',
+          hasToken: true,
+          importSafetyGates: {
+            no_running_source_runs: true,
+            latest_artifacts_present: true,
+            bridge_fk_path_verified: true,
+            diagnostic_rows_isolated: true,
+            no_failed_unrecovered_source_runs: true,
+            scheduler_assumed_disabled: true,
+            canonical_apply_assumed_disabled: true,
+            safe_to_proceed: true,
+            blockers: [],
+            latest_source_run_key: 'run_frontier_002',
+            notes: [],
+          },
+          importSourceRuns: [
+            {
+              source_run_key: 'run_frontier_002',
+              source_name: 'frontier_journal',
+              source_category: 'journal',
+              domain: 'telemetry',
+              import_scope: 'sync_key',
+              status: 'failed',
+              started_at: '2026-07-11T12:00:00Z',
+              finished_at: '2026-07-11T12:05:00Z',
+              duration_ms: 300000,
+              rows_read: 120,
+              rows_staged: 100,
+              rows_rejected: 0,
+              rows_skipped: 20,
+              artifact_present: true,
+              artifact_hash_present: true,
+              bridge_present: false,
+              staging_rows_known: true,
+              trigger_context: 'manual',
+              git_commit_sha: 'abc123',
+              error_code: 'import_failed',
+              error_summary: 'Importer stopped after a malformed batch.',
+            },
+            {
+              source_run_key: 'run_spansh_001',
+              source_name: 'spansh_import',
+              source_category: 'import',
+              domain: 'canonical',
+              import_scope: 'bulk',
+              status: 'succeeded',
+              started_at: '2026-07-11T09:00:00Z',
+              finished_at: '2026-07-11T09:10:00Z',
+              duration_ms: 600000,
+              rows_read: 900,
+              rows_staged: 850,
+              rows_rejected: 0,
+              rows_skipped: 50,
+              artifact_present: true,
+              artifact_hash_present: true,
+              bridge_present: true,
+              staging_rows_known: true,
+              trigger_context: 'scheduled',
+              git_commit_sha: 'def456',
+              error_code: null,
+              error_summary: null,
+            },
+          ],
+        })}
+        onOpenOperator={onOpenOperator}
+      />,
+    );
+
+    const filter = screen.getByTestId('admin-import-source-filter');
+    expect(filter).toBeTruthy();
+    fireEvent.change(filter, { target: { value: 'spansh_import' } });
+
+    expect(screen.queryByTestId('admin-import-run-run_frontier_002')).toBeNull();
+    expect(screen.getByTestId('admin-import-run-run_spansh_001')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('admin-open-operator-run_spansh_001'));
+    expect(onOpenOperator).toHaveBeenCalledWith('run_spansh_001');
   });
 
   it('renders sanitized enrichment status without filesystem paths', () => {
@@ -178,7 +495,7 @@ describe('AdminTab enrichment status', () => {
   it('keeps warehouse status behind the admin token state', () => {
     render(<AdminTab admin={admin()} />);
 
-    expect(screen.getByText('4. Warehouse status')).toBeTruthy();
+    expect(screen.getByText('6. Warehouse status')).toBeTruthy();
     expect(screen.getByText(/Set an admin token to view read-only warehouse status/i)).toBeTruthy();
   });
 

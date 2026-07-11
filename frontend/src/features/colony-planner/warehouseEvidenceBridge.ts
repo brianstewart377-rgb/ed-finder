@@ -63,6 +63,7 @@ export function toWarehouseEvidenceFromProvenance(
       reportOnly: true,
       boundedStagingOnly: true,
     },
+    coverage: null,
     warnings: response.warnings,
   };
 }
@@ -133,6 +134,37 @@ export function toWarehouseEvidenceFromContract(
       latestSourceUpdatedAt: boundedStaging.latest_source_updated_at ?? null,
       summary: boundedStaging.summary ?? null,
     },
+    coverage: response.coverage ? {
+      bodyScan: {
+        status: response.coverage.body_scan.status,
+        knownCount: response.coverage.body_scan.known_count ?? null,
+        totalCount: response.coverage.body_scan.total_count ?? null,
+        coverageRatio: response.coverage.body_scan.coverage_ratio ?? null,
+        summary: response.coverage.body_scan.summary,
+      },
+      stationLinks: {
+        status: response.coverage.station_links.status,
+        knownCount: response.coverage.station_links.known_count ?? null,
+        totalCount: response.coverage.station_links.total_count ?? null,
+        coverageRatio: response.coverage.station_links.coverage_ratio ?? null,
+        summary: response.coverage.station_links.summary,
+      },
+      ringIdentity: {
+        status: response.coverage.ring_identity.status,
+        knownCount: response.coverage.ring_identity.known_count ?? null,
+        totalCount: response.coverage.ring_identity.total_count ?? null,
+        coverageRatio: response.coverage.ring_identity.coverage_ratio ?? null,
+        summary: response.coverage.ring_identity.summary,
+      },
+      sourceFreshness: {
+        canonicalUpdatedAt: response.coverage.source_freshness.canonical_updated_at ?? null,
+        observedUpdatedAt: response.coverage.source_freshness.observed_updated_at ?? null,
+        boundedStagingUpdatedAt: response.coverage.source_freshness.bounded_staging_updated_at ?? null,
+        statusUpdatedAt: response.coverage.source_freshness.status_updated_at ?? null,
+      },
+      thinDataReasons: [...response.coverage.thin_data_reasons],
+      summary: response.coverage.summary,
+    } : null,
     warnings: response.warnings,
   };
 }

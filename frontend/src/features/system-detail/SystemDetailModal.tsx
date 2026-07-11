@@ -8,6 +8,7 @@ import {
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';
+import { useSystemEvidenceSummary } from './useSystemEvidenceSummary';
 import { ArchetypeAssessment } from './ArchetypeAssessment';
 import { RegionalPositionPanel } from './RegionalPositionPanel';
 import { buildFallbackArchetype } from './systemDetailFallbackArchetype';
@@ -18,6 +19,7 @@ import {
   ExternalLinks,
   ModalHeader,
   Section,
+  SystemEvidenceSection,
   StationsSection,
   SystemInfoGrid,
 } from './systemDetailSections';
@@ -70,6 +72,12 @@ export function SystemDetailModal({
   renderActions,
 }: SystemDetailModalProps) {
   const { data, loading, error, refetch } = useSystemDetail(id64);
+  const {
+    data: evidenceSummary,
+    loading: evidenceLoading,
+    error: evidenceError,
+    refetch: refetchEvidenceSummary,
+  } = useSystemEvidenceSummary(id64);
   const {
     data: archetypeData,
     loading: archetypeLoading,
@@ -198,6 +206,12 @@ export function SystemDetailModal({
               </Section>
               <RegionalPositionPanel id64={data.id64} />
               <SystemInfoGrid sys={data} />
+              <SystemEvidenceSection
+                summary={evidenceSummary}
+                loading={evidenceLoading}
+                error={evidenceError}
+                onRetry={refetchEvidenceSummary}
+              />
               <BodiesSection bodies={data.bodies} systemName={data.name} />
               <StationsSection stations={data.stations} />
               <ExplorationValue value={data.exploration_value} />

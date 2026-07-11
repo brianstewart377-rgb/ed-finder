@@ -135,6 +135,40 @@ describe('WarehouseEvidenceCard', () => {
         latestSourceUpdatedAt: '2026-06-19T20:00:18Z',
         summary: 'Stage 19BB bounded staging evidence includes 2 staging rows for this system in the approved 10000-row context; it remains bounded staging-only review context, not canonical truth and not full EDSM coverage.',
       },
+      coverage: {
+        bodyScan: {
+          status: 'partial',
+          knownCount: 2,
+          totalCount: 4,
+          coverageRatio: 0.5,
+          summary: '2/4 body scans are currently covered.',
+        },
+        stationLinks: {
+          status: 'complete',
+          knownCount: 2,
+          totalCount: 2,
+          coverageRatio: 1,
+          summary: '2/2 station links are currently covered.',
+        },
+        ringIdentity: {
+          status: 'missing',
+          knownCount: 0,
+          totalCount: 1,
+          coverageRatio: 0,
+          summary: '0/1 ring identities are currently covered.',
+        },
+        sourceFreshness: {
+          canonicalUpdatedAt: '2026-06-19T20:05:00Z',
+          observedUpdatedAt: '2026-06-19T20:06:00Z',
+          boundedStagingUpdatedAt: '2026-06-19T20:00:18Z',
+          statusUpdatedAt: '2026-06-19T20:07:00Z',
+        },
+        thinDataReasons: [
+          'Body scan coverage is partial: 2/4 body scans are currently covered.',
+          'Ring identity coverage is missing: 0/1 ring identities are currently covered.',
+        ],
+        summary: 'Coverage summary: 2/4 body scans are currently covered. 2/2 station links are currently covered. 0/1 ring identities are currently covered.',
+      },
       items: [
         {
           label: 'report_only',
@@ -183,6 +217,12 @@ describe('WarehouseEvidenceCard', () => {
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Not canonical truth');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Not full EDSM coverage');
     expect(screen.getByTestId('warehouse-evidence-bounded-staging-guidance').textContent).toContain('Limited to approved Stage 19BB row-cap evidence');
+    expect(screen.getByTestId('warehouse-evidence-coverage-summary').textContent).toContain('Coverage summary');
+    expect(screen.getByTestId('warehouse-evidence-coverage-body-scan').textContent).toContain('50%');
+    expect(screen.getByTestId('warehouse-evidence-coverage-station-links').textContent).toContain('Complete');
+    expect(screen.getByTestId('warehouse-evidence-coverage-ring-identity').textContent).toContain('Missing');
+    expect(screen.getByTestId('warehouse-evidence-thin-data-reasons').textContent).toContain('Body scan coverage is partial');
+    expect(screen.getByTestId('warehouse-evidence-source-freshness').textContent).toContain('canonical 2026-06-19T20:05:00Z');
   });
 
   it('renders live canonical and observed findings without claiming warehouse-only scope', () => {

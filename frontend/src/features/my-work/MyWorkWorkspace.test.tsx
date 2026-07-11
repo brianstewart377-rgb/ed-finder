@@ -1,11 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MyWorkWorkspace } from './MyWorkWorkspace';
-import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
+import { useColonyProjectStore, type ColonyProject } from '@/features/colony-planner/colonyProjectStore';
 import { useMyWorkStore } from './myWorkStore';
 import type { UseWatchlist } from '@/features/watchlist/useWatchlist';
 import type { UsePinned } from '@/features/pinned/usePinned';
+import { useJournalTelemetrySummary } from './useJournalTelemetrySummary';
+
+vi.mock('./useJournalTelemetrySummary', () => ({
+  useJournalTelemetrySummary: vi.fn(),
+}));
+
+const mockUseJournalTelemetrySummary = vi.mocked(useJournalTelemetrySummary);
 
 function makeWatchlist(overrides: Partial<UseWatchlist> = {}): UseWatchlist {
   return {
@@ -46,14 +53,48 @@ function renderWorkspace(ui: React.ReactElement) {
   );
 }
 
+function runStoreUpdate(update: () => void) {
+  act(() => {
+    update();
+  });
+}
+
 afterEach(() => {
   localStorage.clear();
-  useColonyProjectStore.setState({ projects: {} });
-  useMyWorkStore.setState({ systems: {} });
+  runStoreUpdate(() => {
+    useColonyProjectStore.setState({ projects: {} });
+    useMyWorkStore.setState({ systems: {} });
+  });
+  mockUseJournalTelemetrySummary.mockReset();
 });
 
 describe('MyWorkWorkspace', () => {
+  it('shows a telemetry section tab alongside saved systems, plans, and colonies', () => {
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
+    renderWorkspace(
+      <MyWorkWorkspace
+        watchlist={makeWatchlist()}
+        pinned={makePinned()}
+        onOpenDetail={vi.fn()}
+        onOpenPlanner={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Telemetry');
+  });
+
   it('keeps the local My Work header concise with section tabs intact', () => {
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
     renderWorkspace(
       <MyWorkWorkspace
         watchlist={makeWatchlist()}
@@ -70,8 +111,33 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Saved Systems');
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Plans');
     expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('My Colonies');
+    expect(screen.getByTestId('my-work-section-tabs').textContent).toContain('Telemetry');
   });
   it('merges existing Watchlist, Pins, and local ready-to-plan labels into Saved Systems', async () => {
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: {
+        sync_key: 'sync-key-1234567890',
+        runs_count: 1,
+        last_imported_at: '2026-07-11T11:00:00.000Z',
+        observations_staged: 3,
+        duplicates_skipped: 0,
+        systems_observed: 1,
+        body_observation_count: 2,
+        docked_observation_count: 1,
+        event_counts: { Scan: 2, Docked: 1 },
+        recent_runs: [],
+        recent_systems: [{
+          system_id64: 101,
+          system_name: 'Wregoe',
+          last_observed_at: '2026-07-11T11:05:00.000Z',
+          event_count: 3,
+          event_types: ['Docked', 'Scan'],
+        }],
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
     const watchlist = makeWatchlist({
       entries: [{
         system_id64: 101,
@@ -102,15 +168,17 @@ describe('MyWorkWorkspace', () => {
       }],
       has: vi.fn((id64: number) => id64 === 101),
     });
-    useMyWorkStore.getState().setLabel({
-      id64: 101,
-      name: 'Wregoe',
-      x: 1,
-      y: 2,
-      z: 3,
-      population: 0,
-      is_colonised: false,
-    }, 'ready_to_plan', true);
+    runStoreUpdate(() => {
+      useMyWorkStore.getState().setLabel({
+        id64: 101,
+        name: 'Wregoe',
+        x: 1,
+        y: 2,
+        z: 3,
+        population: 0,
+        is_colonised: false,
+      }, 'ready_to_plan', true);
+    });
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -125,10 +193,18 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Considering');
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Favourite');
     expect(screen.getByTestId('saved-system-101').textContent).toContain('Ready to plan');
+    expect(screen.getByTestId('saved-system-101').textContent).toContain('Personal telemetry imported');
+    expect(screen.getByTestId('saved-system-101').textContent).toContain('Docked, Scan');
     expect(within(screen.getByTestId('saved-system-101')).getByRole('button', { name: /Favourite enabled/i }).getAttribute('aria-pressed')).toBe('true');
   });
 
   it('removes saved systems safely across Watchlist, Pins, and local saved labels', async () => {
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
     const watchlistRemove = vi.fn().mockResolvedValue(undefined);
     const pinnedRemove = vi.fn();
     const watchlist = makeWatchlist({
@@ -160,15 +236,17 @@ describe('MyWorkWorkspace', () => {
       remove: pinnedRemove,
       has: vi.fn((id64: number) => id64 === 101),
     });
-    useMyWorkStore.getState().setLabel({
-      id64: 101,
-      name: 'Wregoe',
-      x: 1,
-      y: 2,
-      z: 3,
-      population: 0,
-      is_colonised: false,
-    }, 'ready_to_plan', true);
+    runStoreUpdate(() => {
+      useMyWorkStore.getState().setLabel({
+        id64: 101,
+        name: 'Wregoe',
+        x: 1,
+        y: 2,
+        z: 3,
+        population: 0,
+        is_colonised: false,
+      }, 'ready_to_plan', true);
+    });
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -189,39 +267,49 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('groups plans by system, supports rename, duplication, status changes, and continue-plan routing', async () => {
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
     const onOpenPlanner = vi.fn();
-    useColonyProjectStore.getState().saveProject(null, {
-      system_id64: 200,
-      system_name: 'HIP 200',
-      project_name: 'HIP 200 - Balanced plan',
-      build_plan_placements: [],
-      target_archetype: 'refinery_industrial',
-      notes: '',
-      status: 'draft',
-      objective: 'balanced',
-      start_approach: 'manual',
-      created_from: 'system_detail',
+    let projectB: ColonyProject | undefined;
+    runStoreUpdate(() => {
+      useColonyProjectStore.getState().saveProject(null, {
+        system_id64: 200,
+        system_name: 'HIP 200',
+        project_name: 'HIP 200 - Balanced plan',
+        build_plan_placements: [],
+        target_archetype: 'refinery_industrial',
+        notes: '',
+        status: 'draft',
+        objective: 'balanced',
+        start_approach: 'manual',
+        created_from: 'system_detail',
+      });
+      projectB = useColonyProjectStore.getState().saveProject(null, {
+        system_id64: 200,
+        system_name: 'HIP 200',
+        project_name: 'HIP 200 - Materials coverage',
+        build_plan_placements: [],
+        target_archetype: 'refinery_industrial',
+        notes: '',
+        status: 'draft',
+        objective: 'materials_coverage',
+        start_approach: 'recommendation_assisted',
+        created_from: 'system_detail',
+      });
+      useColonyProjectStore.getState().saveProject(null, {
+        system_id64: 300,
+        system_name: 'HIP 300',
+        project_name: 'Legacy project',
+        build_plan_placements: [],
+        target_archetype: 'refinery_industrial',
+        notes: '',
+      });
     });
-    const projectB = useColonyProjectStore.getState().saveProject(null, {
-      system_id64: 200,
-      system_name: 'HIP 200',
-      project_name: 'HIP 200 - Materials coverage',
-      build_plan_placements: [],
-      target_archetype: 'refinery_industrial',
-      notes: '',
-      status: 'draft',
-      objective: 'materials_coverage',
-      start_approach: 'recommendation_assisted',
-      created_from: 'system_detail',
-    });
-    useColonyProjectStore.getState().saveProject(null, {
-      system_id64: 300,
-      system_name: 'HIP 300',
-      project_name: 'Legacy project',
-      build_plan_placements: [],
-      target_archetype: 'refinery_industrial',
-      notes: '',
-    });
+    const seededProjectB = projectB!;
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -235,37 +323,47 @@ describe('MyWorkWorkspace', () => {
 
     expect(screen.getByTestId('my-work-plans').textContent).toContain('HIP 200');
     expect(screen.getByTestId('my-work-plans').textContent).toContain('2 plans');
-    expect(screen.getByTestId(`plan-card-${projectB.id}`).textContent).toContain('ED-Finder recommendation');
+    expect(screen.getByTestId(`plan-card-${seededProjectB.id}`).textContent).toContain('ED-Finder recommendation');
     expect(screen.getByTestId('my-work-plans').textContent).toContain('Objective not set');
 
-    fireEvent.click(withinPlan(projectB.id, /Rename/i));
+    fireEvent.click(withinPlan(seededProjectB.id, /Rename/i));
     fireEvent.change(screen.getByDisplayValue('HIP 200 - Materials coverage'), { target: { value: 'HIP 200 - Final draft' } });
     fireEvent.click(screen.getByRole('button', { name: /Save name/i }));
-    expect(useColonyProjectStore.getState().projects[projectB.id]?.project_name).toBe('HIP 200 - Final draft');
+    expect(useColonyProjectStore.getState().projects[seededProjectB.id]?.project_name).toBe('HIP 200 - Final draft');
 
-    fireEvent.change(screen.getByTestId(`plan-status-${projectB.id}`), { target: { value: 'building' } });
-    expect(useColonyProjectStore.getState().projects[projectB.id]?.status).toBe('building');
+    fireEvent.change(screen.getByTestId(`plan-status-${seededProjectB.id}`), { target: { value: 'building' } });
+    expect(useColonyProjectStore.getState().projects[seededProjectB.id]?.status).toBe('building');
 
-    fireEvent.click(withinPlan(projectB.id, /Duplicate/i));
+    fireEvent.click(withinPlan(seededProjectB.id, /Duplicate/i));
     expect(Object.values(useColonyProjectStore.getState().projects).some((project) => project.project_name === 'HIP 200 - Final draft - Copy')).toBe(true);
 
-    fireEvent.click(withinPlan(projectB.id, /Continue plan/i));
-    expect(onOpenPlanner).toHaveBeenCalledWith(200, { projectId: projectB.id });
+    fireEvent.click(withinPlan(seededProjectB.id, /Continue plan/i));
+    expect(onOpenPlanner).toHaveBeenCalledWith(200, { projectId: seededProjectB.id });
   });
 
   it('shows established plans in My Colonies and updates safely when status changes', async () => {
-    const project = useColonyProjectStore.getState().saveProject(null, {
-      system_id64: 400,
-      system_name: 'Established System',
-      project_name: 'Established System - New plan',
-      build_plan_placements: [],
-      target_archetype: 'refinery_industrial',
-      notes: '',
-      status: 'established',
-      objective: 'decide_later',
-      start_approach: 'manual',
-      created_from: 'system_detail',
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
+    let project: ColonyProject | undefined;
+    runStoreUpdate(() => {
+      project = useColonyProjectStore.getState().saveProject(null, {
+        system_id64: 400,
+        system_name: 'Established System',
+        project_name: 'Established System - New plan',
+        build_plan_placements: [],
+        target_archetype: 'refinery_industrial',
+        notes: '',
+        status: 'established',
+        objective: 'decide_later',
+        start_approach: 'manual',
+        created_from: 'system_detail',
+      });
     });
+    const establishedProject = project!;
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -281,7 +379,7 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('my-work-colonies').textContent).toContain('Established System');
 
     fireEvent.click(screen.getByTestId('my-work-section-plans'));
-    fireEvent.change(screen.getByTestId(`plan-status-${project.id}`), { target: { value: 'building' } });
+    fireEvent.change(screen.getByTestId(`plan-status-${establishedProject.id}`), { target: { value: 'building' } });
     fireEvent.click(screen.getByTestId('my-work-section-my-colonies'));
 
     await waitFor(() => {
@@ -290,25 +388,33 @@ describe('MyWorkWorkspace', () => {
   });
 
   it('prefers the most recently updated active plan for continuation and falls back to a recent saved system', () => {
-    const activePlan = useColonyProjectStore.getState().saveProject(null, {
-      system_id64: 500,
-      system_name: 'Recent Plan',
-      project_name: 'Recent Plan - New plan',
-      build_plan_placements: [],
-      target_archetype: 'refinery_industrial',
-      notes: '',
-      status: 'draft',
-    });
-    useColonyProjectStore.setState((state) => ({
-      projects: {
-        ...state.projects,
-        [activePlan.id]: {
-          ...state.projects[activePlan.id],
-          updated_at: '2026-06-23T15:00:00.000Z',
-        },
-      },
-    }));
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: null,
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
 
+    let activePlan: ColonyProject | undefined;
+    runStoreUpdate(() => {
+      activePlan = useColonyProjectStore.getState().saveProject(null, {
+        system_id64: 500,
+        system_name: 'Recent Plan',
+        project_name: 'Recent Plan - New plan',
+        build_plan_placements: [],
+        target_archetype: 'refinery_industrial',
+        notes: '',
+        status: 'draft',
+      });
+      useColonyProjectStore.setState((state) => ({
+        projects: {
+          ...state.projects,
+          [activePlan!.id]: {
+            ...state.projects[activePlan!.id],
+            updated_at: '2026-06-23T15:00:00.000Z',
+          },
+        },
+      }));
+    });
     const { rerender } = renderWorkspace(
       <MyWorkWorkspace
         watchlist={makeWatchlist()}
@@ -321,7 +427,9 @@ describe('MyWorkWorkspace', () => {
     expect(screen.getByTestId('my-work-continuation').textContent).toContain('Continue planning');
     expect(screen.getByTestId('my-work-continuation').textContent).toContain('Recent Plan - Recent Plan - New plan');
 
-    useColonyProjectStore.setState({ projects: {} });
+    runStoreUpdate(() => {
+      useColonyProjectStore.setState({ projects: {} });
+    });
     rerender(
       <QueryClientProvider client={new QueryClient({
         defaultOptions: {
@@ -352,6 +460,57 @@ describe('MyWorkWorkspace', () => {
 
     expect(screen.getByTestId('my-work-continuation').textContent).toContain('Ready to revisit');
     expect(screen.getByTestId('my-work-continuation').textContent).toContain('Saved System');
+  });
+
+  it('renders a telemetry section with recent runs and observed systems', () => {
+    const onOpenDetail = vi.fn();
+    mockUseJournalTelemetrySummary.mockReturnValue({
+      data: {
+        sync_key: 'sync-key-1234567890',
+        runs_count: 2,
+        last_imported_at: '2026-07-11T12:00:00.000Z',
+        observations_staged: 5,
+        duplicates_skipped: 1,
+        systems_observed: 2,
+        body_observation_count: 3,
+        docked_observation_count: 1,
+        event_counts: { Scan: 3, Docked: 1, Location: 1 },
+        recent_runs: [{
+          run_key: 'jrnl-20260711-demo',
+          status: 'succeeded',
+          started_at: '2026-07-11T11:00:00.000Z',
+          finished_at: '2026-07-11T11:00:10.000Z',
+          observations_staged: 3,
+          duplicates_skipped: 1,
+          event_counts: { Scan: 2, Docked: 1 },
+        }],
+        recent_systems: [{
+          system_id64: 777,
+          system_name: 'Telemetry System',
+          last_observed_at: '2026-07-11T11:59:00.000Z',
+          event_count: 3,
+          event_types: ['Docked', 'Scan'],
+        }],
+      },
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useJournalTelemetrySummary>);
+
+    renderWorkspace(
+      <MyWorkWorkspace
+        initialSection="telemetry"
+        watchlist={makeWatchlist()}
+        pinned={makePinned()}
+        onOpenDetail={onOpenDetail}
+        onOpenPlanner={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('my-work-telemetry').textContent).toContain('Observed systems');
+    expect(screen.getByTestId('my-work-telemetry').textContent).toContain('Telemetry System');
+    expect(screen.getByTestId('my-work-telemetry').textContent).toContain('jrnl-20260711-demo');
+    fireEvent.click(screen.getByRole('button', { name: /Inspect system/i }));
+    expect(onOpenDetail).toHaveBeenCalledWith(777, undefined);
   });
 });
 

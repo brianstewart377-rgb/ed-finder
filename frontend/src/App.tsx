@@ -21,6 +21,7 @@ import {
 } from '@/features/colony-planner/plannerDraftContext';
 import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
 import { EliteNewsBar } from '@/features/news/EliteNewsBar';
+import { writeSelectedOperatorSourceRun } from '@/features/operator/operatorSelection';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import { setCoalsackBackgroundVariables } from '@/app/coalsackBackground';
 import { FinderView } from '@/app/FinderView';
@@ -148,6 +149,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const closeSystemDetail = () => {
     setDetailFocus(null);
     closeSystem();
+  };
+
+  const openOperatorDashboard = (sourceRunKey?: string) => {
+    writeSelectedOperatorSourceRun(sourceRunKey ?? null);
+    navigate('operator');
   };
 
   const toggleSavedSystem = useCallback(async (
@@ -370,7 +376,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
 
         {route === 'admin' && (
-          <LazyAdminTab admin={admin} />
+          <LazyAdminTab admin={admin} onOpenOperator={openOperatorDashboard} />
         )}
 
         {route === 'operator' && (

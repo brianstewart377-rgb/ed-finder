@@ -290,8 +290,13 @@ class SystemDetailRow(BaseModel):
     allegiance:         Optional[str]  = None
     government:         Optional[str]  = None
     is_colonised:       Optional[bool] = None
+    is_being_colonised: Optional[bool] = None
     main_star_type:     Optional[str]  = None
     main_star_subtype:  Optional[str]  = None
+    body_data_updated_at: Optional[Any] = None
+    body_data_sources: Optional[list[str]] = None
+    status_updated_at: Optional[Any] = None
+    status_source: Optional[str] = None
 
     # Flat rating fields (joined from ratings table; snake_case here).
     score:                  Optional[float] = None
