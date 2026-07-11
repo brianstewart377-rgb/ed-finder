@@ -4,8 +4,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 
-from observations.comparison_models import ComparisonArea, PredictionObservationComparison
-from observations.review_models import ReviewArea, ReviewStatus, ValidationReviewSignal
+from edfinder_api.observations.comparison_models import ComparisonArea, PredictionObservationComparison
+from edfinder_api.observations.review_models import ReviewArea, ReviewStatus, ValidationReviewSignal
 
 AREA_ORDER = [
     ReviewArea.SERVICE_RULES.value,

@@ -1,11 +1,11 @@
 """Summary rules for Stage 6E validation review guidance."""
 from __future__ import annotations
 
-from observations.comparison_models import PredictionObservationComparisonResult
-from observations.review.areas import area_phrase, primary_areas
-from observations.review.severity import highest_severity
-from observations.review.shared import ReviewBuckets
-from observations.review_models import (
+from edfinder_api.observations.comparison_models import PredictionObservationComparisonResult
+from edfinder_api.observations.review.areas import area_phrase, primary_areas
+from edfinder_api.observations.review.severity import highest_severity
+from edfinder_api.observations.review.shared import ReviewBuckets
+from edfinder_api.observations.review_models import (
     EvidenceStrength,
     ReviewStatus,
     ValidationReviewSignal,

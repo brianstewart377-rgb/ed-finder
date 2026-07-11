@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from observations.models import (
+from edfinder_api.observations.models import (
     ObservedFactType,
     PersistedObservedFact,
 )

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from observations.models import (
+from edfinder_api.observations.models import (
     ObservationArea,
     ObservationComparisonStatus,
     ObservationSeverity,

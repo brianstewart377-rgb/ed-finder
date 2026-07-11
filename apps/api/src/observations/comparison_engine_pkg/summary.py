@@ -9,7 +9,7 @@ ranking.
 """
 from __future__ import annotations
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonConfidenceImpact,
     ComparisonOverallStatus,
     ComparisonStatus,

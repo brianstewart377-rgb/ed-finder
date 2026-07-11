@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonConfidence,
     ComparisonSeverity,
     PredictionObservationComparison,

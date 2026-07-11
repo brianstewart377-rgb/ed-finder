@@ -1,14 +1,14 @@
 """High-level deterministic signal rules for Stage 6E review guidance."""
 from __future__ import annotations
 
-from observations.comparison_models import PredictionObservationComparisonResult
-from observations.review.areas import group_actionable_contradictions
-from observations.review.shared import (
+from edfinder_api.observations.comparison_models import PredictionObservationComparisonResult
+from edfinder_api.observations.review.areas import group_actionable_contradictions
+from edfinder_api.observations.review.shared import (
     ReviewBuckets,
     observed_only_heavy,
     predicted_only_heavy,
 )
-from observations.review.signals import (
+from edfinder_api.observations.review.signals import (
     confirmed_only_signal,
     contradiction_area_signal,
     facility_observed_only_signal,
@@ -19,7 +19,7 @@ from observations.review.signals import (
     observed_only_heavy_signal,
     predicted_only_heavy_signal,
 )
-from observations.review_models import ValidationReviewSignal
+from edfinder_api.observations.review_models import ValidationReviewSignal
 
 
 def build_review_signals(

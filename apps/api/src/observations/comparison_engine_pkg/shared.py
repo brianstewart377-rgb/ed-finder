@@ -12,12 +12,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonConfidence,
     ComparisonSeverity,
     ObservationEvidenceMatch,
 )
-from observations.models import (
+from edfinder_api.observations.models import (
     ObservedConfidence,
     PersistedObservedFact,
 )
