@@ -6,10 +6,10 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from config  import settings, limiter, log
-from deps    import get_pool, get_redis, cache_get, cache_set
-from search_economies import canonical_economy_key, ratings_score_column
-from state   import metrics as _metrics
+from edfinder_api.config import settings, limiter, log
+from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.search_economies import canonical_economy_key, ratings_score_column
+from edfinder_api.state import metrics as _metrics
 
 router = APIRouter(tags=['map'])
 

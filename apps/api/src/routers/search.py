@@ -21,16 +21,16 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from config import settings, limiter, log
-from deps   import get_pool, get_redis, cache_get, cache_set, inc_metric, log_slow
-from models import (
+from edfinder_api.config import settings, limiter, log
+from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set, inc_metric, log_slow
+from edfinder_api.models import (
     SearchResponse, SearchFilters, LocalSearchRequest,
     GalaxySearchRequest, ClusterSearchRequest, AutocompleteResponse,
 )
 
 # Single search implementation. If this import fails the app cannot
 # serve search at all — fail loud at startup, not at request time.
-import local_search as _ls
+import edfinder_api.local_search as _ls
 
 router = APIRouter(tags=['search'])
 
