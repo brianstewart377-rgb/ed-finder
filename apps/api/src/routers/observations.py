@@ -1,10 +1,10 @@
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from config import limiter
-from deps import get_pool, require_admin
-from observations import store
-from observations.api_models import (
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool, require_admin
+from edfinder_api.observations import store
+from edfinder_api.observations.api_models import (
     ObservedFactCreateRequest,
     ObservedFactDeleteResponse,
     ObservedFactListResponse,
@@ -20,12 +20,12 @@ from observations.api_models import (
 # do NOT accidentally pick up the Stage 4D ``compare_prediction_to_observations``
 # re-exported by ``observations/__init__.py``. The Stage 6C engine has a
 # different signature and a different result shape.
-from observations.comparison_engine import (
+from edfinder_api.observations.comparison_engine import (
     compare_prediction_to_observations as compare_prediction_to_observations_stage6c,
 )
-from observations.comparison_models import comparison_result_to_dict
-from observations.review_engine import build_validation_review
-from observations.review_models import review_result_to_dict
+from edfinder_api.observations.comparison_models import comparison_result_to_dict
+from edfinder_api.observations.review_engine import build_validation_review
+from edfinder_api.observations.review_models import review_result_to_dict
 
 router = APIRouter(tags=['observations'])
 

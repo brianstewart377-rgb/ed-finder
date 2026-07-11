@@ -4,13 +4,16 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends
 
-from colony_planner.layout_import_models import (
+from edfinder_api.colony_planner.layout_import_models import (
     LayoutImportRequest,
     LayoutImportResponse,
     LayoutImportSummary,
 )
-from colony_planner.layout_import_provider import LayoutImportProvider, get_layout_import_provider
-from config import log
+from edfinder_api.colony_planner.layout_import_provider import (
+    LayoutImportProvider,
+    get_layout_import_provider,
+)
+from edfinder_api.config import log
 
 
 router = APIRouter(tags=['colony-planner'])

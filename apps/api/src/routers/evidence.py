@@ -1,10 +1,10 @@
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from config import limiter
-from deps import get_pool, require_admin
-from evidence_store import store
-from evidence_store.api_models import (
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool, require_admin
+from edfinder_api.evidence_store import store
+from edfinder_api.evidence_store.api_models import (
     CanonicalEvidencePromotionRequest,
     CanonicalEvidencePromotionResponse,
     DerivedFeatureCreateRequest,
@@ -22,7 +22,10 @@ from evidence_store.api_models import (
     RuleProposalListResponse,
     RuleProposalResponse,
 )
-from evidence_store.source_catalog import SCHEMA_VERSION as SOURCE_CATALOG_SCHEMA_VERSION, list_evidence_sources
+from edfinder_api.evidence_store.source_catalog import (
+    SCHEMA_VERSION as SOURCE_CATALOG_SCHEMA_VERSION,
+    list_evidence_sources,
+)
 
 router = APIRouter(tags=['evidence'])
 

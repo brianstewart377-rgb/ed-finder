@@ -2,7 +2,7 @@
 
 Routers do:
 
-    from deps import get_pool, get_redis
+    from edfinder_api.deps import get_pool, get_redis
     @router.get(...)
     async def endpoint(pool = Depends(get_pool), redis = Depends(get_redis)):
         ...
@@ -23,8 +23,8 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import HTTPException, Request
 
-from config   import settings
-from state    import (
+from edfinder_api.config import settings
+from edfinder_api.state import (
     get_pool_singleton, get_readonly_pool_singleton, get_redis_singleton, metrics,
 )
 
