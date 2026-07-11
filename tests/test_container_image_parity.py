@@ -59,6 +59,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     workflow = _read('.github', 'workflows', 'container-image-parity.yml')
 
     assert 'DATABASE_READONLY_URL=' in env_example
+    assert 'DATA_INVARIANTS_DATABASE_URL=' in env_example
     assert 'BACKUP_OFFSITE_REMOTE=' in env_example
     assert 'DATABASE_APP_URL=' in env_example
     assert 'DATABASE_IMPORT_URL=' in env_example
@@ -66,6 +67,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'DATABASE_MIGRATION_URL=' in env_example
     assert 'DATABASE_READONLY_URL:' in compose
     assert '${DATABASE_READONLY_URL:-}' in compose
+    assert '${DATA_INVARIANTS_DATABASE_URL:-${DATABASE_READONLY_URL:-' in compose
     assert 'DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose
     assert 'DATABASE_IMPORT_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose
     assert 'DATABASE_MAINTENANCE_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder' in compose

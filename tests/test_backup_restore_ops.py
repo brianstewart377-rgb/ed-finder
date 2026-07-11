@@ -104,7 +104,7 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     wrapper = _read('scripts', 'run_data_invariants_receipted.sh')
     runbook = _read('docs', 'operations', 'stage17n2c-data-trust-runbook.md')
 
-    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}' in compose
+    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATA_INVARIANTS_DATABASE_URL:-${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}}' in compose
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--skip-invariants' in deploy
     assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
@@ -112,11 +112,18 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     assert '--durable-receipt-dir /data/receipts/data-invariants/post-deploy' in deploy
     assert 'TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"' in wrapper
     assert 'DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"' in wrapper
-    assert 'DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"' in wrapper
-    assert '--database-url) DATABASE_URL_OVERRIDE="$2"; shift 2 ;;' in wrapper
+    assert 'CLI_DATABASE_URL_OVERRIDE=""' in wrapper
+    assert 'DATA_INVARIANTS_DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"' in wrapper
+    assert 'DATABASE_READONLY_URL_OVERRIDE="${DATABASE_READONLY_URL:-}"' in wrapper
+    assert 'DATABASE_URL_OVERRIDE="${DATABASE_URL:-}"' in wrapper
+    assert '--database-url) CLI_DATABASE_URL_OVERRIDE="$2"; shift 2 ;;' in wrapper
     assert '--durable-receipt-dir) DURABLE_RECEIPT_DIR="$2"; shift 2 ;;' in wrapper
+    assert 'HOST_DATABASE_SOURCE="api_container_database_readonly_url"' in wrapper
+    assert 'HOST_DATABASE_SOURCE="api_container_database_url"' in wrapper
+    assert 'warn "no dedicated read-only invariants DSN configured; falling back to writer-capable DATABASE_URL"' in wrapper
     assert '--production-safe' in wrapper
     assert '"status": "$status"' in wrapper
+    assert '"database_source": "$database_source"' in wrapper
     assert 'data-invariants-${durable_stamp}.json' in wrapper
     assert 'latest.json' in wrapper
     assert '45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh' in runbook

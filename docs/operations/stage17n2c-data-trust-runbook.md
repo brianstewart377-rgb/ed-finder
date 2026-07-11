@@ -226,9 +226,12 @@ committed crontab, not an out-of-band host cron:
 45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
 ```
 
-The maintenance service prefers `DATA_INVARIANTS_DATABASE_URL` and should point
-that at `DATABASE_READONLY_URL` when a dedicated read-only role exists. If it is
-unset, the sidecar falls back to its normal `DATABASE_URL`.
+The maintenance service resolves the invariants DSN in this order:
+`DATA_INVARIANTS_DATABASE_URL`, then `DATABASE_READONLY_URL`, then
+`DATABASE_URL`. In steady state, point `DATA_INVARIANTS_DATABASE_URL` at a
+dedicated read-only role. The fallback order exists so deploy and operator
+checks still work before that role is provisioned, but the wrapper now records
+which source it used in every receipt.
 
 Recommended operator habit after a clean weekly run:
 
