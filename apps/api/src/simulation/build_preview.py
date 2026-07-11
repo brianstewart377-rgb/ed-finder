@@ -9,9 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from domain.facilities import FacilityTemplate
-from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, simulation_confidence_signals
-from mechanics.economy_rules import (
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.mechanics.confidence import (
+    ConfidenceLevel,
+    ConfidenceSignal,
+    simulation_confidence_signals,
+)
+from edfinder_api.mechanics.economy_rules import (
     BODY_PROFILE_CONFIDENCE_DEFAULT,
     CONTAMINATION_ECONOMIES,
     FACILITY_ECONOMY_WEIGHTS,
@@ -22,7 +26,7 @@ from mechanics.economy_rules import (
     PROFILE_FULL_PURITY,
     SECONDARY_BASE_WEIGHT,
 )
-from mechanics.scoring_rules import (
+from edfinder_api.mechanics.scoring_rules import (
     BUILDABILITY_ESTIMATED_TOPOLOGY_SCORE,
     BUILDABILITY_LOW_SLOT_CONFIDENCE_PENALTY,
     BUILDABILITY_LOW_SLOT_CONFIDENCE_THRESHOLD,
@@ -51,23 +55,38 @@ from mechanics.scoring_rules import (
     SLOT_CONFIDENCE_BASE,
     SLOT_CONFIDENCE_WEIGHT,
 )
-from observations.comparison import compare_prediction_to_observations
-from simulation.build_order import simulate_build_order
-from simulation.cp_repair import build_cp_repair_suggestions
-from simulation.economy_stack import analyse_economy_stack
-from simulation.port_economy import aggregate_port_strengths, build_port_economy_states
-from simulation.service_graph import build_port_service_states
-from simulation.preview_pipeline import (
+from edfinder_api.observations.comparison import compare_prediction_to_observations
+from edfinder_api.simulation.build_order import simulate_build_order
+from edfinder_api.simulation.cp_repair import build_cp_repair_suggestions
+from edfinder_api.simulation.economy_stack import analyse_economy_stack
+from edfinder_api.simulation.port_economy import (
+    aggregate_port_strengths,
+    build_port_economy_states,
+)
+from edfinder_api.simulation.service_graph import build_port_service_states
+from edfinder_api.simulation.preview_pipeline import (
     EconomySimulationState,
     ObservationComparisonState,
     PlacementResolutionState,
     ServiceSimulationState,
     SimulationPrediction,
 )
-from simulation.preview_response import assemble_preview_response, links_to_response, observation_prediction_snapshot
-from simulation.services import model_services
-from simulation.topology_graph import GraphPlacement, build_topology_graph, infer_location_type
-from simulation.preview_models import EconomyContributionProfile, PreviewContext, PreviewPlacement
+from edfinder_api.simulation.preview_response import (
+    assemble_preview_response,
+    links_to_response,
+    observation_prediction_snapshot,
+)
+from edfinder_api.simulation.services import model_services
+from edfinder_api.simulation.topology_graph import (
+    GraphPlacement,
+    build_topology_graph,
+    infer_location_type,
+)
+from edfinder_api.simulation.preview_models import (
+    EconomyContributionProfile,
+    PreviewContext,
+    PreviewPlacement,
+)
 
 
 _CONTAMINATION_ECONOMIES = CONTAMINATION_ECONOMIES

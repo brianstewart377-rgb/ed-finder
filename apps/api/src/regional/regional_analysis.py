@@ -4,11 +4,20 @@ from __future__ import annotations
 import math
 from typing import Any, Optional
 
-from mechanics.confidence import ConfidenceLevel, ConfidenceSignal, default_data_quality, signals_to_dict
-from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
-from mechanics.versions import MECHANICS_VERSION
-from regional.regional_roles import classify_regional_role
-from regional.regional_scoring import archetype_regional_fit, regional_rationale, regional_scores
+from edfinder_api.mechanics.confidence import (
+    ConfidenceLevel,
+    ConfidenceSignal,
+    default_data_quality,
+    signals_to_dict,
+)
+from edfinder_api.mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
+from edfinder_api.mechanics.versions import MECHANICS_VERSION
+from edfinder_api.regional.regional_roles import classify_regional_role
+from edfinder_api.regional.regional_scoring import (
+    archetype_regional_fit,
+    regional_rationale,
+    regional_scores,
+)
 
 COLONISATION_CLAIM_RANGE_LY = 16.0
 REGIONAL_ANALYSIS_RADIUS_LY = float(REGIONAL_DISTANCE_BUCKETS[-1])

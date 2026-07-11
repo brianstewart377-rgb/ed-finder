@@ -4,9 +4,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from domain.facilities import FacilityTemplate
-from mechanics.cp_rules import LATE_T3_BUILD_ORDER_THRESHOLD
-from simulation.cp_simulator import port_cp_cost
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.mechanics.cp_rules import LATE_T3_BUILD_ORDER_THRESHOLD
+from edfinder_api.simulation.cp_simulator import port_cp_cost
 
 
 @dataclass

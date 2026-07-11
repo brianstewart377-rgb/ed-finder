@@ -24,9 +24,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from domain.economy_state import EconomyState, EconomyAnalysis, IDEAL_PAIRS
-from domain.facilities import FacilityTemplate
-from domain.placements import FacilityPlacement
+from edfinder_api.domain.economy_state import EconomyAnalysis, EconomyState, IDEAL_PAIRS
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.domain.placements import FacilityPlacement
 
 
 @dataclass

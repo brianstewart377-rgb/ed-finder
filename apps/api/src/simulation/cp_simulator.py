@@ -28,8 +28,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from domain.facilities import FacilityTemplate
-from mechanics.cp_rules import (
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.mechanics.cp_rules import (
     CP_COMPLEXITY_THRESHOLDS,
     T2_GREEN_EXTRAPOLATION_STEP,
     T2_PORT_COSTS_GREEN,

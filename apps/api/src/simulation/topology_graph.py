@@ -14,9 +14,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from domain.facilities import FacilityTemplate, LOC_ORBITAL, LOC_RINGED_ORBITAL, LOC_SURFACE
-from mechanics.link_rules import WEAK_LINK_STRENGTH
-from simulation.link_modifiers import modified_strong_link_value
+from edfinder_api.domain.facilities import (
+    FacilityTemplate,
+    LOC_ORBITAL,
+    LOC_RINGED_ORBITAL,
+    LOC_SURFACE,
+)
+from edfinder_api.mechanics.link_rules import WEAK_LINK_STRENGTH
+from edfinder_api.simulation.link_modifiers import modified_strong_link_value
 
 
 ROLE_PRIMARY_PORT = 'primary_port'

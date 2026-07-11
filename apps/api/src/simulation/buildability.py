@@ -26,12 +26,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from domain.facilities import FacilityTemplate, get_catalogue
-from simulation.cp_simulator import (
+from edfinder_api.domain.facilities import FacilityTemplate, get_catalogue
+from edfinder_api.simulation.cp_simulator import (
     CPAnalysis, CPState, analyse_cp_budget, complexity_label,
 )
-from simulation.composition import CompositionResult, analyse_composition
-from domain.placements import FacilityPlacement, PlacementContext, choose_location
+from edfinder_api.simulation.composition import CompositionResult, analyse_composition
+from edfinder_api.domain.placements import FacilityPlacement, PlacementContext, choose_location
 
 
 SIMULATION_VERSION = '1.0.0'
@@ -256,7 +256,7 @@ def _select_facilities_for_archetype(
     Select a representative facility set for CP analysis.
     Uses the archetype's preferred economy to choose support facilities.
     """
-    from simulation.composition import _archetype_to_economies
+    from edfinder_api.simulation.composition import _archetype_to_economies
     target_economies = _archetype_to_economies(archetype_key or '') if archetype_key else []
 
     selected: list[FacilityTemplate] = []
@@ -303,7 +303,7 @@ def _target_port_count(archetype_key: Optional[str]) -> int:
 
 def _expected_yellow_need(total_slots: int) -> int:
     """Expected yellow CP needed to fill all slots with T2 ports."""
-    from simulation.cp_simulator import _T2_PORT_COSTS_YELLOW
+    from edfinder_api.simulation.cp_simulator import _T2_PORT_COSTS_YELLOW
     total = 0
     for i in range(min(total_slots, len(_T2_PORT_COSTS_YELLOW))):
         total += _T2_PORT_COSTS_YELLOW[i]
@@ -331,7 +331,7 @@ def _generate_build_order(
 
     Returns list of step dicts.
     """
-    from simulation.composition import _archetype_to_economies
+    from edfinder_api.simulation.composition import _archetype_to_economies
     steps: list[dict] = []
     step = 1
 
