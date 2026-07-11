@@ -6,7 +6,7 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Any, Mapping
 
-from provenance_cockpit_models import (
+from edfinder_api.provenance_cockpit_models import (
     EvidencePanels,
     GuardrailsSummary,
     PlannerEvidencePanel,

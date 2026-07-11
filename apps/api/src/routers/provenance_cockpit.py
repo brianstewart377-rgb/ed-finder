@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from provenance_cockpit import build_provenance_cockpit
-from provenance_cockpit_models import ProvenanceCockpitResponse
+from edfinder_api.provenance_cockpit import build_provenance_cockpit
+from edfinder_api.provenance_cockpit_models import ProvenanceCockpitResponse
 
 
 router = APIRouter(tags=['colony-planner'])

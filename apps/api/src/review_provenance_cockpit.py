@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends
 
-from deps import get_pool
-from provenance_cockpit import build_provenance_cockpit
-from provenance_cockpit_models import ProvenanceCockpitResponse
-from review_contract_store import load_review_provenance_contract
+from edfinder_api.deps import get_pool
+from edfinder_api.provenance_cockpit import build_provenance_cockpit
+from edfinder_api.provenance_cockpit_models import ProvenanceCockpitResponse
+from edfinder_api.review_contract_store import load_review_provenance_contract
 
 
 router = APIRouter(tags=['colony-planner'])

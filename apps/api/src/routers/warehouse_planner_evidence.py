@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncpg
 from fastapi import APIRouter, Depends
 
-from deps import get_pool
-from warehouse_planner_evidence import build_warehouse_planner_evidence
-from warehouse_planner_evidence_models import WarehousePlannerEvidenceContract
-from warehouse_planner_evidence_provider import load_live_planner_evidence
+from edfinder_api.deps import get_pool
+from edfinder_api.warehouse_planner_evidence import build_warehouse_planner_evidence
+from edfinder_api.warehouse_planner_evidence_models import WarehousePlannerEvidenceContract
+from edfinder_api.warehouse_planner_evidence_provider import load_live_planner_evidence
 
 
 router = APIRouter(tags=['colony-planner'])
