@@ -9,6 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / 'scripts'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
+FIXTURES = ROOT / 'tests' / 'fixtures'
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 if str(API_SRC) not in sys.path:
@@ -19,6 +20,7 @@ from enrichment_operator_status import (  # noqa: E402
     read_enrichment_status_snapshot,
     read_warehouse_status_snapshot,
 )
+from shared_contracts.enrichment_artifact_contracts import validate_warehouse_status_artifact  # noqa: E402
 
 
 def write_checkpoint(path: Path, ids: list[int]) -> None:
@@ -628,6 +630,9 @@ def test_warehouse_status_snapshot_missing_invalid_and_unsafe_states(tmp_path):
         'schema_version': 'enrichment_staging_reconciliation/v1',
         'dry_run': True,
         'summary': {'canonical_writes_planned': 1},
+        'source_coverage_summary': {},
+        'warehouse_coverage_report': {},
+        'confidence_risk_summary': {},
         'warnings': ['ok'],
         'errors': [],
     }), encoding='utf-8')
@@ -635,3 +640,31 @@ def test_warehouse_status_snapshot_missing_invalid_and_unsafe_states(tmp_path):
     assert unsafe_payload['available'] is True
     assert unsafe_payload['state'] == 'unsafe'
     assert unsafe_payload['canonical_safety']['canonical_tables_untouched'] is False
+
+
+def test_warehouse_status_shared_fixture_matches_contract_and_sanitizes(tmp_path):
+    payload = json.loads(
+        (FIXTURES / 'enrichment_staging_reconciliation_fixture.json').read_text(encoding='utf-8')
+    )
+    validate_warehouse_status_artifact(payload)
+
+    artifact = tmp_path / 'shared' / 'warehouse-contract.json'
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps(payload), encoding='utf-8')
+
+    sanitized = read_warehouse_status_snapshot(str(artifact))
+
+    assert sanitized['available'] is True
+    assert sanitized['latest_reconciliation_run']['schema_version'] == 'enrichment_staging_reconciliation/v1'
+    assert sanitized['canonical_safety']['canonical_tables_untouched'] is True
+
+
+def test_warehouse_status_contract_invalid_payload_is_rejected(tmp_path):
+    artifact = tmp_path / 'shared' / 'warehouse-contract-invalid.json'
+    artifact.parent.mkdir()
+    artifact.write_text(json.dumps({'schema_version': 'enrichment_staging_reconciliation/v1'}), encoding='utf-8')
+
+    payload = read_warehouse_status_snapshot(str(artifact))
+
+    assert payload['available'] is False
+    assert payload['state'] == 'invalid'

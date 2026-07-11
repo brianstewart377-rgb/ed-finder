@@ -8,6 +8,9 @@ from enrichment_operator_status import read_warehouse_status_snapshot
 from warehouse_planner_evidence_models import (
     WarehousePlannerEvidenceBoundedStaging,
     WarehousePlannerEvidenceContract,
+    WarehousePlannerEvidenceCoverage,
+    WarehousePlannerEvidenceCoverageFreshness,
+    WarehousePlannerEvidenceCoverageMetric,
     WarehousePlannerEvidenceEnvelope,
     WarehousePlannerEvidenceFreshness,
     WarehousePlannerEvidenceItem,
@@ -55,6 +58,7 @@ def build_warehouse_planner_evidence(
                 bounded_staging=live_result.bounded_staging,
             ),
             bounded_staging=live_result.bounded_staging,
+            coverage=live_result.coverage,
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability=live_result.availability,
                 report_only=True,
@@ -76,6 +80,7 @@ def build_warehouse_planner_evidence(
             bounded_staging=_default_bounded_staging_contract(status='not_evaluated'),
         ),
         bounded_staging=_default_bounded_staging_contract(status='not_evaluated'),
+        coverage=_default_coverage_contract(),
         evidence_summary=WarehousePlannerEvidenceSummary(
             availability='unavailable',
             report_only=True,
@@ -83,6 +88,21 @@ def build_warehouse_planner_evidence(
             items=[],
         ),
         warnings=_fallback_warnings(warehouse_status),
+    )
+
+
+def _default_coverage_contract() -> WarehousePlannerEvidenceCoverage:
+    unknown_metric = WarehousePlannerEvidenceCoverageMetric(
+        status='unknown',
+        summary='Coverage is unknown for this metric in the current runtime.',
+    )
+    return WarehousePlannerEvidenceCoverage(
+        body_scan=unknown_metric,
+        station_links=unknown_metric,
+        ring_identity=unknown_metric,
+        source_freshness=WarehousePlannerEvidenceCoverageFreshness(),
+        thin_data_reasons=['Selected-system coverage has not been evaluated in this runtime yet.'],
+        summary='Coverage remains unknown because selected-system evidence has not been evaluated in this runtime.',
     )
 
 

@@ -15,6 +15,7 @@ from typing import Any
 
 import ijson
 from ijson.common import ObjectBuilder
+from shared_contracts.enrichment_artifact_contracts import validate_compact_warehouse_status_artifact
 
 
 SUMMARY_SCHEMA_VERSION = 'enrichment_reconciliation_artifact_summary/v1'
@@ -108,7 +109,7 @@ def build_compact_summary(artifact_path: Path, *, max_candidate_samples: int = 5
     }
     candidate_action_counts['all'] = _counter_dict(parsed['candidate_action_counts']['all'])
 
-    return _json_safe_value({
+    summary_payload = _json_safe_value({
         'schema_version': SUMMARY_SCHEMA_VERSION,
         'safe_for_git': False,
         'source_artifact_basename': artifact_path.name,
@@ -148,6 +149,8 @@ def build_compact_summary(artifact_path: Path, *, max_candidate_samples: int = 5
             'samples': parsed['candidate_samples'],
         },
     })
+    validate_compact_warehouse_status_artifact(summary_payload)
+    return summary_payload
 
 
 def _stream_reconciliation_artifact(artifact_path: Path, *, max_candidate_samples: int) -> dict[str, Any]:

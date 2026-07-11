@@ -1,0 +1,105 @@
+{
+  "confidence_risk_summary": {
+    "risk_class_distribution": {
+      "blocked": 2,
+      "risky": 3,
+      "stale": 4,
+      "volatile": 1
+    }
+  },
+  "dry_run": true,
+  "errors": [],
+  "filters": {
+    "limit": 1000,
+    "source": "edsm_nightly_stations",
+    "source_file_key": "file-warehouse",
+    "source_run_key": "run-warehouse"
+  },
+  "schema_version": "enrichment_staging_reconciliation/v1",
+  "source_coverage_summary": {
+    "entities": {
+      "body": {
+        "candidates": 8
+      },
+      "ring": {
+        "candidates": 3
+      },
+      "station": {
+        "candidates": 12
+      }
+    },
+    "ring_evidence": {
+      "staged_ring_candidates": 3,
+      "trusted_local_matched_ring_candidates": 1
+    }
+  },
+  "summary": {
+    "ambiguous_matches": 1,
+    "canonical_matches_found": 10,
+    "canonical_misses": 2,
+    "canonical_writes_planned": 0,
+    "errors": 0,
+    "insufficient_evidence": 1,
+    "staged_body_rows_considered": 8,
+    "staged_ring_rows_considered": 3,
+    "staged_station_rows_considered": 12,
+    "warnings": 2
+  },
+  "warehouse_coverage_report": {
+    "canonical_writes_planned": 0,
+    "dry_run": true,
+    "operator_review": {
+      "needs_attention_buckets": {
+        "duplicate_source_records": 4,
+        "high_value_systems_needing_better_evidence": 3,
+        "skipped_or_malformed_raw_records": 6,
+        "source_identity_conflicts": 2,
+        "stale_or_undated_sources": 7
+      }
+    },
+    "report_only": true,
+    "schema_version": "enrichment_warehouse_coverage_report/v1",
+    "source_formats": {
+      "source_format_distribution": {
+        "json": 1
+      },
+      "source_type_distribution": {
+        "edsm_nightly_stations": 1
+      }
+    },
+    "source_freshness": {
+      "stale_or_undated_evidence": {
+        "file_snapshot_candidate_records": 2,
+        "records_without_source_updated_at": 7
+      }
+    },
+    "source_quality": {
+      "duplicate_source_records": {
+        "duplicate_records": 4
+      },
+      "malformed_or_skipped_source_rows": {
+        "count": 6
+      },
+      "source_identity_conflicts": {
+        "count": 2
+      }
+    },
+    "summary": {
+      "canonical_writes_planned": 0,
+      "high_value_systems_needing_better_evidence": 3,
+      "malformed_or_skipped_source_rows": 6,
+      "source_files_considered": 2,
+      "source_identity_conflicts": 2,
+      "systems_missing_station_evidence": 2,
+      "systems_with_station_evidence": 4,
+      "trusted_ring_evidence_bodies": 1,
+      "unknown_ring_evidence_bodies": 3,
+      "unresolved_stations": 5
+    }
+  },
+  "warnings": [
+    {
+      "reason": "volatile_source_evidence_not_canonical_update"
+    }
+  ]
+}
