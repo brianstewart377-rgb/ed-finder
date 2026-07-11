@@ -27,8 +27,8 @@ from typing import Any, Dict, List, Optional
 
 import asyncpg
 
-from helpers import SOL_ID64, safe_coords_from_row
-from search_economies import (
+from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
+from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
     cluster_count_column,

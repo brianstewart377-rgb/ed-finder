@@ -8,8 +8,8 @@ from typing import Any
 
 import asyncpg
 
-from observations.store import observed_fact_summary
-from warehouse_planner_evidence_models import (
+from edfinder_api.observations.store import observed_fact_summary
+from edfinder_api.warehouse_planner_evidence_models import (
     WarehousePlannerEvidenceBoundedStaging,
     WarehousePlannerEvidenceCoverage,
     WarehousePlannerEvidenceCoverageFreshness,
