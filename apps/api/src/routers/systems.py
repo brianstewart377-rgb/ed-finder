@@ -6,15 +6,18 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from config  import settings, log
-from deps    import get_pool, get_redis, cache_get, cache_set
-from models  import SystemDetailResponse
-from helpers import sys_row_to_dict
-from station_body_resolver import is_transient_non_slot_station_type, resolve_station_body_association
-from body_sorting import natural_body_sort_key_string, sort_bodies_by_hierarchy
+from edfinder_api.body_sorting import natural_body_sort_key_string, sort_bodies_by_hierarchy
+from edfinder_api.config import settings, log
+from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.helpers import sys_row_to_dict
+from edfinder_api.models import SystemDetailResponse
+from edfinder_api.station_body_resolver import (
+    is_transient_non_slot_station_type,
+    resolve_station_body_association,
+)
 
 try:
-    import local_search as _ls
+    import edfinder_api.local_search as _ls
     _LS_AVAILABLE = True
 except ImportError:
     _ls = None  # type: ignore

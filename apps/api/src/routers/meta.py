@@ -15,10 +15,10 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
-from config import settings
-from deps   import get_pool, get_redis, cache_get, cache_set
-from models import HealthResponse, StatusResponse
-from state  import metrics
+from edfinder_api.config import settings
+from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.models import HealthResponse, StatusResponse
+from edfinder_api.state import metrics
 
 log = logging.getLogger('ed_finder')
 
@@ -26,7 +26,7 @@ router = APIRouter(tags=['meta'])
 
 # Local_search may be unavailable in minimal deployments (CI, local dev).
 try:
-    import local_search as _ls
+    import edfinder_api.local_search as _ls
     _LS_AVAILABLE = True
 except ImportError:
     _ls = None  # type: ignore

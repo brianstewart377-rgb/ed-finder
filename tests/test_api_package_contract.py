@@ -31,7 +31,11 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/main.py',
         'apps/api/src/routers/admin.py',
         'apps/api/src/routers/journal_import.py',
+        'apps/api/src/routers/map.py',
+        'apps/api/src/routers/meta.py',
         'apps/api/src/routers/provenance_cockpit.py',
+        'apps/api/src/routers/search.py',
+        'apps/api/src/routers/systems.py',
         'apps/api/src/routers/warehouse_planner_evidence.py',
         'apps/api/src/journal_import/store.py',
         'apps/api/src/ingest/eddn_client.py',
@@ -62,6 +66,7 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'from models import ',
         'from helpers import ',
         'from state import ',
+        'from body_sorting import ',
         'from evidence_store.store import ',
         'from ring_facts import ',
         'from models_economy import ',
@@ -76,7 +81,9 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'from journal_import.api_models import ',
         'from ingest.journal_normaliser import ',
         'from search_economies import ',
+        'from station_body_resolver import ',
         'from station_body_resolver_utils import ',
+        'import local_search as ',
     )
 
     for relative_path, source in package_aware_modules:
