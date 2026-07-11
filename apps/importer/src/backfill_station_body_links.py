@@ -10,9 +10,12 @@ Safe defaults:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import os
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,6 +41,38 @@ UPSERT_COLUMNS = (
     'association_source',
     'resolver_notes',
 )
+CANONICAL_EVIDENCE_SOURCE = 'canonical_app_data'
+CANONICAL_EVIDENCE_TYPE = 'station_set'
+CANONICAL_EVIDENCE_TRIGGER = 'station_body_link_backfill'
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, separators=(',', ':'), sort_keys=True)
+
+
+def _dt_to_str(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+    return str(value)
+
+
+def _content_addressed_evidence_key(payload: dict[str, Any]) -> str:
+    canonical = {
+        'system_id64': payload['system_id64'],
+        'source_name': payload['source_name'],
+        'subject_type': payload['subject_type'],
+        'subject_id': payload.get('subject_id'),
+        'evidence_type': payload['evidence_type'],
+        'observed_at': payload.get('observed_at'),
+        'source_record_id': payload.get('source_record_id'),
+        'value': payload.get('value') or {},
+    }
+    digest = hashlib.sha256(_json_dumps(canonical).encode('utf-8')).hexdigest()
+    return f'evd_{digest}'
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,6 +158,228 @@ def upsert_links(conn, rows, *, overwrite_confirmed: bool) -> None:
         execute_values(cur, sql, values)
 
 
+def build_station_set_evidence_payload(conn, system_id64: int) -> dict[str, Any] | None:
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT
+                s.id64,
+                s.name AS system_name,
+                COUNT(st.id)::int AS station_count,
+                COUNT(l.station_id)::int FILTER (
+                    WHERE l.association_status = 'local_matched'
+                ) AS linked_station_count,
+                MAX(
+                    GREATEST(
+                        COALESCE(st.distance_updated_at, '-infinity'::timestamptz),
+                        COALESCE(st.station_type_updated_at, '-infinity'::timestamptz),
+                        COALESCE(st.body_name_updated_at, '-infinity'::timestamptz),
+                        COALESCE(l.updated_at, '-infinity'::timestamptz)
+                    )
+                ) AS observed_at
+            FROM systems s
+            LEFT JOIN stations st ON st.system_id64 = s.id64
+            LEFT JOIN station_body_links l ON l.station_id = st.id
+            WHERE s.id64 = %s
+            GROUP BY s.id64, s.name
+            """,
+            (system_id64,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return None
+
+    station_count = int(row['station_count'] or 0)
+    if station_count <= 0:
+        return None
+    linked_station_count = int(row['linked_station_count'] or 0)
+    unresolved_station_count = max(0, station_count - linked_station_count)
+    summary = (
+        f"Canonical station data for {row['system_name']} currently includes {station_count} stations; "
+        f'{linked_station_count}/{station_count} local station-body links are matched.'
+    )
+    confidence = 'high' if linked_station_count >= station_count else 'medium'
+    observed_at = _dt_to_str(row.get('observed_at'))
+    payload = {
+        'system_id64': int(row['id64']),
+        'source_name': CANONICAL_EVIDENCE_SOURCE,
+        'origin': 'derived',
+        'subject_type': 'system',
+        'subject_id': str(row['id64']),
+        'evidence_type': CANONICAL_EVIDENCE_TYPE,
+        'record_status': 'active',
+        'freshness_status': 'current',
+        'confidence': confidence,
+        'summary': summary,
+        'source_record_id': None,
+        'source_run_key': None,
+        'observed_at': observed_at,
+        'collected_at': None,
+        'expires_at': None,
+        'value': {
+            'system_name': row['system_name'],
+            'station_count': station_count,
+            'linked_station_count': linked_station_count,
+            'unresolved_station_count': unresolved_station_count,
+            'station_link_runtime_available': True,
+        },
+        'provenance': {
+            'promotion_lane': 'system_canonical_evidence/v1',
+            'trigger_context': CANONICAL_EVIDENCE_TRIGGER,
+            'source_tables': ['stations', 'station_body_links'],
+            'station_data_updated_at': observed_at,
+        },
+        'tags': ['canonical_promotion', 'coverage'],
+        'metadata': {
+            'promotion_lane': 'system_canonical_evidence/v1',
+            'trigger_context': CANONICAL_EVIDENCE_TRIGGER,
+            'requested_evidence_type': CANONICAL_EVIDENCE_TYPE,
+        },
+    }
+    payload['evidence_key'] = _content_addressed_evidence_key(payload)
+    return payload
+
+
+def promote_station_set_evidence(conn, system_id64: int) -> str:
+    payload = build_station_set_evidence_payload(conn, system_id64)
+    if payload is None:
+        return 'missing'
+
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT *
+            FROM evidence_records
+            WHERE system_id64 = %s
+              AND source_name = %s
+              AND subject_type = %s
+              AND subject_id IS NOT DISTINCT FROM %s
+              AND evidence_type = %s
+              AND record_status = 'active'
+            ORDER BY COALESCE(observed_at, collected_at, created_at) DESC, evidence_key DESC
+            LIMIT 1
+            """,
+            (
+                payload['system_id64'],
+                payload['source_name'],
+                payload['subject_type'],
+                payload['subject_id'],
+                payload['evidence_type'],
+            ),
+        )
+        active = cur.fetchone()
+        if active is not None:
+            active_value = dict(active.get('value_json') or {})
+            if (
+                active_value == payload['value']
+                and (active.get('summary') or None) == payload['summary']
+                and str(active.get('confidence')) == str(payload['confidence'])
+                and str(active.get('origin')) == str(payload['origin'])
+                and str(active.get('freshness_status')) == str(payload['freshness_status'])
+            ):
+                return 'deduped'
+
+        cur.execute(
+            """
+            SELECT *
+            FROM evidence_records
+            WHERE evidence_key = %s
+            """,
+            (payload['evidence_key'],),
+        )
+        existing = cur.fetchone()
+        if existing is not None:
+            return 'deduped'
+
+        cur.execute(
+            """
+            WITH updated AS (
+                UPDATE evidence_records
+                   SET record_status = 'superseded',
+                       freshness_status = 'superseded',
+                       updated_at = now(),
+                       metadata_json = COALESCE(metadata_json, '{}'::jsonb) || jsonb_build_object(
+                           'superseded_by',
+                           %s::text,
+                           'superseded_at',
+                           to_jsonb(now())
+                       )
+                 WHERE system_id64 = %s
+                   AND subject_type = %s
+                   AND subject_id IS NOT DISTINCT FROM %s
+                   AND evidence_type = %s
+                   AND record_status = 'active'
+                RETURNING 1
+            )
+            SELECT COUNT(*)::int AS superseded_count FROM updated
+            """,
+            (
+                payload['evidence_key'],
+                payload['system_id64'],
+                payload['subject_type'],
+                payload['subject_id'],
+                payload['evidence_type'],
+            ),
+        )
+        superseded = cur.fetchone()
+        superseded_count = int((superseded or {}).get('superseded_count') or 0)
+        metadata = dict(payload['metadata'])
+        metadata['lifecycle'] = {'superseded_record_count': superseded_count}
+        cur.execute(
+            """
+            INSERT INTO evidence_records (
+                evidence_key,
+                system_id64,
+                source_name,
+                origin,
+                subject_type,
+                subject_id,
+                evidence_type,
+                record_status,
+                freshness_status,
+                confidence,
+                summary,
+                source_record_id,
+                source_run_key,
+                observed_at,
+                collected_at,
+                expires_at,
+                value_json,
+                provenance_json,
+                tags_json,
+                metadata_json
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, %s, %s::timestamptz, %s::timestamptz, %s::timestamptz,
+                %s::jsonb, %s::jsonb, %s::jsonb, %s::jsonb
+            )
+            """,
+            (
+                payload['evidence_key'],
+                payload['system_id64'],
+                payload['source_name'],
+                payload['origin'],
+                payload['subject_type'],
+                payload['subject_id'],
+                payload['evidence_type'],
+                payload['record_status'],
+                payload['freshness_status'],
+                payload['confidence'],
+                payload['summary'],
+                payload['source_record_id'],
+                payload['source_run_key'],
+                payload['observed_at'],
+                payload['collected_at'],
+                payload['expires_at'],
+                _json_dumps(payload['value']),
+                _json_dumps(payload['provenance']),
+                _json_dumps(payload['tags']),
+                _json_dumps(metadata),
+            ),
+        )
+    return 'created'
+
+
 def summarize(rows) -> Counter:
     counts: Counter = Counter()
     for row in rows:
@@ -144,6 +401,7 @@ def main() -> int:
         system_ids = fetch_system_ids(conn, system_id64=args.system_id64, limit=args.limit)
         total_counts: Counter = Counter()
         total_rows = 0
+        evidence_counts: Counter = Counter()
 
         for system_id64 in system_ids:
             bodies, stations, existing = fetch_system_payload(conn, system_id64)
@@ -157,6 +415,7 @@ def main() -> int:
             total_rows += len(rows)
             if not dry_run:
                 upsert_links(conn, rows, overwrite_confirmed=args.overwrite_confirmed)
+                evidence_counts[promote_station_set_evidence(conn, system_id64)] += 1
 
         if dry_run:
             conn.rollback()
@@ -167,6 +426,9 @@ def main() -> int:
     print(f'station body link backfill {mode}: systems={len(system_ids)} rows={total_rows}')
     for key, count in sorted(total_counts.items()):
         print(f'  {key}={count}')
+    if evidence_counts:
+        for key, count in sorted(evidence_counts.items()):
+            print(f'  evidence:{key}={count}')
     return 0
 
 

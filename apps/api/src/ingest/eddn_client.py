@@ -28,6 +28,7 @@ import time
 import zlib
 from typing import Optional, TYPE_CHECKING
 
+from evidence_store.store import promote_canonical_evidence_for_systems
 from ring_facts import ring_rows_for_body
 
 if TYPE_CHECKING:
@@ -360,6 +361,17 @@ async def _flush_batch(
                     log.warning(
                         'EDDN dirty marking failed for one or more batches',
                         extra=dirty_result,
+                    )
+                evidence_promotion = await promote_canonical_evidence_for_systems(
+                    conn,
+                    system_ids=dirty_system_ids,
+                    evidence_types=['body_completeness', 'ring_composition'],
+                    trigger_context='eddn_simulation_ingest',
+                )
+                if evidence_promotion['warnings']:
+                    log.debug(
+                        'EDDN canonical evidence promotion warnings',
+                        extra={'warnings': evidence_promotion['warnings']},
                     )
 
         log.debug(
