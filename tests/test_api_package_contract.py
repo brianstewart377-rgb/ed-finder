@@ -31,8 +31,16 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/main.py',
         'apps/api/src/routers/admin.py',
         'apps/api/src/routers/journal_import.py',
+        'apps/api/src/routers/provenance_cockpit.py',
+        'apps/api/src/routers/warehouse_planner_evidence.py',
         'apps/api/src/journal_import/store.py',
         'apps/api/src/ingest/eddn_client.py',
+        'apps/api/src/provenance_cockpit.py',
+        'apps/api/src/warehouse_planner_evidence.py',
+        'apps/api/src/review_main.py',
+        'apps/api/src/review_provenance_cockpit.py',
+        'apps/api/src/review_warehouse_planner_evidence.py',
+        'apps/api/src/review_contract_store.py',
     }
 
     for path in api_src.rglob('*.py'):
@@ -53,6 +61,13 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'from state import ',
         'from evidence_store.store import ',
         'from ring_facts import ',
+        'from provenance_cockpit import ',
+        'from provenance_cockpit_models import ',
+        'from warehouse_planner_evidence import ',
+        'from warehouse_planner_evidence_models import ',
+        'from review_contract_store import ',
+        'from review_environment_fixtures import ',
+        'from review_runtime_guard import ',
         'from journal_import import ',
         'from journal_import.api_models import ',
     )

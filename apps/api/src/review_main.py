@@ -14,19 +14,19 @@ from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from config import limiter, log, settings
-from review_runtime_guard import validate_review_runtime_env
-from routers.colony_planner import router as colony_planner_router
-from routers.meta import router as meta_router
-from routers.search import router as search_router
-from routers.simulate import router as simulate_router
-from routers.simulation import router as simulation_router
-from routers.systems import router as systems_router
-from routers.watchlist import router as watchlist_router
-from review_provenance_cockpit import router as review_provenance_cockpit_router
-from review_support_routes import router as review_support_router
-from review_warehouse_planner_evidence import router as review_warehouse_planner_evidence_router
-from state import metrics as _metrics, set_pool, set_redis
+from edfinder_api.config import limiter, log, settings
+from edfinder_api.review_provenance_cockpit import router as review_provenance_cockpit_router
+from edfinder_api.review_runtime_guard import validate_review_runtime_env
+from edfinder_api.review_support_routes import router as review_support_router
+from edfinder_api.review_warehouse_planner_evidence import router as review_warehouse_planner_evidence_router
+from edfinder_api.routers.colony_planner import router as colony_planner_router
+from edfinder_api.routers.meta import router as meta_router
+from edfinder_api.routers.search import router as search_router
+from edfinder_api.routers.simulate import router as simulate_router
+from edfinder_api.routers.simulation import router as simulation_router
+from edfinder_api.routers.systems import router as systems_router
+from edfinder_api.routers.watchlist import router as watchlist_router
+from edfinder_api.state import metrics as _metrics, set_pool, set_redis
 
 
 validate_review_runtime_env(dict(os.environ))
@@ -83,15 +83,14 @@ async def lifespan(app: FastAPI):
     try:
         async with pool.acquire() as conn:
             rows = await conn.fetch('SELECT * FROM facility_templates ORDER BY tier, id')
-        from domain.facilities import load_bundled_catalogue, load_catalogue_from_rows
+        from edfinder_api.domain.facilities import load_bundled_catalogue, load_catalogue_from_rows
 
         if rows:
             load_catalogue_from_rows([dict(row) for row in rows])
         else:
             load_bundled_catalogue()
     except Exception:
-        from domain.facilities import load_bundled_catalogue
-
+        from edfinder_api.domain.facilities import load_bundled_catalogue
         load_bundled_catalogue()
 
     app.state.pool = pool
