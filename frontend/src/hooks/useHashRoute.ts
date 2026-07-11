@@ -32,8 +32,8 @@ import type { SimulationWorkspaceMode } from '@/features/system-detail/simulatio
  * The route set is still simple enough that this hand-rolled parser beats
  * pulling in react-router. Re-evaluate that trade-off if nested routes grow.
  */
-export type Route = 'finder' | 'my-work' | 'watchlist' | 'pinned' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'admin' | 'operator' | 'colony-planner';
-const VALID_ROUTES: Route[] = ['finder', 'my-work', 'watchlist', 'pinned', 'compare', 'map', 'search-tuning', 'fc', 'admin', 'operator', 'colony-planner'];
+export type Route = 'finder' | 'my-work' | 'compare' | 'map' | 'search-tuning' | 'fc' | 'admin' | 'operator' | 'colony-planner';
+const VALID_ROUTES: Route[] = ['finder', 'my-work', 'compare', 'map', 'search-tuning', 'fc', 'admin', 'operator', 'colony-planner'];
 
 export interface ParsedHash {
   route:            Route;

@@ -121,12 +121,24 @@ vi.mock('@/features/search-tuning/useSearchTuning', () => ({
   }),
 }));
 
+vi.mock('@/features/journal-import/JournalImportPanel', () => ({
+  JournalImportPanel: () => <div data-testid="journal-import-panel">Journal Import</div>,
+}));
+
 vi.mock('@/features/fc-planner/useFcPlanner', () => ({
   useFcPlanner: () => ({ waypoints: [] }),
 }));
 
 vi.mock('@/features/admin/useAdmin', () => ({
   useAdmin: () => ({}),
+}));
+
+vi.mock('@/features/my-work/useJournalTelemetrySummary', () => ({
+  useJournalTelemetrySummary: () => ({
+    data: undefined,
+    isLoading: false,
+    error: null,
+  }),
 }));
 
 vi.mock('@/features/admin/AdminTab', () => ({
@@ -298,11 +310,13 @@ vi.mock('@/features/map/MapTab', () => ({
   ),
 }));
 
-afterEach(() => {
+afterEach(async () => {
   window.location.hash = '';
   localStorage.clear();
-  useColonyProjectStore.setState({ projects: {} });
-  useMyWorkStore.setState({ systems: {} });
+  await act(async () => {
+    useColonyProjectStore.setState({ projects: {} });
+    useMyWorkStore.setState({ systems: {} });
+  });
   document.documentElement.style.removeProperty('--coalsack-bg-2560');
   document.documentElement.style.removeProperty('--coalsack-bg-1600');
   mockWatchlistAdd.mockReset();
@@ -809,7 +823,12 @@ describe('App Colony Planner workspace route', () => {
     fireEvent.click(screen.getByText('Finder Candidate'));
     fireEvent.click(screen.getByRole('button', { name: /Remove from saved/i }));
 
-    expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
+    await waitFor(() => {
+      expect(mockWatchlistRemove).toHaveBeenCalledWith(777);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('saved-system-notice').textContent).toContain('Removed from saved');
+    });
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(0);
     expect(window.location.hash).toBe('#finder');
   });

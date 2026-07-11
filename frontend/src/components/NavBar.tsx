@@ -87,7 +87,7 @@ export function NavBar({
   );
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = selectedSystem != null || !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
+  const showPlayerContext = selectedSystem != null || !['finder', 'colony-planner', 'my-work'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
   const currentRouteDescriptor = PLAYER_WORKSPACES
     .flatMap((workspace) => groupedRoutes[workspace])
@@ -589,15 +589,13 @@ function OperatorModeMenu({
 
 function primaryWorkspaceForRoute(route: Route): PrimaryWorkspace | null {
   if (route === 'finder' || route === 'map' || route === 'search-tuning') return 'explore';
-  if (route === 'my-work' || route === 'watchlist' || route === 'pinned' || route === 'colony-planner') return 'plan';
+  if (route === 'my-work' || route === 'colony-planner') return 'plan';
   if (route === 'compare' || route === 'fc') return 'review';
   return null;
 }
 
 function isRouteActive(current: Route, target: Route): boolean {
-  if (current === target) return true;
-  if (target === 'my-work' && (current === 'watchlist' || current === 'pinned')) return true;
-  return false;
+  return current === target;
 }
 
 function workspaceMetaForRoute(route: Route): WorkspaceMeta {
@@ -644,24 +642,6 @@ function workspaceMetaForRoute(route: Route): WorkspaceMeta {
         primaryLabel: 'Plan',
         supportingText: 'Return to saved systems, local plans, and established colony work without splitting that context between Watchlist, Pins, and the planner.',
         nextAction: 'Resume a saved system, continue a plan, or review established colony work.',
-        statusLabel: 'Player planning home',
-        statusTone: 'available',
-      };
-    case 'watchlist':
-      return {
-        title: 'My Work',
-        primaryLabel: 'Plan',
-        supportingText: 'Watchlist now feeds the Saved Systems view in My Work so synced saved candidates sit beside local planning context.',
-        nextAction: 'Inspect a saved system or start planning from a deliberate hand-off.',
-        statusLabel: 'Player planning home',
-        statusTone: 'available',
-      };
-    case 'pinned':
-      return {
-        title: 'My Work',
-        primaryLabel: 'Plan',
-        supportingText: 'Pins now feed the Saved Systems view in My Work so local shortlist context stays beside saved systems and plans.',
-        nextAction: 'Inspect a saved system or continue from active planning work.',
         statusLabel: 'Player planning home',
         statusTone: 'available',
       };

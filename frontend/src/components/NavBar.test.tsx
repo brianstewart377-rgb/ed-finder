@@ -104,28 +104,26 @@ describe('NavBar', () => {
     expect(screen.getByTestId('selected-system-evidence-badge').textContent).toContain('Available candidate');
     expect(screen.queryByTestId('nav-open-selected-system-plan')).toBeNull();
 
-    for (const route of ['my-work', 'watchlist', 'pinned'] as const) {
-      rerender(
-        <NavBar
-          current={route}
-          onNavigate={vi.fn()}
-          health="Online"
-          onOpenSelectedSystemInPlan={vi.fn()}
-          selectedSystem={{
-            id64: 123,
-            name: 'Shinrarta Dezhra',
-            loading: false,
-            evidenceLabel: 'Available candidate',
-            evidenceTone: 'available',
-            evidenceSummary: 'Planner keeps the selected system visible while player context moves between routes.',
-          }}
-        />,
-      );
+    rerender(
+      <NavBar
+        current="my-work"
+        onNavigate={vi.fn()}
+        health="Online"
+        onOpenSelectedSystemInPlan={vi.fn()}
+        selectedSystem={{
+          id64: 123,
+          name: 'Shinrarta Dezhra',
+          loading: false,
+          evidenceLabel: 'Available candidate',
+          evidenceTone: 'available',
+          evidenceSummary: 'Planner keeps the selected system visible while player context moves between routes.',
+        }}
+      />,
+    );
 
-      expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
-      expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
-      expect(screen.getByTestId('nav-open-selected-system-plan')).toBeTruthy();
-    }
+    expect(screen.getByTestId('product-shell-context').textContent).toContain('Shinrarta Dezhra');
+    expect(screen.getByTestId('nav-my-work').getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('nav-open-selected-system-plan')).toBeTruthy();
   });
 
   it('renders one flat desktop navigation strip with direct destination tabs', () => {
