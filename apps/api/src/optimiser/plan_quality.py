@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 import re
 from typing import Literal, Optional
 
-from domain.facilities import FacilityTemplate
-from optimiser.archetype_rules import resolve_archetype_rule
-from optimiser.models import OptimiserCandidate
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.optimiser.archetype_rules import resolve_archetype_rule
+from edfinder_api.optimiser.models import OptimiserCandidate
 
 
 QualityStatus = Literal['ok', 'warning', 'reject']

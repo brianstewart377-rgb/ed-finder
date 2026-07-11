@@ -3,7 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from optimiser.plan_quality import EconomySoupAssessment, MissingPrerequisite, PlanPreset, PlanQualityReport
+from edfinder_api.optimiser.plan_quality import (
+    EconomySoupAssessment,
+    MissingPrerequisite,
+    PlanPreset,
+    PlanQualityReport,
+)
 
 RiskTolerance = Literal['low', 'normal', 'high']
 GuidedLane = Literal['orbital', 'ground']
