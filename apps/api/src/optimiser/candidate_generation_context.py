@@ -5,10 +5,14 @@ from typing import Any, Optional
 
 import asyncpg
 
-from domain.colonisation_rules import BodyEconomyProfile, profile_body
-from ingest.slot_prediction import INSUFFICIENT_DATA_REASON, PREDICTION_DISCLAIMER, predict_system_slots
-from optimiser.archetype_rules import ArchetypeRule
-from simulation.build_preview import PreviewContext
+from edfinder_api.domain.colonisation_rules import BodyEconomyProfile, profile_body
+from edfinder_api.ingest.slot_prediction import (
+    INSUFFICIENT_DATA_REASON,
+    PREDICTION_DISCLAIMER,
+    predict_system_slots,
+)
+from edfinder_api.optimiser.archetype_rules import ArchetypeRule
+from edfinder_api.simulation.build_preview import PreviewContext
 
 
 @dataclass(frozen=True)

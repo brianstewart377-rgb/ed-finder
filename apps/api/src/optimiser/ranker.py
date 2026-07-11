@@ -6,7 +6,7 @@ candidate search space.
 """
 from __future__ import annotations
 
-from optimiser.models import (
+from edfinder_api.optimiser.models import (
     CandidateRankBreakdown,
     CandidateRankingResult,
     OptimiserCandidate,

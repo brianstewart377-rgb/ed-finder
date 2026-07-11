@@ -10,10 +10,10 @@ from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
 
-from domain.colonisation_rules import BodyEconomyProfile, profile_body
-from domain.facilities import FacilityTemplate
-from optimiser.models import CandidatePlacement, OptimiserCandidate
-from optimiser.plan_quality import (
+from edfinder_api.domain.colonisation_rules import BodyEconomyProfile, profile_body
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.optimiser.models import CandidatePlacement, OptimiserCandidate
+from edfinder_api.optimiser.plan_quality import (
     PRESET_COUNT_RANGES,
     EconomySoupAssessment,
     MissingPrerequisite,
@@ -23,7 +23,7 @@ from optimiser.plan_quality import (
     PlanQualityReport,
     validate_generated_plan_quality,
 )
-from optimiser.guided_planner_models import (
+from edfinder_api.optimiser.guided_planner_models import (
     BodyRoleLabel,
     GuidedBodyContext,
     GuidedBodyRole,

@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from domain.facilities import FacilityTemplate
-from optimiser.archetype_rules import ArchetypeRule
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.optimiser.archetype_rules import ArchetypeRule
 
 
 def _text(template: FacilityTemplate) -> str:

@@ -8,26 +8,30 @@ from typing import Any, Callable, Optional
 
 import asyncpg
 
-from domain.facilities import FacilityTemplate
-from optimiser.archetype_rules import ArchetypeRule, resolve_archetype_rule
-from optimiser.candidate_generation_context import BodyAnchor, _get_preview_context_and_body_rows, _select_body_anchors
-from optimiser.dedupe import dedupe_candidates, placement_fingerprint
-from optimiser.facility_selection import (
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.optimiser.archetype_rules import ArchetypeRule, resolve_archetype_rule
+from edfinder_api.optimiser.candidate_generation_context import (
+    BodyAnchor,
+    _get_preview_context_and_body_rows,
+    _select_body_anchors,
+)
+from edfinder_api.optimiser.dedupe import dedupe_candidates, placement_fingerprint
+from edfinder_api.optimiser.facility_selection import (
     find_service_unlock_support,
     find_support_by_economy,
     select_port_template,
     select_support_templates,
 )
-from optimiser.models import (
+from edfinder_api.optimiser.models import (
     CandidateGenerationRequest,
     CandidateGenerationResult,
     CandidatePlacement,
     OptimiserCandidate,
     candidate_placement_to_preview_placement,
 )
-from optimiser.preview_summary import preview_summary_from_response
-from optimiser.system_analysis import analyse_system_strategy
-from simulation.build_preview import PreviewContext, simulate_build_preview
+from edfinder_api.optimiser.preview_summary import preview_summary_from_response
+from edfinder_api.optimiser.system_analysis import analyse_system_strategy
+from edfinder_api.simulation.build_preview import PreviewContext, simulate_build_preview
 
 PreviewRunner = Callable[..., dict[str, Any]]
 logger = logging.getLogger(__name__)

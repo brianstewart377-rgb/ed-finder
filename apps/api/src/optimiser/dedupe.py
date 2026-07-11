@@ -7,7 +7,7 @@ Preview.
 """
 from __future__ import annotations
 
-from optimiser.models import CandidatePlacement, OptimiserCandidate
+from edfinder_api.optimiser.models import CandidatePlacement, OptimiserCandidate
 
 
 def placement_fingerprint(placements: list[CandidatePlacement]) -> tuple[tuple[str, str | None, bool, int], ...]:
