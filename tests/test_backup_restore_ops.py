@@ -104,7 +104,7 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     wrapper = _read('scripts', 'run_data_invariants_receipted.sh')
     runbook = _read('docs', 'operations', 'stage17n2c-data-trust-runbook.md')
 
-    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}' in compose
+    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}' in compose
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--skip-invariants' in deploy
     assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
