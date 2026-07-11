@@ -26,7 +26,7 @@ compatibility wrapper ``observations.comparison_engine``.
 
 Direct imports of this package work too::
 
-    from observations.comparison_engine_pkg import compare_prediction_to_observations
+    from edfinder_api.observations.comparison_engine_pkg import compare_prediction_to_observations
 
 but new code should prefer the compatibility wrapper, which is the
 documented Stage 6C public surface.
@@ -37,6 +37,6 @@ mechanics. A static passivity test enforces that boundary.
 """
 from __future__ import annotations
 
-from observations.comparison_engine_pkg.engine import compare_prediction_to_observations
+from edfinder_api.observations.comparison_engine_pkg.engine import compare_prediction_to_observations
 
 __all__ = ['compare_prediction_to_observations']

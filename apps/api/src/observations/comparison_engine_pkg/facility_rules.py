@@ -10,18 +10,18 @@ facility prediction view.
 """
 from __future__ import annotations
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonArea,
     ComparisonSeverity,
     ComparisonStatus,
     PredictionObservationComparison,
 )
-from observations.models import (
+from edfinder_api.observations.models import (
     ObservedSubjectType,
     PersistedObservedFact,
 )
 
-from observations.comparison_engine_pkg.shared import (
+from edfinder_api.observations.comparison_engine_pkg.shared import (
     comparison_confidence_for,
     evidence_from_fact,
 )

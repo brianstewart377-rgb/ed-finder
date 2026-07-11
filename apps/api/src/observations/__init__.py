@@ -1,7 +1,7 @@
 """Observed-vs-predicted comparison foundation for ED-Finder."""
 
-from observations.comparison import compare_prediction_to_observations
-from observations.models import (
+from edfinder_api.observations.comparison import compare_prediction_to_observations
+from edfinder_api.observations.models import (
     ObservationArea,
     ObservationComparisonStatus,
     ObservationSeverity,

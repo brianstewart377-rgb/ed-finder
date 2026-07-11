@@ -40,31 +40,30 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     PredictionObservationComparison,
     PredictionObservationComparisonResult,
 )
-from observations.models import PersistedObservedFact
-
-from observations.comparison_engine_pkg.observation_index import index_observations
-from observations.comparison_engine_pkg.prediction_extractors import (
+from edfinder_api.observations.models import PersistedObservedFact
+from edfinder_api.observations.comparison_engine_pkg.observation_index import index_observations
+from edfinder_api.observations.comparison_engine_pkg.prediction_extractors import (
     extract_economy_predictions,
     extract_service_predictions,
 )
-from observations.comparison_engine_pkg.service_rules import (
+from edfinder_api.observations.comparison_engine_pkg.service_rules import (
     compare_service,
     observed_only_service,
 )
-from observations.comparison_engine_pkg.economy_rules import (
+from edfinder_api.observations.comparison_engine_pkg.economy_rules import (
     compare_economy,
     observed_only_economy,
 )
-from observations.comparison_engine_pkg.cp_rules import compare_cp
-from observations.comparison_engine_pkg.facility_rules import observed_only_facility
-from observations.comparison_engine_pkg.build_outcome_rules import compare_build_outcome
-from observations.comparison_engine_pkg.prediction_claim_rules import compare_prediction_claim
-from observations.comparison_engine_pkg.note_rules import observed_only_note
-from observations.comparison_engine_pkg.summary import build_summary
+from edfinder_api.observations.comparison_engine_pkg.cp_rules import compare_cp
+from edfinder_api.observations.comparison_engine_pkg.facility_rules import observed_only_facility
+from edfinder_api.observations.comparison_engine_pkg.build_outcome_rules import compare_build_outcome
+from edfinder_api.observations.comparison_engine_pkg.prediction_claim_rules import compare_prediction_claim
+from edfinder_api.observations.comparison_engine_pkg.note_rules import observed_only_note
+from edfinder_api.observations.comparison_engine_pkg.summary import build_summary
 
 
 def compare_prediction_to_observations(

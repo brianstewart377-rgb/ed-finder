@@ -1,19 +1,19 @@
 """Signal constructors for Stage 6E validation review guidance."""
 from __future__ import annotations
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonConfidence,
     ComparisonSeverity,
     PredictionObservationComparison,
 )
-from observations.review.areas import area_title_action
-from observations.review.severity import (
+from edfinder_api.observations.review.areas import area_title_action
+from edfinder_api.observations.review.severity import (
     has_high_priority_contradiction,
     highest_confidence,
     highest_severity,
 )
-from observations.review.shared import comparison_ids
-from observations.review_models import ReviewArea, ReviewStatus, ValidationReviewSignal
+from edfinder_api.observations.review.shared import comparison_ids
+from edfinder_api.observations.review_models import ReviewArea, ReviewStatus, ValidationReviewSignal
 
 
 def signal(

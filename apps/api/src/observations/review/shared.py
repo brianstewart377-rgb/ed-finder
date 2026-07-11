@@ -4,13 +4,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from collections.abc import Iterable
 
-from observations.comparison_models import (
+from edfinder_api.observations.comparison_models import (
     ComparisonArea,
     ComparisonStatus,
     PredictionObservationComparison,
     PredictionObservationComparisonResult,
 )
-from observations.review.severity import is_low_confidence
+from edfinder_api.observations.review.severity import is_low_confidence
 
 
 @dataclass(frozen=True)

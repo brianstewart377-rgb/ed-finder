@@ -1,11 +1,11 @@
 """Public orchestration for Stage 6E validation review guidance."""
 from __future__ import annotations
 
-from observations.comparison_models import PredictionObservationComparisonResult
-from observations.review.rules import build_review_signals
-from observations.review.shared import bucket_comparisons
-from observations.review.summary import build_review_summary
-from observations.review_models import ValidationReviewResult
+from edfinder_api.observations.comparison_models import PredictionObservationComparisonResult
+from edfinder_api.observations.review.rules import build_review_signals
+from edfinder_api.observations.review.shared import bucket_comparisons
+from edfinder_api.observations.review.summary import build_review_summary
+from edfinder_api.observations.review_models import ValidationReviewResult
 
 
 def build_validation_review(

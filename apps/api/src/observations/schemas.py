@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from observations.models import ObservationSummary, PredictionObservationDiff
+from edfinder_api.observations.models import ObservationSummary, PredictionObservationDiff
 
 
 def observation_summary_to_dict(summary: ObservationSummary) -> dict[str, Any]:
