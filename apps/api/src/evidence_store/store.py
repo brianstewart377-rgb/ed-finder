@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import asyncpg
 
-from observations.store import observed_fact_summary
+from edfinder_api.observations.store import observed_fact_summary
 from shared_contracts.evidence_identity import (
     coerce_optional_datetime as _coerce_optional_datetime,
     content_addressed_evidence_key as _content_addressed_evidence_key,

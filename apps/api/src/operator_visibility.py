@@ -12,7 +12,7 @@ from pathlib import PurePosixPath
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
-from operator_visibility_models import (
+from edfinder_api.operator_visibility_models import (
     BRIDGE_SCHEMA_VERSION,
     DEFAULT_DIAGNOSTIC_ROW_LIMIT,
     DEFAULT_RECENT_SOURCE_RUN_LIMIT,
