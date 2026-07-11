@@ -178,7 +178,7 @@ services:
       # PostgreSQL `max_connections` is 200 (see postgres command), so
       # api(20) + eddn(5) + importer(short-lived) + monitoring leave
       # ~150 connections of headroom.
-      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DATABASE_URL:         ${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
       DATABASE_READONLY_URL: ${DATABASE_READONLY_URL:-}
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
@@ -226,7 +226,7 @@ services:
     cpus: 2.0
     environment:
       # Direct connection — see `api` service for full rationale.
-      DATABASE_URL:         postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DATABASE_URL:         ${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
       REDIS_URL:            redis://redis:6379/0
       LOG_LEVEL:            ${LOG_LEVEL:-INFO}
       LOG_FORMAT:           ${EDDN_LOG_FORMAT:-text}    # set to `json` for Loki/CloudWatch
@@ -269,8 +269,8 @@ services:
     mem_limit: 512m
     cpus: 1.0
     environment:
-      DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
-      DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
+      DATABASE_URL:  ${DATABASE_MAINTENANCE_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
+      DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}
       LOG_FILE:      /data/logs/maintenance.log
       BACKUP_DIR:    /data/backups/postgres
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
@@ -349,7 +349,7 @@ services:
     environment:
       # Explicitly pass the password to bypass any URL caching/conflicts
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      DATABASE_URL:  postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder
+      DATABASE_URL:  ${DATABASE_IMPORT_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}
       DUMP_DIR:     /data/dumps
       BATCH_SIZE:   ${BATCH_SIZE:-50000}
       RATING_DIRTY_CLEANUP_CHUNK:   ${RATING_DIRTY_CLEANUP_CHUNK:-1000}

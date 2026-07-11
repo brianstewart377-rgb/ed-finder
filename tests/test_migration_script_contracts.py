@@ -16,6 +16,8 @@ def _read(path: Path) -> str:
 def test_apply_migrations_uses_manifest_ledger_and_checksum_guards():
     script = _read(APPLY_MIGRATIONS)
 
+    assert 'ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"' in script
+    assert 'DATABASE_URL="${DATABASE_MIGRATION_URL:-${DATABASE_URL:-}}"' in script
     assert 'MANIFEST_FILE="${MIGRATION_MANIFEST:-$SQL_DIR/migration-manifest.txt}"' in script
     assert 'LEDGER_TABLE="${MIGRATION_LEDGER_TABLE:-schema_migrations}"' in script
     assert 'COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"' in script
@@ -44,6 +46,8 @@ def test_seed_check_stays_on_manifested_apply_path_and_asserts_seed_invariants()
 def test_baseline_migration_script_requires_reviewed_cutover_inputs():
     script = _read(BASELINE_MIGRATIONS)
 
+    assert 'ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"' in script
+    assert 'DATABASE_URL="${DATABASE_MIGRATION_URL:-${DATABASE_URL:-}}"' in script
     assert 'MANUAL_STATUS_TABLE="${MIGRATION_MANUAL_STATUS_TABLE:-schema_migration_manual_status}"' in script
     assert 'COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"' in script
     assert '--compose-file' in script
