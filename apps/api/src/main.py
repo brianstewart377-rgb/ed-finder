@@ -39,32 +39,32 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
-from config  import settings, log, limiter
-from state   import set_pool, set_readonly_pool, set_redis, metrics as _metrics
+from edfinder_api.config import settings, log, limiter
+from edfinder_api.state import set_pool, set_readonly_pool, set_redis, metrics as _metrics
 
 # Routers
-from routers.admin     import router as admin_router, reap_stale_admin_operation_runs
-from routers.evidence  import router as evidence_router
-from routers.events    import router as events_router, eddn_pubsub_bridge
-from routers.map       import router as map_router
-from routers.journal_import import router as journal_import_router
-from routers.meta      import router as meta_router
-from routers.news      import router as news_router
-from routers.notes     import router as notes_router
-from routers.profile   import router as profile_router
-from routers.archetypes  import router as archetypes_router
-from routers.colony_planner import router as colony_planner_router
-from routers.provenance_cockpit import router as provenance_cockpit_router
-from routers.warehouse_planner_evidence import router as warehouse_planner_evidence_router
-from routers.simulate    import router as simulate_router
-from routers.simulation  import router as simulation_router
-from routers.search    import router as search_router
-from routers.systems   import router as systems_router
-from routers.watchlist import router as watchlist_router
-from routers.optimiser import router as optimiser_router
-from routers.observations import router as observations_router
-from routers.operator import router as operator_router
-from share_router      import router as share_router
+from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_operation_runs
+from edfinder_api.routers.archetypes import router as archetypes_router
+from edfinder_api.routers.colony_planner import router as colony_planner_router
+from edfinder_api.routers.evidence import router as evidence_router
+from edfinder_api.routers.events import router as events_router, eddn_pubsub_bridge
+from edfinder_api.routers.journal_import import router as journal_import_router
+from edfinder_api.routers.map import router as map_router
+from edfinder_api.routers.meta import router as meta_router
+from edfinder_api.routers.news import router as news_router
+from edfinder_api.routers.notes import router as notes_router
+from edfinder_api.routers.observations import router as observations_router
+from edfinder_api.routers.operator import router as operator_router
+from edfinder_api.routers.optimiser import router as optimiser_router
+from edfinder_api.routers.profile import router as profile_router
+from edfinder_api.routers.provenance_cockpit import router as provenance_cockpit_router
+from edfinder_api.routers.search import router as search_router
+from edfinder_api.routers.simulate import router as simulate_router
+from edfinder_api.routers.simulation import router as simulation_router
+from edfinder_api.routers.systems import router as systems_router
+from edfinder_api.routers.warehouse_planner_evidence import router as warehouse_planner_evidence_router
+from edfinder_api.routers.watchlist import router as watchlist_router
+from edfinder_api.share_router import router as share_router
 
 # ---------------------------------------------------------------------------
 # Startup / shutdown

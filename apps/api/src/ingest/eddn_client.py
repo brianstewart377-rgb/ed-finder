@@ -28,8 +28,8 @@ import time
 import zlib
 from typing import Optional, TYPE_CHECKING
 
-from evidence_store.store import promote_canonical_evidence_for_systems
-from ring_facts import ring_rows_for_body
+from edfinder_api.evidence_store.store import promote_canonical_evidence_for_systems
+from edfinder_api.ring_facts import ring_rows_for_body
 
 if TYPE_CHECKING:
     import asyncpg

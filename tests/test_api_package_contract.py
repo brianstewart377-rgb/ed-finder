@@ -27,6 +27,13 @@ def test_api_package_namespace_bridges_legacy_flat_import_tree():
 def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt():
     api_src = ROOT / 'apps' / 'api' / 'src'
     package_aware_modules = []
+    expected_modules = {
+        'apps/api/src/main.py',
+        'apps/api/src/routers/admin.py',
+        'apps/api/src/routers/journal_import.py',
+        'apps/api/src/journal_import/store.py',
+        'apps/api/src/ingest/eddn_client.py',
+    }
 
     for path in api_src.rglob('*.py'):
         source = path.read_text(encoding='utf-8')
@@ -34,12 +41,18 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
             package_aware_modules.append((path.relative_to(ROOT).as_posix(), source))
 
     assert package_aware_modules, 'expected at least one package-aware API module to enforce'
+    package_aware_paths = {relative_path for relative_path, _ in package_aware_modules}
+    missing = sorted(expected_modules - package_aware_paths)
+    assert not missing, f'expected package-aware imports in: {missing}'
 
     forbidden_flat_imports = (
         'from config import ',
         'from deps import ',
         'from models import ',
         'from helpers import ',
+        'from state import ',
+        'from evidence_store.store import ',
+        'from ring_facts import ',
         'from journal_import import ',
         'from journal_import.api_models import ',
     )
