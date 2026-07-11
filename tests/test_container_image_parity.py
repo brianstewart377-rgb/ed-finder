@@ -55,19 +55,27 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     api_dockerfile = _read('apps', 'api', 'Dockerfile')
     eddn_dockerfile = _read('apps', 'eddn', 'Dockerfile')
     importer_dockerfile = _read('apps', 'importer', 'Dockerfile')
+    maintenance_dockerfile = _read('apps', 'maintenance', 'Dockerfile')
     workflow = _read('.github', 'workflows', 'container-image-parity.yml')
 
     assert 'DATABASE_READONLY_URL=' in env_example
+    assert 'BACKUP_OFFSITE_REMOTE=' in env_example
     assert 'DATABASE_READONLY_URL:' in compose
     assert '${DATABASE_READONLY_URL:-}' in compose
+    assert 'DATA_INVARIANTS_DATABASE_URL:' in compose
+    assert 'BACKUP_OFFSITE_REMOTE:' in compose
     assert 'context: .' in compose
     assert 'dockerfile: apps/api/Dockerfile' in compose
     assert 'dockerfile: apps/eddn/Dockerfile' in compose
     assert 'dockerfile: apps/importer/Dockerfile' in compose
+    assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'dockerfile: apps/api/Dockerfile' in review_compose
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
+    assert 'python3 py3-psycopg2 rclone' in maintenance_dockerfile
+    assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
+    assert 'COPY shared_contracts/data_invariant_contracts.py' in maintenance_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow
     assert "'apps/api/requirements.txt'" in workflow
     assert "'apps/eddn/requirements.txt'" in workflow

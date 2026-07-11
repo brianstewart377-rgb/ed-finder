@@ -15,6 +15,7 @@ TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"
 PRODUCTION_SAFE=0
 RECEIPT_FILE="${RECEIPT_FILE:-}"
 DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"
+DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"
 COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"
 COMPOSE_PROJECT_NAME_OVERRIDE="${EDFINDER_DOCKER_PROJECT_NAME:-}"
 compose_args=()
@@ -32,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     --target-rating-version) TARGET_RATING_VERSION="$2"; shift 2 ;;
     --receipt-file) RECEIPT_FILE="$2"; shift 2 ;;
     --durable-receipt-dir) DURABLE_RECEIPT_DIR="$2"; shift 2 ;;
+    --database-url) DATABASE_URL_OVERRIDE="$2"; shift 2 ;;
     --compose-file) COMPOSE_FILE_OVERRIDE="$2"; shift 2 ;;
     --project-name) COMPOSE_PROJECT_NAME_OVERRIDE="$2"; shift 2 ;;
     --production-safe) PRODUCTION_SAFE=1; shift ;;
@@ -50,7 +52,7 @@ cd "$REPO_DIR"
 if [[ -n "$COMPOSE_FILE_OVERRIDE" ]]; then
   [[ -f "$COMPOSE_FILE_OVERRIDE" ]] || die "compose file not found: $COMPOSE_FILE_OVERRIDE"
   compose_args+=(-f "$COMPOSE_FILE_OVERRIDE")
-elif [[ -z "${DATABASE_URL:-}" ]]; then
+elif [[ -z "$DATABASE_URL_OVERRIDE" && -z "${DATABASE_URL:-}" ]]; then
   [[ -f docker-compose.yml ]] || die "docker-compose.yml not found in $REPO_DIR"
 fi
 
@@ -84,11 +86,16 @@ fi
 
 mode="host_database_url"
 runner=()
-if [[ -n "${DATABASE_URL:-}" ]]; then
+effective_database_url="$DATABASE_URL_OVERRIDE"
+if [[ -z "$effective_database_url" && -n "${DATABASE_URL:-}" ]]; then
+  effective_database_url="$DATABASE_URL"
+fi
+
+if [[ -n "$effective_database_url" ]]; then
   command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || die "python/python3 not found for DATABASE_URL mode"
   mode="database_url"
   python_bin="$(command -v python3 || command -v python)"
-  command_args=("$python_bin" "${command_args[@]}" --database-url "$DATABASE_URL")
+  command_args=("$python_bin" "${command_args[@]}" --database-url "$effective_database_url")
   runner=("${command_args[@]}")
 else
   command -v docker >/dev/null 2>&1 || die "docker not found"

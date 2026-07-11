@@ -17,10 +17,19 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
+    assert 'context: .' in compose
+    assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
+    assert 'BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}' in compose
     assert '- /data/backups:/data/backups' in compose
+    assert '- /data/receipts:/data/receipts' in compose
     assert '/usr/local/bin/run_backup.sh nightly' in crontab
-    assert 'COPY scripts/run_backup.sh      /usr/local/bin/run_backup.sh' in dockerfile
+    assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
+    assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone' in dockerfile
+    assert 'COPY apps/maintenance/scripts/run_backup.sh                /usr/local/bin/run_backup.sh' in dockerfile
+    assert 'COPY scripts/run_data_invariants_receipted.sh              /usr/local/bin/run_data_invariants_receipted.sh' in dockerfile
+    assert 'COPY scripts/checks/data_invariants.py                     /opt/ed-finder/scripts/checks/data_invariants.py' in dockerfile
+    assert 'COPY shared_contracts/data_invariant_contracts.py          /opt/ed-finder/shared_contracts/data_invariant_contracts.py' in dockerfile
 
 
 def test_restore_helper_defaults_to_safe_non_live_target():
@@ -52,6 +61,18 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert '--receipt-file' in rehearsal
 
 
+def test_backup_script_can_optionally_mirror_archives_offsite():
+    backup = _read('apps', 'maintenance', 'scripts', 'run_backup.sh')
+
+    assert 'BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"' in backup
+    assert 'command -v rclone >/dev/null 2>&1' in backup
+    assert 'rclone copyto "$ARCHIVE"' in backup
+    assert 'rclone copyto "$SHA_FILE"' in backup
+    assert 'rclone copyto "$META_FILE"' in backup
+    assert '"offsite_sync_status": "$OFFSITE_SYNC_STATUS"' in backup
+    assert 'latest.json' in backup
+
+
 def test_backup_runbook_and_remediation_docs_reflect_current_state():
     runbook = _read('docs', 'operations', 'postgres-backup-and-restore.md')
     remediation = _read('docs', 'operations', 'audit-remediation-plan.md')
@@ -60,6 +81,9 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'daily at `02:10 UTC`' in runbook
     assert 'scripts/restore_postgres_backup.sh' in runbook
     assert 'scripts/rehearse_postgres_restore.sh' in runbook
+    assert 'optional offsite mirror via `rclone`' in runbook
+    assert 'BACKUP_OFFSITE_REMOTE' in runbook
+    assert 'storagebox:ed-finder/backups/postgres' in runbook
     assert '--compose-file' in runbook
     assert 'docker-compose.local.yml' in runbook
     assert 'falls back to a direct `pg_dump` via the `postgres` service' in _squash(runbook)
@@ -73,22 +97,29 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
 
 
-def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_host_cron():
+def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenance_schedule():
+    compose = _read('docker-compose.yml')
+    crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     deploy = _read('scripts', 'deploy_main.sh')
     wrapper = _read('scripts', 'run_data_invariants_receipted.sh')
     runbook = _read('docs', 'operations', 'stage17n2c-data-trust-runbook.md')
 
+    assert 'DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}' in compose
+    assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--skip-invariants' in deploy
     assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
     assert '/tmp/ed-finder-data-invariants-post-deploy.json' in deploy
     assert '--durable-receipt-dir /data/receipts/data-invariants/post-deploy' in deploy
     assert 'TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"' in wrapper
     assert 'DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"' in wrapper
+    assert 'DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"' in wrapper
+    assert '--database-url) DATABASE_URL_OVERRIDE="$2"; shift 2 ;;' in wrapper
     assert '--durable-receipt-dir) DURABLE_RECEIPT_DIR="$2"; shift 2 ;;' in wrapper
     assert '--production-safe' in wrapper
     assert '"status": "$status"' in wrapper
     assert 'data-invariants-${durable_stamp}.json' in wrapper
     assert 'latest.json' in wrapper
-    assert '45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh' in runbook
+    assert '45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh' in runbook
     assert '/data/receipts/data-invariants/weekly-latest.json' in runbook
+    assert 'DATA_INVARIANTS_DATABASE_URL' in runbook
     assert 'scripts/deploy_main.sh` now runs the wrapper by default' in runbook

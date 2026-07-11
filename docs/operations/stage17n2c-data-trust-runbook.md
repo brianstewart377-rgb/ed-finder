@@ -203,7 +203,7 @@ Seeded CI invariants are useful, but they are not proof of production health.
 Use the committed wrapper below for two operator paths:
 
 - post-deploy verification
-- weekly host-cron verification
+- weekly maintenance-sidecar verification
 
 Wrapper:
 
@@ -219,11 +219,16 @@ Post-deploy path:
   production checkout stays free of new repo-root residue without losing the
   evidence trail.
 
-Install this weekly host cron on the production box:
+The weekly steady-state schedule now runs from the maintenance sidecar's
+committed crontab, not an out-of-band host cron:
 
 ```cron
-45 4 * * 0 cd /opt/ed-finder && bash scripts/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
+45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
 ```
+
+The maintenance service prefers `DATA_INVARIANTS_DATABASE_URL` and should point
+that at `DATABASE_READONLY_URL` when a dedicated read-only role exists. If it is
+unset, the sidecar falls back to its normal `DATABASE_URL`.
 
 Recommended operator habit after a clean weekly run:
 
