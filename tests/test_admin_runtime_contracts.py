@@ -23,6 +23,14 @@ def test_startup_reaps_stale_admin_operation_runs_and_cron_status_is_schema_visi
     cron_block = admin_source.split("@router.get(\n    '/api/admin/cron-status',", 1)[1].split(')\nasync def admin_cron_status', 1)[0]
     assert 'include_in_schema=False' not in cron_block
 
+    station_status_block = admin_source.split("@router.get(\n    '/api/admin/enrichment/station-status',", 1)[1].split(')\nasync def station_enrichment_operator_status', 1)[0]
+    warehouse_status_block = admin_source.split("@router.get(\n    '/api/admin/enrichment/warehouse-status',", 1)[1].split(')\nasync def warehouse_enrichment_operator_status', 1)[0]
+    data_status_block = admin_source.split("@router.get(\n    '/api/admin/data-status',", 1)[1].split(')\nasync def admin_data_status', 1)[0]
+
+    assert 'include_in_schema=False' not in station_status_block
+    assert 'include_in_schema=False' not in warehouse_status_block
+    assert 'include_in_schema=False' not in data_status_block
+
 
 def test_maintenance_script_schedules_freshness_sweep_and_retention_pruning():
     script = MAINTENANCE_PATH.read_text(encoding='utf-8')
@@ -35,6 +43,7 @@ def test_maintenance_script_schedules_freshness_sweep_and_retention_pruning():
     assert 'prune retained evidence history' in script
     assert 'prune admin job history' in script
     assert "WHERE record_status = 'superseded'" in script
+    assert "OR record_status = 'archived'" in script
     assert "record_status = 'active'" in script
     assert "freshness_status = 'expired'" in script
     assert "record_status = 'quarantined'" not in script

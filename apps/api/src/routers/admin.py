@@ -911,7 +911,6 @@ async def admin_cron_status(
 @router.get(
     '/api/admin/enrichment/station-status',
     dependencies=[Depends(require_admin)],
-    include_in_schema=False,
 )
 async def station_enrichment_operator_status():
     """Return a sanitized read-only station enrichment status snapshot.
@@ -926,7 +925,6 @@ async def station_enrichment_operator_status():
 @router.get(
     '/api/admin/enrichment/warehouse-status',
     dependencies=[Depends(require_admin)],
-    include_in_schema=False,
 )
 async def warehouse_enrichment_operator_status():
     """Return a sanitized read-only warehouse reconciliation/status snapshot.
@@ -939,7 +937,6 @@ async def warehouse_enrichment_operator_status():
 @router.get(
     '/api/admin/data-status',
     dependencies=[Depends(require_admin)],
-    include_in_schema=False,
 )
 async def admin_data_status(pool: asyncpg.Pool = Depends(get_pool)):
     """Return a read-only admin snapshot of core data status.

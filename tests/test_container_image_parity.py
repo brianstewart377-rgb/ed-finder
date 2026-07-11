@@ -66,6 +66,9 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow
+    assert "'apps/api/requirements.txt'" in workflow
+    assert "'apps/eddn/requirements.txt'" in workflow
+    assert "'apps/importer/requirements.txt'" in workflow
     assert 'tests/test_container_image_parity.py -q' in workflow
     assert '-k built_api_eddn_and_importer_images_pass_runtime_import_parity' in workflow
 

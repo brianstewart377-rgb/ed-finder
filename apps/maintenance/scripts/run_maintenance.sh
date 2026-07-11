@@ -184,6 +184,7 @@ WITH ranked AS (
             record_status = 'active'
         AND freshness_status = 'expired'
        )
+       OR record_status = 'archived'
 ),
 deleted AS (
     DELETE FROM evidence_records er
