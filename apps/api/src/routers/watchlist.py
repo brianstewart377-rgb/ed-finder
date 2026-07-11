@@ -13,10 +13,10 @@ import re
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
-from config import limiter
-from deps   import get_pool
-from helpers import safe_coords_from_row
-from models import WatchlistAlert
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool
+from edfinder_api.helpers import safe_coords_from_row
+from edfinder_api.models import WatchlistAlert
 
 router = APIRouter(tags=['watchlist'])
 

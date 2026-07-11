@@ -21,8 +21,8 @@ import asyncpg
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 
-from config import limiter
-from deps import get_pool
+from edfinder_api.config import limiter
+from edfinder_api.deps import get_pool
 
 router = APIRouter(tags=['profile-sync'])
 

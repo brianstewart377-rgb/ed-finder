@@ -21,7 +21,7 @@ from xml.etree import ElementTree
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException
 
-from deps import cache_get, cache_set, get_redis
+from edfinder_api.deps import cache_get, cache_set, get_redis
 
 log = logging.getLogger('ed_finder')
 
