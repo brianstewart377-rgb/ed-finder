@@ -93,7 +93,7 @@ class TestRateSystem(unittest.TestCase):
             'score_industrial', 'score_hightech', 'score_military',
             'score_tourism', 'economy_suggestion', 'elw_count',
             'ww_count', 'neutron_count', 'black_hole_count',
-            'score_breakdown', 'rating_version',
+            'rating_version',
         )
         for key in required:
             self.assertIn(key, result, f"Missing key: {key}")
@@ -434,7 +434,15 @@ class TestV31ResultFields(unittest.TestCase):
         """v3.0 segregated Extraction from the economies dict; v3.1 includes it."""
         bodies = [{'subtype': 'Metal-rich body'}] * 5
         result = rate_system(3, bodies, 'G')
-        economies = result['score_breakdown']['economies']
+        economies = {
+            'Agriculture': result['score_agriculture'],
+            'Refinery':    result['score_refinery'],
+            'Industrial':  result['score_industrial'],
+            'HighTech':    result['score_hightech'],
+            'Military':    result['score_military'],
+            'Tourism':     result['score_tourism'],
+            'Extraction':  result['score_extraction'],
+        }
         self.assertIn('Extraction', economies)
 
     def test_confidence_always_float_in_range(self):

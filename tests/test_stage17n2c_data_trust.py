@@ -529,7 +529,6 @@ def test_v34_attenuation_preserves_top_pair_and_reduces_third_fourth():
 def test_score_breakdown_contains_rating_version_34():
     rating = rate_system(123, [], None)
     assert rating['rating_version'] == '3.4'
-    assert rating['score_breakdown']['rating_version'] == '3.4'
 
 
 def test_build_ratings_insert_shape_counts_match():

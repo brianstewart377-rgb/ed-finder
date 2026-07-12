@@ -139,7 +139,7 @@ RATING_INSERT_COLUMNS = (
     'orbital_safety', 'star_bonus',
     'score_extraction', 'terraforming_potential', 'body_diversity',
     'confidence', 'rationale',
-    'score_breakdown', 'rating_version', 'updated_at',
+    'rating_version', 'updated_at',
 )
 
 RATING_VALUES_TEMPLATE = (
@@ -148,7 +148,7 @@ RATING_VALUES_TEMPLATE = (
     "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
     "%s,%s,%s,%s,%s,%s,"
     "%s,%s,%s,%s,%s,"
-    "%s,%s,%s)"
+    "%s,%s)"
 )
 
 RATING_CONFLICT_UPDATE_COLUMNS = tuple(
@@ -1276,42 +1276,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         elif st == 'H':
             star_bonus = 2
 
-    # ── Score breakdown for frontend popover ──────────────────────────────
-    breakdown = {
-        'economies':    scores,    # v3.1: include Extraction symmetrically
-        'dimensions': {
-            'slots':         slot_score,
-            'strategic':     strategic_score,
-            'safety':        safety_score,
-            'terraforming':  tf_potential,
-            'diversity':     diversity,
-        },
-        'bodies': {
-            'rocky_clean':  counts['rocky_clean'],
-            'rocky_geo':    counts['rocky_geo'],
-            'rocky_bio':    counts['rocky_bio'],
-            'rocky_rings':  counts['rocky_rings'],
-            'rocky_ice':    counts['rocky_ice'],
-            'icy':          counts['icy'],
-            'hmc':          counts['hmc'],
-            'gas_giant':    counts['gas_giant'],
-            'elw':          counts['elw'],
-            'ww':           counts['ww'],
-            'ammonia':      counts['ammonia'],
-            'landable':     counts['landable'],
-            'terraformable': counts['terraformable'],
-            'bio':          counts['bio'],
-            'geo':          counts['geo'],
-        },
-        'primary_economy':   primary_eco,
-        'secondary_economy': secondary_eco,
-        'top_pair':          top_pair_meta,
-        'has_standout':      has_standout,
-        'rationale':         rationale,
-        'confidence':        confidence,
-        'rating_version':    RATING_VERSION,
-    }
-
     return {
         'system_id64':        system_id64,
         'score':              overall,
@@ -1354,7 +1318,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         'body_diversity':         diversity,
         'confidence':             confidence,
         'rationale':              rationale,
-        'score_breakdown':        breakdown,
         'rating_version':         RATING_VERSION,
     }
 
@@ -1645,7 +1608,6 @@ def _rating_row_tuple(r: dict, now_iso: str) -> tuple:
         r.get('body_diversity'),
         r.get('confidence'),
         r.get('rationale'),
-        json.dumps(r['score_breakdown']),
         r.get('rating_version', RATING_VERSION),
         now_iso,
     )
