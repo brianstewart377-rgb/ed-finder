@@ -41,6 +41,56 @@ document that should answer "what next?".
   span multiple historical scorer generations and must be rebaselined before
   the ratings migration can be considered operationally complete.
 
+## Architectural Decisions — 2026-07-12
+
+### Scoring Model
+
+Archetypes are the canonical scoring model. `system_archetype_scores` and
+`mv_archetype_rankings` are the judgement layer.
+Legacy ratings score columns (`score`, `score_agriculture`, `score_refinery`,
+`score_industrial`, `score_hightech`, `score_military`, `score_tourism`) are
+retired and will be removed.
+The Finder sorts by the selected archetype score. No universal score exists.
+Confidence is shown adjacent to every score. Everything else is a fact the
+user weighs themselves.
+`score_breakdown` JSONB (~197 GB) is a duplicate of existing columns and will
+be removed. Do not write new rows to it.
+
+### Three-Repo Architecture
+
+Option 2 adopted: CRE (`colonisation-research-engine`) produces research
+truth, ed-finder consumes it. CPE (`colony-planning-engine`) owns plan
+construction.
+CRE is actively developed (83 commits, HEAD 2026-07-09) but not yet wired
+into ed-finder at runtime. Integration is the next architectural lane,
+sequenced after storage recovery and scoring cleanup.
+CRE's confidence vocabulary and source authority register
+(SA-0001-SA-0010) are more rigorous than ed-finder's current
+implementations and will become canonical.
+The confidence vocabularies are currently incompatible and must be
+reconciled before any evidence-layer integration begins.
+CPE has no implementation yet. Its role (assessment/plan construction layer
+between CRE and ed-finder) will be defined once CRE-to-ed-finder
+integration is underway.
+
+### Storage Recovery (In Progress)
+
+~115 GB of fossil indexes identified for removal (see runbook).
+~197 GB `score_breakdown` blob identified for removal.
+Database is ~960 GB; target post-recovery ~660 GB.
+Runbook location: check `docs/operations/` or `artifacts/`.
+Do not create new indexes on retired ratings score columns.
+
+### Foundation Sequence (Agreed)
+
+1. Storage recovery + index drops.
+2. Docs triage (archive completed stages, establish <=10 live docs).
+3. Scoring pivot: UI reflects archetype scores, not legacy ratings.
+4. CRE integration: confidence vocabulary first, then source authority, then
+   release artifact consumption.
+5. Features (corridor routing, journal Lane 2, accounts) build on this
+   foundation.
+
 ## Stage 25 Objective
 
 Stage 25 has exactly one primary objective:
