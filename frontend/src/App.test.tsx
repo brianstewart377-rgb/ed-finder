@@ -534,7 +534,7 @@ describe('App Colony Planner workspace route', () => {
     ['#my-work', null],
     ['#watchlist', 'Watchlist now opens the Saved Systems view inside My Work'],
     ['#pinned', 'Pins now open the Saved Systems view inside My Work'],
-    ['#colony', 'Colony Tracker remains available by route, while My Work now holds the player-facing colonies overview.'],
+    ['#colony', 'Legacy #colony links now open My Work, which now holds the player-facing colonies overview.'],
   ])('renders My Work with one local header and no shell context before a system is selected for %s', async (hash, aliasNotice) => {
     window.location.hash = hash;
 

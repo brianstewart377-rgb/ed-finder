@@ -1,4 +1,4 @@
-﻿# Stage 9A - Full App UX / Navigation Forensic Review
+# Stage 9A - Full App UX / Navigation Forensic Review
 
 ## Executive Summary
 
@@ -14,7 +14,7 @@ Tiny fixes applied in Stage 9A:
 - Advanced Search Tuning copy now says it builds a temporary tuned order rather than `reranks`.
 - Advanced Search Tuning handoff copy now says it does not run `Preview`, matching Stage 8 planner language.
 - Recommended Builds fallback copy now says `Estimated body option` instead of `Estimated body candidate`.
-- Hash-route tests now cover every top-level tab, child system modal routes, legacy `#optimizer/system/{id64}`, external `#system/{id64}`, unknown fallback, and modal close.
+- Hash-route tests now cover every top-level tab, child system modal routes, external `#system/{id64}`, retired `#optimizer` fallback, unknown fallback, and modal close.
 
 No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behaviour, Observed Evidence behaviour, Validation/Review behaviour, persistence, or route architecture changed.
 
@@ -27,9 +27,9 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | `#pinned` | Pins | Local shortlist stored in browser. | Sort, export JSON, clear, unpin, open detail, show on map. | `frontend/src/features/pinned/PinnedTab.tsx`, `frontend/src/features/pinned/usePinned.ts`, `frontend/src/components/SystemTable.tsx` |
 | `#compare` | Compare | Side-by-side comparison for selected systems. | Compare metrics, open detail, remove, export CSV. | `frontend/src/features/compare/CompareTab.tsx`, `frontend/src/features/compare/useCompare.ts` |
 | `#search-tuning` | Advanced Search Tuning | Temporarily re-prioritise current Finder results. | Adjust weights, show tuned order, inspect/evaluate tuned rows. | `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx`, `frontend/src/features/search-tuning/useSearchTuning.ts` |
-| `#optimizer` | no nav label; legacy alias | Backward-compatible alias for Advanced Search Tuning. | Old links still render Advanced Search Tuning. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
+| `#optimizer` | no nav label; retired legacy route | Historical deep-link alias retained only as an explicit fallback case. | Old links now fall back to Finder instead of opening Development Tuning. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
 | `#fc` | FC Planner | Fleet Carrier route, hop, tritium, and cost planning. | Add waypoints, tune carrier config, export CSV. | `frontend/src/features/fc-planner/FcPlannerTab.tsx`, `frontend/src/features/fc-planner/useFcPlanner.ts` |
-| `#colony` | Colony Tracker | Local tracker for claimed colonisation projects. | Track system, update phase/progress, export CSV. | `frontend/src/features/colony/ColonyTab.tsx`, `frontend/src/features/colony/useColony.ts` |
+| `#colony` | My Work alias | Legacy route that now opens My Work with colony-oriented handoff copy. | Enter the consolidated player-facing colonies overview inside My Work. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/features/my-work/MyWorkWorkspace.tsx` |
 | `#map` | Map | Spatial view of current Finder results. | Pan/zoom, select plotted system. | `frontend/src/features/map/MapTab.tsx`, `frontend/src/features/map/GalacticMap.tsx` |
 | `#admin` | Admin | Ops console and profile sync controls. | Set token, refresh status, run admin actions, configure sync key. | `frontend/src/features/admin/AdminTab.tsx`, `frontend/src/features/admin/useAdmin.ts`, `frontend/src/features/profile-sync/useProfileSync.ts` |
 | `#{route}/system/{id64}` | System Detail modal over current tab | Inspect one system without losing current tab context. | Close/backdrop/Escape, save/pin/compare, open Colony Planner. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/features/system-detail/SystemDetailModal.tsx` |
@@ -49,7 +49,7 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | User understands next steps | Preview Result verdict | Branches into not-run, stale, needs-work, estimate, viable states. | Good enough after Stage 8C. | No immediate change. | Low |
 | User records Observed Evidence later | Colony Planner later-step panel | Records manually observed evidence after in-game checking. | Embedded late in a long planner stack. | If planner gets a workspace, later-step panels could become secondary tabs. | Medium |
 | User validates prediction later | Validation / Review Guidance | Compares Preview Result with recorded evidence and provides advisory review. | Name `Validation` can imply proof if isolated from advisory copy. | Keep conservative copy; audit again when validation expands. | Medium |
-| User uses Advanced Search Tuning | `#search-tuning` nav or legacy `#optimizer` | Uses current Finder results, builds temporary tuned order, can open/evaluate systems. | Advanced top-level tab is powerful but niche. | Consider grouping with Finder tools in Stage 9B. | Medium |
+| User uses Advanced Search Tuning | `#search-tuning` nav | Uses current Finder results, builds temporary tuned order, can open/evaluate systems. | Advanced top-level tab is powerful but niche. | Consider grouping with Finder tools in Stage 9B. | Medium |
 | User pins/watches/compares systems | Result card or modal actions | Pinned local, Watchlist server/account-like, Compare local matrix. | Watchlist vs Pins distinction is explained in empty states/tooltips but still subtle. | Add a short comparison note in nav/help later if support confusion appears. | Low |
 | User views map | Result card Map action or `#map` | Shows current Finder results only. | Map does not open detail from selected star; it only shows a side panel. | Add an `Open detail` action in Map selection panel in a later map audit. | Medium |
 | User uses Fleet Carrier planner | `#fc` | Route planner with autocomplete waypoints and tritium/cost summary. | Previous nav label `FC` was terse. | Fixed to `FC Planner`. | Fixed |
@@ -61,7 +61,7 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | term | location/type | issue | recommended wording | action taken/deferred |
 |---|---|---|---|---|
 | Optimiser / optimiser candidates | Internal API/types/tests/docs under `frontend/src/lib/api.ts`, `simulation-preview/optimiser/`, docs | Backend/internal vocabulary remains necessary; visible planner UI mostly uses Suggested Builds. | User-facing: Suggested Builds. Internal: optimiser is acceptable. | Deferred internal rename; not worth contract churn. |
-| Optimizer | `#optimizer` route alias and tests | Legacy route name could confuse if surfaced. It is not visible in nav. | Preferred route: `#search-tuning`. | Kept for compatibility; tests added for `#optimizer/system/{id64}`. |
+| Optimizer | retired `#optimizer` route and tests | Legacy route name could confuse if surfaced. It is not visible in nav and no longer resolves to Development Tuning. | Preferred route: `#search-tuning`. | Alias retired; tests now lock the Finder fallback. |
 | Rerank / reranked | API helper, tests, backend route, some data fields | Backend term is accurate but user-facing copy should say temporary tuned order. | Advanced Search Tuning, tuned order, temporary tuned score. | User-facing copy changed; internal/API/test names retained. |
 | Simulation Preview | Docs, API comments, some internal labels | Still valid as backend/API concept; Stage 8 user path prefers Preview / Preview Result. | User-facing planner: Preview / Preview Result. | Search Tuning helper changed to `Preview`; docs classify backend usage. |
 | Candidate | Internal optimiser types and some generated labels from test fixtures/API data | API response uses candidate IDs/labels; current UI labels the section Suggested Builds. | Suggested build. | No broad rename; backend-generated labels may still contain candidate when returned by API/test data. |
@@ -78,8 +78,8 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | top-level tabs | `finder`, `watchlist`, `pinned`, `compare`, `map`, `search-tuning`, `fc`, `colony`, `admin`. | Added all-route parse coverage. | Good; many top-level tabs. | IA cleanup later. |
 | `#{route}/system/{id64}` | Opens System Detail modal over parent tab. | Added child-route coverage. | Good. | Keep. |
 | `#system/{id64}` | Opens System Detail over Finder. | Added coverage. | Good external fallback. | Keep. |
-| `#optimizer` | Legacy alias to `search-tuning`. | Existing and expanded coverage. | Good compatibility; should stay invisible. | Keep alias, prefer `#search-tuning`. |
-| `#optimizer/system/{id64}` | Legacy alias with modal. | Added coverage. | Good. | Keep. |
+| `#optimizer` | Retired legacy route. | Coverage now asserts Finder fallback. | Prevents accidental reintroduction of the alias. | Keep the fallback test only. |
+| `#optimizer/system/{id64}` | No longer a supported modal route. | Covered indirectly by the retired-route fallback behavior. | Old docs should stop advertising it as live behaviour. | Do not treat it as a compatibility contract. |
 | close modal | Removes `system/{id64}` and preserves parent tab. | Added coverage. | Good. | Keep. |
 | navigate while modal open | `navigate()` preserves open selected system. | Existing hook design; not newly tested. | Could surprise users if changing tabs with modal open. | Documented; revisit only if users report confusion. |
 
@@ -88,7 +88,7 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | severity | finding | evidence | recommendation |
 |---|---|---|---|
 | High | Admin is a first-level user-visible tab despite being ops/dev oriented. | `NavBar.tsx` always renders `⚙️ Admin`; `AdminTab.tsx` includes token-gated ops actions. | Stage 9B should decide whether Admin is dev-only, secondary, or gated by environment/role. |
-| High | Colony Planner and Colony Tracker are distinct but close enough to confuse. | Planner lives inside `SystemDetailModal`; tracker is top-level `#colony`. | Fixed nav label to `Colony Tracker`; consider help text if confusion remains. |
+| High | Colony Planner and legacy colony terminology are still easy to confuse. | Planner has its own dedicated route, while `#colony` now aliases into My Work. | Keep colony language anchored to My Work and avoid describing `#colony` as a separate workspace. |
 | Medium | Advanced Search Tuning is correctly labelled but probably belongs conceptually under Finder. | It uses current Finder results only, but appears as a peer of Finder. | Stage 9B IA option: group as Finder tool or secondary action from Finder results. |
 | Medium | Top nav breadth is high. | Nine tabs plus density/status controls and bottom EDDN ticker. | Stage 9B navigation cleanup should evaluate grouping lower-frequency tools. |
 | Medium | Map currently visualises Finder results but cannot open full detail from its selection panel. | `MapTab.tsx` has `SelectionPanel` only. | Later map audit: add explicit `Open detail` if routing callback is threaded in. |
@@ -113,14 +113,14 @@ No backend mechanics, scoring, optimiser generation/ranking, Search Tuning behav
 | Preview Result vs Observed Evidence | Preview Result is prediction; evidence is later user-recorded observation. | Low after Stage 8. | Keep later-step copy. |
 | Validation / Review Guidance vs automatic correction | Copy says advisory/passive and does not change mechanics. | Medium as validation grows. | Re-audit when Stage 6E+ expands. |
 | Compare vs Colony Planner comparison | Compare tab compares systems; planner comparison compares build plans/suggested builds. | Medium. | If planner workspace is added, name build-plan comparison explicitly. |
-| Colony Tracker vs Colony Planner | Tracker is local project status; planner evaluates a build. | Medium. | Fixed nav label to Colony Tracker. |
+| Legacy colony alias vs Colony Planner | `#colony` now hands users into My Work, while Colony Planner remains a dedicated planning workspace. | Medium. | Keep the distinction explicit in route docs and user copy. |
 
 ## Test Coverage Findings
 
 | area | current coverage | gap | action |
 |---|---|---|---|
 | Route parsing | `useHashRoute.test.ts` covered Search Tuning alias only. | Missing full route/deep-link matrix. | Added broad route/deep-link tests. |
-| Nav labels | `NavBar.test.tsx` covered Advanced Search Tuning. | Did not protect clarified FC/Colony labels. | Added assertions for `FC Planner` and `Colony Tracker`. |
+| Nav labels | `NavBar.test.tsx` covered Advanced Search Tuning. | Did not protect the newer My Work-centric navigation posture. | Keep route and shell tests aligned with the current labels and retired aliases. |
 | Finder result actions | `ResultCard.test.tsx` covers Details, Evaluate, watch/map/pin/compare/copy. | Good. | No change. |
 | Search Tuning route/handoff | `App.test.tsx`, `AdvancedSearchTuningTab.test.tsx`. | Copy assertion needed update. | Updated. |
 | System Detail modal | CTA/focus/close/timer tests exist. | Good. | No change. |

@@ -26,7 +26,7 @@ the canonical frontend served from `/`. Now also:
 - ✅ **Compare tab** — up to 6 systems, matrix view with per-row winner highlighting, CSV export. Snapshot-based localStorage (`ed_compare_v2`).
 - ✅ **Development Tuning tab** — reranks the current Finder results with archetype-led development weights via `POST /api/archetypes/rerank`. It builds a separate tuned order (Finder results remain unchanged) and is separate from the colony optimiser inside Simulation Preview.
 - ✅ **FC Planner tab** — Fleet Carrier route planner with autocomplete-driven waypoints, 4 config inputs (jump range, cargo, tritium/jump, tritium price), pure-client math (no backend call) for total LY / hops / tritium / cost / cargo trips. CSV export. localStorage persisted (`ed_fc_v2`).
-- ✅ **Colony Tracker tab** — localStorage-backed list of claimed systems (`ed_colony_v2`) with 4-state phase machine (planning / building / active / complete), per-row population progress bar, edit modal, CSV export, count badges per phase.
+- ✅ **My Work colonies overview** — player-facing colony tracking now lives inside My Work, while legacy colony state (`ed_colony_v2`) is still included in profile sync compatibility.
 - ✅ **System Detail Modal** — full-detail overlay (system info grid + 8 score bars + bodies table + stations table + exploration value + external links). Shares Watchlist / Pin / Compare hooks. **Deep-linkable**: `#tab/system/12345678`.
 - ✅ **Map tab** — pure-React 2-D galactic canvas (drag-pan, scroll-zoom, click-to-select, auto-fit).
 - ✅ **Admin tab** — token-gated ops console (sessionStorage). Live status auto-refresh + Clear cache + Rebuild clusters.

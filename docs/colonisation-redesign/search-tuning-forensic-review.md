@@ -1,4 +1,4 @@
-﻿# Stage 7A - Search Tuning / Finder Rerank Forensic Review
+# Stage 7A - Search Tuning / Finder Rerank Forensic Review
 
 **Status (2026-07): historical reference.**
 
@@ -27,7 +27,7 @@ The Stage 7B UI now states that Advanced Search Tuning:
 
 Stage 7B also clarifies that economy selection is a scoring emphasis, not a filter; weight sliders apply only to the current tuning run; tuned score is temporary; and stored rationale comes from existing rating data rather than a new tuned-score explanation. Result rows now show original Finder rank, tuned rank, and movement up/down/unchanged using a frontend-only source-rank snapshot captured when the tuning run starts. Rank movement does not read from live Finder results after the run, so a later Finder search cannot change the displayed original rank for existing tuned results. `/api/ratings/rerank`, `RerankRequest`, and `RerankResponse` remain valid backend/internal names.
 
-The preferred route alias is `#search-tuning`; legacy `#optimizer` remains supported for direct-link compatibility.
+The preferred route alias is `#search-tuning`. The historical `#optimizer` alias was later retired; current route truth lives in `frontend/src/hooks/useHashRoute.ts`.
 
 Deferred follow-up candidates include small local/static presets and deeper contribution explanations. Those remain separate from persistence, automatic learning, LLM-driven reranking, Colony Planner changes, and validation-evidence ranking changes.
 
@@ -35,7 +35,7 @@ Deferred follow-up candidates include small local/static presets and deeper cont
 
 Stage 7C completed the internal frontend rename that Stage 7B deferred. Advanced Search Tuning now lives under `frontend/src/features/search-tuning/` with `AdvancedSearchTuningTab`, `useSearchTuning`, `UseSearchTuning`, `SearchTuningState`, and `SearchTuningSourceSnapshot`. Feature test IDs now use the `search-tuning-*` prefix.
 
-The preferred route is `#search-tuning`. Legacy `#optimizer` direct links remain supported, but the hash router normalizes that legacy alias to the `search-tuning` route internally so future navigation uses the preferred path.
+The preferred route is `#search-tuning`. Historical `#optimizer` direct links were later retired; current router behavior falls those legacy hashes back to Finder rather than normalizing them into the live route.
 
 Backend rerank terminology remains unchanged: `/api/ratings/rerank`, `RerankRequest`, `RerankResponse`, and `RerankWeights` still describe the API contract. Stage 7C did not change backend scoring, normal Finder search ordering, Colony Planner, Stage 5 optimiser logic, Stage 6 validation/review logic, persistence, or evidence usage.
 
@@ -56,7 +56,7 @@ Stage 7E closed the Advanced Search Tuning arc with a final naming, route, expla
 
 - Advanced Search Tuning temporarily re-prioritises current Finder results only.
 - It does not run a new search, persist tuning preferences, change normal Finder ordering, change Colony Planner, or use Observed Evidence / Validation output.
-- `#search-tuning` is the preferred route; `#optimizer` remains only as a legacy direct-link alias.
+- `#search-tuning` is the preferred route; the historical `#optimizer` alias has since been retired from the live router.
 - User-facing copy uses top contributors and "weaker signals"; low contribution is not described as a penalty.
 - Contribution values are pre-confidence weighted signals; final temporary tuned score may reflect the stored confidence multiplier.
 - Missing contribution data falls back cleanly, and all-zero contribution data uses neutral explanation copy.
@@ -157,7 +157,7 @@ Error handling is thin: request validation handles empty/oversized ID lists; dat
 
 | Area | Files | Notes |
 |---|---|---|
-| Top-level entry | `frontend/src/components/NavBar.tsx`, `frontend/src/hooks/useHashRoute.ts`, `frontend/src/App.tsx` | The visible tab label is "Advanced Search Tuning"; `search-tuning` is the preferred route and legacy `#optimizer` normalizes to it. |
+| Top-level entry | `frontend/src/components/NavBar.tsx`, `frontend/src/hooks/useHashRoute.ts`, `frontend/src/App.tsx` | The visible tab label is "Advanced Search Tuning"; `search-tuning` is the preferred route and retired `#optimizer` hashes now fall back to Finder. |
 | Advanced Search Tuning UI | `frontend/src/features/search-tuning/AdvancedSearchTuningTab.tsx` | Renders the heading, source badge, economy scoring emphasis selector, six weight sliders, reset control, tuned-order button, loading/error/empty/results states, original Finder rank, tuned rank, movement labels, temporary tuned score, stored score/rationale labels, and row click to system detail. |
 | Search Tuning state | `frontend/src/features/search-tuning/useSearchTuning.ts` | Owns local weights/economy/state. `run(source)` slices current Finder results to 500 IDs, snapshots source rank/name, and calls `api.rerank`. |
 | API helper | `frontend/src/lib/api.ts` | `api.rerank(body)` posts to `/ratings/rerank`. The same file also contains `optimiserCandidates()`, which increases naming collision risk. |
@@ -194,7 +194,7 @@ Existing frontend tests:
 
 - `frontend/src/features/search-tuning/AdvancedSearchTuningTab.test.tsx` covers the Advanced Search Tuning heading, Finder-result scope copy, ready-state copy, source badge, contribution explanations, handoff actions, and rerank button behaviour.
 - `frontend/src/features/search-tuning/useSearchTuning.test.ts` covers rerank payload construction and source-rank snapshot capture.
-- `frontend/src/hooks/useHashRoute.test.ts`, `frontend/src/components/NavBar.test.tsx`, and `frontend/src/App.test.tsx` cover the preferred `#search-tuning` route, legacy `#optimizer` alias, nav label, and App-level rendering.
+- `frontend/src/hooks/useHashRoute.test.ts`, `frontend/src/components/NavBar.test.tsx`, and `frontend/src/App.test.tsx` cover the preferred `#search-tuning` route, retired `#optimizer` fallback behavior, nav label, and App-level rendering.
 - Colony Planner optimiser tests under `frontend/src/features/system-detail/simulation-preview/` cover the Stage 5/6 planner workflow and passivity, not Search Tuning.
 
 Relevant docs:
@@ -211,7 +211,7 @@ The findings below are retained as Stage 7A historical analysis. Stage 7B throug
 | UI element / term | Likely user expectation | Actual behaviour | Confusion risk | Recommendation |
 |---|---|---|---|---|
 | Top-level "Search Tuning" tab | A main search workflow or persistent tuning area. | A dependent tool that reranks only the current Finder result IDs. | Medium | Addressed by Stage 7B user-facing **Advanced Search Tuning** framing; future placement under Finder remains optional UX work. |
-| Internal route/key `optimizer` | Contributors may expect Colony Planner optimiser logic. | Legacy `#optimizer` now only aliases to `search-tuning`; current frontend internals live under `features/search-tuning`. | Low | Keep legacy alias documented for direct-link compatibility. |
+| Internal route/key `optimizer` | Contributors may expect Colony Planner optimiser logic. | The historical `#optimizer` route is retired; current frontend internals live under `features/search-tuning`. | Low | Keep the retirement documented so the alias is not reintroduced by accident. |
 | "Rerank results" button | May change Finder list order or future search scoring. | Calls `/api/ratings/rerank` and renders a separate tuned list; Finder results remain unchanged. | Low | Addressed by "Show tuned order" copy and original/tuned rank display. |
 | Economy preference | May filter systems by economy. | Changes which per-economy score feeds the economy dimension for the supplied IDs. It does not remove nonmatching systems. | Low | Addressed by "Economy scoring emphasis" copy. |
 | Weight sliders | May tune persistent app behaviour. | Local UI state sent for one rerank request only. Backend normalizes weights for that response. | Low | Addressed by copy saying weights apply only to this tuning run. |

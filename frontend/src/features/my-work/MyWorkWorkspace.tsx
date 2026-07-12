@@ -121,7 +121,7 @@ export function MyWorkWorkspace({
       ? 'Watchlist now opens the Saved Systems view inside My Work.'
       : routeSource === 'pinned'
         ? 'Pins now open the Saved Systems view inside My Work.'
-        : 'Colony Tracker remains available by route, while My Work now holds the player-facing colonies overview.'
+        : 'Legacy #colony links now open My Work, which now holds the player-facing colonies overview.'
     : null;
 
   const handleInspectSystem = (id64: number, options?: { focus?: 'colony-planner' }) => {

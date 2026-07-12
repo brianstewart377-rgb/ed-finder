@@ -1,10 +1,10 @@
-﻿# Stage 9B - Dedicated Colony Planner Workspace Feasibility
+# Stage 9B - Dedicated Colony Planner Workspace Feasibility
 
 ## Executive Summary
 
 Stage 9B recommends making Colony Planner a dedicated focused workspace in Stage 9C, without removing the embedded planner from System Detail during the first implementation.
 
-The recommended route is `#colony-planner/system/{id64}`. It is explicit, bookmarkable, and avoids overloading the existing `#colony` route, which now means Colony Tracker. As of Stage 9C, Finder result cards and Advanced Search Tuning send `Evaluate in Colony Planner` directly to this workspace. Normal `Details` actions continue to open System Detail.
+The recommended route is `#colony-planner/system/{id64}`. It is explicit, bookmarkable, and avoids overloading the existing `#colony` alias, which now hands users into My Work rather than a separate Colony Tracker workspace. As of Stage 9C, Finder result cards and Advanced Search Tuning send `Evaluate in Colony Planner` directly to this workspace. Normal `Details` actions continue to open System Detail.
 
 Stage 9B does not implement the workspace. It maps the current structure and defines the safest implementation plan for Stage 9C.
 
@@ -15,8 +15,8 @@ Stage 9C implementation note: the recommended route has now been implemented as 
 | area | current behaviour | relevant files |
 |---|---|---|
 | App shell | `AppInner` renders a persistent `NavBar`, a route-selected page, `SystemDetailModal` when a selected system id exists, and the bottom `EddnTicker`. | `frontend/src/App.tsx` |
-| Hash routing | `useHashRoute` parses top-level routes plus optional `system/{id64}` modal children. Unknown routes fall back to Finder. `#optimizer` is a legacy alias for `#search-tuning`. `#system/{id64}` opens System Detail over Finder. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
-| Top-level routes | Current routes are Finder, Watchlist, Pinned, Compare, Map, Advanced Search Tuning, FC Planner, Colony Tracker, and Admin. | `frontend/src/components/NavBar.tsx` |
+| Hash routing | `useHashRoute` parses top-level routes plus optional `system/{id64}` modal children. Unknown routes fall back to Finder. Retired `#optimizer` links also fall back to Finder. `#system/{id64}` opens System Detail over Finder. | `frontend/src/hooks/useHashRoute.ts`, `frontend/src/hooks/useHashRoute.test.ts` |
+| Top-level routes | Current primary routes are Finder, My Work, Compare, Map, Development Tuning, FC Planner, Colony Planner, Admin, and Operator. Legacy `#watchlist`, `#pinned`, and `#colony` aliases hand users into My Work. | `frontend/src/components/NavBar.tsx` |
 | System Detail modal | `selectedSystemId` opens the modal over the current route. Close removes the `system/{id64}` child while preserving the parent route. Escape and backdrop close the modal. | `frontend/src/App.tsx`, `frontend/src/features/system-detail/SystemDetailModal.tsx` |
 | System data loading | System Detail uses `useSystemDetail(id64)`, a TanStack Query wrapper around `api.system(id64)`. Query keys are system-id scoped and already suitable for reuse by a workspace. | `frontend/src/features/system-detail/useSystemDetail.ts` |
 | Embedded Colony Planner | System Detail renders a `Colony Planning` section containing buildability, regional context, recommended builds, the focused `SimulationPreviewPanel`, and slots. The planner focus target has `tabIndex={-1}` and highlight/focus timer cleanup. | `frontend/src/features/system-detail/SystemDetailModal.tsx`, `frontend/src/features/system-detail/SimulationPreviewPanel.tsx` |
@@ -33,9 +33,9 @@ The current architecture is intentionally modal-centric: any parsed `selectedSys
 |---|---|---|---|---|
 | `#colony-planner/system/{id64}` | Clear user-facing meaning; shareable/bookmarkable; avoids `#colony` ambiguity; easy to explain in tests and docs; preserves System Detail modal routes. | Adds a new route shape and a long hash segment; requires app-level workspace state separate from modal state. | Medium | Recommended. |
 | `#planner/system/{id64}` | Shorter; still bookmarkable; less tied to current copy if the product name changes later. | Less specific in a multi-tool app; could be confused with FC Planner or other planning tools. | Medium | Acceptable fallback, but weaker label clarity. |
-| `#colony/system/{id64}/planner` | Keeps colony-related routes grouped. | Conflicts with `#colony` meaning Colony Tracker; makes one route host two unrelated concepts; harder to keep mental models clear. | Medium-high | Not recommended. |
+| `#colony/system/{id64}/planner` | Keeps colony-related routes grouped. | Conflicts with `#colony` already acting as a My Work alias; makes one route host two unrelated concepts; harder to keep mental models clear. | Medium-high | Not recommended. |
 | `#finder/system/{id64}?focus=colony-planner` or equivalent | Minimal route model change; close to current focus-intent behaviour. | Keeps planner inside System Detail and does not solve the "buried headline feature" problem; hash-query support is currently not part of the router. | Low-medium | Not recommended for the dedicated workspace goal. |
-| Workspace state inside existing `#colony` route | Avoids a new top-level route. | Reuses a route that already means Colony Tracker; likely increases Colony Tracker vs Colony Planner confusion. | Medium-high | Not recommended. |
+| Workspace state inside existing `#colony` route | Avoids a new top-level route. | Reuses a route that already aliases to My Work, likely increasing My Work vs Colony Planner confusion. | Medium-high | Not recommended. |
 
 ## Recommended Route
 
@@ -90,7 +90,7 @@ Keep the embedded planner in System Detail during Stage 9C. The first implementa
 | System Detail `Open Colony Planner` | Navigate to `#colony-planner/system/{id64}` after Stage 9C chooses the workspace as primary. | Makes the headline action behave like a workspace transition, while the embedded planner remains below for compatibility. |
 | Watchlist, Pinned, Compare rows | Keep opening System Detail for now; consider a separate Evaluate action later. | Avoid broadening Stage 9C across every secondary surface. |
 | EDDN ticker | Keep opening System Detail. | Ticker is an activity/inspection affordance, not a planning entry point. |
-| Top-level `Colony Tracker` | Keep unchanged. | It is a separate local tracker workflow. |
+| Legacy `#colony` alias | Keep as a My Work alias only. | It is no longer a separate planner-adjacent workspace. |
 
 No proposed handoff should auto-run Preview, auto-generate Suggested Builds, copy builds, or load a suggested build.
 
@@ -148,7 +148,7 @@ Route tests:
 
 - parse `#colony-planner/system/{id64}` into the workspace route and planner system id.
 - reject invalid/missing IDs without opening the modal unexpectedly.
-- preserve existing `#finder/system/{id64}`, `#search-tuning/system/{id64}`, `#optimizer/system/{id64}`, and `#system/{id64}` modal behaviour.
+- preserve existing `#finder/system/{id64}`, `#search-tuning/system/{id64}`, and `#system/{id64}` modal behaviour while keeping retired `#optimizer` links on the Finder fallback path.
 - closing System Detail still preserves the parent route.
 
 Workspace tests:
@@ -172,7 +172,7 @@ Regression tests:
 
 - embedded planner still renders in System Detail if kept.
 - full System Detail still handles close, Escape, backdrop, and focus cleanup.
-- `Colony Tracker` route remains separate from `Colony Planner`.
+- the legacy `#colony` alias remains a My Work entry path rather than a separate Colony Planner-adjacent route.
 - no auto-run, auto-generate, auto-load, scoring, ranking, or validation side effects are introduced.
 
 ## Risks And Mitigations
@@ -180,7 +180,7 @@ Regression tests:
 | risk | severity | mitigation |
 |---|---|---|
 | Modal and workspace state conflict | High | Keep `plannerSystemId` separate from modal `selectedSystemId`. Do not reuse the current selected-system field for workspace pages. |
-| `#colony` route confusion | High | Use `#colony-planner/system/{id64}` and keep `#colony` as Colony Tracker. |
+| `#colony` route confusion | High | Use `#colony-planner/system/{id64}` and keep `#colony` as a My Work alias rather than another planning workspace. |
 | Duplicate planner surfaces drift | Medium | Reuse `SimulationPreviewPanel` / `SimulationPreview`; do not fork planner components. |
 | Back navigation expectations | Medium | Use real hash navigation, browser Back, and explicit `Back to Finder`; defer source-aware back labels. |
 | System Detail remains dense | Medium | Keep workspace primary, then later consider replacing embedded planner with CTA/summary. |
