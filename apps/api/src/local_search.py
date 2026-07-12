@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional
 import asyncpg
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
+from ratings_breakdown import reconstruct_score_breakdown
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
@@ -773,7 +774,7 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 r.gas_giant_count, r.neutron_count, r.black_hole_count,
                 r.white_dwarf_count, r.landable_count, r.terraformable_count,
                 r.bio_signal_total, r.geo_signal_total,
-                r.score_breakdown,
+                r.rocky_count, r.rocky_ice_count, r.icy_count, r.hmc_count,
                 r.terraforming_potential, r.body_diversity,
                 r.confidence, r.rationale, r.rating_version,
                 NULL::float           AS dist
@@ -807,7 +808,13 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 b.estimated_scan_value AS scan_value,
                 NULL::text AS ring_types,
                 NULL::text AS signals,
-                (b.bio_signal_count > 0 OR b.geo_signal_count > 0) AS has_signals
+                (b.bio_signal_count > 0 OR b.geo_signal_count > 0) AS has_signals,
+                EXISTS (
+                    SELECT 1 FROM body_rings br
+                    WHERE br.system_id64 = b.system_id64
+                      AND br.body_id = b.id
+                      AND br.association_status = 'local_matched'
+                ) AS has_rings
             FROM bodies b
             WHERE b.system_id64 = $1
             ORDER BY b.distance_from_star
@@ -817,15 +824,20 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
     record = _build_system_record(row, body_list)
     record["body_count"] = len(body_list)
 
-    # Expose score breakdown for the popover
-    if row.get("score_breakdown"):
-        breakdown = row["score_breakdown"]
-        if isinstance(breakdown, str):
-            try:
-                breakdown = json.loads(breakdown)
-            except Exception:
-                breakdown = {}
-        record["score_breakdown"] = breakdown
+    reconstruction_row = dict(row)
+    reconstruction_row['slots']          = row['r_slots']
+    reconstruction_row['body_quality']   = row['r_body_quality']
+    reconstruction_row['orbital_safety'] = row['r_orbital_safety']
+    score_breakdown_bodies = [
+        {
+            'subtype': b['subtype'],
+            'geo_signal_count': b['geo_signals'],
+            'bio_signal_count': b['bio_signals'],
+            'has_rings': bool(b['has_rings']),
+        }
+        for b in body_rows
+    ]
+    record["score_breakdown"] = reconstruct_score_breakdown(reconstruction_row, score_breakdown_bodies)
 
     # Fetch stations
     async with pool.acquire() as conn:

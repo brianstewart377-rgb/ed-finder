@@ -11,6 +11,7 @@ from edfinder_api.config import settings, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.helpers import sys_row_to_dict
 from edfinder_api.models import SystemDetailResponse
+from ratings_breakdown import reconstruct_score_breakdown
 from edfinder_api.station_body_resolver import (
     is_transient_non_slot_station_type,
     resolve_station_body_association,
@@ -59,7 +60,8 @@ async def get_system(
                 r.ammonia_count, r.gas_giant_count, r.landable_count,
                 r.terraformable_count, r.bio_signal_total, r.geo_signal_total,
                 r.neutron_count, r.black_hole_count, r.white_dwarf_count,
-                r.score_breakdown,
+                r.slots, r.body_quality, r.orbital_safety,
+                r.rocky_count, r.rocky_ice_count, r.icy_count, r.hmc_count,
                 r.terraforming_potential, r.body_diversity,
                 r.confidence, r.rationale, r.rating_version,
                 body_fresh.body_data_updated_at,
@@ -191,6 +193,16 @@ async def get_system(
             """, id64)
 
     d = sys_row_to_dict(row)
+    score_breakdown_bodies = [
+        {
+            'subtype': b['subtype'],
+            'geo_signal_count': b['geo_signal_count'],
+            'bio_signal_count': b['bio_signal_count'],
+            'has_rings': bool(b['_ring_count']),
+        }
+        for b in bodies
+    ]
+    d['score_breakdown'] = reconstruct_score_breakdown(d, score_breakdown_bodies)
     d['bodies']   = sort_bodies_by_hierarchy(
         [_body_payload_from_row(b, d.get('name')) for b in bodies],
         system_name=d.get('name'),
@@ -379,8 +391,14 @@ async def batch_systems(
         async with pool.acquire() as conn:
             rows = await conn.fetch("""
                 SELECT s.*,
-                    r.score, r.score_breakdown, r.economy_suggestion,
-                    r.rating_version,
+                    r.score, r.score_agriculture, r.score_refinery,
+                    r.score_industrial, r.score_hightech,
+                    r.score_military, r.score_tourism, r.score_extraction,
+                    r.economy_suggestion, r.rating_version,
+                    r.slots, r.body_quality, r.orbital_safety,
+                    r.terraforming_potential, r.body_diversity,
+                    r.rocky_count, r.rocky_ice_count, r.icy_count, r.hmc_count,
+                    r.confidence, r.rationale,
                     r.elw_count, r.ww_count, r.ammonia_count,
                     r.gas_giant_count, r.landable_count,
                     r.bio_signal_total, r.geo_signal_total,
@@ -446,9 +464,16 @@ async def batch_systems(
 
         system_names = {row['id64']: row['name'] for row in rows}
         bodies_by_system: dict[int, list] = {}
+        raw_bodies_by_system: dict[int, list] = {}
         for b in bodies_rows:
             bid = b['system_id64']
             bodies_by_system.setdefault(bid, []).append(_body_payload_from_row(b, system_names.get(bid)))
+            raw_bodies_by_system.setdefault(bid, []).append({
+                'subtype': b['subtype'],
+                'geo_signal_count': b['geo_signal_count'],
+                'bio_signal_count': b['bio_signal_count'],
+                'has_rings': bool(b['_ring_count']),
+            })
         for bid, system_bodies in bodies_by_system.items():
             bodies_by_system[bid] = sort_bodies_by_hierarchy(
                 system_bodies,
@@ -458,6 +483,9 @@ async def batch_systems(
         for row in rows:
             d = sys_row_to_dict(row)
             d['bodies'] = bodies_by_system.get(d['id64'], [])
+            d['score_breakdown'] = reconstruct_score_breakdown(
+                d, raw_bodies_by_system.get(d['id64'], []),
+            )
             result[str(d['id64'])] = d
             await cache_set(f'sys:{SYSTEM_CACHE_VERSION}:{d["id64"]}', {'record': d}, settings.ttl_system, redis)
 
