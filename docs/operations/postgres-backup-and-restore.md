@@ -136,6 +136,9 @@ bash scripts/check_restore_rehearsal_status.sh \
 cd /opt/ed-finder
 bash scripts/check_restore_rehearsal_status.sh \
   --wait \
+  --require-finished \
+  --require-receipt \
+  --expect-db-absent \
   --poll-seconds 60 \
   --target-db edfinder_restore_rehearsal \
   --receipt-file /opt/ed-finder/artifacts/restore-rehearsals/production-restore-receipt-2026-07-11.json
@@ -149,6 +152,14 @@ The status helper stays read-only. It:
    restore process has finished, if the target DB still exists
 4. prints the receipt file when present so the operator can compare the final
    outcome against the observed runtime state
+
+For the default rehearsal path, the strongest finish gate is:
+
+- `--wait` to block until `pg_restore` is gone
+- `--require-finished` to fail if the restore is still running
+- `--require-receipt` to fail if the receipt never appeared
+- `--expect-db-absent` to fail if the disposable rehearsal database still
+  exists after a non-`--keep-db` run
 
 For the canonical local Windows/disposable stack, point the helper at
 `docker-compose.local.yml`. That stack has no `maintenance` service, so the

@@ -8,6 +8,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_DB="${TARGET_DB:-edfinder_restore_rehearsal}"
 RECEIPT_FILE="${RECEIPT_FILE:-}"
 WAIT_FOR_FINISH=0
+REQUIRE_FINISHED=0
+REQUIRE_RECEIPT=0
+EXPECT_DB_ABSENT=0
 POLL_SECONDS="${POLL_SECONDS:-30}"
 COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"
 COMPOSE_PROJECT_NAME_OVERRIDE="${EDFINDER_DOCKER_PROJECT_NAME:-}"
@@ -31,6 +34,9 @@ while [[ $# -gt 0 ]]; do
     --project-name) COMPOSE_PROJECT_NAME_OVERRIDE="$2"; shift 2 ;;
     --poll-seconds) POLL_SECONDS="$2"; shift 2 ;;
     --wait) WAIT_FOR_FINISH=1; shift ;;
+    --require-finished) REQUIRE_FINISHED=1; shift ;;
+    --require-receipt) REQUIRE_RECEIPT=1; shift ;;
+    --expect-db-absent) EXPECT_DB_ABSENT=1; shift ;;
     -h|--help)
       usage
       exit 0
@@ -97,6 +103,11 @@ show_database_smoke() {
   ok "schema migrations visible: $schema_migrations"
 }
 
+record_failure() {
+  warn "$1"
+  FAILURES+=("$1")
+}
+
 wait_for_finish() {
   local process_lines
   while true; do
@@ -113,6 +124,9 @@ wait_for_finish() {
 dc ps postgres >/dev/null
 ok "compose can see postgres"
 
+FAILURES=()
+db_present=0
+
 if [[ "$WAIT_FOR_FINISH" -eq 1 ]]; then
   wait_for_finish
   ok "restore process no longer running for $TARGET_DB"
@@ -126,7 +140,12 @@ else
   ok "no active pg_restore found for $TARGET_DB"
 fi
 
+if [[ "$REQUIRE_FINISHED" -eq 1 && -n "$process_lines" ]]; then
+  record_failure "restore is still running for $TARGET_DB"
+fi
+
 if database_exists; then
+  db_present=1
   ok "target database exists: $TARGET_DB"
   if [[ -z "$process_lines" ]]; then
     show_database_smoke
@@ -136,3 +155,23 @@ else
 fi
 
 show_receipt
+
+if [[ "$REQUIRE_RECEIPT" -eq 1 ]]; then
+  if [[ -z "$RECEIPT_FILE" ]]; then
+    record_failure "--require-receipt needs --receipt-file"
+  elif [[ ! -f "$RECEIPT_FILE" ]]; then
+    record_failure "required receipt is missing: $RECEIPT_FILE"
+  fi
+fi
+
+if [[ "$EXPECT_DB_ABSENT" -eq 1 && "$db_present" -eq 1 ]]; then
+  record_failure "target database still exists but --expect-db-absent was requested: $TARGET_DB"
+fi
+
+if [[ "${#FAILURES[@]}" -gt 0 ]]; then
+  printf '\n[ERROR] restore status expectations failed:\n' >&2
+  for failure in "${FAILURES[@]}"; do
+    printf '  - %s\n' "$failure" >&2
+  done
+  exit 1
+fi

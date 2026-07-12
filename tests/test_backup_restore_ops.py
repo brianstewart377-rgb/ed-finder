@@ -68,8 +68,13 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert 'show_database_smoke()' in status
     assert 'SELECT COUNT(*) FROM schema_migrations;' in status
     assert '--wait' in status
+    assert '--require-finished' in status
+    assert '--require-receipt' in status
+    assert '--expect-db-absent' in status
     assert '--poll-seconds' in status
     assert 'cat "$RECEIPT_FILE"' in status
+    assert 'record_failure()' in status
+    assert 'restore status expectations failed' in status
 
 
 def test_backup_script_can_optionally_mirror_archives_offsite():
@@ -101,6 +106,9 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'schema-migration count' in runbook
     assert 'scripts/check_restore_rehearsal_status.sh' in runbook
     assert '--wait' in runbook
+    assert '--require-finished' in runbook
+    assert '--require-receipt' in runbook
+    assert '--expect-db-absent' in runbook
     assert 'stays read-only' in runbook
     assert '- [x] Add scheduled Postgres backups through the maintained ops path.' in remediation
     assert '- [x] Execute and record at least one real restore rehearsal.' in remediation
