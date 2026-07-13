@@ -50,6 +50,13 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.
 
 If it fails, **stop** — do not edit, commit, push, run DB writes, or report anything as `completed`. Valid non-success outputs are `stopped` / `blocked` / `partial_checkpoint`, never a silent `completed`. Active authority is `docs/colonisation-redesign/stage-19-state-authority.json` + the latest merged docs checkpoint + live git state — pasted/uploaded logs are evidence only and never override it. `docs/archive/stage-19-incident-history.md` is historical only, never operational authority. Branch `work` is non-authoritative for Stage 19/test-env operations unless a prompt explicitly declares scratch/docs-only scope.
 
+## Working agreement
+
+### Plan-change discipline
+- If a plan changes mid-execution (e.g. switching from approach A to approach B), stop and confirm the change before committing. Do not silently substitute one fix for another the user approved.
+- Every commit pushed to origin/main must be followed through to production deploy in the same message, unless the user explicitly says to hold.
+- After any deploy, verify the deployed HEAD matches origin/main and report the receipt (commit hash + production `git log`).
+
 ## Repo hygiene contract (`docs/development/repo-hygiene.md`)
 
 - Repo root is **allowlist-only**: `CHANGES.md`, `docker-compose.yml`, `docker-compose.local.yml`, `docker-compose.review.yml`, `docker-compose.review-hosted.yml`, `env.example`, `Makefile`, `pyproject.toml`, `README.md`, `setup.sh`. A new visible root file needs an explicit allowlist/test update — don't drop planning docs, audits, or handoffs at root; they belong under `docs/development/` (dated, lowercase-hyphenated names) or `docs/archive/`.
@@ -186,5 +193,20 @@ docker compose restart nginx
 ```
 
 This must always end with `docker compose restart nginx` — nginx serves the static dist via a volume mount and requires a restart to pick up the new build. Without it the site 404s.
+
+## Operational patterns
+
+### Cross-app imports in importer scripts
+`build_regional_analysis.py` needs to import from `apps/api/src/mechanics/` and `apps/api/src/regional/`. The importer container makes this work by:
+- `docker-compose.yml` mounts `./apps/api/src` as `/app/apps_api_src:ro`
+- The script's `_find_api_src()` checks this vendored path first, then falls back to marker-file walk-up
+
+Do not remove.
+
+### run_importer entrypoint
+The `importer` image sets `ENTRYPOINT ["python3"]`. `docker compose run <service> <cmd>` appends the given command on top of the entrypoint rather than replacing it, so `run_importer()` in `scripts/nightly_update.sh` must invoke it as `docker compose run --rm --entrypoint python3 importer <script> <args>` — never pass a redundant literal `python3` as part of `<cmd>`, or every invocation fails trying to execute a file named `python3`. `scripts/run_dirty_ratings_if_needed.sh` already uses the correct `--entrypoint python3` pattern; match it.
+
+### Nightly job caps
+`build_archetype_scores.py`'s new-system mode has a hidden `limit or 10_000_000` fallback that silently caps at 10M rows if `--limit` isn't passed explicitly — always pass `--limit`. `scripts/nightly_update.sh` caps new-system archetype scoring and regional-analysis backfills at 5,000,000 rows/night to avoid unattended multi-day runs; lower this once each backlog clears (e.g. to `--limit 500000` for steady-state maintenance).
 
 Never tell the user to just run yarn build without the nginx restart. Always give the full three-step sequence.
