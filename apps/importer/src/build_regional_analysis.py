@@ -16,8 +16,21 @@ import psycopg2
 import psycopg2.extras
 
 
-ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
+def _find_api_src() -> Path:
+    # Importer container: apps/api/src is vendored alongside this script at
+    # build/run time (see apps/importer/Dockerfile + docker-compose.yml's
+    # importer volumes) because this script (and regional_analysis.py,
+    # transitively) import from mechanics/regional/edfinder_api.
+    _this_dir = Path(__file__).resolve().parent
+    vendored = _this_dir / 'apps_api_src'
+    if (vendored / 'mechanics' / 'regional_rules.py').exists():
+        return vendored
+    # Host checkout: apps/importer/src/build_regional_analysis.py -> repo root
+    # is three parents up.
+    return _this_dir.parents[2] / 'apps' / 'api' / 'src'
+
+
+sys.path.insert(0, str(_find_api_src()))
 
 from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
 from regional.regional_analysis import compute_regional_analysis

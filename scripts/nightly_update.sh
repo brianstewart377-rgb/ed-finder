@@ -278,6 +278,26 @@ if (( ARCH_SCORE_MISSING > 0 )); then
         || warn "MV refresh failed"
 fi
 
+# Re-check for systems with body data but no regional analysis row at all —
+# build_regional_analysis.py's default mode only covers systems missing a
+# row, same shape as the archetype new-system step above.
+REGIONAL_MISSING=$(pg_count "
+    SELECT COUNT(*) FROM systems s
+    LEFT JOIN system_regional_analysis r ON r.system_id64 = s.id64
+    WHERE r.system_id64 IS NULL
+      AND s.has_body_data = TRUE
+")
+log "Systems missing regional analysis rows: $REGIONAL_MISSING"
+
+if (( REGIONAL_MISSING > 0 )); then
+    log "Running build_regional_analysis.py (new-system mode) ..."
+    # Cap at 5M/night — same pattern as archetype scoring.
+    # Remove cap once backlog is cleared.
+    run_importer "build_regional_analysis_new" build_regional_analysis.py --limit 5000000 \
+        && success "New regional analysis rows backfilled" \
+        || warn "Regional analysis backfill had errors (check ${LOG_DIR}/build_regional_analysis_new.log)"
+fi
+
 # ---------------------------------------------------------------------------
 # 4. Rebuild clusters
 # ---------------------------------------------------------------------------

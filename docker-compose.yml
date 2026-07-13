@@ -370,11 +370,17 @@ services:
       - ./apps/importer/src/build_clusters.py:/app/build_clusters.py:ro
       - ./apps/importer/src/build_topology.py:/app/build_topology.py:ro
       - ./apps/importer/src/build_archetype_scores.py:/app/build_archetype_scores.py:ro
+      - ./apps/importer/src/build_regional_analysis.py:/app/build_regional_analysis.py:ro
       - ./apps/importer/src/edsm_station_enrichment_probe.py:/app/edsm_station_enrichment_probe.py:ro
       - ./apps/importer/src/dirty_flags.py:/app/dirty_flags.py:ro
       - ./apps/importer/src/region_map.py:/app/region_map.py:ro
       - ./apps/importer/src/ring_facts.py:/app/ring_facts.py:ro
       - ./apps/api/src/station_body_resolver.py:/app/station_body_resolver.py:ro
+      # build_regional_analysis.py imports mechanics/regional/edfinder_api
+      # from the API source tree — vendor the whole apps/api/src alongside
+      # it (mounted at /app/apps_api_src) so those imports resolve inside
+      # the importer container without needing a full API-image rebuild.
+      - ./apps/api/src:/app/apps_api_src:ro
       - ./apps/importer/src/data:/app/data:ro
     depends_on:
       postgres:
