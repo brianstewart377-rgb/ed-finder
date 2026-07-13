@@ -793,7 +793,7 @@ async def _build_evidence_focus_areas(
                 SELECT COUNT(*)::int
                 FROM body_scan_facts
                 WHERE system_address = $1
-                  AND ring_count > 0
+                  AND is_ringed = true
                 """,
                 system_id64,
             )
