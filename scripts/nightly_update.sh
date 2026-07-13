@@ -261,8 +261,12 @@ ARCH_SCORE_MISSING=$(pg_count "
 log "Systems missing archetype rows entirely: $ARCH_SCORE_MISSING"
 
 if (( ARCH_SCORE_MISSING > 0 )); then
-    log "Running build_archetype_scores.py (new-system mode, no cap) ..."
-    run_importer "build_archetype_scores_new" build_archetype_scores.py --limit "$ARCH_SCORE_MISSING" \
+    log "Running build_archetype_scores.py (new-system mode) ..."
+    # Cap per-run at 5M rows to avoid unattended multi-day runs.
+    # At this rate the current ~177M backlog clears in ~36 nights.
+    # Remove the cap once the backlog is cleared and replace with
+    # a smaller maintenance cap (e.g. --limit 500000).
+    run_importer "build_archetype_scores_new" build_archetype_scores.py --limit 5000000 \
         && success "New archetype scores backfilled" \
         || warn "New archetype score backfill had errors (check ${LOG_DIR}/build_archetype_scores_new.log)"
 
