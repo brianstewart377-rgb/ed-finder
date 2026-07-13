@@ -322,9 +322,9 @@ export function NavBar({
                           onClick={onDismissSelectedSystem}
                           aria-label="Clear selected system"
                           data-testid="selected-system-dismiss-mobile"
-                          className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-bg4/60 hover:text-silver focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60"
+                          className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-white/10 hover:text-orange-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60"
                         >
-                          <X size={12} />
+                          <X size={14} />
                         </button>
                       ) : null}
                     </div>

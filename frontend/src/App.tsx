@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/lib/queryClient';
 import { api } from '@/lib/api';
@@ -119,6 +119,14 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   useEffect(() => {
     persistShellContextSystemId(shellContextSystemId);
   }, [shellContextSystemId]);
+
+  const previousRouteRef = useRef(route);
+  useEffect(() => {
+    if (previousRouteRef.current !== 'finder' && route === 'finder') {
+      setShellContextSystemId(null);
+    }
+    previousRouteRef.current = route;
+  }, [route]);
 
   const shellSelectedSystem = shellContextSystemId != null
     ? buildShellSelectedSystem(shellContextSystemId, shellSystem.data, shellSystem.loading)
