@@ -76,8 +76,15 @@ run_importer() {
     local suffix="$1"; shift
     local job_log="${LOG_DIR}/${suffix}.log"
     log "  → Output: $job_log"
-    docker compose --profile import run --rm importer \
-        python3 "$@" \
+    # --entrypoint override is required: the image's ENTRYPOINT is already
+    # ["python3"], and `docker compose run <service> <cmd>` appends the given
+    # command on top of the entrypoint rather than replacing it. Without this
+    # override the container tried to execute a literal file named "python3"
+    # as its script argument and failed on every invocation (see
+    # run_dirty_ratings_if_needed.sh, which already uses this same override
+    # and works correctly).
+    docker compose --profile import run --rm --entrypoint python3 importer \
+        "$@" \
         2>&1 | tee -a "$job_log" | tee -a "$LOG"
     return "${PIPESTATUS[0]}"
 }
