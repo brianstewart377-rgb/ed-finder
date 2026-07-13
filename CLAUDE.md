@@ -174,3 +174,17 @@ Split across multiple workflow files now, not just one `ci.yml`:
 ### Operator scripts (`scripts/operator/`)
 
 Stage 19 warehouse/enrichment operator scripts live here, split into active (top level + `actions/`) and `archive/`. `require_hetzner_operator_env.sh` gates production-touching operator scripts. **Stage 19 (data warehouse/enrichment) is currently paused** for test-environment hardening, not actively worked — don't resume Stage 19 operator actions without checking `docs/ROADMAP.md`'s current status first; the state-resolution gate above will hard-stop most of them anyway outside the right branch/context.
+
+## Frontend deployment
+
+After any frontend code change is pushed to origin/main, the production deploy sequence is:
+
+```sh
+cd /opt/ed-finder && git pull origin main
+cd frontend && yarn install --immutable && yarn build
+docker compose restart nginx
+```
+
+This must always end with `docker compose restart nginx` — nginx serves the static dist via a volume mount and requires a restart to pick up the new build. Without it the site 404s.
+
+Never tell the user to just run yarn build without the nginx restart. Always give the full three-step sequence.
