@@ -249,6 +249,31 @@ if (( ARCH_SCORE_DIRTY > 0 )); then
     fi
 fi
 
+# Re-check for systems with a ratings row but no archetype row at all —
+# --dirty only rescores existing rows, it never inserts new ones. Note:
+# the `limit or 10_000_000` fallback in build_archetype_scores.py silently
+# caps at 10M rows — always pass --limit explicitly.
+ARCH_SCORE_MISSING=$(pg_count "
+    SELECT COUNT(*) FROM ratings r
+    LEFT JOIN system_archetype_scores a ON a.system_id64 = r.system_id64
+    WHERE a.system_id64 IS NULL
+")
+log "Systems missing archetype rows entirely: $ARCH_SCORE_MISSING"
+
+if (( ARCH_SCORE_MISSING > 0 )); then
+    log "Running build_archetype_scores.py (new-system mode, no cap) ..."
+    run_importer "build_archetype_scores_new" build_archetype_scores.py --limit "$ARCH_SCORE_MISSING" \
+        && success "New archetype scores backfilled" \
+        || warn "New archetype score backfill had errors (check ${LOG_DIR}/build_archetype_scores_new.log)"
+
+    log "Refreshing mv_archetype_rankings ..."
+    docker compose exec -T postgres psql -U edfinder -d edfinder \
+        -c "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
+        >> "$LOG" 2>&1 \
+        && success "mv_archetype_rankings refreshed" \
+        || warn "MV refresh failed"
+fi
+
 # ---------------------------------------------------------------------------
 # 4. Rebuild clusters
 # ---------------------------------------------------------------------------
