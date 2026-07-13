@@ -16,18 +16,68 @@ import psycopg2
 import psycopg2.extras
 
 
+_REPO_ROOT_MARKERS = ('.git', 'pyproject.toml', 'docker-compose.yml')
+
+
+def _has_api_src(candidate: Path) -> bool:
+    return (candidate / 'mechanics' / 'regional_rules.py').exists()
+
+
+def _find_repo_root_by_marker(start: Path) -> Path | None:
+    current = start
+    while True:
+        if any((current / marker).exists() for marker in _REPO_ROOT_MARKERS):
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
 def _find_api_src() -> Path:
-    # Importer container: apps/api/src is vendored alongside this script at
-    # build/run time (see apps/importer/Dockerfile + docker-compose.yml's
-    # importer volumes) because this script (and regional_analysis.py,
-    # transitively) import from mechanics/regional/edfinder_api.
-    _this_dir = Path(__file__).resolve().parent
-    vendored = _this_dir / 'apps_api_src'
-    if (vendored / 'mechanics' / 'regional_rules.py').exists():
+    this_dir = Path(__file__).resolve().parent
+
+    # Importer container (current/flat layout): apps/api/src is vendored
+    # alongside this script at build/run time (see apps/importer/Dockerfile
+    # + docker-compose.yml's importer volumes) because this script (and
+    # regional_analysis.py, transitively) import from
+    # mechanics/regional/edfinder_api.
+    vendored = this_dir / 'apps_api_src'
+    if _has_api_src(vendored):
         return vendored
-    # Host checkout: apps/importer/src/build_regional_analysis.py -> repo root
-    # is three parents up.
-    return _this_dir.parents[2] / 'apps' / 'api' / 'src'
+
+    # Host checkout (and any container layout that mirrors it): walk up
+    # from this file looking for a repo-root marker rather than assuming a
+    # fixed parents[N] depth, which silently breaks the moment this script
+    # is copied to a different directory depth (e.g. flattened into a
+    # container image).
+    repo_root = _find_repo_root_by_marker(this_dir)
+    if repo_root is not None:
+        candidate = repo_root / 'apps' / 'api' / 'src'
+        if _has_api_src(candidate):
+            return candidate
+
+    # Last resort: the historical fixed-depth assumption
+    # (apps/importer/src/<this file> -> repo root is 2 parents above this
+    # file's directory). Kept only as a fallback for layouts with no marker
+    # file at all (e.g. a mirrored container image that copies apps/ but
+    # not .git/pyproject.toml/docker-compose.yml).
+    try:
+        legacy_root = this_dir.parents[2]
+    except IndexError:
+        legacy_root = None
+    if legacy_root is not None:
+        candidate = legacy_root / 'apps' / 'api' / 'src'
+        if _has_api_src(candidate):
+            return candidate
+
+    raise RuntimeError(
+        "Could not locate apps/api/src (needed for mechanics/regional imports) "
+        f"starting from {this_dir}. Checked: a vendored 'apps_api_src' sibling "
+        f"directory, a repo-root marker walk-up ({', '.join(_REPO_ROOT_MARKERS)}), "
+        "and the legacy fixed-depth fallback. Run this script from a full repo "
+        "checkout, or ensure apps/api/src is vendored into wherever it's running."
+    )
 
 
 sys.path.insert(0, str(_find_api_src()))
