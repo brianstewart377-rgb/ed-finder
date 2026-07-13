@@ -3,6 +3,7 @@ import { useDensity } from '@/hooks/useDensity';
 import { SemanticStatusBadge, type SemanticStatusTone } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 
 /** Top-bar nav for the live app — sticky chrome panel with brushed-metal sheen
  *  and an ED-orange "active-tab" indicator. Height tuned to match the bottom
@@ -25,6 +26,7 @@ export interface NavBarProps {
     evidenceSummary: string;
   } | null;
   onOpenSelectedSystemInPlan?: (() => void) | undefined;
+  onDismissSelectedSystem?: (() => void) | undefined;
 }
 
 type PrimaryWorkspace = 'explore' | 'plan' | 'review';
@@ -54,6 +56,7 @@ export function NavBar({
   fullWidth = false,
   selectedSystem = null,
   onOpenSelectedSystemInPlan,
+  onDismissSelectedSystem,
 }: NavBarProps) {
   const appVersionLabel = `v${__APP_VERSION__}`;
   const ok = (health ?? '').toLowerCase() === 'online';
@@ -261,6 +264,7 @@ export function NavBar({
                   supportingText={currentWorkspaceMeta.supportingText}
                   selectedSystemName={selectedSystem ? (selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system') : null}
                   selectedSystemMeta={selectedSystem ? <span className="tabular-nums">ID64 {selectedSystem.id64}</span> : undefined}
+                  onDismissSelectedSystem={selectedSystem ? onDismissSelectedSystem : undefined}
                   selectedSystemDetail={selectedSystem ? (
                     <div className="space-y-2">
                       <SemanticStatusBadge
@@ -308,9 +312,22 @@ export function NavBar({
                 </p>
                 {selectedSystem ? (
                   <div className="premium-subpanel p-3">
-                    <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-                      Selected system
-                    </p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                        Selected system
+                      </p>
+                      {onDismissSelectedSystem ? (
+                        <button
+                          type="button"
+                          onClick={onDismissSelectedSystem}
+                          aria-label="Clear selected system"
+                          data-testid="selected-system-dismiss-mobile"
+                          className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-bg4/60 hover:text-silver focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60"
+                        >
+                          <X size={12} />
+                        </button>
+                      ) : null}
+                    </div>
                     <p className="mt-1 text-sm font-semibold text-text">
                       {selectedSystem.loading ? 'Loading system...' : selectedSystem.name ?? 'Selected system'}
                     </p>

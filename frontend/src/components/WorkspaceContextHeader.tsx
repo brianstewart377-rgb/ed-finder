@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { X } from 'lucide-react';
 
 export interface WorkspaceContextFact {
   label: string;
@@ -13,6 +14,7 @@ export interface WorkspaceContextHeaderProps {
   selectedSystemName?: string | null;
   selectedSystemMeta?: ReactNode;
   selectedSystemDetail?: ReactNode;
+  onDismissSelectedSystem?: (() => void) | undefined;
   status?: ReactNode;
   actions?: ReactNode;
   facts?: WorkspaceContextFact[];
@@ -36,6 +38,7 @@ export function WorkspaceContextHeader({
   selectedSystemName,
   selectedSystemMeta,
   selectedSystemDetail,
+  onDismissSelectedSystem,
   status,
   actions,
   facts = [],
@@ -95,9 +98,22 @@ export function WorkspaceContextHeader({
       <div className="space-y-3 xl:max-w-sm xl:text-right">
         {selectedSystemName || selectedSystemMeta || selectedSystemDetail ? (
           <div className="premium-subpanel p-3.5">
-            <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
-              Selected system
-            </p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-silver-dk">
+                Selected system
+              </p>
+              {onDismissSelectedSystem ? (
+                <button
+                  type="button"
+                  onClick={onDismissSelectedSystem}
+                  aria-label="Clear selected system"
+                  data-testid="selected-system-dismiss"
+                  className="shrink-0 rounded-full p-0.5 text-silver-dk transition-colors hover:bg-bg4/60 hover:text-silver focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/60"
+                >
+                  <X size={12} />
+                </button>
+              ) : null}
+            </div>
             {selectedSystemName ? (
               <p className="mt-1 text-base font-semibold text-text sm:text-lg">
                 {selectedSystemName}

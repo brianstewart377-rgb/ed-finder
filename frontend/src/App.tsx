@@ -148,6 +148,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
 
   const closeSystemDetail = () => {
     setDetailFocus(null);
+    setShellContextSystemId(null);
     closeSystem();
   };
 
@@ -288,6 +289,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         fullWidth={plannerWorkspaceRoute}
         selectedSystem={shellSelectedSystem}
         onOpenSelectedSystemInPlan={shellSelectedSystem && route !== 'colony-planner' ? openShellContextInPlan : undefined}
+        onDismissSelectedSystem={closeSystemDetail}
       />
 
       <SavedSystemNotice
