@@ -212,4 +212,51 @@ The `importer` image sets `ENTRYPOINT ["python3"]`. `docker compose run <service
 ### SSH MCP setup on Windows
 ssh-mcp / npx path resolution can trip on case sensitivity in Windows system paths — encountered case where the tool looked for "SYSTEM32" (uppercase) instead of "System32". If `claude mcp list` shows connected but `/mcp` shows no servers, run `claude doctor` to diagnose config validation errors.
 
+### Model routing (DeepSeek vs Sonnet)
+
+Use DeepSeek for:
+- Running structured diagnostic queries and reporting factually
+- Executing well-specified fixes where the diagnosis is settled
+- Reading files and reporting contents verbatim
+- Applying already-validated patterns to new instances
+- Any task that fits the "tight prompt" template below
+
+Use Sonnet for:
+- Diagnosis of unknown-cause issues
+- Cross-file reasoning about consequences
+- Code review of DeepSeek's diffs on production-touching code
+- Interpreting ambiguous data
+- Deciding severity or priority when facts alone don't decide
+- Final sanity check before deploying anything
+
+Split principle: DeepSeek gathers, Sonnet reasons.
+
+#### Tight prompt template for DeepSeek
+
+DeepSeek performs well with tight, self-contained prompts. Loose prompts let it fill gaps with confident but wrong inferences. Every DeepSeek prompt should include:
+
+1. Explicit scope — exact files, tables, or commands. No open-ended "investigate."
+2. Required output shape — table format with defined columns, or bulleted list with defined structure.
+3. Explicit "do not" list:
+   - Do not assign severity, priority, or urgency
+   - Do not recommend actions
+   - Do not interpret "empty" or "0" as any specific cause
+   - Do not substitute alternative commands if given ones fail
+   - Do not fix, commit, or deploy anything
+4. Verification requirement — every finding must cite the file/line, query output, or command return code.
+5. Instruction to report errors verbatim rather than working around them.
+
+Example format:
+```
+Task: [narrow, specific]
+Required output: table with columns X, Y, Z
+Commands to run (exact, do not substitute):
+  1. [command]
+  2. [command]
+Rules:
+- Do not [list]
+- Report [format]
+Output the table only. No preamble or summary.
+```
+
 Never tell the user to just run yarn build without the nginx restart. Always give the full three-step sequence.
