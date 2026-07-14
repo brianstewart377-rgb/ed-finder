@@ -461,6 +461,7 @@ def main():
         sys.exit(1)
 
     cur = conn.cursor()
+    cur.execute(f"SET statement_timeout = '{args.cell_timeout}s'")
 
     # ------------------------------------------------------------------
     # Step 1: Find all viable macro-cells

@@ -242,7 +242,7 @@ if (( ARCH_SCORE_DIRTY > 0 )); then
 
     log "Refreshing mv_archetype_rankings ..."
     docker compose exec -T postgres psql -U edfinder -d edfinder \
-        -c "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
+        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed" \
         || warn "MV refresh failed"
@@ -279,7 +279,7 @@ if (( ARCH_SCORE_MISSING > 0 )); then
 
     log "Refreshing mv_archetype_rankings ..."
     docker compose exec -T postgres psql -U edfinder -d edfinder \
-        -c "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
+        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed" \
         || warn "MV refresh failed"

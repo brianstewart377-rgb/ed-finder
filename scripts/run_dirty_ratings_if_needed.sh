@@ -59,6 +59,7 @@ log "start time=$started_iso threshold=$DIRTY_RATING_THRESHOLD workers=$DIRTY_RA
 count_cmd=(
     docker compose exec -T postgres
     psql -U edfinder -d edfinder -Atq -v ON_ERROR_STOP=1
+    -c "SET statement_timeout = '30s'"
     -c "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;"
 )
 log "dirty count command: $(format_command "${count_cmd[@]}")"
