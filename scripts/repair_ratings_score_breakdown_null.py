@@ -38,6 +38,7 @@ FETCH_BATCH_SQL = """
 SELECT system_id64
   FROM ratings
  WHERE score_breakdown IS NOT NULL
+   AND system_id64 > %s
  ORDER BY system_id64
  LIMIT %s
  FOR UPDATE SKIP LOCKED;
@@ -136,9 +137,9 @@ def fetch_total(conn) -> int:
     return int(row[0] or 0)
 
 
-def fetch_batch(conn, batch_size: int) -> list[int]:
+def fetch_batch(conn, batch_size: int, last_seen: int) -> list[int]:
     with conn.cursor() as cur:
-        cur.execute(FETCH_BATCH_SQL, (batch_size,))
+        cur.execute(FETCH_BATCH_SQL, (last_seen, batch_size))
         return [int(row[0]) for row in cur.fetchall()]
 
 
@@ -224,13 +225,14 @@ def apply_repair_batches(
     updated = 0
     batches = 0
     started_at = time.monotonic()
+    last_seen = 0
 
     while limit is None or updated < limit:
         remaining = batch_size if limit is None else min(batch_size, limit - updated)
         if remaining <= 0:
             break
         try:
-            candidates = fetch_batch(conn, remaining)
+            candidates = fetch_batch(conn, remaining, last_seen)
             if not candidates:
                 conn.rollback()
                 break
@@ -239,6 +241,7 @@ def apply_repair_batches(
         except Exception:
             conn.rollback()
             raise
+        last_seen = max(candidates)
         if not updated_rows:
             break
         updated += len(updated_rows)
