@@ -56,6 +56,7 @@ If it fails, **stop** — do not edit, commit, push, run DB writes, or report an
 - If a plan changes mid-execution (e.g. switching from approach A to approach B), stop and confirm the change before committing. Do not silently substitute one fix for another the user approved.
 - Every commit pushed to origin/main must be followed through to production deploy in the same message, unless the user explicitly says to hold.
 - After any deploy, verify the deployed HEAD matches origin/main and report the receipt (commit hash + production `git log`).
+- DeepSeek must NEVER edit production files directly. All changes go through the local repo, commit, push, deploy flow — even for one-line production hotfixes.
 
 ## Repo hygiene contract (`docs/development/repo-hygiene.md`)
 
