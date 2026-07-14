@@ -209,4 +209,7 @@ The `importer` image sets `ENTRYPOINT ["python3"]`. `docker compose run <service
 ### Nightly job caps
 `build_archetype_scores.py`'s new-system mode has a hidden `limit or 10_000_000` fallback that silently caps at 10M rows if `--limit` isn't passed explicitly — always pass `--limit`. `scripts/nightly_update.sh` caps new-system archetype scoring and regional-analysis backfills at 5,000,000 rows/night to avoid unattended multi-day runs; lower this once each backlog clears (e.g. to `--limit 500000` for steady-state maintenance).
 
+### SSH MCP setup on Windows
+ssh-mcp / npx path resolution can trip on case sensitivity in Windows system paths — encountered case where the tool looked for "SYSTEM32" (uppercase) instead of "System32". If `claude mcp list` shows connected but `/mcp` shows no servers, run `claude doctor` to diagnose config validation errors.
+
 Never tell the user to just run yarn build without the nginx restart. Always give the full three-step sequence.
