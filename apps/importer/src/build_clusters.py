@@ -476,10 +476,9 @@ def main():
             WHERE s.cluster_dirty = TRUE
               AND s.macro_grid_id IS NOT NULL
               AND s.has_body_data = TRUE
-              AND (r.score_agriculture >= %s OR r.score_refinery >= %s OR
-                   r.score_industrial  >= %s OR r.score_hightech  >= %s OR
-                   r.score_military    >= %s OR r.score_tourism   >= %s)
-        """, (args.min_score,) * 6)
+              AND r.score IS NOT NULL
+              AND r.score >= %s
+        """, (args.min_score,))
     else:
         cur.execute("""
             SELECT DISTINCT s.macro_grid_id
@@ -487,10 +486,9 @@ def main():
             JOIN ratings r ON r.system_id64 = s.id64
             WHERE s.macro_grid_id IS NOT NULL
               AND s.has_body_data = TRUE
-              AND (r.score_agriculture >= %s OR r.score_refinery >= %s OR
-                   r.score_industrial  >= %s OR r.score_hightech  >= %s OR
-                   r.score_military    >= %s OR r.score_tourism   >= %s)
-        """, (args.min_score,) * 6)
+              AND r.score IS NOT NULL
+              AND r.score >= %s
+        """, (args.min_score,))
 
     viable_cells = [row[0] for row in cur.fetchall()]
     cur.close()
