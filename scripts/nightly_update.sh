@@ -308,15 +308,10 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Rebuild clusters
 # ---------------------------------------------------------------------------
-# TODO(2026-07-14): cluster rebuild disabled while build_clusters.py
-# cannot handle the current 187M-system cluster_dirty backlog.
-# Failure point: line 471 SELECT DISTINCT s.macro_grid_id FROM
-# systems WHERE cluster_dirty = TRUE hits statement_timeout -
-# the discovery query itself is too slow at this scale. Same
-# query fails when run standalone. Fix requires investigating
-# query plan and either adding an index, tuning the query, or
-# bounding what it scans. Re-enable both call sites (Sunday full
-# + daily --dirty-only) once fix is deployed.
+# 2026-07-15: cluster rebuild re-enabled (daily dirty-only).
+# Discovery query fix (cf993d1) + idx_rat_score_viable (039) reduced
+# discovery time from timeout to 192s. Sunday full rebuild remains
+# disabled pending separate evaluation at scale.
 #
 log "--- Step 4: Rebuild clusters ---"
 
@@ -336,10 +331,9 @@ else
 
     if (( DIRTY_CLUSTERS > 0 )); then
         log "Running build_clusters.py --dirty-only ..."
-        # DISABLED: see TODO above
-        # run_importer "build_clusters" build_clusters.py --dirty-only --workers 6 \
-        #     && success "Dirty clusters rebuilt" \
-        #     || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
+        run_importer "build_clusters" build_clusters.py --dirty-only --workers 6 \
+            && success "Dirty clusters rebuilt" \
+            || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
 
         # Post-rebuild verification
         STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
