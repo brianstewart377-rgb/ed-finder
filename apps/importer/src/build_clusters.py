@@ -562,6 +562,17 @@ def main():
         VALUES ('clusters_built', 'true', NOW())
         ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
     """)
+    log.info("Clearing orphaned cluster_dirty flags "
+             "(systems with no macro_grid_id or no body data) ...")
+    cur2.execute(
+        "UPDATE systems SET cluster_dirty = FALSE "
+        "WHERE cluster_dirty = TRUE "
+        "  AND (macro_grid_id IS NULL OR has_body_data = FALSE)"
+    )
+    orphans_cleared = cur2.rowcount
+    conn2.commit()
+    log.info(f"Cleared {orphans_cleared} orphaned cluster_dirty flags.")
+
     if not args.dirty_only:
         log.info("Clearing cluster_dirty flags after full rebuild ...")
         cur2.execute(
