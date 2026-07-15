@@ -57,6 +57,8 @@ If it fails, **stop** — do not edit, commit, push, run DB writes, or report an
 - Every commit pushed to origin/main must be followed through to production deploy in the same message, unless the user explicitly says to hold.
 - After any deploy, verify the deployed HEAD matches origin/main and report the receipt (commit hash + production `git log`).
 - DeepSeek must NEVER edit production files directly. All changes go through the local repo, commit, push, deploy flow — even for one-line production hotfixes.
+- Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
+- Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
 
 ## Repo hygiene contract (`docs/development/repo-hygiene.md`)
 
