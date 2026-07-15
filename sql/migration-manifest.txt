@@ -51,3 +51,4 @@
 037_canonical_app_data_evidence_source.sql
 038_admin_job_runs.sql
 039_ratings_score_viable_index.sql
+040_cluster_summary_widen_counts.sql
