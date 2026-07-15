@@ -5,6 +5,7 @@ import { formatArchetypeLabel } from '@/lib/archetypes';
 import type { SystemDetail } from '@/types/api';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
+import { ExpansionPlanBadge } from '@/features/expansion-plans/ExpansionPlanBadge';
 import type { ColonyProject } from './colonyProjectStore';
 import {
   objectiveSummaryLabel,
@@ -156,6 +157,9 @@ export function WorkspaceHeader({
           </>
         )}
       />
+      <div className="mt-2">
+        <ExpansionPlanBadge id64={system.id64} />
+      </div>
       {activeProject ? (
         <div
           data-testid="planner-arrival-context"

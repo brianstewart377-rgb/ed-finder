@@ -29,9 +29,15 @@ import {
 import { JournalImportPanel } from '@/features/journal-import/JournalImportPanel';
 import { useJournalTelemetrySummary } from './useJournalTelemetrySummary';
 import { useSyncKeyStore } from '@/store/syncKeyStore';
+import {
+  useExpansionPlanStore,
+  type ExpansionPlan,
+} from '@/features/expansion-plans/expansionPlanStore';
+import { expansionPlanStatusLabel, computeExpansionPlanStatus } from './expansionPlanStatus';
+import { economyColor } from '@/features/colony-planner/economyVisuals';
 import type { JournalTelemetryRecentSystem } from '@/types/api';
 
-type MyWorkSection = 'saved-systems' | 'plans' | 'my-colonies' | 'telemetry';
+type MyWorkSection = 'saved-systems' | 'plans' | 'expansion-plans' | 'my-colonies' | 'telemetry';
 
 interface MyWorkWorkspaceProps {
   initialSection?: MyWorkSection;
@@ -45,6 +51,7 @@ interface MyWorkWorkspaceProps {
 const SECTION_OPTIONS: Array<{ id: MyWorkSection; label: string }> = [
   { id: 'saved-systems', label: 'Saved Systems' },
   { id: 'plans', label: 'Plans' },
+  { id: 'expansion-plans', label: 'Expansion Plans' },
   { id: 'my-colonies', label: 'My Colonies' },
   { id: 'telemetry', label: 'Telemetry' },
 ];
@@ -79,6 +86,19 @@ export function MyWorkWorkspace({
   const setLabel = useMyWorkStore((state) => state.setLabel);
   const setExplicitColonised = useMyWorkStore((state) => state.setExplicitColonised);
   const clearSystemMetadata = useMyWorkStore((state) => state.clearSystemMetadata);
+
+  // Expansion plans
+  const expansionPlansRecord = useExpansionPlanStore((state) => state.plans);
+  const renameExpansionPlan = useExpansionPlanStore((state) => state.renamePlan);
+  const archiveExpansionPlan = useExpansionPlanStore((state) => state.archivePlan);
+  const [editingExpansionPlanId, setEditingExpansionPlanId] = useState<string | null>(null);
+  const [editingExpansionPlanName, setEditingExpansionPlanName] = useState('');
+
+  const activeExpansionPlans = useMemo(
+    () => Object.values(expansionPlansRecord).filter((p) => !p.archived_at)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+    [expansionPlansRecord],
+  );
 
   const activeProjects = useMemo(
     () => Object.values(projectsRecord).filter((project) => !project.archived_at),
@@ -196,6 +216,18 @@ export function MyWorkWorkspace({
     renameProject(editingPlanId, editingPlanName);
     setEditingPlanId(null);
     setEditingPlanName('');
+  };
+
+  const beginExpansionRename = (plan: ExpansionPlan) => {
+    setEditingExpansionPlanId(plan.id);
+    setEditingExpansionPlanName(plan.plan_name);
+  };
+
+  const saveExpansionRename = () => {
+    if (!editingExpansionPlanId) return;
+    renameExpansionPlan(editingExpansionPlanId, editingExpansionPlanName);
+    setEditingExpansionPlanId(null);
+    setEditingExpansionPlanName('');
   };
 
   return (
@@ -373,6 +405,154 @@ export function MyWorkWorkspace({
                   </div>
                 </section>
               ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeSection === 'expansion-plans' ? (
+        <section className="space-y-4" data-testid="my-work-expansion-plans">
+          {activeExpansionPlans.length === 0 ? (
+            <EmptyPanel
+              title="No expansion plans yet"
+              body="Create one from a Region Search result in Finder."
+            />
+          ) : (
+            <div className="space-y-4">
+              {activeExpansionPlans.map((plan) => {
+                const planStatus = computeExpansionPlanStatus(plan, projectsRecord);
+                return (
+                  <section key={plan.id} className="premium-subpanel space-y-3 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        {editingExpansionPlanId === plan.id ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="text"
+                              value={editingExpansionPlanName}
+                              onChange={(e) => setEditingExpansionPlanName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') saveExpansionRename();
+                                if (e.key === 'Escape') setEditingExpansionPlanId(null);
+                              }}
+                              className="px-2 py-1 rounded bg-bg3 border border-border font-display text-base text-text"
+                              autoFocus
+                            />
+                            <button type="button" onClick={saveExpansionRename} className="btn-primary text-[10px] px-2 py-1">Save</button>
+                            <button type="button" onClick={() => setEditingExpansionPlanId(null)} className="btn-metal text-[10px] px-2 py-1">Cancel</button>
+                          </div>
+                        ) : (
+                          <h2
+                            className="font-display text-base tracking-[0.12em] text-text cursor-pointer hover:text-orange transition-colors"
+                            onClick={() => beginExpansionRename(plan)}
+                            title="Click to rename"
+                          >
+                            {plan.plan_name}
+                          </h2>
+                        )}
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="font-mono text-[11px] text-silver-dk">
+                            {plan.anchor_system_name}
+                          </span>
+                          {plan.galaxy_region && (
+                            <>
+                              <span className="text-text-dim text-[10px]">·</span>
+                              <span className="font-mono text-[10px] text-text-dim">
+                                {plan.galaxy_region}
+                              </span>
+                            </>
+                          )}
+                          <span className="text-text-dim text-[10px]">·</span>
+                          <span
+                            className={[
+                              'rounded-full px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide border',
+                              planStatus === 'Established'
+                                ? 'border-green/40 bg-green/10 text-green'
+                                : planStatus === 'In Progress'
+                                  ? 'border-gold/40 bg-gold/10 text-gold'
+                                  : 'border-text-dim/40 bg-bg3/50 text-text-dim',
+                            ].join(' ')}
+                          >
+                            {planStatus}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleInspectSystem(plan.anchor_system_id64)}
+                          className="btn-metal text-[11px] font-mono"
+                        >
+                          Inspect anchor
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => archiveExpansionPlan(plan.id)}
+                          className="btn-metal text-[11px] font-mono text-red hover:text-red"
+                        >
+                          Archive
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Slots */}
+                    <div className="space-y-2 pl-2 border-l-2 border-border/50">
+                      {plan.slots.map((slot) => {
+                        const slotColor = economyColor(slot.economies[0]);
+                        const linkedProject = slot.colony_project_id
+                          ? projectsRecord[slot.colony_project_id] ?? null
+                          : null;
+                        return (
+                          <div key={slot.slot_index} className="flex flex-wrap items-start justify-between gap-2 py-1.5">
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className="font-mono text-[10px] uppercase tracking-[0.12em] mb-0.5"
+                                style={{ color: slotColor }}
+                              >
+                                {slot.label}
+                              </div>
+                              <button
+                                type="button"
+                                className="font-mono text-xs text-text hover:text-orange transition-colors text-left truncate block"
+                                onClick={() => handleInspectSystem(slot.system_id64)}
+                              >
+                                {slot.system_name}
+                              </button>
+                              <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                {Object.entries(slot.scores).map(([econ, score]) => (
+                                  <span
+                                    key={econ}
+                                    className="font-mono text-[10px] px-1.5 py-0.5 rounded border"
+                                    style={{
+                                      color: economyColor(econ),
+                                      borderColor: `${economyColor(econ)}40`,
+                                      backgroundColor: `${economyColor(econ)}10`,
+                                    }}
+                                  >
+                                    {econ.slice(0, 4)} {score}
+                                  </span>
+                                ))}
+                                {slot.distance_from_anchor_ly != null && (
+                                  <span className="font-mono text-[10px] text-text-dim">
+                                    {slot.distance_from_anchor_ly} LY from anchor
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onOpenPlanner(slot.system_id64, { projectId: slot.colony_project_id })}
+                              className="btn-metal text-[11px] font-mono shrink-0"
+                            >
+                              {linkedProject ? 'Continue in Planner' : 'Open in Planner'}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
             </div>
           )}
         </section>

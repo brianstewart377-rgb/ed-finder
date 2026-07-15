@@ -19,6 +19,7 @@ import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
 import { SemanticStatusBadge, type SemanticStatusTone } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
+import { ExpansionPlanBadge } from '@/features/expansion-plans/ExpansionPlanBadge';
 
 export function ModalHeader({
   system,
@@ -60,6 +61,11 @@ export function ModalHeader({
         status={<SemanticStatusBadge label={statusLabel} tone={statusTone} />}
         testId="system-detail-context-header"
       />
+      {!loading && system ? (
+        <div className="mt-2">
+          <ExpansionPlanBadge id64={id64} />
+        </div>
+      ) : null}
       <h2 id="system-detail-title" className="sr-only">
         {loading ? 'Loading system detail' : system?.name || 'Unknown system'}
       </h2>
