@@ -118,7 +118,7 @@ def test_body_filter_columns_accept_public_count_keys():
 def test_sort_by_rating_alias_maps_to_development():
     """Legacy callers still send ``sort_by=rating``; preserve development
     ordering instead of silently falling back to distance sort."""
-    from models import LocalSearchRequest
+    from edfinder_api.models import LocalSearchRequest
 
     body = LocalSearchRequest.model_validate({'sort_by': 'rating'})
     assert body.sort_by == 'development'

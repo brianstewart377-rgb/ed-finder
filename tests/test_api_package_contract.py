@@ -171,3 +171,44 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
     for relative_path, source in package_aware_modules:
         for forbidden in forbidden_flat_imports:
             assert forbidden not in source, f'{relative_path} still mixes package imports with flat import: {forbidden.strip()}'
+
+
+def test_test_files_using_api_path_must_use_package_imports():
+    """Tests that add apps/api/src to sys.path must use package
+    imports, not flat imports. Flat imports create a second module
+    identity via the edfinder_api __path__ hack, causing state
+    singletons (pool, redis) to be None in tests.
+
+    See: docs/operations/known-issues.md (dual-import entry).
+    """
+    api_src_markers = (
+        "apps/api/src",
+        "apps' / 'api' / 'src'",
+        "apps/api/src'",
+    )
+
+    forbidden_flat_imports = (
+        'from state import ',
+        'from config import ',
+        'from deps import ',
+        'from models import ',
+        'from helpers import ',
+    )
+
+    tests_dir = ROOT / 'tests'
+    violations = []
+
+    for path in tests_dir.rglob('*.py'):
+        source = path.read_text(encoding='utf-8')
+        if not any(marker in source for marker in api_src_markers):
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        for forbidden in forbidden_flat_imports:
+            if forbidden in source:
+                violations.append(f'{rel} uses flat import: {forbidden.strip()}')
+
+    assert not violations, (
+        'Test files that add apps/api/src to sys.path must use '
+        'edfinder_api.* package imports, not flat imports:\n'
+        + '\n'.join(violations)
+    )

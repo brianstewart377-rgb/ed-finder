@@ -81,13 +81,13 @@ async def client(app) -> AsyncGenerator[AsyncClient, None]:
 
 @pytest_asyncio.fixture
 async def pool(app):
-    from state import get_pool_singleton
+    from edfinder_api.state import get_pool_singleton
     return get_pool_singleton()
 
 
 @pytest_asyncio.fixture
 async def redis_client(app):
-    from state import get_redis_singleton
+    from edfinder_api.state import get_redis_singleton
     return get_redis_singleton()
 
 

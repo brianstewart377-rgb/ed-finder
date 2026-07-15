@@ -16,9 +16,9 @@ sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 
 import psycopg2
 
-from helpers import safe_coords_from_row, sys_row_to_dict
+from edfinder_api.helpers import safe_coords_from_row, sys_row_to_dict
 from local_search import _build_distance_expr, _build_system_record, _parse_local_search_context, _safe_distance, local_db_search
-from models import AutocompleteHit, StationModel, SystemDetailRow, SystemRow
+from edfinder_api.models import AutocompleteHit, StationModel, SystemDetailRow, SystemRow
 from progress import ProgressReporter
 from routers.systems import _station_with_association
 from build_ratings import (

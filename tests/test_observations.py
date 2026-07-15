@@ -21,7 +21,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from deps import get_pool
+from edfinder_api.deps import get_pool
 from observations.api_models import ObservedFactCreateRequest, ObservedFactUpdateRequest
 from observations.models import (
     ObservationFactSummary,
