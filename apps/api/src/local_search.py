@@ -582,6 +582,196 @@ async def local_db_galaxy_search(body: dict, pool: asyncpg.Pool) -> dict:
 # ---------------------------------------------------------------------------
 # Multi-economy cluster search (v4.0 — uses new cluster_summary schema)
 # ---------------------------------------------------------------------------
+# ── Economy name → ratings score column safe allowlist ──────────────────
+_ECO_SCORE_COL: dict[str, str] = {
+    'agriculture': 'score_agriculture',
+    'refinery':    'score_refinery',
+    'industrial':  'score_industrial',
+    'hightech':    'score_hightech',
+    'military':    'score_military',
+    'tourism':     'score_tourism',
+    'extraction':  'score_extraction',
+}
+
+
+async def _resolve_slot_matches(
+    pool: asyncpg.Pool,
+    anchors: list[dict],
+    slots_raw: list[dict],
+    max_matches: int = 3,
+) -> dict[int, list[dict]]:
+    """For each anchor, find the best-matching system for each slot.
+
+    Returns a dict keyed by anchor_id64 mapping to a list of slot-match
+    dicts, each containing ``slot_index``, ``label``, ``economies`` and
+    ``matches`` (the top systems for that slot near that anchor).
+    """
+    import asyncio
+
+    from edfinder_api.search_economies import _canon as canon_econ
+
+    if not anchors or not slots_raw:
+        return {}
+
+    # Validate and index slots
+    indexed_slots: list[dict] = []
+    for i, slot in enumerate(slots_raw):
+        economies = slot.get("economies", [])
+        min_score = int(slot.get("min_score", 65))
+        label = slot.get("label") or " + ".join(economies)
+        indexed_slots.append({
+            "index": i,
+            "economies": economies,
+            "min_score": min_score,
+            "label": label,
+        })
+
+    async def _resolve_one_anchor(anchor: dict) -> tuple[int, list[dict]]:
+        """Resolve slot matches for a single anchor system."""
+        anchor_id64 = anchor["anchor_id64"]
+        ax = float(anchor["anchor_x"])
+        ay = float(anchor["anchor_y"])
+        az = float(anchor["anchor_z"])
+
+        # Look up the anchor's grid_cell_id
+        async with pool.acquire() as conn:
+            cell_row = await conn.fetchrow(
+                "SELECT grid_cell_id FROM systems WHERE id64 = $1",
+                anchor_id64,
+            )
+        if not cell_row or not cell_row["grid_cell_id"]:
+            return (anchor_id64, [])
+
+        anchor_cell = int(cell_row["grid_cell_id"])
+
+        # Decode cell coordinates
+        vcz = anchor_cell % 10000
+        rem = anchor_cell // 10000
+        vcy = rem % 10000
+        vcx = rem // 10000
+
+        # 27-cell neighbourhood (same as build_clusters.py)
+        search_cells = [
+            (vcx + dx) * 100_000_000 + (vcy + dy) * 10_000 + (vcz + dz)
+            for dx in range(-1, 2)
+            for dy in range(-1, 2)
+            for dz in range(-1, 2)
+        ]
+
+        slot_results: list[dict] = []
+
+        for slot in indexed_slots:
+            economies = slot["economies"]
+            min_score = slot["min_score"]
+            label = slot["label"]
+            slot_index = slot["index"]
+
+            # Build the per-slot detail query with safe column names
+            if not economies:
+                slot_results.append({
+                    "slot_index": slot_index,
+                    "label": label,
+                    "economies": [],
+                    "matches": [],
+                })
+                continue
+
+            score_cols = []
+            score_selects = []
+            where_clauses = []
+            detail_params: list[Any] = [search_cells, min_score, ax, ay, az, CLUSTER_RADIUS_LY]
+
+            for econ in economies:
+                canon = canon_econ(econ)
+                if canon is None or canon not in _ECO_SCORE_COL:
+                    continue
+                col = _ECO_SCORE_COL[canon]
+                score_cols.append(col)
+                score_selects.append(f"r.{col}")
+                where_clauses.append(f"r.{col} >= $2")
+
+            if not score_cols:
+                slot_results.append({
+                    "slot_index": slot_index,
+                    "label": label,
+                    "economies": list(economies),
+                    "matches": [],
+                })
+                continue
+
+            score_sum = " + ".join(score_selects)
+            score_where = " AND ".join(where_clauses)
+
+            sql = f"""
+                SELECT s.id64, s.name, s.x, s.y, s.z,
+                       {', '.join(score_selects)},
+                       SQRT(POWER(s.x - $3, 2) + POWER(s.y - $4, 2)
+                          + POWER(s.z - $5, 2)) AS dist
+                FROM systems s
+                JOIN ratings r ON r.system_id64 = s.id64
+                WHERE s.grid_cell_id = ANY($1)
+                  AND s.population = 0
+                  AND {score_where}
+                  AND SQRT(POWER(s.x - $3, 2) + POWER(s.y - $4, 2)
+                         + POWER(s.z - $5, 2)) <= $6
+                ORDER BY ({score_sum}) DESC
+                LIMIT {max_matches}
+            """
+
+            try:
+                async with pool.acquire() as conn:
+                    detail_rows = await conn.fetch(sql, *detail_params)
+            except Exception:
+                detail_rows = []
+
+            matches = []
+            for dr in detail_rows:
+                scores: dict[str, float] = {}
+                for j, econ in enumerate(economies):
+                    canon = canon_econ(econ)
+                    if canon and canon in _ECO_SCORE_COL:
+                        col = _ECO_SCORE_COL[canon]
+                        scores[econ] = float(dr[col]) if dr[col] is not None else 0.0
+
+                dist_from_anchor = float(dr["dist"]) if dr["dist"] is not None else None
+                matches.append({
+                    "system_id64": dr["id64"],
+                    "system_name": dr["name"],
+                    "scores": scores,
+                    "distance_from_anchor_ly": round(dist_from_anchor, 1)
+                    if dist_from_anchor is not None else None,
+                })
+
+            slot_results.append({
+                "slot_index": slot_index,
+                "label": label,
+                "economies": list(economies),
+                "matches": matches,
+            })
+
+        return (anchor_id64, slot_results)
+
+    # Run anchor resolutions concurrently, capped at 10
+    semaphore = asyncio.Semaphore(10)
+
+    async def _resolve_with_limit(anchor: dict) -> tuple[int, list[dict]]:
+        async with semaphore:
+            return await _resolve_one_anchor(anchor)
+
+    tasks = [_resolve_with_limit(a) for a in anchors]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    out: dict[int, list[dict]] = {}
+    for r in results:
+        if isinstance(r, Exception):
+            log.warning("_resolve_slot_matches anchor failed: %r", r)
+            continue
+        aid, slot_list = r
+        out[aid] = slot_list
+
+    return out
+
+
 async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     """
     Multi-economy cluster search using the macro-grid cluster_summary table.
@@ -589,12 +779,19 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     Each result represents an anchor system whose 500 LY bubble contains
     viable systems for each requested economy type.
 
+    Supports two formats:
+      - requirements: flat list of economy → min_count (legacy, unchanged)
+      - slots: list of slot groups (1-2 economies per slot); response includes
+        per-slot system matches resolved from ratings at query time.
+
     v4.0: Updated to use the new cluster_summary schema with per-economy
     count/best/top_id columns. Supports galaxy_region_id filter.
     """
     t0 = time.time()
 
     requirements    = body.get("requirements", [])
+    slots_raw       = body.get("slots", [])
+    use_slots       = bool(slots_raw)
     limit           = min(int(body.get("limit", 50)), 200)
     ref             = body.get("reference_coords") or {}
     has_ref         = all(ref.get(axis) is not None for axis in ("x", "y", "z"))
@@ -603,10 +800,10 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
     rz              = float(ref["z"]) if has_ref else 0.0
     galaxy_region   = body.get("galaxy_region_id")
 
-    if not requirements:
-        return {"error": "requirements list is required", "clusters": []}
+    if not requirements and not slots_raw:
+        return {"error": "requirements or slots list is required", "clusters": []}
 
-    # Build WHERE clauses from requirements
+    # Build WHERE clauses from requirements or slots
     where_parts = []
     params      = []
     p           = 1
@@ -618,12 +815,26 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
         p += 1
         return f"${idx}"
 
-    for req in requirements:
-        econ      = req.get("economy")
-        min_count = int(req.get("min_count", 1))
-        col       = cluster_count_column(econ, alias='cs')
-        if col:
-            where_parts.append(f"{col} >= {add(min_count)}")
+    if use_slots:
+        # Flatten economy→min_count from slot groups.
+        # Each slot's economies become individual WHERE clauses on cluster_summary.
+        # The same-world constraint is enforced later in detail resolution.
+        seen_econs: set[str] = set()
+        for slot in slots_raw:
+            for econ in slot.get("economies", []):
+                canon = _canon(econ)
+                if canon and canon != 'extraction' and canon not in seen_econs:
+                    seen_econs.add(canon)
+                    col = cluster_count_column(canon, alias='cs')
+                    if col:
+                        where_parts.append(f"{col} >= {add(1)}")
+    else:
+        for req in requirements:
+            econ      = req.get("economy")
+            min_count = int(req.get("min_count", 1))
+            col       = cluster_count_column(econ, alias='cs')
+            if col:
+                where_parts.append(f"{col} >= {add(min_count)}")
 
     if not where_parts:
         return {"error": "No valid economy requirements provided", "clusters": []}
@@ -720,18 +931,32 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
             "cluster_radius_ly":    CLUSTER_RADIUS_LY,
         })
 
+    # ── Slot detail resolution (only when slots format is used) ────────
+    if use_slots and clusters:
+        slot_matches = await _resolve_slot_matches(pool, clusters, slots_raw)
+        for i, cluster in enumerate(clusters):
+            anchor_id64 = cluster["anchor_id64"]
+            cluster["slots"] = slot_matches.get(anchor_id64, [])
+
     elapsed = round((time.time() - t0) * 1000)
-    log.info("cluster_search(%d requirements, region=%s, ref=%s): %d clusters in %dms",
-             len(requirements), galaxy_region or "any",
+    econ_count = len(slots_raw) if use_slots else len(requirements)
+    log.info("cluster_search(%d %s, region=%s, ref=%s): %d clusters in %dms",
+             econ_count, "slots" if use_slots else "requirements",
+             galaxy_region or "any",
              "yes" if has_ref else "no", len(clusters), elapsed)
 
-    return {
+    response: dict[str, Any] = {
         "clusters":          clusters,
         "count":             len(clusters),
-        "requirements":      requirements,
         "cluster_radius_ly": CLUSTER_RADIUS_LY,
         "query_ms":          elapsed,
     }
+    if use_slots:
+        response["slots"] = slots_raw
+    else:
+        response["requirements"] = requirements
+
+    return response
 
 
 # ---------------------------------------------------------------------------

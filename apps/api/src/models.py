@@ -54,7 +54,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional, Union
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from edfinder_api.models_economy import EconomyFilterField, EconomyFilter, EconomyName, EconomyNameField
 
@@ -527,11 +527,64 @@ class ClusterRequirement(BaseModel):
     min_score: int = Field(default=40, ge=0, le=100)
 
 
+class SlotRequirement(BaseModel):
+    """One colony world the user wants to build.
+
+    economies: 1-2 economy names that must ALL score >= min_score
+    on a single system (same-world constraint).
+
+    archetype_key: optional shorthand — if provided, economies and
+    min_score are derived from TARGET_PROFILES and can be omitted.
+    """
+    economies:     list[EconomyNameField] = Field(default_factory=list)
+    archetype_key: Optional[str] = None
+    min_score:     int = Field(default=65, ge=0, le=100)
+    label:         Optional[str] = None  # display label, auto-generated if omitted
+
+    @model_validator(mode='after')
+    def resolve_archetype(self) -> 'SlotRequirement':
+        if self.archetype_key and not self.economies:
+            from edfinder_api.domain.colonisation_rules import get_target_profile
+            profile = get_target_profile(self.archetype_key)
+            self.economies = [
+                e for e in profile.expected_economies
+                if e != 'Extraction'  # no cluster_summary column for Extraction
+            ]
+            if not self.label:
+                self.label = self.archetype_key.replace('_', ' ').title()
+        if not self.economies:
+            raise ValueError(
+                'Slot must specify at least one economy or a valid archetype_key'
+            )
+        if len(self.economies) > 2:
+            raise ValueError(
+                'A slot can have at most 2 economies (same-world constraint)'
+            )
+        if not self.label:
+            self.label = ' + '.join(self.economies)
+        return self
+
+
 class ClusterSearchRequest(BaseModel):
-    requirements:     list[ClusterRequirement]
+    # Legacy format (still works)
+    requirements:     list[ClusterRequirement] = Field(default_factory=list)
+    # New slot-based format
+    slots:            list[SlotRequirement] = Field(default_factory=list)
     limit:            int = Field(default=50, le=200)
     offset:           int = 0
     reference_coords: Optional[CoordsModel] = None
+
+    @model_validator(mode='after')
+    def validate_input(self) -> 'ClusterSearchRequest':
+        if not self.requirements and not self.slots:
+            raise ValueError(
+                'At least one economy requirement must be specified'
+            )
+        if self.requirements and self.slots:
+            raise ValueError(
+                'Provide requirements OR slots, not both'
+            )
+        return self
 
 
 # ══════════════════════════════════════════════════════════════════════

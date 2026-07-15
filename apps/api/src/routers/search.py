@@ -14,7 +14,7 @@ degrading.
 """
 import json
 import time
-from typing import Optional
+from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -236,24 +236,37 @@ async def cluster_search(
 ):
     background_tasks.add_task(inc_metric, 'db_queries')
 
-    if not req.requirements:
+    # Validation: either requirements or slots must be provided
+    # (model_validator on ClusterSearchRequest already enforces this)
+    if not req.requirements and not req.slots:
         raise HTTPException(400, 'At least one economy requirement must be specified')
-    if len(req.requirements) > 6:
+    if req.requirements and len(req.requirements) > 6:
         raise HTTPException(400, 'Maximum 6 economy requirements')
+    if req.slots and len(req.slots) > 10:
+        raise HTTPException(400, 'Maximum 10 slots')
 
-    reqs_json = json.dumps([r.model_dump() for r in req.requirements], sort_keys=True)
+    # Build cache key — include slots when present
+    if req.slots:
+        payload_json = json.dumps([s.model_dump() for s in req.slots], sort_keys=True, default=str)
+        cache_prefix = 'cluster_slots'
+    else:
+        payload_json = json.dumps([r.model_dump() for r in req.requirements], sort_keys=True)
+        cache_prefix = 'cluster'
     reference_coords = _complete_coords(req.reference_coords)
     ref_json = json.dumps(reference_coords, sort_keys=True, default=str)
-    cache_key = f'cluster:{CLUSTER_CACHE_VERSION}:{reqs_json}:{req.limit}:{req.offset}:{ref_json}'
+    cache_key = f'{cache_prefix}:{CLUSTER_CACHE_VERSION}:{payload_json}:{req.limit}:{req.offset}:{ref_json}'
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
 
-    body_dict = {
-        'requirements':     [r.model_dump() for r in req.requirements],
+    body_dict: dict[str, Any] = {
         'limit':            req.limit,
         'reference_coords': reference_coords,
     }
+    if req.slots:
+        body_dict['slots'] = [s.model_dump() for s in req.slots]
+    else:
+        body_dict['requirements'] = [r.model_dump() for r in req.requirements]
     try:
         result = await _ls.local_db_cluster_search(body_dict, pool)
     except Exception as exc:
