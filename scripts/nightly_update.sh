@@ -222,6 +222,8 @@ TOPO_DIRTY=$(pg_count "SELECT COUNT(*) FROM ratings WHERE rating_dirty = TRUE")
 ARCH_SCORE_DIRTY=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
 log "Topology dirty (rating_dirty): $TOPO_DIRTY | Archetype scores dirty: $ARCH_SCORE_DIRTY"
 
+ARCH_BUILD_RAN=0
+
 if (( TOPO_DIRTY > 0 )); then
     log "Running build_topology.py --dirty ..."
     run_importer "build_topology" build_topology.py --dirty \
@@ -237,7 +239,7 @@ log "Archetype scores dirty after topology pass: $ARCH_SCORE_DIRTY"
 if (( ARCH_SCORE_DIRTY > 0 )); then
     log "Running build_archetype_scores.py --dirty ..."
     run_importer "build_archetype_scores" build_archetype_scores.py --dirty \
-        && success "Archetype scores rebuilt" \
+        && { success "Archetype scores rebuilt"; ARCH_BUILD_RAN=1; } \
         || warn "Archetype score rebuild had errors (check ${LOG_DIR}/build_archetype_scores.log)"
 
     log "Refreshing mv_archetype_rankings ..."
@@ -274,7 +276,7 @@ if (( ARCH_SCORE_MISSING > 0 )); then
     # Remove the cap once the backlog is cleared and replace with
     # a smaller maintenance cap (e.g. --limit 500000).
     run_importer "build_archetype_scores_new" build_archetype_scores.py --limit 5000000 \
-        && success "New archetype scores backfilled" \
+        && { success "New archetype scores backfilled"; ARCH_BUILD_RAN=1; } \
         || warn "New archetype score backfill had errors (check ${LOG_DIR}/build_archetype_scores_new.log)"
 
     log "Refreshing mv_archetype_rankings ..."
@@ -283,6 +285,20 @@ if (( ARCH_SCORE_MISSING > 0 )); then
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed" \
         || warn "MV refresh failed"
+fi
+
+# Catch-up: if any archetype build ran in this invocation, ensure the
+# MV reflects the new data. The inline refreshes inside each block may
+# have failed or been skipped (the build clears dirty flags, so the
+# post-build count can be zero even though data changed).
+if (( ARCH_BUILD_RAN == 1 )); then
+    MV_ROWS=$(pg_count "SELECT COUNT(*) FROM mv_archetype_rankings")
+    log "Archetype build ran this cycle — verifying MV is current ($MV_ROWS rows) ..."
+    docker compose exec -T postgres psql -U edfinder -d edfinder \
+        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
+        >> "$LOG" 2>&1 \
+        && success "mv_archetype_rankings refreshed (catch-up)" \
+        || warn "MV catch-up refresh failed"
 fi
 
 # Re-check for systems with body data but no regional analysis row at all —
