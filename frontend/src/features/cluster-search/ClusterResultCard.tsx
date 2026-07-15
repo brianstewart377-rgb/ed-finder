@@ -6,6 +6,7 @@ export interface ClusterResultCardProps {
   cluster: ClusterResult;
   requiredEconomies: Set<string>;
   onOpenDetail: (id64: number) => void;
+  onSystemClick?: (id64: number) => void;
 }
 
 const ECONOMY_DISPLAY: { key: string; countKey: keyof ClusterResult; bestKey: keyof ClusterResult }[] = [
@@ -17,19 +18,23 @@ const ECONOMY_DISPLAY: { key: string; countKey: keyof ClusterResult; bestKey: ke
   { key: 'Tourism',     countKey: 'tourism_count',      bestKey: 'tourism_best'      },
 ];
 
-export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail }: ClusterResultCardProps) {
+export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, onSystemClick }: ClusterResultCardProps) {
   const distLabel = cluster.distance_ly != null
     ? `${cluster.distance_ly.toFixed(1)} LY`
     : '—';
 
+  const hasSlots = cluster.slots && cluster.slots.length > 0;
+
   return (
     <article
       data-testid={`cluster-result-${cluster.anchor_id64}`}
-      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-[1px] cursor-pointer"
-      onClick={() => onOpenDetail(cluster.anchor_id64)}
+      className="panel-thin overflow-hidden transition-all duration-200 hover:border-orange/40 hover:-translate-y-[1px]"
     >
-      {/* Header */}
-      <div className="px-4 py-3 flex items-center justify-between gap-3">
+      {/* Header — clickable to open anchor detail */}
+      <div
+        className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer"
+        onClick={() => onOpenDetail(cluster.anchor_id64)}
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm text-text truncate">
@@ -54,42 +59,107 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail }: 
         </div>
       </div>
 
-      {/* Economy grid */}
-      <div className="border-t border-border/70 px-4 py-3">
-        <div className="grid grid-cols-3 gap-2">
-          {ECONOMY_DISPLAY.map(({ key, countKey, bestKey }) => {
-            const count = (cluster[countKey] as number) ?? 0;
-            const best  = (cluster[bestKey] as number) ?? 0;
-            const isRequired = requiredEconomies.has(key);
-            const color = economyColor(key);
+      {/* Slot-based detail (new format) */}
+      {hasSlots ? (
+        <div className="border-t border-border/70 px-4 py-3 space-y-3">
+          {cluster.slots!.map((slot) => {
+            const primaryEcon = slot.economies[0] ?? '';
+            const slotColor = economyColor(primaryEcon);
+            const bestMatch = slot.matches[0];
+            const moreCount = slot.matches.length - 1;
 
             return (
-              <div
-                key={key}
-                className={[
-                  'rounded border px-2 py-1.5 transition-opacity',
-                  isRequired
-                    ? 'border-border bg-bg3/80'
-                    : 'border-border/40 bg-bg3/30 opacity-50',
-                ].join(' ')}
-              >
+              <div key={slot.slot_index}>
                 <div
-                  className="font-mono text-[10px] uppercase tracking-wide"
-                  style={{ color }}
+                  className="font-mono text-[10px] uppercase tracking-[0.12em] mb-1.5"
+                  style={{ color: slotColor }}
                 >
-                  {key}
+                  {slot.label}
                 </div>
-                <div className="font-mono text-sm font-bold text-text tabular-nums">
-                  {count}
-                </div>
-                <div className="font-mono text-[10px] text-text-dim">
-                  best: {best}
-                </div>
+                {bestMatch ? (
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      className="font-mono text-sm text-text hover:text-orange transition-colors text-left truncate block max-w-full"
+                      title={bestMatch.system_name}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSystemClick?.(bestMatch.system_id64);
+                      }}
+                    >
+                      ► {bestMatch.system_name}
+                    </button>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {Object.entries(bestMatch.scores).map(([econ, score]) => (
+                        <span
+                          key={econ}
+                          className="font-mono text-[10px] px-1.5 py-0.5 rounded border"
+                          style={{
+                            color: economyColor(econ),
+                            borderColor: `${economyColor(econ)}40`,
+                            backgroundColor: `${economyColor(econ)}10`,
+                          }}
+                        >
+                          {econ.slice(0, 4)} {score}
+                        </span>
+                      ))}
+                      <span className="font-mono text-[10px] text-text-dim">
+                        · {bestMatch.distance_from_anchor_ly} LY from anchor
+                      </span>
+                    </div>
+                    {moreCount > 0 && (
+                      <div className="font-mono text-[10px] text-cyan">
+                        + {moreCount} more
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="font-mono text-[10px] text-text-dim italic">
+                    No matching system found
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
-      </div>
+      ) : (
+        /* Legacy economy grid (no slot data) */
+        <div className="border-t border-border/70 px-4 py-3">
+          <div className="grid grid-cols-3 gap-2">
+            {ECONOMY_DISPLAY.map(({ key, countKey, bestKey }) => {
+              const count = (cluster[countKey] as number) ?? 0;
+              const best  = (cluster[bestKey] as number) ?? 0;
+              const isRequired = requiredEconomies.has(key);
+              const color = economyColor(key);
+
+              return (
+                <div
+                  key={key}
+                  className={[
+                    'rounded border px-2 py-1.5 transition-opacity',
+                    isRequired
+                      ? 'border-border bg-bg3/80'
+                      : 'border-border/40 bg-bg3/30 opacity-50',
+                  ].join(' ')}
+                >
+                  <div
+                    className="font-mono text-[10px] uppercase tracking-wide"
+                    style={{ color }}
+                  >
+                    {key}
+                  </div>
+                  <div className="font-mono text-sm font-bold text-text tabular-nums">
+                    {count}
+                  </div>
+                  <div className="font-mono text-[10px] text-text-dim">
+                    best: {best}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="border-t border-border/70 px-4 py-2 flex items-center gap-3 font-mono text-[10px] text-text-dim">

@@ -2,29 +2,29 @@ import { useState } from 'react';
 import { Plus, X, Search, RotateCcw } from 'lucide-react';
 import { RefSystemPicker } from '@/features/search/RefSystemPicker';
 import { hasKnownCoords } from '@/lib/format';
+import { economyColor } from '@/features/colony-planner/economyVisuals';
 import type { AutocompleteHit } from '@/types/api';
-import type { ClusterSearchFilters } from './useClusterSearch';
-
-const ECONOMIES = ['Agriculture', 'Refinery', 'Industrial', 'HighTech', 'Military', 'Tourism'] as const;
+import type { ClusterSearchFilters, SlotRequirement } from './useClusterSearch';
+import { ARCHETYPE_PROFILES, ALL_ECONOMIES } from './useClusterSearch';
 
 export interface ClusterSearchFormProps {
   filters:            ClusterSearchFilters;
   onChange:           (patch: Partial<ClusterSearchFilters>) => void;
-  onAddRequirement:   () => void;
-  onRemoveRequirement: (index: number) => void;
-  onUpdateRequirement: (index: number, patch: { economy?: string; min_count?: number }) => void;
+  onAddSlot:          () => void;
+  onRemoveSlot:       (index: number) => void;
+  onUpdateSlot:       (index: number, patch: Partial<SlotRequirement>) => void;
   onSubmit:           () => void;
   onReset:            () => void;
   loading?:           boolean;
 }
 
 export function ClusterSearchForm({
-  filters, onChange, onAddRequirement, onRemoveRequirement,
-  onUpdateRequirement, onSubmit, onReset, loading,
+  filters, onChange, onAddSlot, onRemoveSlot,
+  onUpdateSlot, onSubmit, onReset, loading,
 }: ClusterSearchFormProps) {
   const [referencePending, setReferencePending] = useState(false);
 
-  const canAdd = filters.requirements.length < 6;
+  const canAdd = filters.slots.length < 5;
 
   return (
     <div className="space-y-6 p-5" data-testid="cluster-search-form">
@@ -58,48 +58,25 @@ export function ClusterSearchForm({
         </div>
       </fieldset>
 
-      {/* Economy Requirements */}
+      {/* Colony Worlds (slots) */}
       <fieldset className="space-y-2.5">
         <legend className="px-1 font-mono text-[11px] tracking-[0.18em] text-orange uppercase">
-          Economy Requirements
+          Colony Worlds
         </legend>
-        <div className="premium-subpanel space-y-2 p-3">
-          {filters.requirements.map((req, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <select
-                value={req.economy}
-                onChange={(e) => onUpdateRequirement(i, { economy: e.target.value })}
-                className="w-36 px-2 py-1 rounded bg-bg3 border border-border font-mono text-xs text-text"
-              >
-                {ECONOMIES.map((e) => (
-                  <option key={e} value={e}>{e}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min={1}
-                value={req.min_count}
-                onChange={(e) => {
-                  const v = parseInt(e.target.value, 10);
-                  if (!Number.isNaN(v) && v >= 1) onUpdateRequirement(i, { min_count: v });
-                }}
-                className="w-16 rounded bg-bg3 border border-border px-2 py-1 font-mono text-xs text-text text-right no-spinner"
-              />
-              <span className="font-mono text-[10px] text-text-dim">min</span>
-              <button
-                type="button"
-                onClick={() => onRemoveRequirement(i)}
-                className="ml-auto p-1 text-text-dim hover:text-red transition-colors"
-                title="Remove requirement"
-              >
-                <X size={14} />
-              </button>
-            </div>
+        <div className="premium-subpanel space-y-3 p-3">
+          {filters.slots.map((slot, i) => (
+            <SlotRow
+              key={i}
+              slot={slot}
+              index={i}
+              onRemove={() => onRemoveSlot(i)}
+              onUpdate={(patch) => onUpdateSlot(i, patch)}
+            />
           ))}
 
           <button
             type="button"
-            onClick={onAddRequirement}
+            onClick={onAddSlot}
             disabled={!canAdd}
             className={[
               'w-full py-2 rounded border-dashed border font-mono text-[10px] uppercase tracking-wide transition-colors',
@@ -109,7 +86,7 @@ export function ClusterSearchForm({
             ].join(' ')}
           >
             <Plus size={12} className="inline mr-1" />
-            Add economy
+            Add World
           </button>
         </div>
       </fieldset>
@@ -149,7 +126,7 @@ export function ClusterSearchForm({
       <div className="flex gap-2 pt-1">
         <button
           type="button"
-          disabled={loading || referencePending || filters.requirements.length === 0}
+          disabled={loading || referencePending || filters.slots.length === 0}
           onClick={onSubmit}
           data-testid="cluster-search-submit"
           className="btn-primary flex-1"
@@ -166,6 +143,138 @@ export function ClusterSearchForm({
           Reset
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Slot row sub-component ──────────────────────────────────────────────
+
+function SlotRow({
+  slot, index, onRemove, onUpdate,
+}: {
+  slot:    SlotRequirement;
+  index:   number;
+  onRemove: () => void;
+  onUpdate: (patch: Partial<SlotRequirement>) => void;
+}) {
+  const isCustom = slot.archetype_key === '__custom__';
+  const resolvedEcons = isCustom
+    ? slot.economies
+    : (ARCHETYPE_PROFILES.find(p => p.archetype_key === slot.archetype_key)?.economies ?? slot.economies);
+
+  const handleArchetypeChange = (value: string) => {
+    if (value === '__custom__') {
+      onUpdate({ archetype_key: '__custom__', economies: ['Agriculture'], label: 'Agriculture' });
+    } else {
+      const profile = ARCHETYPE_PROFILES.find(p => p.archetype_key === value);
+      if (profile) {
+        onUpdate({
+          archetype_key: value,
+          label: profile.label,
+          economies: [],
+        });
+      }
+    }
+  };
+
+  const handleCustomEconomy = (slotIndex: number, economy: string) => {
+    const current = [...slot.economies];
+    current[slotIndex] = economy;
+    const label = current.join(' + ');
+    onUpdate({ economies: current, label });
+  };
+
+  const handleAddSecondEconomy = () => {
+    const used = new Set(slot.economies);
+    const next = ALL_ECONOMIES.find(e => !used.has(e)) ?? 'Industrial';
+    const current = [...slot.economies, next];
+    const label = current.join(' + ');
+    onUpdate({ economies: current, label });
+  };
+
+  return (
+    <div className="rounded border border-border/70 bg-bg3/50 p-3 space-y-2.5">
+      {/* Archetype / custom dropdown */}
+      <div className="flex items-center gap-2">
+        <select
+          value={slot.archetype_key ?? '__custom__'}
+          onChange={(e) => handleArchetypeChange(e.target.value)}
+          className="flex-1 px-2 py-1.5 rounded bg-bg3 border border-border font-mono text-xs text-text"
+        >
+          {ARCHETYPE_PROFILES.map((p) => (
+            <option key={p.archetype_key} value={p.archetype_key}>{p.label}</option>
+          ))}
+          <option value="__custom__">Custom…</option>
+        </select>
+
+        <button
+          type="button"
+          onClick={onRemove}
+          className="p-1 text-text-dim hover:text-red transition-colors shrink-0"
+          title="Remove world"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {/* Resolved economies */}
+      {isCustom ? (
+        <div className="flex items-center gap-2 flex-wrap">
+          {slot.economies.map((econ, ci) => (
+            <div key={ci} className="flex items-center gap-1">
+              <select
+                value={econ}
+                onChange={(e) => handleCustomEconomy(ci, e.target.value)}
+                className="px-2 py-1 rounded bg-bg3 border border-border font-mono text-xs text-text"
+              >
+                {ALL_ECONOMIES.map((e) => (
+                  <option key={e} value={e}>{e}</option>
+                ))}
+              </select>
+              {ci > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const current = slot.economies.filter((_, ei) => ei !== ci);
+                    const label = current.join(' + ');
+                    onUpdate({ economies: current, label });
+                  }}
+                  className="p-0.5 text-text-dim hover:text-red transition-colors"
+                  title="Remove economy"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+          {slot.economies.length < 2 && (
+            <button
+              type="button"
+              onClick={handleAddSecondEconomy}
+              className="px-2 py-1 rounded border-dashed border border-border/60 font-mono text-[10px] text-cyan hover:text-white hover:border-cyan/50 transition-colors"
+            >
+              <Plus size={10} className="inline mr-0.5" />
+              Add economy
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {resolvedEcons.map((econ) => (
+            <span
+              key={econ}
+              className="px-2 py-0.5 rounded-full font-mono text-[10px] border"
+              style={{
+                color: economyColor(econ),
+                borderColor: economyColor(econ),
+                backgroundColor: `${economyColor(econ)}18`,
+              }}
+            >
+              {econ}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

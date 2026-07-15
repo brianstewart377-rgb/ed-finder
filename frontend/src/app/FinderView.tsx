@@ -57,7 +57,7 @@ export function FinderView({
   const subtitle =
     mode === 'system'
       ? 'Find promising systems. Save them for later or inspect them before starting a plan.'
-      : 'Find regions where multiple economies cluster within 500 LY of each other.';
+      : 'Define colony worlds and find regions where the needed economies cluster within 500 LY of each other.';
 
   return (
     <div className="space-y-4">
@@ -198,9 +198,9 @@ export function FinderView({
               <ClusterSearchForm
                 filters={clusterSearch.filters}
                 onChange={clusterSearch.setFilters}
-                onAddRequirement={clusterSearch.addRequirement}
-                onRemoveRequirement={clusterSearch.removeRequirement}
-                onUpdateRequirement={clusterSearch.updateRequirement}
+                onAddSlot={clusterSearch.addSlot}
+                onRemoveSlot={clusterSearch.removeSlot}
+                onUpdateSlot={clusterSearch.updateSlot}
                 onSubmit={() => void clusterSearch.run()}
                 onReset={clusterSearch.reset}
                 loading={clusterSearch.state.kind === 'loading'}
@@ -213,7 +213,7 @@ export function FinderView({
               <EmptyState
                 icon="🌌"
                 title="Find region clusters"
-                hint="Add economy requirements above and run a search to find regions where they cluster together."
+                hint="Define your colony worlds above and run a search to find regions where the needed economies cluster together."
               />
             )}
 
@@ -256,9 +256,12 @@ export function FinderView({
                         <ClusterResultCard
                           cluster={cluster}
                           requiredEconomies={
-                            new Set(clusterSearch.filters.requirements.map(r => r.economy))
+                            new Set(clusterSearch.filters.slots.flatMap(s => s.economies.length > 0
+                              ? s.economies
+                              : []))
                           }
                           onOpenDetail={onOpenDetail}
+                          onSystemClick={(id64) => onOpenDetail(id64)}
                         />
                       </li>
                     ))}

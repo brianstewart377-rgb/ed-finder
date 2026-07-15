@@ -1,15 +1,33 @@
 import { useState, useCallback } from 'react';
 
-export interface ClusterRequirement {
-  economy: string;
-  min_count: number;
+// ── Request types ────────────────────────────────────────────────────────
+export interface SlotRequirement {
+  economies:      string[];
+  archetype_key?: string;
+  min_score?:     number;
+  label?:         string;
 }
 
 export interface ClusterSearchFilters {
-  requirements: ClusterRequirement[];
+  slots:     SlotRequirement[];
   refName:   string;
   refCoords: { x: number; y: number; z: number };
   limit:     number;
+}
+
+// ── Response types ───────────────────────────────────────────────────────
+export interface SlotMatch {
+  system_id64:             number;
+  system_name:             string;
+  scores:                  Record<string, number>;
+  distance_from_anchor_ly: number;
+}
+
+export interface SlotResult {
+  slot_index: number;
+  label:      string;
+  economies:  string[];
+  matches:    SlotMatch[];
 }
 
 export interface ClusterResult {
@@ -34,7 +52,20 @@ export interface ClusterResult {
   tourism_best:       number;
   distance_ly:        number | null;
   cluster_radius_ly:  number;
+  // New slot-based detail
+  slots?:             SlotResult[];
 }
+
+// ── Predefined archetype profiles ────────────────────────────────────────
+export const ARCHETYPE_PROFILES: { label: string; archetype_key: string; economies: string[] }[] = [
+  { label: 'Refinery + Industrial',  archetype_key: 'refinery_industrial',       economies: ['Refinery', 'Industrial'] },
+  { label: 'Extraction + Refinery',  archetype_key: 'extraction_refinery',       economies: ['Refinery'] },
+  { label: 'Agriculture',             archetype_key: 'agriculture_terraforming', economies: ['Agriculture'] },
+  { label: 'HighTech + Tourism',     archetype_key: 'hitech_tourism',            economies: ['HighTech', 'Tourism'] },
+  { label: 'Military + Industrial',  archetype_key: 'military_industrial',       economies: ['Military', 'Industrial'] },
+];
+
+export const ALL_ECONOMIES = ['Agriculture', 'Refinery', 'Industrial', 'HighTech', 'Military', 'Tourism'] as const;
 
 type SearchState =
   | { kind: 'idle' }
@@ -44,13 +75,15 @@ type SearchState =
 
 const SOL_COORDS = { x: 0, y: 0, z: 0 };
 
+const DEFAULT_FILTERS: ClusterSearchFilters = {
+  slots: [{ archetype_key: 'refinery_industrial', label: 'Refinery + Industrial', economies: [] }],
+  refName:   'Sol',
+  refCoords: SOL_COORDS,
+  limit:     50,
+};
+
 export function useClusterSearch() {
-  const [filters, setFiltersRaw] = useState<ClusterSearchFilters>({
-    requirements: [{ economy: 'Agriculture', min_count: 1 }],
-    refName:   'Sol',
-    refCoords: SOL_COORDS,
-    limit:     50,
-  });
+  const [filters, setFiltersRaw] = useState<ClusterSearchFilters>(DEFAULT_FILTERS);
   const [state, setState] = useState<SearchState>({ kind: 'idle' });
   const [results, setResults] = useState<ClusterResult[]>([]);
 
@@ -58,36 +91,43 @@ export function useClusterSearch() {
     setFiltersRaw(prev => ({ ...prev, ...patch }));
   }, []);
 
-  const addRequirement = useCallback(() => {
+  const addSlot = useCallback(() => {
     setFiltersRaw(prev => {
-      if (prev.requirements.length >= 6) return prev;
-      const used = new Set(prev.requirements.map(r => r.economy));
-      const ECONOMIES = ['Agriculture', 'Refinery', 'Industrial', 'HighTech', 'Military', 'Tourism'];
-      const next = ECONOMIES.find(e => !used.has(e)) ?? 'Agriculture';
-      return { ...prev, requirements: [...prev.requirements, { economy: next, min_count: 1 }] };
+      if (prev.slots.length >= 5) return prev;
+      const usedArchetypes = new Set(prev.slots.map(s => s.archetype_key).filter(Boolean));
+      const nextProfile = ARCHETYPE_PROFILES.find(p => !usedArchetypes.has(p.archetype_key));
+      const newSlot: SlotRequirement = nextProfile
+        ? { archetype_key: nextProfile.archetype_key, label: nextProfile.label, economies: [] }
+        : { economies: ['Agriculture'], label: 'Agriculture' };
+      return { ...prev, slots: [...prev.slots, newSlot] };
     });
   }, []);
 
-  const removeRequirement = useCallback((index: number) => {
+  const removeSlot = useCallback((index: number) => {
     setFiltersRaw(prev => ({
       ...prev,
-      requirements: prev.requirements.filter((_, i) => i !== index),
+      slots: prev.slots.filter((_, i) => i !== index),
     }));
   }, []);
 
-  const updateRequirement = useCallback((index: number, patch: Partial<ClusterRequirement>) => {
+  const updateSlot = useCallback((index: number, patch: Partial<SlotRequirement>) => {
     setFiltersRaw(prev => ({
       ...prev,
-      requirements: prev.requirements.map((r, i) => i === index ? { ...r, ...patch } : r),
+      slots: prev.slots.map((s, i) => i === index ? { ...s, ...patch } : s),
     }));
   }, []);
 
   const run = useCallback(async () => {
-    if (filters.requirements.length === 0) return;
+    if (filters.slots.length === 0) return;
     setState({ kind: 'loading' });
     try {
       const body = {
-        requirements: filters.requirements,
+        slots: filters.slots.map(s => ({
+          economies: s.economies,
+          archetype_key: s.archetype_key || undefined,
+          label: s.label || undefined,
+          min_score: s.min_score || undefined,
+        })),
         limit: filters.limit,
         reference_coords: filters.refCoords,
       };
@@ -112,18 +152,13 @@ export function useClusterSearch() {
   }, [filters]);
 
   const reset = useCallback(() => {
-    setFiltersRaw({
-      requirements: [{ economy: 'Agriculture', min_count: 1 }],
-      refName: 'Sol',
-      refCoords: SOL_COORDS,
-      limit: 50,
-    });
+    setFiltersRaw(DEFAULT_FILTERS);
     setState({ kind: 'idle' });
     setResults([]);
   }, []);
 
   return {
-    filters, setFilters, addRequirement, removeRequirement,
-    updateRequirement, run, reset, state, results,
+    filters, setFilters, addSlot, removeSlot,
+    updateSlot, run, reset, state, results,
   };
 }
