@@ -1,6 +1,10 @@
-import { ChevronRight } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { ChevronRight, Plus } from 'lucide-react';
 import { economyColor } from '@/features/colony-planner/economyVisuals';
+import { useExpansionPlanStore } from '@/features/expansion-plans/expansionPlanStore';
+import type { ExpansionPlanSlotInput } from '@/features/expansion-plans/expansionPlanStore';
 import type { ClusterResult } from './useClusterSearch';
+import type { SlotMatch } from './useClusterSearch';
 
 export interface ClusterResultCardProps {
   cluster: ClusterResult;
@@ -24,6 +28,48 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
     : '—';
 
   const hasSlots = cluster.slots && cluster.slots.length > 0;
+
+  // Local state for slot pick reordering and expansion toggle
+  const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
+  const [slotPicks, setSlotPicks] = useState<Record<number, number>>({});
+
+  // Create-plan confirmation state
+  const [planCreated, setPlanCreated] = useState(false);
+  const createPlan = useExpansionPlanStore((s) => s.createPlan);
+
+  const handlePickAlternate = useCallback((slotIndex: number, matchIndex: number) => {
+    setSlotPicks((prev) => ({ ...prev, [slotIndex]: matchIndex }));
+    setExpandedSlot(null);
+  }, []);
+
+  const handleCreatePlan = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!hasSlots) return;
+
+    const slotInputs: ExpansionPlanSlotInput[] = cluster.slots!.map((slot) => {
+      const pickIndex = slotPicks[slot.slot_index] ?? 0;
+      const match: SlotMatch | undefined = slot.matches[pickIndex];
+      return {
+        slot_index: slot.slot_index,
+        label: slot.label,
+        economies: slot.economies,
+        system_id64: match?.system_id64 ?? 0,
+        system_name: match?.system_name ?? '(no match)',
+        scores: match?.scores ?? {},
+        distance_from_anchor_ly: match?.distance_from_anchor_ly ?? null,
+      };
+    });
+
+    createPlan({
+      anchor_system_id64: cluster.anchor_id64,
+      anchor_system_name: cluster.anchor_name,
+      galaxy_region: cluster.galaxy_region,
+      slots: slotInputs,
+    });
+
+    setPlanCreated(true);
+    setTimeout(() => setPlanCreated(false), 2000);
+  }, [cluster, hasSlots, slotPicks, createPlan]);
 
   return (
     <article
@@ -65,8 +111,10 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
           {cluster.slots!.map((slot) => {
             const primaryEcon = slot.economies[0] ?? '';
             const slotColor = economyColor(primaryEcon);
-            const bestMatch = slot.matches[0];
+            const pickIndex = slotPicks[slot.slot_index] ?? 0;
+            const bestMatch = slot.matches[pickIndex];
             const moreCount = slot.matches.length - 1;
+            const isExpanded = expandedSlot === slot.slot_index;
 
             return (
               <div key={slot.slot_index}>
@@ -108,8 +156,40 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
                       </span>
                     </div>
                     {moreCount > 0 && (
-                      <div className="font-mono text-[10px] text-cyan">
+                      <button
+                        type="button"
+                        className="font-mono text-[10px] text-cyan hover:text-white transition-colors"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedSlot(isExpanded ? null : slot.slot_index);
+                        }}
+                      >
                         + {moreCount} more
+                      </button>
+                    )}
+                    {isExpanded && moreCount > 0 && (
+                      <div className="mt-1.5 ml-2 pl-3 border-l-2 border-border/50 space-y-1">
+                        {slot.matches.slice(1).map((m, mi) => {
+                          const matchIndex = mi + 1;
+                          return (
+                            <button
+                              key={m.system_id64}
+                              type="button"
+                              className="block w-full text-left font-mono text-xs text-text-dim hover:text-orange transition-colors truncate"
+                              title={m.system_name}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handlePickAlternate(slot.slot_index, matchIndex);
+                              }}
+                            >
+                              {m.system_name}
+                              <span className="ml-2 text-[10px] text-text-dim/60">
+                                {Object.entries(m.scores).map(([e, s]) => `${e.slice(0, 4)} ${s}`).join(' · ')}
+                                {' · '}{m.distance_from_anchor_ly} LY
+                              </span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -121,6 +201,25 @@ export function ClusterResultCard({ cluster, requiredEconomies, onOpenDetail, on
               </div>
             );
           })}
+
+          {/* Create Expansion Plan button */}
+          <button
+            type="button"
+            className={[
+              'w-full py-2 rounded border font-mono text-[11px] uppercase tracking-wide transition-all',
+              planCreated
+                ? 'border-green/50 text-green bg-green/10'
+                : 'border-orange/50 text-orange hover:bg-orange/10 hover:border-orange',
+            ].join(' ')}
+            onClick={handleCreatePlan}
+            disabled={planCreated}
+          >
+            {planCreated ? (
+              '✓ Plan Created'
+            ) : (
+              <><Plus size={13} className="inline mr-1.5" />Create Expansion Plan</>
+            )}
+          </button>
         </div>
       ) : (
         /* Legacy economy grid (no slot data) */

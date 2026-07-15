@@ -3,6 +3,7 @@ import {
   rehydrateColonyProjectStore,
   type ColonyProject,
 } from '@/features/colony-planner/colonyProjectStore';
+import { rehydrateExpansionPlanStore } from '@/features/expansion-plans/expansionPlanStore';
 import type { FcWaypoint, FcConfig } from '@/features/fc-planner/useFcPlanner';
 import {
   rehydrateMyWorkStore,
@@ -104,10 +105,12 @@ function applyLocalBlob(blob: ProfileBlob): void {
   writeIf('ed_fc_v2',      blob.ed_fc_v2);
   writeIf('ed_my_work_v1', blob.ed_my_work_v1);
   writeIf('ed_colony_projects_v1', blob.ed_colony_projects_v1);
+  writeIf('ed_expansion_plans_v1', blob.ed_expansion_plans_v1);
 
   void rehydratePinnedStore();
   void rehydrateMyWorkStore();
   void rehydrateColonyProjectStore();
+  void rehydrateExpansionPlanStore();
 
   void rehydratePinnedStore();
 
@@ -116,7 +119,7 @@ function applyLocalBlob(blob: ProfileBlob): void {
   // free re-render in this tab too.
   // (Same-window storage events aren't fired automatically; we dispatch
   // one per key — so all listening hooks pick up the change.)
-  for (const key of ['ed_pinned', 'ed_compare_v2', 'ed_colony_v2', 'ed_fc_v2', 'ed_my_work_v1', 'ed_colony_projects_v1']) {
+  for (const key of ['ed_pinned', 'ed_compare_v2', 'ed_colony_v2', 'ed_fc_v2', 'ed_my_work_v1', 'ed_colony_projects_v1', 'ed_expansion_plans_v1']) {
     window.dispatchEvent(new StorageEvent('storage', {
       key, newValue: localStorage.getItem(key),
     }));

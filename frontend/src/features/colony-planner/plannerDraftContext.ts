@@ -9,7 +9,7 @@ export type ColonyProjectObjective =
 
 export type ColonyProjectStartApproach = 'recommendation_assisted' | 'manual';
 
-export type ColonyProjectCreatedFrom = 'system_detail';
+export type ColonyProjectCreatedFrom = 'system_detail' | 'expansion_plan';
 
 export interface PlannerObjectiveOption {
   value: ColonyProjectObjective;
