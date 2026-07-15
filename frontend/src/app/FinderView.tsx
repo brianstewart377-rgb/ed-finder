@@ -79,7 +79,7 @@ export function FinderView({
             'font-mono text-[10px] uppercase tracking-[0.14em] px-4 py-1.5 rounded-full border transition-colors',
             mode === 'system'
               ? 'bg-orange/20 text-orange border-orange/40'
-              : 'bg-transparent text-text-dim border-border',
+              : 'bg-bg3 text-text-dim border-border-bright',
           ].join(' ')}
         >
           System Search
@@ -91,7 +91,7 @@ export function FinderView({
             'font-mono text-[10px] uppercase tracking-[0.14em] px-4 py-1.5 rounded-full border transition-colors',
             mode === 'region'
               ? 'bg-orange/20 text-orange border-orange/40'
-              : 'bg-transparent text-text-dim border-border',
+              : 'bg-bg3 text-text-dim border-border-bright',
           ].join(' ')}
         >
           Region Search
