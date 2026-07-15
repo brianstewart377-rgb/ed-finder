@@ -36,6 +36,7 @@ from edfinder_api.search_economies import (
     economy_enum_value,
     BODY_FILTER_COLS,
     normalise_body_filters,
+    canonical_economy_key,
 )
 
 log = logging.getLogger("ed-finder.local_search")
@@ -822,7 +823,7 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
         seen_econs: set[str] = set()
         for slot in slots_raw:
             for econ in slot.get("economies", []):
-                canon = _canon(econ)
+                canon = canonical_economy_key(econ)
                 if canon and canon != 'extraction' and canon not in seen_econs:
                     seen_econs.add(canon)
                     col = cluster_count_column(canon, alias='cs')
