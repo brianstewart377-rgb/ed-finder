@@ -1,13 +1,13 @@
 """System / body / batch detail endpoints."""
 import json
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from edfinder_api.body_sorting import natural_body_sort_key_string, sort_bodies_by_hierarchy
-from edfinder_api.config import settings, log
+from edfinder_api.config import settings
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.helpers import sys_row_to_dict
 from edfinder_api.models import SystemDetailResponse

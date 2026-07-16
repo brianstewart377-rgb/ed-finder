@@ -31,10 +31,8 @@ import os
 import sys
 import json
 import time
-import math
 import logging
 import argparse
-import datetime
 import multiprocessing as mp
 from typing import Optional
 
@@ -42,9 +40,8 @@ import psycopg2
 import psycopg2.extras
 
 from progress import (
-    ProgressReporter, WorkerHeartbeat,
-    startup_banner, stage_banner, done_banner, crash_hint,
-    fmt_num, fmt_duration, fmt_rate,
+    WorkerHeartbeat,
+    startup_banner, stage_banner, done_banner, fmt_num,
 )
 
 # ---------------------------------------------------------------------------

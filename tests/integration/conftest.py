@@ -49,7 +49,6 @@ os.environ.setdefault('ADMIN_TOKEN', 'test-admin-token')
 os.environ.setdefault('LOG_LEVEL', 'WARNING')
 os.environ.setdefault('EXPOSE_ERROR_DETAIL', 'true')
 
-import pytest
 import pytest_asyncio
 import asyncpg
 import redis.asyncio as aioredis

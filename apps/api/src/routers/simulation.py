@@ -24,15 +24,12 @@ Design notes:
 """
 from __future__ import annotations
 
-import json
-import time
 from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from edfinder_api.config import log
 from edfinder_api.deps import cache_get, cache_set, get_pool, get_redis
 from edfinder_api.ingest.slot_prediction import (
     INSUFFICIENT_DATA_REASON,

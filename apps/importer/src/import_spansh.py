@@ -52,7 +52,7 @@ import argparse
 import io
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Iterator, Any, List, Tuple
+from typing import Optional, List, Tuple
 
 import decimal
 import ijson

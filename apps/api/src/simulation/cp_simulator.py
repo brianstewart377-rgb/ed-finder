@@ -26,7 +26,6 @@ CP mechanics (community-derived, confidence: observed):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from edfinder_api.domain.facilities import FacilityTemplate
 from edfinder_api.mechanics.cp_rules import (

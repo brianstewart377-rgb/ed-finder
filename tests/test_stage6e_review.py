@@ -25,7 +25,7 @@ from httpx import ASGITransport, AsyncClient
 
 from deps import get_pool
 from observations.comparison_engine import compare_prediction_to_observations
-from observations.comparison_models import ComparisonSeverity, ComparisonStatus
+from observations.comparison_models import ComparisonSeverity
 from observations.models import (
     ObservationSource,
     ObservedConfidence,

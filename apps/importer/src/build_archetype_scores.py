@@ -40,9 +40,9 @@ import psycopg2
 import psycopg2.extras
 
 from progress import (
-    ProgressReporter, WorkerHeartbeat,
+    WorkerHeartbeat,
     startup_banner, stage_banner, done_banner,
-    fmt_num, fmt_duration, fmt_rate,
+    fmt_num,
 )
 
 # Import body diversity from the existing ratings engine
