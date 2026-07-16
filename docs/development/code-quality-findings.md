@@ -150,6 +150,33 @@ Resolved with date and closing commit. New audits append.
   misleadingly-named "OpenAPI types drift" job (crash is upstream of type-gen).
 - Close when: % escaped to %% at source; openapi-types job green in CI.
 
+### CQ-016 — Expansion Plans never push-sync to server
+- Raised 2026-07-16 · found while diagnosing CQ-014 · Confirmed, shipping bug
+- frontend/src/features/profile-sync/useProfileSync.ts: gatherLocalBlob()
+  builds the push blob from six sibling keys but omits
+  ed_expansion_plans_v1, while applyLocalBlob() DOES write it on pull and the
+  ProfileBlob interface omits it entirely (the omission is what makes tsc
+  flag line 108). Net effect: Expansion Plans (shipped 0a768a2) are restored
+  on pull but never gathered on push, so cross-device sync for the feature is
+  silently broken. Not cosmetic — the missing type field is a real
+  persistence gap. Surfaced only because the frontend typecheck was not
+  gating merges.
+- Close when: ed_expansion_plans_v1 added to the ProfileBlob interface AND to
+  gatherLocalBlob(); pull path unchanged; typecheck green; approach approved
+  by owner before fix.
+
+### CQ-017 — nullable timestamp passed to non-null formatter
+- Raised 2026-07-16 · found while diagnosing CQ-014 · Confirmed, latent bug
+- Two formatTimestamp functions exist: @/lib/format (nullable-safe, callers
+  use ?? fallback) and my-work/myWorkWorkspaceUtils.ts:252 (param typed
+  value: string, non-null). system-detail/systemDetailSections.tsx passes
+  nullable API fields (sys.body_data_updated_at, sys.status_updated_at) to the
+  non-null variant → TS2345. A null at runtime would format as the literal
+  "null" or throw, depending on the body.
+- Close when: the myWorkWorkspaceUtils formatTimestamp param widened to
+  string | null with an explicit null guard (matching the @/lib/format twin),
+  or call sites guarded; typecheck green; approach approved by owner before fix.
+
 ## Resolved
 
 ### CQ-001 — 16 silently dead test functions — RESOLVED 2026-07-16
