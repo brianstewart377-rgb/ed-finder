@@ -1,5 +1,5 @@
 """Map data endpoints — galaxy regions, cluster hulls, heatmap, timeline."""
-from typing import Any, Optional
+from typing import Optional
 
 import asyncpg
 import redis.asyncio as aioredis
@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse
 from edfinder_api.config import settings, limiter, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.search_economies import canonical_economy_key, ratings_score_column
-from edfinder_api.state import metrics as _metrics
 
 router = APIRouter(tags=['map'])
 
@@ -112,7 +111,7 @@ async def map_cluster_hulls(
         return JSONResponse(content=cached)
 
     async with pool.acquire() as conn:
-        rows = await conn.fetch(f"""
+        rows = await conn.fetch("""
             SELECT  cs.system_id64 AS anchor_id64,
                     s.name         AS anchor_name,
                     s.x, s.y, s.z,

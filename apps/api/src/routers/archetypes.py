@@ -30,8 +30,6 @@ from typing import Any, Optional
 
 import asyncpg
 from fastapi import APIRouter, HTTPException, Query, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from edfinder_api.config import log, limiter
 from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
@@ -39,9 +37,7 @@ from edfinder_api.models import (
     ArchetypeRankingsResponse,
     ArchetypeRerankRequest,
     ArchetypeRerankResponse,
-    ArchetypeRerankRow,
     ArchetypeRerankWeights,
-    ArchetypeScore,
     ArchetypesProfilesResponse,
     BuildSimulateRequest,
     BuildSimulateResponse,

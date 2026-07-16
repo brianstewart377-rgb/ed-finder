@@ -243,7 +243,7 @@ def kill_competing_sessions(dsn: str):
             if killed:
                 log.info(f"  Terminated {killed} competing build_grid session(s)")
             else:
-                log.info(f"  No competing sessions found")
+                log.info("  No competing sessions found")
         _safe_close(conn)
     except Exception as e:
         log.warning(f"  Could not kill competing sessions (non-fatal): {e}")
@@ -355,7 +355,7 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     scans ONLY the target pages — 80MB per batch, not 74GB.
     """
     remaining = total_systems - already_assigned
-    log.info(f"  Strategy: ctid-range page batching (v2.2 fix for WAL/checkpoint stall)")
+    log.info("  Strategy: ctid-range page batching (v2.2 fix for WAL/checkpoint stall)")
     log.info(f"  Remaining: {fmt_num(remaining)} rows to assign")
     log.info(f"  Pages per batch: {fmt_num(pages_per_batch)} (~{pages_per_batch*8//1024} MB per commit)")
 
@@ -369,7 +369,7 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
         log.info(f"  Table pages: {fmt_num(total_pages)} ({total_pages * 8 // 1024 // 1024} GB)")
 
     # Find resume point
-    log.info(f"  Finding resume page ...")
+    log.info("  Finding resume page ...")
     
     # Auto-fix: Try to create the index if it's missing
     try:
@@ -404,8 +404,8 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     pages_remaining = total_pages - start_page
     batches_total   = max(math.ceil(pages_remaining / pages_per_batch), 1)
     log.info(f"  Estimated batches: {fmt_num(batches_total)}")
-    log.info(f"  Starting batched UPDATE ...")
-    log.info(f"")
+    log.info("  Starting batched UPDATE ...")
+    log.info("")
 
     crash_hint(log, "from last committed page batch automatically")
 
@@ -538,7 +538,7 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                         consecutive_empty = 0
                         continue
                     else:
-                        log.info(f"  No more unassigned rows found via index — stopping early ✓")
+                        log.info("  No more unassigned rows found via index — stopping early ✓")
                         break
                 else:
                     log.warning("  idx_sys_grid_null missing — cannot jump gaps. Stopping early to prevent infinite empty scan.")
@@ -964,14 +964,14 @@ Strategies:
         max_x = float(stored['grid_max_x'])
         max_y = float(stored['grid_max_y'])
         max_z = float(stored['grid_max_z'])
-        log.info(f"  Bounds loaded from app_meta cache ✓")
+        log.info("  Bounds loaded from app_meta cache ✓")
         log.info(f"  X: [{min_x:.0f}, {max_x:.0f}]")
         log.info(f"  Y: [{min_y:.0f}, {max_y:.0f}]")
         log.info(f"  Z: [{min_z:.0f}, {max_z:.0f}]")
 
         # ALWAYS do a live COUNT(*) — the cached value from app_meta may be
         # stale if more rows were imported since the last build_grid run.
-        log.info(f"  Counting total systems (live — verifying cache is current) ...")
+        log.info("  Counting total systems (live — verifying cache is current) ...")
         t0 = time.time()
         cur.execute("SELECT COUNT(*) FROM systems")
         total_systems = cur.fetchone()[0]
@@ -993,7 +993,7 @@ Strategies:
         """, (str(total_systems),))
         conn.commit()
     else:
-        log.info(f"  No bounds cached — running full seq scan (once only, takes 5-30 min) ...")
+        log.info("  No bounds cached — running full seq scan (once only, takes 5-30 min) ...")
         t0 = time.time()
         cur.execute("""
             SELECT MIN(x), MAX(x), MIN(y), MAX(y), MIN(z), MAX(z), COUNT(*)
@@ -1020,7 +1020,7 @@ Strategies:
         """, (str(min_x), str(max_x), str(min_y), str(max_y),
               str(min_z), str(max_z), str(total_systems)))
         conn.commit()
-        log.info(f"  Bounds saved to app_meta — future runs skip this ✓")
+        log.info("  Bounds saved to app_meta — future runs skip this ✓")
 
     x_cells = math.ceil((max_x - min_x) / cell_size)
     y_cells = math.ceil((max_y - min_y) / cell_size)
@@ -1050,7 +1050,7 @@ Strategies:
         stage_banner(log, 2, 5, "Populate spatial_grid", resumed=True)
         log.info(f"  Cells:        {fmt_num(cell_count)}")
         log.info(f"  system_count: {fmt_num(sum_system_count)} (matches {fmt_num(total_systems)} total ✓)")
-        log.info(f"  Skipping INSERT ✓")
+        log.info("  Skipping INSERT ✓")
     elif existing_cells > 0 and not cells_look_complete:
         stage_banner(log, 2, 5, "Populate spatial_grid")
         log.warning(f"  Found {fmt_num(existing_cells)} cells but system_count={fmt_num(sum_system_count)}")
@@ -1063,7 +1063,7 @@ Strategies:
     if existing_cells == 0:
         stage_banner(log, 2, 5, "Populate spatial_grid")
         log.info(f"  Grouping {fmt_num(total_systems)} systems into {cell_size}ly cubes ...")
-        log.info(f"  This takes 5-15 minutes ...")
+        log.info("  This takes 5-15 minutes ...")
         crash_hint(log, "from Stage 2 (cells rebuilt automatically on next run)")
         t0 = time.time()
 
@@ -1122,14 +1122,14 @@ Strategies:
     if unassigned_check == 0:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=True)
         log.info(f"  All {fmt_num(total_systems)} systems already assigned — skipping ✓")
-        log.info(f"  (Verified: SELECT COUNT(*) WHERE grid_cell_id IS NULL = 0)")
+        log.info("  (Verified: SELECT COUNT(*) WHERE grid_cell_id IS NULL = 0)")
     else:
         stage_banner(log, 3, 5, "Assign grid_cell_id", resumed=resumed)
         log.info(f"  Total systems    : {fmt_num(total_systems)}")
         log.info(f"  Already assigned : {fmt_num(already_assigned)}  ({fmt_pct(already_assigned, total_systems)})")
         log.info(f"  Remaining (NULL) : {fmt_num(unassigned_check)}  ← ground truth from live COUNT")
         log.info(f"  Strategy         : {strategy}")
-        log.info(f"  Connection       : DIRECT to postgres (not pgBouncer)")
+        log.info("  Connection       : DIRECT to postgres (not pgBouncer)")
 
         # ---------------------------------------------------------------
         # CRITICAL: Disable RI triggers for the duration of Stage 3.
@@ -1173,7 +1173,7 @@ Strategies:
                 log.info("  ✓ RI triggers disabled for this session")
             except Exception as e:
                 log.warning(f"  Could not disable triggers: {e}")
-                log.warning(f"  Trying ALTER TABLE DISABLE TRIGGER ALL ...")
+                log.warning("  Trying ALTER TABLE DISABLE TRIGGER ALL ...")
                 try:
                     try: conn.rollback()
                     except Exception: pass
@@ -1185,7 +1185,7 @@ Strategies:
                     disable_triggers = 'alter'  # track which method we used
                 except Exception as e2:
                     log.warning(f"  Could not disable via ALTER TABLE either: {e2}")
-                    log.warning(f"  Continuing with triggers ENABLED — Stage 3 will be SLOW")
+                    log.warning("  Continuing with triggers ENABLED — Stage 3 will be SLOW")
                     disable_triggers = False
         else:
             log.warning("  --no-disable-triggers set — RI triggers remain active (SLOW!)")
@@ -1242,7 +1242,7 @@ Strategies:
         unassigned = cur.fetchone()[0]
         if unassigned > 0:
             log.warning(f"  ⚠  {fmt_num(unassigned)} systems still unassigned after Stage 3")
-            log.warning(f"  Re-run this script to continue — ctid batching resumes automatically")
+            log.warning("  Re-run this script to continue — ctid batching resumes automatically")
         else:
             log.info(f"  ✓  All {fmt_num(total_systems)} systems assigned")
 
@@ -1271,7 +1271,7 @@ Strategies:
         cur.execute("SELECT COUNT(*) FROM macro_grid")
         macro_cells_existing = cur.fetchone()[0]
         if macro_cells_existing == 0:
-            log.info(f"  Building macro_grid table ...")
+            log.info("  Building macro_grid table ...")
             t0 = time.time()
             cur.execute(f"""
                 INSERT INTO macro_grid
@@ -1312,7 +1312,7 @@ Strategies:
             log.info(f"  macro_grid already has {fmt_num(macro_cells_existing)} cells — skipping rebuild")
 
         # Parallel macro_grid assignment using SKIP LOCKED workers
-        log.info(f"  Assigning macro_grid_id via parallel workers ...")
+        log.info("  Assigning macro_grid_id via parallel workers ...")
         t0 = time.time()
 
         def macro_worker(worker_id):
@@ -1427,7 +1427,7 @@ Strategies:
     # STAGE 5: Update visited_count per cell
     # =========================================================================
     stage_banner(log, 5, 6, "Update visited_count")
-    log.info(f"  Aggregating scanned systems by grid_cell_id ...")
+    log.info("  Aggregating scanned systems by grid_cell_id ...")
     t0 = time.time()
     cur.execute("""
         UPDATE spatial_grid g
@@ -1460,7 +1460,7 @@ Strategies:
             SET value = EXCLUDED.value, updated_at = NOW()
     """, (str(cell_size), str(min_x), str(min_y), str(min_z)))
     conn.commit()
-    log.info(f"  grid_built = true ✓")
+    log.info("  grid_built = true ✓")
 
     # Distribution stats
     cur.execute("""

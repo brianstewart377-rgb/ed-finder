@@ -25,7 +25,6 @@ from enrichment_analytics import (
 )
 from enrichment_coverage_reports import build_warehouse_coverage_report
 from enrichment_staged_reports import (
-    STAGED_ROWS_REPORT_SCHEMA_VERSION,
     build_report_from_staged_rows as staged_build_report_from_staged_rows,
     build_staged_run_report as staged_build_staged_run_report,
 )

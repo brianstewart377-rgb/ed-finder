@@ -24,9 +24,8 @@ import logging
 import os
 from typing import Optional
 
-import asyncpg
-from fastapi import APIRouter, Request, Response, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, PlainTextResponse
+from fastapi import APIRouter, Request, Response, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse
 from PIL import Image, ImageDraw, ImageFont
 
 log = logging.getLogger(__name__)

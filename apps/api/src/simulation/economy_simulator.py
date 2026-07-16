@@ -16,7 +16,7 @@ The key insight this module captures:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from edfinder_api.domain.economy_state import EconomyAnalysis, EconomyState

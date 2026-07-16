@@ -11,7 +11,6 @@ Provides:
   - WorkerHeartbeat                                — lightweight heartbeat for worker processes
 """
 
-import sys
 import time
 import logging
 import os
@@ -123,11 +122,11 @@ def crash_hint(log, context: str = "from this stage"):
     Called at the start of any long, interruptable operation.
     """
     log.info("")
-    log.info(f"  ┌─ CRASH RECOVERY ──────────────────────────────────────┐")
-    log.info(f"  │  If this script is interrupted or crashes, simply      │")
-    log.info(f"  │  re-run the same command — it will resume              │")
+    log.info("  ┌─ CRASH RECOVERY ──────────────────────────────────────┐")
+    log.info("  │  If this script is interrupted or crashes, simply      │")
+    log.info("  │  re-run the same command — it will resume              │")
     log.info(f"  │  {context:<54}│")
-    log.info(f"  └───────────────────────────────────────────────────────┘")
+    log.info("  └───────────────────────────────────────────────────────┘")
     log.info("")
 
 

@@ -52,11 +52,11 @@ frontend useful types out of the box.
 """
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from edfinder_api.models_economy import EconomyFilterField, EconomyFilter, EconomyName, EconomyNameField
+from edfinder_api.models_economy import EconomyFilterField, EconomyNameField
 
 
 

@@ -7,7 +7,6 @@ import sys
 import uuid
 from pathlib import Path
 
-import pytest
 
 from tests.helpers import db_isolation
 

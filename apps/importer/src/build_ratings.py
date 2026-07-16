@@ -43,7 +43,6 @@ Usage:
 
 import os
 import sys
-import json
 import time
 import logging
 import argparse
@@ -57,7 +56,7 @@ import psycopg2.extras
 from progress import (
     ProgressReporter, WorkerHeartbeat,
     startup_banner, stage_banner, done_banner, crash_hint,
-    fmt_num, fmt_duration, fmt_rate, fmt_pct,
+    fmt_num, fmt_rate, fmt_pct,
 )
 
 # ---------------------------------------------------------------------------
@@ -1697,13 +1696,13 @@ def main():
         log.info(f"  Already rated          : {fmt_num(already_rated)}")
         log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
         log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
-    log.info(f"")
-    log.info(f"  Score bands:")
-    log.info(f"    0–30  : Barely viable (single economy, few bodies)")
-    log.info(f"    31–50 : Functional (good for one economy, missing assets)")
-    log.info(f"    51–65 : Solid (good body mix, clean economies)")
-    log.info(f"    66–80 : Excellent (multiple strong economies, strategic assets)")
-    log.info(f"    81–100: Exceptional (ELWs, clean stacks, near-perfect)")
+    log.info("")
+    log.info("  Score bands:")
+    log.info("    0–30  : Barely viable (single economy, few bodies)")
+    log.info("    31–50 : Functional (good for one economy, missing assets)")
+    log.info("    51–65 : Solid (good body mix, clean economies)")
+    log.info("    66–80 : Excellent (multiple strong economies, strategic assets)")
+    log.info("    81–100: Exceptional (ELWs, clean stacks, near-perfect)")
 
     if args.rebuild:
         to_process = total_with_bodies
