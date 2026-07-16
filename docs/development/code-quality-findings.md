@@ -127,6 +127,51 @@ Resolved with date and closing commit. New audits append.
 - Close when: refresh PR lands with openapi-types job green, or deferred with
   rationale recorded here.
 
+### CQ-014 — origin/main frontend typecheck red (pre-existing)
+- Raised 2026-07-16 · surfaced by CI on PR #319 · Confirmed
+- Frontend build job fails on 5 files, all pre-existing at 0a768a2 (Expansion
+  Plans feature), none touched by #319 (which is Python-only):
+  ClusterSearchForm.tsx (nullable-type), JournalImportPanel.test.tsx,
+  MyWorkWorkspace.test.tsx + MyWorkWorkspace.tsx (TanStack Query v5
+  UseQueryResult mock shape drift — missing isPending/isError/isLoadingError/
+  isRefetchError +19), useProfileSync.ts (ed_expansion_plans_v1 missing from
+  ProfileBlob), plus 2 unused-import and 2 nullable-type errors.
+- Close when: frontend typecheck green in CI; fix PR merged.
+
+### CQ-015 — data_invariants.py crash: unescaped % in ILIKE (RESOLVED, see below)
+- Raised 2026-07-16 · surfaced by CI on PR #319 · Confirmed, contained
+- scripts/checks/data_invariants.py crashed with IndexError (tuple index out
+  of range) via shared_contracts/data_invariant_contracts.py: the
+  ring_association_status_drift check contained ILIKE '% belt%' with a bare %
+  that psycopg2 misreads as a format placeholder. Introduced in cac355b.
+  Blast radius bounded: the LIVE admin invariants endpoint uses asyncpg
+  fetchval(), which is unaffected — production-safe receipts were never
+  corrupt; only the psycopg2 CI script hard-crashed. Surfaced under the
+  misleadingly-named "OpenAPI types drift" job (crash is upstream of type-gen).
+- Close when: % escaped to %% at source; openapi-types job green in CI.
+
 ## Resolved
 
-(none yet)
+### CQ-001 — 16 silently dead test functions — RESOLVED 2026-07-16
+- Fixed in PR #318 (c9cff45): dead block tests/test_optimiser.py:655–835
+  removed; collect-only name set unchanged; verified by independent replay.
+- Recurrence gate (F811 in CI) remains open under CQ-005.
+
+### CQ-008 — computed-then-dropped locals — RESOLVED 2026-07-16
+- Fixed in PR #319 (dd9e5c1). link_modifiers.py:58 confirmed dead residue
+  (modifier_economies consumed elsewhere in optimiser/recommendations/
+  candidate-gen); deleted. All other sites removed. Commit dd9e5c1 also
+  carried 3 intended 'planned' evidence-catalog sources (ED Astrometrics,
+  Elite BGS API, FDevIDs) added by the owner the prior night — reviewed as
+  inert metadata, accepted. Merges on green CI.
+
+### CQ-009 — unused import / variable — RESOLVED 2026-07-16
+- Fixed in PR #319 (dd9e5c1): buildability.py:34 choose_location import
+  removed. topology_simulator.py:123 traits_row reclassified Disproved —
+  intentional unused parameter, not a defect; no change made.
+
+### CQ-015 — data_invariants.py unescaped % in ILIKE — RESOLVED 2026-07-16
+- Fixed in PR #320: ILIKE '% belt%' → '%% belt%%' at
+  shared_contracts/data_invariant_contracts.py:121–122; verified by
+  byte-identical replay. Escape chosen over params-skip to preserve psycopg2
+  placeholder safety for all other checks. Merges on green CI.
