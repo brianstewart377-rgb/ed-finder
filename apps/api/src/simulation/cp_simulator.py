@@ -265,7 +265,6 @@ def analyse_cp_budget(
     opportunities: list[dict] = []
 
     total_slots = orbital_slots + surface_slots
-    cp_headroom = state.yellow_available if t2_affordable < total_slots else state.yellow_generated
 
     # CP bottleneck: can we not afford as many ports as we have slots?
     if t2_affordable < total_slots:

@@ -565,7 +565,6 @@ def _score_word(score: float) -> str:
 
 def _build_positives(archetype_key, counts, topology, buildability) -> list:
     positives = []
-    defn = ARCHETYPE_DEFINITIONS[archetype_key]
 
     # High-value body presences
     if counts.get('elw', 0) >= 1:
