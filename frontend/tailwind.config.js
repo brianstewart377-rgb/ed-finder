@@ -66,6 +66,19 @@ export default {
         mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
         display: ['Orbitron', 'JetBrains Mono', 'monospace'],
       },
+      fontSize: {
+        caption:  ['9px',  { lineHeight: '1.3', letterSpacing: '0.08em', fontWeight: '600' }],
+        label:    ['10px', { lineHeight: '1.3', letterSpacing: '0.12em', fontWeight: '600' }],
+        overline: ['11px', { lineHeight: '1.3', letterSpacing: '0.14em', fontWeight: '600' }],
+      },
+      transitionDuration: {
+        DEFAULT: '160ms',
+        fast: '120ms',
+        slow: '240ms',
+      },
+      ringOffsetColor: {
+        DEFAULT: 'hsl(220 12% 6%)', // bg1 — dark page void
+      },
     },
   },
   plugins: [],

@@ -10,6 +10,7 @@ import { useWatchlist } from '@/features/watchlist/useWatchlist';
 import { usePinned } from '@/features/pinned/usePinned';
 import { toPinnedEntry } from '@/features/pinned/pinnedEntry';
 import { useCompare } from '@/features/compare/useCompare';
+import { EmptyState } from '@/components/ui/EmptyState';
 import type { SavedSystemActionState } from './savedSystems';
 
 type FinderMode = 'system' | 'region';
@@ -118,7 +119,7 @@ export function FinderView({
               <EmptyState
                 icon="🔭"
                 title="Ready to search"
-                hint="Adjust the filters on the left, then run a search."
+                description="Adjust the filters on the left, then run a search."
               />
             )}
 
@@ -146,7 +147,7 @@ export function FinderView({
                   <EmptyState
                     icon="🔍"
                     title="No systems found"
-                    hint="Try expanding the radius or relaxing filters."
+                    description="Try expanding the radius or relaxing filters."
                   />
                 ) : (
                   <ul className="space-y-2">
@@ -213,7 +214,7 @@ export function FinderView({
               <EmptyState
                 icon="🌌"
                 title="Find region clusters"
-                hint="Define your colony worlds above and run a search to find regions where the needed economies cluster together."
+                description="Define your colony worlds above and run a search to find regions where the needed economies cluster together."
               />
             )}
 
@@ -247,7 +248,7 @@ export function FinderView({
                   <EmptyState
                     icon="🔍"
                     title="No clusters found"
-                    hint="Try different economy requirements or relax the constraints."
+                    description="Try different economy requirements or relax the constraints."
                   />
                 ) : (
                   <ul className="space-y-2">
@@ -295,14 +296,3 @@ function SummaryBar({ count, total, queriedAt }: {
   );
 }
 
-function EmptyState({ icon, title, hint }: {
-  icon: string; title: string; hint: string;
-}) {
-  return (
-    <div className="premium-subpanel text-center px-4 py-16">
-      <div className="text-3xl mb-2" aria-hidden>{icon}</div>
-      <h3 className="font-mono text-orange-lt text-sm mb-1 tracking-[0.14em] uppercase">{title}</h3>
-      <p className="text-text-dim text-xs max-w-sm mx-auto">{hint}</p>
-    </div>
-  );
-}

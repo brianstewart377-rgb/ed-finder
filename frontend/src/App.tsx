@@ -408,8 +408,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
       </Suspense>
 
-      <footer className="mt-16 text-center text-[11px] font-mono text-text-dim">
-        Vite {import.meta.env.MODE} build · root-served live app
+      <footer className="mt-16 text-center text-label font-mono text-silver-2 opacity-40">
+        ED:Finder — Elite Dangerous colonisation planner
       </footer>
 
       {selectedSystemId !== null && (

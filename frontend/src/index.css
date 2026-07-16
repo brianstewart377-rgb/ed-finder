@@ -325,7 +325,7 @@ input[type='checkbox']:checked::after {
   border-radius: 16px;
   padding: 0.55rem 1.1rem;
   color: hsl(210 14% 86%);
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   font-weight: 600;
   font-size: 0.82rem;
   letter-spacing: 0.06em;
@@ -422,7 +422,7 @@ input[type='checkbox']:checked::after {
   gap: 0.3rem;
   padding: 0.18rem 0.55rem;
   border-radius: 999px;
-  font-family: 'Rajdhani', sans-serif;
+  font-family: 'Manrope', system-ui, sans-serif;
   font-weight: 600;
   font-size: 0.72rem;
   letter-spacing: 0.04em;
@@ -476,6 +476,62 @@ input[type='checkbox']:checked::after {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.04),
     0 12px 28px -22px rgba(0,0,0,0.92);
+}
+
+/* ─── Card chrome highlight — used by <Card variant="default|thin"> ────
+ * Replaces the old .panel/.panel-thin ::before/::after pseudo-elements
+ * with a reusable CSS class applied by the Card component.             */
+
+.card-chrome {
+  position: relative;
+}
+.card-chrome::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255,255,255,0.08) 0%,
+    transparent 30%);
+  mask-image: linear-gradient(180deg, #000 0, #000 30%, transparent 30%);
+}
+.card-chrome::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+.card-chrome-thin {
+  position: relative;
+}
+.card-chrome-thin::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.03);
+}
+
+/* ─── Collapse animations — used by <Collapsible> ──────────────────── */
+
+@keyframes collapseDown {
+  from { height: 0; opacity: 0; }
+  to   { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+@keyframes collapseUp {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to   { height: 0; opacity: 0; }
+}
+.animate-collapse-down {
+  animation: collapseDown 200ms ease-out;
+}
+.animate-collapse-up {
+  animation: collapseUp 160ms ease-in;
 }
 
 /* ─── Custom scrollbar ───────────────────────────────────────────────── */
