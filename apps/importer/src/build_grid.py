@@ -554,7 +554,6 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
         if batch_num % 50 == 0 or rows_updated > 0:
             elapsed = time.time() - t0
             pct_pages = (current_page - start_page) / max(pages_remaining, 1) * 100
-            rate_rows = total_updated / elapsed if elapsed > 0 else 0
             log.info(
                 f"  [batch {fmt_num(batch_num)}]"
                 f"  pages {fmt_num(current_page)}-{fmt_num(end_page)}"

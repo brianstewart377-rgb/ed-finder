@@ -1029,7 +1029,6 @@ def main():
     log.info(f"  {len(chunks)} chunks across {args.workers} workers")
 
     stage_banner(log, 2, 2, 'Processing topology')
-    reporter = ProgressReporter(log, len(system_ids), label='systems')
 
     with mp.Pool(processes=args.workers) as pool:
         results = pool.starmap(

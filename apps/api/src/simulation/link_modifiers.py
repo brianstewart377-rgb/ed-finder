@@ -55,7 +55,6 @@ def _modifier_components(
     subtype = str(profile.get('subtype') or profile.get('planet_class') or profile.get('body_type') or '').lower()
     tags = {str(item) for item in profile.get('strategic_tags') or []}
     base_economies = {str(item) for item in profile.get('base_economies') or []}
-    modifiers = {str(item) for item in profile.get('modifier_economies') or []}
     reserves = str(profile.get('reserve_level') or profile.get('reserves') or '').lower()
 
     def add(delta: float, reason: str) -> None:

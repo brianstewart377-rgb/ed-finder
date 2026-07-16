@@ -1212,12 +1212,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
     else:
         primary_eco = sorted_ecos[0][0]
     primary_score = top_score
-    # Secondary: highest-scoring economy that isn't primary (skip the tied
-    # winner picked above, but only it — the others can still be secondary).
-    secondary_eco = next(
-        (eco for eco, _ in sorted_ecos if eco != primary_eco),
-        None,
-    )
 
     economy_suggestion = primary_eco if primary_score >= 20 else None
 
@@ -1242,14 +1236,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         raw_overall = 84.0
 
     overall = int(min(raw_overall, 100))
-
-    top_pair_meta = {
-        'a':          best_a,
-        'b':          best_b,
-        'a_score':    int(scores[best_a]),
-        'b_score':    int(scores[best_b]),
-        'pair_score': int(round(best_pair)),
-    }
 
     # ── Rationale (one-line explainer) ─────────────────────────────────────
     rationale = generate_rationale(counts, scores, primary_eco,

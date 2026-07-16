@@ -110,7 +110,6 @@ def build_port_service_states(
         _placement_key(item.placement): item.effective_role
         for item in getattr(topology_graph, 'classified_placements', [])
     }
-    resolved_by_graph_key = {_resolved_key(item): item for item in placements}
     graph_by_id_body = {
         (placement.facility_id, str(placement.local_body_id or 'system')): placement
         for group in getattr(topology_graph, 'local_body_groups', [])
@@ -537,14 +536,6 @@ def _placement_key(placement: Any) -> tuple[str, str, int]:
 
 def _graph_key(placement: Any) -> tuple[str, str, int]:
     return (placement.facility_id, str(placement.local_body_id or 'system'), int(placement.build_order))
-
-
-def _resolved_key(placement: Any) -> tuple[str, str, int]:
-    return (
-        placement.facility.id,
-        str(placement.spec.local_body_id or 'system'),
-        int(placement.spec.build_order),
-    )
 
 
 def _port_key(port: Any) -> str:

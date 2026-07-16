@@ -539,7 +539,7 @@ def _flush_station_streaming_batch(
                 (station_row.get('provenance') or {}).get('parent_source_record_hash')
                 or ''
             )
-            staging_station_id = upsert_staging_edsm_station(
+            upsert_staging_edsm_station(
                 # Keep imported EDSM evidence even if canonical reconciliation/apply never runs.
                 cur,
                 source_run_id,
