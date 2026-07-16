@@ -118,8 +118,8 @@ classified AS (
                     AND (
                         br.source_body_id = 0
                         OR br.body_id = 0
-                        OR br.body_name ILIKE '% belt%'
-                        OR br.ring_name ILIKE '% belt%'
+                        OR br.body_name ILIKE '%% belt%%'
+                        OR br.ring_name ILIKE '%% belt%%'
                     )
                    THEN 'belt_source_evidence'
                WHEN same_system_body.id IS NOT NULL
