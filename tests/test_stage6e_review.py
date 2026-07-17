@@ -23,10 +23,10 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from deps import get_pool
-from observations.comparison_engine import compare_prediction_to_observations
-from observations.comparison_models import ComparisonSeverity, ComparisonStatus
-from observations.models import (
+from edfinder_api.deps import get_pool
+from edfinder_api.observations.comparison_engine import compare_prediction_to_observations
+from edfinder_api.observations.comparison_models import ComparisonSeverity, ComparisonStatus
+from edfinder_api.observations.models import (
     ObservationSource,
     ObservedConfidence,
     ObservedFactType,
@@ -34,13 +34,13 @@ from observations.models import (
     ObservedSubjectType,
     PersistedObservedFact,
 )
-from observations.review_engine import build_validation_review
-from observations.review_models import (
+from edfinder_api.observations.review_engine import build_validation_review
+from edfinder_api.observations.review_models import (
     ReviewArea,
     ReviewStatus,
     review_result_to_dict,
 )
-from routers import observations as observations_router
+from edfinder_api.routers import observations as observations_router
 
 
 PINNED_NOW = datetime(2026, 5, 15, 12, 0, 0, tzinfo=timezone.utc)

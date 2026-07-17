@@ -44,9 +44,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from deps import get_pool
-from observations.comparison_engine import compare_prediction_to_observations
-from observations.comparison_models import (
+from edfinder_api.deps import get_pool
+from edfinder_api.observations.comparison_engine import compare_prediction_to_observations
+from edfinder_api.observations.comparison_models import (
     ComparisonArea,
     ComparisonConfidenceImpact,
     ComparisonOverallStatus,
@@ -55,7 +55,7 @@ from observations.comparison_models import (
     PredictionObservationComparisonResult,
     comparison_result_to_dict,
 )
-from observations.models import (
+from edfinder_api.observations.models import (
     ObservationSource,
     ObservedConfidence,
     ObservedFactType,
@@ -63,7 +63,7 @@ from observations.models import (
     ObservedSubjectType,
     PersistedObservedFact,
 )
-from routers import observations as observations_router
+from edfinder_api.routers import observations as observations_router
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -1267,11 +1267,11 @@ def test_compatibility_import_path_still_works():
     ``comparison`` would silently shadow it.
     """
     # Re-import via the stable public path — must not raise.
-    from observations.comparison_engine import (
+    from edfinder_api.observations.comparison_engine import (
         compare_prediction_to_observations as public_callable,
     )
     # And must point at the modular engine's callable.
-    from observations.comparison_engine_pkg.engine import (
+    from edfinder_api.observations.comparison_engine_pkg.engine import (
         compare_prediction_to_observations as modular_callable,
     )
     assert public_callable is modular_callable, (
@@ -1281,7 +1281,7 @@ def test_compatibility_import_path_still_works():
     )
 
     # Direct package import must also yield the same callable.
-    from observations.comparison_engine_pkg import (
+    from edfinder_api.observations.comparison_engine_pkg import (
         compare_prediction_to_observations as pkg_callable,
     )
     assert pkg_callable is modular_callable
@@ -1289,7 +1289,7 @@ def test_compatibility_import_path_still_works():
     # Stage 4D's legacy ``observations.comparison`` module must NOT be
     # shadowed by the Stage 6C package: it has a different signature
     # and a different return shape.
-    from observations import comparison as legacy_stage4d_module
+    from edfinder_api.observations import comparison as legacy_stage4d_module
     legacy_callable = legacy_stage4d_module.compare_prediction_to_observations
     assert legacy_callable is not modular_callable, (
         'Stage 6C engine must not shadow the Stage 4D in-pipeline '

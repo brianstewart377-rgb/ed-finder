@@ -179,10 +179,10 @@ class _FocusAreaConnection:
             return 12
         if 'FROM stations' in query:
             return 3
-        if 'FROM body_scan_facts' in query and 'ring_count > 0' not in query:
-            return 12
-        if 'ring_count > 0' in query:
+        if 'is_ringed = true' in query or 'ring_count > 0' in query:
             return 2
+        if 'FROM body_scan_facts' in query:
+            return 12
         if 'FROM body_rings' in query:
             return 2
         raise AssertionError(f'Unexpected focus-area query: {query}')

@@ -26,6 +26,8 @@ def _docker_binary() -> str:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         check=False,
     )
     if probe.returncode != 0:
@@ -44,6 +46,8 @@ def _run_docker_compose(docker: str, *args: str) -> subprocess.CompletedProcess[
         env=env,
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         check=False,
     )
 

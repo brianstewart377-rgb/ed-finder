@@ -556,6 +556,41 @@ def review_provenance_contract_key(id64: int) -> str:
     return f'review_environment.provenance_contract.{id64}'
 
 
+_UNKNOWN_WAREHOUSE_COVERAGE: dict[str, Any] = {
+    'body_scan': {
+        'status': 'unknown',
+        'known_count': None,
+        'total_count': None,
+        'coverage_ratio': None,
+        'summary': 'Review fixture coverage is intentionally synthetic and unknown.',
+    },
+    'station_links': {
+        'status': 'unknown',
+        'known_count': None,
+        'total_count': None,
+        'coverage_ratio': None,
+        'summary': 'Review fixture station-link coverage is intentionally synthetic and unknown.',
+    },
+    'ring_identity': {
+        'status': 'unknown',
+        'known_count': None,
+        'total_count': None,
+        'coverage_ratio': None,
+        'summary': 'Review fixture ring-identity coverage is intentionally synthetic and unknown.',
+    },
+    'source_freshness': {
+        'canonical_updated_at': None,
+        'observed_updated_at': None,
+        'bounded_staging_updated_at': None,
+        'status_updated_at': None,
+    },
+    'thin_data_reasons': [
+        'Review fixtures are report-only synthetic scenarios and do not claim full selected-system coverage.',
+    ],
+    'summary': 'Review fixture coverage remains synthetic, report-only, and not full coverage.',
+}
+
+
 REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
     7200000000001: {
         'schema_version': 'warehouse_planner_evidence/v1',
@@ -600,6 +635,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'latest_source_updated_at': '2026-06-21T12:00:00Z',
             'summary': 'Bounded staging covers only a review-only 25-row window and is not full coverage.',
         },
+        'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
             'availability': 'report_only',
             'report_only': True,
@@ -664,6 +700,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'latest_source_updated_at': None,
             'summary': 'No selected-system review evidence is linked for Review Beta.',
         },
+        'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
             'availability': 'unavailable',
             'report_only': True,
@@ -712,6 +749,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'latest_source_updated_at': None,
             'summary': 'Bounded staging is not evaluated for Review Gamma.',
         },
+        'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
             'availability': 'report_only',
             'report_only': True,
@@ -766,6 +804,7 @@ REVIEW_WAREHOUSE_CONTRACTS: dict[int, dict[str, Any]] = {
             'latest_source_updated_at': None,
             'summary': 'Bounded staging is intentionally not evaluated for Review Delta.',
         },
+        'coverage': _UNKNOWN_WAREHOUSE_COVERAGE,
         'evidence_summary': {
             'availability': 'report_only',
             'report_only': True,

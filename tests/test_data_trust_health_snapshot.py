@@ -1,5 +1,6 @@
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 
@@ -14,6 +15,7 @@ def test_data_trust_health_snapshot_requires_database_url():
         capture_output=True,
         text=True,
         check=False,
+        env={key: value for key, value in os.environ.items() if key != "DATABASE_URL"},
     )
 
     assert result.returncode == 2

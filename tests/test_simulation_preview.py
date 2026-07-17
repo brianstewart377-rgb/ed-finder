@@ -11,9 +11,9 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from domain.facilities import FacilityTemplate
-from models import SimulateBuildResponse
-from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.models import SimulateBuildResponse
+from edfinder_api.simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
 
 
 def facility(
@@ -279,7 +279,7 @@ def test_missing_topology_reduces_confidence():
 
 
 def test_simulation_preview_routes_are_in_openapi():
-    from main import app
+    from edfinder_api.main import app
 
     openapi = app.openapi()
     assert '/api/simulate/build' in openapi['paths']

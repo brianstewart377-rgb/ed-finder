@@ -49,6 +49,16 @@ def build_warehouse_planner_evidence(
     )
 
     if live_result is not None:
+        bounded_staging = WarehousePlannerEvidenceBoundedStaging.model_validate(
+            _model_payload(live_result.bounded_staging)
+        )
+        coverage = WarehousePlannerEvidenceCoverage.model_validate(
+            _model_payload(live_result.coverage)
+        )
+        items = [
+            WarehousePlannerEvidenceItem.model_validate(_model_payload(item))
+            for item in live_result.items
+        ]
         return WarehousePlannerEvidenceContract(
             schema_version=SCHEMA_VERSION,
             system_id64=id64,
@@ -57,16 +67,16 @@ def build_warehouse_planner_evidence(
             source_run=source_run,
             evidence_envelope=_build_evidence_envelope(
                 status=live_result.envelope_status,
-                items=live_result.items,
-                bounded_staging=live_result.bounded_staging,
+                items=items,
+                bounded_staging=bounded_staging,
             ),
-            bounded_staging=live_result.bounded_staging,
-            coverage=live_result.coverage,
+            bounded_staging=bounded_staging,
+            coverage=coverage,
             evidence_summary=WarehousePlannerEvidenceSummary(
                 availability=live_result.availability,
                 report_only=True,
                 manual_review_required=live_result.manual_review_required,
-                items=live_result.items,
+                items=items,
             ),
             warnings=live_result.warnings[:8] or _fallback_warnings(warehouse_status),
         )
@@ -275,6 +285,13 @@ def _safe_rows(value: Any) -> list[str]:
         if text:
             rows.append(text)
     return rows
+
+
+def _model_payload(value: Any) -> Any:
+    if hasattr(value, 'model_dump'):
+        return value.model_dump()
+    return value
+
 
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}

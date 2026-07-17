@@ -50,6 +50,9 @@ class _FakeConnection:
         has_station_links: bool = True,
         linked_station_count: int | None = None,
         latest_canonical_at: str | None = None,
+        scan_fact_count: int | None = None,
+        ringed_body_count: int = 0,
+        ring_identity_count: int = 0,
         stage19bb_tables_present: bool = False,
         stage19bb_rows: list[dict[str, object]] | None = None,
     ):
@@ -59,6 +62,9 @@ class _FakeConnection:
         self.has_station_links = has_station_links
         self.linked_station_count = linked_station_count
         self.latest_canonical_at = latest_canonical_at
+        self.scan_fact_count = body_count if scan_fact_count is None else scan_fact_count
+        self.ringed_body_count = ringed_body_count
+        self.ring_identity_count = ring_identity_count
         self.stage19bb_tables_present = stage19bb_tables_present
         self.stage19bb_rows = stage19bb_rows or []
 
@@ -88,7 +94,15 @@ class _FakeConnection:
             return self.station_count
         if 'FROM station_body_links l' in query:
             return self.linked_station_count
+        if 'ring_count > 0' in query:
+            return self.ringed_body_count
+        if 'COUNT(DISTINCT body_id)::int' in query:
+            return self.ring_identity_count
+        if 'COUNT(*)::int FROM body_scan_facts WHERE system_address = $1' in query:
+            return self.scan_fact_count
         if 'SELECT MAX(ts)::text' in query:
+            return self.latest_canonical_at
+        if 'SELECT COALESCE(eddn_updated_at, updated_at)::text' in query:
             return self.latest_canonical_at
         raise AssertionError(f'Unexpected fetchval query: {query}')
 

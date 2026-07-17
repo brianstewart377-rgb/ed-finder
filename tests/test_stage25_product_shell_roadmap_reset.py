@@ -32,8 +32,12 @@ def test_stage25_reset_records_corrected_stage_statuses():
 
     assert 'Stage 25A is complete.' in roadmap
     assert 'Stage 25B is complete and merged.' in roadmap
-    assert 'Stage 25C Slice 1 is in progress and pending review.' in roadmap
-    assert 'Stage 25D, Stage 25E, Stage 25F, Stage 25G, and Stage 25H are unstarted.' in roadmap
+    assert 'Stage 25C is complete as the landed shell/context baseline.' in roadmap
+    assert 'Stage 25D is complete.' in roadmap
+    assert 'Stage 25E is complete.' in roadmap
+    assert 'Stage 25F is complete.' in roadmap
+    assert 'Stage 25G is complete.' in roadmap
+    assert 'Stage 25H is complete.' in roadmap
 
 
 @pytest.mark.unit
@@ -68,9 +72,10 @@ def test_stage25_reset_records_surface_ownership():
     # Colony Planner remains canonical live.
     assert 'Colony Planner: `canonical_live`' in roadmap
     assert 'Colony Planner is the canonical live planning workspace' in roadmap
-    # simulation-preview remains reusable but unwired.
+    # simulation-preview started as reusable inventory and was promoted into
+    # the canonical cockpit during Stage 25D.
     assert 'simulation-preview: `reusable_but_unwired`' in roadmap
-    assert 'must not be wired before Stage 25D' in roadmap
+    assert 'its strongest planner/sequence/review surfaces are now promoted into the live Colony Cockpit' in roadmap
 
 
 @pytest.mark.unit
@@ -138,7 +143,7 @@ def test_stage25_reset_does_not_authorize_runtime_by_defining_contract():
         'defining the Stage 25C contract does not by itself authorize runtime implementation.'
         in roadmap
     )
-    assert 'Stage 25C is `slice_1_in_progress_pending_review`.' in contract
+    assert 'Stage 25C is `slice_1_runtime_complete`.' in contract
     assert 'Defining this contract did not authorize any runtime implementation by itself.' in contract
     assert 'runtime UI implementation merely by defining this contract.' in contract
 

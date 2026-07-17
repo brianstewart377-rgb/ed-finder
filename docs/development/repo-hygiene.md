@@ -19,7 +19,7 @@ product/runtime paths indefinitely. The goal of this contract is simple:
    - Other docs may be implementation records, handoffs, references, or
      archives.
 
-2. Repo root is allowlist-only for visible files.
+2. Repo root is allowlist-only for tracked visible files.
    - New visible root files are not allowed unless they are explicitly
      canonical and added to the hygiene allowlist/test.
    - Planning docs, audits, receipts, and historical reports belong under
@@ -72,9 +72,10 @@ product/runtime paths indefinitely. The goal of this contract is simple:
 
 ## Repo Root Policy
 
-Visible files currently allowed at repo root:
+Tracked visible files currently allowed at repo root:
 
 - `CHANGES.md`
+- `CLAUDE.md`
 - `docker-compose.local.yml`
 - `docker-compose.review-hosted.yml`
 - `docker-compose.review.yml`

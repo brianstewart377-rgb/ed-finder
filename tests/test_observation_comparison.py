@@ -11,11 +11,11 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from domain.facilities import FacilityTemplate
-from models import SimulateBuildResponse
-from observations.comparison import compare_prediction_to_observations
-from observations.models import ObservedFact
-from simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.models import SimulateBuildResponse
+from edfinder_api.observations.comparison import compare_prediction_to_observations
+from edfinder_api.observations.models import ObservedFact
+from edfinder_api.simulation.build_preview import PreviewContext, PreviewPlacement, simulate_build_preview
 
 
 STANDARD_CONFIDENCE_LABELS = {

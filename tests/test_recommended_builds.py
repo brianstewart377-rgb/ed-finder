@@ -6,15 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from domain.colonisation_rules import get_target_profile
-from domain.colonisation_rules import profile_body
-from domain.facilities import FacilityTemplate
-from mechanics.versions import MECHANICS_VERSION
-from recommendations.body_selector import select_body_candidates
-from recommendations.build_generator import generate_build_drafts
-from recommendations.plan_ranker import rank_plans
-from models import SimulateBuildResponse
-from simulation.build_preview import PreviewContext
+from edfinder_api.domain.colonisation_rules import get_target_profile
+from edfinder_api.domain.colonisation_rules import profile_body
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.mechanics.versions import MECHANICS_VERSION
+from edfinder_api.recommendations.body_selector import select_body_candidates
+from edfinder_api.recommendations.build_generator import generate_build_drafts
+from edfinder_api.recommendations.plan_ranker import rank_plans
+from edfinder_api.models import SimulateBuildResponse
+from edfinder_api.simulation.build_preview import PreviewContext
 
 
 def facility(
@@ -139,7 +139,7 @@ def test_ranker_uses_simulation_results_not_generated_order():
 
 
 async def test_recommended_builds_api_response_includes_body_mechanics_and_request(monkeypatch):
-    from routers import simulate as simulate_router
+    from edfinder_api.routers import simulate as simulate_router
 
     rows = [
         body_row(body_id=1, body_name='Plain Rocky', subtype='Rocky body'),
@@ -186,7 +186,7 @@ async def test_recommended_builds_api_response_includes_body_mechanics_and_reque
 
 
 async def test_recommended_builds_api_unsupported_archetype_warns_without_plans(monkeypatch):
-    from routers import simulate as simulate_router
+    from edfinder_api.routers import simulate as simulate_router
 
     async def fake_catalogue(_pool):
         return catalogue()
@@ -210,7 +210,7 @@ async def test_recommended_builds_api_unsupported_archetype_warns_without_plans(
 
 
 async def test_recommended_builds_regional_fit_is_visible_but_lightly_weighted(monkeypatch):
-    from routers import simulate as simulate_router
+    from edfinder_api.routers import simulate as simulate_router
 
     rows = [body_row(body_id=1, body_name='Plain Rocky', subtype='Rocky body')]
     profiles = {str(row['body_id']): profile_body(row).to_context_profile() for row in rows}
