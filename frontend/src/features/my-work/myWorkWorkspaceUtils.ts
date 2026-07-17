@@ -249,8 +249,11 @@ export function latestTimestamp(values: Array<string | null | undefined>) {
   return values.filter((value): value is string => Boolean(value)).sort().slice(-1)[0] ?? null;
 }
 
-export function formatTimestamp(value: string) {
-  return new Date(value).toLocaleString();
+export function formatTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
 }
 
 export function formatRecentActivity(value: string) {
