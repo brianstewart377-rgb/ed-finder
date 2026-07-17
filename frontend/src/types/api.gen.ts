@@ -4668,13 +4668,31 @@ export interface components {
             /** Main Star Subtype */
             main_star_subtype?: string | null;
             /** Body Data Updated At */
-            body_data_updated_at?: unknown | null;
+            body_data_updated_at?: string | null;
             /** Body Data Sources */
             body_data_sources?: string[] | null;
             /** Status Updated At */
-            status_updated_at?: unknown | null;
+            status_updated_at?: string | null;
             /** Status Source */
             status_source?: string | null;
+            /** Primary Archetype */
+            primary_archetype?: string | null;
+            /** Secondary Archetype */
+            secondary_archetype?: string | null;
+            /** Archetype Confidence */
+            archetype_confidence?: number | null;
+            /** Overall Development Potential */
+            overall_development_potential?: number | null;
+            /** Buildability Score */
+            buildability_score?: number | null;
+            /** Build Complexity */
+            build_complexity?: string | null;
+            /** Purity Score */
+            purity_score?: number | null;
+            /** Contamination Risk */
+            contamination_risk?: number | null;
+            /** Est Total Slots */
+            est_total_slots?: number | null;
             /** Score */
             score?: number | null;
             /** Score Agriculture */
