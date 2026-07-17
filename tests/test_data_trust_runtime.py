@@ -64,7 +64,7 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
               id64, name, x, y, z, population,
               has_body_data, body_count, rating_dirty, cluster_dirty
             )
-            VALUES (4201, 'Runtime Body Drift', 1, 2, 3, NULL, TRUE, 3, FALSE, FALSE);
+            VALUES (4201, 'Runtime Body Drift', 1, 2, 3, NULL, TRUE, 0, FALSE, FALSE);
 
             INSERT INTO ratings (system_id64, score, rating_version)
             VALUES (4201, 77, '3.4');
@@ -261,6 +261,9 @@ def test_station_body_link_repair_restores_clean_invariants():
             INSERT INTO stations (id, system_id64, name, station_type)
             VALUES (7201, 5201, 'Runtime Port', 'Coriolis');
 
+            -- Seed legacy drift past migration 034's write-time repair guard.
+            SET LOCAL session_replication_role = replica;
+
             INSERT INTO station_body_links (
               station_id,
               market_id,
@@ -393,6 +396,12 @@ def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
               (7102, 6102, 'Snapshot Unflagged Positive 1', 'Planet'),
               (7104, 6104, 'Snapshot Eligible 1', 'Planet');
 
+            -- Recreate legacy systems/body drift after the body trigger repairs it.
+            UPDATE systems
+               SET has_body_data = FALSE,
+                   body_count = 2
+             WHERE id64 = 6102;
+
             INSERT INTO ratings (system_id64, score, rating_version)
             VALUES
               (6101, 11, '3.4'),
@@ -425,6 +434,9 @@ def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
 
             INSERT INTO stations (id, system_id64, name, station_type)
             VALUES (8104, 6104, 'Snapshot Port', 'Coriolis');
+
+            -- The snapshot must observe impossible legacy drift that new writes reject.
+            SET LOCAL session_replication_role = replica;
 
             INSERT INTO station_body_links (
               station_id,

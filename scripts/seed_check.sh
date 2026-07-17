@@ -35,7 +35,7 @@ echo
 DATABASE_URL="$DB_URL" bash "$(dirname "$0")/apply_migrations.sh" --include-manual
 
 echo "  ✓ seed_preview.sql"
-psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$SQL_DIR/seed_preview.sql" >/dev/null
+psql -v ON_ERROR_STOP=1 -q -f "$SQL_DIR/seed_preview.sql" "$DB_URL" >/dev/null
 
 # ── Post-conditions ────────────────────────────────────────────────────
 echo
@@ -44,7 +44,7 @@ echo "▶ seed_check: invariants"
 assert_count() {
     local label="$1"; local sql="$2"; local min="$3"
     local n
-    n=$(psql "$DB_URL" -At -c "$sql")
+    n=$(psql -At -c "$sql" "$DB_URL")
     if [ "$n" -lt "$min" ]; then
         echo "  ✗ $label: got $n, expected ≥ $min"
         echo "    SQL: $sql"
@@ -62,11 +62,11 @@ assert_count "galaxy_regions"   "SELECT COUNT(*) FROM galaxy_regions"        42
 # Cross-table invariant: every system must have a rating row.
 # The previous seed_preview.sql 'INSERT has more expressions' bug
 # left ratings empty while systems were populated; this catches that.
-orphans=$(psql "$DB_URL" -At -c "
+orphans=$(psql -At -c "
     SELECT COUNT(*) FROM systems s
     LEFT JOIN ratings r ON r.system_id64 = s.id64
     WHERE r.system_id64 IS NULL
-")
+  " "$DB_URL")
 if [ "$orphans" -gt 0 ]; then
     echo "  ✗ unrated systems: $orphans (must be 0 — seed_preview's"
     echo "    ratings INSERT silently failed; check sql/seed_preview.sql)"
@@ -77,9 +77,9 @@ echo "  ✓ every system has a rating row"
 # Materialised views (added in sql/009) must be REFRESH-able. Empty MVs
 # are OK with the small seed, but a syntax/permission failure here would
 # only surface on first /api/map/* call in prod, which is too late.
-psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "SELECT refresh_map_mviews();" >/dev/null
+psql -v ON_ERROR_STOP=1 -q -c "SELECT refresh_map_mviews();" "$DB_URL" >/dev/null
 echo "  ✓ refresh_map_mviews() succeeds"
-psql "$DB_URL" -v ON_ERROR_STOP=1 -q -c "REFRESH MATERIALIZED VIEW mv_archetype_rankings;" >/dev/null
+psql -v ON_ERROR_STOP=1 -q -c "REFRESH MATERIALIZED VIEW mv_archetype_rankings;" "$DB_URL" >/dev/null
 echo "  ✓ mv_archetype_rankings refreshed"
 
 echo

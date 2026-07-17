@@ -1,13 +1,13 @@
 """System / body / batch detail endpoints."""
 import json
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from edfinder_api.body_sorting import natural_body_sort_key_string, sort_bodies_by_hierarchy
-from edfinder_api.config import settings, log
+from edfinder_api.config import settings
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.helpers import sys_row_to_dict
 from edfinder_api.models import SystemDetailResponse
@@ -43,7 +43,8 @@ async def get_system(
 ):
     cache_key = f'sys:{SYSTEM_CACHE_VERSION}:{id64}'
     cached = await cache_get(cache_key, redis)
-    if cached: return cached
+    if cached:
+        return cached
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow("""
@@ -64,9 +65,9 @@ async def get_system(
                 r.rocky_count, r.rocky_ice_count, r.icy_count, r.hmc_count,
                 r.terraforming_potential, r.body_diversity,
                 r.confidence, r.rationale, r.rating_version,
-                body_fresh.body_data_updated_at,
+                body_fresh.body_data_updated_at::text AS body_data_updated_at,
                 body_fresh.body_data_sources,
-                COALESCE(s.eddn_updated_at, s.updated_at) AS status_updated_at,
+                COALESCE(s.eddn_updated_at, s.updated_at)::text AS status_updated_at,
                 CASE
                     WHEN s.eddn_updated_at IS NOT NULL THEN 'eddn'
                     WHEN s.updated_at IS NOT NULL THEN 'canonical'
@@ -352,7 +353,8 @@ async def get_body(
 ):
     cache_key = f'body:{BODY_CACHE_VERSION}:{body_id}'
     cached = await cache_get(cache_key, redis)
-    if cached: return cached
+    if cached:
+        return cached
 
     async with pool.acquire() as conn:
         row = await conn.fetchrow('SELECT * FROM bodies WHERE id = $1', body_id)
@@ -400,9 +402,9 @@ async def batch_systems(
                     r.rocky_count, r.rocky_ice_count, r.icy_count, r.hmc_count,
                     r.confidence, r.rationale,
                     r.elw_count, r.ww_count, r.ammonia_count,
-                    r.gas_giant_count, r.landable_count,
+                    r.gas_giant_count, r.landable_count, r.terraformable_count,
                     r.bio_signal_total, r.geo_signal_total,
-                    r.neutron_count, r.black_hole_count
+                    r.neutron_count, r.black_hole_count, r.white_dwarf_count
                 FROM systems s
                 LEFT JOIN ratings r ON r.system_id64 = s.id64
                 WHERE s.id64 = ANY($1::bigint[])

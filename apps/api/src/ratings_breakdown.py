@@ -40,6 +40,11 @@ _COMPLEMENTARY_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 
+def _value_or_zero(value: Any) -> Any:
+    """Return zero for absent rating values while preserving numeric types."""
+    return 0 if value is None else value
+
+
 def _rank_economies(economies: Mapping[str, Any]) -> tuple[str | None, str | None, dict]:
     """Mirrors build_ratings.py rate_system() lines ~1181-1220 and ~1246-1252."""
     if not economies:
@@ -128,21 +133,21 @@ def reconstruct_score_breakdown(
     classification entirely and reconstruct purely from `rating_row`.
     """
     economies = {
-        'Agriculture': rating_row['score_agriculture'],
-        'Refinery':    rating_row['score_refinery'],
-        'Industrial':  rating_row['score_industrial'],
-        'HighTech':    rating_row['score_hightech'],
-        'Military':    rating_row['score_military'],
-        'Tourism':     rating_row['score_tourism'],
-        'Extraction':  rating_row['score_extraction'],
+        'Agriculture': _value_or_zero(rating_row.get('score_agriculture')),
+        'Refinery':    _value_or_zero(rating_row.get('score_refinery')),
+        'Industrial':  _value_or_zero(rating_row.get('score_industrial')),
+        'HighTech':    _value_or_zero(rating_row.get('score_hightech')),
+        'Military':    _value_or_zero(rating_row.get('score_military')),
+        'Tourism':     _value_or_zero(rating_row.get('score_tourism')),
+        'Extraction':  _value_or_zero(rating_row.get('score_extraction')),
     }
 
     dimensions = {
-        'slots':        rating_row['slots'],
-        'strategic':    rating_row['body_quality'],
-        'safety':       rating_row['orbital_safety'],
-        'terraforming': rating_row['terraforming_potential'],
-        'diversity':    rating_row['body_diversity'],
+        'slots':        _value_or_zero(rating_row.get('slots')),
+        'strategic':    _value_or_zero(rating_row.get('body_quality')),
+        'safety':       _value_or_zero(rating_row.get('orbital_safety')),
+        'terraforming': _value_or_zero(rating_row.get('terraforming_potential')),
+        'diversity':    _value_or_zero(rating_row.get('body_diversity')),
     }
 
     if rating_row.get('rocky_count'):
@@ -155,17 +160,17 @@ def reconstruct_score_breakdown(
         'rocky_geo':     rocky['rocky_geo'],
         'rocky_bio':     rocky['rocky_bio'],
         'rocky_rings':   rocky['rocky_rings'],
-        'rocky_ice':     rating_row['rocky_ice_count'],
-        'icy':           rating_row['icy_count'],
-        'hmc':           rating_row['hmc_count'],
-        'gas_giant':     rating_row['gas_giant_count'],
-        'elw':           rating_row['elw_count'],
-        'ww':            rating_row['ww_count'],
-        'ammonia':       rating_row['ammonia_count'],
-        'landable':      rating_row['landable_count'],
-        'terraformable': rating_row['terraformable_count'],
-        'bio':           rating_row['bio_signal_total'],
-        'geo':           rating_row['geo_signal_total'],
+        'rocky_ice':     _value_or_zero(rating_row.get('rocky_ice_count')),
+        'icy':           _value_or_zero(rating_row.get('icy_count')),
+        'hmc':           _value_or_zero(rating_row.get('hmc_count')),
+        'gas_giant':     _value_or_zero(rating_row.get('gas_giant_count')),
+        'elw':           _value_or_zero(rating_row.get('elw_count')),
+        'ww':            _value_or_zero(rating_row.get('ww_count')),
+        'ammonia':       _value_or_zero(rating_row.get('ammonia_count')),
+        'landable':      _value_or_zero(rating_row.get('landable_count')),
+        'terraformable': _value_or_zero(rating_row.get('terraformable_count')),
+        'bio':           _value_or_zero(rating_row.get('bio_signal_total')),
+        'geo':           _value_or_zero(rating_row.get('geo_signal_total')),
     }
 
     primary_eco, secondary_eco, top_pair = _rank_economies(economies)
