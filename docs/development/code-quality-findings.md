@@ -164,18 +164,101 @@ Resolved with date and closing commit. New audits append.
 - Close when: ed_expansion_plans_v1 added to the ProfileBlob interface AND to
   gatherLocalBlob(); pull path unchanged; typecheck green; approach approved
   by owner before fix.
+- Adjacent residue (2026-07-16): applyLocalBlob() contains a duplicate
+  standalone `void rehydratePinnedStore();` call after the rehydrate block;
+  removal is bundled with the CQ-016 fix commit.
 
 ### CQ-017 — nullable timestamp passed to non-null formatter
 - Raised 2026-07-16 · found while diagnosing CQ-014 · Confirmed, latent bug
 - Two formatTimestamp functions exist: @/lib/format (nullable-safe, callers
   use ?? fallback) and my-work/myWorkWorkspaceUtils.ts:252 (param typed
   value: string, non-null). system-detail/systemDetailSections.tsx passes
-  nullable API fields (sys.body_data_updated_at, sys.status_updated_at) to the
-  non-null variant → TS2345. A null at runtime would format as the literal
-  "null" or throw, depending on the body.
+  CORRECTED 2026-07-16 (auditor re-verified against tree):
+  systemDetailSections.tsx imports the @/lib/format twin and was never
+  affected. The real TS2345 sites are MyWorkWorkspace.tsx:734
+  (telemetry.last_observed_at) and :1026 (system.last_observed_at), which
+  use the non-null my-work twin. At runtime a null silently renders the
+  Unix epoch (new Date(null) → 1970-01-01); undefined renders "Invalid Date".
 - Close when: the myWorkWorkspaceUtils formatTimestamp param widened to
   string | null with an explicit null guard (matching the @/lib/format twin),
   or call sites guarded; typecheck green; approach approved by owner before fix.
+
+### CQ-019 — CLAUDE.md missing from repo-root allowlist (script-contracts job red)
+- Raised 2026-07-16 · CI decomposition @ 983a212 · Confirmed (local repro:
+  1 failed / 32 passed on the job's exact pytest selection)
+- tests/test_repo_hygiene_contract.py ALLOWED_VISIBLE_ROOT_FILES omits
+  CLAUDE.md, which is intentionally at root. The single failing test
+  (test_visible_repo_root_files_stay_on_the_allowlist) is the only red in
+  the "Script contracts + migration paths" CI job. Confirms DeepSeek
+  2026-07-15 audit claim #1, previously parked as check-first.
+- Close when: 'CLAUDE.md' on the allowlist; the job green in CI.
+
+### CQ-020 — pyzmq absent from tests/requirements-ci.txt (backend-unit collection abort)
+- Raised 2026-07-16 · CI decomposition @ 983a212 · Confirmed
+- pyzmq==26.2.0 lives only in apps/eddn/requirements.txt; the backend-unit
+  CI job installs tests/requirements-ci.txt, so tests/test_eddn_listener.py
+  and tests/test_eddn_metrics.py die at import (15 collection errors; the
+  bare pytest run aborts on the first, so zero backend unit tests run).
+- Close when: pyzmq==26.2.0 in tests/requirements-ci.txt; both modules
+  collect and run in CI.
+
+### CQ-021 — double-encoded middots in MyWorkWorkspace.tsx UI text
+- Raised 2026-07-16 · byte-level check @ 983a212 · Confirmed
+- 6 occurrences of bytes C3 82 C2 B7 ("Â·") alongside 9 clean U+00B7
+  middots; users see "Â·" in shipped My Work text.
+- Close when: the 6 sequences replaced with U+00B7; byte counts verified
+  0 mojibake / 15 clean. (Fixed in the frontend-typecheck PR, not here.)
+
+### CQ-022 — backend-unit CI job: 64-failure triage (umbrella)
+- Raised 2026-07-16 · local repro of the job's exact selection @ 983a212 ·
+  counts Confirmed (64 failed, 1348 passed, 15 collection errors); bucket
+  severity varies
+- Buckets: (a) ~25 DB-dependent tests unmarked and failing "Database pool
+  not initialised" / 503-vs-422 in the no-DB job (test_stage6c_comparison,
+  test_stage6e_review, parts of test_observations) — marker/mock ruling
+  needed; (b) stale contract-pin tests asserting superseded text of
+  scripts/checks/data_invariants.py, stage-22/23/25 docs, evidence
+  fixtures, and one fetchval query shape; (c) POSSIBLE REAL BUGS, diagnose
+  before touching: test_observation_comparison ×11 (TypeError: Unsupported
+  observed fact value: ObservedFact), test_colony_layout_import ×4
+  (partial-vs-success semantics), test_observations 403-vs-200/422,
+  LivePlannerEvidenceResult missing 'coverage' arg; (d)
+  test_local_review_test_environment Unknown in CI (docker-dependent).
+- Close when: bucket (c) diagnosed and dispositioned as own findings;
+  (a)/(b) ruled by owner and fixed; the job green.
+
+### CQ-023 — Container image parity workflow red (cause unknown)
+- Raised 2026-07-16 · runs of 2026-07-15 @ 7224f87 / b1c0a52 · Unknown
+- Separate workflow from ci.yml; failed on its last triggering pushes; did
+  not trigger on 983a212 (path filters). Undiagnosed.
+- Close when: cause diagnosed and dispositioned.
+
+### CQ-024 — design-system redesign (be7b381) landed on main outside PR flow
+- Raised 2026-07-16 · verified against origin/main · Confirmed, low severity
+- be7b381 "feat: design system component library and Finder redesign",
+  authored direct-to-main (parent 983a212), 27 files +1642/−522,
+  frontend-only. Adds shadcn/ui foundation: 6 Radix primitives, clsx,
+  tailwind-merge. Touched components/ui (11), components/navbar (7), lib,
+  app, features/search, package.json, yarn.lock. Did NOT touch api.gen.ts,
+  backend, or any in-flight CQ-fix file. Health check 2026-07-16:
+  typecheck 0 NEW errors (only the 17 pre-existing CQ-014/016/017 ones),
+  lint 0 new (6 pre-existing warnings), build passes (1945 modules). No
+  branch protection + red CI meant nothing gated it — process gap, not a
+  code defect.
+- Related: 4 untracked artifacts observed on the working tree (.mcp.json,
+  .playwright-mcp/, ed-finder-deployed.png, ed-finder-finder-page.png);
+  .gitignore coverage added in this same PR (CQ-025).
+- Close when: redesign acknowledged in ROADMAP as shipped; no further
+  action on the code (health-clean).
+
+### CQ-025 — tool/session artifacts untracked and un-ignored
+- Raised 2026-07-16 · git status @ 123e88d · Confirmed
+- .mcp.json, .playwright-mcp/, ed-finder-deployed.png,
+  ed-finder-finder-page.png sit untracked at root; risk is accidental
+  inclusion via a future git add -A. Screenshots are session captures, not
+  repo assets.
+- Close when: .gitignore covers all four patterns; git status shows them
+  ignored.
 
 ## Resolved
 
