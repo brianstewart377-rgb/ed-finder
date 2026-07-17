@@ -731,7 +731,7 @@ function SavedSystemCard({
           </p>
           {telemetry ? (
             <p className="mt-1 text-sm text-silver">
-              Last observed {formatTimestamp(telemetry.last_observed_at)} Â· {telemetry.event_count} telemetry event{telemetry.event_count === 1 ? '' : 's'} Â· {telemetry.event_types.join(', ')}
+              Last observed {formatTimestamp(telemetry.last_observed_at)} · {telemetry.event_count} telemetry event{telemetry.event_count === 1 ? '' : 's'} · {telemetry.event_types.join(', ')}
             </p>
           ) : null}
         </div>
@@ -1023,7 +1023,7 @@ function TelemetrySection({
                       <div className="min-w-0 flex-1">
                         <div className="font-display text-sm tracking-[0.08em] text-text">{system.system_name}</div>
                         <div className="mt-1 text-sm text-silver-dk">
-                          {system.event_count} event{system.event_count === 1 ? '' : 's'} Â· {system.event_types.join(', ')} Â· Last observed {formatTimestamp(system.last_observed_at)}
+                          {system.event_count} event{system.event_count === 1 ? '' : 's'} · {system.event_types.join(', ')} · Last observed {formatTimestamp(system.last_observed_at)}
                         </div>
                       </div>
                       <button
@@ -1057,7 +1057,7 @@ function TelemetrySection({
                           <span className="font-mono text-[11px] text-silver-dk">{run.run_key}</span>
                         </div>
                         <p className="mt-2 text-sm text-silver">
-                          Staged {run.observations_staged} Â· Duplicates {run.duplicates_skipped}
+                          Staged {run.observations_staged} · Duplicates {run.duplicates_skipped}
                         </p>
                         <p className="mt-1 text-sm text-silver-dk">
                           {formatCompactEventCounts(run.event_counts)}
@@ -1094,5 +1094,5 @@ function MetricCard({ label, value, detail }: { label: string; value: number; de
 function formatCompactEventCounts(eventCounts: Record<string, number>): string {
   const entries = Object.entries(eventCounts).sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return 'No observed events recorded yet.';
-  return entries.map(([eventType, count]) => `${eventType} ${count}`).join(' Â· ');
+  return entries.map(([eventType, count]) => `${eventType} ${count}`).join(' · ');
 }
