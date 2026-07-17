@@ -14,7 +14,7 @@ export interface paths {
         /**
          * Share Stop Page
          * @description Bots → static HTML with OG/Twitter meta tags pointing at the PNG
-         *     endpoint below. Real users → 302 to the SPA's `#s={id64}` deep-link
+         *     endpoint below. Real users → 302 to the SPA's `#system/{id64}` deep-link
          *     so the existing client-side router takes over.
          */
         get: operations["share_stop_page_s__id64__get"];
@@ -461,6 +461,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/operations/{operation_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run Admin Operation */
+        post: operations["run_admin_operation_api_admin_operations__operation_key__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/operations/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Operation History */
+        get: operations["admin_operation_history_api_admin_operations_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/cron-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Cron Status
+         * @description Return a read-only summary of recent cron/scheduler-like activity.
+         */
+        get: operations["admin_cron_status_api_admin_cron_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/enrichment/station-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Station Enrichment Operator Status
+         * @description Return a sanitized read-only station enrichment status snapshot.
+         *
+         *     This endpoint deliberately reads only a configured JSON artifact produced
+         *     by `station_enrichment_status.py --json`. It never invokes the enrichment
+         *     script, Docker, EDSM, or the database.
+         */
+        get: operations["station_enrichment_operator_status_api_admin_enrichment_station_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/enrichment/warehouse-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Warehouse Enrichment Operator Status
+         * @description Return a sanitized read-only warehouse reconciliation/status snapshot.
+         *
+         *     This endpoint reads only a configured JSON artifact. It never runs
+         *     warehouse importer scripts, Docker, live APIs, or database queries.
+         */
+        get: operations["warehouse_enrichment_operator_status_api_admin_enrichment_warehouse_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/data-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Admin Data Status
+         * @description Return a read-only admin snapshot of core data status.
+         *
+         *     This endpoint is intentionally status-only. It runs inside a read-only
+         *     database transaction and does not perform imports, migrations, station-type
+         *     writes, canonical writes, or canonical apply.
+         */
+        get: operations["admin_data_status_api_admin_data_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/events/live": {
         parameters: {
             query?: never;
@@ -489,6 +614,196 @@ export interface paths {
         get: operations["recent_events_api_events_recent_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evidence Source Catalog */
+        get: operations["evidence_source_catalog_api_evidence_sources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evidence Records */
+        get: operations["list_evidence_records_api_evidence_records_get"];
+        put?: never;
+        /** Create Evidence Record */
+        post: operations["create_evidence_record_api_evidence_records_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Derived Features */
+        get: operations["list_derived_features_api_evidence_features_get"];
+        put?: never;
+        /** Create Derived Feature */
+        post: operations["create_derived_feature_api_evidence_features_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/rule-proposals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rule Proposals */
+        get: operations["list_rule_proposals_api_evidence_rule_proposals_get"];
+        put?: never;
+        /** Create Rule Proposal */
+        post: operations["create_rule_proposal_api_evidence_rule_proposals_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/rule-proposals/{proposal_key}/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Rule Proposal */
+        post: operations["decide_rule_proposal_api_evidence_rule_proposals__proposal_key__decisions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/systems/{system_id64}/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Evidence System Summary */
+        get: operations["evidence_system_summary_api_evidence_systems__system_id64__summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/evidence/systems/{system_id64}/promote-canonical": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote System Canonical Evidence */
+        post: operations["promote_system_canonical_evidence_api_evidence_systems__system_id64__promote_canonical_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Frontier Journal */
+        post: operations["import_frontier_journal_api_journal_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/imports/{run_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Frontier Journal Import */
+        get: operations["get_frontier_journal_import_api_journal_imports__run_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/telemetry/{sync_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Frontier Journal Telemetry */
+        get: operations["get_frontier_journal_telemetry_api_journal_telemetry__sync_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/journal/imports/{run_key}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Promote Frontier Journal Import */
+        post: operations["promote_frontier_journal_import_api_journal_imports__run_key__promote_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1905,6 +2220,24 @@ export interface components {
              */
             db_cache_rows: number;
         };
+        /** CanonicalEvidencePromotionRequest */
+        CanonicalEvidencePromotionRequest: {
+            /** Evidence Types */
+            evidence_types?: string[];
+        };
+        /** CanonicalEvidencePromotionResponse */
+        CanonicalEvidencePromotionResponse: {
+            /** Schema Version */
+            schema_version: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Promoted Count */
+            promoted_count: number;
+            /** Warnings */
+            warnings?: string[];
+            /** Records */
+            records?: components["schemas"]["EvidenceRecordResponse"][];
+        };
         /** ClusterRequirement */
         ClusterRequirement: {
             /**
@@ -1923,10 +2256,82 @@ export interface components {
              */
             min_score: number;
         };
+        /** ClusterResult */
+        ClusterResult: {
+            /** Anchor Id64 */
+            anchor_id64: number;
+            /** System Id64 */
+            system_id64: number;
+            /** Anchor Name */
+            anchor_name: string;
+            /** Anchor X */
+            anchor_x: number;
+            /** Anchor Y */
+            anchor_y: number;
+            /** Anchor Z */
+            anchor_z: number;
+            anchor_coords: components["schemas"]["CoordsModel"];
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
+            /** Galaxy Region */
+            galaxy_region?: string | null;
+            /** Coverage Score */
+            coverage_score?: number | null;
+            /** Economy Diversity */
+            economy_diversity: number;
+            /** Total Viable */
+            total_viable: number;
+            /** Agriculture Count */
+            agriculture_count: number;
+            /** Agriculture Best */
+            agriculture_best?: number | null;
+            /** Agriculture Top Id */
+            agriculture_top_id?: number | null;
+            /** Refinery Count */
+            refinery_count: number;
+            /** Refinery Best */
+            refinery_best?: number | null;
+            /** Refinery Top Id */
+            refinery_top_id?: number | null;
+            /** Industrial Count */
+            industrial_count: number;
+            /** Industrial Best */
+            industrial_best?: number | null;
+            /** Industrial Top Id */
+            industrial_top_id?: number | null;
+            /** Hightech Count */
+            hightech_count: number;
+            /** Hightech Best */
+            hightech_best?: number | null;
+            /** Hightech Top Id */
+            hightech_top_id?: number | null;
+            /** Military Count */
+            military_count: number;
+            /** Military Best */
+            military_best?: number | null;
+            /** Military Top Id */
+            military_top_id?: number | null;
+            /** Tourism Count */
+            tourism_count: number;
+            /** Tourism Best */
+            tourism_best?: number | null;
+            /** Tourism Top Id */
+            tourism_top_id?: number | null;
+            /** Distance Ly */
+            distance_ly?: number | null;
+            /** Cluster Radius Ly */
+            cluster_radius_ly: number;
+            /** Slots */
+            slots?: Record<string, never>[] | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** ClusterSearchRequest */
         ClusterSearchRequest: {
             /** Requirements */
-            requirements: components["schemas"]["ClusterRequirement"][];
+            requirements?: components["schemas"]["ClusterRequirement"][];
+            /** Slots */
+            slots?: components["schemas"]["SlotRequirement"][];
             /**
              * Limit
              * @default 50
@@ -1939,6 +2344,25 @@ export interface components {
             offset: number;
             reference_coords?: components["schemas"]["CoordsModel"] | null;
         };
+        /** ClusterSearchResponse */
+        ClusterSearchResponse: {
+            /** Clusters */
+            clusters?: components["schemas"]["ClusterResult"][];
+            /** Count */
+            count?: number | null;
+            /** Cluster Radius Ly */
+            cluster_radius_ly?: number | null;
+            /** Query Ms */
+            query_ms?: number | null;
+            /** Slots */
+            slots?: Record<string, never>[] | null;
+            /** Requirements */
+            requirements?: Record<string, never>[] | null;
+            /** Error */
+            error?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** CoordsModel */
         CoordsModel: {
             /** X */
@@ -1947,6 +2371,95 @@ export interface components {
             y?: number | null;
             /** Z */
             z?: number | null;
+        };
+        /** DerivedFeatureCreateRequest */
+        DerivedFeatureCreateRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Feature Name */
+            feature_name: string;
+            /**
+             * Feature Version
+             * @default v1
+             */
+            feature_version: string;
+            /**
+             * Feature Status
+             * @default active
+             */
+            feature_status: string;
+            /**
+             * Confidence
+             * @default medium
+             */
+            confidence: string;
+            /** Summary */
+            summary?: string | null;
+            /** Derived From Run Key */
+            derived_from_run_key?: string | null;
+            /** Derived At */
+            derived_at?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Value */
+            value?: Record<string, never>;
+            /** Evidence Refs */
+            evidence_refs?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+        };
+        /** DerivedFeatureListResponse */
+        DerivedFeatureListResponse: {
+            /** Features */
+            features: components["schemas"]["DerivedFeatureResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** DerivedFeatureResponse */
+        DerivedFeatureResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Feature Name */
+            feature_name: string;
+            /**
+             * Feature Version
+             * @default v1
+             */
+            feature_version: string;
+            /**
+             * Feature Status
+             * @default active
+             */
+            feature_status: string;
+            /**
+             * Confidence
+             * @default medium
+             */
+            confidence: string;
+            /** Summary */
+            summary?: string | null;
+            /** Derived From Run Key */
+            derived_from_run_key?: string | null;
+            /** Derived At */
+            derived_at?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Value */
+            value?: Record<string, never>;
+            /** Evidence Refs */
+            evidence_refs?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+            /** Feature Key */
+            feature_key: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
         };
         /**
          * EconomyPairDetail
@@ -1965,6 +2478,201 @@ export interface components {
             contamination_paths?: unknown[];
         } & {
             [key: string]: unknown;
+        };
+        /** EvidenceRecordCreateRequest */
+        EvidenceRecordCreateRequest: {
+            /** System Id64 */
+            system_id64: number;
+            /** Source Name */
+            source_name: string;
+            /**
+             * Origin
+             * @default imported
+             */
+            origin: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Evidence Type */
+            evidence_type: string;
+            /**
+             * Record Status
+             * @default active
+             */
+            record_status: string;
+            /**
+             * Freshness Status
+             * @default current
+             */
+            freshness_status: string;
+            /**
+             * Confidence
+             * @default medium
+             */
+            confidence: string;
+            /** Summary */
+            summary?: string | null;
+            /** Source Record Id */
+            source_record_id?: string | null;
+            /** Source Run Key */
+            source_run_key?: string | null;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Collected At */
+            collected_at?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Value */
+            value?: Record<string, never>;
+            /** Provenance */
+            provenance?: Record<string, never>;
+            /** Tags */
+            tags?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+        };
+        /** EvidenceRecordListResponse */
+        EvidenceRecordListResponse: {
+            /** Records */
+            records: components["schemas"]["EvidenceRecordResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** EvidenceRecordResponse */
+        EvidenceRecordResponse: {
+            /** System Id64 */
+            system_id64: number;
+            /** Source Name */
+            source_name: string;
+            /**
+             * Origin
+             * @default imported
+             */
+            origin: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Evidence Type */
+            evidence_type: string;
+            /**
+             * Record Status
+             * @default active
+             */
+            record_status: string;
+            /**
+             * Freshness Status
+             * @default current
+             */
+            freshness_status: string;
+            /**
+             * Confidence
+             * @default medium
+             */
+            confidence: string;
+            /** Summary */
+            summary?: string | null;
+            /** Source Record Id */
+            source_record_id?: string | null;
+            /** Source Run Key */
+            source_run_key?: string | null;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Collected At */
+            collected_at?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Value */
+            value?: Record<string, never>;
+            /** Provenance */
+            provenance?: Record<string, never>;
+            /** Tags */
+            tags?: string[];
+            /** Metadata */
+            metadata?: Record<string, never>;
+            /** Evidence Key */
+            evidence_key: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** EvidenceSourceCatalogEntryResponse */
+        EvidenceSourceCatalogEntryResponse: {
+            /** Source Name */
+            source_name: string;
+            /** Label */
+            label: string;
+            /** Site Url */
+            site_url: string;
+            /** Implementation Status */
+            implementation_status: string;
+            /** Current Usage */
+            current_usage: string;
+            /** Source Category */
+            source_category: string;
+            /** Domains */
+            domains: string[];
+            /** Recommended Priority */
+            recommended_priority: number;
+            /** Ingestion Modes */
+            ingestion_modes: string[];
+            /** Repo Surfaces */
+            repo_surfaces: string[];
+            /** Why This Matters */
+            why_this_matters: string;
+            /** Notes */
+            notes?: string | null;
+        };
+        /** EvidenceSourceCatalogResponse */
+        EvidenceSourceCatalogResponse: {
+            /** Schema Version */
+            schema_version: string;
+            /** Sources */
+            sources: components["schemas"]["EvidenceSourceCatalogEntryResponse"][];
+        };
+        /** EvidenceSystemFocusAreaResponse */
+        EvidenceSystemFocusAreaResponse: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Posture */
+            posture: string;
+            /** Summary */
+            summary: string;
+            /** Evidence Type */
+            evidence_type?: string | null;
+            /** Evidence Key */
+            evidence_key?: string | null;
+        };
+        /** EvidenceSystemSummaryResponse */
+        EvidenceSystemSummaryResponse: {
+            /** Schema Version */
+            schema_version: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Observed Fact Count */
+            observed_fact_count: number;
+            /** Imported Record Count */
+            imported_record_count: number;
+            /** Derived Feature Count */
+            derived_feature_count: number;
+            /** Open Rule Proposal Count */
+            open_rule_proposal_count: number;
+            /** Focus Areas */
+            focus_areas: components["schemas"]["EvidenceSystemFocusAreaResponse"][];
+            /** Records */
+            records: components["schemas"]["EvidenceRecordResponse"][];
+            /** Derived Features */
+            derived_features: components["schemas"]["DerivedFeatureResponse"][];
+            /** Open Rule Proposals */
+            open_rule_proposals: components["schemas"]["RuleProposalResponse"][];
         };
         /** ExplorationValueModel */
         ExplorationValueModel: {
@@ -2073,6 +2781,235 @@ export interface components {
             database: string;
             /** Version */
             version: string;
+        };
+        /** JournalImportClientManifest */
+        JournalImportClientManifest: {
+            /** Parser Version */
+            parser_version: string;
+            /** Files */
+            files?: components["schemas"]["JournalImportFileRef"][];
+        };
+        /** JournalImportFileRef */
+        JournalImportFileRef: {
+            /** Name */
+            name: string;
+            /** Event Count */
+            event_count: number;
+        };
+        /** JournalImportReceipt */
+        JournalImportReceipt: {
+            /** Run Key */
+            run_key: string;
+            /** Status */
+            status: string;
+            /** Parser Version */
+            parser_version: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Files */
+            files?: components["schemas"]["JournalImportFileRef"][];
+            summary: components["schemas"]["JournalImportSummary"];
+        };
+        /** JournalImportRequest */
+        JournalImportRequest: {
+            /** Sync Key */
+            sync_key: string;
+            client_manifest: components["schemas"]["JournalImportClientManifest"];
+            /**
+             * Evidence Mode
+             * @default staging_only
+             * @constant
+             * @enum {string}
+             */
+            evidence_mode: "staging_only";
+            /** Observations */
+            observations?: components["schemas"]["JournalObservationInput"][];
+        };
+        /** JournalImportSummary */
+        JournalImportSummary: {
+            /** Observations Received */
+            observations_received: number;
+            /** Observations Staged */
+            observations_staged: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /**
+             * Conflicts Flagged
+             * @default 0
+             */
+            conflicts_flagged: number;
+            /** Files Seen */
+            files_seen: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+        };
+        /** JournalObservationInput */
+        JournalObservationInput: {
+            /** Observation Key */
+            observation_key: string;
+            /** Source File */
+            source_file: string;
+            /** Event Type */
+            event_type: string;
+            /** Observed At */
+            observed_at?: string | null;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /**
+             * Subject Type
+             * @enum {string}
+             */
+            subject_type: "system" | "body";
+            /** Subject Id */
+            subject_id?: string | null;
+            /** Summary */
+            summary?: string | null;
+            /** Payload */
+            payload?: Record<string, never>;
+            /** Privacy Boundary */
+            privacy_boundary?: Record<string, never>;
+        };
+        /** JournalPromotionReceipt */
+        JournalPromotionReceipt: {
+            /** Run Key */
+            run_key: string;
+            /** Status */
+            status: string;
+            /** Promoted At */
+            promoted_at?: string | null;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            summary: components["schemas"]["JournalPromotionSummary"];
+        };
+        /** JournalPromotionSummary */
+        JournalPromotionSummary: {
+            /** Staged Rows Seen */
+            staged_rows_seen: number;
+            /** Eligible Rows */
+            eligible_rows: number;
+            /** Skipped Rows */
+            skipped_rows: number;
+            /** Facts Promoted */
+            facts_promoted: number;
+            /** Ring Rows Promoted */
+            ring_rows_promoted: number;
+            /** Ring Rows Unresolved */
+            ring_rows_unresolved: number;
+            /** Dirty Systems Marked */
+            dirty_systems_marked: number;
+            /**
+             * Canonical Evidence Promoted
+             * @default 0
+             */
+            canonical_evidence_promoted: number;
+            /**
+             * Canonical Evidence Deduped
+             * @default 0
+             */
+            canonical_evidence_deduped: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+            /** Resolution Counts */
+            resolution_counts?: {
+                [key: string]: number;
+            };
+        };
+        /** JournalTelemetryRecentRun */
+        JournalTelemetryRecentRun: {
+            /** Run Key */
+            run_key: string;
+            /** Status */
+            status: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Observations Staged
+             * @default 0
+             */
+            observations_staged: number;
+            /**
+             * Duplicates Skipped
+             * @default 0
+             */
+            duplicates_skipped: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+        };
+        /** JournalTelemetryRecentSystem */
+        JournalTelemetryRecentSystem: {
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name: string;
+            /** Last Observed At */
+            last_observed_at?: string | null;
+            /**
+             * Event Count
+             * @default 0
+             */
+            event_count: number;
+            /** Event Types */
+            event_types?: string[];
+        };
+        /** JournalTelemetrySummaryResponse */
+        JournalTelemetrySummaryResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /**
+             * Runs Count
+             * @default 0
+             */
+            runs_count: number;
+            /** Last Imported At */
+            last_imported_at?: string | null;
+            /**
+             * Observations Staged
+             * @default 0
+             */
+            observations_staged: number;
+            /**
+             * Duplicates Skipped
+             * @default 0
+             */
+            duplicates_skipped: number;
+            /**
+             * Systems Observed
+             * @default 0
+             */
+            systems_observed: number;
+            /**
+             * Body Observation Count
+             * @default 0
+             */
+            body_observation_count: number;
+            /**
+             * Docked Observation Count
+             * @default 0
+             */
+            docked_observation_count: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+            /** Recent Runs */
+            recent_runs?: components["schemas"]["JournalTelemetryRecentRun"][];
+            /** Recent Systems */
+            recent_systems?: components["schemas"]["JournalTelemetryRecentSystem"][];
         };
         /** LayoutImportRequest */
         LayoutImportRequest: {
@@ -2883,6 +3820,16 @@ export interface components {
              * @default
              */
             mechanics_version: string;
+            /**
+             * Claim Range Ly
+             * @default 0
+             */
+            claim_range_ly: number;
+            /**
+             * Analysis Radius Ly
+             * @default 0
+             */
+            analysis_radius_ly: number;
             /** Nearest Colonised System */
             nearest_colonised_system?: Record<string, never> | null;
             /** Counts */
@@ -2912,6 +3859,145 @@ export interface components {
             confidence_signals?: Record<string, never>[];
             /** Computed At */
             computed_at?: unknown | null;
+        };
+        /** RuleDecisionRequest */
+        RuleDecisionRequest: {
+            /** Decision */
+            decision: string;
+            /** Decided By */
+            decided_by: string;
+            /** Reason */
+            reason?: string | null;
+            /** Metadata */
+            metadata?: Record<string, never>;
+        };
+        /** RuleDecisionResponse */
+        RuleDecisionResponse: {
+            /** Decision Id */
+            decision_id: number;
+            /** Proposal Key */
+            proposal_key: string;
+            /** Decision */
+            decision: string;
+            /** Decided By */
+            decided_by: string;
+            /** Reason */
+            reason?: string | null;
+            /** Metadata */
+            metadata?: Record<string, never>;
+            /** Created At */
+            created_at?: string | null;
+        };
+        /** RuleProposalCreateRequest */
+        RuleProposalCreateRequest: {
+            /** Proposal Type */
+            proposal_type: string;
+            /** Domain */
+            domain: string;
+            /** Scope Type */
+            scope_type: string;
+            /** Scope Key */
+            scope_key: string;
+            /**
+             * Status
+             * @default pending_review
+             */
+            status: string;
+            /**
+             * Priority
+             * @default medium
+             */
+            priority: string;
+            /**
+             * Risk Level
+             * @default medium
+             */
+            risk_level: string;
+            /**
+             * Auto Approval Eligible
+             * @default false
+             */
+            auto_approval_eligible: boolean;
+            /** Summary */
+            summary: string;
+            /** Proposed By */
+            proposed_by: string;
+            /** Decision Notes */
+            decision_notes?: string | null;
+            /** Proposed Change */
+            proposed_change?: Record<string, never>;
+            /** Evidence Refs */
+            evidence_refs?: string[];
+            /** Impact Summary */
+            impact_summary?: Record<string, never>;
+            /** Metadata */
+            metadata?: Record<string, never>;
+        };
+        /** RuleProposalListResponse */
+        RuleProposalListResponse: {
+            /** Proposals */
+            proposals: components["schemas"]["RuleProposalResponse"][];
+            /** Total */
+            total: number;
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+        };
+        /** RuleProposalResponse */
+        RuleProposalResponse: {
+            /** Proposal Type */
+            proposal_type: string;
+            /** Domain */
+            domain: string;
+            /** Scope Type */
+            scope_type: string;
+            /** Scope Key */
+            scope_key: string;
+            /**
+             * Status
+             * @default pending_review
+             */
+            status: string;
+            /**
+             * Priority
+             * @default medium
+             */
+            priority: string;
+            /**
+             * Risk Level
+             * @default medium
+             */
+            risk_level: string;
+            /**
+             * Auto Approval Eligible
+             * @default false
+             */
+            auto_approval_eligible: boolean;
+            /** Summary */
+            summary: string;
+            /** Proposed By */
+            proposed_by: string;
+            /** Decision Notes */
+            decision_notes?: string | null;
+            /** Proposed Change */
+            proposed_change?: Record<string, never>;
+            /** Evidence Refs */
+            evidence_refs?: string[];
+            /** Impact Summary */
+            impact_summary?: Record<string, never>;
+            /** Metadata */
+            metadata?: Record<string, never>;
+            /** Proposal Key */
+            proposal_key: string;
+            /** Decided By */
+            decided_by?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Decided At */
+            decided_at?: string | null;
         };
         /** SearchFilters */
         SearchFilters: {
@@ -3286,6 +4372,29 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * SlotRequirement
+         * @description One colony world the user wants to build.
+         *
+         *     economies: 1-2 economy names that must ALL score >= min_score
+         *     on a single system (same-world constraint).
+         *
+         *     archetype_key: optional shorthand — if provided, economies and
+         *     min_score are derived from TARGET_PROFILES and can be omitted.
+         */
+        SlotRequirement: {
+            /** Economies */
+            economies?: ("Agriculture" | "Refinery" | "Industrial" | "HighTech" | "Military" | "Tourism" | "Extraction")[];
+            /** Archetype Key */
+            archetype_key?: string | null;
+            /**
+             * Min Score
+             * @default 65
+             */
+            min_score: number;
+            /** Label */
+            label?: string | null;
+        };
         /** StationModel */
         StationModel: {
             /** Id */
@@ -3552,10 +4661,20 @@ export interface components {
             government?: string | null;
             /** Is Colonised */
             is_colonised?: boolean | null;
+            /** Is Being Colonised */
+            is_being_colonised?: boolean | null;
             /** Main Star Type */
             main_star_type?: string | null;
             /** Main Star Subtype */
             main_star_subtype?: string | null;
+            /** Body Data Updated At */
+            body_data_updated_at?: unknown | null;
+            /** Body Data Sources */
+            body_data_sources?: string[] | null;
+            /** Status Updated At */
+            status_updated_at?: unknown | null;
+            /** Status Source */
+            status_source?: string | null;
             /** Score */
             score?: number | null;
             /** Score Agriculture */
@@ -4784,6 +5903,148 @@ export interface operations {
             };
         };
     };
+    run_admin_operation_api_admin_operations__operation_key__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                operation_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_operation_history_api_admin_operations_history_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_cron_status_api_admin_cron_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    station_enrichment_operator_status_api_admin_enrichment_station_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    warehouse_enrichment_operator_status_api_admin_enrichment_warehouse_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    admin_data_status_api_admin_data_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     live_events_api_events_live_get: {
         parameters: {
             query?: never;
@@ -4822,6 +6083,457 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_source_catalog_api_evidence_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceSourceCatalogResponse"];
+                };
+            };
+        };
+    };
+    list_evidence_records_api_evidence_records_get: {
+        parameters: {
+            query?: {
+                system_id64?: number | null;
+                source_name?: string | null;
+                origin?: string | null;
+                record_status?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceRecordListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_evidence_record_api_evidence_records_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidenceRecordCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceRecordResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_derived_features_api_evidence_features_get: {
+        parameters: {
+            query?: {
+                system_id64?: number | null;
+                feature_name?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedFeatureListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_derived_feature_api_evidence_features_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DerivedFeatureCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedFeatureResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_rule_proposals_api_evidence_rule_proposals_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                domain?: string | null;
+                scope_key?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleProposalListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_rule_proposal_api_evidence_rule_proposals_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleProposalCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleProposalResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    decide_rule_proposal_api_evidence_rule_proposals__proposal_key__decisions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                proposal_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RuleDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuleDecisionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    evidence_system_summary_api_evidence_systems__system_id64__summary_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceSystemSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_system_canonical_evidence_api_evidence_systems__system_id64__promote_canonical_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CanonicalEvidencePromotionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CanonicalEvidencePromotionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_frontier_journal_api_journal_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JournalImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_frontier_journal_import_api_journal_imports__run_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_frontier_journal_telemetry_api_journal_telemetry__sync_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalTelemetrySummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    promote_frontier_journal_import_api_journal_imports__run_key__promote_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JournalPromotionReceipt"];
                 };
             };
             /** @description Validation Error */
@@ -4952,7 +6664,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ClusterSearchResponse"];
                 };
             };
             /** @description Validation Error */
