@@ -56,7 +56,7 @@ describe('JournalImportPanel', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
     mockedParseJournalFiles.mockResolvedValue({
       client_manifest: {
         parser_version: 'journal-import-worker-v1',
@@ -116,7 +116,7 @@ describe('JournalImportPanel', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
     mockedParseJournalFiles.mockResolvedValue({
       client_manifest: {
         parser_version: 'journal-import-worker-v1',
@@ -199,7 +199,7 @@ describe('JournalImportPanel', () => {
       },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     renderPanel();
 

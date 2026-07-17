@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, X, Search, RotateCcw } from 'lucide-react';
+import { Plus, X, RotateCcw } from 'lucide-react';
 import { RefSystemPicker } from '@/features/search/RefSystemPicker';
 import { hasKnownCoords } from '@/lib/format';
 import { economyColor } from '@/features/colony-planner/economyVisuals';
@@ -150,7 +150,7 @@ export function ClusterSearchForm({
 // ── Slot row sub-component ──────────────────────────────────────────────
 
 function SlotRow({
-  slot, index, onRemove, onUpdate,
+  slot, onRemove, onUpdate,
 }: {
   slot:    SlotRequirement;
   index:   number;
