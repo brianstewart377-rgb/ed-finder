@@ -10,9 +10,9 @@ os.environ.setdefault('LOG_FILE', os.path.join(os.getcwd(), 'test-local.log'))
 _HERE = os.path.dirname(__file__)
 sys.path.insert(0, os.path.join(_HERE, '..', 'apps', 'api', 'src'))
 
-from ingest.slot_prediction import SlotPrediction
-from models import BuildabilityData, BuildabilityResponse, SlotPredictionResponse
-from routers.simulation import _normalise_buildability, _slot_prediction_to_api
+from edfinder_api.ingest.slot_prediction import SlotPrediction
+from edfinder_api.models import BuildabilityData, BuildabilityResponse, SlotPredictionResponse
+from edfinder_api.routers.simulation import _normalise_buildability, _slot_prediction_to_api
 
 
 class TestSimulationContracts(unittest.TestCase):

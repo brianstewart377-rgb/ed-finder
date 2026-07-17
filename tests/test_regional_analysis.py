@@ -11,11 +11,11 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from regional.regional_analysis import compute_regional_analysis, distance_ly, response_from_row
-from regional.regional_roles import classify_regional_role
-from regional.regional_scoring import archetype_regional_fit, regional_scores
-from models import RegionalAnalysisResponse
-from mechanics.versions import MECHANICS_VERSION
+from edfinder_api.regional.regional_analysis import compute_regional_analysis, distance_ly, response_from_row
+from edfinder_api.regional.regional_roles import classify_regional_role
+from edfinder_api.regional.regional_scoring import archetype_regional_fit, regional_scores
+from edfinder_api.models import RegionalAnalysisResponse
+from edfinder_api.mechanics.versions import MECHANICS_VERSION
 
 
 def system(id64: int, x: float, y: float, z: float, *, colonised: bool = False, population: int = 0):

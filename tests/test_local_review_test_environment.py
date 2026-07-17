@@ -48,7 +48,7 @@ from review_environment_fixtures import (  # noqa: E402
     review_provenance_contract_key,
     review_warehouse_contract_key,
 )
-from review_runtime_guard import (  # noqa: E402
+from edfinder_api.review_runtime_guard import (  # noqa: E402
     EXPECTED_REVIEW_DATABASE_HOST,
     EXPECTED_REVIEW_DATABASE_NAME,
     EXPECTED_REVIEW_REDIS_HOST,
@@ -738,19 +738,19 @@ def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatc
 
     assert any(
         route.path == '/api/v2/watchlist/{sync_key}'
-        and route.endpoint.__module__ == 'routers.watchlist'
+            and route.endpoint.__module__ == 'edfinder_api.routers.watchlist'
         and route.endpoint.__name__ == 'get_watchlist'
         for route in routes
     )
     assert any(
         route.path == '/api/v2/watchlist/{sync_key}/{id64}'
-        and route.endpoint.__module__ == 'routers.watchlist'
+        and route.endpoint.__module__ == 'edfinder_api.routers.watchlist'
         and route.endpoint.__name__ == 'add_watchlist'
         for route in routes
     )
     assert any(
         route.path == '/api/v2/watchlist/{sync_key}/{id64}'
-        and route.endpoint.__module__ == 'routers.watchlist'
+        and route.endpoint.__module__ == 'edfinder_api.routers.watchlist'
         and route.endpoint.__name__ == 'remove_watchlist'
         for route in routes
     )
@@ -766,7 +766,7 @@ def test_review_main_unscoped_watchlist_returns_production_gone(monkeypatch: pyt
 
     assert len(legacy_routes) == 1
     legacy_route = legacy_routes[0]
-    assert legacy_route.endpoint.__module__ == 'routers.watchlist'
+    assert legacy_route.endpoint.__module__ == 'edfinder_api.routers.watchlist'
     assert legacy_route.endpoint.__name__ == 'legacy_get'
 
     with pytest.raises(HTTPException) as exc:

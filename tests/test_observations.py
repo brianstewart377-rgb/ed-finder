@@ -21,15 +21,15 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
-from edfinder_api.deps import get_pool
-from observations.api_models import ObservedFactCreateRequest, ObservedFactUpdateRequest
-from observations.models import (
+from edfinder_api.deps import get_pool, require_admin
+from edfinder_api.observations.api_models import ObservedFactCreateRequest, ObservedFactUpdateRequest
+from edfinder_api.observations.models import (
     ObservationFactSummary,
     PersistedObservedFact,
     summarise_observed_facts,
 )
-from observations.store import row_to_observed_fact
-from routers import observations as observations_router
+from edfinder_api.observations.store import row_to_observed_fact
+from edfinder_api.routers import observations as observations_router
 
 
 class FakeObservedFactStore:
@@ -114,6 +114,7 @@ def app(fake_store: FakeObservedFactStore) -> FastAPI:
     test_app = FastAPI()
     test_app.include_router(observations_router.router)
     test_app.dependency_overrides[get_pool] = lambda: object()
+    test_app.dependency_overrides[require_admin] = lambda: None
     return test_app
 
 

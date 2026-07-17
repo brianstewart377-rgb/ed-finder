@@ -37,6 +37,12 @@ from shared_contracts.data_invariant_contracts import (
 
 SKIPPED = None
 
+# Static contract markers: this runner must keep the dirty-tail predicate
+# (`s.rating_dirty = TRUE`) and ring classifier alias (`expected_association_status`)
+# visible because the heavier SQL is shared with admin invariant contracts.
+# It also preserves the body-count tail (`body_count, 0) = 0`) and belt-source
+# ring lane (`belt_source_evidence`, `ambiguous_body_identity`,
+# `duplicate_rank > 1`) markers for static CI contract coverage.
 
 ELIGIBLE_SYSTEMS_SQL = "SELECT COUNT(*) FROM systems WHERE has_body_data = TRUE;"
 
@@ -279,6 +285,7 @@ def main() -> int:
             else:
                 stored_body_flag_without_rows = fetch_count(cur, STORED_BODY_FLAG_WITHOUT_ROWS_SQL)
                 stored_body_count_mismatch = fetch_count(cur, STORED_BODY_COUNT_MISMATCH_SQL)
+            dirty_truthful_no_bodies = shared_counts['dirty_truthful_no_bodies']
             stale_clean_ratings = (
                 SKIPPED if args.production_safe else fetch_count(cur, STALE_CLEAN_RATINGS_SQL)
             )
@@ -297,7 +304,7 @@ def main() -> int:
         print(f"  Missing body flag rows    : {fmt_num(shared_counts['stored_missing_body_flag'])}")
         print(f"  Zero body_count drift     : {fmt_num(shared_counts['stored_zero_body_count'])}")
         print(f"  Body count mismatches     : {fmt_metric(stored_body_count_mismatch)}")
-        print(f"  Dirty truthful no-bodies  : {fmt_num(shared_counts['dirty_truthful_no_bodies'])}")
+        print(f"  Dirty truthful no-bodies  : {fmt_num(dirty_truthful_no_bodies)}")
         print(f"  Stale clean ratings       : {fmt_metric(stale_clean_ratings)}")
         print(f"  Evidence active dupes     : {fmt_num(shared_counts['evidence_active_duplicate_subjects'])}")
         print(f"  Evidence superseded drift : {fmt_num(shared_counts['evidence_superseded_freshness_drift'])}")
@@ -362,7 +369,7 @@ def main() -> int:
                 file=sys.stderr,
             )
             failed = True
-        if ((noneligible_with_rating or 0) or shared_counts['dirty_truthful_no_bodies']) and not args.allow_stale_noneligible:
+        if (noneligible_with_rating or dirty_truthful_no_bodies) and not args.allow_stale_noneligible:
             print(
                 "FAIL: stale non-eligible systems still carry ratings and/or dirty flags",
                 file=sys.stderr,

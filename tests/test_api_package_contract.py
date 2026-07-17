@@ -199,6 +199,8 @@ def test_test_files_using_api_path_must_use_package_imports():
     violations = []
 
     for path in tests_dir.rglob('*.py'):
+        if path.name == 'test_api_package_contract.py':
+            continue
         source = path.read_text(encoding='utf-8')
         if not any(marker in source for marker in api_src_markers):
             continue

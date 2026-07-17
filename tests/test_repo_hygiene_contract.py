@@ -1,4 +1,5 @@
 from pathlib import Path
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,10 +20,18 @@ ALLOWED_VISIBLE_ROOT_FILES = {
 
 
 def _visible_root_files() -> set[str]:
+    result = subprocess.run(
+        ['git', '-C', str(ROOT), 'ls-files', '--'],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
     return {
-        path.name
-        for path in ROOT.iterdir()
-        if path.is_file() and not path.name.startswith('.')
+        Path(line).name
+        for line in result.stdout.splitlines()
+        if line
+        and '/' not in line.replace('\\', '/')
+        and not Path(line).name.startswith('.')
     }
 
 
@@ -43,4 +52,4 @@ def test_repo_hygiene_policy_exists_and_names_the_machine_guards():
     assert 'Repo Hygiene Contract' in source
     assert 'tests/test_bounded_hygiene_pass.py' in source
     assert 'tests/test_repo_hygiene_contract.py' in source
-    assert 'Repo root is allowlist-only for visible files.' in source
+    assert 'Repo root is allowlist-only for tracked visible files.' in source

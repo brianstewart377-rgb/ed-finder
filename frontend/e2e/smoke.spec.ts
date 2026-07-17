@@ -52,19 +52,8 @@ test.describe('ED Finder — smoke', () => {
   test('search runs and renders at least one result', async ({ page, request }) => {
     await waitForSearchBackend(request);
     await page.goto('/');
-    // Wait for either a result-card to appear or the "No systems found"
-    // empty state — whichever the seed data produces. The previous
-    // wait-on-"Scanning systems"-disappearing was racy on a fast local
-    // backend (the spinner can come and go before Playwright's first
-    // poll). Use a positive condition instead.
-    await page.waitForFunction(
-      () => {
-        const t = document.body.innerText;
-        return t.includes('shown') || t.includes('No systems found');
-      },
-      null,
-      { timeout: 15_000 },
-    );
+    await page.getByTestId('search-submit').click();
+    await expect(page.getByTestId('search-summary')).toBeVisible({ timeout: 15_000 });
     // After a successful search the body should mention at least one
     // seeded system name. We don't know exactly which 5 the API returns
     // (sort_by=rating descending), so check for any of the 40 seeded
@@ -89,7 +78,7 @@ test.describe('ED Finder — smoke', () => {
       }]));
     });
     await page.reload();
-    await page.getByTestId('nav-primary-plan').click();
+    await page.getByTestId('nav-my-work').click();
     // Pins now feed the Saved Systems view inside My Work.
     await expect(page.getByTestId('my-work-workspace')).toBeVisible({ timeout: 5_000 });
     await expect(page.getByTestId('saved-system-12345')).toContainText('Persisted');

@@ -6,11 +6,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from domain.colonisation_rules import profile_body
-from models import SimulateBuildRequest, SimulateBuildResponse
-from recommendations.body_selector import BodyCandidate
-from recommendations.build_generator import BuildPlanDraft
-from recommendations.plan_ranker import rank_plans
+from edfinder_api.domain.colonisation_rules import profile_body
+from edfinder_api.models import SimulateBuildRequest, SimulateBuildResponse
+from edfinder_api.recommendations.body_selector import BodyCandidate
+from edfinder_api.recommendations.build_generator import BuildPlanDraft
+from edfinder_api.recommendations.plan_ranker import rank_plans
 
 
 def draft(plan_id: str) -> BuildPlanDraft:

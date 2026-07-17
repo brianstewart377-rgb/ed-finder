@@ -39,7 +39,11 @@ class LivePlannerEvidenceResult:
     evaluated_at: str | None
     manual_review_required: bool
     bounded_staging: WarehousePlannerEvidenceBoundedStaging
-    coverage: WarehousePlannerEvidenceCoverage
+    coverage: WarehousePlannerEvidenceCoverage = field(
+        default_factory=lambda: _unknown_coverage(
+            'Selected-system coverage has not been evaluated in this runtime yet.',
+        ),
+    )
     warnings: list[str] = field(default_factory=list)
 
 

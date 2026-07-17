@@ -9,11 +9,11 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from domain.facilities import FacilityTemplate
-from models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
-from optimiser.candidate_generator import generate_candidates
-from optimiser.dedupe import placement_fingerprint
-from optimiser.models import (
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.models import OptimiserCandidatesRequest, OptimiserCandidatesResponse
+from edfinder_api.optimiser.candidate_generator import generate_candidates
+from edfinder_api.optimiser.dedupe import placement_fingerprint
+from edfinder_api.optimiser.models import (
     CandidateGenerationRequest,
     CandidatePlacement,
     CandidatePreviewSummary,
@@ -22,8 +22,8 @@ from optimiser.models import (
     candidate_to_dict,
     ranking_result_to_dict,
 )
-from optimiser.ranker import rank_candidates
-from routers.optimiser import post_optimiser_candidates
+from edfinder_api.optimiser.ranker import rank_candidates
+from edfinder_api.routers.optimiser import post_optimiser_candidates
 
 
 class MockConnection:
@@ -211,7 +211,7 @@ async def endpoint_payload(
     async def fake_catalogue(pool):
         return catalogue
 
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    monkeypatch.setattr('edfinder_api.routers.optimiser._catalogue_or_db', fake_catalogue)
     response = await post_optimiser_candidates(
         OptimiserCandidatesRequest(
             system_id64=system_id64,
@@ -460,7 +460,7 @@ async def test_endpoint_returns_safe_error_without_raw_exception(catalogue, monk
         def acquire(self):
             raise RuntimeError('database schema exploded with private details')
 
-    monkeypatch.setattr('routers.optimiser._catalogue_or_db', fake_catalogue)
+    monkeypatch.setattr('edfinder_api.routers.optimiser._catalogue_or_db', fake_catalogue)
     with pytest.raises(HTTPException) as exc_info:
         await post_optimiser_candidates(
             OptimiserCandidatesRequest(

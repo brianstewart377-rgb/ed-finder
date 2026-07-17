@@ -15,9 +15,9 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from colony_planner.layout_import_models import LayoutImportResponse, LayoutImportSummary
-from colony_planner.layout_import_provider import get_layout_import_provider
-from routers.colony_planner import router
+from edfinder_api.colony_planner.layout_import_models import LayoutImportResponse, LayoutImportSummary
+from edfinder_api.colony_planner.layout_import_provider import get_layout_import_provider
+from edfinder_api.routers.colony_planner import router
 
 
 class FakeProvider:
@@ -130,8 +130,8 @@ async def test_layout_import_endpoint_does_not_call_simulation_or_optimiser(monk
     def forbidden(*args, **kwargs):
         raise AssertionError('simulation or optimiser must not run during layout import')
 
-    monkeypatch.setattr('optimiser.candidate_generator.generate_candidates', forbidden)
-    monkeypatch.setattr('simulation.build_preview.simulate_build_preview', forbidden)
+    monkeypatch.setattr('edfinder_api.optimiser.candidate_generator.generate_candidates', forbidden)
+    monkeypatch.setattr('edfinder_api.simulation.build_preview.simulate_build_preview', forbidden)
     provider = FakeProvider(response())
 
     result = await post_import(provider)

@@ -9,9 +9,9 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 
-from domain.facilities import FacilityTemplate
-from models import SimulateBuildResponse
-from simulation.build_preview import (
+from edfinder_api.domain.facilities import FacilityTemplate
+from edfinder_api.models import SimulateBuildResponse
+from edfinder_api.simulation.build_preview import (
     PreviewContext,
     PreviewPlacement,
     resolve_preview_placements,

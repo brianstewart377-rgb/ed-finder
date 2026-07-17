@@ -111,7 +111,10 @@ async def clean_db():
     it (and slow the suite). Uses a separate connection to keep the
     truncate transaction tiny.
     """
-    db_isolation.require_destructive_reset_opt_in(os.environ)
+    try:
+        db_isolation.require_destructive_reset_opt_in(os.environ)
+    except db_isolation.DbIsolationError as exc:
+        pytest.skip(str(exc))
     pool = await asyncpg.create_pool(
         dsn=os.environ['DATABASE_URL'], min_size=1, max_size=2,
         statement_cache_size=0,
