@@ -88,7 +88,7 @@ INSERT INTO stations (id, system_id64, name, station_type, distance_from_star, b
 ON CONFLICT (id) DO NOTHING;
 
 -- Pre-populate ratings so /api/search returns scored systems
-INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery, score_industrial, score_hightech, score_military, score_tourism, economy_suggestion, elw_count, ww_count, ammonia_count, gas_giant_count, rocky_count, metal_rich_count, icy_count, hmc_count, landable_count, terraformable_count, bio_signal_total, geo_signal_total, slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus)
+INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery, score_industrial, score_hightech, score_military, score_tourism, economy_suggestion, elw_count, ww_count, ammonia_count, gas_giant_count, rocky_count, metal_rich_count, icy_count, hmc_count, landable_count, terraformable_count, bio_signal_total, geo_signal_total, slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus, rating_version)
 SELECT id64,
   -- Compose a deterministic "score" from population & body_count for variety
   LEAST(95, 30 + (body_count * 4) + LEAST(40, GREATEST(0, ((population)::bigint / 1000000)::int)))::smallint,
@@ -108,7 +108,7 @@ SELECT id64,
   -- (16 values to match the 16 trailing target columns — the previous
   -- 17-value list raised "INSERT has more expressions than target columns"
   -- and left the seed `ratings` table empty, breaking integration tests).
-  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 70, 75, 80, 75, 5
+  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 70, 75, 80, 75, 5, '3.4'
 FROM systems
 ON CONFLICT (system_id64) DO NOTHING;
 
