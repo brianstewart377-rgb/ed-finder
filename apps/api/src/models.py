@@ -293,10 +293,25 @@ class SystemDetailRow(BaseModel):
     is_being_colonised: Optional[bool] = None
     main_star_type:     Optional[str]  = None
     main_star_subtype:  Optional[str]  = None
-    body_data_updated_at: Optional[Any] = None
+    body_data_updated_at: Optional[str] = None
     body_data_sources: Optional[list[str]] = None
-    status_updated_at: Optional[Any] = None
+    status_updated_at: Optional[str] = None
     status_source: Optional[str] = None
+
+    # Archetype / buildability (from LEFT JOIN mv_archetype_rankings in the
+    # /api/system/{id64} handler — nullable when no ranking row exists). CQ-030:
+    # previously flowed through as extra='allow' untyped extras, so absent from
+    # the OpenAPI schema and the frontend had to hand-augment. Declared here so
+    # the schema is honest.
+    primary_archetype:             Optional[str]   = None
+    secondary_archetype:           Optional[str]   = None
+    archetype_confidence:          Optional[float] = None
+    overall_development_potential: Optional[float] = None
+    buildability_score:            Optional[float] = None
+    build_complexity:              Optional[str]   = None
+    purity_score:                  Optional[float] = None
+    contamination_risk:            Optional[float] = None
+    est_total_slots:               Optional[int]   = None
 
     # Flat rating fields (joined from ratings table; snake_case here).
     score:                  Optional[float] = None
