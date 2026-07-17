@@ -88,7 +88,7 @@ INSERT INTO stations (id, system_id64, name, station_type, distance_from_star, b
 ON CONFLICT (id) DO NOTHING;
 
 -- Pre-populate ratings so /api/search returns scored systems
-INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery, score_industrial, score_hightech, score_military, score_tourism, economy_suggestion, elw_count, ww_count, ammonia_count, gas_giant_count, rocky_count, metal_rich_count, icy_count, hmc_count, landable_count, terraformable_count, bio_signal_total, geo_signal_total, slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus)
+INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery, score_industrial, score_hightech, score_military, score_tourism, economy_suggestion, elw_count, ww_count, ammonia_count, gas_giant_count, rocky_count, metal_rich_count, icy_count, hmc_count, landable_count, terraformable_count, bio_signal_total, geo_signal_total, slots, body_quality, compactness, signal_quality, orbital_safety, star_bonus, rating_version)
 SELECT id64,
   -- Compose a deterministic "score" from population & body_count for variety
   LEAST(95, 30 + (body_count * 4) + LEAST(40, GREATEST(0, ((population)::bigint / 1000000)::int)))::smallint,
@@ -108,9 +108,20 @@ SELECT id64,
   -- (16 values to match the 16 trailing target columns — the previous
   -- 17-value list raised "INSERT has more expressions than target columns"
   -- and left the seed `ratings` table empty, breaking integration tests).
-  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 70, 75, 80, 75, 5
+  0, 2, 3, 1, 1, 2, 2, 3, 4, 8, 5, 70, 75, 80, 75, 5, '3.4'
 FROM systems
 ON CONFLICT (system_id64) DO NOTHING;
+
+-- CQ-026: reconcile stored body-data flags/counts with the actual bodies
+-- rows so the data-trust invariants (stored_body_flag_without_rows,
+-- stored_missing_body_flag, stored_zero_body_count, stored_body_count_mismatch)
+-- hold. Runs after the ratings insert so score variety (computed from the
+-- authored body_count above) is preserved. Systems with no bodies rows in
+-- this fixture become has_body_data=false / body_count=0 — the honest state
+-- for a test seed that cannot claim body data it does not have.
+UPDATE systems s SET
+  body_count    = COALESCE((SELECT COUNT(*) FROM bodies b WHERE b.system_id64 = s.id64), 0),
+  has_body_data = EXISTS (SELECT 1 FROM bodies b WHERE b.system_id64 = s.id64);
 
 -- Mark them as not dirty so build_ratings doesn't try to recompute
 UPDATE systems SET rating_dirty = false, cluster_dirty = false WHERE rating_dirty = true;
