@@ -25,7 +25,7 @@ from edfinder_api.config import settings, limiter, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set, inc_metric, log_slow
 from edfinder_api.models import (
     SearchResponse, SearchFilters, LocalSearchRequest,
-    GalaxySearchRequest, ClusterSearchRequest, AutocompleteResponse,
+    GalaxySearchRequest, ClusterSearchRequest, ClusterSearchResponse, AutocompleteResponse,
 )
 
 # Single search implementation. If this import fails the app cannot
@@ -225,7 +225,7 @@ async def galaxy_search(
 # ---------------------------------------------------------------------------
 # Cluster search
 # ---------------------------------------------------------------------------
-@router.post('/api/search/cluster')
+@router.post('/api/search/cluster', response_model=ClusterSearchResponse)
 @limiter.limit(settings.rate_limit_search)
 async def cluster_search(
     request: Request,
