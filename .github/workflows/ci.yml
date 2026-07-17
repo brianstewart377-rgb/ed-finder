@@ -410,6 +410,7 @@ jobs:
           CORS_ORIGINS: http://test
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
+          PYTHONPATH:   ${{ github.workspace }}
         working-directory: apps/api/src
         run: |
           nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
@@ -538,6 +539,7 @@ jobs:
           CORS_ORIGINS: http://localhost:4173
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
+          PYTHONPATH:   ${{ github.workspace }}
         working-directory: apps/api/src
         run: |
           nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
