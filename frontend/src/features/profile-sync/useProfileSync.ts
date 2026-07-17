@@ -3,7 +3,7 @@ import {
   rehydrateColonyProjectStore,
   type ColonyProject,
 } from '@/features/colony-planner/colonyProjectStore';
-import { rehydrateExpansionPlanStore } from '@/features/expansion-plans/expansionPlanStore';
+import { rehydrateExpansionPlanStore, type ExpansionPlan } from '@/features/expansion-plans/expansionPlanStore';
 import type { FcWaypoint, FcConfig } from '@/features/fc-planner/useFcPlanner';
 import {
   rehydrateMyWorkStore,
@@ -68,6 +68,7 @@ export interface ProfileBlob {
   ed_fc_v2?:      { waypoints: FcWaypoint[]; config: FcConfig };
   ed_my_work_v1?: PersistedStoreEnvelope<{ systems: Record<string, MyWorkSystemRecord> }>;
   ed_colony_projects_v1?: PersistedStoreEnvelope<{ projects: Record<string, ColonyProject> }>;
+  ed_expansion_plans_v1?: PersistedStoreEnvelope<{ plans: Record<string, ExpansionPlan> }>;
 }
 
 function gatherLocalBlob(): ProfileBlob {
@@ -86,6 +87,7 @@ function gatherLocalBlob(): ProfileBlob {
     ed_fc_v2:       read('ed_fc_v2'),
     ed_my_work_v1:  read('ed_my_work_v1'),
     ed_colony_projects_v1: read('ed_colony_projects_v1'),
+    ed_expansion_plans_v1: read('ed_expansion_plans_v1'),
   };
 }
 
@@ -111,8 +113,6 @@ function applyLocalBlob(blob: ProfileBlob): void {
   void rehydrateMyWorkStore();
   void rehydrateColonyProjectStore();
   void rehydrateExpansionPlanStore();
-
-  void rehydratePinnedStore();
 
   // Force the in-memory hooks to re-read by firing a synthetic 'storage'
   // event. They listen for it to support cross-tab sync; we get a
