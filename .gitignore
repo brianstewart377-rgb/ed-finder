@@ -166,3 +166,4 @@ artifacts/restore-rehearsals/latest.dump
 .playwright-mcp/
 ed-finder-deployed.png
 ed-finder-finder-page.png
+tools/
