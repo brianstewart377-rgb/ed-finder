@@ -33,7 +33,7 @@ import {
   useExpansionPlanStore,
   type ExpansionPlan,
 } from '@/features/expansion-plans/expansionPlanStore';
-import { expansionPlanStatusLabel, computeExpansionPlanStatus } from './expansionPlanStatus';
+import { computeExpansionPlanStatus } from './expansionPlanStatus';
 import { economyColor } from '@/features/colony-planner/economyVisuals';
 import type { JournalTelemetryRecentSystem } from '@/types/api';
 

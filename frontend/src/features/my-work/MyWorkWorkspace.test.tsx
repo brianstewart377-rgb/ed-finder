@@ -74,7 +74,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -93,7 +93,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     renderWorkspace(
       <MyWorkWorkspace
@@ -136,7 +136,7 @@ describe('MyWorkWorkspace', () => {
       },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     const watchlist = makeWatchlist({
       entries: [{
@@ -203,7 +203,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     const watchlistRemove = vi.fn().mockResolvedValue(undefined);
     const pinnedRemove = vi.fn();
@@ -271,7 +271,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     const onOpenPlanner = vi.fn();
     let projectB: ColonyProject | undefined;
@@ -346,7 +346,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     let project: ColonyProject | undefined;
     runStoreUpdate(() => {
@@ -392,7 +392,7 @@ describe('MyWorkWorkspace', () => {
       data: null,
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     let activePlan: ColonyProject | undefined;
     runStoreUpdate(() => {
@@ -494,7 +494,7 @@ describe('MyWorkWorkspace', () => {
       },
       isLoading: false,
       error: null,
-    } as ReturnType<typeof useJournalTelemetrySummary>);
+    } as unknown as ReturnType<typeof useJournalTelemetrySummary>);
 
     renderWorkspace(
       <MyWorkWorkspace
