@@ -587,6 +587,64 @@ class ClusterSearchRequest(BaseModel):
         return self
 
 
+class ClusterResult(BaseModel):
+    # Result model — extra='allow' per models.py strictness policy (SQL
+    # projections legitimately carry enriched fields). Fields typed here drive
+    # the generated api.gen.ts; nullability grounded in sql/001_schema.sql +
+    # sql/003_functions.sql. Response shape matched EXACTLY as returned by
+    # local_search.local_db_cluster_search — do not reshape.
+    model_config = ConfigDict(extra='allow')
+
+    anchor_id64:       int
+    system_id64:       int
+    anchor_name:       str
+    anchor_x:          float
+    anchor_y:          float
+    anchor_z:          float
+    anchor_coords:     CoordsModel
+    galaxy_region_id:  Optional[int] = None
+    galaxy_region:     Optional[str] = None
+    coverage_score:    Optional[float] = None
+    economy_diversity: int
+    total_viable:      int
+    agriculture_count: int
+    agriculture_best:  Optional[int] = None
+    agriculture_top_id: Optional[int] = None
+    refinery_count:    int
+    refinery_best:     Optional[int] = None
+    refinery_top_id:   Optional[int] = None
+    industrial_count:  int
+    industrial_best:   Optional[int] = None
+    industrial_top_id: Optional[int] = None
+    hightech_count:    int
+    hightech_best:     Optional[int] = None
+    hightech_top_id:   Optional[int] = None
+    military_count:    int
+    military_best:     Optional[int] = None
+    military_top_id:   Optional[int] = None
+    tourism_count:     int
+    tourism_best:      Optional[int] = None
+    tourism_top_id:    Optional[int] = None
+    distance_ly:       Optional[float] = None
+    cluster_radius_ly: float
+    slots:             Optional[list[dict]] = None
+
+
+class ClusterSearchResponse(BaseModel):
+    # Response envelope for POST /api/search/cluster. extra='allow' (not
+    # 'forbid') because the endpoint has success and error-dict return shapes;
+    # error is optional to cover the {error, clusters:[]} early-return paths.
+    model_config = ConfigDict(extra='allow')
+
+    clusters:          list[ClusterResult] = Field(default_factory=list)
+    count:             Optional[int] = None
+    cluster_radius_ly: Optional[float] = None
+    query_ms:          Optional[int] = None
+    slots:             Optional[list[dict]] = None
+    requirements:      Optional[list[dict]] = None
+    error:             Optional[str] = None
+
+
 # ══════════════════════════════════════════════════════════════════════
 # Archetype engine models (v4.0 — Phase 3)
 #
