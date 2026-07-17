@@ -112,6 +112,17 @@ SELECT id64,
 FROM systems
 ON CONFLICT (system_id64) DO NOTHING;
 
+-- CQ-026: reconcile stored body-data flags/counts with the actual bodies
+-- rows so the data-trust invariants (stored_body_flag_without_rows,
+-- stored_missing_body_flag, stored_zero_body_count, stored_body_count_mismatch)
+-- hold. Runs after the ratings insert so score variety (computed from the
+-- authored body_count above) is preserved. Systems with no bodies rows in
+-- this fixture become has_body_data=false / body_count=0 — the honest state
+-- for a test seed that cannot claim body data it does not have.
+UPDATE systems s SET
+  body_count    = COALESCE((SELECT COUNT(*) FROM bodies b WHERE b.system_id64 = s.id64), 0),
+  has_body_data = EXISTS (SELECT 1 FROM bodies b WHERE b.system_id64 = s.id64);
+
 -- Mark them as not dirty so build_ratings doesn't try to recompute
 UPDATE systems SET rating_dirty = false, cluster_dirty = false WHERE rating_dirty = true;
 
