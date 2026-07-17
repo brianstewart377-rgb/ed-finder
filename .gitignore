@@ -160,3 +160,9 @@ _promote_main_cleanup/
 artifacts/frontend-bundles/*.tar.gz
 artifacts/frontend-bundles/*.tar.gz.sha256
 artifacts/restore-rehearsals/latest.dump
+
+# Tool and session artifacts
+.mcp.json
+.playwright-mcp/
+ed-finder-deployed.png
+ed-finder-finder-page.png

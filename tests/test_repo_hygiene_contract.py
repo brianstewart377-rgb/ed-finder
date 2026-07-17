@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_VISIBLE_ROOT_FILES = {
     'CHANGES.md',
+    'CLAUDE.md',
     'docker-compose.local.yml',
     'docker-compose.review-hosted.yml',
     'docker-compose.review.yml',
