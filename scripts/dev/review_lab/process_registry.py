@@ -9,6 +9,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Mapping
 
+from .contract import resolve_platform_command
+
 
 @dataclass
 class ManagedProcessRecord:
@@ -44,7 +46,7 @@ class ReviewProcessRegistry:
         stdout_handle = stdout_path.open('w', encoding='utf-8')
         stderr_handle = stderr_path.open('w', encoding='utf-8')
         process = subprocess.Popen(
-            command,
+            resolve_platform_command(command),
             cwd=cwd,
             env={**os.environ, **dict(env)},
             stdout=stdout_handle,
@@ -113,13 +115,26 @@ def _process_group_id(process: subprocess.Popen[str]) -> int:
 
 def _terminate_process_group(process: subprocess.Popen[str], pgid: int) -> None:
     if os.name == 'nt':
-        process.terminate()
+        _run_windows_taskkill(process.pid, force=False)
         return
     os.killpg(pgid, signal.SIGTERM)
 
 
 def _kill_process_group(process: subprocess.Popen[str], pgid: int) -> None:
     if os.name == 'nt':
-        process.kill()
+        _run_windows_taskkill(process.pid, force=True)
         return
     os.killpg(pgid, signal.SIGKILL)
+
+
+def _run_windows_taskkill(pid: int, *, force: bool) -> None:
+    command = ['taskkill', '/PID', str(pid), '/T']
+    if force:
+        command.append('/F')
+    subprocess.run(
+        command,
+        capture_output=True,
+        check=False,
+        encoding='utf-8',
+        errors='replace',
+    )

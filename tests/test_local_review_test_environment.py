@@ -240,8 +240,11 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     assert set(route_map) >= {
         '/api/events/live',
         '/api/events/recent',
+        '/api/news/latest',
         '/api/v2/watchlist/{sync_key}',
         '/api/cache/stats',
+        '/api/archetypes/system/{id64}',
+        '/api/evidence/systems/{id64}/summary',
         '/api/facility-templates',
         '/api/systems/{id64}/simulation-summary',
         '/api/systems/{id64}/slot-predictions',
@@ -252,6 +255,10 @@ def test_support_route_matrix_covers_required_reviewed_flow_endpoints():
     assert route_map['/api/v2/watchlist/{sync_key}']['required_for_reviewed_flow'] is False
     assert route_map['/api/v2/watchlist/{sync_key}']['frontend_caller'] == 'useWatchlist scoped bootstrap'
     assert route_map['/api/events/live']['frontend_caller'] == 'useEddnFeed SSE bootstrap'
+    assert route_map['/api/news/latest']['frontend_caller'] == 'EliteNewsBar background query'
+    assert route_map['/api/news/latest']['required_for_reviewed_flow'] is True
+    assert route_map['/api/archetypes/system/{id64}']['required_for_reviewed_flow'] is True
+    assert route_map['/api/evidence/systems/{id64}/summary']['required_for_reviewed_flow'] is True
     assert route_map['/api/events/live']['validation_mode'] == 'api_contract_validated'
     assert all(row['validation_mode'] in {
         'api_contract_validated',
@@ -327,12 +334,34 @@ def test_every_api_contract_validated_support_route_is_exercised_by_api_contract
             }
         if route == '/api/events/recent':
             return {'status': 200, 'body': {'events': [], 'jobs': {}}}
+        if route == '/api/news/latest?limit=8':
+            return {
+                'status': 200,
+                'body': {
+                    'items': [],
+                    'source_url': 'review-only://synthetic-empty-news',
+                    'fetched_at': '1970-01-01T00:00:00Z',
+                    'stale': False,
+                },
+            }
         if route.startswith('/api/v2/watchlist/'):
             return {'status': 200, 'body': {'sync_key': route.rsplit('/', 1)[1], 'watchlist': []}}
         if route == '/api/watchlist':
             return {'status': 410, 'body': {'detail': {'status': 410}}}
         if route == '/api/cache/stats':
             return {'status': 200, 'body': {'cache_hits': 0, 'cache_misses': 0, 'db_cache_rows': 0}}
+        if route == '/api/archetypes/system/7200000000001':
+            return {'status': 200, 'body': {'id64': 7200000000001, 'name': 'Review Alpha', 'archetypes': {}}}
+        if route == '/api/evidence/systems/7200000000001/summary':
+            return {
+                'status': 200,
+                'body': {
+                    'system_id64': 7200000000001,
+                    'observed_fact_count': 0,
+                    'records': [],
+                    'focus_areas': [],
+                },
+            }
         if route == '/api/facility-templates':
             return {'status': 200, 'body': [{'name': 'Outpost'}]}
         if route.endswith('/simulation-summary'):
@@ -361,6 +390,9 @@ def test_every_api_contract_validated_support_route_is_exercised_by_api_contract
     }
     assert set(result['safe_diagnostics']['support_routes_checked']) == expected_routes
     assert '/api/events/live' in result['safe_diagnostics']['support_routes_checked']
+    assert '/api/news/latest' in result['safe_diagnostics']['support_routes_checked']
+    assert '/api/archetypes/system/{id64}' in result['safe_diagnostics']['support_routes_checked']
+    assert '/api/evidence/systems/{id64}/summary' in result['safe_diagnostics']['support_routes_checked']
 
 
 @pytest.mark.unit
@@ -735,20 +767,58 @@ async def test_review_runtime_alpha_beta_gamma_scenarios_remain_valid():
     assert gamma_provenance.provenance_summary.state == 'unknown'
 
 
-def test_review_support_routes_return_synthetic_empty_read_only_event_cache_payloads():
+def test_review_support_routes_return_synthetic_empty_read_only_payloads():
     async def _call_support_routes():
         live_response = await review_support_backend.review_live_events()
         recent_response = await review_support_backend.review_recent_events()
+        news_response = await review_support_backend.review_latest_news()
         cache_stats_response = await review_support_backend.review_cache_stats()
-        return live_response, recent_response, cache_stats_response
+        return live_response, recent_response, news_response, cache_stats_response
 
-    live, recent, cache_stats = asyncio.run(_call_support_routes())
+    live, recent, news, cache_stats = asyncio.run(_call_support_routes())
 
     assert live.media_type == 'text/event-stream'
     assert recent == {'events': [], 'jobs': {}}
+    assert news == {
+        'items': [],
+        'source_url': 'review-only://synthetic-empty-news',
+        'fetched_at': '1970-01-01T00:00:00Z',
+        'stale': False,
+    }
     assert cache_stats.cache_hits == 0
     assert cache_stats.db_cache_rows == 0
     assert cache_stats.redis_memory_mb == 0.0
+
+
+def test_review_system_detail_support_routes_delegate_only_to_read_only_handlers(monkeypatch: pytest.MonkeyPatch):
+    pool = object()
+    calls: list[tuple[str, int, object]] = []
+
+    async def _fake_archetypes(request, id64):
+        calls.append(('archetypes', id64, request))
+        return {'id64': id64, 'name': 'Review Alpha', 'archetypes': {}}
+
+    async def _fake_evidence(system_id64, delegated_pool):
+        calls.append(('evidence', system_id64, delegated_pool))
+        return {'system_id64': system_id64, 'records': [], 'focus_areas': []}
+
+    monkeypatch.setattr(review_support_backend, 'get_system_archetypes', _fake_archetypes)
+    monkeypatch.setattr(review_support_backend, 'evidence_system_summary', _fake_evidence)
+    async def _fake_get_pool():
+        return pool
+
+    monkeypatch.setattr(review_support_backend, 'get_pool', _fake_get_pool)
+
+    request = object()
+    archetypes = asyncio.run(review_support_backend.review_system_archetypes(request, 7200000000001))
+    evidence = asyncio.run(review_support_backend.review_evidence_system_summary(7200000000001))
+
+    assert archetypes['id64'] == 7200000000001
+    assert evidence['system_id64'] == 7200000000001
+    assert calls == [
+        ('archetypes', 7200000000001, request),
+        ('evidence', 7200000000001, pool),
+    ]
 
 
 def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatch):
@@ -855,27 +925,13 @@ def test_frontend_target_remains_compatible_with_review_api():
 
 
 @pytest.mark.unit
-def test_review_lab_workflow_exists_and_uses_review_lab_specific_triggers():
+def test_review_lab_workflow_exists_and_runs_on_every_pull_request():
     workflow = _review_lab_workflow_text()
     assert REVIEW_LAB_WORKFLOW_PATH.is_file()
     assert re.search(r'(?m)^name:\s+Review Lab\s*$', workflow)
     assert re.search(r'(?m)^\s*workflow_dispatch:\s*$', workflow)
     assert re.search(r'(?m)^\s*pull_request:\s*$', workflow)
-    for path_fragment in (
-        '.github/workflows/review-lab.yml',
-        'docker-compose.review.yml',
-        'scripts/dev/review_environment.py',
-        'scripts/dev/review_lab/**',
-        'scripts/dev/review_environment_seed.py',
-        'apps/api/src/review_*.py',
-        'frontend/e2e/review-environment.spec.js',
-        'frontend/playwright.config.ts',
-        'frontend/package.json',
-        'frontend/yarn.lock',
-        'docs/development/local-review-test-environment.md',
-        'tests/test_local_review_test_environment.py',
-    ):
-        assert path_fragment in workflow
+    assert not re.search(r'(?m)^\s+paths(?:-ignore)?:\s*$', workflow)
 
 
 @pytest.mark.unit
@@ -1107,10 +1163,32 @@ def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malforme
 @pytest.mark.unit
 def test_browser_result_card_expansion_helper_is_idempotent():
     source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
+    assert "card.getByRole('button', { name: 'Inspect system' })" in source
     assert "if (await actionButton.isVisible().catch(() => false)) {" in source
     assert 'return;' in source
     assert 'await header.evaluate((node) => {' in source
     assert "await expect(actionButton).toBeVisible({ timeout: 10_000 });" in source
+    assert "page.getByTestId('open-plan-start')" in source
+    assert "page.getByTestId('plan-objective-decide_later')" in source
+    assert "page.getByTestId('plan-approach-manual')" in source
+    assert "page.getByTestId('confirm-start-plan')" in source
+    assert "page.getByTestId('warehouse-evidence-technical-details')" in source
+    assert "compactDetails.locator('summary').click()" in source
+
+
+@pytest.mark.unit
+def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
+    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
+    helper = source[source.index('async function gotoFinder'):source.index('async function clearState')]
+
+    assert "resolveUrl(baseURL, '/#finder')" in helper
+    assert "page.getByTestId('finder-page-heading')" in helper
+    assert "page.getByLabel('Colony status').click()" in helper
+    assert "page.getByRole('option', { name: 'Any', exact: true }).click()" in helper
+    assert "page.getByTestId('search-submit').click()" in helper
+    assert helper.index("page.getByRole('option', { name: 'Any', exact: true }).click()") < helper.index("page.getByTestId('search-submit').click()")
+    assert helper.index("page.getByTestId('search-submit').click()") < helper.index('search-summary')
+    assert helper.index('search-summary') < helper.index('expectReviewCardsAccessible(page)')
 
 
 @pytest.mark.unit
@@ -1135,6 +1213,7 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
 
     monkeypatch.setenv('PATH', '/usr/local/bin:/usr/bin')
     monkeypatch.setattr(review_process_registry.subprocess, 'Popen', _fake_popen)
+    monkeypatch.setattr(review_process_registry, 'resolve_platform_command', lambda command: command)
     monkeypatch.setattr(review_process_registry, '_process_group_popen_kwargs', lambda: {})
     monkeypatch.setattr(review_process_registry, '_process_group_id', lambda _process: 98765)
 
@@ -1155,6 +1234,40 @@ def test_process_registry_inherits_host_env_and_records_only_review_owned_proces
     assert len(diagnostics['processes']) == 1
     assert diagnostics['processes'][0]['name'] == 'frontend-preview'
     assert diagnostics['processes'][0]['command'] == ['yarn', 'preview']
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ('force', 'expected_command'),
+    (
+        (False, ['taskkill', '/PID', '4321', '/T']),
+        (True, ['taskkill', '/PID', '4321', '/T', '/F']),
+    ),
+)
+def test_windows_process_tree_teardown_targets_managed_descendants(
+    monkeypatch: pytest.MonkeyPatch,
+    force: bool,
+    expected_command: list[str],
+):
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append((command, kwargs))
+        return subprocess.CompletedProcess(command, 0, stdout='', stderr='')
+
+    monkeypatch.setattr(review_process_registry.subprocess, 'run', _fake_run)
+
+    review_process_registry._run_windows_taskkill(4321, force=force)
+
+    assert calls == [(
+        expected_command,
+        {
+            'capture_output': True,
+            'check': False,
+            'encoding': 'utf-8',
+            'errors': 'replace',
+        },
+    )]
 
 
 def _valid_browser_summary(selected_scenarios: tuple[object, ...]) -> dict[str, object]:
@@ -2276,6 +2389,29 @@ def test_compare_docker_baseline_preserves_only_non_review_resources():
         'volumes_added': [],
         'volumes_removed': [],
     }
+
+
+@pytest.mark.unit
+def test_review_subprocess_output_uses_portable_utf8_decoding(monkeypatch: pytest.MonkeyPatch):
+    captured: dict[str, object] = {}
+
+    def _fake_run(command, **kwargs):
+        captured['command'] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout='build output\ufffd\n', stderr='')
+
+    monkeypatch.setattr(review_env.lifecycle.subprocess, 'run', _fake_run)
+
+    completed = review_env.lifecycle.run_subprocess(['yarn', 'build'])
+
+    assert completed.stdout == 'build output\ufffd\n'
+    command = captured['command']
+    assert isinstance(command, list)
+    expected_executables = {'yarn.cmd', 'yarn.exe'} if os.name == 'nt' else {'yarn'}
+    assert Path(command[0]).name.lower() in expected_executables
+    assert command[1:] == ['build']
+    assert captured['encoding'] == 'utf-8'
+    assert captured['errors'] == 'replace'
 
 
 @pytest.mark.unit

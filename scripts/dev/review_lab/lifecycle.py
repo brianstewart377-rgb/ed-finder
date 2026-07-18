@@ -30,6 +30,7 @@ from .contract import (
     ROOT,
     STATIC_TEST_FILES,
     ReviewLabError,
+    resolve_platform_command,
 )
 from .support_matrix import REVIEW_SUPPORT_ROUTE_MATRIX, validate_support_route_matrix
 from .timeouts import TIMEOUTS
@@ -71,11 +72,13 @@ def run_subprocess(
         env.update(env_overrides)
     try:
         completed = subprocess.run(
-            command,
+            resolve_platform_command(command),
             cwd=cwd,
             check=False,
             capture_output=True,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             env=env,
             timeout=timeout_seconds,
         )
