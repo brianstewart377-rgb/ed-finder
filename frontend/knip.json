@@ -2,6 +2,10 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["src/App.tsx"],
   "project": ["src/**/*.{ts,tsx}"],
+  "ignore": [
+    "src/components/ui/**",
+    "src/features/system-detail/simulation-preview/index.ts"
+  ],
   "ignoreDependencies": ["vite-plugin-pwa", "@testing-library/jest-dom"],
   "rules": {
     "files": "error",
@@ -13,7 +17,6 @@
     "nsExports": "off",
     "nsTypes": "off",
     "enumMembers": "off",
-    "classMembers": "off",
     "duplicates": "off"
   }
 }
