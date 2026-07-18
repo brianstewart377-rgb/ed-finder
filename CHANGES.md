@@ -28,6 +28,13 @@ every pull request while retaining source-path filtering for `main` pushes.
 Documentation-only PR #339 exercised the protected merge path without an admin
 bypass.
 
+**Migration history integrity repaired** — The production deploy guard caught
+that `001_schema.sql` had been edited after its ledger baseline when the cluster
+summary widening landed. Restored migration 001 byte-for-byte to its recorded
+checksum; migration 040 remains the additive owner of the widening. A CI
+contract now pins the production-baselined checksum and the migration-040
+ownership boundary.
+
 ---
 
 ## 2026-05-03 — Backend fix: auto-rebuild indexes transaction error

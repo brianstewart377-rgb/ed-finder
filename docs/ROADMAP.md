@@ -315,6 +315,10 @@ competing roadmap source.
 - 2. Current remaining work: execute the reviewed baseline helper on any
   already-existing pre-ledger databases that still need recorded cutover state
   beyond the now-recorded local `edfinder` cutover.
+- 2. Deploy-integrity follow-up: production's checksum guard caught a
+  post-baseline edit to `001_schema.sql`; the historical file is restored to
+  its recorded checksum, migration 040 retains the additive schema change, and
+  CI now pins that ownership boundary.
 - 3. Add backup/restore automation plus a tested restore runbook.
 - 3. Add backup/restore automation plus a tested restore runbook.
   Current state: automation and runbook are committed, and a recorded local
