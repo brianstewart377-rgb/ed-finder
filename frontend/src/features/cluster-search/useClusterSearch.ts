@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { api } from '@/lib/api';
 
 // ── Request types ────────────────────────────────────────────────────────
 export interface SlotRequirement {
@@ -131,13 +132,7 @@ export function useClusterSearch() {
         limit: filters.limit,
         reference_coords: filters.refCoords,
       };
-      const res = await fetch('/api/search/cluster', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      const data = await res.json();
+      const data = await api.clusterSearch<ClusterResult>(body);
       if (data.error) throw new Error(data.error);
       setResults(data.clusters ?? []);
       setState({
@@ -145,8 +140,8 @@ export function useClusterSearch() {
         data: { count: data.count ?? 0, query_ms: data.query_ms ?? 0 },
         queriedAt: Date.now(),
       });
-    } catch (e: any) {
-      setState({ kind: 'err', message: e.message ?? String(e) });
+    } catch (error: unknown) {
+      setState({ kind: 'err', message: error instanceof Error ? error.message : String(error) });
       setResults([]);
     }
   }, [filters]);

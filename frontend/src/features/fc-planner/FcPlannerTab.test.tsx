@@ -63,4 +63,10 @@ describe('FcPlannerTab', () => {
     expect(screen.getByText('Waiting for selection')).toBeTruthy();
     expect(screen.getByText(/Choose a system in Explore, Inspect, or Plan/i)).toBeTruthy();
   });
+
+  it('associates the waypoint label with its input', () => {
+    render(<FcPlannerTab fc={makeFc()} />);
+
+    expect(screen.getByLabelText('Add waypoint').getAttribute('data-testid')).toBe('fc-input');
+  });
 });

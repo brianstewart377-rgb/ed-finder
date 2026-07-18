@@ -42,7 +42,7 @@ jobs:
 
       - name: Run Ruff lint gate
         run: |
-          python -m ruff check apps tests
+          python -m ruff check apps tests scripts shared_contracts
           python -m ruff check apps tests scripts --select B905
 
       - name: Run backend unit test suite (no DB required)

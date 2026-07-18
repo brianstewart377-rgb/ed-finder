@@ -84,6 +84,24 @@ type LocalSearchBody = {
   require_terra?: boolean;
 };
 
+export interface ClusterSearchRequestBody {
+  slots: Array<{
+    economies: string[];
+    archetype_key?: string;
+    label?: string;
+    min_score?: number;
+  }>;
+  limit: number;
+  reference_coords: { x: number; y: number; z: number };
+}
+
+export interface ClusterSearchApiResponse<TCluster> {
+  clusters?: TCluster[];
+  count?: number | null;
+  query_ms?: number | null;
+  error?: string | null;
+}
+
 const API_BASE = (
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, '') ??
   '/api'
@@ -261,6 +279,13 @@ export const api = {
     });
   },
 
+  clusterSearch<TCluster>(body: ClusterSearchRequestBody): Promise<ClusterSearchApiResponse<TCluster>> {
+    return jsonFetch('/search/cluster', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
   // ── Watchlist ─────────────────────────────────────────────────────────
   watchlist(syncKey: string): Promise<{ sync_key?: string; watchlist: WatchlistEntry[] }> {
     return jsonFetch(`/api/v2/watchlist/${encodeURIComponent(syncKey)}`);
@@ -404,7 +429,12 @@ export const api = {
   cacheStats(): Promise<CacheStats> {
     return jsonFetch('/cache/stats');
   },
-  cacheClear(token: string): Promise<{ ok: boolean; message: string }> {
+  cacheClear(token: string): Promise<{
+    ok: boolean;
+    partial: boolean;
+    redis_cleared: boolean;
+    message: string;
+  }> {
     return jsonFetch('/cache/clear', {
       method:  'POST',
       headers: { 'X-Admin-Token': token },

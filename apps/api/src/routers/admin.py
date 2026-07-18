@@ -12,7 +12,7 @@ import redis.asyncio as aioredis
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
-from edfinder_api.config import limiter, settings
+from edfinder_api.config import limiter, log, settings
 from edfinder_api.deps import get_pool, get_readonly_pool, get_redis, require_admin
 from edfinder_api.enrichment_operator_status import (
     read_enrichment_status_snapshot,
@@ -471,6 +471,7 @@ async def cache_clear(
     only the cache prefixes we own.
     """
     deleted = 0
+    redis_cleared = redis is None
     if redis:
         try:
             # Cache key prefixes used by ED Finder routers (status, search,
@@ -484,13 +485,22 @@ async def cache_clear(
                 async for key in redis.scan_iter(match=pattern, count=500):
                     await redis.delete(key)
                     deleted += 1
-        except Exception:
-            pass
+            redis_cleared = True
+        except Exception as exc:
+            log.warning('Redis cache clear failed after deleting %d keys: %s', deleted, exc)
     async with pool.acquire() as conn:
         deleted_db = await conn.execute('DELETE FROM api_cache')
+    partial = not redis_cleared
     return {
-        'ok': True,
-        'message': f'Cache cleared ({deleted} Redis keys removed, {deleted_db.split()[-1]} DB rows removed)',
+        'ok': not partial,
+        'partial': partial,
+        'redis_cleared': redis_cleared,
+        'message': (
+            f'Cache clear incomplete: Redis failed after {deleted} keys; '
+            f'{deleted_db.split()[-1]} DB rows removed'
+            if partial else
+            f'Cache cleared ({deleted} Redis keys removed, {deleted_db.split()[-1]} DB rows removed)'
+        ),
     }
 
 

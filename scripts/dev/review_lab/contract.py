@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from apps.api.src.review_runtime_guard import (
+    EXPECTED_REVIEW_DATABASE_HOST as EXPECTED_REVIEW_DATABASE_HOST,
+    EXPECTED_REVIEW_DATABASE_NAME as EXPECTED_REVIEW_DATABASE_NAME,
+    EXPECTED_REVIEW_REDIS_HOST as EXPECTED_REVIEW_REDIS_HOST,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = ROOT / 'scripts' / 'dev' / 'review_environment.py'
@@ -98,13 +103,6 @@ REVIEW_SYSTEM_IDS = {
     'gamma': 7200000000003,
     'delta': 7200000000004,
 }
-
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-if str(API_SRC) not in sys.path:
-    sys.path.insert(0, str(API_SRC))
-
-from review_runtime_guard import EXPECTED_REVIEW_DATABASE_HOST, EXPECTED_REVIEW_DATABASE_NAME, EXPECTED_REVIEW_REDIS_HOST  # noqa: E402
 
 ReviewMode = Literal['quick', 'full']
 PhaseStatus = Literal['passed', 'failed', 'skipped']

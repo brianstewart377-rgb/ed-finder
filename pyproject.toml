@@ -28,6 +28,7 @@ ignore = ["E701", "E702"]
 
 [tool.ruff.lint.per-file-ignores]
 "apps/importer/src/build_regional_analysis.py" = ["E402"]
+"scripts/checks/data_invariants.py" = ["E402"]
 "tests/test_body_hierarchy_sort.py" = ["E402"]
 "tests/test_elite_news_parser.py" = ["E402"]
 "tests/test_facility_catalogue.py" = ["E402"]

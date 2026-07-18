@@ -33,6 +33,7 @@ import {
   savedSystemFailureDetail,
 } from '@/app/savedSystems';
 import { systemStatusLabel } from '@/lib/format';
+import { readLocalStorage, removeLocalStorage, writeLocalStorage } from '@/lib/storage';
 import type { SystemDetail } from '@/types/api';
 import './index.css';
 
@@ -513,20 +514,18 @@ function WorkspaceFallback({ label, fullWidth = false }: { label: string; fullWi
 }
 
 function readPersistedShellContextSystemId(): number | null {
-  if (typeof window === 'undefined') return null;
-  const raw = window.localStorage.getItem(SHELL_SELECTED_SYSTEM_STORAGE_KEY);
+  const raw = readLocalStorage(SHELL_SELECTED_SYSTEM_STORAGE_KEY);
   if (!raw) return null;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
 function persistShellContextSystemId(id64: number | null) {
-  if (typeof window === 'undefined') return;
   if (id64 == null) {
-    window.localStorage.removeItem(SHELL_SELECTED_SYSTEM_STORAGE_KEY);
+    removeLocalStorage(SHELL_SELECTED_SYSTEM_STORAGE_KEY);
     return;
   }
-  window.localStorage.setItem(SHELL_SELECTED_SYSTEM_STORAGE_KEY, String(id64));
+  writeLocalStorage(SHELL_SELECTED_SYSTEM_STORAGE_KEY, String(id64));
 }
 
 function buildShellSelectedSystem(
