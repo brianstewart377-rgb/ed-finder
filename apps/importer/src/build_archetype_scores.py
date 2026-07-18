@@ -47,7 +47,7 @@ from progress import (
 
 # Import body diversity from the existing ratings engine
 try:
-    from build_ratings import compute_body_diversity, classify_bodies
+    from build_ratings import compute_body_diversity
     _HAVE_RATINGS = True
 except ImportError:
     _HAVE_RATINGS = False
@@ -55,9 +55,8 @@ except ImportError:
 # Import topology helpers
 try:
     from build_topology import (
-        compute_topology_metrics, compute_system_pair_synergy,
         compute_contamination_risk, _classify_bodies_simple,
-        _load_base_synergy, BASE_SYNERGY, ECONOMY_PAIRS,
+        _load_base_synergy, BASE_SYNERGY,
     )
     _HAVE_TOPOLOGY = True
 except ImportError:
