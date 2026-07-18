@@ -116,6 +116,7 @@ Stage 25 has exactly one primary objective:
 - map: `canonical_live` as a secondary Explore surface.
 - Explore -> Inspect -> Plan -> Simulate/Sequence -> Review Evidence -> Export/Share.
 - Stage 25 uses a restrained cockpit-oriented visual direction.
+- The component-library and Finder redesign landed in be7b381 and is the shipped visual baseline.
 - Stage 25 preserves evidence-language discipline and evidence-language principles.
 - Glass or translucency is limited to workspace chrome only.
 - Glass is not authorized on dense evidence cards, tables, planning canvases,

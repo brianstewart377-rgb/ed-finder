@@ -117,7 +117,7 @@ yarn types:gen          # regenerate src/types/api.gen.ts from a running API's O
 
 If `yarn` isn't on `PATH` (e.g. a fresh shell before running the bootstrap script), use `npx yarn <args>` — `package.json` pins `"packageManager": "yarn@1.22.22"` and `npx` will fetch/run that version without needing `corepack enable` (which can fail with `EPERM` against a shared Node install directory).
 
-`pyproject.toml` is metadata-only — real deps live per-service in `apps/{api,eddn,importer}/requirements.txt`.
+`pyproject.toml` holds project metadata and the repository Ruff contract; real deps live per-service in `apps/{api,eddn,importer}/requirements.txt`.
 
 ## Architecture
 
