@@ -10,15 +10,6 @@ Resolved with date and closing commit. New audits append.
 
 ## Open
 
-### CQ-001 — 16 silently dead test functions (name shadowing)
-- Raised 2026-07-16 · full-codebase audit @ 0a768a2 · Confirmed
-- tests/test_optimiser.py lines 655–835: helper `ranked_candidate` plus 16
-  tests shadowed by identically named rewrites at 876–1039 (later-definition
-  wins; first block never collected). Previously surfaced in the informal
-  review; never remediated.
-- Close when: dead block deleted; pytest --collect-only name list unchanged;
-  ruff --select F811 clean on the file; F811 gated in CI (see CQ-005).
-
 ### CQ-002 — 8 orphaned frontend components (1,390 dead lines)
 - Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (zero references incl. tests)
 - colony-planner/SelectedBodyPlannerCanvas.tsx (640),
@@ -50,55 +41,6 @@ Resolved with date and closing commit. New audits append.
   legitimately differ, stop and escalate — never downgrade to strict=False
   silently); regression tests on both hot paths; B905 gated in CI.
 
-### CQ-005 — CI runs no lint; ruff fails at 302 errors
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- Makefile:84 defines `ruff check apps tests`; .github/workflows/ci.yml never
-  invokes it. 302 errors at both ruff 0.6.9 and 0.15.21 (87 E701, 77 F401,
-  62 E402, 38 F541, 16 F811, 13 F841, 4 E401, 4 E702, 1 F821). Root cause of
-  CQ-001 surviving the earlier review.
-- Close when: [tool.ruff] config committed (per-file-ignores for deliberate
-  sys.path-bootstrap E402; explicit decision recorded on E701/E702 style);
-  F-class errors at zero; ruff wired into ci.yml and green.
-
-### CQ-006 — undefined name `Any` (NameError if executed)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- tests/test_local_review_test_environment.py:1587.
-- Close when: import fixed AND the line demonstrably executes under pytest,
-  or the dead path is removed.
-
-### CQ-007 — cluster-search endpoint outside both type contracts
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (both halves)
-- frontend/src/features/cluster-search/useClusterSearch.ts:134 raw fetch
-  bypasses lib/api.ts jsonFetch; apps/api/src/routers/search.py:228 declares
-  no response_model on POST /api/search/cluster. Introduced with
-  7224f87/fc96364.
-- Close when: response_model declared in models.py and used on the route;
-  yarn types:gen drift-free; api.ts helper added; hook migrated to it;
-  openapi-types CI job green.
-
-### CQ-008 — computed-then-dropped locals (10 sites)
-- Raised 2026-07-16 · audit @ 0a768a2
-- Strongly supported residue, delete: build_ratings.py:1217 secondary_eco and
-  :1246 top_pair_meta (score_breakdown retirement residue; no ratings-side
-  secondary/pair column exists); local_search.py:115 display_score plus its
-  stale comment (legacy-score retirement residue; response dict carries
-  archetype/buildability/purity scores only).
-- Investigate first, Hypothesis: simulation/link_modifiers.py:58 `modifiers`
-  parsed from modifier_economies and unused in the function — verify modifier
-  economies are applied elsewhere in the simulation before deleting; if not,
-  promote to its own feature-gap finding.
-- Mechanical deletes: cp_simulator.py:268 cp_headroom, service_graph.py:113
-  resolved_by_graph_key, build_archetype_scores.py:568, build_grid.py:557,
-  build_topology.py:1032, enrichment_staging_db_loader.py:542.
-- Close when: every site deleted with rationale in the commit, or promoted to
-  its own finding here.
-
-### CQ-009 — unused import / variable (vulture, high confidence)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- simulation/buildability.py:34 unused import choose_location;
-  simulation/topology_simulator.py:123 unused traits_row.
-- Close when: removed; recurrence covered by the CQ-005 gate.
-
 ### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/
 - Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (directory no longer exists)
 - Close when: CLAUDE.md frontend section updated; fold into the pending
@@ -126,17 +68,7 @@ Resolved with date and closing commit. New audits append.
   0.29 → 0.30, redis-py 5.0.8 → 6.x ride along.
 - Close when: refresh PR lands with openapi-types job green, or deferred with
   rationale recorded here.
-
-### CQ-014 — origin/main frontend typecheck red (pre-existing)
-- Raised 2026-07-16 · surfaced by CI on PR #319 · Confirmed
-- Frontend build job fails on 5 files, all pre-existing at 0a768a2 (Expansion
-  Plans feature), none touched by #319 (which is Python-only):
-  ClusterSearchForm.tsx (nullable-type), JournalImportPanel.test.tsx,
-  MyWorkWorkspace.test.tsx + MyWorkWorkspace.tsx (TanStack Query v5
-  UseQueryResult mock shape drift — missing isPending/isError/isLoadingError/
-  isRefetchError +19), useProfileSync.ts (ed_expansion_plans_v1 missing from
-  ProfileBlob), plus 2 unused-import and 2 nullable-type errors.
-- Close when: frontend typecheck green in CI; fix PR merged.
+- CQ-005 closed 2026-07-18; this lane is unblocked but has not started.
 
 ### CQ-015 — data_invariants.py crash: unescaped % in ILIKE (RESOLVED, see below)
 - Raised 2026-07-16 · surfaced by CI on PR #319 · Confirmed, contained
@@ -149,65 +81,6 @@ Resolved with date and closing commit. New audits append.
   corrupt; only the psycopg2 CI script hard-crashed. Surfaced under the
   misleadingly-named "OpenAPI types drift" job (crash is upstream of type-gen).
 - Close when: % escaped to %% at source; openapi-types job green in CI.
-
-### CQ-016 — Expansion Plans never push-sync to server
-- Raised 2026-07-16 · found while diagnosing CQ-014 · Confirmed, shipping bug
-- frontend/src/features/profile-sync/useProfileSync.ts: gatherLocalBlob()
-  builds the push blob from six sibling keys but omits
-  ed_expansion_plans_v1, while applyLocalBlob() DOES write it on pull and the
-  ProfileBlob interface omits it entirely (the omission is what makes tsc
-  flag line 108). Net effect: Expansion Plans (shipped 0a768a2) are restored
-  on pull but never gathered on push, so cross-device sync for the feature is
-  silently broken. Not cosmetic — the missing type field is a real
-  persistence gap. Surfaced only because the frontend typecheck was not
-  gating merges.
-- Close when: ed_expansion_plans_v1 added to the ProfileBlob interface AND to
-  gatherLocalBlob(); pull path unchanged; typecheck green; approach approved
-  by owner before fix.
-- Adjacent residue (2026-07-16): applyLocalBlob() contains a duplicate
-  standalone `void rehydratePinnedStore();` call after the rehydrate block;
-  removal is bundled with the CQ-016 fix commit.
-
-### CQ-017 — nullable timestamp passed to non-null formatter
-- Raised 2026-07-16 · found while diagnosing CQ-014 · Confirmed, latent bug
-- Two formatTimestamp functions exist: @/lib/format (nullable-safe, callers
-  use ?? fallback) and my-work/myWorkWorkspaceUtils.ts:252 (param typed
-  value: string, non-null). system-detail/systemDetailSections.tsx passes
-  CORRECTED 2026-07-16 (auditor re-verified against tree):
-  systemDetailSections.tsx imports the @/lib/format twin and was never
-  affected. The real TS2345 sites are MyWorkWorkspace.tsx:734
-  (telemetry.last_observed_at) and :1026 (system.last_observed_at), which
-  use the non-null my-work twin. At runtime a null silently renders the
-  Unix epoch (new Date(null) → 1970-01-01); undefined renders "Invalid Date".
-- Close when: the myWorkWorkspaceUtils formatTimestamp param widened to
-  string | null with an explicit null guard (matching the @/lib/format twin),
-  or call sites guarded; typecheck green; approach approved by owner before fix.
-
-### CQ-019 — CLAUDE.md missing from repo-root allowlist (script-contracts job red)
-- Raised 2026-07-16 · CI decomposition @ 983a212 · Confirmed (local repro:
-  1 failed / 32 passed on the job's exact pytest selection)
-- tests/test_repo_hygiene_contract.py ALLOWED_VISIBLE_ROOT_FILES omits
-  CLAUDE.md, which is intentionally at root. The single failing test
-  (test_visible_repo_root_files_stay_on_the_allowlist) is the only red in
-  the "Script contracts + migration paths" CI job. Confirms DeepSeek
-  2026-07-15 audit claim #1, previously parked as check-first.
-- Close when: 'CLAUDE.md' on the allowlist; the job green in CI.
-
-### CQ-020 — pyzmq absent from tests/requirements-ci.txt (backend-unit collection abort)
-- Raised 2026-07-16 · CI decomposition @ 983a212 · Confirmed
-- pyzmq==26.2.0 lives only in apps/eddn/requirements.txt; the backend-unit
-  CI job installs tests/requirements-ci.txt, so tests/test_eddn_listener.py
-  and tests/test_eddn_metrics.py die at import (15 collection errors; the
-  bare pytest run aborts on the first, so zero backend unit tests run).
-- Close when: pyzmq==26.2.0 in tests/requirements-ci.txt; both modules
-  collect and run in CI.
-
-### CQ-021 — double-encoded middots in MyWorkWorkspace.tsx UI text
-- Raised 2026-07-16 · byte-level check @ 983a212 · Confirmed
-- 6 occurrences of bytes C3 82 C2 B7 ("Â·") alongside 9 clean U+00B7
-  middots; users see "Â·" in shipped My Work text.
-- Close when: the 6 sequences replaced with U+00B7; byte counts verified
-  0 mojibake / 15 clean. (Fixed in the frontend-typecheck PR, not here.)
 
 ### CQ-022 — backend-unit CI job: 64-failure triage (umbrella) (RESOLVED, see below)
 - Raised 2026-07-16 · local repro of the job's exact selection @ 983a212 ·
@@ -226,39 +99,6 @@ Resolved with date and closing commit. New audits append.
   test_local_review_test_environment Unknown in CI (docker-dependent).
 - Close when: bucket (c) diagnosed and dispositioned as own findings;
   (a)/(b) ruled by owner and fixed; the job green. Met 2026-07-17; see below.
-
-### CQ-023 — Container image parity workflow red (cause unknown)
-- Raised 2026-07-16 · runs of 2026-07-15 @ 7224f87 / b1c0a52 · Unknown
-- Separate workflow from ci.yml; failed on its last triggering pushes; did
-  not trigger on 983a212 (path filters). Undiagnosed.
-- Close when: cause diagnosed and dispositioned.
-
-### CQ-024 — design-system redesign (be7b381) landed on main outside PR flow
-- Raised 2026-07-16 · verified against origin/main · Confirmed, low severity
-- be7b381 "feat: design system component library and Finder redesign",
-  authored direct-to-main (parent 983a212), 27 files +1642/−522,
-  frontend-only. Adds shadcn/ui foundation: 6 Radix primitives, clsx,
-  tailwind-merge. Touched components/ui (11), components/navbar (7), lib,
-  app, features/search, package.json, yarn.lock. Did NOT touch api.gen.ts,
-  backend, or any in-flight CQ-fix file. Health check 2026-07-16:
-  typecheck 0 NEW errors (only the 17 pre-existing CQ-014/016/017 ones),
-  lint 0 new (6 pre-existing warnings), build passes (1945 modules). No
-  branch protection + red CI meant nothing gated it — process gap, not a
-  code defect.
-- Related: 4 untracked artifacts observed on the working tree (.mcp.json,
-  .playwright-mcp/, ed-finder-deployed.png, ed-finder-finder-page.png);
-  .gitignore coverage added in this same PR (CQ-025).
-- Close when: redesign acknowledged in ROADMAP as shipped; no further
-  action on the code (health-clean).
-
-### CQ-025 — tool/session artifacts untracked and un-ignored
-- Raised 2026-07-16 · git status @ 123e88d · Confirmed
-- .mcp.json, .playwright-mcp/, ed-finder-deployed.png,
-  ed-finder-finder-page.png sit untracked at root; risk is accidental
-  inclusion via a future git add -A. Screenshots are session captures, not
-  repo assets.
-- Close when: .gitignore covers all four patterns; git status shows them
-  ignored.
 
 ### CQ-026 — CI seed produced invariant-violating data (RESOLVED, see below)
 - Raised 2026-07-16 · Confirmed · the seed (sql/seed_preview.sql) failed 3 of
@@ -313,26 +153,28 @@ Resolved with date and closing commit. New audits append.
 ### CQ-001 — 16 silently dead test functions — RESOLVED 2026-07-16
 - Fixed in PR #318 (c9cff45): dead block tests/test_optimiser.py:655–835
   removed; collect-only name set unchanged; verified by independent replay.
-- Recurrence gate (F811 in CI) remains open under CQ-005.
+- Recurrence is now gated by Ruff in CI (CQ-005, merged at b84d971).
 
-### CQ-008 — computed-then-dropped locals — RESOLVED 2026-07-16
-- Fixed in PR #319 (dd9e5c1). link_modifiers.py:58 confirmed dead residue
-  (modifier_economies consumed elsewhere in optimiser/recommendations/
-  candidate-gen); deleted. All other sites removed. Commit dd9e5c1 also
-  carried 3 intended 'planned' evidence-catalog sources (ED Astrometrics,
-  Elite BGS API, FDevIDs) added by the owner the prior night — reviewed as
-  inert metadata, accepted. Merges on green CI.
+### CQ-008 — computed-then-dropped locals — RESOLVED 2026-07-18
+- The original fix commit dd9e5c1 never merged: PR #319 remained orphaned
+  while CI restoration proceeded. Recovered as 670f1bf and merged through
+  PR #334 at 57afee3. link_modifiers.py:58 was confirmed dead residue
+  (modifier economies are consumed elsewhere); all other named locals were
+  removed. The three owner-authored planned evidence-catalog sources carried
+  by the original commit were retained as accepted inert metadata.
 
-### CQ-009 — unused import / variable — RESOLVED 2026-07-16
-- Fixed in PR #319 (dd9e5c1): buildability.py:34 choose_location import
-  removed. topology_simulator.py:123 traits_row reclassified Disproved —
-  intentional unused parameter, not a defect; no change made.
+### CQ-009 — unused import / variable — RESOLVED 2026-07-18
+- The original dd9e5c1 fix never merged with PR #319. Recovered as 670f1bf
+  and merged through PR #334 at 57afee3: buildability.py's unused
+  choose_location import was removed; topology_simulator.py's traits_row was
+  retained as an intentional interface parameter. Recurrence is now covered
+  by the Ruff gate merged at b84d971.
 
 ### CQ-015 — data_invariants.py unescaped % in ILIKE — RESOLVED 2026-07-16
 - Fixed in PR #320: ILIKE '% belt%' → '%% belt%%' at
   shared_contracts/data_invariant_contracts.py:121–122; verified by
   byte-identical replay. Escape chosen over params-skip to preserve psycopg2
-  placeholder safety for all other checks. Merges on green CI.
+  placeholder safety for all other checks. Merged at 123e88d.
 
 ### CQ-007 — cluster-search endpoint typed — RESOLVED 2026-07-17
 - Fixed in PR #328 (f5bdb6f): added ClusterResult + ClusterSearchResponse to
@@ -394,3 +236,56 @@ Resolved with date and closing commit. New audits append.
   session_replication_role=replica to bypass the write-time trigger, faithfully
   modeling the historical/backfill drift the repair path targets. Repair path
   confirmed intentional defense-in-depth, not obsolete.
+
+### CQ-005 — CI lint gate — RESOLVED 2026-07-18
+- The orphaned F401/F541/F841 sweep was recovered in PR #334 (57afee3), with
+  current-tree F401 findings and CQ-006 completed in 44c2ca2. PR #335
+  (b84d971) pinned Ruff 0.15.22, committed the E4/E7/E9/F contract, added
+  exact per-file E402 bootstrap exceptions, and ran Ruff inside the existing
+  required backend job. E701/E702 are explicitly accepted legacy style rather
+  than defect findings. Local Ruff and all nine protected checks passed.
+
+### CQ-006 — undefined `Any` — RESOLVED 2026-07-18
+- Fixed in PR #334 (44c2ca2; merged at 57afee3) by importing Any in
+  test_local_review_test_environment.py. The helper is exercised by multiple
+  collected review-environment tests; the exact backend-unit selection passed
+  1446 tests before merge. F821 is now prevented by the CQ-005 Ruff gate.
+
+### CQ-014 — frontend typecheck baseline — RESOLVED 2026-07-17
+- Fixed in PR #324 (7427ac7; merged at 7c5e9e7): corrected nullable and
+  TanStack Query mock-shape errors plus stale unused bindings. Frontend
+  typecheck and the protected Frontend build job are green.
+
+### CQ-016 — Expansion Plans push-sync — RESOLVED 2026-07-17
+- Fixed in PR #324 (3ae1803; merged at 7c5e9e7): added
+  ed_expansion_plans_v1 to ProfileBlob and gatherLocalBlob(), preserving the
+  pull path, and removed the duplicate rehydratePinnedStore() call.
+
+### CQ-017 — nullable My Work timestamps — RESOLVED 2026-07-17
+- Fixed in PR #324 (d93e739; merged at 7c5e9e7): widened the My Work
+  formatTimestamp helper to string | null and added the explicit null guard.
+  Typecheck and frontend tests passed.
+
+### CQ-019 — CLAUDE.md root allowlist — RESOLVED 2026-07-17
+- Fixed in PR #323 (0a4284f; merged at a3a2efd): added CLAUDE.md to the
+  intentional visible-root allowlist. Script contracts are green.
+
+### CQ-020 — pyzmq CI dependency — RESOLVED 2026-07-17
+- Fixed in PR #323 (38f2cfc; merged at a3a2efd): pinned pyzmq 26.2.0 in
+  tests/requirements-ci.txt so the EDDN test modules collect and run in the
+  backend job.
+
+### CQ-021 — My Work middot encoding — RESOLVED 2026-07-17
+- Fixed in PR #324 (fa9cbf8; merged at 7c5e9e7): replaced all six
+  double-encoded sequences. Byte verification reached 0 mojibake / 15 clean
+  U+00B7 middots.
+
+### CQ-024 — shipped design-system redesign recorded — RESOLVED 2026-07-18
+- The healthy redesign landed at be7b381 and is now explicitly acknowledged
+  in ROADMAP as the shipped Finder visual baseline. No code remediation was
+  required; subsequent protected frontend build and E2E checks remain green.
+
+### CQ-025 — tool/session artifacts ignored — RESOLVED 2026-07-17
+- Fixed in PR #323 (9207b82; merged at a3a2efd): .gitignore now covers
+  .mcp.json, .playwright-mcp/, and the two root session screenshots, preventing
+  accidental inclusion by broad staging commands.
