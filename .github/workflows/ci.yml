@@ -40,6 +40,9 @@ jobs:
       - name: Python syntax check (py_compile, all .py under apps/)
         run: python -m compileall -q apps
 
+      - name: Run Ruff lint gate
+        run: python -m ruff check apps tests
+
       - name: Run backend unit test suite (no DB required)
         run: python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
 

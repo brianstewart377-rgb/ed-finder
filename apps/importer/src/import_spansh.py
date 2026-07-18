@@ -1533,7 +1533,8 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 # Download helpers
 # ---------------------------------------------------------------------------
 def _download_with_aria2(url: str, dest: Path) -> bool:
-    import shutil, subprocess
+    import shutil
+    import subprocess
     if not shutil.which('aria2c'):
         return False
     log.info("  Using aria2c (16 parallel connections) ...")
@@ -1548,7 +1549,8 @@ def _download_with_aria2(url: str, dest: Path) -> bool:
 
 
 def _download_with_wget(url: str, dest: Path) -> bool:
-    import shutil, subprocess
+    import shutil
+    import subprocess
     if not shutil.which('wget'):
         return False
     log.info("  Using wget (resumable) ...")
@@ -1556,7 +1558,8 @@ def _download_with_wget(url: str, dest: Path) -> bool:
 
 
 def _download_with_curl(url: str, dest: Path) -> bool:
-    import shutil, subprocess
+    import shutil
+    import subprocess
     if not shutil.which('curl'):
         return False
     log.info("  Using curl (resumable) ...")
