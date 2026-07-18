@@ -28,7 +28,9 @@ MANUAL_STATUS_TABLE="${MIGRATION_MANUAL_STATUS_TABLE:-schema_migration_manual_st
 MIGRATION_DB_SERVICE="${MIGRATION_DB_SERVICE:-postgres}"
 MIGRATION_DB_USER="${MIGRATION_DB_USER:-edfinder}"
 MIGRATION_DB_NAME="${MIGRATION_DB_NAME:-edfinder}"
-PGOPTIONS_VALUE="${PGOPTIONS_VALUE:--c statement_timeout=0 -c lock_timeout=0}"
+MIGRATION_STATEMENT_TIMEOUT="${MIGRATION_STATEMENT_TIMEOUT:-1h}"
+MIGRATION_LOCK_TIMEOUT="${MIGRATION_LOCK_TIMEOUT:-30s}"
+ALLOW_UNBOUNDED_TIMEOUTS="${EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS:-no}"
 COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"
 COMPOSE_PROJECT_NAME_OVERRIDE="${EDFINDER_DOCKER_PROJECT_NAME:-}"
 BASELINE_THROUGH=""
@@ -39,7 +41,15 @@ compose_args=()
 
 say() { printf '\n[INFO] %s\n' "$*"; }
 ok()  { printf '[OK]   %s\n' "$*"; }
+warn() { printf '[WARN] %s\n' "$*"; }
 die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+
+validate_timeout() {
+  local name="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9]+(ms|s|min|h)?$ ]] ||
+    die "$name must be a non-negative PostgreSQL duration using ms, s, min, or h"
+}
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
@@ -195,6 +205,16 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+validate_timeout MIGRATION_STATEMENT_TIMEOUT "$MIGRATION_STATEMENT_TIMEOUT"
+validate_timeout MIGRATION_LOCK_TIMEOUT "$MIGRATION_LOCK_TIMEOUT"
+if [[ "$MIGRATION_STATEMENT_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ||
+      "$MIGRATION_LOCK_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ]]; then
+  [[ "$ALLOW_UNBOUNDED_TIMEOUTS" == "yes" ]] ||
+    die "zero migration timeouts require EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes"
+  warn "unbounded migration timeout explicitly enabled for this reviewed run"
+fi
+PGOPTIONS_VALUE="-c statement_timeout=${MIGRATION_STATEMENT_TIMEOUT} -c lock_timeout=${MIGRATION_LOCK_TIMEOUT}"
 
 [[ -d "$SQL_DIR" ]] || die "SQL directory not found: $SQL_DIR"
 [[ -f "$MANIFEST_FILE" ]] || die "Migration manifest not found: $MANIFEST_FILE"

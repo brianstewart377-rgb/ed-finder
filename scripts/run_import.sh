@@ -100,60 +100,15 @@ fi
 # ── Pre-flight 2: Verify DB password and sync if needed ──────────────────────
 echo "[INFO] Verifying DB password ..."
 
-if ! docker inspect ed-postgres &>/dev/null; then
-    echo "[ERROR] Container ed-postgres is not running."
-    echo "        Start the stack first: cd $INSTALL_DIR && docker compose up -d"
-    exit 1
-fi
-
-if docker exec -i ed-postgres psql \
-        "postgresql://edfinder:${POSTGRES_PASSWORD}@localhost:5432/edfinder" \
-        -c "SELECT 1;" &>/dev/null; then
+if ENV_FILE="$ENV_FILE" bash "$INSTALL_DIR/scripts/sync_password.sh" --verify-only &>/dev/null; then
     echo "[OK]   DB password verified."
 else
     echo "[WARN] Password mismatch detected — resyncing ..."
-
-    # Try ALTER USER as edfinder first, then fall back to postgres superuser
-    SYNCED=false
-    if docker exec -i ed-postgres psql -U edfinder -d edfinder \
-            -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" &>/dev/null; then
-        echo "[OK]   Password updated in PostgreSQL (as edfinder)."
-        SYNCED=true
-    elif docker exec -i ed-postgres psql -U postgres -d postgres \
-            -c "ALTER USER edfinder WITH PASSWORD '${POSTGRES_PASSWORD}';" &>/dev/null; then
-        echo "[OK]   Password updated in PostgreSQL (as postgres superuser)."
-        SYNCED=true
-    fi
-
-    if [[ "$SYNCED" == false ]]; then
+    if ! ENV_FILE="$ENV_FILE" bash "$INSTALL_DIR/scripts/sync_password.sh"; then
         echo "[ERROR] Could not update password in PostgreSQL."
-        echo "        Run:  bash $INSTALL_DIR/scripts/sync_password.sh"
-        echo "        Or recreate the container:"
-        echo "          cd $INSTALL_DIR"
-        echo "          docker compose stop postgres pgbouncer"
-        echo "          docker compose up -d postgres pgbouncer"
         exit 1
     fi
-
-    # Restart pgBouncer so it reloads the new hash — without this pgBouncer
-    # keeps its cached (wrong) password and connections still fail.
-    if docker inspect ed-pgbouncer &>/dev/null; then
-        echo "[INFO] Restarting pgBouncer to reload credentials ..."
-        docker restart ed-pgbouncer
-        sleep 3
-        echo "[OK]   pgBouncer restarted."
-    fi
-
-    # Final verification
-    if docker exec -i ed-postgres psql \
-            "postgresql://edfinder:${POSTGRES_PASSWORD}@localhost:5432/edfinder" \
-            -c "SELECT 1;" &>/dev/null; then
-        echo "[OK]   Password sync successful."
-    else
-        echo "[ERROR] Connection still failing after password sync."
-        echo "        Run:  bash $INSTALL_DIR/scripts/sync_password.sh"
-        exit 1
-    fi
+    echo "[OK]   Password sync successful."
 fi
 
 # ── Determine what to run ────────────────────────────────────────────────────

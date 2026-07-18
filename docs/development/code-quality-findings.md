@@ -107,24 +107,36 @@ Resolved with date and closing commit. New audits append.
 - Close when: fixtures create the legacy-drift row via trigger bypass
   (session_replication_role=replica); tests green.
 
-### CQ-041 — sync_password.sh exposes credentials in process arguments
-- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
-  risk. The script embeds `POSTGRES_PASSWORD` in both a libpq URI argument and
-  an `ALTER USER` command argument; the SQL construction also does not safely
-  quote arbitrary password contents.
-- Close when: the password is supplied through a non-argv secret channel, SQL
-  parameter/identifier handling is safe for arbitrary values, logs reveal no
-  password fragment, and an operator-focused regression verifies both update
-  and connection-check paths.
-
-### CQ-042 — migration runner defaults to unbounded database timeouts
-- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · operational
-  hardening. `scripts/apply_migrations.sh` defaults both `statement_timeout` and
-  `lock_timeout` to zero, allowing a deploy to wait indefinitely on SQL or locks.
-- Close when: reviewed finite defaults and an explicit override policy land,
-  script-contract tests pin the behavior, and migration/deploy rehearsal passes.
-
 ## Resolved
+
+### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
+  risk. The same unsafe password URI and SQL interpolation had also drifted into
+  `run_import.sh`, while loopback trust meant the old verification did not
+  actually authenticate the supplied password.
+- Fixed in `587e477`: password verification now creates a mode-0600 passfile
+  inside the database container from escaped stdin, connects through the
+  container's SCRAM-authenticated address, and deletes the file on exit.
+  Password updates use psql's quoting-safe `\password`; output is fully
+  redacted, and `run_import.sh` delegates to the single hardened utility.
+- Closed with static forbidden-pattern contracts, a mocked special-character
+  secret-channel rehearsal, and a real `postgres:16-alpine` mismatch, update,
+  authenticated verification, and verify-only run. The disposable container
+  was removed after the rehearsal.
+
+### CQ-042 — migration runner defaulted to unbounded database timeouts — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · operational
+  hardening. Both the canonical applier and one-time baseline helper disabled
+  statement and lock timeouts.
+- Fixed in `587e477`: both scripts default to a one-hour per-statement timeout
+  and 30-second per-lock-acquisition timeout. Valid finite durations are
+  operator-overridable; zero is rejected unless the reviewed run explicitly
+  sets `EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes`. Values are syntax
+  validated before interpolation into the container shell.
+- Closed with policy/unsafe-input regressions and a fresh disposable PostgreSQL
+  16 database rehearsal: 39 automatic migrations applied, the manual migration
+  remained skipped, and the second run reported `applied=0, skipped=40`. The
+  rehearsal database was dropped afterward.
 
 ### CQ-043 — Review Lab browser verification was persistently red — RESOLVED 2026-07-18
 - Raised 2026-07-18 · CI forensic comparison of PR #344 and PR #345 ·

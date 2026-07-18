@@ -96,6 +96,7 @@ def test_local_ci_parity_covers_migration_and_ci_contract_tests():
 
     assert 'section "Migration/apply and CI contract tests"' in script
     assert 'tests/test_migration_script_contracts.py' in script
+    assert 'tests/test_operational_script_hardening.py' in script
     assert 'tests/test_migration_applier_runtime.py' in script
     assert 'tests/test_migration_ledger_baseline_runtime.py' in script
     assert 'tests/test_data_trust_runtime.py' in script
@@ -113,10 +114,13 @@ def test_ci_workflow_has_focused_script_contracts_job():
     assert 'name: Script contracts + migration paths' in workflow
     assert 'bash -n scripts/apply_migrations.sh' in workflow
     assert 'bash -n scripts/baseline_migration_ledger.sh' in workflow
+    assert 'bash -n scripts/sync_password.sh' in workflow
+    assert 'bash -n scripts/run_import.sh' in workflow
     assert 'bash -n scripts/seed_check.sh' in workflow
     assert 'bash -n scripts/checks/local-ci-parity.sh' in workflow
     assert 'bash -n scripts/run_canonical_safety_tests.sh' in workflow
     assert 'tests/test_migration_script_contracts.py' in workflow
+    assert 'tests/test_operational_script_hardening.py' in workflow
     assert 'tests/test_ci_dependency_contract.py' in workflow
     assert 'tests/test_ci_data_invariants.py' in workflow
     assert 'tests/test_backup_restore_ops.py' in workflow

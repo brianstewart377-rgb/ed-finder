@@ -76,6 +76,8 @@ jobs:
         run: |
           bash -n scripts/apply_migrations.sh
           bash -n scripts/baseline_migration_ledger.sh
+          bash -n scripts/sync_password.sh
+          bash -n scripts/run_import.sh
           bash -n scripts/package_frontend_bundle.sh
           bash -n scripts/seed_check.sh
           bash -n scripts/checks/local-ci-parity.sh
@@ -85,6 +87,7 @@ jobs:
         run: |
           python -m pytest \
             tests/test_migration_script_contracts.py \
+            tests/test_operational_script_hardening.py \
             tests/test_ci_dependency_contract.py \
             tests/test_ci_build_reproducibility_contracts.py \
             tests/test_ci_data_invariants.py \

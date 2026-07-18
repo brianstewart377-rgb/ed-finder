@@ -321,7 +321,9 @@ competing roadmap source.
 5. **In progress:** continue bounded residue and documentation hygiene. H1
    removed eight orphaned frontend components and archived the retired
    score-breakdown one-shot; H2 expanded lint/EOL coverage and closed targeted
-   API, state-store, storage, cache-truthfulness, and accessibility gaps.
+   API, state-store, storage, cache-truthfulness, and accessibility gaps. H3
+   closed the remaining database-operator secret-handling and migration-timeout
+   findings with PostgreSQL 16 rehearsals and CI contracts.
 6. Re-evaluate accounts/auth only through a separately reviewed product and
    identity decision now that steps 1-4 are complete.
 
@@ -333,8 +335,8 @@ competing roadmap source.
 4. Reconcile CRE confidence/source-authority contracts before runtime integration.
 5. Maintain all ten protected CI checks, reproducible release artifacts, local
    parity, and the green isolated Review Lab browser workflow.
-6. Harden operational scripts with reviewed secret-handling and finite-timeout
-   policies.
+6. Preserve the reviewed database-operator secret channels, finite migration
+   timeout policy, and explicit exceptional-run opt-in.
 7. Continue planner trust, evidence clarity, and operator reviewability.
 8. Keep product-shell and selected-system continuity stable while foundations
    evolve.

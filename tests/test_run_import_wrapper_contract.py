@@ -20,3 +20,6 @@ def test_run_import_supports_repo_root_helper_scripts_and_unbuffered_output():
     assert '-u "$SCRIPT" "${ARGS[@]}"' in source
     assert '- ./scripts:/opt/ed-finder/scripts:ro' in compose
     assert 'PYTHONUNBUFFERED: "1"' in compose
+    assert 'bash "$INSTALL_DIR/scripts/sync_password.sh" --verify-only' in source
+    assert 'postgresql://edfinder:${POSTGRES_PASSWORD}' not in source
+    assert "PASSWORD '${POSTGRES_PASSWORD}'" not in source
