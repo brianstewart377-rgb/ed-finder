@@ -79,10 +79,11 @@ PY
 run_sql_stdin() {
   local at_mode="${1:-0}"
   if [[ -n "${DATABASE_URL:-}" ]]; then
-    local args=("$DATABASE_URL" -v ON_ERROR_STOP=1)
+    local args=(-v ON_ERROR_STOP=1)
     if [[ "$at_mode" == "1" ]]; then
       args+=(-At)
     fi
+    args+=("$DATABASE_URL")
     PGOPTIONS="$PGOPTIONS_VALUE" psql "${args[@]}"
   else
     local extra_flags="-v ON_ERROR_STOP=1"

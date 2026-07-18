@@ -28,8 +28,8 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'api', 'src'))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 
-from build_ratings import rate_system, classify_bodies
-from ratings_breakdown import reconstruct_score_breakdown
+from build_ratings import rate_system, classify_bodies  # noqa: E402
+from ratings_breakdown import reconstruct_score_breakdown  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -201,4 +201,32 @@ def test_has_standout_false_when_no_trigger_present():
     bodies = _rocky_mix_bodies()
     row = rate_system(1003, bodies, 'G')
     result = reconstruct_score_breakdown(row, bodies)
+    assert result['has_standout'] is False
+
+
+def test_reconstruction_normalizes_missing_and_null_rating_values():
+    row = {
+        'score_agriculture': None,
+        'score_refinery': 12,
+        'score_industrial': None,
+        'score_hightech': None,
+        'score_military': None,
+        'score_tourism': None,
+        'score_extraction': None,
+        'rocky_count': None,
+    }
+
+    result = reconstruct_score_breakdown(row)
+
+    assert result['economies']['Agriculture'] == 0
+    assert result['economies']['Refinery'] == 12
+    assert result['primary_economy'] == 'Refinery'
+    assert result['dimensions'] == {
+        'slots': 0,
+        'strategic': 0,
+        'safety': 0,
+        'terraforming': 0,
+        'diversity': 0,
+    }
+    assert set(result['bodies'].values()) == {0}
     assert result['has_standout'] is False

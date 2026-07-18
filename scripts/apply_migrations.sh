@@ -120,10 +120,11 @@ PY
 run_sql_stdin() {
   local at_mode="${1:-0}"
   if [[ -n "${DATABASE_URL:-}" ]]; then
-    local args=("$DATABASE_URL" -v ON_ERROR_STOP=1)
+    local args=(-v ON_ERROR_STOP=1)
     if [[ "$at_mode" == "1" ]]; then
       args+=(-At)
     fi
+    args+=("$DATABASE_URL")
     PGOPTIONS="$PGOPTIONS_VALUE" psql "${args[@]}"
   else
     local extra_flags="-v ON_ERROR_STOP=1"
@@ -143,7 +144,7 @@ run_sql_query() {
 apply_sql_file() {
   local file="$1"
   if [[ -n "${DATABASE_URL:-}" ]]; then
-    PGOPTIONS="$PGOPTIONS_VALUE" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file" >/dev/null
+    PGOPTIONS="$PGOPTIONS_VALUE" psql -v ON_ERROR_STOP=1 -f "$file" "$DATABASE_URL" >/dev/null
   else
     cat "$file" | run_sql_stdin 0 >/dev/null
   fi

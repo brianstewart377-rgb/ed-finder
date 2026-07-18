@@ -27,7 +27,7 @@ def test_apply_migrations_uses_manifest_ledger_and_checksum_guards():
     assert 'checksum_sha256 TEXT NOT NULL' in script
     assert 'if [[ "$mode" == "manual" && "$INCLUDE_MANUAL" -ne 1 ]]; then' in script
     assert 'die "Checksum mismatch for already-recorded migration $filename"' in script
-    assert 'PGOPTIONS="$PGOPTIONS_VALUE" psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$file"' in script
+    assert 'PGOPTIONS="$PGOPTIONS_VALUE" psql -v ON_ERROR_STOP=1 -f "$file" "$DATABASE_URL"' in script
     assert 'if [[ -n "${DATABASE_URL:-}" ]]; then' in script
     assert 'need_cmd psql' in script
     assert 'else\n  need_cmd docker\nfi' in script
@@ -37,7 +37,7 @@ def test_seed_check_stays_on_manifested_apply_path_and_asserts_seed_invariants()
     script = _read(SEED_CHECK)
 
     assert 'DATABASE_URL="$DB_URL" bash "$(dirname "$0")/apply_migrations.sh" --include-manual' in script
-    assert 'psql "$DB_URL" -v ON_ERROR_STOP=1 -q -f "$SQL_DIR/seed_preview.sql"' in script
+    assert 'psql -v ON_ERROR_STOP=1 -q -f "$SQL_DIR/seed_preview.sql" "$DB_URL"' in script
     assert 'LEFT JOIN ratings r ON r.system_id64 = s.id64' in script
     assert 'SELECT refresh_map_mviews();' in script
     assert 'REFRESH MATERIALIZED VIEW mv_archetype_rankings;' in script

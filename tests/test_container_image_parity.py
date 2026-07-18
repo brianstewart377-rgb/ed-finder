@@ -88,6 +88,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
     assert 'COPY shared_contracts/data_invariant_contracts.py' in maintenance_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow
+    assert 'cp env.example .env' in workflow
     assert "'apps/api/requirements.txt'" in workflow
     assert "'apps/eddn/requirements.txt'" in workflow
     assert "'apps/importer/requirements.txt'" in workflow

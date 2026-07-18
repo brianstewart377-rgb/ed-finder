@@ -44,7 +44,20 @@ async def test_evidence_mutations_require_admin_token(client):
 
 async def test_evidence_mutations_accept_admin_token(client, pool):
     async with pool.acquire() as conn:
-        system_id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')
+        system_id64 = await conn.fetchval(
+            """
+            SELECT s.id64
+            FROM systems s
+            WHERE EXISTS (
+                SELECT 1 FROM bodies b WHERE b.system_id64 = s.id64
+            ) OR EXISTS (
+                SELECT 1 FROM stations st WHERE st.system_id64 = s.id64
+            )
+            ORDER BY s.id64
+            LIMIT 1
+            """
+        )
+    assert system_id64 is not None
 
     headers = {'X-Admin-Token': ADMIN_TOKEN}
     feature_name = f'cov_gap_auth_{system_id64}_{uuid4().hex[:8]}'

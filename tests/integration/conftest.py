@@ -31,7 +31,7 @@ _ROOT = _HERE.parent.parent     # tests/integration/conftest.py → repo root
 sys.path.insert(0, str(_ROOT / 'apps' / 'api' / 'src'))
 sys.path.insert(0, str(_ROOT / 'apps' / 'importer' / 'src'))
 
-from tests.helpers import db_isolation
+from tests.helpers import db_isolation  # noqa: E402
 
 # --- env defaults that must be set BEFORE importing the api ----------
 if 'DATABASE_URL' in os.environ:
@@ -49,11 +49,11 @@ os.environ.setdefault('ADMIN_TOKEN', 'test-admin-token')
 os.environ.setdefault('LOG_LEVEL', 'WARNING')
 os.environ.setdefault('EXPOSE_ERROR_DETAIL', 'true')
 
-import pytest
-import pytest_asyncio
-import asyncpg
-import redis.asyncio as aioredis
-from httpx import ASGITransport, AsyncClient
+import pytest  # noqa: E402
+import pytest_asyncio  # noqa: E402
+import asyncpg  # noqa: E402
+import redis.asyncio as aioredis  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 
 # Function-scoped fixture: each test gets its own pool/redis lifecycle.
@@ -95,9 +95,8 @@ async def redis_client(app):
 async def clean_db():
     """Wipe per-test mutable rows + Redis cache before every test.
 
-    * PostgreSQL: TRUNCATE the small per-test mutable tables (watchlist,
-      system_notes, profile_sync, watchlist_changelog, api_cache).
-      Systems / bodies / ratings come from the seed and stay put.
+    * PostgreSQL: TRUNCATE per-test mutable user/evidence tables. Systems,
+      bodies, ratings, and source-run seed data stay put.
     * Redis (test DB 15): FLUSHDB. Without this, the API's per-endpoint
       caches (map.regions / heatmap / timeline / status / search:v2:…)
       bleed between tests — earlier-run state poisons the next test's
@@ -123,7 +122,9 @@ async def clean_db():
         async with pool.acquire() as conn:
             await conn.execute(
                 'TRUNCATE TABLE watchlist, system_notes, profile_sync, '
-                'watchlist_changelog, api_cache CASCADE'
+                'watchlist_changelog, api_cache, evidence_records, '
+                'derived_features, rule_decisions, rule_proposals, '
+                'observed_facts CASCADE'
             )
     finally:
         await pool.close()
