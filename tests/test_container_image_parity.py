@@ -17,6 +17,15 @@ def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
 
 
+def test_required_parity_check_runs_for_every_pull_request():
+    workflow = _read('.github', 'workflows', 'container-image-parity.yml')
+    pull_request_block = workflow.split('  pull_request:', 1)[1].split('  push:', 1)[0]
+    push_block = workflow.split('  push:', 1)[1].split('  schedule:', 1)[0]
+
+    assert 'paths:' not in pull_request_block
+    assert 'paths:' in push_block
+
+
 def _docker_binary() -> str:
     docker = shutil.which('docker.exe') or shutil.which('docker')
     if docker is None:
