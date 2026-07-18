@@ -10,33 +10,10 @@ Resolved with date and closing commit. New audits append.
 
 ## Open
 
-### CQ-002 — 8 orphaned frontend components (1,390 dead lines)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (zero references incl. tests)
-- colony-planner/SelectedBodyPlannerCanvas.tsx (640),
-  system-detail/BuildabilityPanel.tsx (228),
-  system-detail/SlotPredictionPanel.tsx (223), news/EliteNewsBanner.tsx (106),
-  preview/ChipPreview.tsx (84), system-detail/RecommendedBuildsPanel.tsx (76),
-  colony-planner/SystemSlotMapPanel.tsx (27), colony-planner/WorkspaceGrid.tsx (6).
-  Hypothesis on cause: superseded by the Stage 25D cockpit fold.
-- Close when: each file deleted (or re-wired with stated reason); knip or
-  equivalent unused-export check added to frontend CI.
-
-### CQ-003 — orphaned one-shot script targeting retired column
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- scripts/repair_ratings_score_breakdown_null.py (391 lines), referenced by
-  nothing; targets retired score_breakdown.
-- Close when: moved to scripts/operator/archive/ with historical declaration
-  per the operator-script contract.
-
 ### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/
 - Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (directory no longer exists)
 - Close when: CLAUDE.md frontend section updated; fold into the pending
   roadmap/docs drift update.
-
-### CQ-011 — nightly_update.sh:66 cd without failure guard (SC2164)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed, cosmetic (line 51 existence
-  check mitigates; script deliberately runs set -uo pipefail without -e)
-- Close when: `cd "$COMPOSE" || fatal "..."`; shellcheck -S warning clean.
 
 ### CQ-012 — oversized files (accepted split opportunities)
 - Raised 2026-07-16 · audit @ 0a768a2 · improvement, not defect
@@ -136,6 +113,26 @@ Resolved with date and closing commit. New audits append.
   (session_replication_role=replica); tests green.
 
 ## Resolved
+
+### CQ-002 — 8 orphaned frontend components — RESOLVED 2026-07-18
+- Fixed in PR #344 (implementation commits 203ccd9 and d0fb52e): deleted all eight
+  zero-reference components and renamed the surviving EliteNewsBar test to
+  match the live component.
+- Added Knip's unused-file check to the required Frontend build job. Local
+  `yarn knip --files` completed cleanly; the existing typecheck, frontend test,
+  build, and protected CI gates cover the resulting import graph.
+
+### CQ-003 — orphaned one-shot script targeting retired column — RESOLVED 2026-07-18
+- Fixed in PR #344 (implementation commit 203ccd9): moved
+  `scripts/repair_ratings_score_breakdown_null.py` to
+  `scripts/operator/archive/stage-h1-cq003/` with an explicit historical-only
+  declaration. No active tests, scripts, or Makefile targets referenced it.
+
+### CQ-011 — nightly_update.sh unguarded cd — RESOLVED 2026-07-18
+- Fixed in PR #344 (implementation commit 203ccd9): the compose-directory
+  change now fails through the script's existing `fatal` path when `cd` fails.
+- Ruff and the script-contract CI job are green; ShellCheck remains enforced by
+  CI because it is not installed in the current Windows workspace.
 
 ### CQ-001 — 16 silently dead test functions — RESOLVED 2026-07-16
 - Fixed in PR #318 (c9cff45): dead block tests/test_optimiser.py:655–835

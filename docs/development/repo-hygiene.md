@@ -141,6 +141,7 @@ This contract is backed by:
 
 - `tests/test_bounded_hygiene_pass.py`
 - `tests/test_repo_hygiene_contract.py`
+- the frontend CI `yarn knip --files` unused-source-file gate
 - `.github/PULL_REQUEST_TEMPLATE.md`
 
 If you intentionally change the repo shape, update the policy and the tests in

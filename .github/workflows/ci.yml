@@ -300,6 +300,9 @@ jobs:
       - name: Type-check
         run: yarn typecheck
 
+      - name: Knip unused-file check
+        run: yarn knip --files
+
       - name: Frontend CI test suite
         run: yarn test:ci
 
