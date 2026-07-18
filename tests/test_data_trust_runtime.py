@@ -105,6 +105,7 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
             '--apply',
             '--batch-size',
             '100',
+            '--skip-summary',
             '--json',
         )
         assert reconcile.returncode == 0, reconcile.stderr
@@ -112,7 +113,9 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
         assert reconcile_report['reconciled'] == 1
         assert reconcile_report['deleted_ratings'] == 1
         assert reconcile_report['cleared_dirty'] == 1
-        assert reconcile_report['after']['total_candidates'] == 0
+        assert reconcile_report['summary_skipped'] is True
+        assert reconcile_report['before']['total_candidates'] is None
+        assert reconcile_report['after']['total_candidates'] is None
 
         after = _run_python(
             DATA_INVARIANTS,
@@ -148,6 +151,17 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
 
 def test_body_contract_skip_summary_requires_apply():
     result = _run_python(REPAIR_BODY_CONTRACT, '--dsn', 'postgresql://example.invalid/db', '--skip-summary')
+    assert result.returncode != 0
+    assert '--skip-summary requires --apply' in result.stderr
+
+
+def test_no_body_reconcile_skip_summary_requires_apply():
+    result = _run_python(
+        RECONCILE_NO_BODY_RATINGS,
+        '--dsn',
+        'postgresql://example.invalid/db',
+        '--skip-summary',
+    )
     assert result.returncode != 0
     assert '--skip-summary requires --apply' in result.stderr
 

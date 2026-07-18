@@ -124,6 +124,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="Emit machine-readable JSON.",
     )
+    parser.add_argument(
+        "--skip-summary",
+        action="store_true",
+        help=(
+            "Skip the full before/after summary scans. Intended for bounded "
+            "steady-state cleanup runs. Requires --apply."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -168,6 +176,10 @@ def fetch_summary(conn) -> dict[str, int]:
         cur.execute(SUMMARY_SQL)
         row = dict(cur.fetchone() or {})
     return {key: int(row.get(key) or 0) for key in SUMMARY_KEYS}
+
+
+def empty_summary() -> dict[str, None]:
+    return dict.fromkeys(SUMMARY_KEYS)
 
 
 def fetch_batch(conn, batch_size: int) -> list[dict[str, object]]:
@@ -238,15 +250,19 @@ def apply_batches(
 
 def run(conn, args: argparse.Namespace) -> dict[str, object]:
     configure_session(conn)
-    before = fetch_summary(conn)
+    if args.skip_summary and not args.apply:
+        raise ValueError("--skip-summary requires --apply")
+
+    summary_skipped = bool(args.skip_summary)
+    before = empty_summary() if summary_skipped else fetch_summary(conn)
     reconciled = 0
     deleted_ratings = 0
     cleared_dirty = 0
     batches = 0
 
     if args.apply:
-        target_total = before["total_candidates"]
-        if args.limit is not None:
+        target_total = None if summary_skipped else before["total_candidates"]
+        if args.limit is not None and target_total is not None:
             target_total = min(target_total, args.limit)
         reconciled, deleted_ratings, cleared_dirty, batches = apply_batches(
             conn,
@@ -254,7 +270,7 @@ def run(conn, args: argparse.Namespace) -> dict[str, object]:
             limit=args.limit,
             target_total=target_total,
         )
-        after = fetch_summary(conn)
+        after = empty_summary() if summary_skipped else fetch_summary(conn)
     else:
         conn.rollback()
         after = before
@@ -265,6 +281,7 @@ def run(conn, args: argparse.Namespace) -> dict[str, object]:
         "apply": bool(args.apply),
         "batch_size": args.batch_size,
         "limit": args.limit,
+        "summary_skipped": summary_skipped,
         "reconciled": reconciled,
         "deleted_ratings": deleted_ratings,
         "cleared_dirty": cleared_dirty,
@@ -280,12 +297,14 @@ def render_text_report(report: dict[str, object]) -> str:
             "reconcile_no_body_ratings "
             f"mode={report['mode']} "
             f"batch_size={report['batch_size']} "
-            f"limit={report['limit']}"
+            f"limit={report['limit']} "
+            f"summary_skipped={report['summary_skipped']}"
         ),
         "summary:",
     ]
     for key in SUMMARY_KEYS:
-        lines.append(f"  {key}: {report.get(key, 0)}")
+        value = report.get(key)
+        lines.append(f"  {key}: {'skipped' if value is None else value}")
     lines.extend(
         [
             f"reconciled: {report['reconciled']}",
@@ -297,7 +316,8 @@ def render_text_report(report: dict[str, object]) -> str:
     if report["apply"]:
         lines.append("after:")
         for key in SUMMARY_KEYS:
-            lines.append(f"  {key}: {report['after'].get(key, 0)}")
+            value = report['after'].get(key)
+            lines.append(f"  {key}: {'skipped' if value is None else value}")
     return "\n".join(lines)
 
 
@@ -305,6 +325,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if not args.dsn:
         print("DATABASE_URL or --dsn is required", file=sys.stderr)
+        return 2
+    if args.skip_summary and not args.apply:
+        print("--skip-summary requires --apply", file=sys.stderr)
         return 2
 
     import psycopg2

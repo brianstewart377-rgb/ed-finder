@@ -242,6 +242,7 @@ if [[ "$SKIP_INVARIANTS" -eq 0 ]]; then
   bash scripts/run_data_invariants_receipted.sh \
     --target-rating-version 3.4 \
     --production-safe \
+    --allow-stale-colonisation-status \
     --receipt-file /tmp/ed-finder-data-invariants-post-deploy.json \
     --durable-receipt-dir /data/receipts/data-invariants/post-deploy
   ok "post-deploy data invariants passed"

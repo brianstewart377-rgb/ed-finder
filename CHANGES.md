@@ -35,6 +35,23 @@ checksum; migration 040 remains the additive owner of the widening. A CI
 contract now pins the production-baselined checksum and the migration-040
 ownership boundary.
 
+**Production invariant tail closed** - Reconciled 144,942 truthful no-body
+dirty systems in bounded production batches, deleting 31,417 stale ratings;
+repaired 2,766 ring association statuses and the final stale body-count row.
+Durable repair and invariant receipts now show zero persisted body, no-body,
+ring, station-link, and evidence-lifecycle drift.
+
+**Dirty-rating retry storm fixed** - The scheduled dirty-ratings worker had
+treated every truthful no-body system as a retryable rating error every 30
+minutes. The guarded cron now performs bounded no-body reconciliation first,
+then counts and rates only body-backed systems. Summary-free cleanup mode keeps
+the steady-state pass cheap on the 188M-system production catalogue.
+
+**Freshness policy made explicit** - Deploy and weekly invariant receipts keep
+reporting colonisation age buckets but explicitly allow the >14-day tail. EDDN
+refreshes status on observations; an unchanged positive status aging past 14
+days is freshness telemetry, not by itself a persisted-integrity failure.
+
 ---
 
 ## 2026-05-03 — Backend fix: auto-rebuild indexes transaction error

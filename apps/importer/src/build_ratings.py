@@ -1738,6 +1738,7 @@ def main():
                 SELECT id64, main_star_type
                 FROM   systems
                 WHERE  rating_dirty = TRUE
+                  AND  has_body_data = TRUE
                 ORDER BY id64
             """)
         elif args.rebuild:

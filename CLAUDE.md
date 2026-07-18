@@ -212,6 +212,14 @@ Do not remove.
 ### run_importer entrypoint
 The `importer` image sets `ENTRYPOINT ["python3"]`. `docker compose run <service> <cmd>` appends the given command on top of the entrypoint rather than replacing it, so `run_importer()` in `scripts/nightly_update.sh` must invoke it as `docker compose run --rm --entrypoint python3 importer <script> <args>` — never pass a redundant literal `python3` as part of `<cmd>`, or every invocation fails trying to execute a file named `python3`. `scripts/run_dirty_ratings_if_needed.sh` already uses the correct `--entrypoint python3` pattern; match it.
 
+### Dirty ratings maintenance
+`scripts/run_dirty_ratings_if_needed.sh` owns both sides of the deferred queue
+under one `flock`: it first runs bounded `reconcile_no_body_ratings.py` cleanup,
+then counts and rates only `rating_dirty = TRUE AND has_body_data = TRUE` rows.
+Do not remove the no-body cleanup or broaden the ratings stream back to all
+dirty systems; truthful no-body rows otherwise become permanent retry errors
+and stale ratings survive indefinitely.
+
 ### Nightly job caps
 `build_archetype_scores.py`'s new-system mode has a hidden `limit or 10_000_000` fallback that silently caps at 10M rows if `--limit` isn't passed explicitly — always pass `--limit`. `scripts/nightly_update.sh` caps new-system archetype scoring and regional-analysis backfills at 5,000,000 rows/night to avoid unattended multi-day runs; lower this once each backlog clears (e.g. to `--limit 500000` for steady-state maintenance).
 
