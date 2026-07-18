@@ -33,6 +33,13 @@ rehearsal, and all nine CI checks protect `main`. CQ-035 through CQ-040 record
 the closed H2 findings; credential handling and finite migration timeouts remain
 explicit H3 work as CQ-041 and CQ-042.
 
+**Review Lab failure classified** — H2 fixed its Linux direct-entry import
+regression, after which the workflow reproduced PR #344's pre-existing browser
+failure: the review stack returns 404 for `/api/news/latest`, preventing several
+keyboard and Delta-fallback checks from completing. The optional workflow is
+not a protected context; CQ-043 records the bounded follow-up instead of
+misclassifying it as an H2 regression.
+
 **CI restored and enforced** — Recovered the full GitHub Actions board across
 backend unit and integration tests, canonical safety, script contracts, nginx,
 OpenAPI drift, frontend build, Playwright E2E, and built-image parity. `main` is

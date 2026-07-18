@@ -124,6 +124,19 @@ Resolved with date and closing commit. New audits append.
 - Close when: reviewed finite defaults and an explicit override policy land,
   script-contract tests pin the behavior, and migration/deploy rehearsal passes.
 
+### CQ-043 — Review Lab browser verification is persistently red
+- Raised 2026-07-18 · CI forensic comparison of PR #344 and PR #345 ·
+  Confirmed · pre-existing on `main`; Review Lab is currently optional, not one
+  of the nine protected checks. The full browser phase records five
+  `/api/news/latest?limit=8` 404s, then misses required keyboard checks and the
+  Delta provenance-fallback correlation (`DELTA_FALLBACK_NOT_TRIGGERED`).
+- H2 briefly introduced an earlier direct-entry import failure, fixed by
+  `7394580`; the workflow now reaches the same full-browser failure fingerprint
+  as PR #344, which disambiguates the remaining red state from this branch.
+- Close when: the review environment and live frontend route contract agree,
+  no unexpected news-route errors abort the journeys, required keyboard and
+  Delta fallback checks complete, and Review Lab passes on a protected PR.
+
 ## Resolved
 
 ### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/ — RESOLVED 2026-07-18

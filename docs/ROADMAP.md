@@ -329,7 +329,8 @@ competing roadmap source.
 2. Complete dependency-aware documentation triage and historical archiving.
 3. Finish the archetype-scoring pivot and retire legacy score storage safely.
 4. Reconcile CRE confidence/source-authority contracts before runtime integration.
-5. Maintain protected CI, reproducible release artifacts, and local parity.
+5. Maintain protected CI, reproducible release artifacts, and local parity;
+   restore the optional Review Lab browser workflow to green (CQ-043).
 6. Harden operational scripts with reviewed secret-handling and finite-timeout
    policies.
 7. Continue planner trust, evidence clarity, and operator reviewability.
