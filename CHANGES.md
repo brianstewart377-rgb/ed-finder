@@ -11,7 +11,9 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 `apps`, `tests`, `scripts`, and `shared_contracts`, fixed all newly exposed
 findings, and added a repository-owned LF checkout policy for shell scripts.
 Replaced the uncollected slot smoke module with collected model tests and added
-direct expansion-plan store coverage.
+direct expansion-plan store coverage. Review Lab then caught a Linux-only
+direct-entry import regression in the Ruff cleanup; the entrypoint now
+bootstraps the repository package root and a subprocess regression pins it.
 
 **Frontend trust paths tightened** — Routed Cluster Search through the typed
 shared API client with direct hook tests, contained browser storage exceptions

@@ -140,7 +140,10 @@ Resolved with date and closing commit. New audits append.
 - Fixed in `0d80f4c`: Ruff now covers `apps`, `tests`, `scripts`, and
   `shared_contracts`; all nine newly exposed findings were corrected or given
   one narrow bootstrap exception; `.gitattributes` pins `*.sh` to LF.
-- Local expanded Ruff and focused backend contract tests passed.
+- Review Lab exposed a Linux direct-entry import regression after the cleanup;
+  `7394580` added the explicit repo-root entrypoint bootstrap and a subprocess
+  regression that runs without `PYTHONPATH` from outside the checkout.
+- Local expanded Ruff and focused backend/Review Lab contract tests passed.
 
 ### CQ-036 — Cluster Search bypassed the shared API client — RESOLVED 2026-07-18
 - Raised 2026-07-18 · forensic audit @ a447222 · Confirmed.
