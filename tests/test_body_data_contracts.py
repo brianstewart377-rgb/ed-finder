@@ -76,5 +76,7 @@ def test_reconcile_no_body_ratings_script_clears_dirty_and_deletes_stale_rows():
     assert "DELETE FROM ratings" in source
     assert "SET rating_dirty = FALSE" in source
     assert "Apply the reconciliation. Omit for dry-run summary only." in source
+    assert '"--skip-summary"' in source
+    assert "--skip-summary requires --apply" in source
     assert "candidates_with_rating" in source
     assert "candidates_without_rating" in source

@@ -129,8 +129,12 @@ Stage 17N.2d-R keeps EDDN ingestion and rating recalculation separate:
 
 - EDDN marks affected rows with `systems.rating_dirty = TRUE`.
 - Host cron periodically runs `scripts/run_dirty_ratings_if_needed.sh`.
+- Under the same `flock`, the script first reconciles up to 50,000 truthful
+  no-body rows in 5,000-row transactions. That deletes stale ratings and clears
+  dirty flags without paying for broad summary scans.
 - The script runs `build_ratings.py --dirty` only when the dirty queue is at or
-  above `DIRTY_RATING_THRESHOLD`.
+  above `DIRTY_RATING_THRESHOLD`; both the threshold count and rating stream
+  are restricted to `has_body_data = TRUE` systems.
 - The script uses `flock` on `/tmp/ed-finder-dirty-ratings.lock` by default, so
   two scheduled invocations of this script cannot overlap.
 
@@ -171,7 +175,18 @@ DIRTY_RATING_THRESHOLD=999999999 bash scripts/run_dirty_ratings_if_needed.sh
 Validation SQL:
 
 ```sql
-SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;
+SELECT COUNT(*)
+FROM systems
+WHERE rating_dirty = TRUE
+  AND has_body_data = TRUE;
+
+SELECT COUNT(*)
+FROM systems s
+WHERE s.rating_dirty = TRUE
+  AND COALESCE(s.has_body_data, FALSE) = FALSE
+  AND NOT EXISTS (
+      SELECT 1 FROM bodies b WHERE b.system_id64 = s.id64
+  );
 
 SELECT rating_version, COUNT(*)
 FROM ratings
@@ -190,7 +205,7 @@ Log checks:
 
 ```bash
 tail -100 /data/logs/dirty-ratings.log
-grep -E "start time=|dirty_count=|below threshold|dirty ratings rebuild command|exit_status=|another dirty ratings maintenance run" /data/logs/dirty-ratings.log | tail -100
+grep -E "start time=|body_backed_dirty_count=|truthful no-body cleanup|below threshold|dirty ratings rebuild command|exit_status=|another dirty ratings maintenance run" /data/logs/dirty-ratings.log | tail -100
 ```
 
 The script does not clear Redis caches automatically. Cache clears remain a
@@ -212,7 +227,10 @@ Wrapper:
 Post-deploy path:
 
 - `scripts/deploy_main.sh` now runs the wrapper by default in
-  `--production-safe` mode unless `--skip-invariants` is supplied.
+  `--production-safe` mode unless `--skip-invariants` is supplied. It passes
+  `--allow-stale-colonisation-status` explicitly because the EDDN-backed age
+  buckets are observational freshness telemetry, not proof that an unchanged
+  positive status is false. The buckets remain printed and receipted.
 - The deploy hook writes a transient receipt to
   `/tmp/ed-finder-data-invariants-post-deploy.json` and also copies a dated
   durable receipt into `/data/receipts/data-invariants/post-deploy/` so the
@@ -223,7 +241,7 @@ The weekly steady-state schedule now runs from the maintenance sidecar's
 committed crontab, not an out-of-band host cron:
 
 ```cron
-45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
+45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --allow-stale-colonisation-status --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
 ```
 
 The maintenance service prefers `DATA_INVARIANTS_DATABASE_URL` and should point

@@ -553,6 +553,7 @@ def test_dirty_mode_selects_only_rating_dirty_systems():
     source = inspect.getsource(build_ratings.main)
 
     assert 'WHERE  rating_dirty = TRUE' in source
+    assert 'AND  has_body_data = TRUE' in source
     assert 'Query: dirty systems only' in source
 
 
@@ -562,8 +563,12 @@ def test_dirty_ratings_maintenance_script_is_host_cron_safe():
     assert 'DIRTY_RATING_THRESHOLD="${DIRTY_RATING_THRESHOLD:-250}"' in source
     assert 'DIRTY_RATING_WORKERS="${DIRTY_RATING_WORKERS:-2}"' in source
     assert 'DIRTY_RATING_CHUNK="${DIRTY_RATING_CHUNK:-1000}"' in source
+    assert 'DIRTY_NO_BODY_BATCH="${DIRTY_NO_BODY_BATCH:-5000}"' in source
+    assert 'DIRTY_NO_BODY_LIMIT="${DIRTY_NO_BODY_LIMIT:-50000}"' in source
     assert 'flock -n 9' in source
-    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;' in source
+    assert '/opt/ed-finder/scripts/reconcile_no_body_ratings.py' in source
+    assert '--skip-summary' in source
+    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE AND has_body_data = TRUE;' in source
     assert 'docker compose --profile import run --rm' in source
     assert '/app/build_ratings.py' in source
     assert '--dirty' in source
@@ -603,8 +608,9 @@ def test_dirty_ratings_runbook_documents_host_cron_installation():
         'DIRTY_RATING_WORKERS=2 DIRTY_RATING_CHUNK=1000 '
         'bash scripts/run_dirty_ratings_if_needed.sh >> /data/logs/dirty-ratings.log 2>&1'
     ) in runbook
-    assert 'SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE;' in runbook
-    assert 'grep -E "start time=|dirty_count=|below threshold|' in runbook
+    assert 'WHERE rating_dirty = TRUE\n  AND has_body_data = TRUE;' in runbook
+    assert 'COALESCE(s.has_body_data, FALSE) = FALSE' in runbook
+    assert 'grep -E "start time=|body_backed_dirty_count=|truthful no-body cleanup|' in runbook
     assert 'does not clear Redis caches automatically' in runbook
 
 

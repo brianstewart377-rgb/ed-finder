@@ -17,4 +17,4 @@
 10 2 * * *   /usr/local/bin/run_backup.sh nightly
 15 3 * * *   /usr/local/bin/run_maintenance.sh nightly
  0 4 * * 0   /usr/local/bin/run_maintenance.sh weekly
-45 4 * * 0   /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
+45 4 * * 0   /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --allow-stale-colonisation-status --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1

@@ -22,16 +22,17 @@ document that should answer "what next?".
   Score**, API rerank helpers stay under **archetypes**, and the current DB
   implementation still runs on the **Ratings v3.4** scorer/tables. The full
   production rebaseline main pass has completed and the steady-state
-  dirty-ratings cron has been restored. The remaining ratings integrity issue
-  is a tiny post-rerate body-data contract tail
-  (`systems.has_body_data` / `systems.body_count` versus actual `bodies`
-  rows), not an active mixed-generation rerate backlog. The larger no-body and
-  ring-drift repair buckets have already been drained on production into a
-  small live-churn retry band plus `3` persistent body-contract rows.
-- Data-trust follow-up posture: the next persisted-integrity hardening lane is
-  `station_body_links` drift; Finder populated/uninhabited filter semantics now
-  match end-to-end, but canonical population storage still needs a later
-  unknown-vs-zero migration.
+  dirty-ratings cron has been restored. The 2026-07-18 production closeout
+  drained 144,942 truthful no-body dirty rows, deleted 31,417 stale ratings,
+  repaired 2,766 ring-status rows, and corrected the final body-count row. The
+  production-safe integrity buckets now read zero; steady-state maintenance
+  reconciles no-body rows before body-backed rerating so the backlog cannot
+  recur as a retry storm.
+- Data-trust follow-up posture: persisted body, ring, station-link, and evidence
+  lifecycle invariants are clean. Colonisation age buckets remain visible
+  observational telemetry and no longer block deploys merely because a
+  positive EDDN status has not been re-observed within 14 days. Canonical
+  population storage still needs a later unknown-vs-zero migration.
 - Local test-environment posture: real-service readiness now proves live local
   Postgres access without fake fallbacks, while historical Stage 19 checkpoint
   assertions skip explicitly when the approved historical baseline rows are not
@@ -135,9 +136,9 @@ Stage 25 has exactly one primary objective:
    continuing codebase and documentation cleanup.
 5. Advance the evidence-store and ingestion lane safely, with reviewable
    operator/admin surfaces rather than implicit write automation.
-6. Close out the ratings rebaseline properly so the live app does not quietly
-   carry body-contract drift or unrated ingest edge cases behind the current
-   Development Score / archetype-led product language.
+6. Preserve the closed ratings/data-integrity baseline through bounded
+   no-body reconciliation, body-backed rerating, and durable production
+   receipts.
 7. Keep the now-green local test environment honest: preserve the repo-venv
    runner, preflight path, explicit real-service skips, and broad pytest
    coverage so local "green" continues to mean something.
@@ -157,15 +158,15 @@ competing roadmap source.
 
 ### Do Now
 
-- Finish the last tiny production body-data contract tail
-  (`flagged_but_zero_count = 3`) without reopening expensive wide scans on the
-  live 120 GB database.
+- Preserve the zeroed production body, ring, no-body rating, station-link, and
+  evidence-lifecycle invariant buckets established by the 2026-07-18 repair
+  receipts.
 - Keep receipting `scripts/run_data_invariants_receipted.sh --production-safe`
   on production so the post-rerate end-state is evidenced, not assumed, and
   persist the dated durable receipts under the production receipts path plus
   committed review artifacts.
-- Preserve the now-clean ring and station-link lanes while the remaining
-  no-body dirty rows wobble inside a bounded live-churn retry band.
+- Monitor the now-bounded no-body cleanup and body-backed rerating cadence;
+  colonisation age remains reported separately as source freshness telemetry.
 - Keep Stage 25 shell/context work closed and stable while the audit-response
   foundation follow-through finishes.
 

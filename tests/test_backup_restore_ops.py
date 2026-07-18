@@ -25,6 +25,7 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     assert '- /data/receipts:/data/receipts' in compose
     assert '/usr/local/bin/run_backup.sh nightly' in crontab
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
+    assert '--production-safe --allow-stale-colonisation-status' in crontab
     assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone' in dockerfile
     assert 'COPY apps/maintenance/scripts/run_backup.sh                /usr/local/bin/run_backup.sh' in dockerfile
     assert 'COPY scripts/run_data_invariants_receipted.sh              /usr/local/bin/run_data_invariants_receipted.sh' in dockerfile
@@ -110,13 +111,16 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
     assert '/tmp/ed-finder-data-invariants-post-deploy.json' in deploy
     assert '--durable-receipt-dir /data/receipts/data-invariants/post-deploy' in deploy
+    assert '--allow-stale-colonisation-status' in deploy
     assert 'TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"' in wrapper
     assert 'DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"' in wrapper
     assert 'DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"' in wrapper
     assert '--database-url) DATABASE_URL_OVERRIDE="$2"; shift 2 ;;' in wrapper
     assert '--durable-receipt-dir) DURABLE_RECEIPT_DIR="$2"; shift 2 ;;' in wrapper
     assert '--production-safe' in wrapper
+    assert '--allow-stale-colonisation-status) ALLOW_STALE_COLONISATION_STATUS=1; shift ;;' in wrapper
     assert '"status": "$status"' in wrapper
+    assert '"allow_stale_colonisation_status":' in wrapper
     assert 'data-invariants-${durable_stamp}.json' in wrapper
     assert 'latest.json' in wrapper
     assert '45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh' in runbook
