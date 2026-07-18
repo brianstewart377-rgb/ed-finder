@@ -41,7 +41,9 @@ jobs:
         run: python -m compileall -q apps
 
       - name: Run Ruff lint gate
-        run: python -m ruff check apps tests
+        run: |
+          python -m ruff check apps tests
+          python -m ruff check apps tests scripts --select B905
 
       - name: Run backend unit test suite (no DB required)
         run: python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q

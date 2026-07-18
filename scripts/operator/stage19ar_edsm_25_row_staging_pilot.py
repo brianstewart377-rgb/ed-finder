@@ -1106,7 +1106,7 @@ def _row_to_dict(row: Any, cursor: Any | None = None) -> dict[str, Any] | None:
         if not description:
             raise TypeError('cursor.description is required for positional rows')
         columns = [str(column[0]) for column in description]
-        return dict(zip(columns, row))
+        return dict(zip(columns, row, strict=True))
     raise TypeError('cursor rows must be mapping-like or positional')
 
 

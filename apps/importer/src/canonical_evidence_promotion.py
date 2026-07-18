@@ -284,5 +284,5 @@ def _fetchone_mapping(cur: Any) -> dict[str, Any] | None:
     description = getattr(cur, 'description', None)
     if description:
         keys = [col[0] for col in description]
-        return dict(zip(keys, row))
+        return dict(zip(keys, row, strict=True))
     return None

@@ -194,6 +194,12 @@ INSERT_TEMPLATE = """(%s,
 # ---------------------------------------------------------------------------
 # Coverage score (Python side — mirrors the SQL function)
 # ---------------------------------------------------------------------------
+def _row_to_dict(description, row) -> dict:
+    """Map a positional DB row to its cursor column names."""
+    columns = [column[0] for column in description]
+    return dict(zip(columns, row, strict=True))
+
+
 def compute_coverage_score(rd: dict) -> float:
     """
     Compute a weighted coverage score (0-100) for an anchor system.
@@ -355,8 +361,7 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
             if not row:
                 continue
 
-            cols = [d[0] for d in cur.description]
-            rd = dict(zip(cols, row))
+            rd = _row_to_dict(cur.description, row)
 
             coverage  = compute_coverage_score(rd)
             diversity = sum(1 for eco in ('agriculture', 'refinery', 'industrial',

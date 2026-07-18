@@ -173,7 +173,10 @@ async def get_slot_predictions(
         'estimated_ground_slots': prediction.get('predicted_ground_slots_total'),
         'slot_confidence': round(float(slot_confidence), 3) if slot_confidence is not None else None,
         'slot_confidence_label': confidence_label(slot_confidence),
-        'predictions': [_slot_prediction_to_api(p, fact) for p, fact in zip(prediction['body_predictions'], scan_facts)],
+        'predictions': [
+            _slot_prediction_to_api(p, fact)
+            for p, fact in zip(prediction['body_predictions'], scan_facts, strict=True)
+        ],
         'note': None if prediction.get('prediction_status') != 'unknown' else (
             f'{INSUFFICIENT_DATA_REASON}. Verify in Architect Mode.'
         ),

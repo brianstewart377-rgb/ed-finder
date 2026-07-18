@@ -108,6 +108,30 @@ async def test_slot_prediction_endpoint_uses_canonical_predictor(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_slot_prediction_endpoint_rejects_prediction_count_mismatch(monkeypatch):
+    def fake_predict_system_slots(_facts):
+        return {
+            'predicted_orbital_slots_total': 0,
+            'predicted_ground_slots_total': 0,
+            'slot_confidence': 0.96,
+            'body_predictions': [],
+            'prediction_status': 'predicted',
+            'prediction_version': 'validated-slot-v1',
+            'validation_note': 'test fixture',
+            'required_input_missing': [],
+        }
+
+    monkeypatch.setattr(simulation_router, 'predict_system_slots', fake_predict_system_slots)
+
+    with pytest.raises(ValueError, match=r'zip\(\) argument 2 is longer'):
+        await simulation_router.get_slot_predictions(
+            id64=123,
+            pool=MockPool(),
+            redis=None,
+        )
+
+
+@pytest.mark.asyncio
 async def test_slot_prediction_endpoint_reports_unknown_without_fallback(monkeypatch):
     def fake_predict_system_slots(_facts):
         return {
