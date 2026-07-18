@@ -28,19 +28,6 @@ Resolved with date and closing commit. New audits append.
 - Close when: moved to scripts/operator/archive/ with historical declaration
   per the operator-script contract.
 
-### CQ-004 — zip() without strict= (11 sites, 2 on hot paths)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- Hot: apps/api/src/routers/simulation.py:179 (live slot-prediction endpoint;
-  length mismatch silently truncates predictions — carried over unfixed from
-  the earlier informal review); apps/importer/src/build_clusters.py:359.
-  Others: canonical_evidence_promotion.py:288, enrichment_warehouse_sql.py:768,
-  source_run_compatibility.py:307, station_type_canonical_pilot.py:835,
-  scripts/dev/review_lab/process_registry.py:69 and :83, two stage-19 operator
-  scripts, tests/test_stage17n2d_backfill_framework.py:289.
-- Close when: strict=True at all 11 sites (if any site's lengths may
-  legitimately differ, stop and escalate — never downgrade to strict=False
-  silently); regression tests on both hot paths; B905 gated in CI.
-
 ### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/
 - Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (directory no longer exists)
 - Close when: CLAUDE.md frontend section updated; fold into the pending
@@ -154,6 +141,16 @@ Resolved with date and closing commit. New audits append.
 - Fixed in PR #318 (c9cff45): dead block tests/test_optimiser.py:655–835
   removed; collect-only name set unchanged; verified by independent replay.
 - Recurrence is now gated by Ruff in CI (CQ-005, merged at b84d971).
+
+### CQ-004 — zip() without strict= — RESOLVED 2026-07-18
+- Fixed in PR #338 (cd89f1b; merged at f56c43d): all 11 audited pairings now
+  use strict=True after confirming equal lengths are contractual at every
+  site. Added mismatch regressions for the live slot-prediction endpoint and
+  build_clusters cursor-row mapping.
+- Ruff B905 is configured and gated across apps, tests, and scripts. Local
+  verification passed 1450 backend unit tests plus 168 affected operator and
+  importer tests; all nine protected checks and both post-merge main workflows
+  passed.
 
 ### CQ-008 — computed-then-dropped locals — RESOLVED 2026-07-18
 - The original fix commit dd9e5c1 never merged: PR #319 remained orphaned
