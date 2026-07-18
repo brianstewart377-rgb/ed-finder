@@ -10,34 +10,6 @@ Resolved with date and closing commit. New audits append.
 
 ## Open
 
-### CQ-002 — 8 orphaned frontend components (1,390 dead lines)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (zero references incl. tests)
-- colony-planner/SelectedBodyPlannerCanvas.tsx (640),
-  system-detail/BuildabilityPanel.tsx (228),
-  system-detail/SlotPredictionPanel.tsx (223), news/EliteNewsBanner.tsx (106),
-  preview/ChipPreview.tsx (84), system-detail/RecommendedBuildsPanel.tsx (76),
-  colony-planner/SystemSlotMapPanel.tsx (27), colony-planner/WorkspaceGrid.tsx (6).
-  Hypothesis on cause: superseded by the Stage 25D cockpit fold.
-- Close when: each file deleted (or re-wired with stated reason); knip or
-  equivalent unused-export check added to frontend CI.
-
-### CQ-003 — orphaned one-shot script targeting retired column
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed
-- scripts/repair_ratings_score_breakdown_null.py (391 lines), referenced by
-  nothing; targets retired score_breakdown.
-- Close when: moved to scripts/operator/archive/ with historical declaration
-  per the operator-script contract.
-
-### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (directory no longer exists)
-- Close when: CLAUDE.md frontend section updated; fold into the pending
-  roadmap/docs drift update.
-
-### CQ-011 — nightly_update.sh:66 cd without failure guard (SC2164)
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed, cosmetic (line 51 existence
-  check mitigates; script deliberately runs set -uo pipefail without -e)
-- Close when: `cd "$COMPOSE" || fatal "..."`; shellcheck -S warning clean.
-
 ### CQ-012 — oversized files (accepted split opportunities)
 - Raised 2026-07-16 · audit @ 0a768a2 · improvement, not defect
 - PlannerCanvasPreview.tsx 1,417 (continue plannerCanvasUtils extraction);
@@ -47,6 +19,18 @@ Resolved with date and closing commit. New audits append.
   per-schema handlers); local_search.py 1,314 (candidate for edfinder_api/
   packaging). nightly_update.sh: collapse six VACUUM ANALYZE stanzas to a loop.
 - Close when: each split lands, or is declined with rationale recorded here.
+- CQ-012 ruling (2026-07-18): accepted as a sequenced split lane, not
+  declined. S1 nightly_update.sh VACUUM loop, S2 MyWorkWorkspace
+  ExpansionPlansSection extraction, S3 PlannerCanvasPreview
+  plannerCanvasUtils continuation, and S4 local_search.py edfinder_api/
+  packaging are scheduled as individual mechanical-extraction PRs after
+  this docs pass. NavBar closes as overtaken: the be7b381 redesign
+  already reduced it 722 → 379 lines. evidence_store/store.py and
+  eddn_listener.py are deferred with rationale, not declined: both sit
+  on the evidence layer / live ingest and will be split at their next
+  feature contact (the CRE confidence-vocabulary integration opens
+  store.py naturally), where real work validates the refactor. Original
+  "6 VACUUM stanzas" count re-verified accurate at 51fe2d8.
 
 ### CQ-013 — dependency refresh lane (deferred until CQ-005 closes)
 - Raised 2026-07-16 · audit @ 0a768a2 · improvement, not defect
@@ -56,84 +40,6 @@ Resolved with date and closing commit. New audits append.
 - Close when: refresh PR lands with openapi-types job green, or deferred with
   rationale recorded here.
 - CQ-005 closed 2026-07-18; this lane is unblocked but has not started.
-
-### CQ-015 — data_invariants.py crash: unescaped % in ILIKE (RESOLVED, see below)
-- Raised 2026-07-16 · surfaced by CI on PR #319 · Confirmed, contained
-- scripts/checks/data_invariants.py crashed with IndexError (tuple index out
-  of range) via shared_contracts/data_invariant_contracts.py: the
-  ring_association_status_drift check contained ILIKE '% belt%' with a bare %
-  that psycopg2 misreads as a format placeholder. Introduced in cac355b.
-  Blast radius bounded: the LIVE admin invariants endpoint uses asyncpg
-  fetchval(), which is unaffected — production-safe receipts were never
-  corrupt; only the psycopg2 CI script hard-crashed. Surfaced under the
-  misleadingly-named "OpenAPI types drift" job (crash is upstream of type-gen).
-- Close when: % escaped to %% at source; openapi-types job green in CI.
-
-### CQ-022 — backend-unit CI job: 64-failure triage (umbrella) (RESOLVED, see below)
-- Raised 2026-07-16 · local repro of the job's exact selection @ 983a212 ·
-  counts Confirmed (64 failed, 1348 passed, 15 collection errors); bucket
-  severity varies
-- Buckets: (a) ~25 DB-dependent tests unmarked and failing "Database pool
-  not initialised" / 503-vs-422 in the no-DB job (test_stage6c_comparison,
-  test_stage6e_review, parts of test_observations) — marker/mock ruling
-  needed; (b) stale contract-pin tests asserting superseded text of
-  scripts/checks/data_invariants.py, stage-22/23/25 docs, evidence
-  fixtures, and one fetchval query shape; (c) POSSIBLE REAL BUGS, diagnose
-  before touching: test_observation_comparison ×11 (TypeError: Unsupported
-  observed fact value: ObservedFact), test_colony_layout_import ×4
-  (partial-vs-success semantics), test_observations 403-vs-200/422,
-  LivePlannerEvidenceResult missing 'coverage' arg; (d)
-  test_local_review_test_environment Unknown in CI (docker-dependent).
-- Close when: bucket (c) diagnosed and dispositioned as own findings;
-  (a)/(b) ruled by owner and fixed; the job green. Met 2026-07-17; see below.
-
-### CQ-026 — CI seed produced invariant-violating data (RESOLVED, see below)
-- Raised 2026-07-16 · Confirmed · the seed (sql/seed_preview.sql) failed 3 of
-  9 data-invariants (rating_version not uniform; body-data flags/counts drift;
-  stale non-eligible systems carried ratings) plus both seed_check guards.
-- Close when: seed satisfies all 9 invariants + seed_check; verified locally
-  against postgres:16-alpine.
-
-### CQ-027 — API fails to boot in CI (shared_contracts import) (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed · CI booted uvicorn from apps/api/src without
-  repo root on sys.path → ModuleNotFoundError: shared_contracts. Prod Dockerfile
-  co-locates both packages; CI did not. Pre-existing latent, unmasked by CQ-026.
-- Close when: both Boot API steps set PYTHONPATH=repo root; API boots green.
-
-### CQ-030 — SystemDetailRow under-declared its own response (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed · /api/system/{id64} returns archetype/
-  buildability fields (LEFT JOIN mv_archetype_rankings) + ISO-string timestamps,
-  but SystemDetailRow declared neither (archetype absent via extra='allow';
-  timestamps Optional[Any]→unknown in TS). Frontend hand-augmented to compensate.
-- Close when: model declares the fields honestly; frontend augmentation removed;
-  typecheck green.
-
-### CQ-031 — Windows CRLF line endings on shell scripts (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed · run_maintenance.sh, run_dirty_ratings.sh, an
-  operator script carried \r\n, failing bash-syntax tests.
-- Close when: scripts normalized to LF; .gitattributes guards recurrence.
-
-### CQ-032 — evidence promote-canonical test data gap (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed · test_evidence_mutations_accept_admin_token
-  asserted promoted_count>=1 but the first-by-id seed system lacked promotable
-  canonical data.
-- Close when: fixed so the promote path has promotable data; test green in CI.
-
-### CQ-033 — two shipped-code bugs in systems endpoints (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed, shipping bugs · (1) POST /api/systems/batch
-  omitted r.terraformable_count from its ratings SELECT while
-  reconstruct_score_breakdown requires it → KeyError → 500 on any batch request.
-  (2) GET /api/system/{id64} raised TypeError int<None at systems.py:68 —
-  timestamp fields returned raw datetime objects.
-- Close when: batch query complete; timestamps ::text-cast; both endpoints green.
-
-### CQ-034 — data-trust runtime tests vs 034 hardening trigger (RESOLVED, see below)
-- Raised 2026-07-17 · Confirmed, test-infra · 3 test_data_trust_runtime tests
-  insert confirmed+lane='unknown' station_body_links to simulate drift, but
-  migration 034's trigger rejects that write. The repair path they test is
-  intentional defense-in-depth (shipped with 034 in 26a9a7d), not obsolete.
-- Close when: fixtures create the legacy-drift row via trigger bypass
-  (session_replication_role=replica); tests green.
 
 ## Resolved
 
@@ -286,3 +192,27 @@ Resolved with date and closing commit. New audits append.
 - Fixed in PR #323 (9207b82; merged at a3a2efd): .gitignore now covers
   .mcp.json, .playwright-mcp/, and the two root session screenshots, preventing
   accidental inclusion by broad staging commands.
+
+### CQ-002 — 8 orphaned frontend components (1,390 dead lines) — RESOLVED 2026-07-18
+- Resolved in H1 frontend pruning (PR #334 ff4b26e; H2 merged at 51fe2d8).
+  8 files deleted: SelectedBodyPlannerCanvas.tsx, BuildabilityPanel.tsx,
+  SlotPredictionPanel.tsx, EliteNewsBanner.tsx, ChipPreview.tsx,
+  RecommendedBuildsPanel.tsx, SystemSlotMapPanel.tsx, WorkspaceGrid.tsx.
+  Total dead-line reduction: 1,390 lines (zero references, incl. tests).
+  Knip unused-export check added to frontend CI (H1).
+
+### CQ-003 — orphaned one-shot script targeting retired column — RESOLVED 2026-07-18
+- Resolved in H1 (PR #334 ff4b26e; H2 merged at 51fe2d8).
+  scripts/repair_ratings_score_breakdown_null.py (391 lines) moved to
+  scripts/operator/archive/ per operator-script contract. Zero references
+  confirmed.
+
+### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/ — RESOLVED 2026-07-18
+- Resolved in H2 docs pass (this PR; codex/hygiene-pass-docs).
+  CLAUDE.md line 163: sentence replaced with archival pointer; directory
+  reference no longer claims a non-existent runtime path.
+
+### CQ-011 — nightly_update.sh:66 cd without failure guard (SC2164) — RESOLVED 2026-07-18
+- Resolved in H1 (PR #335; H2 merged at 51fe2d8).
+  nightly_update.sh:66 changed to `cd "$COMPOSE" || fatal "..."`; line 51
+  existence check confirmed mitigating. shellcheck -S warning clean.
