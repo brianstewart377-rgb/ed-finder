@@ -176,6 +176,24 @@ def test_list_scenarios_cli_exposes_finite_registry_and_rejects_unknown_scenario
 
 
 @pytest.mark.unit
+def test_review_environment_direct_entrypoint_resolves_repo_packages(tmp_path: Path):
+    env = os.environ.copy()
+    env.pop('PYTHONPATH', None)
+
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_DIR / 'review_environment.py'), 'list-scenarios'],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert 'planner_core' in result.stdout
+
+
+@pytest.mark.unit
 def test_review_database_name_and_api_binding_are_fixed():
     assert review_env.validate_review_database_name('edfinder_local_review') == 'edfinder_local_review'
     assert review_env.validate_review_api_host('127.0.0.1') == '127.0.0.1'
