@@ -66,7 +66,7 @@ class ReviewProcessRegistry:
         return process
 
     def stop_all(self, *, grace_seconds: int = 5) -> None:
-        for process, record in reversed(list(zip(self._processes, self._records))):
+        for process, record in reversed(list(zip(self._processes, self._records, strict=True))):
             if process.poll() is not None:
                 record.running = False
                 continue
@@ -80,7 +80,7 @@ class ReviewProcessRegistry:
             if all(process.poll() is not None for process in self._processes):
                 break
             time.sleep(0.2)
-        for process, record in reversed(list(zip(self._processes, self._records))):
+        for process, record in reversed(list(zip(self._processes, self._records, strict=True))):
             if process.poll() is None:
                 try:
                     _kill_process_group(process, record.pgid)

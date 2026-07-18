@@ -304,7 +304,7 @@ def _row_to_dict(row: Any, cursor: Any | None = None) -> dict[str, Any] | None:
             raise TypeError(
                 'compatibility helper cursor row length does not match cursor.description'
             )
-        return dict(zip(column_names, row))
+        return dict(zip(column_names, row, strict=True))
     raise TypeError('compatibility helper cursor rows must be mapping-like')
 
 

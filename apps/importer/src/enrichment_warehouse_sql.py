@@ -763,7 +763,7 @@ def _cursor_row_to_dict(cur: Any, row: Any) -> dict[str, Any]:
         raise TypeError(
             'DB cursor row length does not match cursor.description for staged report/preflight helpers'
         )
-    return dict(zip(column_names, row))
+    return dict(zip(column_names, row, strict=True))
 
 
 def _is_positional_row(row: Any) -> bool:

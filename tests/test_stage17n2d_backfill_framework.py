@@ -286,7 +286,7 @@ class RingRepairConnection:
         if 'repair_eddn_ring_identity:update_repair_batch' in sql_lower:
             ids, local_body_ids = params
             self.repair_update_batches.append(list(ids))
-            local_by_id = dict(zip(ids, local_body_ids))
+            local_by_id = dict(zip(ids, local_body_ids, strict=True))
             updated = []
             for row in self.body_rings:
                 if row['id'] not in local_by_id:

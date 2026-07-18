@@ -23,10 +23,11 @@ def test_ci_pins_and_runs_the_repo_ruff_contract():
 
     assert 'ruff==0.15.22' in requirements
     assert '[tool.ruff.lint]' in pyproject
-    assert 'select = ["E4", "E7", "E9", "F"]' in pyproject
+    assert 'select = ["B905", "E4", "E7", "E9", "F"]' in pyproject
     assert 'ignore = ["E701", "E702"]' in pyproject
     assert '[tool.ruff.lint.per-file-ignores]' in pyproject
     assert 'python -m ruff check apps tests' in workflow
+    assert 'python -m ruff check apps tests scripts --select B905' in workflow
 
 
 def test_confirmed_target_or_skip_is_pytest8_safe_for_module_level_smokes():

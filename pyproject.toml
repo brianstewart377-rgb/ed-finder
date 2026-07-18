@@ -22,7 +22,7 @@ requires-python = ">=3.12"
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["B905", "E4", "E7", "E9", "F"]
 # E701/E702 are accepted legacy one-line style, not defect-class findings.
 ignore = ["E701", "E702"]
 
