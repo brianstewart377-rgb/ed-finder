@@ -327,7 +327,12 @@ competing roadmap source.
   certified artifact instead of rebuilding JS dependencies on the server.
   Current state: local broad pytest is green; carry that honesty into seeded CI
   and keep the local preflight and integration stack stable.
-  - CI restored to fully green and branch-protected 2026-07-17 (see CQ-019..034 in code-quality-findings.md); the "red masks red" signal-loss that let this drift is now structurally prevented.
+  - CI restored to fully green and branch-protected across all nine required
+    checks on 2026-07-17; follow-up hardening on 2026-07-18 added the Ruff
+    E4/E7/E9/F+B905 gate, strict pairing regressions, and a parity trigger that
+    also protects docs-only PRs (see CQ-004, CQ-005, and CQ-019..034 in
+    code-quality-findings.md). The "red masks red" signal-loss that let this
+    drift is now structurally prevented.
 - 5. Run one bounded residue/hygiene pass on hidden routes, preview-only
   surfaces, stale operator one-shots, and naming drift.
 - 6. Re-evaluate accounts/auth only after steps 1-5 are complete.

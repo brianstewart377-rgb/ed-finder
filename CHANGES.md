@@ -5,6 +5,31 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-18 — CI restoration, branch protection, and strict zip hardening
+
+**CI restored and enforced** — Recovered the full GitHub Actions board across
+backend unit and integration tests, canonical safety, script contracts, nginx,
+OpenAPI drift, frontend build, Playwright E2E, and built-image parity. `main` is
+now branch-protected by all nine exact check contexts, with strict status-check
+matching and an admin override retained for emergencies.
+
+**Failure causes fixed** — Repaired the backend dual-import split, Windows CRLF
+shell-script failures, seeded database invariant gaps, API boot import path,
+OpenAPI type drift, evidence-promotion fixture gap, and the systems batch/detail
+endpoint defects exposed as red checks were cleared.
+
+**Lint and pairing contracts tightened** — Pinned Ruff and added the repository
+E4/E7/E9/F gate, then enabled B905 across `apps`, `tests`, and `scripts`. All 11
+audited `zip()` pairings now use `strict=True`, with mismatch regressions on the
+live slot-prediction endpoint and cluster-builder cursor mapping.
+
+**Docs-only PRs no longer deadlock** — Required `Built image parity` now runs on
+every pull request while retaining source-path filtering for `main` pushes.
+Documentation-only PR #339 exercised the protected merge path without an admin
+bypass.
+
+---
+
 ## 2026-05-03 — Backend fix: auto-rebuild indexes transaction error
 
 ### backend/import_spansh.py
