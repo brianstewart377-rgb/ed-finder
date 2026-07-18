@@ -105,6 +105,7 @@ cd frontend
 yarn install          # yarn.lock IS committed and pinned now — do not run without --frozen-lockfile assumptions changing
 yarn typecheck
 yarn lint
+yarn knip --files     # CI-gated unused frontend source-file check
 yarn test              # wraps vitest via scripts/run-vitest.mjs
 yarn test:planner       # scoped: colony-planner + simulation-preview
 yarn test:operator      # scoped: OperatorCockpitTab / api.operator / useHashRoute

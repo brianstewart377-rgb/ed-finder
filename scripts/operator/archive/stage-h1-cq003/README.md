@@ -11,4 +11,4 @@ Makefile) and is preserved here for historical reference only.
 It is NOT part of any active operator surface and MUST NOT be
 scheduled, invoked, or imported by any live automation path.
 
-Archived: 2026-07-18 · CQ-003 · commit TBD
+Archived: 2026-07-18 · CQ-003 · PR #344 · implementation commit 203ccd9

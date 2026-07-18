@@ -52,6 +52,13 @@ reporting colonisation age buckets but explicitly allow the >14-day tail. EDDN
 refreshes status on observations; an unchanged positive status aging past 14
 days is freshness telemetry, not by itself a persisted-integrity failure.
 
+**First bounded hygiene pass completed** - Removed eight unreferenced frontend
+components (1,390 dead lines), archived the retired score-breakdown repair
+script as historical operator material, and made the nightly compose-directory
+change fail explicitly. Added a Knip unused-file gate to frontend CI so future
+orphaned source files are caught before merge. This closes CQ-002, CQ-003, and
+CQ-011.
+
 ---
 
 ## 2026-05-03 — Backend fix: auto-rebuild indexes transaction error

@@ -338,8 +338,10 @@ competing roadmap source.
     also protects docs-only PRs (see CQ-004, CQ-005, and CQ-019..034 in
     code-quality-findings.md). The "red masks red" signal-loss that let this
     drift is now structurally prevented.
-- 5. Run one bounded residue/hygiene pass on hidden routes, preview-only
-  surfaces, stale operator one-shots, and naming drift.
+- 5. Completed 2026-07-18: run one bounded residue/hygiene pass. The first H1
+  closeout removed eight orphaned frontend components, archived the retired
+  score-breakdown one-shot, guarded the nightly compose-directory change, and
+  added a Knip unused-file gate to frontend CI (CQ-002, CQ-003, CQ-011).
 - 6. Re-evaluate accounts/auth only after steps 1-5 are complete.
 
 ## Active Priorities
