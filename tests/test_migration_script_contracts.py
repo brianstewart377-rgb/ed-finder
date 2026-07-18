@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 
 
@@ -7,6 +8,9 @@ BASELINE_MIGRATIONS = ROOT / 'scripts' / 'baseline_migration_ledger.sh'
 SEED_CHECK = ROOT / 'scripts' / 'seed_check.sh'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 CI_WORKFLOW = ROOT / '.github' / 'workflows' / 'ci.yml'
+BASELINE_SCHEMA = ROOT / 'sql' / '001_schema.sql'
+CLUSTER_WIDENING = ROOT / 'sql' / '040_cluster_summary_widen_counts.sql'
+MIGRATION_MANIFEST = ROOT / 'sql' / 'migration-manifest.txt'
 
 
 def _read(path: Path) -> str:
@@ -31,6 +35,33 @@ def test_apply_migrations_uses_manifest_ledger_and_checksum_guards():
     assert 'if [[ -n "${DATABASE_URL:-}" ]]; then' in script
     assert 'need_cmd psql' in script
     assert 'else\n  need_cmd docker\nfi' in script
+
+
+def test_production_baselined_schema_migration_remains_immutable():
+    expected_checksum = '190df25ad2f7ea0f657788e9446581bd6193560aac93dbf846ff20d75f4aa653'
+    baseline_bytes = BASELINE_SCHEMA.read_bytes().replace(b'\r\n', b'\n')
+    actual_checksum = hashlib.sha256(baseline_bytes).hexdigest()
+    widening = _read(CLUSTER_WIDENING)
+    manifest = _read(MIGRATION_MANIFEST)
+
+    assert actual_checksum == expected_checksum
+    assert '040_cluster_summary_widen_counts.sql' in manifest
+    for column in (
+        'agriculture_count',
+        'agriculture_best',
+        'refinery_count',
+        'refinery_best',
+        'industrial_count',
+        'industrial_best',
+        'hightech_count',
+        'hightech_best',
+        'military_count',
+        'military_best',
+        'tourism_count',
+        'tourism_best',
+        'total_viable',
+    ):
+        assert f'ALTER COLUMN {column}' in widening
 
 
 def test_seed_check_stays_on_manifested_apply_path_and_asserts_seed_invariants():

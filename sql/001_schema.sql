@@ -558,31 +558,31 @@ CREATE TABLE IF NOT EXISTS macro_grid (
 CREATE TABLE IF NOT EXISTS cluster_summary (
     system_id64         BIGINT          PRIMARY KEY REFERENCES systems(id64) ON DELETE CASCADE,
 
-    agriculture_count   INTEGER         NOT NULL DEFAULT 0,
-    agriculture_best    INTEGER         DEFAULT NULL,
+    agriculture_count   SMALLINT        NOT NULL DEFAULT 0,
+    agriculture_best    SMALLINT        DEFAULT NULL,
     agriculture_top_id  BIGINT          DEFAULT NULL,
 
-    refinery_count      INTEGER         NOT NULL DEFAULT 0,
-    refinery_best       INTEGER         DEFAULT NULL,
+    refinery_count      SMALLINT        NOT NULL DEFAULT 0,
+    refinery_best       SMALLINT        DEFAULT NULL,
     refinery_top_id     BIGINT          DEFAULT NULL,
 
-    industrial_count    INTEGER         NOT NULL DEFAULT 0,
-    industrial_best     INTEGER         DEFAULT NULL,
+    industrial_count    SMALLINT        NOT NULL DEFAULT 0,
+    industrial_best     SMALLINT        DEFAULT NULL,
     industrial_top_id   BIGINT          DEFAULT NULL,
 
-    hightech_count      INTEGER         NOT NULL DEFAULT 0,
-    hightech_best       INTEGER         DEFAULT NULL,
+    hightech_count      SMALLINT        NOT NULL DEFAULT 0,
+    hightech_best       SMALLINT        DEFAULT NULL,
     hightech_top_id     BIGINT          DEFAULT NULL,
 
-    military_count      INTEGER         NOT NULL DEFAULT 0,
-    military_best       INTEGER         DEFAULT NULL,
+    military_count      SMALLINT        NOT NULL DEFAULT 0,
+    military_best       SMALLINT        DEFAULT NULL,
     military_top_id     BIGINT          DEFAULT NULL,
 
-    tourism_count       INTEGER         NOT NULL DEFAULT 0,
-    tourism_best        INTEGER         DEFAULT NULL,
+    tourism_count       SMALLINT        NOT NULL DEFAULT 0,
+    tourism_best        SMALLINT        DEFAULT NULL,
     tourism_top_id      BIGINT          DEFAULT NULL,
 
-    total_viable        INTEGER         NOT NULL DEFAULT 0,
+    total_viable        SMALLINT        NOT NULL DEFAULT 0,
     coverage_score      REAL            DEFAULT NULL,
     economy_diversity   SMALLINT        NOT NULL DEFAULT 0,
     search_radius       SMALLINT        NOT NULL DEFAULT 500,
