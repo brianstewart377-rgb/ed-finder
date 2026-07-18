@@ -124,20 +124,24 @@ Resolved with date and closing commit. New audits append.
 - Close when: reviewed finite defaults and an explicit override policy land,
   script-contract tests pin the behavior, and migration/deploy rehearsal passes.
 
-### CQ-043 — Review Lab browser verification is persistently red
-- Raised 2026-07-18 · CI forensic comparison of PR #344 and PR #345 ·
-  Confirmed · pre-existing on `main`; Review Lab is currently optional, not one
-  of the nine protected checks. The full browser phase records five
-  `/api/news/latest?limit=8` 404s, then misses required keyboard checks and the
-  Delta provenance-fallback correlation (`DELTA_FALLBACK_NOT_TRIGGERED`).
-- H2 briefly introduced an earlier direct-entry import failure, fixed by
-  `7394580`; the workflow now reaches the same full-browser failure fingerprint
-  as PR #344, which disambiguates the remaining red state from this branch.
-- Close when: the review environment and live frontend route contract agree,
-  no unexpected news-route errors abort the journeys, required keyboard and
-  Delta fallback checks complete, and Review Lab passes on a protected PR.
-
 ## Resolved
+
+### CQ-043 — Review Lab browser verification was persistently red — RESOLVED 2026-07-18
+- Raised 2026-07-18 · CI forensic comparison of PR #344 and PR #345 ·
+  Confirmed · pre-existing on `main`. The isolated API omitted current app-shell
+  and System Detail read routes, while the browser journey still modeled an
+  older Finder-to-planner interaction.
+- Fixed in `d1a9c6a`: added bounded review-only news, archetype, and evidence
+  summary contracts; synchronized the browser journey with the current UI;
+  preserved the deliberate Delta `503` provenance fallback; and hardened
+  Windows executable resolution, UTF-8 capture, and review-owned process-tree
+  cleanup. Contract tests also require the workflow to run on every pull
+  request, allowing `Review Lab` to become the tenth protected context.
+- Full local verification passed all scenarios, accessibility checks,
+  console/network policy, Delta fallback correlation, product acceptance, and
+  Docker/process teardown in run `20260718T155912Z-32900-429f62aa`.
+- Closed when: the universal `Review Lab` workflow passed on its protected PR
+  and its exact check context was added to `main` branch protection.
 
 ### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/ — RESOLVED 2026-07-18
 - Raised 2026-07-16 · audit @ 0a768a2 · Confirmed.

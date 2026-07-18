@@ -901,7 +901,9 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'workflow_dispatch' in docs
     assert 'does not call normal `yarn e2e` as a substitute' in docs
     assert 'failure-only, sanitised Review Lab artifacts' in docs
-    assert "PR `#259`'s narrow viewport" in docs
+    assert 'No product observation is currently expected or allowlisted' in docs
+    assert 'environment_ready: true' in docs
+    assert 'product_acceptance_ready: true' in docs
     assert 'test.skip(' in review_spec
     assert 'EDFINDER_REVIEW_LAB_RUN' in review_spec
     assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
@@ -1099,7 +1101,8 @@ def test_docs_cover_real_browser_journey_and_safety_constraints():
         'full mode',
         'support-route matrix',
         'product observation',
-        'PR `#259`',
+        'No product observation is currently expected or allowlisted',
+        'product_acceptance_ready: true',
         '127.0.0.1:8001',
         'review-postgres',
         'review-redis',
