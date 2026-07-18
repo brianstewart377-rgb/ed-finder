@@ -10,11 +10,6 @@ Resolved with date and closing commit. New audits append.
 
 ## Open
 
-### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/
-- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed (directory no longer exists)
-- Close when: CLAUDE.md frontend section updated; fold into the pending
-  roadmap/docs drift update.
-
 ### CQ-012 — oversized files (accepted split opportunities)
 - Raised 2026-07-16 · audit @ 0a768a2 · improvement, not defect
 - PlannerCanvasPreview.tsx 1,417 (continue plannerCanvasUtils extraction);
@@ -112,7 +107,70 @@ Resolved with date and closing commit. New audits append.
 - Close when: fixtures create the legacy-drift row via trigger bypass
   (session_replication_role=replica); tests green.
 
+### CQ-041 — sync_password.sh exposes credentials in process arguments
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
+  risk. The script embeds `POSTGRES_PASSWORD` in both a libpq URI argument and
+  an `ALTER USER` command argument; the SQL construction also does not safely
+  quote arbitrary password contents.
+- Close when: the password is supplied through a non-argv secret channel, SQL
+  parameter/identifier handling is safe for arbitrary values, logs reveal no
+  password fragment, and an operator-focused regression verifies both update
+  and connection-check paths.
+
+### CQ-042 — migration runner defaults to unbounded database timeouts
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · operational
+  hardening. `scripts/apply_migrations.sh` defaults both `statement_timeout` and
+  `lock_timeout` to zero, allowing a deploy to wait indefinitely on SQL or locks.
+- Close when: reviewed finite defaults and an explicit override policy land,
+  script-contract tests pin the behavior, and migration/deploy rehearsal passes.
+
 ## Resolved
+
+### CQ-010 — CLAUDE.md stale on frontend/src/_redesign/ — RESOLVED 2026-07-18
+- Raised 2026-07-16 · audit @ 0a768a2 · Confirmed.
+- Closed by the H2 trust/hygiene documentation reconciliation: `CLAUDE.md` and
+  `README.md` now identify the prototype as archived historical material under
+  `docs/archive/frontend-redesign-prototype/`, not a runtime source or wiring
+  target. ROADMAP foundation state was reconciled at the same time.
+
+### CQ-035 — Ruff scope and shell EOL policy gaps — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed. CI omitted
+  `scripts` and `shared_contracts` from its primary Ruff command, while Windows
+  checkout behavior had no repository-owned LF policy for shell scripts.
+- Fixed in `0d80f4c`: Ruff now covers `apps`, `tests`, `scripts`, and
+  `shared_contracts`; all nine newly exposed findings were corrected or given
+  one narrow bootstrap exception; `.gitattributes` pins `*.sh` to LF.
+- Local expanded Ruff and focused backend contract tests passed.
+
+### CQ-036 — Cluster Search bypassed the shared API client — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed.
+- Fixed in `0d80f4c`: added typed Cluster Search request/response contracts to
+  `frontend/src/lib/api.ts`, routed the hook through the shared client, and
+  added direct success/error hook tests.
+
+### CQ-037 — uncollected slot smoke test and expansion-store gap — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed test-trust gaps.
+- Fixed in `0d80f4c`: replaced the uncollected `tests/smoke_test_slots.py` with
+  collected model tests and added expansion-plan store coverage for lifecycle,
+  slot replacement, project-link clearing, and plan isolation.
+
+### CQ-038 — admin cache clear masked Redis failure — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed behavioral defect.
+- Fixed in `0d80f4c`: database cache clearing remains attempted, Redis failure
+  is logged, and the endpoint truthfully returns `ok=false`, `partial=true`,
+  and `redis_cleared=false`. Direct backend regressions cover partial and full
+  success.
+
+### CQ-039 — shell localStorage access could throw — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed resilience gap.
+- Fixed in `0d80f4c`: guarded storage helpers now contain read/write/remove
+  exceptions and the app shell uses them. Tests cover normal behavior and
+  browser `SecurityError` failures.
+
+### CQ-040 — Fleet Carrier input label was not associated — RESOLVED 2026-07-18
+- Raised 2026-07-18 · forensic audit @ a447222 · Confirmed accessibility gap.
+- Fixed in `0d80f4c`: the label/input now share `htmlFor`/`id`, with a direct
+  accessible-name regression test.
 
 ### CQ-002 — 8 orphaned frontend components — RESOLVED 2026-07-18
 - Fixed in PR #344 (implementation commits 203ccd9 and d0fb52e): deleted all eight
@@ -214,7 +272,9 @@ Resolved with date and closing commit. New audits append.
   Frontend SystemDetail augmentation collapsed to = Schemas['SystemDetailRow'].
 
 ### CQ-031 — CRLF on shell scripts — RESOLVED 2026-07-17
-- Fixed in PR #332 (395d618): scripts normalized to LF; recurrence guarded.
+- Fixed in PR #332 (395d618): affected Git blobs normalized to LF. H2 commit
+  `0d80f4c` closed the remaining Windows checkout-parity gap by adding the
+  repository-owned `.gitattributes` policy for all `*.sh` files.
 
 ### CQ-032 — evidence promote test data gap — RESOLVED 2026-07-17
 - Fixed in PR #332 (395d618): promote path given promotable data; test green.
@@ -237,7 +297,10 @@ Resolved with date and closing commit. New audits append.
   (b84d971) pinned Ruff 0.15.22, committed the E4/E7/E9/F contract, added
   exact per-file E402 bootstrap exceptions, and ran Ruff inside the existing
   required backend job. E701/E702 are explicitly accepted legacy style rather
-  than defect findings. Local Ruff and all nine protected checks passed.
+  than defect findings. H2 commit `0d80f4c` expanded the required command from
+  `apps tests` to `apps tests scripts shared_contracts`, fixing the nine newly
+  exposed findings while preserving one narrow path-bootstrap exception. Local
+  expanded Ruff passed; protected CI is the merge gate.
 
 ### CQ-006 — undefined `Any` — RESOLVED 2026-07-18
 - Fixed in PR #334 (44c2ca2; merged at 57afee3) by importing Any in

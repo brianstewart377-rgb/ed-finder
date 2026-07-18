@@ -139,9 +139,12 @@ Before merging a change that adds a new route, doc, script, or prototype:
 
 This contract is backed by:
 
+- `.gitattributes` enforcing LF checkout for executable shell scripts
 - `tests/test_bounded_hygiene_pass.py`
 - `tests/test_repo_hygiene_contract.py`
 - the frontend CI `yarn knip --files` unused-source-file gate
+- the repository Ruff gate across `apps`, `tests`, `scripts`, and
+  `shared_contracts`
 - `.github/PULL_REQUEST_TEMPLATE.md`
 
 If you intentionally change the repo shape, update the policy and the tests in

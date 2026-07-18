@@ -54,8 +54,9 @@ retired and will be removed.
 The Finder sorts by the selected archetype score. No universal score exists.
 Confidence is shown adjacent to every score. Everything else is a fact the
 user weighs themselves.
-`score_breakdown` JSONB (~197 GB) is a duplicate of existing columns and will
-be removed. Do not write new rows to it.
+`score_breakdown` JSONB was cleared before the 2026-07-15 ratings repack and is
+not written by active code. Keep it NULL and reconstruct API responses from the
+normalized columns until a reviewed migration removes the retired column.
 
 ### Three-Repo Architecture
 
@@ -63,8 +64,8 @@ Option 2 adopted: CRE (`colonisation-research-engine`) produces research
 truth, ed-finder consumes it. CPE (`colony-planning-engine`) owns plan
 construction.
 CRE is actively developed (83 commits, HEAD 2026-07-09) but not yet wired
-into ed-finder at runtime. Integration is the next architectural lane,
-sequenced after storage recovery and scoring cleanup.
+into ed-finder at runtime. Storage recovery is complete; integration remains
+sequenced after the remaining scoring cleanup and vocabulary reconciliation.
 CRE's confidence vocabulary and source authority register
 (SA-0001-SA-0010) are more rigorous than ed-finder's current
 implementations and will become canonical.
@@ -74,18 +75,21 @@ CPE has no implementation yet. Its role (assessment/plan construction layer
 between CRE and ed-finder) will be defined once CRE-to-ed-finder
 integration is underway.
 
-### Storage Recovery (In Progress)
+### Storage Recovery (Completed 2026-07-15)
 
-~115 GB of fossil indexes identified for removal (see runbook).
-~197 GB `score_breakdown` blob identified for removal.
-Database is ~960 GB; target post-recovery ~660 GB.
-Runbook location: check `docs/operations/` or `artifacts/`.
-Do not create new indexes on retired ratings score columns.
+Phase A removed fossil and redundant indexes and recovered 89 GB, reducing the
+database from 960 GB to 871 GB. Phase B confirmed `score_breakdown` was already
+entirely NULL, dropped the retired dirty index, and repacked `ratings` from
+392 GB to 39 GB. The database finished at 519 GB, reclaiming 366 GB in Phase B
+and leaving 749 GB disk free. Preserve this baseline: do not write
+`score_breakdown` or create indexes on retired ratings score columns. Evidence:
+`artifacts/storage-recovery/phase-a-index-drop-receipt-2026-07-12.md` and
+`artifacts/storage-recovery/phase-b-repack-receipt-2026-07-15.md`.
 
 ### Foundation Sequence (Agreed)
 
-1. Storage recovery + index drops.
-2. Docs triage (archive completed stages, establish <=10 live docs).
+1. Storage recovery + index drops. **Completed 2026-07-15.**
+2. Docs triage (archive completed stages using dependency-aware evidence).
 3. Scoring pivot: UI reflects archetype scores, not legacy ratings.
 4. CRE integration: confidence vocabulary first, then source authority, then
    release artifact consumption.
@@ -143,9 +147,8 @@ Stage 25 has exactly one primary objective:
    runner, preflight path, explicit real-service skips, and broad pytest
    coverage so local "green" continues to mean something.
 8. Use the external adversarial audit as an execution-order correction, not as
-   a parallel roadmap: close the ratings integrity gap, then fix migration
-   safety, backups, and CI/build reproducibility before opening new product
-   lanes like accounts.
+   a parallel roadmap: preserve the now-closed ratings, migration, backup, and
+   CI foundations before opening new product lanes like accounts.
 9. Incubate only the safe slices of the next two opportunity lanes:
    `B-1` nearest-colonised proximity in Inspect, then `A-1` journal import as
    staging/evidence ingestion only, with no new canonical write shortcut.
@@ -172,24 +175,15 @@ competing roadmap source.
 
 ### Do Next
 
-- Add a real migration ledger so deploys stop replaying the full `sql/` tree on
-  every release.
-- Renumber or otherwise normalize duplicate migration numbering so order is
-  explicit and auditable.
-- Run the reviewed pre-ledger baseline helper on any already-existing databases
-  that still predate `schema_migrations`, instead of treating cutover state as
-  implied. Current state: the canonical local `edfinder` DB cutover is now
-  recorded at
-  `artifacts/migration-baselines/local-edfinder-baseline-2026-07-09.json` and
-  `artifacts/migration-baselines/local-edfinder-cutover-2026-07-09.json`; the
-  remaining gap is any other pre-ledger DBs, including production if still
-  pending.
-- Execute and record a real restore rehearsal on top of the committed backup +
-  restore automation now in the repo (`scripts/rehearse_postgres_restore.sh`
-  now provides the default operator path).
-- Keep CI/build reproducibility honest: the pinned lockfile, packaged frontend
-  artifact path, and broader gated test surface are now in place; continue
-  converting remaining weak checks into outcome-based coverage.
+- Complete bounded documentation triage using dependency-aware evidence; do
+  not mass-archive stage documents that are still consumed by tests or active
+  operational contracts.
+- Finish the scoring cleanup: keep `score_breakdown` NULL, remove remaining
+  legacy score dependencies, and retire the column through a reviewed migration.
+- Reconcile the CRE and ed-finder confidence vocabularies before consuming CRE
+  source-authority or release artifacts at runtime.
+- Keep CI/build reproducibility honest: preserve all nine protected checks, the
+  expanded Ruff/Knip gates, the pinned lockfile, and built-image parity.
 - Preserve the repaired local verification path: the Docker-backed preflight,
   map MV latency guard, archetypes JSON-response normalization, and explicit
   Stage 19 baseline/checkpoint skip semantics are now part of the expected
@@ -200,37 +194,39 @@ competing roadmap source.
 - Harden the `systems.has_body_data` / `systems.body_count` contract so rating
   eligibility cannot drift away from actual `bodies` rows under live ingest.
 
-### Defer Until Foundations Are Fixed
+### Deferred Product Expansion
 
-- Accounts, auth, and sync expansion remain explicitly deferred until the
-  ratings rebaseline, migration safety, backup posture, and CI/build
-  reproducibility gaps are closed.
+- Accounts, auth, and sync expansion remain explicitly deferred pending a
+  separately reviewed identity and product-scope decision; the former ratings,
+  migration, backup, and CI foundation blockers are now closed.
 - Broad product-surface expansion remains secondary to eliminating hidden or
   conflicting surfaces already in the tree.
 
 ### Audit Findings We Accept As Real
 
-- Migration replay without a ledger is a critical operational flaw.
-- Backup/restore automation now exists in-repo, but restore readiness is not
-  complete until a real rehearsal is executed and recorded.
+- Migration replay without a ledger was a critical operational flaw; the active
+  checksum ledger and verified production bookkeeping now close it.
+- Backup/restore automation and a recorded disposable restore rehearsal now
+  establish the minimum restore-readiness baseline.
 - The ratings rebaseline was operationally incomplete and invisible, which was
-  a core data-trust issue; the remaining follow-up is the body-data contract
-  drift surfaced during closeout.
-- CI currently provides less protection than the apparent test estate implies.
-- Build reproducibility and version identity remain noisier than they should be.
+  a core data-trust issue; production drift is now reconciled and receipted,
+  with recurrence prevention and monitoring retained as ongoing work.
+- CI protection and built-image identity were real gaps; all nine checks are now
+  required on `main`, including built-image parity.
 
 ### Audit Findings To Handle Carefully
 
-- The audit's residue and optics observations are useful, but they rank behind
-  ratings, migrations, backups, and CI/build honesty.
+- The audit's residue and optics observations are useful, but dependency-aware
+  evidence must govern any cleanup.
 - Cleanup of hidden routes, preview surfaces, archived stage scripts, and other
   process residue should be executed as a bounded hygiene pass after the
   foundation risks above, not as a substitute for them.
 
 ## Current Next Steps
 
-- Stage 25 product work is complete, but the closeout still has follow-through
-  work in branch promotion, operational evidence, and audit-response cleanup.
+- Stage 25 product work is complete and promoted. Preserve its shell/context
+  baseline while documentation triage, scoring cleanup, and CRE contract work
+  proceed.
 
 ### Stage 25C
 
@@ -279,8 +275,9 @@ competing roadmap source.
   work is actually implemented.
 - Frontier Journal sequencing is explicitly bounded:
   `A-1` staging/evidence import first, `A-2` guarded canonical promotion only
-  after migration-ledger and backup foundations are in place, and `A-3`
-  personal telemetry only after identity continuity is authorised.
+  after a separately reviewed write-lane authorization (the migration-ledger
+  and backup foundations are now in place), and `A-3` personal telemetry only
+  after identity continuity is authorised.
 - Keep freshness, coverage, and operator visibility explicit.
 - Prefer reviewable reconciliation candidates over clever automatic mutation.
 - Treat canonical write lanes, rebaseline, scheduler activation, and broad
@@ -294,67 +291,50 @@ competing roadmap source.
 - `B-2` hop-count-only colonisation corridor routing is acceptable before the
   score-weighted variant because it does not depend on ratings trust for its
   core recommendation quality.
-- `B-3` score-weighted corridor ranking is explicitly gated on the ratings
-  rebaseline closing and being verified.
+- `B-3` score-weighted corridor ranking is explicitly gated on completing the
+  archetype-scoring cleanup and CRE confidence reconciliation.
 - `A-1` journal import is now acceptable only as the current client-side parsed,
   privacy-bounded staging/evidence lane with reviewable receipts and no direct
   canonical writes.
 - `A-2` journal-driven canonical promotion must reuse guarded reconciliation and
-  should not open until the migration ledger and backup/restore posture are in
-  place.
+  remains closed until a separately reviewed write-lane authorization; the
+  migration-ledger and backup/restore prerequisites are now complete.
 - `A-3` personal journal telemetry in My Work / Planner is strategically strong
   but remains gated on identity continuity; do not invent a third attribution
   model for it.
 
 ### Foundation Safety Sequence
 
-- 1. Close out the ratings rebaseline and reconcile body-data contract drift;
-  no mixed-generation steady state or impossible body-data eligibility state is
-  acceptable.
-- 2. Add migration-ledger discipline and remove replay-all-migrations deploy
-  semantics.
-- 2. Current remaining work: execute the reviewed baseline helper on any
-  already-existing pre-ledger databases that still need recorded cutover state
-  beyond the now-recorded local `edfinder` cutover.
-- 2. Deploy-integrity follow-up: production's checksum guard caught a
-  post-baseline edit to `001_schema.sql`; the historical file is restored to
-  its recorded checksum, migration 040 retains the additive schema change, and
-  CI now pins that ownership boundary.
-- 3. Add backup/restore automation plus a tested restore runbook.
-- 3. Add backup/restore automation plus a tested restore runbook.
-  Current state: automation and runbook are committed, and a recorded local
-  disposable restore rehearsal now exists at
-  `artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json`.
-- 4. Tighten CI/test coverage and frontend build reproducibility so green means
-  something.
-  Current state: frontend installs are pinned to `frontend/yarn.lock`, CI now
-  packages a deployable frontend bundle, and the release path can ship that
-  certified artifact instead of rebuilding JS dependencies on the server.
-  Current state: local broad pytest is green; carry that honesty into seeded CI
-  and keep the local preflight and integration stack stable.
-  - CI restored to fully green and branch-protected across all nine required
-    checks on 2026-07-17; follow-up hardening on 2026-07-18 added the Ruff
-    E4/E7/E9/F+B905 gate, strict pairing regressions, and a parity trigger that
-    also protects docs-only PRs (see CQ-004, CQ-005, and CQ-019..034 in
-    code-quality-findings.md). The "red masks red" signal-loss that let this
-    drift is now structurally prevented.
-- 5. Completed 2026-07-18: run one bounded residue/hygiene pass. The first H1
-  closeout removed eight orphaned frontend components, archived the retired
-  score-breakdown one-shot, guarded the nightly compose-directory change, and
-  added a Knip unused-file gate to frontend CI (CQ-002, CQ-003, CQ-011).
-- 6. Re-evaluate accounts/auth only after steps 1-5 are complete.
+1. **Completed:** close out the ratings rebaseline and reconcile production
+   body, ring, station-link, and evidence-lifecycle drift. Preserve the zeroed
+   invariant receipts and monitor the bounded rerating cadence.
+2. **Completed:** activate the checksum migration ledger, verify production
+   ledger/manual-019 bookkeeping, and pin historical migration ownership in CI.
+3. **Completed:** commit backup/restore automation and record the disposable
+   restore rehearsal at
+   `artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json`.
+4. **Completed:** restore and branch-protect all nine CI checks. Frontend
+   installs are pinned, release artifacts are parity-tested, and Ruff, Knip,
+   strict-pairing, seed, integration, E2E, and canonical-safety gates are active.
+5. **In progress:** continue bounded residue and documentation hygiene. H1
+   removed eight orphaned frontend components and archived the retired
+   score-breakdown one-shot; H2 expanded lint/EOL coverage and closed targeted
+   API, state-store, storage, cache-truthfulness, and accessibility gaps.
+6. Re-evaluate accounts/auth only through a separately reviewed product and
+   identity decision now that steps 1-4 are complete.
 
 ## Active Priorities
 
-1. Body-data contract hardening and post-rerate reconciliation.
-2. Product shell coherence.
-3. Selected-system continuity.
-4. Migration-ledger and deploy-safety work.
-5. Backup/restore restore rehearsal and readiness.
-6. CI/test/build reproducibility honesty.
-7. Planner trust and evidence clarity.
-8. Evidence-store and ingestion foundations.
-9. Operator/admin reviewability for proposed upgrades and bounded actions.
+1. Preserve production data-integrity receipts and the bounded rerating cadence.
+2. Complete dependency-aware documentation triage and historical archiving.
+3. Finish the archetype-scoring pivot and retire legacy score storage safely.
+4. Reconcile CRE confidence/source-authority contracts before runtime integration.
+5. Maintain protected CI, reproducible release artifacts, and local parity.
+6. Harden operational scripts with reviewed secret-handling and finite-timeout
+   policies.
+7. Continue planner trust, evidence clarity, and operator reviewability.
+8. Keep product-shell and selected-system continuity stable while foundations
+   evolve.
 
 ## Boundaries
 
@@ -372,15 +352,15 @@ competing roadmap source.
 
 - Mission intelligence remains deferred and unauthorized.
 - Ring/mining work remains deferred and unauthorized.
-- Accounts, OAuth, collaboration, and plan sync remain deferred until the
-  ratings rebaseline, migration-ledger work, backup posture, and CI/build
-  reproducibility fixes are complete.
-- Journal `A-2` canonical promotion remains deferred until migration-ledger and
-  backup/restore work are complete enough to make a new write lane safe.
+- Accounts, OAuth, collaboration, and plan sync remain deferred pending an
+  explicit product and identity-continuity decision.
+- Journal `A-2` canonical promotion remains deferred pending a separately
+  reviewed write-lane authorization; its former migration and restore
+  prerequisites are now complete.
 - Journal `A-3` personal telemetry remains deferred until identity continuity is
   authorised through the existing sync/accounts direction.
 - Score-weighted colonisation corridor recommendations remain deferred until the
-  ratings rebaseline is complete and verified.
+  archetype-scoring cleanup and CRE confidence reconciliation are complete.
 - Broad facility-browser work remains deferred until the cockpit is coherent.
 - Automatic canonical apply remains deferred behind explicit review and safety
   gates.

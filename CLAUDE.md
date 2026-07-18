@@ -86,7 +86,7 @@ Local Docker services run via `docker-compose.local.yml`, with Postgres bound to
 
 ```bash
 # Backend — the repo-local .venv is the canonical Python runner; Makefile auto-detects it
-ruff check apps tests                                        # lint
+ruff check apps tests scripts shared_contracts               # lint
 make test-env-check                                           # preflight: pytest/docker/postgres/redis/creds, no writes
 make state-check                                               # Stage 19/test-env state-resolution gate (see above)
 make test-unit                                                 # tests needing no external services
@@ -161,15 +161,15 @@ Backend/API code still uses `optimiser`/`candidate`/`archetype` vocabulary in ma
 
 ### Frontend (`frontend/`)
 
-Renamed from `frontend-v2/` upstream — it now serves at `/`, not `/v2/`. Vite + React 19 + TS 5 + Tailwind 3, TanStack Query for server cache, Zustand for local stores. Feature-folder layout under `src/features/*`, including `colony-planner/` (the dedicated Cockpit workspace route) and `system-detail/simulation-preview/` (the embedded planner, further split into `observations/`, `optimiser/`, `validation/`). `src/_redesign/` is experimental, not shipping UI. All API calls go through `src/lib/api.ts` — don't scatter raw `fetch()` calls for endpoints that already have a helper.
+Renamed from `frontend-v2/` upstream — it now serves at `/`, not `/v2/`. Vite + React 19 + TS 5 + Tailwind 3, TanStack Query for server cache, Zustand for local stores. Feature-folder layout under `src/features/*`, including `colony-planner/` (the dedicated Cockpit workspace route) and `system-detail/simulation-preview/` (the embedded planner, further split into `observations/`, `optimiser/`, `validation/`). The retired redesign prototype is historical material under `docs/archive/frontend-redesign-prototype/`, not a runtime source tree. All API calls go through `src/lib/api.ts` — don't scatter raw `fetch()` calls for endpoints that already have a helper.
 
 `package.json` scripts wrap most tooling in small Node scripts rather than calling the underlying CLI directly (`scripts/run-vitest.mjs`, `scripts/types-gen.mjs`, `scripts/dev-doctor.mjs`, `scripts/start-or-reuse.mjs`) — `predev`/`prestart` run a doctor check automatically. `yarn.lock` is committed and pinned (CI installs against it); this is a change from the earlier no-lockfile era, don't assume it's still intentionally absent.
 
 ### Data layer
 
-PostgreSQL 16, 186M+ `systems` rows. Migrations are still numbered `sql/NNN_*.sql` applied in order, but the repo is mid-migration to a real migration ledger (`scripts/baseline_migration_ledger.sh`, `scripts/apply_migrations.sh`) so deploys stop replaying the full `sql/` tree every release — check `docs/operations/migration-ledger-implementation-plan.md` before assuming either the old replay-all or the new ledgered behavior. Backup/restore automation now exists and has been rehearsed at least once locally (`scripts/rehearse_postgres_restore.sh`, `scripts/restore_postgres_backup.sh`, `docs/operations/postgres-backup-and-restore.md`, receipts under `artifacts/restore-rehearsals/`) — this was previously a known gap, don't assume it still is.
+PostgreSQL 16, 186M+ `systems` rows. Migrations are numbered `sql/NNN_*.sql`, applied in manifest order, and protected by the active `schema_migrations` checksum ledger through `scripts/apply_migrations.sh`; production's ledger state and manual migration 019 bookkeeping have been verified. Backup/restore automation exists and has been rehearsed locally (`scripts/rehearse_postgres_restore.sh`, `scripts/restore_postgres_backup.sh`, `docs/operations/postgres-backup-and-restore.md`, receipts under `artifacts/restore-rehearsals/`) — both were previously known gaps, so do not report them as pending.
 
-Known live data-integrity tail (per `docs/ROADMAP.md`): a small `systems.has_body_data`/`systems.body_count` vs. actual `bodies`-row contract drift, and `station_body_links` drift is the next hardening lane. `apps/importer/src/` still holds the Spansh-dump import + post-import builders — invoke via `scripts/run_import.sh`, never raw `docker run` (bulk `UPDATE systems` needs `SET session_replication_role = replica` to avoid RI-trigger storms — apply that pattern to any new bulk-update script).
+Current production data-integrity receipts report zero persisted body, no-body-rating, ring, station-link, and evidence-lifecycle drift. Preserve that baseline through receipted invariant checks and bounded reconciliation; freshness age is telemetry, not itself a persisted-integrity failure. `apps/importer/src/` still holds the Spansh-dump import + post-import builders — invoke via `scripts/run_import.sh`, never raw `docker run` (bulk `UPDATE systems` needs `SET session_replication_role = replica` to avoid RI-trigger storms — apply that pattern to any new bulk-update script).
 
 `pgbouncer` is defined in `docker-compose.yml` but not in the live request path — `api`/`eddn` connect directly to Postgres (a prior incident traced to pgbouncer's transaction-pool mode dropping session-level `SET`s).
 
