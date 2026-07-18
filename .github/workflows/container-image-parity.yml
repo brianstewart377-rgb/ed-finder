@@ -2,22 +2,6 @@ name: Container image parity
 
 on:
   pull_request:
-    paths:
-      - '.github/workflows/container-image-parity.yml'
-      - 'apps/api/Dockerfile'
-      - 'apps/eddn/Dockerfile'
-      - 'apps/importer/Dockerfile'
-      - 'apps/api/requirements.txt'
-      - 'apps/eddn/requirements.txt'
-      - 'apps/importer/requirements.txt'
-      - 'apps/api/src/**'
-      - 'apps/eddn/src/**'
-      - 'apps/importer/src/**'
-      - 'docker-compose.yml'
-      - 'docker-compose.review.yml'
-      - 'env.example'
-      - 'shared_contracts/**'
-      - 'tests/test_container_image_parity.py'
   push:
     branches: [main]
     paths:
