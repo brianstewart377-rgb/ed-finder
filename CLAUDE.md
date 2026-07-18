@@ -59,7 +59,7 @@ If it fails, **stop** — do not edit, commit, push, run DB writes, or report an
 - DeepSeek must NEVER edit production files directly. All changes go through the local repo, commit, push, deploy flow — even for one-line production hotfixes.
 - Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
 - Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
-- **Red main is stop-the-line.** A red CI check masks everything downstream of it (red hides red). Fix or revert before the next merge — do not let "probably pre-existing" accumulate. Branch protection (enabled 2026-07-17) now enforces this structurally: all 9 checks must pass to merge.
+- **Red main is stop-the-line.** A red CI check masks everything downstream of it (red hides red). Fix or revert before the next merge — do not let "probably pre-existing" accumulate. Branch protection (enabled 2026-07-17) now enforces this structurally: all 10 checks must pass to merge.
 
 ## Repo hygiene contract (`docs/development/repo-hygiene.md`)
 
@@ -182,8 +182,8 @@ Four now exist, not one: `docker-compose.yml` (production stack), `docker-compos
 Split across multiple workflow files now, not just one `ci.yml`:
 - `.github/workflows/ci.yml` (8 jobs, all required by branch protection): `Backend unit tests + compose validate`, `Script contracts + migration paths`, `Backend integration (PG+Redis)`, `Canonical safety tests`, `Nginx config syntax`, `OpenAPI types drift check`, `Frontend build`, `Frontend v2 E2E (Playwright)`. Plus the separate `Container image parity` workflow (`Built image parity`), also required.
 - `.github/workflows/container-image-parity.yml`: build-reproducibility parity check.
+- `.github/workflows/review-lab.yml` (`Review Lab`, required by branch protection): the isolated full browser review journey. It runs on every pull request so the required context is never absent, and remains manually triggerable with `workflow_dispatch`.
 - `.github/workflows/hetzner-operator.yml`: production operator workflow (`docs/operations/github-actions-hetzner-operator.md`).
-- `.github/workflows/review-lab.yml`: spins up the hosted review environment for PRs.
 
 ### Operator scripts (`scripts/operator/`)
 

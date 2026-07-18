@@ -182,8 +182,9 @@ competing roadmap source.
   legacy score dependencies, and retire the column through a reviewed migration.
 - Reconcile the CRE and ed-finder confidence vocabularies before consuming CRE
   source-authority or release artifacts at runtime.
-- Keep CI/build reproducibility honest: preserve all nine protected checks, the
-  expanded Ruff/Knip gates, the pinned lockfile, and built-image parity.
+- Keep CI/build reproducibility honest: preserve all ten protected checks, the
+  expanded Ruff/Knip gates, the pinned lockfile, built-image parity, and the
+  isolated Review Lab browser journey.
 - Preserve the repaired local verification path: the Docker-backed preflight,
   map MV latency guard, archetypes JSON-response normalization, and explicit
   Stage 19 baseline/checkpoint skip semantics are now part of the expected
@@ -211,8 +212,8 @@ competing roadmap source.
 - The ratings rebaseline was operationally incomplete and invisible, which was
   a core data-trust issue; production drift is now reconciled and receipted,
   with recurrence prevention and monitoring retained as ongoing work.
-- CI protection and built-image identity were real gaps; all nine checks are now
-  required on `main`, including built-image parity.
+- CI protection and built-image identity were real gaps; all ten checks are now
+  required on `main`, including built-image parity and Review Lab.
 
 ### Audit Findings To Handle Carefully
 
@@ -313,9 +314,10 @@ competing roadmap source.
 3. **Completed:** commit backup/restore automation and record the disposable
    restore rehearsal at
    `artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json`.
-4. **Completed:** restore and branch-protect all nine CI checks. Frontend
+4. **Completed:** restore and branch-protect all ten CI checks. Frontend
    installs are pinned, release artifacts are parity-tested, and Ruff, Knip,
-   strict-pairing, seed, integration, E2E, and canonical-safety gates are active.
+   strict-pairing, seed, integration, E2E, canonical-safety, and isolated Review
+   Lab gates are active.
 5. **In progress:** continue bounded residue and documentation hygiene. H1
    removed eight orphaned frontend components and archived the retired
    score-breakdown one-shot; H2 expanded lint/EOL coverage and closed targeted
@@ -329,8 +331,8 @@ competing roadmap source.
 2. Complete dependency-aware documentation triage and historical archiving.
 3. Finish the archetype-scoring pivot and retire legacy score storage safely.
 4. Reconcile CRE confidence/source-authority contracts before runtime integration.
-5. Maintain protected CI, reproducible release artifacts, and local parity;
-   restore the optional Review Lab browser workflow to green (CQ-043).
+5. Maintain all ten protected CI checks, reproducible release artifacts, local
+   parity, and the green isolated Review Lab browser workflow.
 6. Harden operational scripts with reviewed secret-handling and finite-timeout
    policies.
 7. Continue planner trust, evidence clarity, and operator reviewability.

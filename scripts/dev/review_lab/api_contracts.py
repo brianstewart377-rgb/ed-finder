@@ -144,6 +144,7 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
     if selected_names & {'planner_core', 'empty_optional_support_data', 'partial_optional_data', 'support_route_compatibility'}:
         live_events = probe_event_stream('/api/events/live')
         recent = fetch_json('GET', '/api/events/recent')
+        news = fetch_json('GET', '/api/news/latest?limit=8')
         watchlist = fetch_json('GET', REVIEW_WATCHLIST_ROUTE)
         retired_watchlist = fetch_json('GET', '/api/watchlist')
         cache_stats = fetch_json('GET', '/api/cache/stats')
@@ -171,6 +172,13 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
                 },
             )
         ensure_contract_shape(recent, required_keys={'events', 'jobs'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/events/recent')
+        ensure_contract_shape(news, required_keys={'items', 'source_url', 'fetched_at', 'stale'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/news/latest')
+        if news['body']['items'] != [] or news['body']['source_url'] != 'review-only://synthetic-empty-news':
+            raise ReviewLabError(
+                'Review news route returned a non-empty or non-synthetic payload.',
+                failure_code='UNEXPECTED_API_ERROR',
+                safe_diagnostics={'route': '/api/news/latest'},
+            )
         ensure_contract_shape(watchlist, required_keys={'sync_key', 'watchlist'}, failure_code='REQUIRED_ROUTE_MISSING', route=REVIEW_WATCHLIST_MATRIX_ROUTE)
         if watchlist['body'].get('sync_key') != REVIEW_WATCHLIST_SYNC_KEY:
             raise ReviewLabError(
@@ -185,20 +193,26 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
                 safe_diagnostics={'route': '/api/watchlist', 'status': retired_watchlist['status']},
             )
         ensure_contract_shape(cache_stats, required_keys={'cache_hits', 'cache_misses', 'db_cache_rows'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/cache/stats')
-        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'watchlist', 'watchlist_legacy_gone', 'cache_stats'])
-        for route in ('/api/events/live', '/api/events/recent', REVIEW_WATCHLIST_MATRIX_ROUTE, '/api/cache/stats'):
+        diagnostics['contracts_checked'].extend(['events_live', 'events_recent', 'news_latest', 'watchlist', 'watchlist_legacy_gone', 'cache_stats'])
+        for route in ('/api/events/live', '/api/events/recent', '/api/news/latest', REVIEW_WATCHLIST_MATRIX_ROUTE, '/api/cache/stats'):
             _record_support_route_check(diagnostics, route)
 
     if selected_names & {'planner_core', 'evidence_available', 'evidence_unavailable', 'evidence_unknown', 'evidence_not_evaluated', 'provenance_fallback', 'support_route_compatibility'}:
+        system_archetype = fetch_json('GET', f"/api/archetypes/system/{REVIEW_SYSTEM_IDS['alpha']}")
+        evidence_summary = fetch_json('GET', f"/api/evidence/systems/{REVIEW_SYSTEM_IDS['alpha']}/summary")
         facility_templates = fetch_json('GET', '/api/facility-templates')
+        ensure_contract_shape(system_archetype, required_keys={'id64', 'name', 'archetypes'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/archetypes/system/{id64}')
+        ensure_contract_shape(evidence_summary, required_keys={'system_id64', 'observed_fact_count', 'records', 'focus_areas'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/evidence/systems/{id64}/summary')
         if facility_templates['status'] != 200 or not isinstance(facility_templates['body'], list) or not facility_templates['body']:
             raise ReviewLabError('Facility templates route is missing or empty in the review runtime.', failure_code='REQUIRED_ROUTE_MISSING', safe_diagnostics={'route': '/api/facility-templates', 'status': facility_templates['status']})
         simulation_summary = fetch_json('GET', f"/api/systems/{REVIEW_SYSTEM_IDS['alpha']}/simulation-summary")
         slot_predictions = fetch_json('GET', f"/api/systems/{REVIEW_SYSTEM_IDS['alpha']}/slot-predictions")
         ensure_contract_shape(simulation_summary, required_keys={'classification', 'buildability', 'system_id64'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/systems/{id64}/simulation-summary')
         ensure_contract_shape(slot_predictions, required_keys={'system_id64', 'predictions', 'prediction_status'}, failure_code='REQUIRED_ROUTE_MISSING', route='/api/systems/{id64}/slot-predictions')
-        diagnostics['contracts_checked'].extend(['facility_templates', 'simulation_summary', 'slot_predictions'])
+        diagnostics['contracts_checked'].extend(['system_archetype', 'evidence_summary', 'facility_templates', 'simulation_summary', 'slot_predictions'])
         for route in (
+            '/api/archetypes/system/{id64}',
+            '/api/evidence/systems/{id64}/summary',
             '/api/facility-templates',
             '/api/systems/{id64}/simulation-summary',
             '/api/systems/{id64}/slot-predictions',

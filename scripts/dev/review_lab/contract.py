@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import shutil
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -111,6 +113,16 @@ SupportRouteValidationMode = Literal[
     'browser_only_validated',
     'intentionally_not_exercised',
 ]
+
+
+def resolve_platform_command(command: list[str]) -> list[str]:
+    if os.name != 'nt' or command[0] not in {'npm', 'npx', 'yarn'}:
+        return command
+    for candidate in (f'{command[0]}.cmd', f'{command[0]}.exe'):
+        executable = shutil.which(candidate)
+        if executable:
+            return [executable, *command[1:]]
+    return command
 
 
 class ReviewLabError(RuntimeError):

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from edfinder_api.models import CacheStatsResponse
+from edfinder_api.deps import get_pool
+from edfinder_api.routers.archetypes import get_system_archetypes
+from edfinder_api.routers.evidence import evidence_system_summary
 
 
 router = APIRouter(tags=['review-support'])
@@ -30,6 +33,26 @@ async def review_recent_events() -> dict[str, object]:
         'events': [],
         'jobs': {},
     }
+
+
+@router.get('/api/news/latest', include_in_schema=False)
+async def review_latest_news(limit: int = 8) -> dict[str, object]:
+    return {
+        'items': [],
+        'source_url': 'review-only://synthetic-empty-news',
+        'fetched_at': '1970-01-01T00:00:00Z',
+        'stale': False,
+    }
+
+
+@router.get('/api/archetypes/system/{id64}', include_in_schema=False)
+async def review_system_archetypes(request: Request, id64: int):
+    return await get_system_archetypes(request, id64)
+
+
+@router.get('/api/evidence/systems/{system_id64}/summary', include_in_schema=False)
+async def review_evidence_system_summary(system_id64: int):
+    return await evidence_system_summary(system_id64, await get_pool())
 
 
 @router.get(

@@ -2,17 +2,16 @@
 
 ## Purpose
 
-The Review Lab turns draft PR `#260` into a reusable, deterministic proving
-ground for the real review journey:
+The Review Lab is a reusable, deterministic proving ground for the real review
+journey:
 
 - Finder
 - System Detail
 - Colony Planner
 
-It is DevEx and test infrastructure only. It does not change PR `#259`, does
-not make either PR ready to merge, and does not authorize Stage 19, source
-acquisition, canonical apply, rebaseline, scheduler, or production database
-work.
+It is DevEx and test infrastructure only. It does not authorize Stage 19,
+source acquisition, canonical apply, rebaseline, scheduler, or production
+database work.
 
 ## Windows Entry Points
 
@@ -60,8 +59,9 @@ Review Lab CI is separate from the normal frontend E2E lane for the canonical `f
 - The dedicated GitHub Actions workflow is `Review Lab` in
   `.github/workflows/review-lab.yml`.
 - It is manually triggerable via `workflow_dispatch`.
-- Its `pull_request` trigger is path-filtered to Review Lab-relevant files so
-  unrelated feature changes do not pay for the expensive isolated browser lane.
+- Its `pull_request` trigger runs on every pull request because `Review Lab` is
+  a required branch-protection context. Path filtering would leave required
+  checks permanently pending on unrelated changes.
 - It uses least-privilege `contents: read` permissions and cancels stale runs on
   the same branch.
 - The workflow authority remains the wrapper command:
@@ -242,6 +242,9 @@ The process registry records only processes started by the current verify run.
 It stores only review-owned PID and process-group data in the run directory,
 stops only review-owned preview/browser children, and never kills arbitrary host
 Node, Vite, Docker, database, or browser processes.
+On Windows it resolves Node package executables through their `.cmd`/`.exe`
+launchers, decodes subprocess output as UTF-8, and terminates only the managed
+process tree so wrapper children cannot leave Vite bound to the preview port.
 
 Verify always:
 
@@ -260,9 +263,11 @@ frontend and the loopback review API on `127.0.0.1:8001`.
 
 It validates all of the following:
 
-- Finder returns `Review Alpha`, `Review Beta`, `Review Gamma`, and
-  `Review Delta`.
-- System Detail loads the synthetic review systems.
+- Finder explicitly searches the inclusive `Any` colony-status scope and
+  returns `Review Alpha`, `Review Beta`, `Review Gamma`, and `Review Delta`.
+- System Detail loads each synthetic review system through `Inspect system`.
+- Colony Planner is entered through the current staged flow: `Start a plan`,
+  choose the objective and approach, then confirm the plan.
 - Colony Planner loads using the real support routes
   `/api/facility-templates`,
   `/api/systems/{id64}/simulation-summary`, and
@@ -306,8 +311,11 @@ At minimum it covers:
 
 - `/api/events/live`
 - `/api/events/recent`
+- `/api/news/latest`
 - `/api/watchlist`
 - `/api/cache/stats`
+- `/api/archetypes/system/{id64}`
+- `/api/evidence/systems/{id64}/summary`
 - `/api/facility-templates`
 - `/api/systems/{id64}/simulation-summary`
 - `/api/systems/{id64}/slot-predictions`
@@ -334,21 +342,9 @@ The Review Lab separates environment readiness from product acceptance.
 - Product observations are reported separately and do not hide environment
   readiness.
 
-The known allowlisted product observation is:
-
-- classification: `PRODUCT_NARROW_VIEWPORT_OVERFLOW`
-- owner: `PR #259`
-- environment ready: `true`
-- product acceptance ready: `false`
-
-This observation remains owned by PR `#259`. It should be detected and reported,
-not hidden, and it does not make PR `#260` or PR `#259` ready for merge.
-
-That classification also applies in Review Lab CI: PR `#259`'s narrow viewport
-overflow remains a product finding and does not fail the isolated environment
-lane when the Review Lab itself behaves correctly.
-
-Any new or different product issue fails as
+No product observation is currently expected or allowlisted. Full verification
+must finish with both `environment_ready: true` and
+`product_acceptance_ready: true`; any product observation fails as
 `UNEXPECTED_PRODUCT_OBSERVATION`.
 
 ## Review Runtime

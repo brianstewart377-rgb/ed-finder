@@ -2,25 +2,6 @@ name: Review Lab
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/review-lab.yml"
-      - "docker-compose.review.yml"
-      - "scripts/dev/review_environment.py"
-      - "scripts/dev/review_lab/**"
-      - "scripts/dev/review_environment_seed.py"
-      - "apps/api/src/review_*.py"
-      - "frontend/e2e/review-environment.spec.js"
-      - "frontend/playwright.config.ts"
-      - "frontend/package.json"
-      - "frontend/yarn.lock"
-      - "docs/development/local-review-test-environment.md"
-      - "tests/test_local_review_test_environment.py"
-      - "tests/test_db_isolation_guardrails.py"
-      - "tests/test_project_state_resolver.py"
-      - "tests/test_stage18h2_warehouse_planner_evidence_endpoint.py"
-      - "tests/test_stage20b_readonly_status_surfaces.py"
-      - "tests/test_stage22b_planner_evidence_hardening.py"
-      - "tests/test_stage23a_live_per_system_evidence.py"
   workflow_dispatch:
 
 permissions:

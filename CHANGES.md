@@ -29,21 +29,22 @@ full and partial outcomes.
 guidance and updated ROADMAP foundation status from planned to evidenced:
 storage recovery completed at a 519 GB database size, the checksum migration
 ledger is active and production-audited, restore automation has a recorded
-rehearsal, and all nine CI checks protect `main`. CQ-035 through CQ-040 record
+rehearsal, and all ten CI checks protect `main`. CQ-035 through CQ-040 record
 the closed H2 findings; credential handling and finite migration timeouts remain
 explicit H3 work as CQ-041 and CQ-042.
 
-**Review Lab failure classified** — H2 fixed its Linux direct-entry import
-regression, after which the workflow reproduced PR #344's pre-existing browser
-failure: the review stack returns 404 for `/api/news/latest`, preventing several
-keyboard and Delta-fallback checks from completing. The optional workflow is
-not a protected context; CQ-043 records the bounded follow-up instead of
-misclassifying it as an H2 regression.
+**Review Lab restored and enforced** — Reconciled the isolated API with the
+current app-shell and System Detail read contracts, updated the browser journey
+to the current Finder-to-planner flow, and hardened Windows command resolution,
+UTF-8 subprocess capture, and process-tree teardown. The workflow now runs on
+every pull request and `Review Lab` is the tenth protected context. Full local
+verification passed all scenarios, accessibility checks, console/network
+policy, Delta provenance fallback, and teardown (`20260718T155912Z-32900-429f62aa`).
 
 **CI restored and enforced** — Recovered the full GitHub Actions board across
 backend unit and integration tests, canonical safety, script contracts, nginx,
 OpenAPI drift, frontend build, Playwright E2E, and built-image parity. `main` is
-now branch-protected by all nine exact check contexts, with strict status-check
+now branch-protected by all ten exact check contexts, with strict status-check
 matching and an admin override retained for emergencies.
 
 **Failure causes fixed** — Repaired the backend dual-import split, Windows CRLF
