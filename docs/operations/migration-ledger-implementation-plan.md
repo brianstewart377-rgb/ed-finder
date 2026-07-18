@@ -304,6 +304,10 @@ Current committed operator path:
   (`--compose-file` / `EDFINDER_DOCKER_COMPOSE_FILE`) so Windows/local
   operator flows can target `docker-compose.local.yml` without requiring host
   `psql`
+- both helpers default to a one-hour statement timeout and a 30-second lock
+  timeout. Reviewed finite overrides use `MIGRATION_STATEMENT_TIMEOUT` and
+  `MIGRATION_LOCK_TIMEOUT`; setting either to zero additionally requires
+  `EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes`
 - recorded local evidence now exists for the canonical pre-ledger `edfinder`
   database cutover:
   - `artifacts/migration-baselines/local-edfinder-baseline-2026-07-09.json`
@@ -324,14 +328,12 @@ Current committed operator path:
 - `999_refresh_materialized_views.sql` is no longer treated as a migration.
 - CI/fresh-db setup uses the same canonical migration source of truth as
   production.
+- Migration sessions cannot wait indefinitely unless an operator makes the
+  explicit reviewed unbounded-timeout acknowledgement.
 
-## Immediate Next Step
+## Current Status
 
-Implement Phase 1 and Phase 2 in a branch before touching production baseline
-state:
-
-1. add the manifest
-2. add the ledger/applier
-3. update deploy and seed scripts
-4. verify on a fresh disposable database
-5. only then plan the production baseline write
+The manifest, checksum ledger, canonical applier, production baseline, manual
+019 record, CI runtime rehearsal, and finite timeout policy are implemented and
+production-proven. Future changes extend this path; they do not replay or
+replace it ad hoc.

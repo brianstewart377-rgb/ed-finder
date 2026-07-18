@@ -15,6 +15,16 @@ direct expansion-plan store coverage. Review Lab then caught a Linux-only
 direct-entry import regression in the Ruff cleanup; the entrypoint now
 bootstraps the repository package root and a subprocess regression pins it.
 
+**Database operator scripts hardened** — Password sync now sends credentials
+only through stdin-backed, short-lived secret channels, uses psql's quoting-safe
+password command, redacts all output, and verifies against the container's
+SCRAM-authenticated address instead of its trusted loopback rule. `run_import.sh`
+uses that single implementation. Migration apply and baseline sessions now
+default to a one-hour statement timeout and 30-second lock timeout; finite
+overrides remain available, while zero requires an explicit reviewed opt-in.
+Focused contracts, a real PostgreSQL 16 password rehearsal, and a fresh 39-file
+migration apply plus second-run ledger skip close CQ-041 and CQ-042.
+
 **Frontend trust paths tightened** — Routed Cluster Search through the typed
 shared API client with direct hook tests, contained browser storage exceptions
 behind tested helpers, and associated the Fleet Carrier input with its visible
@@ -30,8 +40,8 @@ guidance and updated ROADMAP foundation status from planned to evidenced:
 storage recovery completed at a 519 GB database size, the checksum migration
 ledger is active and production-audited, restore automation has a recorded
 rehearsal, and all ten CI checks protect `main`. CQ-035 through CQ-040 record
-the closed H2 findings; credential handling and finite migration timeouts remain
-explicit H3 work as CQ-041 and CQ-042.
+the closed H2 findings; CQ-041 and CQ-042 now record the completed H3 database
+operator hardening.
 
 **Review Lab restored and enforced** — Reconciled the isolated API with the
 current app-shell and System Detail read contracts, updated the browser journey

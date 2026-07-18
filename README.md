@@ -263,7 +263,9 @@ See `docs/development/cross-repo-workspace.md` for the recommended local layout 
 > All services run from that one directory — there is no separate `/opt/ed-finder-src`.
 > All import scripts live **only** in `apps/importer/src/`. Always use `scripts/run_import.sh`
 > to run them — never use raw `docker run`. The wrapper handles network, DNS,
-> password verification, and volume mounts correctly.
+> password verification, and volume mounts correctly. Password verification and
+> repair delegate to `scripts/sync_password.sh`, which keeps the credential out
+> of process arguments, SQL text, and logs.
 
 ---
 
@@ -441,6 +443,10 @@ docker compose up -d eddn
 Use the production deploy wrapper for normal code/schema releases. It pulls
 `main`, applies the known safe additive SQL migrations, builds the frontend,
 rebuilds/restarts app containers, reloads nginx, and runs health checks.
+Migration sessions default to a one-hour statement timeout and 30-second lock
+timeout; use reviewed finite environment overrides when a migration needs a
+different bound. An unbounded value requires the explicit
+`EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes` acknowledgement.
 
 Windows/local one-command wrapper:
 
