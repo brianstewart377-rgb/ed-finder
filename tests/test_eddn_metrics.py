@@ -9,7 +9,6 @@ import asyncio
 import inspect
 import json
 import logging
-import os
 import socket
 import sys
 from pathlib import Path

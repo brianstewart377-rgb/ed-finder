@@ -42,7 +42,6 @@ from build_ratings import (
     compute_terraforming_potential,
     compute_body_diversity,
     compute_confidence,
-    generate_rationale,
 )
 
 from import_spansh import (

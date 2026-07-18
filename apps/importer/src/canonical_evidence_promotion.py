@@ -5,7 +5,6 @@ from typing import Any
 
 import psycopg2
 from shared_contracts.evidence_identity import (
-    coerce_optional_datetime as _coerce_optional_datetime,
     content_addressed_evidence_key as _content_addressed_evidence_key,
     datetime_to_utc_isoformat as _dt_to_str,
 )

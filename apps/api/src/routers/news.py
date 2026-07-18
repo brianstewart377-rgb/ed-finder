@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 from xml.etree import ElementTree
 
 import redis.asyncio as aioredis
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from edfinder_api.deps import cache_get, cache_set, get_redis
 

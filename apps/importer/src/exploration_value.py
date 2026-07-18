@@ -10,8 +10,6 @@ This module is used by the /api/system/{id64} endpoint to add an
 `exploration_value` field to system detail responses.
 """
 
-import math
-from typing import Optional
 
 # ── Body type base values ─────────────────────────────────────────────────────
 # These are the k-values from the ED 3.3 formula

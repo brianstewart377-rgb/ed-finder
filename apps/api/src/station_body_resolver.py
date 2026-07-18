@@ -20,7 +20,6 @@ from edfinder_api.station_body_resolver_utils import (
     TRANSIENT_NON_SLOT_TYPES,
     _clean_body_name,
     _clean_text,
-    _first_float,
     _has_trusted_station_metadata,
     _join_notes,
     _normalise_name,

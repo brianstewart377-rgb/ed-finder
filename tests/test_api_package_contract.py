@@ -181,11 +181,12 @@ def test_test_files_using_api_path_must_use_package_imports():
 
     See: docs/operations/known-issues.md (dual-import entry).
     """
-    api_src_markers = (
-        "apps/api/src",
-        "apps' / 'api' / 'src'",
-        "apps/api/src'",
-    )
+    # Must contain BOTH a sys.path manipulation AND reference apps/api/src.
+    # Just mentioning the path in a docstring isn't enough — the file must
+    # actually add it to sys.path, which opts it into the edfinder_api
+    # package namespace.
+    _has_syspath = False
+    _has_api_src = False
 
     forbidden_flat_imports = (
         'from state import ',
@@ -202,9 +203,15 @@ def test_test_files_using_api_path_must_use_package_imports():
         if path.name == 'test_api_package_contract.py':
             continue
         source = path.read_text(encoding='utf-8')
-        if not any(marker in source for marker in api_src_markers):
+        _has_syspath = 'sys.path' in source
+        _has_api_src = 'apps/api/src' in source
+        if not (_has_syspath and _has_api_src):
             continue
         rel = path.relative_to(ROOT).as_posix()
+        # This file itself contains the forbidden strings as detection
+        # patterns, not as actual imports — skip it.
+        if rel == 'tests/test_api_package_contract.py':
+            continue
         for forbidden in forbidden_flat_imports:
             if forbidden in source:
                 violations.append(f'{rel} uses flat import: {forbidden.strip()}')

@@ -31,10 +31,8 @@ import os
 import sys
 import json
 import time
-import math
 import logging
 import argparse
-import datetime
 import multiprocessing as mp
 from typing import Optional
 
@@ -42,9 +40,8 @@ import psycopg2
 import psycopg2.extras
 
 from progress import (
-    ProgressReporter, WorkerHeartbeat,
-    startup_banner, stage_banner, done_banner, crash_hint,
-    fmt_num, fmt_duration, fmt_rate,
+    WorkerHeartbeat,
+    startup_banner, stage_banner, done_banner, fmt_num,
 )
 
 # ---------------------------------------------------------------------------
@@ -1029,7 +1026,6 @@ def main():
     log.info(f"  {len(chunks)} chunks across {args.workers} workers")
 
     stage_banner(log, 2, 2, 'Processing topology')
-    reporter = ProgressReporter(log, len(system_ids), label='systems')
 
     with mp.Pool(processes=args.workers) as pool:
         results = pool.starmap(

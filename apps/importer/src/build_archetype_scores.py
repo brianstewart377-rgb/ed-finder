@@ -40,14 +40,14 @@ import psycopg2
 import psycopg2.extras
 
 from progress import (
-    ProgressReporter, WorkerHeartbeat,
+    WorkerHeartbeat,
     startup_banner, stage_banner, done_banner,
-    fmt_num, fmt_duration, fmt_rate,
+    fmt_num,
 )
 
 # Import body diversity from the existing ratings engine
 try:
-    from build_ratings import compute_body_diversity, classify_bodies
+    from build_ratings import compute_body_diversity
     _HAVE_RATINGS = True
 except ImportError:
     _HAVE_RATINGS = False
@@ -55,9 +55,8 @@ except ImportError:
 # Import topology helpers
 try:
     from build_topology import (
-        compute_topology_metrics, compute_system_pair_synergy,
         compute_contamination_risk, _classify_bodies_simple,
-        _load_base_synergy, BASE_SYNERGY, ECONOMY_PAIRS,
+        _load_base_synergy, BASE_SYNERGY,
     )
     _HAVE_TOPOLOGY = True
 except ImportError:
@@ -565,7 +564,6 @@ def _score_word(score: float) -> str:
 
 def _build_positives(archetype_key, counts, topology, buildability) -> list:
     positives = []
-    defn = ARCHETYPE_DEFINITIONS[archetype_key]
 
     # High-value body presences
     if counts.get('elw', 0) >= 1:

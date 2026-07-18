@@ -25,7 +25,7 @@ from httpx import ASGITransport, AsyncClient
 
 from edfinder_api.deps import get_pool
 from edfinder_api.observations.comparison_engine import compare_prediction_to_observations
-from edfinder_api.observations.comparison_models import ComparisonSeverity, ComparisonStatus
+from edfinder_api.observations.comparison_models import ComparisonSeverity
 from edfinder_api.observations.models import (
     ObservationSource,
     ObservedConfidence,

@@ -18,7 +18,7 @@ Supported event types:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 from edfinder_api.ring_facts import normalise_ring_payload

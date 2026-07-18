@@ -23,15 +23,13 @@ slots — making a full T3 megacomplex impossible. Buildability captures this.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from edfinder_api.domain.facilities import FacilityTemplate, get_catalogue
 from edfinder_api.simulation.cp_simulator import (
-    CPAnalysis, CPState, analyse_cp_budget, complexity_label,
+    CPAnalysis, analyse_cp_budget, complexity_label,
 )
-from edfinder_api.simulation.composition import CompositionResult, analyse_composition
-from edfinder_api.domain.placements import FacilityPlacement, PlacementContext, choose_location
 
 
 SIMULATION_VERSION = '1.0.0'

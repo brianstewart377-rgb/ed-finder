@@ -56,7 +56,6 @@ async def test_local_search_returns_503_on_db_failure(client):
     """If the SQL builder raises, the API must surface a 503 with a
     problem-details body — not silently degrade to an inline fallback
     that produces different ordering (audit §C5)."""
-    from local_search import local_db_search as real_fn
 
     async def boom(body, pool):
         raise RuntimeError('simulated DB outage')

@@ -23,7 +23,7 @@ import logging
 import math
 import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import asyncpg
 
@@ -108,11 +108,6 @@ def _archetype_tier(score: Any) -> str | None:
 
 def _build_system_record(row: asyncpg.Record, bodies: list | None = None) -> dict:
     bodies = bodies or []
-
-    # Determine which score to show:
-    # - If the row has a display_score (set when filtering by economy), use it
-    # - Otherwise use the overall score
-    display_score = row.get("display_score") or row.get("score")
 
     return {
         "id64":              row["id64"],

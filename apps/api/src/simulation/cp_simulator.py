@@ -26,7 +26,6 @@ CP mechanics (community-derived, confidence: observed):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
 
 from edfinder_api.domain.facilities import FacilityTemplate
 from edfinder_api.mechanics.cp_rules import (
@@ -265,7 +264,6 @@ def analyse_cp_budget(
     opportunities: list[dict] = []
 
     total_slots = orbital_slots + surface_slots
-    cp_headroom = state.yellow_available if t2_affordable < total_slots else state.yellow_generated
 
     # CP bottleneck: can we not afford as many ports as we have slots?
     if t2_affordable < total_slots:

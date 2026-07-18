@@ -43,7 +43,6 @@ Usage:
 
 import os
 import sys
-import json
 import time
 import logging
 import argparse
@@ -57,7 +56,7 @@ import psycopg2.extras
 from progress import (
     ProgressReporter, WorkerHeartbeat,
     startup_banner, stage_banner, done_banner, crash_hint,
-    fmt_num, fmt_duration, fmt_rate, fmt_pct,
+    fmt_num, fmt_rate, fmt_pct,
 )
 
 # ---------------------------------------------------------------------------
@@ -1212,12 +1211,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
     else:
         primary_eco = sorted_ecos[0][0]
     primary_score = top_score
-    # Secondary: highest-scoring economy that isn't primary (skip the tied
-    # winner picked above, but only it — the others can still be secondary).
-    secondary_eco = next(
-        (eco for eco, _ in sorted_ecos if eco != primary_eco),
-        None,
-    )
 
     economy_suggestion = primary_eco if primary_score >= 20 else None
 
@@ -1242,14 +1235,6 @@ def rate_system(system_id64: int, bodies: list, main_star_type: Optional[str],
         raw_overall = 84.0
 
     overall = int(min(raw_overall, 100))
-
-    top_pair_meta = {
-        'a':          best_a,
-        'b':          best_b,
-        'a_score':    int(scores[best_a]),
-        'b_score':    int(scores[best_b]),
-        'pair_score': int(round(best_pair)),
-    }
 
     # ── Rationale (one-line explainer) ─────────────────────────────────────
     rationale = generate_rationale(counts, scores, primary_eco,
@@ -1711,13 +1696,13 @@ def main():
         log.info(f"  Already rated          : {fmt_num(already_rated)}")
         log.info(f"  Remaining (resume)     : {fmt_num(remaining)}")
         log.info(f"  Coverage               : {fmt_pct(already_rated, total_with_bodies)}")
-    log.info(f"")
-    log.info(f"  Score bands:")
-    log.info(f"    0–30  : Barely viable (single economy, few bodies)")
-    log.info(f"    31–50 : Functional (good for one economy, missing assets)")
-    log.info(f"    51–65 : Solid (good body mix, clean economies)")
-    log.info(f"    66–80 : Excellent (multiple strong economies, strategic assets)")
-    log.info(f"    81–100: Exceptional (ELWs, clean stacks, near-perfect)")
+    log.info("")
+    log.info("  Score bands:")
+    log.info("    0–30  : Barely viable (single economy, few bodies)")
+    log.info("    31–50 : Functional (good for one economy, missing assets)")
+    log.info("    51–65 : Solid (good body mix, clean economies)")
+    log.info("    66–80 : Excellent (multiple strong economies, strategic assets)")
+    log.info("    81–100: Exceptional (ELWs, clean stacks, near-perfect)")
 
     if args.rebuild:
         to_process = total_with_bodies

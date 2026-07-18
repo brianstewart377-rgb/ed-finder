@@ -36,25 +36,25 @@ print(f"OK 5: explicit bypass -> {s5.economies}")
 try:
     SlotRequirement(economies=[])
     assert False
-except Exception as e:
-    print(f"OK 6: empty raises")
+except Exception:
+    print("OK 6: empty raises")
 
 # Test 7: 3+ raises
 try:
     SlotRequirement(economies=["A", "B", "C"])
     assert False
-except Exception as e:
-    print(f"OK 7: 3+ raises")
+except Exception:
+    print("OK 7: 3+ raises")
 
 # Test 8: ClusterSearchRequest with slots
 csr = ClusterSearchRequest(slots=[SlotRequirement(archetype_key="refinery_industrial")])
 assert len(csr.slots) == 1
-print(f"OK 8: CSRequest with slots")
+print("OK 8: CSRequest with slots")
 
 # Test 9: legacy requirements still work
 csr2 = ClusterSearchRequest(requirements=[{"economy": "Agriculture", "min_count": 1}])
 assert len(csr2.requirements) == 1
-print(f"OK 9: CSRequest with legacy requirements")
+print("OK 9: CSRequest with legacy requirements")
 
 # Test 10: both raises
 try:
@@ -63,7 +63,7 @@ try:
         slots=[SlotRequirement(economies=["Refinery"])],
     )
     assert False
-except Exception as e:
-    print(f"OK 10: both raises")
+except Exception:
+    print("OK 10: both raises")
 
 print("\nAll tests passed!")

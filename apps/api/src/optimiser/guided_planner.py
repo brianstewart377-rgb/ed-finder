@@ -8,15 +8,13 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 from edfinder_api.domain.colonisation_rules import BodyEconomyProfile, profile_body
 from edfinder_api.domain.facilities import FacilityTemplate
 from edfinder_api.optimiser.models import CandidatePlacement, OptimiserCandidate
 from edfinder_api.optimiser.plan_quality import (
     PRESET_COUNT_RANGES,
-    EconomySoupAssessment,
-    MissingPrerequisite,
     PlanBodySlotState,
     PlanPreset,
     PlanQualityOptions,
@@ -34,7 +32,6 @@ from edfinder_api.optimiser.guided_planner_models import (
     GuidedPlanRequest,
     GuidedSystemContext,
     PRESET_DEFAULT_COUNTS,
-    RiskTolerance,
 )
 
 @dataclass
