@@ -102,7 +102,6 @@ section "Stage 19/source-run/operator focused tests"
     tests/test_stage19ay_test_environment_closeout.py \
     tests/test_stage19ba_bounded_production_staging_activation.py \
     tests/test_stage19bb_first_production_staging_activation.py \
-    tests/test_docs_roadmap.py \
     tests/test_stage18h1_planner_evidence_contract.py \
     tests/test_stage18h2_warehouse_planner_evidence_endpoint.py \
     tests/test_stage18h3_planner_warehouse_fetch_fallback.py \
@@ -148,6 +147,7 @@ section "Migration/apply and CI contract tests"
   cd "$ROOT"
   "$PYTHON_BIN" -m pytest \
     tests/test_migration_script_contracts.py \
+    tests/test_operational_script_hardening.py \
     tests/test_migration_applier_runtime.py \
     tests/test_migration_ledger_baseline_runtime.py \
     tests/test_data_trust_runtime.py \
