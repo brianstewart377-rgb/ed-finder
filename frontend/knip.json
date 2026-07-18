@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": ["src/App.tsx"],
+  "project": ["src/**/*.{ts,tsx}"],
+  "ignoreDependencies": ["vite-plugin-pwa", "@testing-library/jest-dom"],
+  "rules": {
+    "files": "error",
+    "dependencies": "off",
+    "devDependencies": "off",
+    "unlisted": "off",
+    "exports": "off",
+    "types": "off",
+    "nsExports": "off",
+    "nsTypes": "off",
+    "enumMembers": "off",
+    "classMembers": "off",
+    "duplicates": "off"
+  }
+}

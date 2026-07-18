@@ -63,7 +63,7 @@ fatal()   { echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL] $*" | tee -a "$LOG"; exit
 ERRORS=""
 
 log "=== Nightly update started (compose dir: $COMPOSE) ==="
-cd "$COMPOSE"
+cd "$COMPOSE" || fatal "compose directory missing: $COMPOSE"
 
 # Determine day of week (1=Mon … 7=Sun) and day of month
 DOW=$(date +%u)
