@@ -318,7 +318,7 @@ git commit
 
 ## Audit refactor history
 
-The codebase passed through a 9-phase audit in May 2026. All phases shipped to production. AUDIT_REPORT.md (95 KB), AUDIT_PATCHES.diff (1.5 MB / 23 620 lines) and REFACTOR_LOG.md track the full detail and live on the `Mahoosive` branch.
+The codebase passed through a 9-phase audit in May 2026. All phases shipped to production. That branch-era audit is historical context; current audit authority lives in `docs/development/full-stack-adversarial-audit-2026-07-10.md`, with execution state tracked by `docs/operations/audit-remediation-plan.md` and `docs/ROADMAP.md`.
 
 | Phase | Theme | Landed in |
 |---|---|---|
@@ -330,7 +330,7 @@ The codebase passed through a 9-phase audit in May 2026. All phases shipped to p
 | 6 | API integration tests + Vitest + Playwright e2e (78 new tests across 3 layers) | PR #3 |
 | 7 | `openapi-typescript` CI drift check; `api.gen.ts` baseline | PR #4 |
 | 7b | Strict `response_model=` on every frontend-consumed endpoint; replace `Optional[dict]` request fields with real Pydantic sub-models; `useWatchlist` on TanStack Query; Playwright E2E in CI | PR #5 |
-| 8+ | Historical follow-up note: broaden TanStack Query into `useSearch` / `useAutocomplete`, tighten remaining request dicts, and continue `_redesign/` Phase-2 wiring. | Not the current control document |
+| 8+ | Historical follow-up note: broaden TanStack Query into `useSearch` / `useAutocomplete` and tighten remaining request dicts. The old redesign prototype is archived and is not a wiring target. | Not the current control document |
 
 ---
 

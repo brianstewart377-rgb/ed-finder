@@ -22,7 +22,7 @@
     "test:planner": "node scripts/run-vitest.mjs run src/features/colony-planner src/features/system-detail/simulation-preview",
     "test:map": "node scripts/run-vitest.mjs run src/features/map src/lib/api.map.test.ts",
     "test:stores": "node scripts/run-vitest.mjs run src/store src/hooks",
-    "test:ci": "yarn test:operator && yarn test:planner && yarn test:map && yarn test:stores && node scripts/run-vitest.mjs run src/features/admin src/features/search-tuning src/features/system-detail/SystemDetailModal.test.tsx src/lib",
+    "test:ci": "yarn test:operator && yarn test:planner && yarn test:map && yarn test:stores && node scripts/run-vitest.mjs run src/features/admin src/features/cluster-search src/features/expansion-plans src/features/fc-planner src/features/search-tuning src/features/system-detail/SystemDetailModal.test.tsx src/lib",
     "test:watch": "node scripts/run-vitest.mjs watch",
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",

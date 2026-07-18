@@ -92,11 +92,12 @@ export function FcPlannerTab({ fc, onOpenDetail, selectedSystem = null }: FcPlan
 
       {/* Waypoint entry */}
       <div className="panel-thin p-4 space-y-2 relative">
-        <label className="font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] block">
+        <label htmlFor="fc-waypoint-name" className="font-mono text-[10px] text-silver-dk uppercase tracking-[0.18em] block">
           Add waypoint
         </label>
         <div className="flex gap-2">
           <input
+            id="fc-waypoint-name"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

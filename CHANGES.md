@@ -7,6 +7,39 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ## 2026-07-18 — CI restoration, branch protection, and strict zip hardening
 
+**H2 trust and hygiene hardening** — Expanded the required Ruff surface to
+`apps`, `tests`, `scripts`, and `shared_contracts`, fixed all newly exposed
+findings, and added a repository-owned LF checkout policy for shell scripts.
+Replaced the uncollected slot smoke module with collected model tests and added
+direct expansion-plan store coverage. Review Lab then caught a Linux-only
+direct-entry import regression in the Ruff cleanup; the entrypoint now
+bootstraps the repository package root and a subprocess regression pins it.
+
+**Frontend trust paths tightened** — Routed Cluster Search through the typed
+shared API client with direct hook tests, contained browser storage exceptions
+behind tested helpers, and associated the Fleet Carrier input with its visible
+label for assistive technology.
+
+**Admin cache response made truthful** — Cache clearing now reports a partial
+failure when Redis cannot be cleared, while retaining the successful database
+cache operation and logging the failed backend. Backend regressions cover both
+full and partial outcomes.
+
+**Canonical documentation reconciled** — Removed stale redesign runtime
+guidance and updated ROADMAP foundation status from planned to evidenced:
+storage recovery completed at a 519 GB database size, the checksum migration
+ledger is active and production-audited, restore automation has a recorded
+rehearsal, and all nine CI checks protect `main`. CQ-035 through CQ-040 record
+the closed H2 findings; credential handling and finite migration timeouts remain
+explicit H3 work as CQ-041 and CQ-042.
+
+**Review Lab failure classified** — H2 fixed its Linux direct-entry import
+regression, after which the workflow reproduced PR #344's pre-existing browser
+failure: the review stack returns 404 for `/api/news/latest`, preventing several
+keyboard and Delta-fallback checks from completing. The optional workflow is
+not a protected context; CQ-043 records the bounded follow-up instead of
+misclassifying it as an H2 regression.
+
 **CI restored and enforced** — Recovered the full GitHub Actions board across
 backend unit and integration tests, canonical safety, script contracts, nginx,
 OpenAPI drift, frontend build, Playwright E2E, and built-image parity. `main` is

@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 import time
+from pathlib import Path
 from typing import Any, Mapping
+
+# Direct script execution only adds scripts/dev to sys.path.
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from review_lab import api_contracts, browser_runner, lifecycle, network_policy, observations, reporting, scenarios, support_matrix
 from review_lab.contract import CONFIRM_FLAG, REQUIRED_PHASE_NAMES, ReviewLabError, elapsed_ms

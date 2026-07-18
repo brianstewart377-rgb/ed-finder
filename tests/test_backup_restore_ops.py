@@ -94,7 +94,7 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert '- `scripts/rehearse_postgres_restore.sh`' in remediation
 
     squashed = _squash(roadmap)
-    assert 'Execute and record a real restore rehearsal on top of the committed backup + restore automation now in the repo (`scripts/rehearse_postgres_restore.sh` now provides the default operator path).' in squashed
+    assert 'Backup/restore automation and a recorded disposable restore rehearsal now establish the minimum restore-readiness baseline.' in squashed
     assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
 
 
