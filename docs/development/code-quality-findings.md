@@ -209,7 +209,7 @@ Resolved with date and closing commit. New audits append.
 - Close when: the 6 sequences replaced with U+00B7; byte counts verified
   0 mojibake / 15 clean. (Fixed in the frontend-typecheck PR, not here.)
 
-### CQ-022 — backend-unit CI job: 64-failure triage (umbrella)
+### CQ-022 — backend-unit CI job: 64-failure triage (umbrella) (RESOLVED, see below)
 - Raised 2026-07-16 · local repro of the job's exact selection @ 983a212 ·
   counts Confirmed (64 failed, 1348 passed, 15 collection errors); bucket
   severity varies
@@ -225,7 +225,7 @@ Resolved with date and closing commit. New audits append.
   LivePlannerEvidenceResult missing 'coverage' arg; (d)
   test_local_review_test_environment Unknown in CI (docker-dependent).
 - Close when: bucket (c) diagnosed and dispositioned as own findings;
-  (a)/(b) ruled by owner and fixed; the job green.
+  (a)/(b) ruled by owner and fixed; the job green. Met 2026-07-17; see below.
 
 ### CQ-023 — Container image parity workflow red (cause unknown)
 - Raised 2026-07-16 · runs of 2026-07-15 @ 7224f87 / b1c0a52 · Unknown
@@ -260,6 +260,54 @@ Resolved with date and closing commit. New audits append.
 - Close when: .gitignore covers all four patterns; git status shows them
   ignored.
 
+### CQ-026 — CI seed produced invariant-violating data (RESOLVED, see below)
+- Raised 2026-07-16 · Confirmed · the seed (sql/seed_preview.sql) failed 3 of
+  9 data-invariants (rating_version not uniform; body-data flags/counts drift;
+  stale non-eligible systems carried ratings) plus both seed_check guards.
+- Close when: seed satisfies all 9 invariants + seed_check; verified locally
+  against postgres:16-alpine.
+
+### CQ-027 — API fails to boot in CI (shared_contracts import) (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed · CI booted uvicorn from apps/api/src without
+  repo root on sys.path → ModuleNotFoundError: shared_contracts. Prod Dockerfile
+  co-locates both packages; CI did not. Pre-existing latent, unmasked by CQ-026.
+- Close when: both Boot API steps set PYTHONPATH=repo root; API boots green.
+
+### CQ-030 — SystemDetailRow under-declared its own response (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed · /api/system/{id64} returns archetype/
+  buildability fields (LEFT JOIN mv_archetype_rankings) + ISO-string timestamps,
+  but SystemDetailRow declared neither (archetype absent via extra='allow';
+  timestamps Optional[Any]→unknown in TS). Frontend hand-augmented to compensate.
+- Close when: model declares the fields honestly; frontend augmentation removed;
+  typecheck green.
+
+### CQ-031 — Windows CRLF line endings on shell scripts (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed · run_maintenance.sh, run_dirty_ratings.sh, an
+  operator script carried \r\n, failing bash-syntax tests.
+- Close when: scripts normalized to LF; .gitattributes guards recurrence.
+
+### CQ-032 — evidence promote-canonical test data gap (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed · test_evidence_mutations_accept_admin_token
+  asserted promoted_count>=1 but the first-by-id seed system lacked promotable
+  canonical data.
+- Close when: fixed so the promote path has promotable data; test green in CI.
+
+### CQ-033 — two shipped-code bugs in systems endpoints (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed, shipping bugs · (1) POST /api/systems/batch
+  omitted r.terraformable_count from its ratings SELECT while
+  reconstruct_score_breakdown requires it → KeyError → 500 on any batch request.
+  (2) GET /api/system/{id64} raised TypeError int<None at systems.py:68 —
+  timestamp fields returned raw datetime objects.
+- Close when: batch query complete; timestamps ::text-cast; both endpoints green.
+
+### CQ-034 — data-trust runtime tests vs 034 hardening trigger (RESOLVED, see below)
+- Raised 2026-07-17 · Confirmed, test-infra · 3 test_data_trust_runtime tests
+  insert confirmed+lane='unknown' station_body_links to simulate drift, but
+  migration 034's trigger rejects that write. The repair path they test is
+  intentional defense-in-depth (shipped with 034 in 26a9a7d), not obsolete.
+- Close when: fixtures create the legacy-drift row via trigger bypass
+  (session_replication_role=replica); tests green.
+
 ## Resolved
 
 ### CQ-001 — 16 silently dead test functions — RESOLVED 2026-07-16
@@ -285,3 +333,64 @@ Resolved with date and closing commit. New audits append.
   shared_contracts/data_invariant_contracts.py:121–122; verified by
   byte-identical replay. Escape chosen over params-skip to preserve psycopg2
   placeholder safety for all other checks. Merges on green CI.
+
+### CQ-007 — cluster-search endpoint typed — RESOLVED 2026-07-17
+- Fixed in PR #328 (f5bdb6f): added ClusterResult + ClusterSearchResponse to
+  models.py (extra='allow' result-model convention; schema-grounded nullability)
+  + response_model on /api/search/cluster. Post-merge CI confirmed no
+  ResponseValidationError on any path.
+
+### CQ-018 — stale api.gen.ts — RESOLVED 2026-07-17
+- Fixed in PR #329 (e2a0730): regenerated api.gen.ts (1,773-line catch-up of
+  accumulated drift the perpetually-red drift job never forced). Diff verified
+  benign (real admin routes, frontend-forward URL, no consumers of renamed
+  fields). Determinism confirmed by re-run. Greened OpenAPI-drift.
+
+### CQ-022 — backend-unit 64-failure triage — RESOLVED 2026-07-17
+- Fixed across PR #331 (7e290ba) + #332 (395d618). Root cause of the bulk: a
+  dual-import path (tests imported flat `from observations.models` while prod
+  uses `edfinder_api.observations.models` → two ObservedFact classes → TypeError)
+  — corrected to package path across 31 files, 62→5 failures. Colony-layout
+  tests passed with the import fix alone (earlier "re-pin to stub" hypothesis was
+  a misdiagnosis; they are mock-based endpoint tests). Remaining 5 were CQ-031
+  (CRLF). 0 shipped-code bugs in this finding.
+
+### CQ-023 — Container image parity workflow red — RESOLVED 2026-07-17
+- Resolved as part of the green board (PR #332, a8b1c14). "Built image parity"
+  confirmed green and is now a required status check under branch protection.
+
+### CQ-026 — CI seed invariant violations — RESOLVED 2026-07-17
+- Fixed across PR #325 (rating_version '3.4' + body-data reconciliation UPDATE)
+  and #326 (A-rich: 111 synthetic bodies for the 34 body-less systems so all 40
+  are eligible+rated, satisfying both seed_check guards). Owner chose A-rich over
+  A-minimal because seed_check assumes every system populated+rated. Proven
+  locally: seed_check + data_invariants both green.
+
+### CQ-027 — API boot / shared_contracts import — RESOLVED 2026-07-17
+- Fixed in PR #327 (8fa45ed): PYTHONPATH=${{ github.workspace }} added to both
+  Boot API steps, matching prod Dockerfile's co-location of shared_contracts and
+  edfinder_api. API boots green; unmasked CQ-018 at the type-gen step.
+
+### CQ-030 — SystemDetailRow under-declaration — RESOLVED 2026-07-17
+- Fixed in PR #330 (f679977): declared the 9 archetype fields (Optional, LEFT
+  JOIN nullable) + changed body_data_updated_at/status_updated_at
+  Optional[Any]→Optional[str] (matches jsonable_encoder's ISO-string output).
+  Frontend SystemDetail augmentation collapsed to = Schemas['SystemDetailRow'].
+
+### CQ-031 — CRLF on shell scripts — RESOLVED 2026-07-17
+- Fixed in PR #332 (395d618): scripts normalized to LF; recurrence guarded.
+
+### CQ-032 — evidence promote test data gap — RESOLVED 2026-07-17
+- Fixed in PR #332 (395d618): promote path given promotable data; test green.
+
+### CQ-033 — systems endpoint shipped bugs — RESOLVED 2026-07-17
+- Fixed in PR #332 (395d618): added r.terraformable_count to the batch ratings
+  SELECT; ::text-cast the timestamp fields at query level (fixing the int<None at
+  systems.py:68) + _value_or_zero hardening in reconstruct_score_breakdown. Both
+  endpoints green; tests unchanged (not loosened).
+
+### CQ-034 — data-trust tests vs 034 trigger — RESOLVED 2026-07-17
+- Fixed in PR #332 (395d618): fixtures seed legacy drift via SET LOCAL
+  session_replication_role=replica to bypass the write-time trigger, faithfully
+  modeling the historical/backfill drift the repair path targets. Repair path
+  confirmed intentional defense-in-depth, not obsolete.

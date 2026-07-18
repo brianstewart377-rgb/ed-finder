@@ -59,6 +59,7 @@ If it fails, **stop** — do not edit, commit, push, run DB writes, or report an
 - DeepSeek must NEVER edit production files directly. All changes go through the local repo, commit, push, deploy flow — even for one-line production hotfixes.
 - Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
 - Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
+- **Red main is stop-the-line.** A red CI check masks everything downstream of it (red hides red). Fix or revert before the next merge — do not let "probably pre-existing" accumulate. Branch protection (enabled 2026-07-17) now enforces this structurally: all 9 checks must pass to merge.
 
 ## Repo hygiene contract (`docs/development/repo-hygiene.md`)
 
@@ -80,6 +81,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/start_local_dev.
 ```
 
 Local Docker services run via `docker-compose.local.yml`, with Postgres bound to `127.0.0.1:55432` (not 5432) and Redis on `127.0.0.1:6379` — this is intentional, to keep local test runs off any host Postgres listening on 5432. `tests/helpers/db_isolation.py` enforces this: it's fail-closed, refuses production-looking targets, and requires `EDFINDER_ALLOW_HOST_5432_TEST_DB=yes` to target 5432 or `EDFINDER_TEST_DB_ALLOW_DESTRUCTIVE_RESET=yes` to allow a destructive reset outside CI.
+
+- DB/seed changes are proven against a local `postgres:16-alpine` container (matching CI: `edfinder:edfinder@localhost:5432/edfinder`) before push, not discovered in CI.
 
 ```bash
 # Backend — the repo-local .venv is the canonical Python runner; Makefile auto-detects it
@@ -153,7 +156,7 @@ Backend/API code still uses `optimiser`/`candidate`/`archetype` vocabulary in ma
 
 ### Type contract (backend ↔ frontend)
 
-`apps/api/src/models.py` is the source of truth for HTTP wire types. `frontend/src/types/api.gen.ts` is auto-generated (`yarn types:gen`, wraps `scripts/types-gen.mjs`) from the live OpenAPI schema — **never hand-edit it**; CI's `openapi-types` job fails on drift. Avoid `Optional[dict]` in Pydantic request models (Pydantic 2.10+ turns bare `dict` into the unusable `Record<string, never>` via `openapi-typescript`) — use a real sub-model or `Any`. Full conventions: `docs/api-contracts.md`.
+`apps/api/src/models.py` is the source of truth for HTTP wire types. `frontend/src/types/api.gen.ts` is auto-generated (`yarn types:gen`, wraps `scripts/types-gen.mjs`) from the live OpenAPI schema — **never hand-edit it**; CI's `openapi-types` job fails on drift. Note: the `openapi-types` job runs data-invariants + boots the API **before** type generation, so a red job there is often an upstream failure (seed invariants, or the API failing to boot) rather than a types problem — check the earlier steps first. Avoid `Optional[dict]` in Pydantic request models (Pydantic 2.10+ turns bare `dict` into the unusable `Record<string, never>` via `openapi-typescript`) — use a real sub-model or `Any`. Full conventions: `docs/api-contracts.md`.
 
 ### Frontend (`frontend/`)
 
@@ -176,7 +179,7 @@ Four now exist, not one: `docker-compose.yml` (production stack), `docker-compos
 ### CI
 
 Split across multiple workflow files now, not just one `ci.yml`:
-- `.github/workflows/ci.yml`: `backend`, `script-contracts`, `integration`, `canonical-safety` (wraps `scripts/run_canonical_safety_tests.sh`), `nginx`, `openapi-types`.
+- `.github/workflows/ci.yml` (8 jobs, all required by branch protection): `Backend unit tests + compose validate`, `Script contracts + migration paths`, `Backend integration (PG+Redis)`, `Canonical safety tests`, `Nginx config syntax`, `OpenAPI types drift check`, `Frontend build`, `Frontend v2 E2E (Playwright)`. Plus the separate `Container image parity` workflow (`Built image parity`), also required.
 - `.github/workflows/container-image-parity.yml`: build-reproducibility parity check.
 - `.github/workflows/hetzner-operator.yml`: production operator workflow (`docs/operations/github-actions-hetzner-operator.md`).
 - `.github/workflows/review-lab.yml`: spins up the hosted review environment for PRs.
