@@ -44,17 +44,20 @@ fi
 CHECKSUM_PATH="${ARCHIVE_PATH}.sha256"
 
 say "Create frontend bundle"
-tar -C "$FRONTEND_DIR" -czf "$ARCHIVE_PATH" dist
+tar --force-local -C "$FRONTEND_DIR" -czf "$ARCHIVE_PATH" dist
 ok "archive written: $ARCHIVE_PATH"
 
 say "Write bundle checksum"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
+  CHECKSUM_OUTPUT="$(sha256sum "$ARCHIVE_PATH")"
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
+  CHECKSUM_OUTPUT="$(shasum -a 256 "$ARCHIVE_PATH")"
 else
   die "missing sha256sum/shasum"
 fi
+CHECKSUM="${CHECKSUM_OUTPUT%% *}"
+CHECKSUM="${CHECKSUM#\\}"
+printf '%s  %s\n' "$CHECKSUM" "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
 ok "checksum written: $CHECKSUM_PATH"
 
 printf '%s\n' "$ARCHIVE_PATH"

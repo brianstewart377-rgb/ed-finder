@@ -125,6 +125,7 @@ def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
     assert 'frontend-dist-$head.tar.gz' in release
     assert 'frontend/dist' in package
     assert 'frontend/yarn.lock' in package or '$FRONTEND_DIR/yarn.lock' in package
+    assert 'tar --force-local' in package
     assert '.sha256' in package
 
 
