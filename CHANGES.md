@@ -5,6 +5,19 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-19 - Windows release packaging invocation
+
+**Artifact packaging now receives its complete argument list** - The canonical
+PowerShell release wrapper now invokes the Git Bash adapter directly, preserving
+the `--output` flag and Windows archive path as one `ScriptArgs` array. The old
+nested `powershell.exe -File` call split that array across parameters and stopped
+an otherwise-green release before upload or production changes.
+
+**Failure is pinned and rehearsed** - Added a release-path contract that rejects
+the nested invocation and requires direct array forwarding. The repaired wrapper
+completed its validation-and-packaging phase from a clean `main` clone, producing
+the frontend archive and checksum before deploy was deliberately skipped.
+
 ## 2026-07-19 - Windows GNU Make and bundle portability
 
 **Documented Make targets now run from PowerShell** - Installed GNU Make 4.4.1

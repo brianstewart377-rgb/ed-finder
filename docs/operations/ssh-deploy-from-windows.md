@@ -100,6 +100,8 @@ That script now assumes the current root-served SPA:
 - probes `/` as the live app entrypoint
 - validates `/index.html`
 - uses `yarn` for frontend install/build/test steps
+- packages the validated frontend through the Git Bash adapter with the exact
+  Windows archive path, then uploads that prebuilt artifact for deployment
 
 ## 6. Operational Notes
 
