@@ -122,10 +122,14 @@ Resolved with date and closing commit. New audits append.
   cross-shell virtualenv path, and exports integration defaults as target-local
   variables. Bundle packaging uses tar's explicit local-path mode and writes a
   normalized digest.
-- Closed with 10 focused Make/reproducibility tests, Ruff, Bash syntax checking,
+- Review Lab on `286fcce` found four portability edge cases in that first fix:
+  dollar signs in caller-supplied environment values, checksum mode-marker
+  preservation, BSD tar compatibility, and valid global-Python fallback when a
+  Windows repo venv is absent. Fixed in `78faa28` with direct regressions.
+- Closed with 11 focused Make/reproducibility tests, Ruff, Bash syntax checking,
   a passing native `make state-check`, a clean Windows drive-path archive and
-  checksum rehearsal, and native `make test-unit` at 1476 passed, 13 skipped,
-  and 125 deselected.
+  `sha256sum -c` rehearsal, and native `make test-unit` at 1477 passed,
+  13 skipped, and 125 deselected.
 
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
 - Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational

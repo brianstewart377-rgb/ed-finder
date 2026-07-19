@@ -13,10 +13,11 @@ environment assignments. Windows virtualenv paths now use separators accepted
 by both `cmd.exe` and Bash, while integration-test defaults are exported by Make
 itself.
 
-**Drive-letter release packaging fixed** - Frontend bundle creation now forces
-GNU tar to treat `C:` paths as local and normalizes the escaped checksum prefix
-emitted for Windows filenames. Direct Windows regressions cover native Make
-command generation plus archive creation and checksum verification.
+**Drive-letter release packaging fixed** - Frontend bundle creation now
+normalizes Windows drive-letter paths through the available MSYS path adapter
+before invoking tar and checksum tools, without requiring GNU-only tar flags or
+rewriting checksum mode markers. Direct Windows regressions cover native Make
+command generation, archive creation, and `sha256sum -c` verification.
 
 ## 2026-07-19 - Stage 26A next-generation map authorization
 
