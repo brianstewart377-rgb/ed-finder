@@ -4,19 +4,28 @@ This folder contains the active contracts, closeout records, architecture notes,
 and historical implementation docs for ED-Finder's colonisation, planner,
 evidence, and enrichment work.
 
-## Active Stage 25 Control
+## Active Stage 26 Control
+
+The prior **Active Stage 25 Control** is complete and remains the settled
+product-shell and selected-system context baseline for this new lane.
 
 - [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap and the
   default answer to "what next?".
+- [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md)
+  is the active authorization and implementation-boundary contract for the
+  next-generation desktop map lane.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
-  is the active implementation contract for the current Stage 25 slice.
+  remains the settled shell and selected-system context baseline.
 
 ## Read This First
 
 Use this order before changing planner, evidence, or enrichment behaviour:
 
 1. [`../ROADMAP.md`](../ROADMAP.md)
-2. [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
+2. [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md)
+   for map work, or
+   [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
+   for shell and planner-context work
 3. [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md)
    and [`stage-25a-current-state-map-product-visual-baseline.md`](./stage-25a-current-state-map-product-visual-baseline.md)
 4. [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md)
@@ -31,7 +40,8 @@ If an older document's recommended next step conflicts with
 | Document | Why it matters |
 |---|---|
 | [`../ROADMAP.md`](../ROADMAP.md) | Single source for current priorities, boundaries, and next work. |
-| [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) | Active implementation contract for the current slice. |
+| [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md) | Active map authorization, research artifacts, renderer bake-off, integration boundary, and staged cutover contract. |
+| [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) | Settled shell and selected-system context baseline. |
 | [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md) | Current evidence-language and visual-system baseline. |
 | [`stage-25a-current-state-map-product-visual-baseline.md`](./stage-25a-current-state-map-product-visual-baseline.md) | Current-state audit and map posture baseline. |
 | [`stage-17p-current-state-forward-plan.md`](./stage-17p-current-state-forward-plan.md) | Planner truth, source authority, and hard product boundaries. |
