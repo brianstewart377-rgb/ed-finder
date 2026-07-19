@@ -57,7 +57,8 @@ function Resolve-SshTarget {
     return @{
       Display = $DeployTarget
       SshArgs = @($DeployTarget)
-      ScpArgs = @($DeployTarget)
+      ScpOptions = @()
+      Destination = $DeployTarget
       CanProbeTcp = $false
     }
   }
@@ -69,7 +70,8 @@ function Resolve-SshTarget {
   return @{
     Display = "$DeployUser@$DeployHost`:$DeployPort"
     SshArgs = @('-p', "$DeployPort", "$DeployUser@$DeployHost")
-    ScpArgs = @('-P', "$DeployPort", "$DeployUser@$DeployHost")
+    ScpOptions = @('-P', "$DeployPort")
+    Destination = "$DeployUser@$DeployHost"
     CanProbeTcp = $true
   }
 }
@@ -201,9 +203,9 @@ setx EDFINDER_DEPLOY_PORT 22
     if ($SshOptions.Trim()) {
       $scpArgs += $SshOptions.Trim().Split(' ')
     }
-    $scpArgs += $resolvedTarget.ScpArgs
+    $scpArgs += $resolvedTarget.ScpOptions
     $scpArgs += $frontendArchiveLocal
-    $scpArgs += "$(($resolvedTarget.SshArgs | Select-Object -Last 1))`:$remoteFrontendArchive"
+    $scpArgs += "$($resolvedTarget.Destination)`:$remoteFrontendArchive"
     & scp @scpArgs
     if ($LASTEXITCODE -ne 0) {
       throw "Failed to upload frontend artifact to $($resolvedTarget.Display)"
