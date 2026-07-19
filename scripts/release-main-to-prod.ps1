@@ -160,9 +160,9 @@ if (-not $SkipFrontendArtifact) {
     throw "Git Bash wrapper not found: $runBash"
   }
   Write-Host "[release] Packaging frontend artifact: $frontendArchiveLocal"
-  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash `
+  & $runBash `
     -Script 'scripts/package_frontend_bundle.sh' `
-    -ScriptArgs '--output', $frontendArchiveLocal
+    -ScriptArgs @('--output', $frontendArchiveLocal)
   if ($LASTEXITCODE -ne 0) { throw 'frontend artifact packaging failed' }
 }
 
