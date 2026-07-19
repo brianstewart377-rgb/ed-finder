@@ -47,11 +47,12 @@ def test_makefile_test_target_exports_cross_platform_integration_defaults():
         'LOG_LEVEL',
         'EXPOSE_ERROR_DETAIL',
     ):
-        assert f'test: export {variable} := $(if $(strip $(value {variable}))' in makefile
+        assert f'test: override export {variable} := $(if $(strip $(value {variable}))' in makefile
     assert '\tDATABASE_URL=' not in makefile
 
 
-def test_makefile_preserves_dollar_signs_in_environment_overrides(tmp_path):
+@pytest.mark.parametrize('source', ('environment', 'command-line'))
+def test_makefile_preserves_dollar_signs_in_integration_overrides(tmp_path, source):
     make = shutil.which('make')
     if make is None:
         pytest.skip('GNU Make is not installed')
@@ -65,10 +66,18 @@ def test_makefile_preserves_dollar_signs_in_environment_overrides(tmp_path):
         '"import os; print(os.environ[\'DATABASE_URL\'])"\n',
         encoding='utf-8',
     )
+    command = [make, '--no-print-directory', '-f', str(probe)]
+    env = {**os.environ}
+    if source == 'environment':
+        env['DATABASE_URL'] = database_url
+    else:
+        command.append(f'DATABASE_URL={database_url}')
+    command.append('test')
+
     result = subprocess.run(
-        [make, '--no-print-directory', '-f', str(probe), 'test'],
+        command,
         cwd=ROOT,
-        env={**os.environ, 'DATABASE_URL': database_url},
+        env=env,
         capture_output=True,
         text=True,
         check=False,
@@ -89,7 +98,8 @@ def test_makefile_preserves_dollar_signs_in_environment_overrides(tmp_path):
         ('EXPOSE_ERROR_DETAIL', 'true'),
     ),
 )
-def test_makefile_treats_empty_integration_environment_values_as_missing(tmp_path, variable, expected):
+@pytest.mark.parametrize('source', ('environment', 'command-line'))
+def test_makefile_treats_empty_integration_values_as_missing(tmp_path, variable, expected, source):
     make = shutil.which('make')
     if make is None:
         pytest.skip('GNU Make is not installed')
@@ -102,10 +112,18 @@ def test_makefile_treats_empty_integration_environment_values_as_missing(tmp_pat
         f'"import os; print(os.environ[\'{variable}\'])"\n',
         encoding='utf-8',
     )
+    command = [make, '--no-print-directory', '-f', str(probe)]
+    env = {**os.environ}
+    if source == 'environment':
+        env[variable] = ''
+    else:
+        command.append(f'{variable}=')
+    command.append('test')
+
     result = subprocess.run(
-        [make, '--no-print-directory', '-f', str(probe), 'test'],
+        command,
         cwd=ROOT,
-        env={**os.environ, variable: ''},
+        env=env,
         capture_output=True,
         text=True,
         check=False,

@@ -132,9 +132,12 @@ Resolved with date and closing commit. New audits append.
   treated explicitly empty test variables as intentional values. The final
   defaults use Make's unexpanded `value` function, preserving literal dollar
   signs while restoring the previous empty-means-missing behavior.
+- A third exact-head review found that an empty Make command-line assignment
+  could still outrank the target default. Target-specific `override export`
+  semantics now apply the same contract to environment and command-line input.
 - Closed with focused Make/reproducibility tests, Ruff, Bash syntax checking, a
   passing native `make state-check`, a clean Windows drive-path archive and
-  checksum rehearsal, and native `make test-unit` at 1483 passed, 13 skipped,
+  checksum rehearsal, and native `make test-unit` at 1490 passed, 13 skipped,
   and 125 deselected.
 
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
