@@ -109,6 +109,23 @@ Resolved with date and closing commit. New audits append.
 
 ## Resolved
 
+### CQ-046 - Windows release wrapper treated SSH alias as an SCP source - RESOLVED 2026-07-19
+- Raised 2026-07-19 during the production release retry for `649e9c1`.
+  Confirmed operational defect: `Resolve-SshTarget` mixed SCP options with the
+  remote host, then the upload builder appended that mixed array before the
+  local archive. OpenSSH therefore tried to stat a local file named after the
+  `ed-finder-prod` alias.
+- The release failed closed before artifact upload, remote command execution, or
+  any production service change. Local typecheck, build, frontend tests,
+  archive creation, and checksum creation had passed.
+- Fixed in `71abc8e`: resolved targets now expose `ScpOptions` and `Destination`
+  separately. Alias mode has no extra SCP flags; direct-host mode contributes
+  only `-P <port>`; both append exactly one local source and one remote target.
+- Closed with PowerShell syntax parsing, five focused reproducibility tests,
+  Ruff, and native `make test-unit` at 1490 passed, 13 skipped, and 125
+  deselected. The release-path contract rejects the former mixed `ScpArgs`
+  representation and pins the destination order.
+
 ### CQ-045 - Windows release wrapper split frontend packaging arguments - RESOLVED 2026-07-19
 - Raised 2026-07-19 during the canonical production release of merge commit
   `cd5c753`. Confirmed operational defect: `release-main-to-prod.ps1` launched

@@ -106,6 +106,9 @@ That script now assumes the current root-served SPA:
 ## 6. Operational Notes
 
 - The SSH alias is better than hardcoding the production IP into commands.
+- The wrapper treats an SSH alias as the remote SCP destination, while direct
+  host mode adds `-P <port>` separately; neither form adds the host as a local
+  upload source.
 - `scripts/deploy_main.sh` remains the canonical server-side deploy entrypoint.
 - The PowerShell wrappers should call the server script, not reimplement the
   deployment logic locally.

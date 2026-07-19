@@ -5,6 +5,17 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-19 - Windows release SCP target handling
+
+**SSH aliases no longer become accidental local sources** - The release wrapper
+now models SCP flags separately from the remote destination. Alias-based deploys
+produce `scp [options] <archive> alias:/tmp/...`; direct host deploys add only
+the `-P` port option before the same source/destination pair.
+
+**Upload failure remains fail-closed** - The defect was exposed only after local
+typecheck, build, frontend tests, and artifact packaging succeeded. SCP rejected
+the malformed command before upload, so no production files or services changed.
+
 ## 2026-07-19 - Windows release packaging invocation
 
 **Artifact packaging now receives its complete argument list** - The canonical
