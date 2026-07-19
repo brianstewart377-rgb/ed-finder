@@ -140,6 +140,9 @@ def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
     assert 'tar -xzf "$FRONTEND_ARCHIVE"' in deploy
     assert 'yarn install --frozen-lockfile --no-progress --non-interactive' in deploy
     assert 'scripts/package_frontend_bundle.sh' in release
+    assert '& $runBash `' in release
+    assert "-ScriptArgs @('--output', $frontendArchiveLocal)" in release
+    assert '& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash' not in release
     assert 'scp' in release
     assert '--frontend-archive' in release
     assert 'frontend-dist-$head.tar.gz' in release

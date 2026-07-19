@@ -109,6 +109,20 @@ Resolved with date and closing commit. New audits append.
 
 ## Resolved
 
+### CQ-045 - Windows release wrapper split frontend packaging arguments - RESOLVED 2026-07-19
+- Raised 2026-07-19 during the canonical production release of merge commit
+  `cd5c753`. Confirmed operational defect: `release-main-to-prod.ps1` launched
+  `run-bash.ps1` through nested Windows PowerShell `-File` argument binding, so
+  the `string[]` archive arguments spilled into `-Command` and `-Script` at once.
+- The release failed closed before artifact upload or any production change;
+  typecheck, build, and frontend tests had already passed.
+- Fixed in `2f58d74`: the release wrapper invokes the Git Bash adapter directly
+  and passes `@('--output', $frontendArchiveLocal)` as a real PowerShell array.
+- Closed with a release-path regression contract, PowerShell syntax parsing,
+  five focused reproducibility tests, native `make test-unit` at 1490 passed,
+  13 skipped, and 125 deselected, plus a clean-clone packaging rehearsal that
+  produced both the frontend archive and checksum with deploy disabled.
+
 ### CQ-044 - Windows Make and frontend packaging paths were not portable - RESOLVED 2026-07-19
 - Raised 2026-07-19 during installation and first use of GNU Make 4.4.1 on the
   documented Windows development path. Confirmed developer-workflow and release

@@ -185,8 +185,9 @@ competing roadmap source.
 - Reconcile the CRE and ed-finder confidence vocabularies before consuming CRE
   source-authority or release artifacts at runtime.
 - Keep CI/build reproducibility honest: preserve all ten protected checks, the
-  expanded Ruff/Knip gates, the pinned lockfile, built-image parity, and the
-  isolated Review Lab browser journey.
+  expanded Ruff/Knip gates, the pinned lockfile, built-image parity, the
+  artifact-backed Windows release wrapper, and the isolated Review Lab browser
+  journey.
 - Preserve the repaired local verification path: the Docker-backed preflight,
   map MV latency guard, archetypes JSON-response normalization, and explicit
   Stage 19 baseline/checkpoint skip semantics are now part of the expected
