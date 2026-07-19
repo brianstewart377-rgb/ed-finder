@@ -30,12 +30,12 @@ data-invariants:  ## Run read-only data integrity checks against DATABASE_URL
 	$(PYTHON) scripts/checks/data_invariants.py
 
 # ── Backend ──────────────────────────────────────────────────────────────────
-test: export DATABASE_URL := $(or $(DATABASE_URL),postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder)
-test: export REDIS_URL := $(or $(REDIS_URL),redis://localhost:6379/15)
-test: export CORS_ORIGINS := $(or $(CORS_ORIGINS),http://test)
-test: export ADMIN_TOKEN := $(or $(ADMIN_TOKEN),test-admin-token)
-test: export LOG_LEVEL := $(or $(LOG_LEVEL),WARNING)
-test: export EXPOSE_ERROR_DETAIL := true
+test: export DATABASE_URL ?= postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder
+test: export REDIS_URL ?= redis://localhost:6379/15
+test: export CORS_ORIGINS ?= http://test
+test: export ADMIN_TOKEN ?= test-admin-token
+test: export LOG_LEVEL ?= WARNING
+test: export EXPOSE_ERROR_DETAIL ?= true
 test:  ## Run backend unit + integration tests
 	$(PYTHON) -m unittest discover -s tests -p test_smoke.py
 	$(PYTHON) -m pytest tests/integration/ -q

@@ -110,6 +110,16 @@ def test_package_frontend_bundle_script_builds_archive_and_checksum_from_real_di
         actual_checksum = hashlib.sha256(archive_path.read_bytes()).hexdigest()
         assert checksum_line == actual_checksum
 
+        check_result = subprocess.run(
+            [bash, '-lc', 'sha256sum -c "$1"', 'bash', str(checksum_path)],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert check_result.returncode == 0, check_result.stderr or check_result.stdout
+
 
 def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
     deploy = _read('scripts', 'deploy_main.sh')
@@ -125,7 +135,8 @@ def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
     assert 'frontend-dist-$head.tar.gz' in release
     assert 'frontend/dist' in package
     assert 'frontend/yarn.lock' in package or '$FRONTEND_DIR/yarn.lock' in package
-    assert 'tar --force-local' in package
+    assert 'cygpath -u' in package
+    assert 'tar --force-local' not in package
     assert '.sha256' in package
 
 

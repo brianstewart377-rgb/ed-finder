@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -38,13 +39,40 @@ def test_makefile_exports_python_policy_without_shell_specific_assignment():
 def test_makefile_test_target_exports_cross_platform_integration_defaults():
     makefile = ROOT.joinpath('Makefile').read_text(encoding='utf-8')
 
-    assert 'test: export DATABASE_URL :=' in makefile
-    assert 'test: export REDIS_URL :=' in makefile
-    assert 'test: export CORS_ORIGINS :=' in makefile
-    assert 'test: export ADMIN_TOKEN :=' in makefile
-    assert 'test: export LOG_LEVEL :=' in makefile
-    assert 'test: export EXPOSE_ERROR_DETAIL := true' in makefile
+    assert 'test: export DATABASE_URL ?=' in makefile
+    assert 'test: export REDIS_URL ?=' in makefile
+    assert 'test: export CORS_ORIGINS ?=' in makefile
+    assert 'test: export ADMIN_TOKEN ?=' in makefile
+    assert 'test: export LOG_LEVEL ?=' in makefile
+    assert 'test: export EXPOSE_ERROR_DETAIL ?= true' in makefile
     assert '\tDATABASE_URL=' not in makefile
+
+
+def test_makefile_preserves_dollar_signs_in_environment_overrides(tmp_path):
+    make = shutil.which('make')
+    if make is None:
+        pytest.skip('GNU Make is not installed')
+
+    database_url = 'postgresql://u:pa$ss@localhost/db'
+    probe = tmp_path / 'Makefile'
+    probe.write_text(
+        f'include {ROOT.joinpath("Makefile").as_posix()}\n'
+        'test:\n'
+        f'\t@"{Path(sys.executable).as_posix()}" -c '
+        '"import os; print(os.environ[\'DATABASE_URL\'])"\n',
+        encoding='utf-8',
+    )
+    result = subprocess.run(
+        [make, '--no-print-directory', '-f', str(probe), 'test'],
+        cwd=ROOT,
+        env={**os.environ, 'DATABASE_URL': database_url},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout.strip() == database_url
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows-native GNU Make contract')
@@ -62,5 +90,6 @@ def test_windows_make_dry_run_uses_cmd_safe_python_command():
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    assert '.venv/Scripts/python.exe -B -m pytest' in result.stdout
+    expected_python = '.venv/Scripts/python.exe' if ROOT.joinpath('.venv', 'Scripts', 'python.exe').exists() else 'python'
+    assert f'{expected_python} -B -m pytest' in result.stdout
     assert 'PYTHONDONTWRITEBYTECODE=1' not in result.stdout
