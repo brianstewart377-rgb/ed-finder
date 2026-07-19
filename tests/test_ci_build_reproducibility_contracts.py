@@ -111,7 +111,17 @@ def test_package_frontend_bundle_script_builds_archive_and_checksum_from_real_di
         assert checksum_line == actual_checksum
 
         check_result = subprocess.run(
-            [bash, '-lc', 'sha256sum -c "$1"', 'bash', str(checksum_path)],
+            [
+                bash,
+                '-lc',
+                'if command -v sha256sum >/dev/null 2>&1; then '
+                'sha256sum -c "$1"; '
+                'elif command -v shasum >/dev/null 2>&1; then '
+                'shasum -a 256 -c "$1"; '
+                'else exit 127; fi',
+                'bash',
+                str(checksum_path),
+            ],
             cwd=ROOT,
             env=env,
             capture_output=True,

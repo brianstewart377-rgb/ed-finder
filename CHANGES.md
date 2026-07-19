@@ -16,8 +16,9 @@ itself.
 **Drive-letter release packaging fixed** - Frontend bundle creation now
 normalizes Windows drive-letter paths through the available MSYS path adapter
 before invoking tar and checksum tools, without requiring GNU-only tar flags or
-rewriting checksum mode markers. Direct Windows regressions cover native Make
-command generation, archive creation, and `sha256sum -c` verification.
+rewriting checksum mode markers. Direct regressions cover native Windows Make
+command generation, archive creation, and checksum verification through either
+the GNU `sha256sum` or portable `shasum` path used by the release script.
 
 ## 2026-07-19 - Stage 26A next-generation map authorization
 

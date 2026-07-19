@@ -118,18 +118,20 @@ Resolved with date and closing commit. New audits append.
 - The resulting full test run exposed a second Windows path defect in
   `package_frontend_bundle.sh`: GNU tar interpreted `C:` as a remote host, then
   `sha256sum` escaped a drive-letter filename by prefixing the digest with `\`.
-- Fixed in `981a6c9`: Make now exports `PYTHONDONTWRITEBYTECODE` itself, uses a
-  cross-shell virtualenv path, and exports integration defaults as target-local
-  variables. Bundle packaging uses tar's explicit local-path mode and writes a
-  normalized digest.
+- The first fix in `981a6c9` moved environment defaults into Make, selected a
+  cross-shell virtualenv path, and attempted to make drive-letter archive paths
+  explicit to tar and the checksum writer.
 - Review Lab on `286fcce` found four portability edge cases in that first fix:
   dollar signs in caller-supplied environment values, checksum mode-marker
   preservation, BSD tar compatibility, and valid global-Python fallback when a
   Windows repo venv is absent. Fixed in `78faa28` with direct regressions.
-- Closed with 11 focused Make/reproducibility tests, Ruff, Bash syntax checking,
-  a passing native `make state-check`, a clean Windows drive-path archive and
-  `sha256sum -c` rehearsal, and native `make test-unit` at 1477 passed,
-  13 skipped, and 125 deselected.
+- An exact-head review found that the archive regression itself still required
+  GNU `sha256sum` even though the release script supports BSD/macOS `shasum`.
+  The regression now mirrors the production verifier selection.
+- Closed with focused Make/reproducibility tests, Ruff, Bash syntax checking, a
+  passing native `make state-check`, a clean Windows drive-path archive and
+  checksum rehearsal, and native `make test-unit` at 1477 passed, 13 skipped,
+  and 125 deselected.
 
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
 - Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
