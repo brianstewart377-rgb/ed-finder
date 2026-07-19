@@ -39,12 +39,15 @@ def test_makefile_exports_python_policy_without_shell_specific_assignment():
 def test_makefile_test_target_exports_cross_platform_integration_defaults():
     makefile = ROOT.joinpath('Makefile').read_text(encoding='utf-8')
 
-    assert 'test: export DATABASE_URL ?=' in makefile
-    assert 'test: export REDIS_URL ?=' in makefile
-    assert 'test: export CORS_ORIGINS ?=' in makefile
-    assert 'test: export ADMIN_TOKEN ?=' in makefile
-    assert 'test: export LOG_LEVEL ?=' in makefile
-    assert 'test: export EXPOSE_ERROR_DETAIL ?= true' in makefile
+    for variable in (
+        'DATABASE_URL',
+        'REDIS_URL',
+        'CORS_ORIGINS',
+        'ADMIN_TOKEN',
+        'LOG_LEVEL',
+        'EXPOSE_ERROR_DETAIL',
+    ):
+        assert f'test: export {variable} := $(if $(strip $(value {variable}))' in makefile
     assert '\tDATABASE_URL=' not in makefile
 
 
@@ -73,6 +76,43 @@ def test_makefile_preserves_dollar_signs_in_environment_overrides(tmp_path):
 
     assert result.returncode == 0, result.stderr or result.stdout
     assert result.stdout.strip() == database_url
+
+
+@pytest.mark.parametrize(
+    ('variable', 'expected'),
+    (
+        ('DATABASE_URL', 'postgresql://edfinder:edfinder@127.0.0.1:55432/edfinder'),
+        ('REDIS_URL', 'redis://localhost:6379/15'),
+        ('CORS_ORIGINS', 'http://test'),
+        ('ADMIN_TOKEN', 'test-admin-token'),
+        ('LOG_LEVEL', 'WARNING'),
+        ('EXPOSE_ERROR_DETAIL', 'true'),
+    ),
+)
+def test_makefile_treats_empty_integration_environment_values_as_missing(tmp_path, variable, expected):
+    make = shutil.which('make')
+    if make is None:
+        pytest.skip('GNU Make is not installed')
+
+    probe = tmp_path / 'Makefile'
+    probe.write_text(
+        f'include {ROOT.joinpath("Makefile").as_posix()}\n'
+        'test:\n'
+        f'\t@"{Path(sys.executable).as_posix()}" -c '
+        f'"import os; print(os.environ[\'{variable}\'])"\n',
+        encoding='utf-8',
+    )
+    result = subprocess.run(
+        [make, '--no-print-directory', '-f', str(probe), 'test'],
+        cwd=ROOT,
+        env={**os.environ, variable: ''},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert result.stdout.strip() == expected
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows-native GNU Make contract')

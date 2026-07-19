@@ -128,9 +128,13 @@ Resolved with date and closing commit. New audits append.
 - An exact-head review found that the archive regression itself still required
   GNU `sha256sum` even though the release script supports BSD/macOS `shasum`.
   The regression now mirrors the production verifier selection.
+- A second exact-head review found that Make's raw-value-preserving defaults
+  treated explicitly empty test variables as intentional values. The final
+  defaults use Make's unexpanded `value` function, preserving literal dollar
+  signs while restoring the previous empty-means-missing behavior.
 - Closed with focused Make/reproducibility tests, Ruff, Bash syntax checking, a
   passing native `make state-check`, a clean Windows drive-path archive and
-  checksum rehearsal, and native `make test-unit` at 1477 passed, 13 skipped,
+  checksum rehearsal, and native `make test-unit` at 1483 passed, 13 skipped,
   and 125 deselected.
 
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18

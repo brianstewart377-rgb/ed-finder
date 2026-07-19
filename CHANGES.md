@@ -11,7 +11,8 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 through user-scoped `winget` and removed the Makefile's shell-specific inline
 environment assignments. Windows virtualenv paths now use separators accepted
 by both `cmd.exe` and Bash, while integration-test defaults are exported by Make
-itself.
+itself without expanding dollar signs in credentials; unset and explicitly
+empty values both receive the disposable local-test defaults.
 
 **Drive-letter release packaging fixed** - Frontend bundle creation now
 normalizes Windows drive-letter paths through the available MSYS path adapter
