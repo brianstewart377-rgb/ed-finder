@@ -109,6 +109,24 @@ Resolved with date and closing commit. New audits append.
 
 ## Resolved
 
+### CQ-044 - Windows Make and frontend packaging paths were not portable - RESOLVED 2026-07-19
+- Raised 2026-07-19 during installation and first use of GNU Make 4.4.1 on the
+  documented Windows development path. Confirmed developer-workflow and release
+  reproducibility defect: `make test-unit` sent POSIX inline environment syntax
+  to `cmd.exe`, and forcing Git Bash instead consumed backslashes in the Windows
+  virtualenv path.
+- The resulting full test run exposed a second Windows path defect in
+  `package_frontend_bundle.sh`: GNU tar interpreted `C:` as a remote host, then
+  `sha256sum` escaped a drive-letter filename by prefixing the digest with `\`.
+- Fixed in `981a6c9`: Make now exports `PYTHONDONTWRITEBYTECODE` itself, uses a
+  cross-shell virtualenv path, and exports integration defaults as target-local
+  variables. Bundle packaging uses tar's explicit local-path mode and writes a
+  normalized digest.
+- Closed with 10 focused Make/reproducibility tests, Ruff, Bash syntax checking,
+  a passing native `make state-check`, a clean Windows drive-path archive and
+  checksum rehearsal, and native `make test-unit` at 1476 passed, 13 skipped,
+  and 125 deselected.
+
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
 - Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
   risk. The same unsafe password URI and SQL interpolation had also drifted into
