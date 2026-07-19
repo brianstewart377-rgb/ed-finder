@@ -143,6 +143,11 @@ def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
     assert '& $runBash `' in release
     assert "-ScriptArgs @('--output', $frontendArchiveLocal)" in release
     assert '& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash' not in release
+    assert 'ScpOptions = @()' in release
+    assert 'Destination = $DeployTarget' in release
+    assert '$scpArgs += $resolvedTarget.ScpOptions' in release
+    assert '$scpArgs += $resolvedTarget.ScpArgs' not in release
+    assert '$scpArgs += "$($resolvedTarget.Destination)`:$remoteFrontendArchive"' in release
     assert 'scp' in release
     assert '--frontend-archive' in release
     assert 'frontend-dist-$head.tar.gz' in release
