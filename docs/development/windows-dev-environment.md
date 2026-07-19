@@ -40,6 +40,7 @@ What each one does:
 Recommended local tools:
 
 - Git for Windows, including `bash.exe`
+- GNU Make 4.4+ for the repository convenience targets
 - Python `3.12+`
 - Node.js with Yarn support (`yarn` or `corepack yarn`)
 - Docker Desktop
@@ -47,6 +48,21 @@ Recommended local tools:
 
 `doctor.ps1` will still run without every optional tool, but it will tell you
 what is missing.
+
+Install GNU Make without an elevated shell:
+
+```powershell
+winget install --id ezwinports.make --exact --scope user --source winget --accept-source-agreements --accept-package-agreements
+```
+
+Restart the terminal after installation so the updated user `PATH` is visible.
+The Makefile now supports Windows-native GNU Make for its Python verification
+targets:
+
+```powershell
+make state-check
+make test-unit
+```
 
 ## Bootstrap Flow
 
@@ -140,6 +156,8 @@ cache issues in OneDrive-synced workspaces.
 ## Troubleshooting
 
 - `bash not found`: install Git for Windows or set `EDFINDER_BASH`.
+- `make not found`: install `ezwinports.make` with the user-scoped `winget`
+  command above, then restart the terminal.
 - `Virtualenv not found`: run `bootstrap-windows.ps1`.
 - `POSTGRES_PASSWORD is missing in .env`: bootstrap again or edit `.env`.
 - `pg_isready_missing`: install PostgreSQL client tools if you want full DB

@@ -109,6 +109,37 @@ Resolved with date and closing commit. New audits append.
 
 ## Resolved
 
+### CQ-044 - Windows Make and frontend packaging paths were not portable - RESOLVED 2026-07-19
+- Raised 2026-07-19 during installation and first use of GNU Make 4.4.1 on the
+  documented Windows development path. Confirmed developer-workflow and release
+  reproducibility defect: `make test-unit` sent POSIX inline environment syntax
+  to `cmd.exe`, and forcing Git Bash instead consumed backslashes in the Windows
+  virtualenv path.
+- The resulting full test run exposed a second Windows path defect in
+  `package_frontend_bundle.sh`: GNU tar interpreted `C:` as a remote host, then
+  `sha256sum` escaped a drive-letter filename by prefixing the digest with `\`.
+- The first fix in `981a6c9` moved environment defaults into Make, selected a
+  cross-shell virtualenv path, and attempted to make drive-letter archive paths
+  explicit to tar and the checksum writer.
+- Review Lab on `286fcce` found four portability edge cases in that first fix:
+  dollar signs in caller-supplied environment values, checksum mode-marker
+  preservation, BSD tar compatibility, and valid global-Python fallback when a
+  Windows repo venv is absent. Fixed in `78faa28` with direct regressions.
+- An exact-head review found that the archive regression itself still required
+  GNU `sha256sum` even though the release script supports BSD/macOS `shasum`.
+  The regression now mirrors the production verifier selection.
+- A second exact-head review found that Make's raw-value-preserving defaults
+  treated explicitly empty test variables as intentional values. The final
+  defaults use Make's unexpanded `value` function, preserving literal dollar
+  signs while restoring the previous empty-means-missing behavior.
+- A third exact-head review found that an empty Make command-line assignment
+  could still outrank the target default. Target-specific `override export`
+  semantics now apply the same contract to environment and command-line input.
+- Closed with focused Make/reproducibility tests, Ruff, Bash syntax checking, a
+  passing native `make state-check`, a clean Windows drive-path archive and
+  checksum rehearsal, and native `make test-unit` at 1490 passed, 13 skipped,
+  and 125 deselected.
+
 ### CQ-041 — sync_password.sh exposed credentials in process arguments — RESOLVED 2026-07-18
 - Raised 2026-07-18 · forensic audit @ a447222 · Confirmed · high operational
   risk. The same unsafe password URI and SQL interpolation had also drifted into

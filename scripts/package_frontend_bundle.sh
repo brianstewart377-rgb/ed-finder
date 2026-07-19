@@ -13,6 +13,13 @@ ARCHIVE_PATH=""
 say() { printf '\n[INFO] %s\n' "$*"; }
 ok()  { printf '[OK]   %s\n' "$*"; }
 die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+shell_path() {
+  if [[ "$1" =~ ^[A-Za-z]:[\\/] ]] && command -v cygpath >/dev/null 2>&1; then
+    cygpath -u "$1"
+  else
+    printf '%s\n' "$1"
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -32,26 +39,31 @@ done
 
 command -v tar >/dev/null 2>&1 || die "tar not found"
 
-[[ -d "$FRONTEND_DIR/dist" ]] || die "frontend build output missing: $FRONTEND_DIR/dist"
-[[ -f "$FRONTEND_DIR/yarn.lock" ]] || die "frontend lockfile missing: $FRONTEND_DIR/yarn.lock"
+FRONTEND_IO_DIR="$(shell_path "$FRONTEND_DIR")"
+OUTPUT_IO_DIR="$(shell_path "$OUTPUT_DIR")"
 
-mkdir -p "$OUTPUT_DIR"
+[[ -d "$FRONTEND_IO_DIR/dist" ]] || die "frontend build output missing: $FRONTEND_DIR/dist"
+[[ -f "$FRONTEND_IO_DIR/yarn.lock" ]] || die "frontend lockfile missing: $FRONTEND_DIR/yarn.lock"
+
+mkdir -p "$OUTPUT_IO_DIR"
 
 if [[ -z "$ARCHIVE_PATH" ]]; then
   ARCHIVE_PATH="$OUTPUT_DIR/frontend-dist-${COMMIT_SHA}.tar.gz"
 fi
 
 CHECKSUM_PATH="${ARCHIVE_PATH}.sha256"
+ARCHIVE_IO_PATH="$(shell_path "$ARCHIVE_PATH")"
+CHECKSUM_IO_PATH="$(shell_path "$CHECKSUM_PATH")"
 
 say "Create frontend bundle"
-tar -C "$FRONTEND_DIR" -czf "$ARCHIVE_PATH" dist
+tar -C "$FRONTEND_IO_DIR" -czf "$ARCHIVE_IO_PATH" dist
 ok "archive written: $ARCHIVE_PATH"
 
 say "Write bundle checksum"
 if command -v sha256sum >/dev/null 2>&1; then
-  sha256sum "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
+  sha256sum "$ARCHIVE_IO_PATH" > "$CHECKSUM_IO_PATH"
 elif command -v shasum >/dev/null 2>&1; then
-  shasum -a 256 "$ARCHIVE_PATH" > "$CHECKSUM_PATH"
+  shasum -a 256 "$ARCHIVE_IO_PATH" > "$CHECKSUM_IO_PATH"
 else
   die "missing sha256sum/shasum"
 fi

@@ -5,6 +5,23 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-19 - Windows GNU Make and bundle portability
+
+**Documented Make targets now run from PowerShell** - Installed GNU Make 4.4.1
+through user-scoped `winget` and removed the Makefile's shell-specific inline
+environment assignments. Windows virtualenv paths now use separators accepted
+by both `cmd.exe` and Bash, while integration-test defaults are exported by Make
+itself without expanding dollar signs in credentials; unset and explicitly
+empty environment or Make command-line values all receive the disposable
+local-test defaults.
+
+**Drive-letter release packaging fixed** - Frontend bundle creation now
+normalizes Windows drive-letter paths through the available MSYS path adapter
+before invoking tar and checksum tools, without requiring GNU-only tar flags or
+rewriting checksum mode markers. Direct regressions cover native Windows Make
+command generation, archive creation, and checksum verification through either
+the GNU `sha256sum` or portable `shasum` path used by the release script.
+
 ## 2026-07-19 - Stage 26A next-generation map authorization
 
 **Desktop map replacement contract opened** - Authorized a staged replacement
