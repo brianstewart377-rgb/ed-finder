@@ -5,6 +5,25 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-19 - Stage 26A next-generation map authorization
+
+**Desktop map replacement contract opened** - Authorized a staged replacement
+of the current low-value map frontend while preserving Map as a secondary
+Explore surface and Colony Cockpit as the sole planning workspace. The current
+renderer is no longer an architectural baseline, but remains live until a
+deliberate gated cutover.
+
+**Galaxy regions and feature integration made non-negotiable** - Required all
+42 named in-game galaxy regions, arbitrary two-, three-, and multi-system
+highlights, complete cluster membership and edge context, overlap
+disambiguation, selected-system continuity, and explicit Finder, Compare,
+saved/evidence, and planner hand-offs. Mobile and touch map work are excluded.
+
+**Research before renderer selection** - Defined a paid artifact-backed
+Research Control run with complete TypeScript/JSON deliverables, followed by an
+equal deck.gl OrbitView, deck.gl OrthographicView, and Three.js/R3F desktop
+bake-off. Stage 26A changes no runtime route and selects no renderer.
+
 ## 2026-07-18 — CI restoration, branch protection, and strict zip hardening
 
 **H2 trust and hygiene hardening** — Expanded the required Ruff surface to

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ED-Finder: an Elite Dangerous colonisation planner, currently at **Stage 25** (Stages 25A–25H complete). Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace.
+ED-Finder: an Elite Dangerous colonisation planner, currently at **Stage 26A** (Stages 25A-25H complete; Stage 26A is the active map authorization contract). Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace. Stage 26 authorizes a measured desktop replacement of the low-value map frontend without changing that ownership.
 
 `ed-finder` is one of **three repos** in this workspace, and it is the app-only one:
 - `ed-finder` (this repo) — runnable product app, frontend, API, local dev stack. Nothing here should invent new colonisation mechanics truth.
@@ -33,7 +33,11 @@ For mechanics-affecting work specifically, also read `docs/reference/colonisatio
 - No hidden scoring/CP/economy/service/optimiser changes.
 - No canonical database write lane unless a stage explicitly authorizes it.
 - No scheduler/service/timer activation for import automation by default.
-- No map redesign or planner–map fusion.
+- Map redesign is authorized only through
+  `docs/colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`:
+  Stage 26A is docs-only, Stage 26B is isolated artifact-backed research and a
+  three-renderer bake-off, and no production renderer or cutover is authorized
+  before those gates. Planner-map fusion remains prohibited.
 - No visual cloning, asset copying, or code copying from external planner references (RavenColonial).
 - Accounts/OAuth/collaboration/plan-sync, journal-import canonical promotion, and score-weighted colonisation-corridor routing are all explicitly **deferred** pending the foundation work below — don't start them opportunistically.
 

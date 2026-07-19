@@ -5,6 +5,7 @@ This folder is the main documentation entry point for the repo.
 ## Start Here
 
 - [`ROADMAP.md`](./ROADMAP.md) for the single authoritative roadmap and current priorities.
+- [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md) for the active desktop map authorization and bake-off contract.
 - [`colonisation-redesign/README.md`](./colonisation-redesign/README.md) for active planner, evidence, enrichment, and historical stage-control docs.
 - [`development/`](./development/) for local workflow, test environment, handoff, and implementation-contract docs.
 - [`operations/`](./operations/) for deployment, hosting, SSH, and operator runbooks.

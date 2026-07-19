@@ -5,9 +5,10 @@ document that should answer "what next?".
 
 ## Current State
 
-- Programme: Stage 25 product scope is complete on the active integration line;
-  promotion and foundation follow-through remain active.
-- Status: Stage 25A through Stage 25H are complete.
+- Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
+  next-generation map replacement lane without reopening planner scope.
+- Status: Stage 25A through Stage 25H are complete. Stage 26A is the active
+  documentation and authorization checkpoint.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -17,7 +18,8 @@ document that should answer "what next?".
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
-  planning workspace.
+  planning workspace. Stage 26 authorizes a measured desktop replacement of
+  its low-value frontend implementation while preserving that product role.
 - Scoring posture: player-facing UI continues to speak in **Development
   Score**, API rerank helpers stay under **archetypes**, and the current DB
   implementation still runs on the **Ratings v3.4** scorer/tables. The full
@@ -129,9 +131,9 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Keep the landed Stage 25C shell/context baseline stable while Stage 25D
-   folds the strongest planner and simulation surfaces into one canonical Plan
-   workspace.
+1. Execute Stage 26A as a documentation-only authorization, then use
+   artifact-backed research and an equal three-renderer bake-off before any
+   production map implementation or renderer choice.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -228,6 +230,23 @@ competing roadmap source.
 - Stage 25 product work is complete and promoted. Preserve its shell/context
   baseline while documentation triage, scoring cleanup, and CRE contract work
   proceed.
+
+### Stage 26A
+
+- Active: authorize and pin the next-generation desktop map contract in
+  [`stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md).
+- The replacement must render all 42 named in-game galaxy regions correctly,
+  support arbitrary multi-system and cluster overlays, preserve selected-system
+  context, and keep the Colony Cockpit as the sole planning workspace.
+- The current frontend map renderer is not an architectural baseline. It stays
+  live until deliberate cutover; independently verified backend/API assets may
+  be reused.
+- Stage 26A selects no renderer and changes no runtime route. Its only follow-on
+  authorization is Stage 26B: a paid artifact-backed Research Control run and
+  an isolated, equally measured deck.gl OrbitView, deck.gl OrthographicView,
+  and Three.js/R3F bake-off.
+- Desktop viewports 1280x720 and 1440x900 are required. Mobile and touch map
+  work are explicitly out of scope.
 
 ### Stage 25C
 
@@ -329,16 +348,18 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Preserve production data-integrity receipts and the bounded rerating cadence.
-2. Complete dependency-aware documentation triage and historical archiving.
-3. Finish the archetype-scoring pivot and retire legacy score storage safely.
-4. Reconcile CRE confidence/source-authority contracts before runtime integration.
-5. Maintain all ten protected CI checks, reproducible release artifacts, local
+1. Complete Stage 26A, then run the artifact-backed map research and measured
+   renderer bake-off without selecting a renderer in advance.
+2. Preserve production data-integrity receipts and the bounded rerating cadence.
+3. Complete dependency-aware documentation triage and historical archiving.
+4. Finish the archetype-scoring pivot and retire legacy score storage safely.
+5. Reconcile CRE confidence/source-authority contracts before runtime integration.
+6. Maintain all ten protected CI checks, reproducible release artifacts, local
    parity, and the green isolated Review Lab browser workflow.
-6. Preserve the reviewed database-operator secret channels, finite migration
+7. Preserve the reviewed database-operator secret channels, finite migration
    timeout policy, and explicit exceptional-run opt-in.
-7. Continue planner trust, evidence clarity, and operator reviewability.
-8. Keep product-shell and selected-system continuity stable while foundations
+8. Continue planner trust, evidence clarity, and operator reviewability.
+9. Keep product-shell and selected-system continuity stable while foundations
    evolve.
 
 ## Boundaries
@@ -349,7 +370,11 @@ competing roadmap source.
 - No hidden scoring, CP, economy, service, or optimiser changes.
 - No canonical database write lane unless a future stage explicitly authorizes it.
 - No scheduler, service, or timer activation for import automation by default.
-- No map redesign or planner-map fusion unless later evidence justifies it.
+- Map redesign is authorized only through the Stage 26 sequence. Stage 26A is
+  documentation-only; Stage 26B is isolated research and measurement. No
+  production renderer choice or route cutover occurs before its recorded gates.
+- No planner-map fusion. Map may hand selected context into Plan but must not
+  mutate Build Plan, execute Preview, or become a planning workspace.
 - No visual cloning, asset copying, or derivative workflow shortcuts from
   external planner references.
 
@@ -374,6 +399,10 @@ competing roadmap source.
 
 Read these when a task needs more detail than this roadmap provides:
 
+- [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md):
+  active authorization, non-negotiable region and feature-integration contract,
+  artifact requirements, renderer bake-off, and staged cutover sequence for the
+  next-generation desktop map.
 - `docs/colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md`:
   Stage 24A contract checkpoint and evidence-surface ownership baseline.
 - `docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md`:
