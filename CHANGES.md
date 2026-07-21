@@ -5,6 +5,22 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-21 - Stage 26B renderer bake-off
+
+**The equal renderer matrix is now executable and recorded** - Added a
+development-only Vite harness for deck.gl OrbitView, deck.gl OrthographicView,
+and Three.js/R3F. The shared Playwright journey covers 100k and 500k
+deterministic datasets at 1280x720 and 1440x900, derives the region layer at
+runtime from ED-Finder's authoritative source without copying pixel geometry,
+and executes all 17 retained fixtures.
+
+**Three.js/R3F is selected for the isolated Stage 26C foundation** - The final
+12-cell Chromium run passed as a harness execution. R3F was the only candidate
+to remain pickable after context restoration and had materially lower tested
+interaction latency. Its 500k frame time still needs optimization; GPU timing,
+candidate-specific compressed bundle size, legal review, and production cutover
+remain unresolved.
+
 ## 2026-07-21 - Stage 26B map-foundation research bundle
 
 **The quarantined research artifacts are repaired and retained** - Accepted the

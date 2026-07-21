@@ -4,7 +4,11 @@ import { GalacticMap } from './GalacticMap';
 import type { SystemResult } from '@/types/api';
 
 const reference = { name: 'Sol', x: 0, z: 0 };
-let getContextSpy: { mockReturnValue: (value: RenderingContext) => unknown; mockRestore: () => void };
+type CanvasContextSpy = {
+  mockReturnValue: (value: RenderingContext | null) => CanvasContextSpy;
+  mockRestore: () => void;
+};
+let getContextSpy: CanvasContextSpy;
 
 function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
   return {
@@ -24,9 +28,8 @@ function makeSystem(overrides: Partial<SystemResult> = {}): SystemResult {
 
 describe('GalacticMap', () => {
   beforeEach(() => {
-    getContextSpy = vi
-      .spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(makeRecordingContext([]) as unknown as RenderingContext);
+    getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext') as unknown as CanvasContextSpy;
+    getContextSpy.mockReturnValue(makeRecordingContext([]) as unknown as RenderingContext);
   });
 
   afterEach(() => {

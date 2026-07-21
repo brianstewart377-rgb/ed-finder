@@ -2,11 +2,13 @@
 
 **Repository Snapshot**: ed-finder @ `69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0`
 
-**Renderer Selection Status**: No renderer selected (design only; all three candidates defined, unmeasured).
+**Renderer Selection Status**: Three.js/R3F selected for the isolated Stage 26C foundation from the recorded 12-cell Chromium bake-off. This is not a production-readiness or cutover claim.
 
 ## Deterministic Local Repair
 
 The quarantined V25 bundle was repaired locally without a new model run. The repair makes one-time auto-fit revision-triggered and consumable, completes the default-map and simultaneous-overlay assertions, and gives the R3F transition machine durable camera state plus explicit `transitionPhase` and `lastAppliedCamera` observables. Strict compilation of the three TypeScript artifacts together, JSON parsing, exact sentinel-plus-42-region comparison with the authoritative snapshot source, targeted semantic checks, and the 17-fixture uniqueness check all passed. These are contract-level validations only; no renderer benchmark or browser runtime measurement was executed.
+
+The subsequent harness implementation review found and repaired a cross-renderer camera-scale and orientation mismatch. `CameraState.zoom` remains renderer-independent LY per pixel: deck.gl receives `log2(1 / lyPerPixel)`, while the R3F orthographic camera receives `1 / lyPerPixel`. All candidates now use the same XY galaxy plane (`x`, `z`), OrbitView maps zero common pitch to its 90-degree top-down posture, and invalid scale values are rejected. This repair is likewise contract-level and does not itself constitute a renderer measurement.
 
 ---
 
@@ -25,15 +27,15 @@ The quarantined V25 bundle was repaired locally without a new model run. The rep
 | 8 | One‑time auto‑fit & manual camera survival | satisfied | (autoFitFixture) | [map-scene-contract, map-bakeoff-scenarios, map-research-closure] | MapSceneState.oneTimeFitIntent + executable reduceScene applies auto‑fit only when an armed intent meets a new sceneRevision, then consumes the intent. autoFitFixture arms the intent, advances the revision, manually drags camera to (20,30), then applies selection, loadMoreSystems, layerToggle, and setHighlights; the manual camera survives without retriggering. plannerReturnFixture asserts full restored state including layers, clusters, workflow discriminator, and payload. |
 | 9 | Bounded data & guaranteed renderability | satisfied | (multiple fixtures) | [map-scene-contract, map-bakeoff-scenarios, map-research-closure] | BoundedResponse exposes count/truncated/continuation. Update guarantees selected/highlighted IDs remain renderable via forced inclusion. Fixtures assert guaranteedSystemIds in cluster, comparison, finder, systemDetail, planner, autoFit scenarios. |
 | 10 | Renderer‑independent adapter with completion signaling | satisfied | (map-renderer-adapter.ts) | [map-renderer-adapter, map-research-closure] | Adapter defines mount, update, resize, deliverInteraction, measure, contextLost/recover, startCameraTransition (returns Promise<CameraState>), cancelCameraTransition, retargetCameraTransition, and idempotent dispose. No internal renderer types exposed. |
-| 11 | Bake‑off of three candidates with explicit camera transitions; no renderer selected | satisfied | (adapter & bake‑off) | [map-renderer-adapter, map-bakeoff-scenarios, map-research-closure] | Three candidate camera mappings. Explicit camera‑transition state machines for all three: DeckOrbitTransitionMachine, DeckOrthoTransitionMachine (with per‑frame tick, cancel, retarget), and R3FCameraTransitionMachine (initial-camera handshake, zero-duration completion, retargeting, and durable last-applied camera across completion, cancellation, context loss, recovery, and disposal). Typed phase and camera getters make fixture assertions executable. No candidate selected. |
+| 11 | Bake‑off of three candidates with explicit camera transitions and evidence-based selection | satisfied | (adapter, harness, results, and decision record) | [map-renderer-adapter, map-bakeoff-scenarios, map-bakeoff-results, map-research-closure] | The isolated harness ran all three candidates against both dataset sizes and both required viewports. Three.js/R3F is selected for Stage 26C from the recorded evidence; no production cutover is implied. |
 | 12 | Shared Vite/React harness with 100k/500k deterministic datasets | satisfied | (bake‑off harness spec) | [map-renderer-adapter, map-bakeoff-scenarios, map-region-verification, map-research-closure] | bake‑off artifact specifies Vite + React, two dataset sizes, region layer, UI controls, fixtures, instrumentation, and a Playwright journey. Datasets generated with deterministic coordinates. |
 | 13 | 17 deterministic fixtures with concrete assertions | satisfied | (bake‑off artifact) | [map-bakeoff-scenarios, map-research-closure] | 17 named fixtures emitted. All seven Stage 26 scenarios covered, plus lifecycle fixtures. Keyboard fixtures use keyboard reducer; transition fixtures use corrected machine; simultaneous overlay fixture adds both saved and evidence returns; cluster fixture adds return‑workflow round‑trip; planner fixture asserts full restored state. Keyboard overlay toggle fixture precondition fixed: scene layers initialized via returnFromWorkflow before keyboard phase. |
 | 14 | Measurement records with GPU unknown | satisfied | (adapter measurements) | [map-renderer-adapter, map-bakeoff-scenarios, map-research-closure] | MeasurementRecord includes all required metrics; all default to null. GPU timing explicitly unknown. decisionLogForCandidate correctly populates measurements with UNKNOWN_MEASUREMENT. |
-| 15 | Gap‑free decision handling & unknown sentinels | satisfied | (decision logs) | [map-renderer-adapter, map-bakeoff-scenarios, map-region-verification, map-research-closure] | DecisionLog records environment and measurement unknowns. All unexecuted benchmarks, visual checks, and legal conclusions are marked 'unresolved'. Region verification marks rights as unresolved. |
+| 15 | Gap‑free decision handling & unknown sentinels | satisfied | (decision logs and measurement receipt) | [map-renderer-adapter, map-bakeoff-results, map-region-verification, map-research-closure] | Executed Chromium measurements are recorded per candidate, dataset, and viewport. GPU timing and candidate-specific compressed bundle size remain explicit nulls; legal conclusions remain unresolved. |
 | 16 | Desktop viewports 1280×720 & 1440×900 only | satisfied | (bake‑off viewports) | [map-scene-contract, map-renderer-adapter, map-bakeoff-scenarios, map-research-closure] | Bake‑off harness only specifies 1280×720 and 1440×900. No mobile/touch/phone‑width references exist. |
 | 17 | Raven Colonial as usability warning only | satisfied | (research closure note) | [map-research-closure] | The closure records Raven Colonial as a usability warning. No Raven layout, styling, assets, or interaction patterns appear in any artifact. |
 | 18 | Five complete retained artifacts and closure matrix | satisfied | (all five artifacts emitted) | [map-research-closure] | The `artifacts` array contains the five mandated keys with complete bodies. This closure matrix links every requirement. |
-| 19 | Isolated research – no edits, renderer selection, or execution claims | satisfied | (all artifacts) | [map-scene-contract, map-renderer-adapter, map-bakeoff-scenarios, map-region-verification, map-research-closure] | No repository edits, route changes, or canonical data mutations were performed. All artifacts are unexecuted design deliverables; no compilation or run claims are made. |
+| 19 | Original isolated research run made no product edits or execution claims | satisfied | (original five artifacts) | [map-scene-contract, map-renderer-adapter, map-bakeoff-scenarios, map-region-verification, map-research-closure] | The original Research Control run remained design-only. The later local harness and measurement receipt are explicitly identified follow-up engineering evidence, isolated from the production entry and canonical data paths. |
 | 20 | Every code claim cites repo:// URL; external claims cite primary source | satisfied | `repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15`, `repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/region_map.py#L1-L115`, `https://raw.githubusercontent.com/klightspeed/EliteDangerousRegionMap/master/LICENSE` | [map-region-verification, map-research-closure] | All repository code claims in the region verification JSON and closure document cite exact repo:// + commit + path + line URLs copied from captured tool observations. External license claims cite fetched primary sources (klightspeed LICENSE). The V5 report and search results are used only as leads, not evidence. |
 
 ## Feature Handoff Audit
@@ -115,9 +117,14 @@ All 17 fixtures are represented. Universal invariants are checked across relevan
 
 ## Measurement Unknowns
 
-- All `MeasurementRecord` fields remain `null`; no benchmarks have been executed.
-- GPU timing is explicitly unknown (GPU timer extension not used).
-- Browser‑specific context‑loss recovery behaviour is unknown.
+- `map-bakeoff-results.json` records one local Chromium observation for every
+  candidate, dataset size, and required viewport. It is evidence for the Stage
+  26C foundation choice, not a broad hardware/browser performance guarantee.
+- GPU timing remains unknown because a GPU timer extension was not used.
+- Candidate-specific compressed bundle size remains unknown because the shared
+  harness bundle was not split into independent production bundles.
+- Context-restored event timing is measured. Post-recovery renderer-backed
+  picking passed for R3F and failed for both deck.gl candidates in this run.
 
 ## Stage 26B Boundaries
 
