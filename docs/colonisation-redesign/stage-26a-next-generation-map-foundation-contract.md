@@ -178,3 +178,14 @@ green.
 Completion of Stage 26A authorizes Stage 26B only. It does not authorize a
 production renderer, production map cutover, backend schema change, canonical
 write path, or planner-map fusion.
+
+## Stage 26B Artifact Acceptance
+
+The repaired five-file research bundle is retained at
+`artifacts/map-foundation/stage-26b/`. Local acceptance covered strict joint
+TypeScript compilation, JSON parsing, exact sentinel-plus-42-region comparison
+against the pinned ED-Finder source, targeted semantics for the repaired
+auto-fit and R3F state-machine behavior, and presence of 17 unique named
+fixtures. This acceptance does not claim renderer benchmarks, select a
+renderer, or authorize runtime integration; the equal three-renderer bake-off
+remains the next Stage 26B gate.

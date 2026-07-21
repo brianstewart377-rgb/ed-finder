@@ -5,6 +5,19 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-21 - Stage 26B map-foundation research bundle
+
+**The quarantined research artifacts are repaired and retained** - Accepted the
+five isolated Stage 26B contract, adapter, deterministic-fixture, region
+verification, and closure artifacts after strict joint TypeScript compilation,
+JSON parsing, exact sentinel-plus-42-region comparison, targeted semantic
+checks, and confirmation of 17 unique named fixtures.
+
+**Measurement remains deliberately open** - No browser benchmark was executed
+and no renderer was selected. The equal deck.gl OrbitView, deck.gl
+OrthographicView, and Three.js/R3F bake-off remains the next Stage 26B gate;
+production map code and planner ownership are unchanged.
+
 ## 2026-07-19 - Windows release SCP target handling
 
 **SSH aliases no longer become accidental local sources** - The release wrapper

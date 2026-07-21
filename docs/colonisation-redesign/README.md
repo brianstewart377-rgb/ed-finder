@@ -12,8 +12,9 @@ product-shell and selected-system context baseline for this new lane.
 - [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap and the
   default answer to "what next?".
 - [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md)
-  is the active authorization and implementation-boundary contract for the
-  next-generation desktop map lane.
+  is the authorization and implementation-boundary contract for the active
+  Stage 26B next-generation desktop map lane. Its accepted research bundle is
+  retained under `../../artifacts/map-foundation/stage-26b/`.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 
