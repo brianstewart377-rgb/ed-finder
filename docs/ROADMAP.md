@@ -7,8 +7,9 @@ document that should answer "what next?".
 
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
-- Status: Stage 25A through Stage 25H are complete. Stage 26A is the active
-  documentation and authorization checkpoint.
+- Status: Stage 25A through Stage 25H and Stage 26A are complete. Stage 26B is
+  active: its repaired research bundle is retained and validated, while the
+  equal three-renderer bake-off remains unexecuted.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -234,7 +235,7 @@ competing roadmap source.
 
 ### Stage 26A
 
-- Active: authorize and pin the next-generation desktop map contract in
+- Complete: authorized and pinned the next-generation desktop map contract in
   [`stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md).
 - The replacement must render all 42 named in-game galaxy regions correctly,
   support arbitrary multi-system and cluster overlays, preserve selected-system
@@ -248,6 +249,16 @@ competing roadmap source.
   and Three.js/R3F bake-off.
 - Desktop viewports 1280x720 and 1440x900 are required. Mobile and touch map
   work are explicitly out of scope.
+
+### Stage 26B
+
+- Active: the five repaired research artifacts are retained under
+  `artifacts/map-foundation/stage-26b/` and pass strict TypeScript, JSON,
+  authoritative region-order, targeted semantic, and fixture-count gates.
+- No runtime benchmarks have been executed and no renderer has been selected.
+  The next Stage 26B step is the isolated, equally measured deck.gl OrbitView,
+  deck.gl OrthographicView, and Three.js/R3F bake-off required by the Stage 26A
+  contract.
 
 ### Stage 25C
 
@@ -349,8 +360,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Complete Stage 26A, then run the artifact-backed map research and measured
-   renderer bake-off without selecting a renderer in advance.
+1. Complete the Stage 26B measured renderer bake-off from the retained research
+   bundle without selecting a renderer in advance.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

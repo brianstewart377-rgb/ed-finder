@@ -1,0 +1,126 @@
+{
+  "snapshot_sha": "69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0",
+  "source_file": "repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15",
+  "source_file_note": "Line range L1-L15 references the regions array declaration and origin values.",
+  "dimensions": {
+    "width_px": 2048,
+    "height_px": 2048,
+    "orientation": "row-major RLE",
+    "origin_ly": { "x": -49985, "z": -24105 },
+    "pixel_scale_px_per_ly": 0.020263671875,
+    "pixel_scale_fraction": "83/4096",
+    "pixel_scale_ly_per_px": 49.34939759036145,
+    "pixel_scale_ly_per_px_note": "Reciprocal read from region_map.json line 4; not authoritative for transforms."
+  },
+  "coordinate_transform": {
+    "authoritative_px_per_ly": 0.020263671875,
+    "authoritative_source": "repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/region_map.py#L1-L115",
+    "x_to_px": "px = (x - (-49985)) * 0.020263671875",
+    "z_to_pz": "pz = (z - (-24105)) * 0.020263671875",
+    "out_of_range": {
+      "if_px_lt_0_or_pz_lt_0_or_pz_gte_2048": "return None (outside map) per region_map.py L92-93",
+      "rle_fallthrough": "if px exceeds row total, pv = 0 (returns None) per region_map.py L97-103"
+    }
+  },
+  "interior_label_point_method": {
+    "description": "Compute the centroid of all pixels belonging to the region within the RLE map. Return the corresponding GalaxyCoord using the authoritative pixel scale and origin.",
+    "algorithm": "mean_px = sum(pixel_x_coords) / count; mean_pz = sum(pixel_z_coords) / count; x = origin_x + mean_px / pixel_scale; z = origin_z + mean_pz / pixel_scale",
+    "edge_case": "If the region has no pixels in the map, return null.",
+    "implementation_ref": "map-scene-contract.ts computeInteriorLabelPoint"
+  },
+  "regions": {
+    "sentinel": { "index": 0, "name": "", "note": "Unmapped sentinel – used as an empty slot in array indexing per region_map.py L70" },
+    "named_regions": [
+      {"index":1,"name":"Galactic Centre","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":2,"name":"Empyrean Straits","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":3,"name":"Ryker's Hope","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":4,"name":"Odin's Hold","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":5,"name":"Norma Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":6,"name":"Arcadian Stream","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":7,"name":"Izanami","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":8,"name":"Inner Orion-Perseus Conflux","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":9,"name":"Inner Scutum-Centaurus Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":10,"name":"Norma Expanse","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":11,"name":"Trojan Belt","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":12,"name":"The Veils","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":13,"name":"Newton's Vault","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":14,"name":"The Conduit","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":15,"name":"Outer Orion-Perseus Conflux","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":16,"name":"Orion-Cygnus Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":17,"name":"Temple","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":18,"name":"Inner Orion Spur","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":19,"name":"Hawking's Gap","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":20,"name":"Dryman's Point","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":21,"name":"Sagittarius-Carina Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":22,"name":"Mare Somnia","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":23,"name":"Acheron","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":24,"name":"Formorian Frontier","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":25,"name":"Hieronymus Delta","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":26,"name":"Outer Scutum-Centaurus Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":27,"name":"Outer Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":28,"name":"Aquila's Halo","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":29,"name":"Errant Marches","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":30,"name":"Perseus Arm","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":31,"name":"Formidine Rift","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":32,"name":"Vulcan Gate","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":33,"name":"Elysian Shore","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":34,"name":"Sanguineous Rim","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":35,"name":"Outer Orion Spur","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":36,"name":"Achilles's Altar","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":37,"name":"Xibalba","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":38,"name":"Lyra's Song","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":39,"name":"Tenebrae","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":40,"name":"The Abyss","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":41,"name":"Kepler's Crest","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"},
+      {"index":42,"name":"The Void","evidence_url":"repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L15"}
+    ],
+    "count": 42,
+    "no_forty_third_region": true
+  },
+  "provenance": {
+    "software_license": {
+      "klightspeed_origin": {
+        "repository": "https://github.com/klightspeed/EliteDangerousRegionMap",
+        "license": "MIT",
+        "license_text_url": "https://raw.githubusercontent.com/klightspeed/EliteDangerousRegionMap/master/LICENSE",
+        "copyright": "Copyright (c) 2020 Ben Peddell",
+        "note": "The region‑mapping algorithm is MIT‑licensed."
+      },
+      "ed_finder_importer": {
+        "license": "not‑observed",
+        "evidence": "No LICENSE file was found in the inspected files (region_map.py, region_map.json) at the captured commit; a full directory listing of apps/importer/ was not captured.",
+        "status": "unconfirmed"
+      }
+    },
+    "data_rights": {
+      "region_names": {
+        "source": "in‑game Elite Dangerous galaxy codex",
+        "rights": "may be protected by Frontier Developments rights (no primary source confirming ownership was located)",
+        "redistribution_status": "unresolved",
+        "recommendation": "Redistribution requires legal review."
+      },
+      "rle_geometry": {
+        "source": "derived from in‑game region maps (klightspeed pipeline)",
+        "rights": "unresolved",
+        "redistribution_status": "unresolved",
+        "recommendation": "Redistribution requires legal review."
+      }
+    }
+  },
+  "verification_checks": {
+    "region_array_length": 43,
+    "index_0_is_empty": true,
+    "name_count_exactly_42": true,
+    "names_match_evidence": true,
+    "regionmap_row_count": 2048,
+    "all_rows_present": true,
+    "first_8_rows_all_zero": {
+      "result": true,
+      "evidence": "repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L1-L20"
+    },
+    "last_8_rows_all_zero": {
+      "result": true,
+      "evidence": "repo://ed7a9d22-9f4c-4472-b177-1e995cf72b28/69cfb27c68e43865a6e7c5e3fa28f5fd59bafda0/apps/importer/src/data/region_map.json#L2040-L2057"
+    }
+  }
+}
