@@ -45,12 +45,25 @@ export type DecisionLog = {
 export type RendererCandidateId = 'deckgl-orbit' | 'deckgl-ortho' | 'threejs-r3f';
 
 // ── Camera Mapping per Candidate ──
+export function pixelsPerLy(camera: CameraState): number {
+  if (!Number.isFinite(camera.zoom) || camera.zoom <= 0) {
+    throw new Error('Camera zoom must be a finite LY-per-pixel value greater than zero');
+  }
+  return 1 / camera.zoom;
+}
+
+export function toDeckZoom(camera: CameraState): number {
+  // deck.gl zoom 0 maps one world unit to one pixel; each +1 doubles scale.
+  return Math.log2(pixelsPerLy(camera));
+}
+
 export function toDeckOrbitView(camera: CameraState): Record<string, unknown> {
   return {
-    target: [camera.center.x, 0, camera.center.z],
-    zoom: camera.zoom,
+    target: [camera.center.x, camera.center.z, 0],
+    zoom: toDeckZoom(camera),
     rotationOrbit: camera.bearingDeg,
-    rotationX: -camera.pitchDeg,
+    // OrbitView rotationX=90 is top-down; common pitch tilts away from it.
+    rotationX: 90 - camera.pitchDeg,
     minZoom: 0.05,
     maxZoom: 60,
   };
@@ -59,14 +72,16 @@ export function toDeckOrbitView(camera: CameraState): Record<string, unknown> {
 export function toDeckOrthoView(camera: CameraState): Record<string, unknown> {
   return {
     target: [camera.center.x, camera.center.z, 0],
-    zoom: camera.zoom,
+    zoom: toDeckZoom(camera),
   };
 }
 
 export function toThreeJSR3F(camera: CameraState): Record<string, unknown> {
   return {
-    position: [camera.center.x, 1000 / camera.zoom, camera.center.z],
-    rotation: [0, 0, 0],
+    projection: 'orthographic',
+    position: [camera.center.x, camera.center.z, 1000],
+    rotation: [camera.pitchDeg * Math.PI / 180, 0, -camera.bearingDeg * Math.PI / 180],
+    zoom: pixelsPerLy(camera),
   };
 }
 

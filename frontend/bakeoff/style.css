@@ -1,0 +1,15 @@
+:root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #060a0f; color: #d8e2ea; }
+* { box-sizing: border-box; }
+body { margin: 0; overflow: hidden; }
+main { height: 100vh; display: grid; grid-template-rows: auto auto 1fr; }
+header { min-height: 64px; display: flex; align-items: center; gap: 24px; padding: 10px 16px; background: #0b1119; border-bottom: 1px solid #243342; }
+header div { display: grid; min-width: 180px; }
+header span, .status { color: #8ca0b2; font-size: 12px; }
+fieldset { display: flex; gap: 14px; border: 0; margin: 0; padding: 0; }
+label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+select { background: #101a25; color: inherit; border: 1px solid #34495d; border-radius: 4px; padding: 5px; }
+.status { display: flex; gap: 22px; padding: 6px 16px; background: #080d13; border-bottom: 1px solid #182430; }
+.viewport { position: relative; min-height: 0; }
+.viewport > div, .viewport canvas { position: absolute !important; inset: 0; width: 100% !important; height: 100% !important; }
+.three-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.three-labels span { position: absolute; transform: translate(-50%, -50%); color: rgba(195, 207, 217, 0.7); font: 11px ui-monospace, monospace; white-space: nowrap; }

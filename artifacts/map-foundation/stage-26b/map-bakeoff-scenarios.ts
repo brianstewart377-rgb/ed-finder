@@ -57,7 +57,9 @@ export function generateDataset(size: DatasetSize): SystemRecord[] {
     systems.push({
       id64,
       name: `System ${i}`,
-      coords: {
+      // Index zero is a deterministic centre-screen pick target shared by all
+      // candidates; the remaining systems retain the spiral distribution.
+      coords: i === 0 ? { x: 16_000, z: 0 } : {
         x: radius * Math.cos(angle),
         z: radius * Math.sin(angle),
       },

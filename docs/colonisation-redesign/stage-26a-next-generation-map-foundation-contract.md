@@ -189,3 +189,9 @@ auto-fit and R3F state-machine behavior, and presence of 17 unique named
 fixtures. This acceptance does not claim renderer benchmarks, select a
 renderer, or authorize runtime integration; the equal three-renderer bake-off
 remains the next Stage 26B gate.
+
+That gate subsequently completed. The retained measurement receipt and
+selection rationale are documented in
+[`stage-26b-renderer-bakeoff-decision.md`](./stage-26b-renderer-bakeoff-decision.md):
+Three.js/R3F is selected for the isolated Stage 26C foundation, with production
+cutover and unresolved performance work explicitly deferred.

@@ -6,6 +6,7 @@ This folder is the main documentation entry point for the repo.
 
 - [`ROADMAP.md`](./ROADMAP.md) for the single authoritative roadmap and current priorities.
 - [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md) for the desktop map authorization and active Stage 26B bake-off contract; its accepted research bundle is under `../artifacts/map-foundation/stage-26b/`.
+- [`colonisation-redesign/stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md) for the completed equal-renderer evidence and Stage 26C R3F foundation choice.
 - [`colonisation-redesign/README.md`](./colonisation-redesign/README.md) for active planner, evidence, enrichment, and historical stage-control docs.
 - [`development/`](./development/) for local workflow, test environment, handoff, and implementation-contract docs.
 - [`operations/`](./operations/) for deployment, hosting, SSH, and operator runbooks.

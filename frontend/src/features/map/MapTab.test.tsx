@@ -7,7 +7,11 @@ import type { SystemResult } from '@/types/api';
 vi.mock('./useMapLayers');
 
 const reference = { name: 'Sol', x: 0, z: 0 };
-let getContextSpy: { mockRestore: () => void };
+type CanvasContextSpy = {
+  mockReturnValue: (value: RenderingContext | null) => CanvasContextSpy;
+  mockRestore: () => void;
+};
+let getContextSpy: CanvasContextSpy;
 
 function makeCanvasContext(): RenderingContext {
   const gradient = { addColorStop: vi.fn() };
@@ -58,7 +62,8 @@ const defaultLayers = {
 
 beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(defaultLayers);
-  getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(makeCanvasContext());
+  getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext') as unknown as CanvasContextSpy;
+  getContextSpy.mockReturnValue(makeCanvasContext());
 });
 
 afterEach(() => {

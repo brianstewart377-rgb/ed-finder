@@ -15,6 +15,9 @@ product-shell and selected-system context baseline for this new lane.
   is the authorization and implementation-boundary contract for the active
   Stage 26B next-generation desktop map lane. Its accepted research bundle is
   retained under `../../artifacts/map-foundation/stage-26b/`.
+- [`stage-26b-renderer-bakeoff-decision.md`](./stage-26b-renderer-bakeoff-decision.md)
+  records the completed equal-renderer matrix, its limitations, and the
+  Three.js/R3F selection for the isolated Stage 26C foundation.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 

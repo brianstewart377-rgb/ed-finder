@@ -7,9 +7,9 @@ document that should answer "what next?".
 
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
-- Status: Stage 25A through Stage 25H and Stage 26A are complete. Stage 26B is
-  active: its repaired research bundle is retained and validated, while the
-  equal three-renderer bake-off remains unexecuted.
+- Status: Stage 25A through Stage 25H, Stage 26A, and Stage 26B are complete.
+  The equal renderer bake-off selected Three.js/R3F for the isolated Stage 26C
+  foundation; no production route or cutover is authorized.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -252,13 +252,24 @@ competing roadmap source.
 
 ### Stage 26B
 
-- Active: the five repaired research artifacts are retained under
+- Complete: the five repaired research artifacts are retained under
   `artifacts/map-foundation/stage-26b/` and pass strict TypeScript, JSON,
   authoritative region-order, targeted semantic, and fixture-count gates.
-- No runtime benchmarks have been executed and no renderer has been selected.
-  The next Stage 26B step is the isolated, equally measured deck.gl OrbitView,
-  deck.gl OrthographicView, and Three.js/R3F bake-off required by the Stage 26A
-  contract.
+- The 12-cell Chromium matrix equally covered three renderers, 100k/500k
+  datasets, and both required desktop viewports. Three.js/R3F is selected for
+  the Stage 26C foundation because it retained usable context recovery and
+  materially lower tested interaction latency. The measurement receipt and
+  limitations are recorded in
+  [`stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md).
+- R3F is not production-ready: its 500k frame-time result still requires
+  optimization, and GPU timing and candidate-specific compressed bundle size
+  remain unresolved.
+
+### Stage 26C
+
+- Next: pin the isolated region-first implementation contract around the
+  selected Three.js/R3F foundation. Keep it behind a development-only entry;
+  production map cutover, planner-map fusion, and mobile work remain prohibited.
 
 ### Stage 25C
 
@@ -360,8 +371,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Complete the Stage 26B measured renderer bake-off from the retained research
-   bundle without selecting a renderer in advance.
+1. Pin and execute the isolated Stage 26C region-first Three.js/R3F foundation
+   contract without changing the production map route.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.
