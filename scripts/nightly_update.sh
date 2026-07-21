@@ -382,30 +382,21 @@ docker compose exec -T postgres psql -U edfinder -d edfinder -c \
 # 7. VACUUM ANALYZE
 # ---------------------------------------------------------------------------
 log "--- Step 7: VACUUM ANALYZE ---"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE systems" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE systems complete" \
-  || warn "VACUUM ANALYZE systems failed"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE ratings" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE ratings complete" \
-  || warn "VACUUM ANALYZE ratings failed"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE cluster_summary" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE cluster_summary complete" \
-  || warn "VACUUM ANALYZE cluster_summary failed"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE stations" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE stations complete" \
-  || warn "VACUUM ANALYZE stations failed"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE system_archetype_scores" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE system_archetype_scores complete" \
-  || warn "VACUUM ANALYZE system_archetype_scores failed"
-docker compose exec -T postgres psql -U edfinder -d edfinder \
-  -c "VACUUM ANALYZE system_archetype_traits" >> "$LOG" 2>&1 \
-  && success "VACUUM ANALYZE system_archetype_traits complete" \
-  || warn "VACUUM ANALYZE system_archetype_traits failed"
+VACUUM_TABLES=(
+    systems
+    ratings
+    cluster_summary
+    stations
+    system_archetype_scores
+    system_archetype_traits
+)
+
+for table in "${VACUUM_TABLES[@]}"; do
+    docker compose exec -T postgres psql -U edfinder -d edfinder \
+        -c "VACUUM ANALYZE ${table}" >> "$LOG" 2>&1 \
+        && success "VACUUM ANALYZE ${table} complete" \
+        || warn "VACUUM ANALYZE ${table} failed"
+done
 
 # ---------------------------------------------------------------------------
 # 8. Final stats and summary
