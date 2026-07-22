@@ -5,6 +5,22 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26C region-first R3F foundation
+
+**The selected renderer now has an isolated production-candidate foundation** -
+Added a separate Stage 26C Vite entry around a reusable R3F scene component.
+It renders ED-Finder's 42 authoritative regions, uses the retained typed scene
+and interaction boundary, supports arbitrary comparison and cluster highlights,
+preserves cluster context, requires explicit overlap choice, and exposes a
+keyboard-accessible companion without wiring the production route or planner.
+
+**The 500k development fixture is bounded before rendering** - The deterministic
+visibility selector returns at most 25,000 background systems plus every
+selected, highlighted, and cluster system, with explicit truncation and
+aggregate-remainder metadata. Both required desktop Playwright journeys cover
+camera updates, overlap choice, typed planner requests, and a successful
+renderer interaction after WebGL context restoration.
+
 ## 2026-07-21 - Stage 26B renderer bake-off
 
 **The equal renderer matrix is now executable and recorded** - Added a

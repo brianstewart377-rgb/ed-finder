@@ -5,14 +5,15 @@ import { defineConfig } from 'vite';
 import { authoritativeRegionLayerPlugin } from './vite.authoritative-regions';
 
 const frontendRoot = fileURLToPath(new URL('.', import.meta.url));
+
 export default defineConfig({
   root: frontendRoot,
-  plugins: [react(), authoritativeRegionLayerPlugin('/__stage26b/regions', 'stage26b-authoritative-region-layer')],
-  server: { host: '127.0.0.1', port: 4174, strictPort: true },
+  plugins: [react(), authoritativeRegionLayerPlugin('/__stage26c/regions', 'stage26c-authoritative-region-layer')],
+  server: { host: '127.0.0.1', port: 4175, strictPort: true },
   build: {
-    outDir: 'dist-bakeoff',
+    outDir: 'dist-map-foundation',
     emptyOutDir: true,
     sourcemap: true,
-    rollupOptions: { input: path.resolve(frontendRoot, 'bakeoff/index.html') },
+    rollupOptions: { input: path.resolve(frontendRoot, 'map-foundation/index.html') },
   },
 });
