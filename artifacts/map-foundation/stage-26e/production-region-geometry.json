@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "recorded_on": "2026-07-22",
+  "status": "pass",
+  "source": {
+    "path": "apps/importer/src/data/region_map.json",
+    "format": "2048-row run-length encoded authoritative region grid",
+    "bytes": 234820
+  },
+  "delivery": {
+    "path": "stage26e/authoritative-regions.json",
+    "mechanism": "Vite build-emitted static asset",
+    "activation": "emitted only when VITE_STAGE26E_PRODUCTION_MAP=enabled",
+    "normal_build_asset_present": false,
+    "response_bytes": 2312898,
+    "response_budget_bytes": 4194304,
+    "within_response_budget": true
+  },
+  "geometry": {
+    "region_labels": 42,
+    "unique_region_ids": 42,
+    "boundary_segments": 22595,
+    "boundary_segment_limit": 25000,
+    "position_bytes": 542280
+  },
+  "client_guards": [
+    "HTTP success required",
+    "response byte budget enforced before JSON parsing",
+    "exactly 42 unique finite labels required",
+    "boundary count capped at 25000",
+    "all boundary endpoints must be finite three-number coordinates"
+  ],
+  "live_route_evidence": "artifacts/map-foundation/stage-26e/live-route-memory.json"
+}

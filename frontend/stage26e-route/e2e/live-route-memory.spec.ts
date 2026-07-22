@@ -11,6 +11,7 @@ const VIEWPORTS = [
 type RouteMeasurement = {
   viewport: { width: number; height: number };
   finderResponseStatus: number;
+  regionGeometryResponseStatus: number;
   heatmapResponseStatus: number;
   clusterResponseStatus: number;
   timelineResponseStatus: number;
@@ -60,7 +61,8 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
   const requestedApiPaths: string[] = [];
   page.on('request', (request) => {
     const url = new URL(request.url());
-    if (url.pathname === '/api/local/search' || url.pathname.startsWith('/api/map/')) {
+    if (url.pathname === '/api/local/search' || url.pathname.startsWith('/api/map/')
+      || url.pathname === '/stage26e/authoritative-regions.json') {
       requestedApiPaths.push(`${url.pathname}${url.search}`);
     }
   });
@@ -83,12 +85,24 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
       await expect(page.getByTestId('search-summary')).toBeVisible();
     });
 
-    await test.step('mount the flagged production route candidate', async () => {
+    let regionGeometryResponseStatus = 0;
+    await test.step('mount the flagged production route candidate with bounded region geometry', async () => {
+      const regionResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/stage26e/authoritative-regions.json'
+      ));
       await page.getByTestId('nav-map').click();
+      const regionResponse = await regionResponsePromise;
+      regionGeometryResponseStatus = regionResponse.status();
+      const regionBody = await regionResponse.json() as { labels?: unknown[]; boundaries?: unknown[] };
+      expect(regionGeometryResponseStatus).toBe(200);
+      expect(regionBody.labels).toHaveLength(42);
+      expect(regionBody.boundaries).toHaveLength(22_595);
       await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
       await expect(page.getByTestId('stage26e-production-map-viewport')).toBeVisible();
       await expect.poll(async () => page.evaluate(() => window.__stage26eProductionMap?.snapshot().finderSystemCount ?? 0))
         .toBe(500);
+      await expect.poll(async () => page.evaluate(() => window.__stage26eProductionMap?.snapshot().regionBoundaryCount ?? 0))
+        .toBe(22_595);
     });
 
     let beforeOverlays!: Awaited<ReturnType<typeof measureHeap>>;
@@ -186,32 +200,28 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
     });
     await test.step('sample and assert the composed live-route heap', async () => {
       afterOverlays = await measureHeap(context, page);
-      const estimatedOverlayBufferBytes = heatmapCellCount * 24 + aggregateHullCount * 1_536;
-      snapshot = {
-        renderer: 'r3f',
-        routeFlagEnabled: true,
-        surfaceKind: 'ready',
-        finderSystemCount,
-        finderResponseTruncated: false,
-        heatmapCellCount,
-        heatmapSourceTruncated,
-        aggregateHullCount,
-        timelinePointCount,
-        estimatedOverlayBufferBytes,
-        overlayBufferWithinBudget: estimatedOverlayBufferBytes <= 8 * 1_048_576,
-        regionGeometryExposed: false,
-        heapBudgetBytes: LIVE_ROUTE_HEAP_BUDGET_BYTES,
-      };
+      snapshot = await page.evaluate(() => window.__stage26eProductionMap!.snapshot());
       expect(afterOverlays.supported).toBe(true);
       expect(afterOverlays.withinBudget).toBe(true);
       expect(snapshot.overlayBufferWithinBudget).toBe(true);
-      expect(snapshot.regionGeometryExposed).toBe(false);
+      expect(snapshot.finderSystemCount).toBe(finderSystemCount);
+      expect(snapshot.heatmapCellCount).toBe(heatmapCellCount);
+      expect(snapshot.heatmapSourceTruncated).toBe(heatmapSourceTruncated);
+      expect(snapshot.aggregateHullCount).toBe(aggregateHullCount);
+      expect(snapshot.timelinePointCount).toBe(timelinePointCount);
+      expect(snapshot.regionGeometryExposed).toBe(true);
+      expect(snapshot.regionGeometryVisible).toBe(true);
+      expect(snapshot.regionLabelCount).toBe(42);
+      expect(snapshot.regionBoundaryCount).toBe(22_595);
+      expect(snapshot.regionPositionBytes).toBe(542_280);
       expect(requestedApiPaths.some((apiPath) => apiPath.startsWith('/api/map/regions'))).toBe(false);
+      expect(requestedApiPaths).toContain('/stage26e/authoritative-regions.json');
     });
 
     return {
       viewport,
       finderResponseStatus,
+      regionGeometryResponseStatus,
       heatmapResponseStatus,
       clusterResponseStatus,
       timelineResponseStatus,
@@ -248,10 +258,10 @@ test.afterAll(async () => {
     route: '#map',
     renderer: 'r3f',
     activation: 'measurement build only; normal production flag remains unset',
-    data_source: 'live ED-Finder API payloads fetched through the Vite preview proxy and fulfilled unchanged into the measured route',
+    data_source: 'live ED-Finder API payloads plus the bounded build-emitted authoritative region asset, fulfilled unchanged into the measured route',
     collection_method: 'Chromium CDP Performance.getMetrics JSHeapUsedSize after a one-second idle; garbage collection not forced',
     accessibility_standard: 'WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules',
-    region_geometry_exposed: false,
+    region_geometry_exposed: true,
     budget_bytes: measurements[0]?.afterOverlays.budgetBytes ?? null,
     measurements,
     status: measurements.length === VIEWPORTS.length

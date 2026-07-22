@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { authoritativeRegionLayerPlugin } from './vite.authoritative-regions';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const packageJsonPath = path.resolve(rootDir, 'package.json');
@@ -31,6 +32,10 @@ export default defineConfig(({ mode }) => {
   const cacheDir = loadedEnv.VITE_CACHE_DIR
     || process.env.VITE_CACHE_DIR
     || 'node_modules/.vite';
+  const stage26eProductionMapEnabled = (
+    loadedEnv.VITE_STAGE26E_PRODUCTION_MAP
+    || process.env.VITE_STAGE26E_PRODUCTION_MAP
+  ) === 'enabled';
 
   return {
     base: publicBase,
@@ -38,7 +43,14 @@ export default defineConfig(({ mode }) => {
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
     },
-    plugins: [react()],
+    plugins: [
+      react(),
+      ...(stage26eProductionMapEnabled ? [authoritativeRegionLayerPlugin(
+        '/stage26e/authoritative-regions.json',
+        'stage26e-authoritative-region-layer',
+        'stage26e/authoritative-regions.json',
+      )] : []),
+    ],
     resolve: {
       preserveSymlinks: true,
       alias: {

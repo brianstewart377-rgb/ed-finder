@@ -17,9 +17,14 @@ claiming production cutover readiness.
   bound, and the closed live-route heap budget.
 - `live-route-memory.json` records the exact default-off `#map` candidate at
   both required viewports with 500 live Finder systems, 50,000 heatmap cells,
-  2,000 aggregate hulls, and 100 timeline points. Chromium CDP heap maxima were
-  26,392,356 and 28,724,676 bytes against a 256 MiB budget; Axe reported zero
-  detectable WCAG 2/2.1 A/AA violations on both composed-route viewports.
+  2,000 aggregate hulls, 100 timeline points, 42 region labels, and 22,595
+  continuous region boundaries. Chromium CDP heap maxima were 30,353,992 and
+  27,463,288 bytes against a 256 MiB budget; Axe reported zero detectable WCAG
+  2/2.1 A/AA violations on both composed-route viewports.
+- `production-region-geometry.json` records the build-only delivery contract:
+  a 2,312,898-byte static asset against a 4 MiB response budget, exact label
+  and boundary limits, client validation, and confirmed omission from the
+  normal unflagged production build.
 - `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
   stable density-first ordering, truncation contract, and compact JSON budget.
 - `region-source-review.json` records the exact local/upstream RLE comparison
@@ -33,7 +38,7 @@ claiming production cutover readiness.
 The earlier automated Chromium environment did not expose the timer extension.
 The hardware-backed rerun closes that evidence gap using real
 `WebGLRenderer.render(scene, camera)` timer queries rather than JavaScript frame
-callbacks. Region-data provenance, attribution, and the owner-review gate are
-now closed. The candidate remains behind an exact default-off production flag;
-bounded region delivery and the full cutover regression are the remaining
-route work.
+callbacks. Region-data provenance, attribution, owner review, bounded delivery,
+and the full default-off regression are now closed. The candidate remains
+behind an exact default-off production flag; explicit activation, deployment,
+and public smoke/rollback verification are the remaining route work.

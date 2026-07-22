@@ -2,18 +2,23 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductionMapTab } from './ProductionMapTab';
 import { useMapLayers } from '@/features/map/useMapLayers';
+import { useAuthoritativeRegionLayer } from './production-regions';
 import type { SystemResult } from '@/types/api';
 
 vi.mock('@/features/map/useMapLayers');
+vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
-  R3FMapFoundation: ({ scene, productionOverlays, onInteraction }: {
+  R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction }: {
     scene: { systems: Array<{ id64: number }> };
+    regions: { labels: unknown[]; boundaries: unknown[] };
     productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
     onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
   }) => (
     <div
       data-testid="r3f-production-renderer"
       data-system-count={scene.systems.length}
+      data-region-label-count={regions.labels.length}
+      data-region-boundary-count={regions.boundaries.length}
       data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
       data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
     >
@@ -71,6 +76,20 @@ const layers = {
   isError: false,
 } as ReturnType<typeof useMapLayers>;
 
+const regionLayer = {
+  data: {
+    labels: Array.from({ length: 42 }, (_, index) => ({
+      id: index + 1,
+      name: `Region ${index + 1}`,
+      position: [index, index, 0] as [number, number, number],
+    })),
+    boundaries: [{ source: [0, 0, 0] as [number, number, number], target: [1, 1, 0] as [number, number, number] }],
+  },
+  isLoading: false,
+  isError: false,
+  error: null,
+} as ReturnType<typeof useAuthoritativeRegionLayer>;
+
 function system(index: number): SystemResult {
   return {
     id64: index + 1,
@@ -83,6 +102,7 @@ function system(index: number): SystemResult {
 
 beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(layers);
+  vi.mocked(useAuthoritativeRegionLayer).mockReturnValue(regionLayer);
 });
 
 afterEach(() => {
@@ -90,14 +110,15 @@ afterEach(() => {
 });
 
 describe('Stage 26E production route composition', () => {
-  it('bounds Finder systems, withholds region geometry, and composes enabled live overlays', () => {
+  it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
     render(<ProductionMapTab systems={Array.from({ length: 510 }, (_, index) => system(index))} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
     expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Explicit route flag enabled');
-    expect(screen.getByText('Regions withheld')).toBeTruthy();
-    expect((screen.getByText('Regions withheld').querySelector('input') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByTestId('stage26e-map-regions-toggle') as HTMLInputElement).checked).toBe(true);
     const renderer = screen.getByTestId('r3f-production-renderer');
     expect(renderer.getAttribute('data-system-count')).toBe('500');
+    expect(renderer.getAttribute('data-region-label-count')).toBe('42');
+    expect(renderer.getAttribute('data-region-boundary-count')).toBe('1');
     expect(renderer.getAttribute('data-heatmap-count')).toBe('0');
     expect(renderer.getAttribute('data-hull-count')).toBe('0');
 
@@ -116,9 +137,17 @@ describe('Stage 26E production route composition', () => {
       heatmapCellCount: 1,
       aggregateHullCount: 1,
       timelinePointCount: 1,
-      regionGeometryExposed: false,
+      regionGeometryExposed: true,
+      regionGeometryVisible: true,
+      regionLabelCount: 42,
+      regionBoundaryCount: 1,
+      regionPositionBytes: 24,
       overlayBufferWithinBudget: true,
     });
+
+    fireEvent.click(screen.getByTestId('stage26e-map-regions-toggle'));
+    expect(renderer.getAttribute('data-region-label-count')).toBe('0');
+    expect(window.__stage26eProductionMap?.snapshot().regionGeometryVisible).toBe(false);
   });
 
   it('preserves selection and inspect hand-off on the candidate route', () => {

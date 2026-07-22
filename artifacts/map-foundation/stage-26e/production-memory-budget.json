@@ -38,13 +38,16 @@
     "heatmap_cells": 50000,
     "aggregate_hulls": 2000,
     "timeline_points": 100,
+    "region_labels": 42,
+    "region_boundary_segments": 22595,
+    "region_position_bytes": 542280,
     "budget_bytes": 268435456,
     "chromium_cdp_js_heap_used_size_max_bytes": {
-      "1280x720": 26392356,
-      "1440x900": 28724676
+      "1280x720": 30353992,
+      "1440x900": 27463288
     },
     "collection_method": "Performance.getMetrics after a one-second idle; garbage collection not forced",
-    "region_geometry_exposed": false
+    "region_geometry_exposed": true
   },
   "open_requirements": []
 }

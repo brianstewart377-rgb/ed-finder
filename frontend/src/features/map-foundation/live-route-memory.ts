@@ -23,7 +23,11 @@ export type LiveRouteMapSnapshot = {
   timelinePointCount: number;
   estimatedOverlayBufferBytes: number;
   overlayBufferWithinBudget: boolean;
-  regionGeometryExposed: false;
+  regionGeometryExposed: boolean;
+  regionGeometryVisible: boolean;
+  regionLabelCount: number;
+  regionBoundaryCount: number;
+  regionPositionBytes: number;
   heapBudgetBytes: number;
 };
 

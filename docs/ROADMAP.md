@@ -12,7 +12,8 @@ document that should answer "what next?".
   steady-state frame, default-off production parity, and live-route memory
   gates are recorded; hardware GPU timing and the owner-reviewed region-data
   gate are closed. Bounded region delivery and the full default-off regression
-  remain before a deliberate cutover decision.
+  now pass; explicit production activation and smoke/rollback verification are
+  the remaining steps before the new map becomes the app default.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -309,11 +310,13 @@ competing roadmap source.
   18.982 ms and 27.243 ms p95 and no disjoint samples. Normalized overlay buffers pass a
   deterministic 8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
   worst-case fixture passes a separate 8 MiB raw-response budget. A default-off
-  `#map` composition with live payloads measured 26,392,356 and 28,724,676-byte
-  Chromium heap maxima at the required viewports against a 256 MiB budget and
-  passed Axe at both viewports with zero detectable violations.
-- The isolated candidate now carries live heatmap cells, aggregate cluster
-  hulls, timeline state, view presets, and typed ready/empty/error composition.
+  `#map` composition with live payloads plus 42 region labels and 22,595
+  continuous boundaries measured 30,353,992 and 27,463,288-byte Chromium heap
+  maxima at the required viewports against a 256 MiB budget and passed Axe at
+  both viewports with zero detectable violations.
+- The candidate now carries live heatmap cells, aggregate cluster hulls,
+  timeline state, view presets, 42 authoritative region labels, 22,595
+  continuous boundaries, and typed ready/empty/error composition.
   The live route composition now exists only behind the exact
   `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag; normal production
   builds leave it unset and keep the established renderer.
@@ -324,8 +327,10 @@ competing roadmap source.
   official long-form attribution is site-wide. This closes the internal gate
   as an owner governance decision, not independent legal advice. Donations are
   outside the current implementation and are not relied on by the review. The
-  live map route remains unchanged until bounded region delivery and the final
-  regression pass. See
+  flagged candidate emits a guarded 2,312,898-byte static region asset; normal
+  builds omit it. The retained interaction, three-browser, accessibility,
+  visual, and live-route regressions all pass. The live map route remains
+  unchanged only until the explicit activation/deployment step. See
   [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
 - ED Astro's 134-file, roughly 335.58 GiB published catalogue is inventoried
   without opening a bulk-ingest lane. Nebula coordinates and combined POIs are
@@ -434,9 +439,9 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E by serving bounded region geometry to the default-off
-   production candidate and running the full regression matrix before any
-   deliberate route-flag activation or cutover.
+1. Continue Stage 26E with the deliberate production route-flag activation,
+   deploy and smoke-check the new app map, and retain the established renderer
+   as an immediate flag-based rollback until the candidate has a stable period.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

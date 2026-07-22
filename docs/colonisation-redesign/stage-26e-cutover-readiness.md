@@ -6,9 +6,11 @@ Stage 26E is in progress. The isolated production-candidate foundation now has
 measured desktop-browser, viewport, accessibility, visual-regression, and
 steady-state frame evidence. Its isolated boundary now carries the remaining
 production feature shapes, continuous authoritative region boundaries, and a
-closed owner-reviewed region-data gate. The live `#map` route is unchanged
-while bounded region delivery and the final default-off regression remain.
-This document is a progress checkpoint, not a completion or shipping claim.
+closed owner-reviewed region-data gate. The same bounded region layer is now
+wired into the default-off production `#map` candidate and the full regression
+passes. Normal production still selects the established map until an explicit
+activation/deployment decision. This document is a progress checkpoint, not a
+shipping claim.
 
 The machine-readable source of truth is
 [`cutover-gates.json`](../../artifacts/map-foundation/stage-26e/cutover-gates.json).
@@ -35,10 +37,20 @@ The machine-readable source of truth is
   `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag. Normal builds leave
   the value unset and continue to select the established map.
 - With 500 live Finder systems, 50,000 heatmap cells, 2,000 aggregate hulls,
-  and 100 timeline points, Chromium CDP reported composed-route heap maxima of
-  26,392,356 bytes at 1280x720 and 28,724,676 bytes at 1440x900. Both pass the
-  predeclared 256 MiB live-route budget. Region geometry was not requested or
-  exposed.
+  100 timeline points, 42 region labels, and 22,595 continuous boundary
+  segments, Chromium CDP reported composed-route heap maxima of 30,353,992
+  bytes at 1280x720 and 27,463,288 bytes at 1440x900. Both pass the predeclared
+  256 MiB live-route budget. The build-emitted region response is 2,312,898
+  bytes against a separate 4 MiB guard, and its typed positions occupy 542,280
+  bytes.
+- The retained interaction journey passes at both viewports; the compatibility
+  matrix passes all six Chromium/Firefox/WebKit viewport cells; the dedicated
+  Axe journey and 1440x900 visual golden also pass. The exact live-route
+  candidate passes both viewports with zero detectable Axe violations.
+- A normal `yarn build:typecheck` omits
+  `stage26e/authoritative-regions.json`; the asset is emitted only by the exact
+  flagged candidate build. This preserves the established renderer and a
+  build-time rollback boundary until activation.
 
 These are local Windows/Playwright readings. They do not imply a broad hardware
 performance guarantee.
@@ -74,14 +86,15 @@ The isolated typed boundary now supports Finder systems, selected-system
 context, compare and exact cluster highlights, overlap choice, camera return
 state, explicit Planner hand-off, live heatmap response shapes, aggregate
 cluster hulls, timeline summary/bucket state, Results/Galaxy/Reference presets,
-and typed ready/empty/error composition. Invalid overlay coordinates are
-omitted rather than invented, and the large-result preset calculation is
-iterative rather than spreading an unbounded result array onto the call stack.
+bounded authoritative region labels and continuous boundaries, and typed
+ready/empty/error composition. Invalid overlay coordinates are omitted rather
+than invented, and the large-result preset calculation is iterative rather
+than spreading an unbounded result array onto the call stack.
 
-This closes the feature-parity adapter and disabled live-route composition
-gates. The established renderer remains selected in normal production builds;
-deliberate flag activation and superseded-map removal remain final route steps
-after the remaining blocking gates close.
+This closes the feature-parity adapter, bounded region delivery, and disabled
+live-route regression gates. The established renderer remains selected in
+normal production builds; deliberate flag activation/deployment is now the
+next route step, while superseded-map removal remains later and explicit.
 
 ## Closed GPU Evidence
 
@@ -159,10 +172,11 @@ not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E may now serve and wire bounded region geometry into the default-off
-production candidate, repeat the full regression matrix, and then make a
-deliberate activation decision. The established route remains selected until
-that work passes; superseded-map deletion remains a later, explicit step.
+Stage 26E is ready for the deliberate activation decision. The next bounded
+change may set `VITE_STAGE26E_PRODUCTION_MAP=enabled` in the production build,
+deploy the candidate as the app's real `#map`, smoke-check the public route,
+and retain the established renderer as an immediate flag-based rollback.
+Superseded-map deletion remains a later, explicit step after a stable period.
 
 The supplied Raven Colonial reference identifies a useful post-cutover visual
 follow-up: an explicit 2D/3D control, a restrained oblique tabletop preset,

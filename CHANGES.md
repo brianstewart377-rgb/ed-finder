@@ -5,6 +5,31 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E production region delivery and cutover regression
+
+**The default-off production candidate now carries authoritative regions** -
+The exact `VITE_STAGE26E_PRODUCTION_MAP=enabled` build emits a bounded static
+`stage26e/authoritative-regions.json` asset generated from the pinned 2,048-row
+RLE source. The client accepts exactly 42 unique region labels, caps continuous
+boundaries at 25,000, validates every finite endpoint, and rejects responses
+larger than 4 MiB. The measured asset is 2,312,898 bytes with 22,595 boundaries
+and 542,280 typed position bytes. Normal unflagged builds omit the asset.
+
+**The final default-off regression is green** - The live candidate passes both
+required viewports with 500 Finder systems, 50,000 heatmap cells, 2,000 hulls,
+100 timeline points, and the full region layer visible. Retained Chromium heap
+maxima were 30,353,992 and 27,463,288 bytes against 268,435,456 bytes, with zero
+detectable Axe violations. Thirty-one focused tests, both retained Chromium
+journeys, all six Chromium/Firefox/WebKit viewport cells, the dedicated Axe
+journey, the visual golden, TypeScript, lint, and normal/flagged builds pass.
+
+**The next step is activation, not more foundation work** - All recorded
+blocking gates are closed. The candidate remains default-off in this change;
+the next bounded change may activate it in the production build, deploy and
+smoke-check the public `#map`, and retain the established renderer as an
+immediate flag-based rollback. Superseded-map removal remains later and
+explicit.
+
 ## 2026-07-22 - Stage 26E continuous region boundaries and owner review
 
 **Region dividers now read as boundaries instead of dashes** - Replaced the
