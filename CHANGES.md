@@ -5,6 +5,22 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E isolated production parity and memory bounds
+
+**The isolated candidate now carries the remaining live map shapes** - Added
+bounded adapters and R3F geometry for heatmap cells and aggregate cluster hulls,
+plus timeline summary state, Results/Galaxy/Reference one-time view presets,
+and typed ready/empty/error composition. A 500,000-result regression covers the
+iterative preset calculation after browser testing exposed the unsafe spread
+form.
+
+**Normalized overlay memory is bounded without claiming cutover readiness** -
+The maximum normalized heatmap and aggregate-hull typed buffers total 4,272,000
+bytes against an 8 MiB budget. Raw heatmap transport remains unbounded and the
+live route still needs an end-to-end heap budget. The project owner confirmed
+ED-Finder is non-commercial; region-geometry coverage and attribution remain
+open alongside real GPU timing. The production route is unchanged.
+
 ## 2026-07-22 - Stage 26E cutover-readiness gates (in progress)
 
 **The isolated foundation now has broader final-gate evidence** - Added a

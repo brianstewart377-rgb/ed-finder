@@ -20,6 +20,7 @@ button:hover, button:focus-visible { border-color: #72c7ef; outline: none; }
 .foundation-shell { display: grid; grid-template-rows: auto auto 1fr; height: 100vh; }
 .foundation-header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.75rem;
   padding: 0.65rem 1rem;
@@ -28,10 +29,12 @@ button:hover, button:focus-visible { border-color: #72c7ef; outline: none; }
 }
 .foundation-header > div { margin-right: auto; }
 .foundation-header h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
-.foundation-header label { display: flex; gap: 0.4rem; align-items: center; font-size: 0.82rem; }
+.foundation-header label { display: flex; flex-shrink: 0; gap: 0.4rem; align-items: center; font-size: 0.82rem; }
+.foundation-header button { flex-shrink: 0; }
 .eyebrow { margin: 0 0 0.15rem; color: #6fbde2; font-size: 0.68rem; letter-spacing: 0.12em; text-transform: uppercase; }
 .foundation-status {
   display: flex;
+  flex-wrap: wrap;
   gap: 1.15rem;
   padding: 0.42rem 1rem;
   color: #9eb2bf;
@@ -39,6 +42,7 @@ button:hover, button:focus-visible { border-color: #72c7ef; outline: none; }
   border-bottom: 1px solid #172734;
   font-size: 0.76rem;
 }
+.foundation-status span { flex-shrink: 0; }
 .foundation-status span:first-child { color: #7dd9a7; font-weight: 700; text-transform: uppercase; }
 .foundation-layout { display: grid; grid-template-columns: minmax(0, 1fr) 270px; min-height: 0; }
 .foundation-viewport { position: relative; min-height: 0; }

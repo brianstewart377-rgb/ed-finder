@@ -4,7 +4,8 @@
 
 Stage 26E is in progress. The isolated production-candidate foundation now has
 measured desktop-browser, viewport, accessibility, visual-regression, and
-steady-state frame evidence. The live `#map` route is unchanged because four
+steady-state frame evidence. Its isolated boundary now carries the remaining
+production feature shapes. The live `#map` route is unchanged because three
 cutover gates remain open. This document is a progress checkpoint, not a
 completion or shipping claim.
 
@@ -40,20 +41,32 @@ duration is not substituted.
 
 ### Memory budget
 
-Chromium reported roughly 212 MB and 410 MB of used JavaScript heap after the
-500,000-system development journey at 1280x720 and 1440x900 respectively. The
-fixture is intentionally much larger than today's Finder-backed production
-response, but Stage 26E has not yet set or passed a production memory budget.
+The candidate now limits the current 500-system Finder envelope, 50,000
+normalized heatmap cells, 2,000 aggregate hulls, and 1,200 timeline points. At
+those maxima, the heatmap and score-coloured hull typed buffers total 4,272,000 bytes and pass
+an 8 MiB normalized-overlay budget. Repeated isolated 500,000-system journeys
+reported roughly 167-662 MB at 1280x720 and 188-386 MB at 1440x900, demonstrating
+that these development-fixture heap snapshots are not stable enough to serve as
+a production budget.
+
+This is partial closure only. The current heatmap API has no returned-cell cap,
+so its raw JSON can exceed the normalized frontend limit before adaptation. A
+live production-route heap budget has also not been measured. Both remain
+blocking memory work.
 
 ### Production feature parity
 
-The typed foundation supports Finder systems, selected-system context, compare
-and exact cluster highlights, overlap choice, camera return state, and explicit
-Planner hand-off. The current live Map still owns heatmap cells, aggregate
+The isolated typed boundary now supports Finder systems, selected-system
+context, compare and exact cluster highlights, overlap choice, camera return
+state, explicit Planner hand-off, live heatmap response shapes, aggregate
 cluster hulls, timeline summary/bucket state, Results/Galaxy/Reference presets,
-and its production error/empty-state composition. Those features must either be
-wired to the typed boundary or explicitly retired by product review before
-cutover.
+and typed ready/empty/error composition. Invalid overlay coordinates are
+omitted rather than invented, and the large-result preset calculation is
+iterative rather than spreading an unbounded result array onto the call stack.
+
+This closes the isolated feature-parity adapter gate. It does not wire the live
+route; that deliberate composition and its regression run remain a final route
+step after the blocking gates close.
 
 ## Region Data And Legal Gate
 
@@ -61,24 +74,26 @@ Repository history shows `apps/importer/src/data/region_map.json` first arriving
 in commit `f4e9ff6b2b2f201441eaf70301dc98ee15efe992`. The importer credits the
 MIT-licensed `klightspeed/EliteDangerousRegionMap` algorithm, but the repository
 contains no retained source receipt establishing redistribution rights for the
-42 names and RLE geometry themselves.
+42 names and RLE geometry themselves. On 2026-07-22, the project owner confirmed
+that ED-Finder is non-commercial, resolving the service-posture question.
 
 Frontier's official media guidance permits specified non-commercial fan and
 community uses with attribution, requires express permission for commercial or
 promotional uses, and directs uncertain uses to its community team. That policy
-does not unambiguously classify this derived geometry or establish whether the
-deployed ED-Finder service is within the non-commercial allowance. See
+does not unambiguously establish that this derived geometry is covered or state
+the attribution required for this particular use. See
 [Frontier's official guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media).
 
 Before production exposure of the RLE-derived boundaries, the project owner or
-qualified reviewer must confirm the service posture, geometry coverage, and
-required attribution. The upstream MIT notice must also be retained if its code
-is reused. Until then, the production route cannot cut over.
+qualified reviewer must confirm geometry coverage and required attribution.
+The upstream MIT notice must also be retained if its code is reused. Until
+then, the production route cannot cut over.
 
 ## Next Authorized Work
 
-Stage 26E may continue with production feature-parity adapters and a bounded
-production memory plan. It may also rerun GPU timing on an environment exposing
-the required extension or with a captured system trace. Route cutover and
+Stage 26E may continue by bounding the raw heatmap response and measuring a
+live-route JavaScript heap budget. It may also rerun GPU timing on an environment
+exposing the required extension or with a captured system trace, and close the
+remaining region-geometry and attribution questions. Route cutover and
 superseded-map deletion remain unauthorized until every blocking gate is
 recorded as closed.

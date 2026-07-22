@@ -27,6 +27,26 @@ export type RegionLayerData = {
 
 export type ViewportSize = { width: number; height: number };
 
+export type ProductionHeatmapGeometry = {
+  positions: Float32Array;
+  colors: Float32Array;
+  voxelSize: number;
+  cellCount: number;
+  omittedCellCount: number;
+};
+
+export type ProductionAggregateHullGeometry = {
+  linePositions: Float32Array;
+  lineColors: Float32Array;
+  hullCount: number;
+  omittedHullCount: number;
+};
+
+export type ProductionMapOverlays = {
+  heatmap: ProductionHeatmapGeometry | null;
+  aggregateHulls: ProductionAggregateHullGeometry | null;
+};
+
 export type VisibilityMetadata = {
   totalInViewBackground: number;
   returnedBackground: number;
@@ -57,11 +77,18 @@ export type FoundationSnapshot = {
   returnWorkflowType: MapReturnWorkflow['type'] | null;
   lastHostCommand: string;
   omittedHandoffSystemIds: number[];
+  productionHeatmapCellCount: number;
+  productionAggregateHullCount: number;
+  productionTimelinePointCount: number;
+  productionViewPreset: 'results' | 'galaxy' | 'reference';
+  productionSurfaceKind: 'ready' | 'empty' | 'error';
+  estimatedOverlayBufferBytes: number;
 };
 
 export type FoundationRendererProps = {
   scene: MapSceneState;
   regions: RegionLayerData;
+  productionOverlays?: ProductionMapOverlays;
   viewport: ViewportSize;
   maxBackgroundPoints?: number;
   onInteraction: (event: MapInteractionEvent) => void;

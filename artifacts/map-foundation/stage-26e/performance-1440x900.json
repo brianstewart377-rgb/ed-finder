@@ -6,10 +6,10 @@
   "browser": "chromium",
   "measurement": {
     "frameSampleCount": 60,
-    "frameP95Ms": 16.799999999999272,
+    "frameP95Ms": 16.700000000000728,
     "frameMaxMs": 16.800000000000182,
     "gpuTimerSupported": false,
     "gpuProbeMs": null,
-    "jsHeapBytes": 410000000
+    "jsHeapBytes": 386000000
   }
 }

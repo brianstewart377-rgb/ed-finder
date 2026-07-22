@@ -65,6 +65,8 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
     () => [...visible.guaranteed, ...visible.background],
     [visible.background, visible.guaranteed],
   );
+  const heatmap = props.productionOverlays?.heatmap ?? null;
+  const aggregateHulls = props.productionOverlays?.aggregateHulls ?? null;
 
   const select = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
     if (event.index == null) return;
@@ -81,6 +83,26 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
 
   return <>
     <CameraProjection cameraState={props.scene.camera} />
+    {heatmap && <points>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[heatmap.positions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[heatmap.colors, 3]} />
+      </bufferGeometry>
+      <pointsMaterial
+        vertexColors
+        size={Math.max(1, heatmap.voxelSize / props.scene.camera.zoom)}
+        sizeAttenuation={false}
+        transparent
+        opacity={0.2}
+      />
+    </points>}
+    {aggregateHulls && <lineSegments>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[aggregateHulls.linePositions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[aggregateHulls.lineColors, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial vertexColors transparent opacity={0.38} />
+    </lineSegments>}
     <lineSegments>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[
@@ -227,6 +249,8 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     <output className="map-foundation-render-stats" aria-label="Renderer draw summary">
       {visible.metadata.returnedBackground.toLocaleString()}
       {' background · '}{highlightedIds.size} highlighted
+      {props.productionOverlays?.heatmap && ` · ${props.productionOverlays.heatmap.cellCount.toLocaleString()} heatmap`}
+      {props.productionOverlays?.aggregateHulls && ` · ${props.productionOverlays.aggregateHulls.hullCount.toLocaleString()} aggregate hulls`}
     </output>
   </div>;
 }
