@@ -298,6 +298,13 @@ export type BoundedResponse<T> = {
 
 // ── Outbound Interaction Events ──
 export type MapInteractionEvent =
+  | { type: 'selectSystem'; systemId64: number; clusterAnchorId64: number | null }
+  | { type: 'deselectSystem' }
+  | { type: 'overlapChoiceRequired'; candidateSystemIds: number[] }
+  | { type: 'overlapChoice'; systemId64: number; candidateSystemIds: number[]; clusterAnchorId64: number | null }
+  | { type: 'cameraChanged'; camera: CameraState }
+  | { type: 'layerChanged'; layers: MapLayerState }
+  | { type: 'contextStateChanged'; state: 'lost' | 'restored' | 'usable' }
   | { type: 'navigateToMap' }
   | { type: 'navigateToFinder' }
   | { type: 'navigateToSystemDetail'; systemId64: number }

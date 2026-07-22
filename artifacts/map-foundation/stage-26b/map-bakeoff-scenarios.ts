@@ -7,34 +7,22 @@
 import type {
   MapSceneState,
   CameraState,
-  GalaxyCoord,
   SystemRecord,
   ClusterRepresentation,
-  HighlightSet,
-  MapLayer,
-  MapReturnWorkflow,
   KeyboardCompanionPhase,
-  KeyboardCompanionState,
   SceneAction,
 } from './map-scene-contract';
 import {
-  reduceReturnWorkflow,
-  reduceScene,
-  FEATURE_HANDOFF_MATRIX,
   initSystemTraversal,
   initOverlayToggle,
   initSearchResultTraversal,
   initOverlapCycling,
-  AUTHORITATIVE_PIXEL_SCALE_PX_PER_LY,
 } from './map-scene-contract';
 import type {
-  MapRendererAdapter,
   MeasurementRecord,
-  EnvironmentRecord,
   DecisionLog,
   RendererCandidateId,
 } from './map-renderer-adapter';
-import { R3FCameraTransitionMachine } from './map-renderer-adapter';
 
 // ── Shared Harness Specification ──
 export const HARNESS_CONFIG = {

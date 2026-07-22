@@ -77,10 +77,19 @@ export function toDeckOrthoView(camera: CameraState): Record<string, unknown> {
 }
 
 export function toThreeJSR3F(camera: CameraState): Record<string, unknown> {
+  const pitchRad = camera.pitchDeg * Math.PI / 180;
+  const bearingRad = camera.bearingDeg * Math.PI / 180;
+  const distance = 1000;
+  // Offset the camera opposite its forward vector so the declared scene centre
+  // remains under the reticle while pitch and bearing change.
   return {
     projection: 'orthographic',
-    position: [camera.center.x, camera.center.z, 1000],
-    rotation: [camera.pitchDeg * Math.PI / 180, 0, -camera.bearingDeg * Math.PI / 180],
+    position: [
+      camera.center.x - Math.sin(bearingRad) * Math.sin(pitchRad) * distance,
+      camera.center.z - Math.cos(bearingRad) * Math.sin(pitchRad) * distance,
+      Math.cos(pitchRad) * distance,
+    ],
+    rotation: [pitchRad, 0, -bearingRad],
     zoom: pixelsPerLy(camera),
   };
 }
@@ -389,7 +398,6 @@ export interface MapRendererAdapter {
 
 // ── Concrete Adapter (no‑op; replaced at bake‑off) ──
 export class NoopMapRendererAdapter implements MapRendererAdapter {
-  private _disposed = false;
   mount(_container: HTMLElement): void {}
   update(_scene: MapSceneState): void {}
   resize(_width: number, _height: number): void {}
@@ -416,5 +424,5 @@ export class NoopMapRendererAdapter implements MapRendererAdapter {
   async startCameraTransition(_target: CameraState, _durationMs: number): Promise<CameraState> { return _target; }
   cancelCameraTransition(): void {}
   retargetCameraTransition(_target: CameraState, _durationMs: number): void {}
-  dispose(): void { this._disposed = true; }
+  dispose(): void {}
 }

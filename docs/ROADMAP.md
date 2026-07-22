@@ -7,9 +7,9 @@ document that should answer "what next?".
 
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
-- Status: Stage 25A through Stage 25H, Stage 26A, and Stage 26B are complete.
-  The equal renderer bake-off selected Three.js/R3F for the isolated Stage 26C
-  foundation; no production route or cutover is authorized.
+- Status: Stage 25A through Stage 25H and Stage 26A through Stage 26C are
+  complete. The isolated Three.js/R3F foundation is bounded and verified at the
+  required desktop viewports; no production route or cutover is authorized.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -267,9 +267,18 @@ competing roadmap source.
 
 ### Stage 26C
 
-- Next: pin the isolated region-first implementation contract around the
-  selected Three.js/R3F foundation. Keep it behind a development-only entry;
-  production map cutover, planner-map fusion, and mobile work remain prohibited.
+- Complete: the selected R3F renderer now has a reusable region-first scene
+  component behind a separate development-only Vite entry. It reads the
+  existing authoritative region source at runtime, renders all 42 named
+  regions, preserves the typed scene/interaction boundary, and supports
+  arbitrary comparison and cluster highlights with explicit overlap choice.
+- The deterministic 500k workbench caps background rendering at 25,000 points
+  while retaining every guaranteed system and reporting the aggregate
+  remainder. Both required desktop Playwright journeys pass camera, keyboard,
+  overlap, planner-separation, and post-context-restoration interaction checks.
+- The production map route remains unchanged. Stage 26D owns feature hand-off
+  wiring; Stage 26E retains production performance, accessibility, browser,
+  visual-regression, legal, and cutover gates.
 
 ### Stage 25C
 
@@ -371,8 +380,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Pin and execute the isolated Stage 26C region-first Three.js/R3F foundation
-   contract without changing the production map route.
+1. Execute Stage 26D feature hand-offs through the typed Stage 26C scene and
+   interaction boundary without changing the production map route.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

@@ -12,12 +12,15 @@ product-shell and selected-system context baseline for this new lane.
 - [`../ROADMAP.md`](../ROADMAP.md) is the single authoritative roadmap and the
   default answer to "what next?".
 - [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md)
-  is the authorization and implementation-boundary contract for the active
-  Stage 26B next-generation desktop map lane. Its accepted research bundle is
+  is the authorization and implementation-boundary contract for the Stage 26
+  next-generation desktop map lane. Its accepted research bundle is
   retained under `../../artifacts/map-foundation/stage-26b/`.
 - [`stage-26b-renderer-bakeoff-decision.md`](./stage-26b-renderer-bakeoff-decision.md)
   records the completed equal-renderer matrix, its limitations, and the
   Three.js/R3F selection for the isolated Stage 26C foundation.
+- [`stage-26c-region-first-foundation-contract.md`](./stage-26c-region-first-foundation-contract.md)
+  records the isolated R3F foundation, bounded visibility contract, local
+  evidence, and the feature-integration work deferred to Stage 26D.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 
