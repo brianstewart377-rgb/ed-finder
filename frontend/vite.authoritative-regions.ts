@@ -15,7 +15,11 @@ export function buildAuthoritativeRegionLayer(sourcePath = defaultSourcePath): s
   return JSON.stringify(buildAuthoritativeRegionLayerFromBlob(blob));
 }
 
-export function authoritativeRegionLayerPlugin(route: string, name: string): Plugin {
+export function authoritativeRegionLayerPlugin(
+  route: string,
+  name: string,
+  assetFileName?: string,
+): Plugin {
   const body = buildAuthoritativeRegionLayer();
   return {
     name,
@@ -26,6 +30,10 @@ export function authoritativeRegionLayerPlugin(route: string, name: string): Plu
         response.setHeader('Cache-Control', 'no-store');
         response.end(body);
       });
+    },
+    generateBundle() {
+      if (!assetFileName) return;
+      this.emitFile({ type: 'asset', fileName: assetFileName, source: body });
     },
   };
 }

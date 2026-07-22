@@ -27,6 +27,7 @@ import {
   PRODUCTION_PARITY_LIMITS,
   type MapViewPreset,
 } from './production-parity';
+import { useAuthoritativeRegionLayer } from './production-regions';
 import { R3FMapFoundation } from './R3FMapFoundation';
 import type { RegionLayerData, ViewportSize } from './types';
 import './ProductionMapTab.css';
@@ -49,7 +50,7 @@ function emptyProductionScene(reference: { x: number; z: number }): MapSceneStat
     routes: [],
     annotations: [],
     layers: [
-      { type: 'regions', visible: false },
+      { type: 'regions', visible: true },
       { type: 'heatmap', visible: false },
       { type: 'timeline', visible: false, bucket: 'month' },
       { type: 'routes', visible: false },
@@ -80,6 +81,7 @@ export function ProductionMapTab({
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [scene, setScene] = useState<MapSceneState>(() => emptyProductionScene(referenceCoords));
   const [viewPreset, setViewPreset] = useState<MapViewPreset>('results');
+  const [showRegions, setShowRegions] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showClusters, setShowClusters] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
@@ -119,12 +121,12 @@ export function ProductionMapTab({
   }, []);
 
   const layers = useMapLayers({
-    regions: { enabled: false },
     heatmap: { enabled: showHeatmap, max_cells: PRODUCTION_PARITY_LIMITS.heatmapCells },
     clusters: { enabled: showClusters, max_hulls: PRODUCTION_PARITY_LIMITS.aggregateHulls },
     timeline: { enabled: showTimeline, bucket: timelineBucket },
   });
-  const layerError = [layers.heatmap, layers.clusters, layers.timeline]
+  const regionLayer = useAuthoritativeRegionLayer();
+  const layerError = [regionLayer, layers.heatmap, layers.clusters, layers.timeline]
     .find((layer) => layer.isError)?.error?.message ?? null;
   const composition = useMemo(() => composeProductionParity({
     systemCount: scene.systems.length,
@@ -177,12 +179,14 @@ export function ProductionMapTab({
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
   const activeLayerSummary = [
     'Finder dots',
+    showRegions ? 'Regions' : null,
     showHeatmap ? 'Heatmap' : null,
     showClusters ? 'Clusters' : null,
     showTimeline ? `Timeline (${timelineBucket})` : null,
   ].filter(Boolean).join(' + ');
   const sourceLabel = [
     `Finder results (${scene.systems.length})`,
+    regionLayer.data ? `Authoritative regions (${regionLayer.data.labels.length})` : null,
     showHeatmap && layers.heatmap.data ? 'Heatmap' : null,
     showClusters && layers.clusters.data ? 'Clusters' : null,
     showTimeline && layers.timeline.data ? 'Timeline' : null,
@@ -201,12 +205,16 @@ export function ProductionMapTab({
       timelinePointCount: composition.timeline?.pointCount ?? 0,
       estimatedOverlayBufferBytes: composition.estimatedOverlayBufferBytes,
       overlayBufferWithinBudget: composition.withinOverlayBufferBudget,
-      regionGeometryExposed: false,
+      regionGeometryExposed: regionLayer.data != null,
+      regionGeometryVisible: showRegions && regionLayer.data != null,
+      regionLabelCount: regionLayer.data?.labels.length ?? 0,
+      regionBoundaryCount: regionLayer.data?.boundaries.length ?? 0,
+      regionPositionBytes: (regionLayer.data?.boundaries.length ?? 0) * 6 * Float32Array.BYTES_PER_ELEMENT,
       heapBudgetBytes: LIVE_ROUTE_HEAP_BUDGET_BYTES,
     });
     window.__stage26eProductionMap = { snapshot, measureHeap: measureLiveRouteHeap };
     return () => { delete window.__stage26eProductionMap; };
-  }, [composition, scene.boundedResponse.truncated, scene.systems.length]);
+  }, [composition, regionLayer.data, scene.boundedResponse.truncated, scene.systems.length, showRegions]);
 
   return (
     <section data-testid="stage26e-production-map" aria-label="Stage 26E production map candidate" className="space-y-4">
@@ -221,7 +229,7 @@ export function ProductionMapTab({
         </div>
         <h2 className="font-display text-base tracking-[0.12em] text-text">Production-route R3F composition</h2>
         <p className="max-w-4xl text-sm leading-relaxed text-silver">
-          This candidate consumes the current Finder result set and live aggregate map responses. Region geometry remains withheld pending coverage and attribution review.
+          This candidate consumes the current Finder result set, bounded authoritative region geometry, and live aggregate map responses. Normal production still selects the established renderer unless the exact Stage 26E flag is enabled.
         </p>
         <div className="flex flex-wrap gap-2">
           <button type="button" data-testid="map-return-to-finder" onClick={onReturnToFinder} className="btn-metal text-[11px] font-mono">
@@ -257,9 +265,7 @@ export function ProductionMapTab({
             </button>
           ))}
         </div>
-        <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
-          <input type="checkbox" checked={false} disabled /> Regions withheld
-        </label>
+        <LayerToggle testId="stage26e-map-regions-toggle" label="Regions" checked={showRegions} onChange={setShowRegions} />
         <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
         <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
         <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
@@ -282,13 +288,13 @@ export function ProductionMapTab({
       />
       <MapLayerStatusRow
         sourceLabel={sourceLabel}
-        showRegions={false}
+        showRegions={showRegions}
         showHeatmap={showHeatmap}
         showClusters={showClusters}
         showTimeline={showTimeline}
         timelineBucket={timelineBucket}
-        regionsLoading={false}
-        regionsError={false}
+        regionsLoading={regionLayer.isLoading}
+        regionsError={regionLayer.isError}
         heatmapLoading={layers.heatmap.isLoading}
         heatmapError={layers.heatmap.isError}
         heatmapTruncated={layers.heatmap.data?.truncated ?? false}
@@ -321,7 +327,7 @@ export function ProductionMapTab({
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
               <R3FMapFoundation
                 scene={scene}
-                regions={EMPTY_REGIONS}
+                regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
                 productionOverlays={composition.overlays}
                 viewport={viewport}
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}

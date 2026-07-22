@@ -5,10 +5,10 @@
   "route": "#map",
   "renderer": "r3f",
   "activation": "measurement build only; normal production flag remains unset",
-  "data_source": "live ED-Finder API payloads fetched through the Vite preview proxy and fulfilled unchanged into the measured route",
+  "data_source": "live ED-Finder API payloads plus the bounded build-emitted authoritative region asset, fulfilled unchanged into the measured route",
   "collection_method": "Chromium CDP Performance.getMetrics JSHeapUsedSize after a one-second idle; garbage collection not forced",
   "accessibility_standard": "WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules",
-  "region_geometry_exposed": false,
+  "region_geometry_exposed": true,
   "budget_bytes": 268435456,
   "measurements": [
     {
@@ -17,6 +17,7 @@
         "height": 720
       },
       "finderResponseStatus": 200,
+      "regionGeometryResponseStatus": 200,
       "heatmapResponseStatus": 200,
       "clusterResponseStatus": 200,
       "timelineResponseStatus": 200,
@@ -26,16 +27,16 @@
         "budgetBytes": 268435456,
         "sampleCount": 7,
         "samplesBytes": [
-          17604348,
-          17604348,
-          17604348,
-          17604348,
-          17604348,
-          17604348,
-          17604348
+          9994104,
+          9994104,
+          9994104,
+          9994104,
+          9994104,
+          9994104,
+          9994104
         ],
-        "minBytes": 17604348,
-        "maxBytes": 17604348,
+        "minBytes": 9994104,
+        "maxBytes": 9994104,
         "spreadBytes": 0,
         "withinBudget": true
       },
@@ -44,16 +45,16 @@
         "budgetBytes": 268435456,
         "sampleCount": 7,
         "samplesBytes": [
-          26392356,
-          26392356,
-          26392356,
-          26392356,
-          26392356,
-          26392356,
-          26392356
+          30353992,
+          30353992,
+          30353992,
+          30353992,
+          30353992,
+          30353992,
+          30353992
         ],
-        "minBytes": 26392356,
-        "maxBytes": 26392356,
+        "minBytes": 30353992,
+        "maxBytes": 30353992,
         "spreadBytes": 0,
         "withinBudget": true
       },
@@ -69,11 +70,16 @@
         "timelinePointCount": 100,
         "estimatedOverlayBufferBytes": 4272000,
         "overlayBufferWithinBudget": true,
-        "regionGeometryExposed": false,
+        "regionGeometryExposed": true,
+        "regionGeometryVisible": true,
+        "regionLabelCount": 42,
+        "regionBoundaryCount": 22595,
+        "regionPositionBytes": 542280,
         "heapBudgetBytes": 268435456
       },
       "requestedApiPaths": [
         "/api/local/search",
+        "/stage26e/authoritative-regions.json",
         "/api/map/heatmap?max_cells=50000",
         "/api/map/clusters/hulls?max_hulls=2000",
         "/api/map/timeline?bucket=month"
@@ -85,6 +91,7 @@
         "height": 900
       },
       "finderResponseStatus": 200,
+      "regionGeometryResponseStatus": 200,
       "heatmapResponseStatus": 200,
       "clusterResponseStatus": 200,
       "timelineResponseStatus": 200,
@@ -94,16 +101,16 @@
         "budgetBytes": 268435456,
         "sampleCount": 7,
         "samplesBytes": [
-          17549428,
-          17549428,
-          17549428,
-          17549428,
-          17549428,
-          17549428,
-          17549428
+          27463288,
+          27463288,
+          27463288,
+          27463288,
+          27463288,
+          27463288,
+          27463288
         ],
-        "minBytes": 17549428,
-        "maxBytes": 17549428,
+        "minBytes": 27463288,
+        "maxBytes": 27463288,
         "spreadBytes": 0,
         "withinBudget": true
       },
@@ -112,16 +119,16 @@
         "budgetBytes": 268435456,
         "sampleCount": 7,
         "samplesBytes": [
-          28724676,
-          28724676,
-          28724676,
-          28724676,
-          28724676,
-          28724676,
-          28724676
+          19762112,
+          19762112,
+          19762112,
+          19762112,
+          19762112,
+          19762112,
+          19762112
         ],
-        "minBytes": 28724676,
-        "maxBytes": 28724676,
+        "minBytes": 19762112,
+        "maxBytes": 19762112,
         "spreadBytes": 0,
         "withinBudget": true
       },
@@ -137,11 +144,16 @@
         "timelinePointCount": 100,
         "estimatedOverlayBufferBytes": 4272000,
         "overlayBufferWithinBudget": true,
-        "regionGeometryExposed": false,
+        "regionGeometryExposed": true,
+        "regionGeometryVisible": true,
+        "regionLabelCount": 42,
+        "regionBoundaryCount": 22595,
+        "regionPositionBytes": 542280,
         "heapBudgetBytes": 268435456
       },
       "requestedApiPaths": [
         "/api/local/search",
+        "/stage26e/authoritative-regions.json",
         "/api/map/heatmap?max_cells=50000",
         "/api/map/clusters/hulls?max_hulls=2000",
         "/api/map/timeline?bucket=month"

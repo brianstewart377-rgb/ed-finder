@@ -91,17 +91,20 @@
         "status": "pass",
         "route": "#map",
         "activation": "measurement build only; normal production flag remains unset",
-        "data_source": "live ED-Finder API payloads fulfilled unchanged into the measured route",
+        "data_source": "live ED-Finder API payloads plus the bounded build-emitted authoritative region asset, fulfilled unchanged into the measured route",
         "budget_bytes": 268435456,
         "chromium_cdp_js_heap_used_size_max_bytes": {
-          "1280x720": 26392356,
-          "1440x900": 28724676
+          "1280x720": 30353992,
+          "1440x900": 27463288
         },
         "finder_systems": 500,
         "heatmap_cells": 50000,
         "aggregate_hulls": 2000,
         "timeline_points": 100,
-        "region_geometry_exposed": false,
+        "region_geometry_exposed": true,
+        "region_labels": 42,
+        "region_boundary_segments": 22595,
+        "region_position_bytes": 542280,
         "evidence": "artifacts/map-foundation/stage-26e/live-route-memory.json"
       },
       "remaining": null
@@ -119,10 +122,13 @@
         "live aggregate cluster hulls",
         "timeline summary and bucket state",
         "Results, Galaxy, and Reference view presets",
+        "bounded authoritative region labels and continuous boundaries",
         "typed production error and empty-state composition"
       ],
       "normalized_overlay_buffer_test": "pass at 4272000 bytes against an 8388608-byte budget",
-      "live_route_wiring": "pass behind exact VITE_STAGE26E_PRODUCTION_MAP=enabled flag; normal production value remains unset"
+      "region_asset": "pass at 2312898 bytes, 42 labels, and 22595 boundaries against a 4194304-byte response budget",
+      "live_route_wiring": "pass behind exact VITE_STAGE26E_PRODUCTION_MAP=enabled flag with the region asset emitted only in flagged builds; normal production value remains unset and omits the asset",
+      "full_regression": "31 focused unit tests, two retained Chromium journeys, six Chromium/Firefox/WebKit viewport cells, Axe, visual golden, and two live-route viewport measurements pass"
     },
     "region_redistribution_legal": {
       "status": "pass_owner_reviewed_frontier_noncommercial_media_guidance_and_mit_provenance",
@@ -159,9 +165,9 @@
       "required_decisions": []
     },
     "production_route_cutover": {
-      "status": "ready_for_deliberate_cutover_regression",
+      "status": "ready_for_deliberate_activation_decision",
       "blocking_gates": [],
-      "remaining_route_step": "serve and wire bounded region geometry into the default-off production candidate, run the full regression matrix, then make a deliberate activation decision"
+      "remaining_route_step": "make the explicit production flag activation and deployment decision, smoke-check the public route, and retain the established renderer as an immediate flag-based rollback"
     }
   }
 }
