@@ -5,6 +5,46 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E continuous region boundaries and owner review
+
+**Region dividers now read as boundaries instead of dashes** - Replaced the
+four-pixel stride sampler with a full RLE adjacency scan that merges collinear
+cell edges. The authoritative 2,048 by 2,048 grid now produces 22,595
+continuous exact-grid segments (542,280 position bytes), preserving its stepped
+topology without inventing smoothed geography. Antialiasing and a restrained
+amber structural stroke match the supplied cartographic references. Focused
+unit coverage protects straight and stepped joins, and the 1440x900 visual
+golden has been refreshed.
+
+The 500,000-system Chromium stress journey retains its explicit 50 ms frame
+assertions while its whole-test deadline is raised from the generic 30 seconds
+to 60 seconds, accommodating the cold antialiased scene setup without weakening
+the measured performance gate.
+
+**The heavier boundary layer remains inside the GPU budget** - Hardware-backed
+Chromium returned 30/30 valid actual-render timer queries with no disjoint
+samples at both required viewports. The continuous-boundary scene measured
+18.982 ms p95 at 1280x720 and 27.243 ms p95 at 1440x900 against the
+provisional 50 ms budget.
+
+**The region-data gate is closed by recorded owner review** - The project owner
+confirmed the non-commercial display of the 42 region names and derived RLE
+geometry under Frontier's media guidance. The site now carries Frontier's
+official long-form attribution, while `THIRD_PARTY_NOTICES.md` retains the
+upstream MIT notice. This is recorded as an owner governance decision rather
+than independent legal advice. No donation mechanism is implemented or relied
+on. The production candidate stays default-off until bounded region delivery
+and the full regression matrix pass.
+
+**ED Astro is inventoried without widening map-cutover scope** - Reviewed its
+134-file directory (about 335.58 GiB advertised uncompressed), source statement,
+and the owner-supplied Catalogue of Galactic Nebulae workbook. Nebula
+coordinates and combined POIs are the first small, map-relevant candidates;
+bulk body/star dumps are explicitly importer-side research only. Because the
+general ED Astro data page is All Rights Reserved while some narrower content
+has separate Creative Commons notices, file-level reuse terms remain required
+before vendoring or routine mirroring.
+
 ## 2026-07-22 - Stage 26E hardware GPU timing gate
 
 **GPU duration is now measured on the real candidate render** - Added a

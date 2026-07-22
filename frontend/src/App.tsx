@@ -430,7 +430,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           </p>
         </section>
         <p data-testid="frontier-fan-disclaimer" className="mx-auto max-w-4xl text-[10px] leading-relaxed">
-          This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
+          ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
         </p>
       </footer>
 

@@ -5,9 +5,10 @@
 Stage 26E is in progress. The isolated production-candidate foundation now has
 measured desktop-browser, viewport, accessibility, visual-regression, and
 steady-state frame evidence. Its isolated boundary now carries the remaining
-production feature shapes. The live `#map` route is unchanged because two
-cutover gates remain open. This document is a progress checkpoint, not a
-completion or shipping claim.
+production feature shapes, continuous authoritative region boundaries, and a
+closed owner-reviewed region-data gate. The live `#map` route is unchanged
+while bounded region delivery and the final default-off regression remain.
+This document is a progress checkpoint, not a completion or shipping claim.
 
 The machine-readable source of truth is
 [`cutover-gates.json`](../../artifacts/map-foundation/stage-26e/cutover-gates.json).
@@ -82,7 +83,7 @@ gates. The established renderer remains selected in normal production builds;
 deliberate flag activation and superseded-map removal remain final route steps
 after the remaining blocking gates close.
 
-## Open Engineering Gates
+## Closed GPU Evidence
 
 ### GPU timing
 
@@ -93,6 +94,13 @@ system candidate scene. At 1280x720, 30/30 valid queries produced 1.358 ms p95;
 at 1440x900, 30/30 produced 1.747 ms p95. No samples were discarded as
 disjoint. The browser reported hardware-accelerated ANGLE/Direct3D 11 rather
 than a software rasterizer.
+
+After replacing the sparse sampled region dividers with 22,595 merged,
+continuous exact-grid segments (542,280 position bytes), the renderer enables
+antialiasing and presents the boundaries as solid amber structural lines. The
+retained rerun produced 18.982 ms p95 at 1280x720 and 27.243 ms p95 at
+1440x900. Both runs again returned 30/30 valid queries with no disjoint samples
+and remain below the provisional 50 ms budget.
 
 This closes the unknown-GPU-time evidence gate without substituting JavaScript
 callback or request-animation-frame duration. The retained receipt is
@@ -135,21 +143,29 @@ acknowledgement and Elite Dangerous trademark/unofficial-tool attribution.
 
 Frontier's official media guidance permits specified non-commercial fan and
 community uses with attribution, requires express permission for commercial or
-promotional uses, and directs uncertain uses to its community team. That policy
-does not unambiguously establish that this derived geometry is covered or state
-whether source-specific attribution is required for this particular use beyond
-the site-wide fan disclaimer. See
+promotional uses, and directs uncertain uses to its community team. See
 [Frontier's official guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media).
 
-Before production exposure of the RLE-derived boundaries, the project owner or
-qualified reviewer must confirm geometry coverage and required attribution.
-The upstream MIT copyright and permission notice is now retained in
+On 2026-07-22, the project owner confirmed that ED-Finder's non-commercial use
+of the 42 region names and derived RLE geometry is covered by that guidance.
+The application now uses Frontier's official long-form attribution wording.
+This closes the internal project gate as an owner governance decision, not as
+independent legal advice. The upstream MIT copyright and permission notice is
+retained in
 [`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for the reused code and
-data. The separate Frontier coverage question remains open, so the production
-route cannot cut over.
+data. ED-Finder remains free and non-commercial; no donation mechanism is
+implemented or relied on by this review, and community donation precedent is
+not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E may continue by closing the remaining region-geometry coverage and
-attribution questions. Route cutover and superseded-map deletion remain
-unauthorized until that blocking gate is recorded as closed.
+Stage 26E may now serve and wire bounded region geometry into the default-off
+production candidate, repeat the full regression matrix, and then make a
+deliberate activation decision. The established route remains selected until
+that work passes; superseded-map deletion remains a later, explicit step.
+
+The supplied Raven Colonial reference identifies a useful post-cutover visual
+follow-up: an explicit 2D/3D control, a restrained oblique tabletop preset,
+map-plane region labels, and a faint orientation grid. ED-Finder may adapt
+those interaction principles through its existing bearing/pitch state, without
+copying Raven assets or widening the current cutover slice.

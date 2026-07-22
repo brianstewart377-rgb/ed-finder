@@ -54,9 +54,11 @@
       "samples_per_viewport": 30,
       "discarded_disjoint_samples": 0,
       "p95_ms": {
-        "1280x720": 1.357708,
-        "1440x900": 1.746875
+        "1280x720": 18.982083,
+        "1440x900": 27.24302
       },
+      "region_boundary_segments": 22595,
+      "webgl_antialias": true,
       "evidence": "artifacts/map-foundation/stage-26e/hardware-gpu-timing.json"
     },
     "memory": {
@@ -123,14 +125,14 @@
       "live_route_wiring": "pass behind exact VITE_STAGE26E_PRODUCTION_MAP=enabled flag; normal production value remains unset"
     },
     "region_redistribution_legal": {
-      "status": "blocked_requires_owner_or_legal_review",
+      "status": "pass_owner_reviewed_frontier_noncommercial_media_guidance_and_mit_provenance",
       "repository_source_first_seen": "f4e9ff6b2b2f201441eaf70301dc98ee15efe992",
       "upstream_code_license": "MIT",
       "service_posture": "project owner confirmed ED-Finder is non-commercial on 2026-07-22",
       "frontier_fan_disclaimer": {
-        "status": "pass_owner_approved_and_sitewide",
+        "status": "pass_official_long_form_sitewide",
         "location": "frontend/src/App.tsx",
-        "text": "This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it."
+        "text": "ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it."
       },
       "data_and_ip_attribution": {
         "status": "pass_owner_approved_and_sitewide",
@@ -140,30 +142,26 @@
         "includes_frontier_trademark_and_unofficial_tool_notice": true
       },
       "region_source_review": {
-        "status": "source_identified_rights_still_unresolved",
+        "status": "source_identified_mit_notice_retained_owner_coverage_review_complete",
         "local_geometry_matches_upstream": true,
         "upstream_commit": "6c1191a58e1e593966f44f16235ab39d1ad24d84",
         "edassets_result": "icons_and_markers_only_not_a_replacement_region_geometry_source_or_transferable_license",
         "comparison_projects_result": "raven_uses_the_same_upstream_region_svg_but_raven_and_edsm_do_not_supply_transferable_rights_clearance",
         "evidence": "artifacts/map-foundation/stage-26e/region-source-review.json"
       },
-      "region_names_and_rle_geometry_rights": "unresolved",
+      "region_names_and_rle_geometry_rights": "project owner confirmed coverage under Frontier's non-commercial media guidance on 2026-07-22; recorded as an owner governance decision rather than independent legal advice",
       "upstream_mit_notice": {
         "status": "pass",
         "location": "THIRD_PARTY_NOTICES.md"
       },
       "frontier_media_guidance": "https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media",
-      "required_decisions": [
-        "confirm that the derived region geometry is covered",
-        "confirm whether the derived geometry requires source-specific attribution beyond the sitewide Frontier fan disclaimer"
-      ]
+      "funding_posture": "ED-Finder is currently free and non-commercial. Donation mechanisms are outside this review and are not implemented or relied on; other community tools are precedent, not formal permission.",
+      "required_decisions": []
     },
     "production_route_cutover": {
-      "status": "not_authorized",
-      "blocking_gates": [
-        "region_redistribution_legal"
-      ],
-      "remaining_route_step": "deliberate live-route composition and regression run after blocking gates close"
+      "status": "ready_for_deliberate_cutover_regression",
+      "blocking_gates": [],
+      "remaining_route_step": "serve and wire bounded region geometry into the default-off production candidate, run the full regression matrix, then make a deliberate activation decision"
     }
   }
 }
