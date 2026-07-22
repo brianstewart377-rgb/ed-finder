@@ -7,9 +7,10 @@ document that should answer "what next?".
 
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
-- Status: Stage 25A through Stage 25H and Stage 26A through Stage 26C are
-  complete. The isolated Three.js/R3F foundation is bounded and verified at the
-  required desktop viewports; no production route or cutover is authorized.
+- Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
+  complete. The isolated Three.js/R3F foundation and typed feature hand-offs
+  are bounded and verified at the required desktop viewports; no production
+  route or cutover is authorized.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -276,9 +277,23 @@ competing roadmap source.
   while retaining every guaranteed system and reporting the aggregate
   remainder. Both required desktop Playwright journeys pass camera, keyboard,
   overlap, planner-separation, and post-context-restoration interaction checks.
-- The production map route remains unchanged. Stage 26D owns feature hand-off
-  wiring; Stage 26E retains production performance, accessibility, browser,
-  visual-regression, legal, and cutover gates.
+- The production map route remained unchanged. Stage 26D completed feature
+  hand-off wiring; Stage 26E retains production performance, accessibility,
+  browser, visual-regression, legal, and cutover gates.
+
+### Stage 26D
+
+- Complete: Finder, Compare, both saved-system persistence shapes, evidence,
+  System Detail, Cluster Search, and read-only Planner state now normalize
+  through reusable typed feature-to-scene adapters behind the isolated entry.
+- Evidence and cluster members without real coordinates are explicitly omitted
+  and reported; no position is invented. Camera, origin, layers,
+  selected-system identity, and cluster group context survive round trips.
+- Renderer interactions resolve to explicit host commands. Planner navigation
+  requires a selected system and cannot create or mutate a Build Plan.
+- Focused unit tests and both required Chromium journeys exercise every
+  hand-off. The production map route remains unchanged; Stage 26E owns parity,
+  final gates, deliberate cutover, and superseded-map removal.
 
 ### Stage 25C
 
@@ -380,8 +395,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Execute Stage 26D feature hand-offs through the typed Stage 26C scene and
-   interaction boundary without changing the production map route.
+1. Execute Stage 26E parity and final performance, GPU, accessibility, browser,
+   visual-regression, and legal gates; cut over only after explicit review.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

@@ -5,6 +5,22 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26D typed feature hand-offs
+
+**Existing feature state now crosses one typed map boundary** - Added reusable
+adapters for Finder, Compare, device-local and server-backed saved systems,
+evidence summaries, System Detail, Cluster Search, and read-only Planner
+returns. The boundary preserves camera and layer state, retains selected-system
+and cluster context, and reports systems that cannot render because their real
+feature response has no coordinates.
+
+**Map interactions now resolve to explicit host commands** - Selection and all
+feature navigation requests are translated without renderer-owned routing.
+Planner navigation requires a selected system and emits a hand-off only; it
+cannot create or mutate a Build Plan. The isolated workbench and both required
+desktop browser journeys exercise every return path while the production map
+route remains unchanged.
+
 ## 2026-07-22 - Stage 26C region-first R3F foundation
 
 **The selected renderer now has an isolated production-candidate foundation** -

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DatasetSize } from '../../artifacts/map-foundation/stage-26b/map-bakeoff-scenarios';
+import type { ClusterResult } from '../src/features/cluster-search/useClusterSearch';
 import {
   initOverlapCycling,
   reduceScene,
@@ -8,6 +9,8 @@ import {
 } from '../../artifacts/map-foundation/stage-26b/map-scene-contract';
 import { R3FMapFoundation } from '../src/features/map-foundation/R3FMapFoundation';
 import { createFoundationDemoScene } from '../src/features/map-foundation/demo-scene';
+import { applyFeatureHandoff, resolveMapInteraction } from '../src/features/map-foundation/feature-handoffs';
+import type { EvidenceSystemSummaryResponse, SystemDetail, SystemResult } from '../src/types/api';
 import type {
   FoundationSnapshot,
   RegionLayerData,
@@ -25,6 +28,23 @@ const EMPTY_VISIBILITY: VisibilityMetadata = {
   truncated: false,
   guaranteedCount: 0,
 };
+type HandoffScenario = 'finder' | 'compare' | 'savedSystems' | 'evidenceMap' | 'systemDetail' | 'clusterSearch' | 'planner';
+
+function systemResult(system: MapSceneState['systems'][number]): SystemResult {
+  return {
+    id64: system.id64, name: system.name, coords: { x: system.coords.x, y: 0, z: system.coords.z },
+    population: system.population, primaryEconomy: system.primaryEconomy,
+    overall_development_potential: system.developmentScore,
+  };
+}
+
+function evidenceSummary(systemId64: number): EvidenceSystemSummaryResponse {
+  return {
+    schema_version: 'evidence_store/v1', system_id64: systemId64,
+    observed_fact_count: 1, imported_record_count: 0, derived_feature_count: 0, open_rule_proposal_count: 0,
+    focus_areas: [], records: [], derived_features: [], open_rule_proposals: [],
+  };
+}
 
 export function MapFoundationWorkbench() {
   const [datasetSize, setDatasetSize] = useState<DatasetSize>(500_000);
@@ -35,8 +55,12 @@ export function MapFoundationWorkbench() {
   const [overlapCandidateIds, setOverlapCandidateIds] = useState<number[]>([]);
   const [contextState, setContextState] = useState<FoundationSnapshot['contextState']>('ready');
   const [lastInteraction, setLastInteraction] = useState<MapInteractionEvent | null>(null);
+  const [lastHostCommand, setLastHostCommand] = useState('none');
+  const [omittedHandoffSystemIds, setOmittedHandoffSystemIds] = useState<number[]>([]);
   const [visibility, setVisibility] = useState<VisibilityMetadata>(EMPTY_VISIBILITY);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
   const contextStateRef = useRef(contextState);
   contextStateRef.current = contextState;
 
@@ -59,6 +83,7 @@ export function MapFoundationWorkbench() {
 
   const onInteraction = useCallback((event: MapInteractionEvent) => {
     setLastInteraction(event);
+    setLastHostCommand(resolveMapInteraction(sceneRef.current, event).command.type);
     if (contextStateRef.current === 'restored' && (
       event.type === 'selectSystem' || event.type === 'overlapChoiceRequired'
     )) {
@@ -100,6 +125,80 @@ export function MapFoundationWorkbench() {
     }
   }, []);
 
+  const applyScenario = (scenario: HandoffScenario) => {
+    setScene((current) => {
+      const [anchor, memberA, memberB, compareLeft, compareRight] = current.systems;
+      if (!anchor || !memberA || !memberB || !compareLeft || !compareRight) return current;
+      const systems = [anchor, memberA, memberB, compareLeft, compareRight].map(systemResult);
+      let result;
+      switch (scenario) {
+        case 'finder':
+          result = applyFeatureHandoff(current, {
+            type: 'finder', systems, selectedSystemId64: anchor.id64,
+            metadata: { count: systems.length, truncated: false, continuationToken: null },
+          });
+          break;
+        case 'compare':
+          result = applyFeatureHandoff(current, {
+            type: 'compare', systems: [systems[3]!, systems[4]!],
+            leftId64: compareLeft.id64, rightId64: compareRight.id64,
+          });
+          break;
+        case 'savedSystems':
+          result = applyFeatureHandoff(current, { type: 'savedSystems', systems: [
+            { id64: anchor.id64, name: anchor.name, x: anchor.coords.x, y: 0, z: anchor.coords.z,
+              population: anchor.population, is_colonised: false, economy: anchor.primaryEconomy,
+              pinned_at: '2026-07-22T00:00:00Z' },
+            { system_id64: memberA.id64, name: memberA.name, x: memberA.coords.x, y: 0, z: memberA.coords.z,
+              population: memberA.population, is_colonised: false, added_at: '2026-07-22T00:00:00Z' },
+          ] });
+          break;
+        case 'evidenceMap':
+          result = applyFeatureHandoff(current, { type: 'evidenceMap', entries: [
+            { system: systems[1]!, summary: evidenceSummary(memberA.id64) },
+            { system: systems[2]!, summary: evidenceSummary(memberB.id64) },
+          ] });
+          break;
+        case 'systemDetail': {
+          const system: SystemDetail = {
+            id64: anchor.id64, name: anchor.name, x: anchor.coords.x, y: 0, z: anchor.coords.z,
+            population: anchor.population, primary_economy: anchor.primaryEconomy,
+          };
+          result = applyFeatureHandoff(current, { type: 'systemDetail', system });
+          break;
+        }
+        case 'clusterSearch': {
+          const cluster: ClusterResult = {
+            anchor_id64: anchor.id64, anchor_name: anchor.name,
+            anchor_coords: { x: anchor.coords.x, y: 0, z: anchor.coords.z }, galaxy_region: 'Inner Orion Spur',
+            coverage_score: 80, economy_diversity: 2, total_viable: 3,
+            agriculture_count: 0, agriculture_best: 0, refinery_count: 1, refinery_best: 80,
+            industrial_count: 1, industrial_best: 70, hightech_count: 0, hightech_best: 0,
+            military_count: 0, military_best: 0, tourism_count: 0, tourism_best: 0,
+            distance_ly: 0, cluster_radius_ly: 1_800,
+            slots: [{ slot_index: 0, label: 'Members', economies: ['Industrial'], matches: [
+              { system_id64: memberA.id64, system_name: memberA.name, scores: {}, distance_from_anchor_ly: 10 },
+              { system_id64: memberB.id64, system_name: memberB.name, scores: {}, distance_from_anchor_ly: 20 },
+            ] }],
+          };
+          result = applyFeatureHandoff(current, {
+            type: 'clusterSearch', cluster,
+            systemsById: new Map(systems.map((system) => [system.id64, system])),
+          });
+          break;
+        }
+        case 'planner':
+          result = applyFeatureHandoff(current, {
+            type: 'planner', systems, highlights: current.highlights, layers: current.layers,
+            clusters: current.clusters, workflowPayload: { mode: 'map', readOnly: true },
+          });
+          break;
+      }
+      setOmittedHandoffSystemIds(result.omittedSystemIds);
+      return result.scene;
+    });
+  };
+
   const highlightIds = useMemo(() => highlightedSystemIds(scene.highlights), [scene.highlights]);
   const systemsById = useMemo(() => new Map(scene.systems.map((system) => [system.id64, system])), [scene.systems]);
   const regionVisible = scene.layers.find((layer) => layer.type === 'regions')?.visible ?? false;
@@ -117,7 +216,10 @@ export function MapFoundationWorkbench() {
     overlapCandidateIds,
     contextState,
     lastInteraction,
-  }), [contextState, datasetSize, highlightIds.size, lastInteraction, overlapCandidateIds, ready, regions, scene, visibility]);
+    returnWorkflowType: scene.returnWorkflow?.type ?? null,
+    lastHostCommand,
+    omittedHandoffSystemIds,
+  }), [contextState, datasetSize, highlightIds.size, lastHostCommand, lastInteraction, omittedHandoffSystemIds, overlapCandidateIds, ready, regions, scene, visibility]);
 
   useEffect(() => {
     window.__stage26cFoundation = {
@@ -145,8 +247,8 @@ export function MapFoundationWorkbench() {
   return <main className="foundation-shell">
     <header className="foundation-header">
       <div>
-        <p className="eyebrow">Development-only · Stage 26C</p>
-        <h1>Region-first R3F foundation</h1>
+        <p className="eyebrow">Development-only · Stage 26D</p>
+        <h1>Typed feature hand-offs</h1>
       </div>
       <label>Dataset
         <select value={datasetSize} onChange={(event) => {
@@ -173,6 +275,17 @@ export function MapFoundationWorkbench() {
         onInteraction({ type: 'layerChanged', layers });
       }}>{regionVisible ? 'Hide' : 'Show'} regions</button>
       <button type="button" onClick={() => onInteraction({ type: 'navigateToPlanner' })}>Request Plan hand-off</button>
+      <label>Return from
+        <select aria-label="Return from feature" defaultValue="finder" onChange={(event) => applyScenario(event.target.value as HandoffScenario)}>
+          <option value="finder">Finder</option>
+          <option value="compare">Compare</option>
+          <option value="savedSystems">Saved Systems</option>
+          <option value="evidenceMap">Evidence Map</option>
+          <option value="systemDetail">System Detail</option>
+          <option value="clusterSearch">Cluster Search</option>
+          <option value="planner">Planner</option>
+        </select>
+      </label>
     </header>
 
     <section className="foundation-status" aria-live="polite">
@@ -218,6 +331,9 @@ export function MapFoundationWorkbench() {
         <section className="event-log">
           <h3>Last typed interaction</h3>
           <code data-testid="last-interaction">{lastInteraction?.type ?? 'none'}</code>
+          <p>Host command: <code data-testid="last-host-command">{lastHostCommand}</code></p>
+          <p>Return workflow: <code data-testid="return-workflow">{scene.returnWorkflow?.type ?? 'none'}</code></p>
+          <p>{omittedHandoffSystemIds.length} coordinate omissions</p>
           {lastInteraction?.type === 'navigateToPlanner' && <p>No plan mutation occurred.</p>}
         </section>
       </aside>
