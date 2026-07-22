@@ -78,3 +78,12 @@ button:hover, button:focus-visible { border-color: #72c7ef; outline: none; }
 .foundation-companion button[aria-pressed="true"] { border-color: #ffb454; color: #ffcf91; }
 .foundation-companion ul { margin: 0; padding-left: 1.2rem; }
 .event-log code { color: #7dd9a7; }
+.gpu-diagnostics pre {
+  overflow-wrap: anywhere;
+  padding: 0.55rem;
+  color: #b8d7e8;
+  background: #05090e;
+  border: 1px solid #203847;
+  font-size: 0.65rem;
+  white-space: pre-wrap;
+}

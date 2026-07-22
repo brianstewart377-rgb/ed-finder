@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "recorded_on": "2026-07-22",
+  "surface": "development-only isolated map-foundation harness",
+  "url": "http://127.0.0.1:4175/map-foundation/index.html?gpu-test=1",
+  "scene": {
+    "dataset_systems": 500000,
+    "rendered_background_systems": 25000,
+    "guaranteed_systems": 5,
+    "region_labels": 42,
+    "heatmap_cells": 16,
+    "aggregate_hulls": 3
+  },
+  "method": {
+    "api": "EXT_disjoint_timer_query_webgl2",
+    "operation": "timer query wrapped around WebGLRenderer.render(scene, camera)",
+    "samples_per_viewport": 30,
+    "warmup": "one preceding 30-sample run before the retained measurements",
+    "javascript_frame_time_used_as_gpu_time": false
+  },
+  "environment": {
+    "browser": "hardware-backed Chromium in the Codex in-app browser",
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics (0x0000A78B) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "hardware_accelerated": true,
+    "timer_extension_available": true
+  },
+  "measurements": [
+    {
+      "viewport": { "width": 1280, "height": 720 },
+      "requested_sample_count": 30,
+      "valid_sample_count": 30,
+      "discarded_disjoint_samples": 0,
+      "median_ms": 1.351354,
+      "p95_ms": 1.357708,
+      "max_ms": 1.357864
+    },
+    {
+      "viewport": { "width": 1440, "height": 900 },
+      "requested_sample_count": 30,
+      "valid_sample_count": 30,
+      "discarded_disjoint_samples": 0,
+      "median_ms": 1.287135,
+      "p95_ms": 1.746875,
+      "max_ms": 1.751249
+    }
+  ],
+  "provisional_frame_budget_ms": 50,
+  "status": "pass_gpu_timing_evidence_gate",
+  "limitations": [
+    "This is one Windows integrated-GPU environment, not a broad hardware guarantee.",
+    "The measurement closes the unknown-GPU-time evidence gap; it does not authorize production route cutover.",
+    "The production candidate remains default-off and production region geometry remains withheld pending rights review."
+  ]
+}

@@ -47,10 +47,17 @@
       "budget_ms": 50
     },
     "gpu_timing": {
-      "status": "unknown_blocking_final_performance_claim",
+      "status": "pass_hardware_timer_queries_actual_candidate_frames",
       "extension": "EXT_disjoint_timer_query_webgl2",
-      "extension_available": false,
-      "gpu_probe_ms": null
+      "extension_available": true,
+      "hardware_accelerated": true,
+      "samples_per_viewport": 30,
+      "discarded_disjoint_samples": 0,
+      "p95_ms": {
+        "1280x720": 1.357708,
+        "1440x900": 1.746875
+      },
+      "evidence": "artifacts/map-foundation/stage-26e/hardware-gpu-timing.json"
     },
     "memory": {
       "status": "pass_transport_normalized_buffers_and_live_route_heap_bounded",
@@ -154,7 +161,6 @@
     "production_route_cutover": {
       "status": "not_authorized",
       "blocking_gates": [
-        "gpu_timing",
         "region_redistribution_legal"
       ],
       "remaining_route_step": "deliberate live-route composition and regression run after blocking gates close"

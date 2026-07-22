@@ -63,8 +63,9 @@ a production budget.
 The raw transport, normalized overlay buffers, and default-off live-route heap
 are now all bounded. The live-route evidence supersedes the variable isolated
 fixture snapshots for the memory gate because it measures the actual route
-composition and live production-shaped payloads. It does not close GPU timing
-or authorize route cutover.
+composition and live production-shaped payloads. It does not by itself close
+GPU timing or authorize route cutover; the separate hardware-backed measurement
+below closes the GPU evidence gate.
 
 ## Closed Production Feature Parity
 
@@ -85,10 +86,22 @@ after the remaining blocking gates close.
 
 ### GPU timing
 
-Stage 26E now attempts a real WebGL2 `EXT_disjoint_timer_query_webgl2` query.
-The extension was unavailable in the measured Chromium environment, so GPU
-time remains explicitly unknown. JavaScript callback or request-animation-frame
-duration is not substituted.
+The initial automated Chromium environment did not expose
+`EXT_disjoint_timer_query_webgl2`. A hardware-backed Chromium rerun now wraps
+the real `WebGLRenderer.render(scene, camera)` call for the visible 500,000-
+system candidate scene. At 1280x720, 30/30 valid queries produced 1.358 ms p95;
+at 1440x900, 30/30 produced 1.747 ms p95. No samples were discarded as
+disjoint. The browser reported hardware-accelerated ANGLE/Direct3D 11 rather
+than a software rasterizer.
+
+This closes the unknown-GPU-time evidence gate without substituting JavaScript
+callback or request-animation-frame duration. The retained receipt is
+[`hardware-gpu-timing.json`](../../artifacts/map-foundation/stage-26e/hardware-gpu-timing.json).
+For a repeat measurement in normal Chrome, run `yarn map-foundation:dev` from
+`frontend/`, open
+`http://127.0.0.1:4175/map-foundation/index.html?gpu-test=1`, wait for `ready`,
+and select **Run GPU timing**. The diagnostic is development-only and does not
+change production route selection.
 
 ## Region Data And Legal Gate
 
@@ -137,8 +150,6 @@ route cannot cut over.
 
 ## Next Authorized Work
 
-Stage 26E may continue by rerunning GPU timing on an environment exposing the
-required extension or with a captured system trace, and by closing the
-remaining region-geometry and attribution questions. Route cutover and
-superseded-map deletion remain unauthorized until every blocking gate is
-recorded as closed.
+Stage 26E may continue by closing the remaining region-geometry coverage and
+attribution questions. Route cutover and superseded-map deletion remain
+unauthorized until that blocking gate is recorded as closed.

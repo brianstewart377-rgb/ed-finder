@@ -8,6 +8,7 @@ import type {
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
 import { toThreeJSR3F } from '../../../../artifacts/map-foundation/stage-26b/map-renderer-adapter';
 import type { FoundationRendererProps, ProjectedLabel } from './types';
+import { measureRendererGpuTiming } from './performance';
 import {
   buildClusterGeometry,
   clusterAnchorIdForSystem,
@@ -44,6 +45,16 @@ function CameraProjection({ cameraState }: { cameraState: CameraState }) {
     orthographic.updateProjectionMatrix();
     invalidate();
   }, [camera, cameraState, invalidate, size]);
+  return null;
+}
+
+function GpuTimingBridge({ onReady }: { onReady: FoundationRendererProps['onGpuTimerReady'] }) {
+  const { camera, gl, scene } = useThree();
+  useEffect(() => {
+    if (!onReady) return undefined;
+    onReady((sampleCount) => measureRendererGpuTiming(gl, scene, camera, sampleCount));
+    return () => onReady(null);
+  }, [camera, gl, onReady, scene]);
   return null;
 }
 
@@ -229,6 +240,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
         props.onReady?.();
       }}>
       <color attach="background" args={['#05090e']} />
+      <GpuTimingBridge onReady={props.onGpuTimerReady} />
       <SceneContents {...props} visible={visible} />
     </Canvas>
     <div className="map-foundation-labels" aria-hidden="true">
