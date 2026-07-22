@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "recorded_on": "2026-07-22",
+  "route": "#map",
+  "renderer": "r3f",
+  "activation": "measurement build only; normal production flag remains unset",
+  "data_source": "live ED-Finder API payloads fetched through the Vite preview proxy and fulfilled unchanged into the measured route",
+  "collection_method": "Chromium CDP Performance.getMetrics JSHeapUsedSize after a one-second idle; garbage collection not forced",
+  "accessibility_standard": "WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules",
+  "region_geometry_exposed": false,
+  "budget_bytes": 268435456,
+  "measurements": [
+    {
+      "viewport": {
+        "width": 1280,
+        "height": 720
+      },
+      "finderResponseStatus": 200,
+      "heatmapResponseStatus": 200,
+      "clusterResponseStatus": 200,
+      "timelineResponseStatus": 200,
+      "axeViolationCount": 0,
+      "beforeOverlays": {
+        "supported": true,
+        "budgetBytes": 268435456,
+        "sampleCount": 7,
+        "samplesBytes": [
+          17604348,
+          17604348,
+          17604348,
+          17604348,
+          17604348,
+          17604348,
+          17604348
+        ],
+        "minBytes": 17604348,
+        "maxBytes": 17604348,
+        "spreadBytes": 0,
+        "withinBudget": true
+      },
+      "afterOverlays": {
+        "supported": true,
+        "budgetBytes": 268435456,
+        "sampleCount": 7,
+        "samplesBytes": [
+          26392356,
+          26392356,
+          26392356,
+          26392356,
+          26392356,
+          26392356,
+          26392356
+        ],
+        "minBytes": 26392356,
+        "maxBytes": 26392356,
+        "spreadBytes": 0,
+        "withinBudget": true
+      },
+      "snapshot": {
+        "renderer": "r3f",
+        "routeFlagEnabled": true,
+        "surfaceKind": "ready",
+        "finderSystemCount": 500,
+        "finderResponseTruncated": false,
+        "heatmapCellCount": 50000,
+        "heatmapSourceTruncated": true,
+        "aggregateHullCount": 2000,
+        "timelinePointCount": 100,
+        "estimatedOverlayBufferBytes": 4272000,
+        "overlayBufferWithinBudget": true,
+        "regionGeometryExposed": false,
+        "heapBudgetBytes": 268435456
+      },
+      "requestedApiPaths": [
+        "/api/local/search",
+        "/api/map/heatmap?max_cells=50000",
+        "/api/map/clusters/hulls?max_hulls=2000",
+        "/api/map/timeline?bucket=month"
+      ]
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "finderResponseStatus": 200,
+      "heatmapResponseStatus": 200,
+      "clusterResponseStatus": 200,
+      "timelineResponseStatus": 200,
+      "axeViolationCount": 0,
+      "beforeOverlays": {
+        "supported": true,
+        "budgetBytes": 268435456,
+        "sampleCount": 7,
+        "samplesBytes": [
+          17549428,
+          17549428,
+          17549428,
+          17549428,
+          17549428,
+          17549428,
+          17549428
+        ],
+        "minBytes": 17549428,
+        "maxBytes": 17549428,
+        "spreadBytes": 0,
+        "withinBudget": true
+      },
+      "afterOverlays": {
+        "supported": true,
+        "budgetBytes": 268435456,
+        "sampleCount": 7,
+        "samplesBytes": [
+          28724676,
+          28724676,
+          28724676,
+          28724676,
+          28724676,
+          28724676,
+          28724676
+        ],
+        "minBytes": 28724676,
+        "maxBytes": 28724676,
+        "spreadBytes": 0,
+        "withinBudget": true
+      },
+      "snapshot": {
+        "renderer": "r3f",
+        "routeFlagEnabled": true,
+        "surfaceKind": "ready",
+        "finderSystemCount": 500,
+        "finderResponseTruncated": false,
+        "heatmapCellCount": 50000,
+        "heatmapSourceTruncated": true,
+        "aggregateHullCount": 2000,
+        "timelinePointCount": 100,
+        "estimatedOverlayBufferBytes": 4272000,
+        "overlayBufferWithinBudget": true,
+        "regionGeometryExposed": false,
+        "heapBudgetBytes": 268435456
+      },
+      "requestedApiPaths": [
+        "/api/local/search",
+        "/api/map/heatmap?max_cells=50000",
+        "/api/map/clusters/hulls?max_hulls=2000",
+        "/api/map/timeline?bucket=month"
+      ]
+    }
+  ],
+  "status": "pass"
+}

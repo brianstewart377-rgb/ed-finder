@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "recorded_on": "2026-07-22",
+  "local_dataset": {
+    "path": "apps/importer/src/data/region_map.json",
+    "bytes": 234820,
+    "sha256": "76ff125103aca1453badf6b7b9143695d6030617364ae055dab8940709ee9e36",
+    "dimensions": [2048, 2048],
+    "encoding": "row-major run-length encoded region-id grid",
+    "regions": 42
+  },
+  "upstream_comparison": {
+    "repository": "https://github.com/klightspeed/EliteDangerousRegionMap",
+    "commit": "6c1191a58e1e593966f44f16235ab39d1ad24d84",
+    "file": "RegionMapData.json",
+    "blob": "079eb07d143f549540d798eb8965e8dda93559cd",
+    "url": "https://github.com/klightspeed/EliteDangerousRegionMap/blob/6c1191a58e1e593966f44f16235ab39d1ad24d84/RegionMapData.json",
+    "bytes": 241222,
+    "sha256": "600906fb444782b8c721bb0583e5c9c58ef1d589081263c9aa1386befd1f3fb5",
+    "regionmap_arrays_equal": true,
+    "region_names_equal_except_sentinel": true,
+    "sentinel_difference": "upstream region 0 is null; local region 0 is an empty string",
+    "local_additions": ["version", "origin", "pixel_scale"],
+    "finding": "The local RLE geometry is a metadata-wrapped copy of the upstream region grid, not an independently reconstructed boundary dataset."
+  },
+  "upstream_license": {
+    "spdx": "MIT",
+    "copyright": "Copyright (c) 2020 Ben Peddell",
+    "url": "https://github.com/klightspeed/EliteDangerousRegionMap/blob/6c1191a58e1e593966f44f16235ab39d1ad24d84/LICENSE",
+    "obligation": "Retain the copyright and permission notice in copies or substantial portions of the software.",
+    "notice_status": "retained_in_THIRD_PARTY_NOTICES.md",
+    "rights_boundary": "The repository license establishes permission from its licensor for the repository material; it does not by itself establish that Frontier-owned names or game-derived geometry are covered."
+  },
+  "edassets_review": {
+    "site": "https://edassets.org/#/about",
+    "repository": "https://github.com/Venefilyn/EDAssets",
+    "commit": "5a9b2f82796fc65abace9439aea000155f1e6eb3",
+    "galaxy_map_catalog": "https://github.com/Venefilyn/EDAssets/blob/5a9b2f82796fc65abace9439aea000155f1e6eb3/public/static/data/galaxy-map.json",
+    "galaxy_map_markers_catalog": "https://github.com/Venefilyn/EDAssets/blob/5a9b2f82796fc65abace9439aea000155f1e6eb3/public/static/data/galaxy-map-markers.json",
+    "catalog_finding": "The inspected Galaxy Map catalogs contain icons and markers, including fan-made credited entries; they do not provide the 42-region RLE boundary grid.",
+    "permission_scope_finding": "The EDAssets footer says EDAssets was created with Frontier permission. That statement concerns EDAssets and is not evidence of a transferable license for ED-Finder.",
+    "result": "not_a_replacement_region_geometry_source_or_license"
+  },
+  "comparison_projects": {
+    "raven_colonial": {
+      "repository": "https://github.com/njthomson/RavenColonialWeb",
+      "root_software_license": "GPL-3.0",
+      "embedded_ed3d_license": {
+        "spdx": "MIT",
+        "copyright": "Copyright (c) 2015 Guillaume Perez",
+        "url": "https://github.com/njthomson/RavenColonialWeb/blob/main/public/map/LICENSE"
+      },
+      "region_svg": {
+        "url": "https://github.com/njthomson/RavenColonialWeb/blob/main/public/map/textures/RegionMap.svg",
+        "blob": "90b0f7b0b5bbb556021ffb06dc546113ff1ea77e",
+        "matches_klightspeed_upstream_blob": true
+      },
+      "site_notice": "RavenColonial and SrvSurvey say they are unofficial, not affiliated with Frontier, and acknowledge trademarks and copyright to their owners.",
+      "finding": "Raven is an implementation precedent using the same upstream region SVG, but no explicit Frontier geometry permission was located and its GPL/MIT licenses are not transferable permission for ED-Finder."
+    },
+    "edsm": {
+      "site": "https://www.edsm.net/",
+      "github_organization": "https://github.com/EDSM-NET",
+      "public_repositories_checked": 7,
+      "detected_repository_licenses": 0,
+      "site_catalog_label": "Free",
+      "site_footer": "Elite: Dangerous copyright is attributed to Frontier Developments plc.",
+      "finding": "No explicit open-source code license or reusable API-data license was located. A free service or API is not, by itself, a redistribution license."
+    },
+    "result": "useful_precedent_not_rights_clearance"
+  },
+  "gate_effect": {
+    "provenance": "improved",
+    "upstream_mit_notice": "satisfied",
+    "redistribution_coverage": "unresolved",
+    "production_region_geometry": "withheld"
+  }
+}

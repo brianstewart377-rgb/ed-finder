@@ -1,0 +1,52 @@
+.stage26e-production-map-viewport {
+  position: relative;
+  min-height: 520px;
+  overflow: hidden;
+  border: 1px solid hsl(216 10% 24%);
+  border-radius: 6px;
+  background: #05090e;
+}
+
+.stage26e-production-map-viewport .map-foundation-renderer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.stage26e-production-map-viewport .map-foundation-renderer > div:first-child,
+.stage26e-production-map-viewport .map-foundation-renderer canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.stage26e-production-map-viewport .map-foundation-labels,
+.stage26e-production-map-viewport .map-foundation-cluster-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stage26e-production-map-viewport .map-foundation-labels span,
+.stage26e-production-map-viewport .map-foundation-cluster-labels span {
+  position: absolute;
+  color: #b9cbd6;
+  font-size: 10px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px #000, 0 0 3px #000;
+  transform: translate(-50%, -50%);
+}
+
+.stage26e-production-map-viewport .map-foundation-cluster-labels span {
+  color: #ffd180;
+  font-weight: 700;
+}
+
+.stage26e-production-map-viewport .map-foundation-render-stats {
+  position: absolute;
+  bottom: 0.65rem;
+  left: 0.75rem;
+  color: #92a9b7;
+  font: 11px ui-monospace, monospace;
+}

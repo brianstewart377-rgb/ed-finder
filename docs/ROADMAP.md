@@ -8,9 +8,10 @@ document that should answer "what next?".
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
-  complete. Stage 26E is in progress: its isolated browser, accessibility,
-  visual, and steady-state frame gates are recorded, while production parity,
-  memory, GPU timing, and region-data legal review still block cutover.
+  complete. Stage 26E is in progress: browser, accessibility, visual,
+  steady-state frame, default-off production parity, and live-route memory
+  gates are recorded, while GPU timing and region-data legal review still
+  block cutover.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -304,13 +305,19 @@ competing roadmap source.
   the required viewports. The WebGL GPU timer extension was unavailable, so GPU
   time remains unknown. Normalized overlay buffers now pass a deterministic
   8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
-  worst-case fixture passes a separate 8 MiB raw-response budget; the live-route
-  heap budget remains open before cutover.
+  worst-case fixture passes a separate 8 MiB raw-response budget. A default-off
+  `#map` composition with live payloads measured 26,392,356 and 28,724,676-byte
+  Chromium heap maxima at the required viewports against a 256 MiB budget and
+  passed Axe at both viewports with zero detectable violations.
 - The isolated candidate now carries live heatmap cells, aggregate cluster
   hulls, timeline state, view presets, and typed ready/empty/error composition.
-  Live-route wiring remains deliberately deferred until the blocking gates
-  close.
-- The project owner confirmed ED-Finder is non-commercial. Region names and RLE
+  The live route composition now exists only behind the exact
+  `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag; normal production
+  builds leave it unset and keep the established renderer.
+- The project owner confirmed ED-Finder is non-commercial. The local RLE grid
+  is now pinned to and structurally matched with the upstream MIT-licensed
+  `EliteDangerousRegionMap` data; EDAssets supplies icons and markers, not a
+  replacement boundary grid or transferable permission. Region names and RLE
   geometry still require coverage and attribution review against Frontier's
   current media guidance. The live map
   route remains unchanged and cutover is not authorized. See
@@ -416,9 +423,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E disabled live-route composition and heap-budget work; obtain
-   region-geometry/attribution review and real GPU evidence before any
-   deliberate cutover.
+1. Continue Stage 26E by obtaining region-geometry/attribution review and real
+   GPU evidence before any deliberate route-flag activation or cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

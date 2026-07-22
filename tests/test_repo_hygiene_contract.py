@@ -16,6 +16,7 @@ ALLOWED_VISIBLE_ROOT_FILES = {
     'pyproject.toml',
     'README.md',
     'setup.sh',
+    'THIRD_PARTY_NOTICES.md',
 }
 
 
