@@ -10,8 +10,9 @@ document that should answer "what next?".
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E is in progress: browser, accessibility, visual,
   steady-state frame, default-off production parity, and live-route memory
-  gates are recorded, hardware GPU timing is now closed, and region-data legal
-  review is the remaining cutover blocker.
+  gates are recorded; hardware GPU timing and the owner-reviewed region-data
+  gate are closed. Bounded region delivery and the full default-off regression
+  remain before a deliberate cutover decision.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -302,9 +303,10 @@ competing roadmap source.
   journey at both required desktop viewports. Axe reports zero detectable WCAG
   2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
 - The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
-  the required viewports. A hardware-backed Chromium rerun produced 30/30 valid
-  actual-render GPU timer queries at both viewports, with 1.358 ms and 1.747 ms
-  p95 and no disjoint samples. Normalized overlay buffers now pass a
+  the required viewports. After replacing sampled region fragments with 22,595
+  antialiased continuous exact-grid segments, a hardware-backed Chromium rerun
+  produced 30/30 valid actual-render GPU timer queries at both viewports, with
+  18.982 ms and 27.243 ms p95 and no disjoint samples. Normalized overlay buffers pass a
   deterministic 8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
   worst-case fixture passes a separate 8 MiB raw-response budget. A default-off
   `#map` composition with live payloads measured 26,392,356 and 28,724,676-byte
@@ -315,14 +317,22 @@ competing roadmap source.
   The live route composition now exists only behind the exact
   `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag; normal production
   builds leave it unset and keep the established renderer.
-- The project owner confirmed ED-Finder is non-commercial. The local RLE grid
-  is now pinned to and structurally matched with the upstream MIT-licensed
-  `EliteDangerousRegionMap` data; EDAssets supplies icons and markers, not a
-  replacement boundary grid or transferable permission. Region names and RLE
-  geometry still require coverage and attribution review against Frontier's
-  current media guidance. The live map
-  route remains unchanged and cutover is not authorized. See
+- The project owner confirmed ED-Finder is non-commercial and confirmed the 42
+  region names and derived RLE geometry are covered by Frontier's current media
+  guidance. The local grid is pinned to the upstream MIT-licensed
+  `EliteDangerousRegionMap` data, its MIT notice is retained, and Frontier's
+  official long-form attribution is site-wide. This closes the internal gate
+  as an owner governance decision, not independent legal advice. Donations are
+  outside the current implementation and are not relied on by the review. The
+  live map route remains unchanged until bounded region delivery and the final
+  regression pass. See
   [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
+- ED Astro's 134-file, roughly 335.58 GiB published catalogue is inventoried
+  without opening a bulk-ingest lane. Nebula coordinates and combined POIs are
+  the first bounded candidates after file-level reuse terms and mixed-source
+  provenance are confirmed; multi-gigabyte body/star dumps stay outside Stage
+  26E. See
+  [`edastro-data-source-inventory.md`](./colonisation-redesign/edastro-data-source-inventory.md).
 
 ### Stage 25C
 
@@ -424,8 +434,9 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E by obtaining region-geometry coverage and attribution
-   review before any deliberate route-flag activation or cutover.
+1. Continue Stage 26E by serving bounded region geometry to the default-off
+   production candidate and running the full regression matrix before any
+   deliberate route-flag activation or cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

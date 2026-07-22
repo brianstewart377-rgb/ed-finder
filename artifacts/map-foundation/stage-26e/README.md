@@ -9,8 +9,9 @@ claiming production cutover readiness.
   fixture after the Stage 26D hand-off journey.
 - `hardware-gpu-timing.json` records 30 actual-render WebGL2 timer-query
   samples at each required viewport on a hardware-backed Chromium session.
-  Both runs returned 30 valid samples with no disjoint results; p95 GPU time
-  was 1.358 ms at 1280x720 and 1.747 ms at 1440x900.
+  After antialiased continuous exact-grid boundaries replaced the sparse
+  sampled dividers, both runs returned 30 valid samples with no disjoint
+  results; p95 GPU time was 18.982 ms at 1280x720 and 27.243 ms at 1440x900.
 - `production-memory-budget.json` records the bounded normalized overlay
   buffers, their deterministic worst-case byte count, the closed raw-response
   bound, and the closed live-route heap budget.
@@ -22,17 +23,17 @@ claiming production cutover readiness.
 - `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
   stable density-first ordering, truncation contract, and compact JSON budget.
 - `region-source-review.json` records the exact local/upstream RLE comparison
-  and the EDAssets catalog review. It closes the source-identification gap but
-  does not claim that either repository transfers Frontier redistribution
-  rights to ED-Finder.
+  and the EDAssets catalog review. It separates MIT source provenance from the
+  owner's recorded non-commercial Frontier-media-usage coverage decision.
 - `THIRD_PARTY_NOTICES.md` at the repository root now retains the upstream MIT
   copyright and permission notice for the reused region algorithm and data.
 - The visual golden is retained beside its Playwright test under
   `frontend/map-foundation/e2e/visual.spec.ts-snapshots/`.
 
 The earlier automated Chromium environment did not expose the timer extension.
-The hardware-backed rerun now closes that evidence gap using real
+The hardware-backed rerun closes that evidence gap using real
 `WebGLRenderer.render(scene, camera)` timer queries rather than JavaScript frame
-callbacks. The candidate is composed behind an exact default-off production
-flag, and production region geometry is withheld. Production cutover remains
-blocked by region-data coverage and attribution review.
+callbacks. Region-data provenance, attribution, and the owner-review gate are
+now closed. The candidate remains behind an exact default-off production flag;
+bounded region delivery and the full cutover regression are the remaining
+route work.

@@ -121,7 +121,7 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
           3,
         ]} />
       </bufferGeometry>
-      <lineBasicMaterial color="#547b96" transparent opacity={0.5} />
+      <lineBasicMaterial color="#b97822" transparent opacity={0.72} />
     </lineSegments>
     <points onPointerDown={(event) => select(visible.background, event)}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
@@ -227,7 +227,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       );
       emitCamera({ ...props.scene.camera, zoom });
     }}>
-    <Canvas orthographic frameloop="demand" gl={{ antialias: false, powerPreference: 'high-performance' }}
+    <Canvas orthographic frameloop="demand" gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
         canvas.addEventListener('webglcontextlost', (event) => {

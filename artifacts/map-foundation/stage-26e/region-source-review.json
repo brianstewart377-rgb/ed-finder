@@ -73,7 +73,10 @@
   "gate_effect": {
     "provenance": "improved",
     "upstream_mit_notice": "satisfied",
-    "redistribution_coverage": "unresolved",
-    "production_region_geometry": "withheld"
+    "redistribution_coverage": "owner_reviewed_as_covered_by_frontier_noncommercial_media_guidance",
+    "owner_decision_recorded_on": "2026-07-22",
+    "decision_scope": "ED-Finder's non-commercial display of the 42 region names and derived RLE geometry with the official Frontier attribution; this is a project-owner decision, not independent legal advice",
+    "funding_scope": "No donation mechanism is implemented or relied on by this review; community donation precedent is not treated as formal Frontier permission.",
+    "production_region_geometry": "eligible_for_default_off_integration_and_regression"
   }
 }
