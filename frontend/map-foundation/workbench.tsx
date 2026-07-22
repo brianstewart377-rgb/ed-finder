@@ -10,6 +10,7 @@ import {
 import { R3FMapFoundation } from '../src/features/map-foundation/R3FMapFoundation';
 import { createFoundationDemoScene } from '../src/features/map-foundation/demo-scene';
 import { applyFeatureHandoff, resolveMapInteraction } from '../src/features/map-foundation/feature-handoffs';
+import { measureFoundationPerformance } from '../src/features/map-foundation/performance';
 import type { EvidenceSystemSummaryResponse, SystemDetail, SystemResult } from '../src/types/api';
 import type {
   FoundationSnapshot,
@@ -232,6 +233,13 @@ export function MapFoundationWorkbench() {
         extension.loseContext();
         window.setTimeout(() => extension.restoreContext(), 100);
         return true;
+      },
+      measurePerformance: async () => {
+        const canvas = viewportRef.current?.querySelector('canvas');
+        if (!canvas) throw new Error('Map foundation canvas is unavailable');
+        const measurement = await measureFoundationPerformance(canvas);
+        setScene((current) => ({ ...current, camera: { ...current.camera } }));
+        return measurement;
       },
     };
     return () => { delete window.__stage26cFoundation; };

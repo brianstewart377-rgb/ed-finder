@@ -5,6 +5,22 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E cutover-readiness gates (in progress)
+
+**The isolated foundation now has broader final-gate evidence** - Added a
+six-cell Chromium/Firefox/WebKit desktop matrix, an Axe WCAG A/AA audit, a
+repeatable 1440x900 visual golden, and explicit steady-state and WebGL GPU-timer
+instrumentation. Both required Chromium viewports measured about 16.7-16.8 ms
+p95 after the 500,000-system typed hand-off journey.
+
+**Unknown and blocked gates remain explicit** - The measured environment did
+not expose the required GPU timer extension, development-fixture memory still
+needs a production budget, and the R3F boundary does not yet carry every live
+heatmap, aggregate-cluster, timeline, preset, and error-state behavior. Region
+names and RLE geometry also require owner/legal review under Frontier's current
+media guidance. The production map route is therefore unchanged and cutover is
+not authorized.
+
 ## 2026-07-22 - Stage 26D typed feature hand-offs
 
 **Existing feature state now crosses one typed map boundary** - Added reusable

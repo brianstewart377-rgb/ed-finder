@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 
 const viewports = [{ width: 1280, height: 720 }, { width: 1440, height: 900 }];
 
@@ -68,6 +70,32 @@ for (const viewport of viewports) {
     await expect(page.getByTestId('last-interaction')).toHaveText('navigateToPlanner');
     await expect(page.getByTestId('last-host-command')).toHaveText('openPlanner');
     await expect(page.getByText('No plan mutation occurred.')).toBeVisible();
+
+    const companion = page.getByRole('complementary', { name: 'Map keyboard companion' });
+    await expect(companion.getByRole('heading', { name: 'Context companion' })).toBeVisible();
+    const unnamedControls = await page.locator('button:not([disabled]), select:not([disabled])').evaluateAll((controls) =>
+      controls.filter((control) => !(control.getAttribute('aria-label') || control.textContent?.trim())).length,
+    );
+    expect(unnamedControls).toBe(0);
+
+    const performance = await page.evaluate(() => window.__stage26cFoundation!.measurePerformance());
+    expect(performance.frameSampleCount).toBe(60);
+    expect(performance.frameP95Ms).toBeLessThan(50);
+    expect(performance.frameMaxMs).toBeLessThan(100);
+    if (performance.gpuTimerSupported) expect(performance.gpuProbeMs).not.toBeNull();
+    await test.info().attach('stage-26e-performance', {
+      body: JSON.stringify(performance, null, 2),
+      contentType: 'application/json',
+    });
+    if (process.env.STAGE26E_CAPTURE === '1') {
+      const outputDirectory = path.resolve(process.cwd(), '../artifacts/map-foundation/stage-26e');
+      await mkdir(outputDirectory, { recursive: true });
+      await writeFile(
+        path.join(outputDirectory, `performance-${viewport.width}x${viewport.height}.json`),
+        `${JSON.stringify({ viewport, browser: 'chromium', measurement: performance }, null, 2)}\n`,
+        'utf8',
+      );
+    }
     expect(consoleErrors).toEqual([]);
   });
 }

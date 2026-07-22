@@ -19,10 +19,13 @@
     "bakeoff:e2e": "playwright test --config playwright.bakeoff.config.ts",
     "map-foundation:dev": "vite --config vite.map-foundation.config.ts",
     "map-foundation:typecheck": "tsc --noEmit -p map-foundation/tsconfig.json",
-    "map-foundation:lint": "eslint map-foundation src/features/map-foundation vite.map-foundation.config.ts vite.authoritative-regions.ts playwright.map-foundation.config.ts --max-warnings 0",
+    "map-foundation:lint": "eslint map-foundation src/features/map-foundation vite.map-foundation.config.ts vite.authoritative-regions.ts playwright.map-foundation.config.ts playwright.map-foundation.matrix.config.ts playwright.map-foundation.visual.config.ts playwright.map-foundation.accessibility.config.ts --max-warnings 0",
     "map-foundation:test": "node scripts/run-vitest.mjs run src/features/map-foundation",
     "map-foundation:build": "vite build --config vite.map-foundation.config.ts",
     "map-foundation:e2e": "playwright test --config playwright.map-foundation.config.ts",
+    "map-foundation:matrix": "playwright test --config playwright.map-foundation.matrix.config.ts",
+    "map-foundation:visual": "playwright test --config playwright.map-foundation.visual.config.ts",
+    "map-foundation:accessibility": "playwright test --config playwright.map-foundation.accessibility.config.ts",
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && vite build --configLoader runner",
     "build:typecheck": "tsc --noEmit && node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && vite build --configLoader runner",
     "typecheck": "tsc --noEmit",
@@ -68,6 +71,7 @@
     "zustand": "^5.0.13"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.59.1",
     "@testing-library/dom": "^10.4.0",

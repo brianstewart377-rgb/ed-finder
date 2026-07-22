@@ -9,6 +9,7 @@ This folder is the main documentation entry point for the repo.
 - [`colonisation-redesign/stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md) for the completed equal-renderer evidence and Stage 26C R3F foundation choice.
 - [`colonisation-redesign/stage-26c-region-first-foundation-contract.md`](./colonisation-redesign/stage-26c-region-first-foundation-contract.md) for the isolated R3F implementation boundary, evidence, and Stage 26D hand-off.
 - [`colonisation-redesign/stage-26d-feature-handoff-contract.md`](./colonisation-redesign/stage-26d-feature-handoff-contract.md) for the completed typed feature integration and Stage 26E cutover boundary.
+- [`colonisation-redesign/stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md) for current cutover-gate progress and the remaining production parity, memory, GPU, and legal blockers.
 - [`colonisation-redesign/README.md`](./colonisation-redesign/README.md) for active planner, evidence, enrichment, and historical stage-control docs.
 - [`development/`](./development/) for local workflow, test environment, handoff, and implementation-contract docs.
 - [`operations/`](./operations/) for deployment, hosting, SSH, and operator runbooks.
