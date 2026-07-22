@@ -21,6 +21,11 @@ for (const viewport of viewports) {
     expect(initial.visible.guaranteedCount).toBe(5);
     expect(initial.highlightCount).toBe(5);
     expect(initial.clusterCount).toBe(1);
+    expect(initial.productionHeatmapCellCount).toBe(16);
+    expect(initial.productionAggregateHullCount).toBe(3);
+    expect(initial.productionTimelinePointCount).toBe(3);
+    expect(initial.productionSurfaceKind).toBe('ready');
+    expect(initial.estimatedOverlayBufferBytes).toBeGreaterThan(0);
 
     const canvas = page.locator('canvas');
     const box = await canvas.boundingBox();
@@ -70,6 +75,14 @@ for (const viewport of viewports) {
     await expect(page.getByTestId('last-interaction')).toHaveText('navigateToPlanner');
     await expect(page.getByTestId('last-host-command')).toHaveText('openPlanner');
     await expect(page.getByText('No plan mutation occurred.')).toBeVisible();
+
+    const viewPreset = page.getByLabel('View preset');
+    for (const preset of ['galaxy', 'reference', 'results'] as const) {
+      await viewPreset.selectOption(preset);
+      await expect.poll(async () => (
+        await page.evaluate(() => window.__stage26cFoundation?.snapshot().productionViewPreset ?? null)
+      )).toBe(preset);
+    }
 
     const companion = page.getByRole('complementary', { name: 'Map keyboard companion' });
     await expect(companion.getByRole('heading', { name: 'Context companion' })).toBeVisible();

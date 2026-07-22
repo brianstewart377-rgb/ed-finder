@@ -11,6 +11,12 @@ import { R3FMapFoundation } from '../src/features/map-foundation/R3FMapFoundatio
 import { createFoundationDemoScene } from '../src/features/map-foundation/demo-scene';
 import { applyFeatureHandoff, resolveMapInteraction } from '../src/features/map-foundation/feature-handoffs';
 import { measureFoundationPerformance } from '../src/features/map-foundation/performance';
+import {
+  applyViewPreset,
+  composeProductionParity,
+  type MapViewPreset,
+} from '../src/features/map-foundation/production-parity';
+import type { MapClusterHull, MapHeatmapResponse, MapTimelineResponse } from '../src/lib/api';
 import type { EvidenceSystemSummaryResponse, SystemDetail, SystemResult } from '../src/types/api';
 import type {
   FoundationSnapshot,
@@ -30,6 +36,43 @@ const EMPTY_VISIBILITY: VisibilityMetadata = {
   guaranteedCount: 0,
 };
 type HandoffScenario = 'finder' | 'compare' | 'savedSystems' | 'evidenceMap' | 'systemDetail' | 'clusterSearch' | 'planner';
+
+const PRODUCTION_HEATMAP_FIXTURE: MapHeatmapResponse = {
+  voxel_size: 2_000,
+  voxel_bucket: 1_000,
+  economy: null,
+  count: 16,
+  cells: Array.from({ length: 16 }, (_, index) => ({
+    cx: (index % 4 - 1.5) * 8_000,
+    cy: 0,
+    cz: (Math.floor(index / 4) - 1.5) * 8_000,
+    n: 5 + index,
+    avg_score: 25 + index * 4,
+    max_score: 90,
+  })),
+};
+
+const PRODUCTION_HULL_FIXTURE: MapClusterHull[] = Array.from({ length: 3 }, (_, index) => ({
+  anchor_id64: 900_000_000 + index,
+  anchor_name: `Aggregate ${index + 1}`,
+  x: (index - 1) * 12_000,
+  y: 0,
+  z: (index % 2 === 0 ? -1 : 1) * 10_000,
+  radius_ly: 3_000 + index * 500,
+  system_count: 8 + index,
+  top_economy: null,
+  top_score: 70 + index * 5,
+}));
+
+const PRODUCTION_TIMELINE_FIXTURE: MapTimelineResponse = {
+  bucket: 'month',
+  total: 42,
+  points: [
+    { date: '2026-05-01', count: 10 },
+    { date: '2026-06-01', count: 14 },
+    { date: '2026-07-01', count: 18 },
+  ],
+};
 
 function systemResult(system: MapSceneState['systems'][number]): SystemResult {
   return {
@@ -59,6 +102,7 @@ export function MapFoundationWorkbench() {
   const [lastHostCommand, setLastHostCommand] = useState('none');
   const [omittedHandoffSystemIds, setOmittedHandoffSystemIds] = useState<number[]>([]);
   const [visibility, setVisibility] = useState<VisibilityMetadata>(EMPTY_VISIBILITY);
+  const [viewPreset, setViewPreset] = useState<MapViewPreset>('results');
   const viewportRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
@@ -203,6 +247,13 @@ export function MapFoundationWorkbench() {
   const highlightIds = useMemo(() => highlightedSystemIds(scene.highlights), [scene.highlights]);
   const systemsById = useMemo(() => new Map(scene.systems.map((system) => [system.id64, system])), [scene.systems]);
   const regionVisible = scene.layers.find((layer) => layer.type === 'regions')?.visible ?? false;
+  const productionParity = useMemo(() => composeProductionParity({
+    systemCount: Math.min(scene.systems.length, 500),
+    heatmap: PRODUCTION_HEATMAP_FIXTURE,
+    hulls: PRODUCTION_HULL_FIXTURE,
+    timeline: PRODUCTION_TIMELINE_FIXTURE,
+    timelineBucket: 'month',
+  }), [scene.systems.length]);
 
   const snapshot = useCallback((): FoundationSnapshot => ({
     ready,
@@ -220,7 +271,13 @@ export function MapFoundationWorkbench() {
     returnWorkflowType: scene.returnWorkflow?.type ?? null,
     lastHostCommand,
     omittedHandoffSystemIds,
-  }), [contextState, datasetSize, highlightIds.size, lastHostCommand, lastInteraction, omittedHandoffSystemIds, overlapCandidateIds, ready, regions, scene, visibility]);
+    productionHeatmapCellCount: productionParity.overlays.heatmap?.cellCount ?? 0,
+    productionAggregateHullCount: productionParity.overlays.aggregateHulls?.hullCount ?? 0,
+    productionTimelinePointCount: productionParity.timeline?.pointCount ?? 0,
+    productionViewPreset: viewPreset,
+    productionSurfaceKind: productionParity.surface.kind,
+    estimatedOverlayBufferBytes: productionParity.estimatedOverlayBufferBytes,
+  }), [contextState, datasetSize, highlightIds.size, lastHostCommand, lastInteraction, omittedHandoffSystemIds, overlapCandidateIds, productionParity, ready, regions, scene, viewPreset, visibility]);
 
   useEffect(() => {
     window.__stage26cFoundation = {
@@ -270,6 +327,17 @@ export function MapFoundationWorkbench() {
           <option value={500_000}>500,000 systems</option>
         </select>
       </label>
+      <label>View preset
+        <select aria-label="View preset" value={viewPreset} onChange={(event) => {
+          const preset = event.target.value as MapViewPreset;
+          setViewPreset(preset);
+          setScene((current) => applyViewPreset(current, preset, { x: 0, z: 0 }, viewport));
+        }}>
+          <option value="results">Results</option>
+          <option value="galaxy">Galaxy</option>
+          <option value="reference">Reference</option>
+        </select>
+      </label>
       <button type="button" onClick={() => {
         setScene((current) => {
           const armed = reduceScene(current, { type: 'enableOneTimeFit', center: { x: 0, z: 0 }, zoom: 64 });
@@ -303,12 +371,16 @@ export function MapFoundationWorkbench() {
       <span>{visibility.aggregateRemainder.toLocaleString()} aggregated</span>
       <span>{visibility.guaranteedCount} guaranteed</span>
       <span>{highlightIds.size} highlighted · {scene.clusters.length} cluster</span>
+      <span data-testid="production-parity-counts">
+        {productionParity.overlays.heatmap?.cellCount ?? 0} heatmap · {productionParity.overlays.aggregateHulls?.hullCount ?? 0} aggregate hulls · {productionParity.timeline?.pointCount ?? 0} timeline
+      </span>
       <span data-testid="context-state">context {contextState}</span>
     </section>
 
     <div className="foundation-layout">
       <div className="foundation-viewport" ref={viewportRef}>
-        <R3FMapFoundation scene={scene} regions={regionVisible ? regions : EMPTY_REGIONS} viewport={viewport}
+        <R3FMapFoundation scene={scene} regions={regionVisible ? regions : EMPTY_REGIONS}
+          productionOverlays={productionParity.overlays} viewport={viewport}
           onReady={() => setReady(true)} onInteraction={onInteraction} onVisibilityChange={setVisibility} />
       </div>
       <aside className="foundation-companion" aria-label="Map keyboard companion">

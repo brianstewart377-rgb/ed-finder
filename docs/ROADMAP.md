@@ -302,13 +302,16 @@ competing roadmap source.
   2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
 - The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
   the required viewports. The WebGL GPU timer extension was unavailable, so GPU
-  time remains unknown. Development-fixture heap readings require a separate
-  production budget before cutover.
-- Production feature parity remains incomplete for live heatmap cells,
-  aggregate cluster hulls, timeline state, view presets, and production
-  empty/error composition.
-- Region names and RLE geometry still require owner or legal review against
-  Frontier's current media guidance plus retained attribution. The live map
+  time remains unknown. Normalized overlay buffers now pass a deterministic
+  8 MiB budget, but the raw heatmap response and live-route heap budget remain
+  open before cutover.
+- The isolated candidate now carries live heatmap cells, aggregate cluster
+  hulls, timeline state, view presets, and typed ready/empty/error composition.
+  Live-route wiring remains deliberately deferred until the blocking gates
+  close.
+- The project owner confirmed ED-Finder is non-commercial. Region names and RLE
+  geometry still require coverage and attribution review against Frontier's
+  current media guidance. The live map
   route remains unchanged and cutover is not authorized. See
   [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
 
@@ -412,8 +415,9 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E production parity and memory work; obtain region-data
-   legal/owner review and real GPU evidence before any deliberate cutover.
+1. Continue Stage 26E raw-response and live-route memory work; obtain
+   region-geometry/attribution review and real GPU evidence before any
+   deliberate cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

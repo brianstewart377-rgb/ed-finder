@@ -7,9 +7,9 @@
   "measurement": {
     "frameSampleCount": 60,
     "frameP95Ms": 16.700000000000728,
-    "frameMaxMs": 16.700000000000728,
+    "frameMaxMs": 16.800000000000182,
     "gpuTimerSupported": false,
     "gpuProbeMs": null,
-    "jsHeapBytes": 212000000
+    "jsHeapBytes": 662000000
   }
 }
