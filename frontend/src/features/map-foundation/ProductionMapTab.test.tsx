@@ -1,0 +1,139 @@
+import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ProductionMapTab } from './ProductionMapTab';
+import { useMapLayers } from '@/features/map/useMapLayers';
+import type { SystemResult } from '@/types/api';
+
+vi.mock('@/features/map/useMapLayers');
+vi.mock('./R3FMapFoundation', () => ({
+  R3FMapFoundation: ({ scene, productionOverlays, onInteraction }: {
+    scene: { systems: Array<{ id64: number }> };
+    productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
+    onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
+  }) => (
+    <div
+      data-testid="r3f-production-renderer"
+      data-system-count={scene.systems.length}
+      data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
+      data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
+    >
+      <button type="button" onClick={() => onInteraction({ type: 'selectSystem', systemId64: scene.systems[0]?.id64 ?? 0, clusterAnchorId64: null })}>
+        Select first
+      </button>
+    </div>
+  ),
+}));
+
+const layers = {
+  regions: { data: undefined, isLoading: false, isError: false, error: null },
+  heatmap: {
+    data: {
+      voxel_size: 200,
+      voxel_bucket: 200,
+      economy: null,
+      count: 1,
+      max_cells: 50_000,
+      truncated: false,
+      cells: [{ cx: 0, cy: 0, cz: 0, n: 10, avg_score: 80, max_score: 90 }],
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
+  clusters: {
+    data: {
+      count: 1,
+      min_count: 3,
+      cached: false,
+      clusters: [{
+        anchor_id64: 99,
+        anchor_name: 'Hull',
+        x: 0,
+        y: 0,
+        z: 0,
+        radius_ly: 500,
+        system_count: 5,
+        top_economy: null,
+        top_score: 82,
+      }],
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
+  timeline: {
+    data: { bucket: 'month', total: 3, points: [{ date: '2026-07-01', count: 3 }] },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
+  isLoading: false,
+  isError: false,
+} as ReturnType<typeof useMapLayers>;
+
+function system(index: number): SystemResult {
+  return {
+    id64: index + 1,
+    name: `System ${index + 1}`,
+    coords: { x: index, y: 0, z: -index },
+    population: 0,
+    distance: index,
+  } as SystemResult;
+}
+
+beforeEach(() => {
+  vi.mocked(useMapLayers).mockReturnValue(layers);
+});
+
+afterEach(() => {
+  delete window.__stage26eProductionMap;
+});
+
+describe('Stage 26E production route composition', () => {
+  it('bounds Finder systems, withholds region geometry, and composes enabled live overlays', () => {
+    render(<ProductionMapTab systems={Array.from({ length: 510 }, (_, index) => system(index))} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Explicit route flag enabled');
+    expect(screen.getByText('Regions withheld')).toBeTruthy();
+    expect((screen.getByText('Regions withheld').querySelector('input') as HTMLInputElement).disabled).toBe(true);
+    const renderer = screen.getByTestId('r3f-production-renderer');
+    expect(renderer.getAttribute('data-system-count')).toBe('500');
+    expect(renderer.getAttribute('data-heatmap-count')).toBe('0');
+    expect(renderer.getAttribute('data-hull-count')).toBe('0');
+
+    fireEvent.click(screen.getByTestId('stage26e-map-heatmap-toggle'));
+    fireEvent.click(screen.getByTestId('stage26e-map-clusters-toggle'));
+    fireEvent.click(screen.getByTestId('stage26e-map-timeline-toggle'));
+
+    expect(renderer.getAttribute('data-heatmap-count')).toBe('1');
+    expect(renderer.getAttribute('data-hull-count')).toBe('1');
+    expect(screen.getByTestId('stage26e-map-timeline-summary').textContent).toContain('3 discoveries tracked');
+    expect(window.__stage26eProductionMap?.snapshot()).toMatchObject({
+      renderer: 'r3f',
+      routeFlagEnabled: true,
+      finderSystemCount: 500,
+      finderResponseTruncated: true,
+      heatmapCellCount: 1,
+      aggregateHullCount: 1,
+      timelinePointCount: 1,
+      regionGeometryExposed: false,
+      overlayBufferWithinBudget: true,
+    });
+  });
+
+  it('preserves selection and inspect hand-off on the candidate route', () => {
+    const onOpenSelectedSystem = vi.fn();
+    render(
+      <ProductionMapTab
+        systems={[system(0), system(1)]}
+        reference={{ name: 'Sol', x: 0, z: 0 }}
+        onOpenSelectedSystem={onOpenSelectedSystem}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select first' }));
+    expect(screen.getByTestId('map-selection-panel').textContent).toContain('System 1');
+    fireEvent.click(screen.getByTestId('map-open-selected-system'));
+    expect(onOpenSelectedSystem).toHaveBeenCalledWith(1);
+  });
+});

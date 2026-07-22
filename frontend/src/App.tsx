@@ -35,6 +35,7 @@ import {
 import { systemStatusLabel } from '@/lib/format';
 import { readLocalStorage, removeLocalStorage, writeLocalStorage } from '@/lib/storage';
 import type { SystemDetail } from '@/types/api';
+import { isStage26EProductionMapEnabled } from '@/features/map-foundation/production-route-flag';
 import './index.css';
 
 const LazyCompareTab = lazy(async () => ({ default: (await import('@/features/compare/CompareTab')).CompareTab }));
@@ -42,7 +43,9 @@ const LazyAdvancedSearchTuningTab = lazy(async () => ({ default: (await import('
 const LazyFcPlannerTab = lazy(async () => ({ default: (await import('@/features/fc-planner/FcPlannerTab')).FcPlannerTab }));
 const LazyAdminTab = lazy(async () => ({ default: (await import('@/features/admin/AdminTab')).AdminTab }));
 const LazyOperatorCockpitTab = lazy(async () => ({ default: (await import('@/features/operator/OperatorCockpitTab')).OperatorCockpitTab }));
-const LazyMapTab = lazy(async () => ({ default: (await import('@/features/map/MapTab')).MapTab }));
+const LazyMapTab = lazy(async () => isStage26EProductionMapEnabled()
+  ? { default: (await import('@/features/map-foundation/ProductionMapTab')).ProductionMapTab }
+  : { default: (await import('@/features/map/MapTab')).MapTab });
 const LazySystemDetailModal = lazy(async () => ({ default: (await import('@/features/system-detail/SystemDetailModal')).SystemDetailModal }));
 const LazyColonyPlannerWorkspace = lazy(async () => ({ default: (await import('@/features/colony-planner/ColonyPlannerWorkspace')).ColonyPlannerWorkspace }));
 const LazyMyWorkWorkspace = lazy(async () => ({ default: (await import('@/features/my-work/MyWorkWorkspace')).MyWorkWorkspace }));
@@ -409,8 +412,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
       </Suspense>
 
-      <footer className="mt-16 text-center text-label font-mono text-silver-2 opacity-40">
+      <footer className="mt-16 space-y-2 text-center text-label font-mono text-silver-2 opacity-55">
         ED:Finder — Elite Dangerous colonisation planner
+        <p data-testid="frontier-fan-disclaimer" className="mx-auto max-w-4xl text-[10px] leading-relaxed">
+          This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
+        </p>
       </footer>
 
       {selectedSystemId !== null && (

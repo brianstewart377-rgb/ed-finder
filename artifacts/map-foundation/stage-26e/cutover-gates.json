@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "26E",
   "status": "in_progress_cutover_not_authorized",
-  "baseline_sha": "2b61c1696cf7d8253d1b4ffd3fe58b529292f8a7",
+  "baseline_sha": "3352938b42c2dc5d4954b9577a1a734b553df582",
   "recorded_on": "2026-07-22",
   "gates": {
     "typed_feature_handoffs": {
@@ -24,10 +24,12 @@
       "tests_passed": 6
     },
     "accessibility": {
-      "status": "pass_for_isolated_foundation",
+      "status": "pass_for_isolated_foundation_and_default_off_live_route",
       "automated_standard": "WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules",
       "axe_violations": 0,
-      "keyboard_journey": "pass"
+      "keyboard_journey": "pass",
+      "live_route_viewports": ["1280x720", "1440x900"],
+      "live_route_evidence": "artifacts/map-foundation/stage-26e/live-route-memory.json"
     },
     "visual_regression": {
       "status": "pass_for_isolated_foundation",
@@ -51,7 +53,7 @@
       "gpu_probe_ms": null
     },
     "memory": {
-      "status": "partial_transport_and_normalized_buffers_bounded_live_heap_open",
+      "status": "pass_transport_normalized_buffers_and_live_route_heap_bounded",
       "chromium_used_js_heap_bytes": {
         "1280x720": 662000000,
         "1440x900": 386000000
@@ -76,10 +78,27 @@
         "aggregate_hulls": 2000,
         "timeline_points": 1200
       },
-      "remaining": "Repeat isolated heap readings are highly variable, and no live production-route heap budget has been measured."
+      "live_production_route": {
+        "status": "pass",
+        "route": "#map",
+        "activation": "measurement build only; normal production flag remains unset",
+        "data_source": "live ED-Finder API payloads fulfilled unchanged into the measured route",
+        "budget_bytes": 268435456,
+        "chromium_cdp_js_heap_used_size_max_bytes": {
+          "1280x720": 26392356,
+          "1440x900": 28724676
+        },
+        "finder_systems": 500,
+        "heatmap_cells": 50000,
+        "aggregate_hulls": 2000,
+        "timeline_points": 100,
+        "region_geometry_exposed": false,
+        "evidence": "artifacts/map-foundation/stage-26e/live-route-memory.json"
+      },
+      "remaining": null
     },
     "production_feature_parity": {
-      "status": "pass_for_isolated_candidate",
+      "status": "pass_for_default_off_live_route_candidate",
       "supported": [
         "Finder coordinate-bearing systems",
         "selected-system context",
@@ -94,26 +113,41 @@
         "typed production error and empty-state composition"
       ],
       "normalized_overlay_buffer_test": "pass at 4272000 bytes against an 8388608-byte budget",
-      "live_route_wiring": "not_started_until_remaining_cutover_gates_close"
+      "live_route_wiring": "pass behind exact VITE_STAGE26E_PRODUCTION_MAP=enabled flag; normal production value remains unset"
     },
     "region_redistribution_legal": {
       "status": "blocked_requires_owner_or_legal_review",
       "repository_source_first_seen": "f4e9ff6b2b2f201441eaf70301dc98ee15efe992",
       "upstream_code_license": "MIT",
       "service_posture": "project owner confirmed ED-Finder is non-commercial on 2026-07-22",
+      "frontier_fan_disclaimer": {
+        "status": "pass_owner_approved_and_sitewide",
+        "location": "frontend/src/App.tsx",
+        "text": "This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it."
+      },
+      "region_source_review": {
+        "status": "source_identified_rights_still_unresolved",
+        "local_geometry_matches_upstream": true,
+        "upstream_commit": "6c1191a58e1e593966f44f16235ab39d1ad24d84",
+        "edassets_result": "icons_and_markers_only_not_a_replacement_region_geometry_source_or_transferable_license",
+        "comparison_projects_result": "raven_uses_the_same_upstream_region_svg_but_raven_and_edsm_do_not_supply_transferable_rights_clearance",
+        "evidence": "artifacts/map-foundation/stage-26e/region-source-review.json"
+      },
       "region_names_and_rle_geometry_rights": "unresolved",
+      "upstream_mit_notice": {
+        "status": "pass",
+        "location": "THIRD_PARTY_NOTICES.md"
+      },
       "frontier_media_guidance": "https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media",
       "required_decisions": [
         "confirm that the derived region geometry is covered",
-        "add the required Frontier attribution if approved",
-        "retain the upstream MIT notice for reused algorithm code"
+        "confirm whether the derived geometry requires source-specific attribution beyond the sitewide Frontier fan disclaimer"
       ]
     },
     "production_route_cutover": {
       "status": "not_authorized",
       "blocking_gates": [
         "gpu_timing",
-        "memory",
         "region_redistribution_legal"
       ],
       "remaining_route_step": "deliberate live-route composition and regression run after blocking gates close"

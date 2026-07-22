@@ -357,6 +357,16 @@ function seedFinderResult(overrides: Record<string, unknown> = {}) {
 }
 
 describe('App Development Tuning route', () => {
+  it('shows the owner-approved non-commercial Frontier disclaimer site-wide', async () => {
+    window.location.hash = '#finder';
+
+    await renderApp();
+
+    expect(screen.getByTestId('frontier-fan-disclaimer').textContent).toBe(
+      'This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.',
+    );
+  });
+
   it('renders Development Tuning for the direct route', async () => {
     const hash = '#search-tuning';
     window.location.hash = hash;

@@ -5,6 +5,50 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E default-off production route and heap budget
+
+**The R3F candidate now has a production-route composition without a cutover** -
+The `#map` route can select the typed candidate only when the exact
+`VITE_STAGE26E_PRODUCTION_MAP=enabled` build value is present. Normal builds
+leave the flag unset and continue to load the established map. The candidate
+consumes bounded Finder, heatmap, cluster-hull, and timeline data; region
+geometry is structurally withheld while its coverage and attribution review
+remains open.
+
+**Live-route memory is closed with production-shaped evidence** - Chromium CDP
+measured seven steady `JSHeapUsedSize` samples at both required viewports after
+composing 500 Finder systems, 50,000 heatmap cells, 2,000 hulls, and 100
+timeline points from live API payloads. Maxima were 26,392,356 and 28,724,676
+bytes against a predeclared 268,435,456-byte budget. Axe reported zero
+detectable WCAG 2/2.1 A/AA violations at both composed-route viewports. GPU
+timing and region-data review still block cutover; the production flag remains
+off.
+
+**The owner-approved Frontier disclaimer is now site-wide** - The application
+footer carries the supplied non-commercial, non-endorsement, and no-employee-
+involvement wording verbatim. This records the general fan-project disclaimer;
+it does not by itself establish redistribution coverage for the derived RLE
+region geometry.
+
+**The RLE source is now pinned and compared** - The local 2,048-row region grid
+matches `klightspeed/EliteDangerousRegionMap`'s `RegionMapData.json`; ED-Finder
+adds coordinate metadata and changes only the unused sentinel label. EDAssets'
+Galaxy Map catalog contains icons and markers rather than this geometry, and
+its Frontier permission statement applies to EDAssets. The comparison improves
+provenance but leaves the region-redistribution gate open.
+
+**Comparable community-tool licensing is recorded without treating it as
+permission** - Raven Colonial publishes its web app under GPL-3.0, carries an
+MIT license for its embedded ED3D map, uses the exact upstream region SVG, and
+displays an unofficial/non-affiliation notice. EDSM exposes no detected license
+across its public GitHub repositories; its free API is not a redistribution
+license. Neither project closes ED-Finder's Frontier coverage question.
+
+**The known upstream license obligation is now satisfied** - A scoped root
+`THIRD_PARTY_NOTICES.md` retains Ben Peddell's MIT copyright and permission
+notice for the reused region algorithm and data while explicitly leaving any
+separate Elite Dangerous rights question open.
+
 ## 2026-07-22 - Stage 26E bounded heatmap transport
 
 **Raw heatmap responses now have a deterministic ceiling** - The API returns at

@@ -9,14 +9,25 @@ claiming production cutover readiness.
   fixture after the Stage 26D hand-off journey.
 - `production-memory-budget.json` records the bounded normalized overlay
   buffers, their deterministic worst-case byte count, the closed raw-response
-  bound, and the live-route measurements that remain open.
+  bound, and the closed live-route heap budget.
+- `live-route-memory.json` records the exact default-off `#map` candidate at
+  both required viewports with 500 live Finder systems, 50,000 heatmap cells,
+  2,000 aggregate hulls, and 100 timeline points. Chromium CDP heap maxima were
+  26,392,356 and 28,724,676 bytes against a 256 MiB budget; Axe reported zero
+  detectable WCAG 2/2.1 A/AA violations on both composed-route viewports.
 - `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
   stable density-first ordering, truncation contract, and compact JSON budget.
+- `region-source-review.json` records the exact local/upstream RLE comparison
+  and the EDAssets catalog review. It closes the source-identification gap but
+  does not claim that either repository transfers Frontier redistribution
+  rights to ED-Finder.
+- `THIRD_PARTY_NOTICES.md` at the repository root now retains the upstream MIT
+  copyright and permission notice for the reused region algorithm and data.
 - The visual golden is retained beside its Playwright test under
   `frontend/map-foundation/e2e/visual.spec.ts-snapshots/`.
 
 The GPU timer extension was unavailable, so GPU time remains unknown rather
-than being inferred from JavaScript frame callbacks. The isolated candidate now
-carries the live feature shapes, but production cutover remains blocked by
-live-route memory evidence (including highly variable isolated heap snapshots),
-GPU evidence, and region-data provenance and attribution review.
+than being inferred from JavaScript frame callbacks. The candidate is composed
+behind an exact default-off production flag, and region geometry is withheld.
+Production cutover remains blocked by GPU evidence and region-data provenance
+coverage and attribution review.

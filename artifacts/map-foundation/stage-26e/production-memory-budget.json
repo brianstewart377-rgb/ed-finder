@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "26E",
   "recorded_on": "2026-07-22",
-  "status": "partial_transport_and_normalized_buffers_bounded_live_heap_open",
+  "status": "pass_transport_normalized_buffers_and_live_route_heap_bounded",
   "normalized_limits": {
     "finder_systems": 500,
     "heatmap_cells": 50000,
@@ -30,8 +30,21 @@
     "1280x720": [167000000, 662000000],
     "1440x900": [188000000, 386000000]
   },
-  "open_requirements": [
-    "measure the candidate inside the production route with live Finder and map-layer responses",
-    "set and pass an end-to-end production-route JavaScript heap budget"
-  ]
+  "live_production_route": {
+    "status": "pass",
+    "evidence": "artifacts/map-foundation/stage-26e/live-route-memory.json",
+    "activation": "measurement build only; normal production flag remains unset",
+    "finder_systems": 500,
+    "heatmap_cells": 50000,
+    "aggregate_hulls": 2000,
+    "timeline_points": 100,
+    "budget_bytes": 268435456,
+    "chromium_cdp_js_heap_used_size_max_bytes": {
+      "1280x720": 26392356,
+      "1440x900": 28724676
+    },
+    "collection_method": "Performance.getMetrics after a one-second idle; garbage collection not forced",
+    "region_geometry_exposed": false
+  },
+  "open_requirements": []
 }
