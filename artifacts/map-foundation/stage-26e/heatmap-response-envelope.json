@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "recorded_on": "2026-07-22",
+  "status": "pass",
+  "server_max_cells": 50000,
+  "query_sentinel_rows": 50001,
+  "selection_order": ["n DESC", "cx", "cy", "cz"],
+  "compact_json_budget_bytes": 8388608,
+  "measured_worst_case_fixture_bytes": 4550111,
+  "truncation_metadata": ["max_cells", "truncated"],
+  "scope": "Deterministic maximum-width numeric fixture for the bounded heatmap response. Live-route JavaScript heap remains a separate gate."
+}

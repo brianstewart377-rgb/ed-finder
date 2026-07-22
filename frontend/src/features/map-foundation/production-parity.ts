@@ -79,6 +79,7 @@ export function adaptHeatmap(
     voxelSize: response.voxel_size,
     cellCount: retainedCount,
     omittedCellCount: Math.max(0, validCount - limit),
+    sourceTruncated: response.truncated,
   };
 }
 

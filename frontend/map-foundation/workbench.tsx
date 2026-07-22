@@ -42,6 +42,8 @@ const PRODUCTION_HEATMAP_FIXTURE: MapHeatmapResponse = {
   voxel_bucket: 1_000,
   economy: null,
   count: 16,
+  max_cells: 50_000,
+  truncated: false,
   cells: Array.from({ length: 16 }, (_, index) => ({
     cx: (index % 4 - 1.5) * 8_000,
     cy: 0,

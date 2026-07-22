@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "26E",
   "recorded_on": "2026-07-22",
-  "status": "partial_normalized_buffers_bounded_raw_response_and_live_heap_open",
+  "status": "partial_transport_and_normalized_buffers_bounded_live_heap_open",
   "normalized_limits": {
     "finder_systems": 500,
     "heatmap_cells": 50000,
@@ -10,6 +10,12 @@
     "timeline_points": 1200
   },
   "normalized_overlay_buffer_budget_bytes": 8388608,
+  "raw_heatmap_response": {
+    "max_cells": 50000,
+    "compact_json_budget_bytes": 8388608,
+    "measured_worst_case_fixture_bytes": 4550111,
+    "status": "pass"
+  },
   "worst_case_normalized_overlay_buffers": {
     "heatmap_positions_and_colors_bytes": 1200000,
     "aggregate_hull_line_positions_and_colors_bytes": 3072000,
@@ -25,7 +31,6 @@
     "1440x900": [188000000, 386000000]
   },
   "open_requirements": [
-    "cap the raw heatmap response before or during transport; the current API response has no cell-count bound",
     "measure the candidate inside the production route with live Finder and map-layer responses",
     "set and pass an end-to-end production-route JavaScript heap budget"
   ]

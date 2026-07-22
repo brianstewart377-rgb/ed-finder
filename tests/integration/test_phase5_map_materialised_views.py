@@ -39,6 +39,8 @@ async def test_heatmap_endpoint_reads_from_mv(client, pool):
     body = r.json()
     assert body['voxel_bucket'] == 200, body
     assert body['count'] >= 1, body  # we seeded 40 systems
+    assert body['max_cells'] == 50_000, body
+    assert body['truncated'] is False, body
 
     # 750 LY bucket → 1000 LY MV (the closest pre-aggregated bucket up).
     r2 = await client.get('/api/map/heatmap?voxel_size=750&min_systems=1')

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "stage": "26E",
   "status": "in_progress_cutover_not_authorized",
-  "baseline_sha": "359a17fca9d9a622b198de9d40d10c42224b2a50",
+  "baseline_sha": "2b61c1696cf7d8253d1b4ffd3fe58b529292f8a7",
   "recorded_on": "2026-07-22",
   "gates": {
     "typed_feature_handoffs": {
@@ -51,7 +51,7 @@
       "gpu_probe_ms": null
     },
     "memory": {
-      "status": "partial_normalized_buffers_bounded_raw_response_and_live_heap_open",
+      "status": "partial_transport_and_normalized_buffers_bounded_live_heap_open",
       "chromium_used_js_heap_bytes": {
         "1280x720": 662000000,
         "1440x900": 386000000
@@ -62,13 +62,21 @@
       },
       "normalized_overlay_buffer_budget_bytes": 8388608,
       "worst_case_normalized_overlay_buffer_bytes": 4272000,
+      "raw_heatmap_response": {
+        "status": "pass",
+        "max_cells": 50000,
+        "compact_json_budget_bytes": 8388608,
+        "measured_worst_case_fixture_bytes": 4550111,
+        "stable_selection_order": "n DESC, cx, cy, cz",
+        "truncation_metadata": ["max_cells", "truncated"]
+      },
       "normalized_limits": {
         "finder_systems": 500,
         "heatmap_cells": 50000,
         "aggregate_hulls": 2000,
         "timeline_points": 1200
       },
-      "remaining": "The raw heatmap response is unbounded before frontend normalization, repeat isolated heap readings are highly variable, and no live production-route heap budget has been measured."
+      "remaining": "Repeat isolated heap readings are highly variable, and no live production-route heap budget has been measured."
     },
     "production_feature_parity": {
       "status": "pass_for_isolated_candidate",

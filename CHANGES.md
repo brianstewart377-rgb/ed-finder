@@ -5,6 +5,21 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E bounded heatmap transport
+
+**Raw heatmap responses now have a deterministic ceiling** - The API returns at
+most 50,000 cells, selects density-first with coordinate tie-breakers, and
+fetches one sentinel row to emit explicit `max_cells` and `truncated` metadata.
+The cache key includes the requested cap, and the fallback aggregation follows
+the same ordering and limit.
+
+**Transport memory is measured separately from renderer buffers** - A
+maximum-width 50,000-cell compact JSON fixture measures 4,550,111 bytes against
+an 8 MiB budget. The frontend carries server truncation through the typed
+foundation without inventing omitted positions. Live-route heap, GPU timing,
+and region-geometry attribution remain blocking; the production map route is
+unchanged.
+
 ## 2026-07-22 - Stage 26E isolated production parity and memory bounds
 
 **The isolated candidate now carries the remaining live map shapes** - Added

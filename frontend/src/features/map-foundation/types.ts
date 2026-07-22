@@ -33,6 +33,7 @@ export type ProductionHeatmapGeometry = {
   voxelSize: number;
   cellCount: number;
   omittedCellCount: number;
+  sourceTruncated: boolean;
 };
 
 export type ProductionAggregateHullGeometry = {

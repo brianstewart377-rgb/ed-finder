@@ -26,6 +26,10 @@ The machine-readable source of truth is
 - Sixty-frame steady-state samples after the 500,000-system hand-off journey
   measured approximately 16.7 ms and 16.8 ms p95 at the two required
   viewports, below the provisional 50 ms gate.
+- The heatmap API now returns at most 50,000 density-first cells, fetches one
+  sentinel row to report truncation, and emits explicit `max_cells` and
+  `truncated` metadata. A maximum-width compact JSON fixture measured 4,550,111
+  bytes against an 8 MiB raw-response budget.
 
 These are local Windows/Playwright readings. They do not imply a broad hardware
 performance guarantee.
@@ -43,16 +47,17 @@ duration is not substituted.
 
 The candidate now limits the current 500-system Finder envelope, 50,000
 normalized heatmap cells, 2,000 aggregate hulls, and 1,200 timeline points. At
-those maxima, the heatmap and score-coloured hull typed buffers total 4,272,000 bytes and pass
-an 8 MiB normalized-overlay budget. Repeated isolated 500,000-system journeys
+those maxima, the heatmap and score-coloured hull typed buffers total 4,272,000
+bytes and pass an 8 MiB normalized-overlay budget. Repeated isolated
+500,000-system journeys
 reported roughly 167-662 MB at 1280x720 and 188-386 MB at 1440x900, demonstrating
 that these development-fixture heap snapshots are not stable enough to serve as
 a production budget.
 
-This is partial closure only. The current heatmap API has no returned-cell cap,
-so its raw JSON can exceed the normalized frontend limit before adaptation. A
-live production-route heap budget has also not been measured. Both remain
-blocking memory work.
+This closes the raw heatmap transport bound. It is still partial memory closure:
+the candidate has not been composed into the live production route, so an
+end-to-end route heap budget has not been measured. The repeated isolated heap
+variability makes that live measurement mandatory rather than inferable.
 
 ### Production feature parity
 
@@ -91,9 +96,10 @@ then, the production route cannot cut over.
 
 ## Next Authorized Work
 
-Stage 26E may continue by bounding the raw heatmap response and measuring a
-live-route JavaScript heap budget. It may also rerun GPU timing on an environment
-exposing the required extension or with a captured system trace, and close the
-remaining region-geometry and attribution questions. Route cutover and
+Stage 26E may continue by composing the candidate behind a disabled production
+flag and measuring a live-route JavaScript heap budget. It may also rerun GPU
+timing on an environment exposing the required extension or with a captured
+system trace, and close the remaining region-geometry and attribution
+questions. Route cutover and
 superseded-map deletion remain unauthorized until every blocking gate is
 recorded as closed.

@@ -263,6 +263,8 @@ export function MapTab({
             regionsError={layers.regions.isError}
             heatmapLoading={layers.heatmap.isLoading}
             heatmapError={layers.heatmap.isError}
+            heatmapTruncated={layers.heatmap.data?.truncated ?? false}
+            heatmapMaxCells={layers.heatmap.data?.max_cells ?? null}
             clustersLoading={layers.clusters.isLoading}
             clustersError={layers.clusters.isError}
             timelineLoading={layers.timeline.isLoading}

@@ -303,8 +303,9 @@ competing roadmap source.
 - The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
   the required viewports. The WebGL GPU timer extension was unavailable, so GPU
   time remains unknown. Normalized overlay buffers now pass a deterministic
-  8 MiB budget, but the raw heatmap response and live-route heap budget remain
-  open before cutover.
+  8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
+  worst-case fixture passes a separate 8 MiB raw-response budget; the live-route
+  heap budget remains open before cutover.
 - The isolated candidate now carries live heatmap cells, aggregate cluster
   hulls, timeline state, view presets, and typed ready/empty/error composition.
   Live-route wiring remains deliberately deferred until the blocking gates
@@ -415,7 +416,7 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E raw-response and live-route memory work; obtain
+1. Continue Stage 26E disabled live-route composition and heap-budget work; obtain
    region-geometry/attribution review and real GPU evidence before any
    deliberate cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.

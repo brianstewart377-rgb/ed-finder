@@ -8,13 +8,15 @@ claiming production cutover readiness.
   steady-state readings from the deterministic 500,000-system development
   fixture after the Stage 26D hand-off journey.
 - `production-memory-budget.json` records the bounded normalized overlay
-  buffers, their deterministic worst-case byte count, and the raw-response and
-  live-route measurements that remain open.
+  buffers, their deterministic worst-case byte count, the closed raw-response
+  bound, and the live-route measurements that remain open.
+- `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
+  stable density-first ordering, truncation contract, and compact JSON budget.
 - The visual golden is retained beside its Playwright test under
   `frontend/map-foundation/e2e/visual.spec.ts-snapshots/`.
 
 The GPU timer extension was unavailable, so GPU time remains unknown rather
 than being inferred from JavaScript frame callbacks. The isolated candidate now
-carries the live feature shapes, but production cutover remains blocked by raw
-heatmap/live-route memory evidence (including highly variable isolated heap
-snapshots), GPU evidence, and region-data provenance and attribution review.
+carries the live feature shapes, but production cutover remains blocked by
+live-route memory evidence (including highly variable isolated heap snapshots),
+GPU evidence, and region-data provenance and attribution review.

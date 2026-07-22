@@ -76,14 +76,16 @@ describe('map API helpers', () => {
           economy: null,
           cells: [{ cx: 0, cy: 0, cz: 0, n: 10, avg_score: 75, max_score: 90 }],
           count: 1,
+          max_cells: 50_000,
+          truncated: false,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     );
 
-    await api.mapHeatmap({ voxel_size: 200, min_systems: 5, economy: 'Refinery' });
+    await api.mapHeatmap({ voxel_size: 200, min_systems: 5, max_cells: 500, economy: 'Refinery' });
     expect(fetchSpy).toHaveBeenCalledWith(
-      '/api/map/heatmap?voxel_size=200&min_systems=5&economy=Refinery',
+      '/api/map/heatmap?voxel_size=200&min_systems=5&max_cells=500&economy=Refinery',
       expect.anything(),
     );
   });
@@ -97,6 +99,8 @@ describe('map API helpers', () => {
           economy: null,
           cells: [],
           count: 0,
+          max_cells: 50_000,
+          truncated: false,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
@@ -180,6 +184,8 @@ describe('map API helpers', () => {
           economy: null,
           cells: [],
           count: 0,
+          max_cells: 50_000,
+          truncated: false,
         }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),

@@ -16,7 +16,7 @@ export interface MapLayerOptions {
 export interface UseMapLayersOptions {
   regions?:    MapLayerOptions;
   clusters?:    MapLayerOptions & { min_count?: number; max_hulls?: number };
-  heatmap?:    MapLayerOptions & { voxel_size?: number; min_systems?: number; economy?: string | null };
+  heatmap?:    MapLayerOptions & { voxel_size?: number; min_systems?: number; max_cells?: number; economy?: string | null };
   timeline?:   MapLayerOptions & { bucket?: 'day' | 'week' | 'month' | 'quarter' | 'year' };
   /** Stale time shared across all layer queries (default 5 minutes). */
   staleTimeMs?: number;
@@ -66,10 +66,11 @@ export function useMapLayers(opts: UseMapLayersOptions = {}): UseMapLayersResult
   });
 
   const heatmapQuery = useQuery<MapHeatmapResponse, Error>({
-    queryKey: ['map', 'heatmap', opts.heatmap?.voxel_size, opts.heatmap?.min_systems, opts.heatmap?.economy],
+    queryKey: ['map', 'heatmap', opts.heatmap?.voxel_size, opts.heatmap?.min_systems, opts.heatmap?.max_cells, opts.heatmap?.economy],
     queryFn:  () => api.mapHeatmap({
       voxel_size: opts.heatmap?.voxel_size,
       min_systems: opts.heatmap?.min_systems,
+      max_cells: opts.heatmap?.max_cells,
       economy: opts.heatmap?.economy,
     }),
     enabled: opts.heatmap?.enabled ?? false,
