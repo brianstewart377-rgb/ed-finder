@@ -125,6 +125,13 @@
         "location": "frontend/src/App.tsx",
         "text": "This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it."
       },
+      "data_and_ip_attribution": {
+        "status": "pass_owner_approved_and_sitewide",
+        "location": "frontend/src/App.tsx",
+        "data_sources": ["EDSM", "EDDN"],
+        "includes_community_thanks": true,
+        "includes_frontier_trademark_and_unofficial_tool_notice": true
+      },
       "region_source_review": {
         "status": "source_identified_rights_still_unresolved",
         "local_geometry_matches_upstream": true,

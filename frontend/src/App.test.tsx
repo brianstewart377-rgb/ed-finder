@@ -365,6 +365,12 @@ describe('App Development Tuning route', () => {
     expect(screen.getByTestId('frontier-fan-disclaimer').textContent).toBe(
       'This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.',
     );
+    expect(screen.getByTestId('community-data-attribution').textContent).toBe(
+      'This application uses data provided by EDSM (Elite Dangerous Star Map) and the EDDN (Elite Dangerous Data Network). We are incredibly grateful to the Elite Dangerous community for crowd-sourcing and maintaining this data.',
+    );
+    expect(screen.getByTestId('frontier-ip-attribution').textContent).toBe(
+      'Elite Dangerous is a registered trademark of Frontier Developments plc. This application is an unofficial fan-made tool and is not affiliated with, endorsed by, or reflective of the views or opinions of Frontier Developments.',
+    );
   });
 
   it('renders Development Tuning for the direct route', async () => {

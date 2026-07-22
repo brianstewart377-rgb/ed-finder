@@ -117,7 +117,8 @@ clearance ED-Finder can inherit.
 On 2026-07-22, the project owner confirmed that ED-Finder is non-commercial,
 resolving the service-posture question. The owner also supplied and approved
 the Frontier fan disclaimer, which is now rendered site-wide in the application
-footer.
+footer. The footer now also carries the owner-approved EDSM/EDDN community-data
+acknowledgement and Elite Dangerous trademark/unofficial-tool attribution.
 
 Frontier's official media guidance permits specified non-commercial fan and
 community uses with attribution, requires express permission for commercial or

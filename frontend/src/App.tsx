@@ -414,6 +414,21 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
 
       <footer className="mt-16 space-y-2 text-center text-label font-mono text-silver-2 opacity-55">
         ED:Finder — Elite Dangerous colonisation planner
+        <section aria-labelledby="data-ip-attribution-title" className="mx-auto max-w-4xl space-y-1 text-[10px] leading-relaxed">
+          <h2 id="data-ip-attribution-title" className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em]">
+            Data &amp; Intellectual Property Attribution
+          </h2>
+          <p data-testid="community-data-attribution">
+            This application uses data provided by{' '}
+            <a href="https://www.edsm.net/" className="underline underline-offset-2">EDSM (Elite Dangerous Star Map)</a>
+            {' '}and the{' '}
+            <a href="https://github.com/EDCD/EDDN" className="underline underline-offset-2">EDDN (Elite Dangerous Data Network)</a>.
+            {' '}We are incredibly grateful to the Elite Dangerous community for crowd-sourcing and maintaining this data.
+          </p>
+          <p data-testid="frontier-ip-attribution">
+            <em>Elite Dangerous</em> is a registered trademark of Frontier Developments plc. This application is an unofficial fan-made tool and is not affiliated with, endorsed by, or reflective of the views or opinions of Frontier Developments.
+          </p>
+        </section>
         <p data-testid="frontier-fan-disclaimer" className="mx-auto max-w-4xl text-[10px] leading-relaxed">
           This site/app was created using assets and imagery from Elite: Dangerous for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
         </p>

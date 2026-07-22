@@ -49,6 +49,11 @@ license. Neither project closes ED-Finder's Frontier coverage question.
 notice for the reused region algorithm and data while explicitly leaving any
 separate Elite Dangerous rights question open.
 
+**Community data and IP attribution is now explicit** - The site-wide footer
+thanks EDSM, EDDN, and the contributing Elite Dangerous community, and records
+the supplied Frontier trademark and unofficial/non-affiliation statement. The
+earlier owner-approved non-commercial fan disclaimer remains verbatim.
+
 ## 2026-07-22 - Stage 26E bounded heatmap transport
 
 **Raw heatmap responses now have a deterministic ceiling** - The API returns at
