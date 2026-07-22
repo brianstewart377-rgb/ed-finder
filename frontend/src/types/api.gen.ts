@@ -6870,6 +6870,8 @@ export interface operations {
                 voxel_size?: number;
                 /** @description Minimum systems per voxel */
                 min_systems?: number;
+                /** @description Maximum heatmap cells returned */
+                max_cells?: number;
                 /** @description Filter to a specific economy score */
                 economy?: string | null;
             };

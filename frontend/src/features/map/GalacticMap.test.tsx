@@ -171,6 +171,8 @@ describe('GalacticMap', () => {
         { cx: 200, cy: 0, cz: 200, n: 8, avg_score: 40, max_score: 60 },
       ],
       count: 2,
+      max_cells: 50_000,
+      truncated: false,
     };
     render(
       <GalacticMap

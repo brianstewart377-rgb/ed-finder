@@ -12,6 +12,8 @@ from edfinder_api.search_economies import canonical_economy_key, ratings_score_c
 
 router = APIRouter(tags=['map'])
 
+MAX_MAP_HEATMAP_CELLS = 50_000
+
 
 
 
@@ -159,6 +161,12 @@ async def map_heatmap(
     request: Request,
     voxel_size:  int = Query(200,  ge=50,  le=2000, description='Voxel cell size in LY'),
     min_systems: int = Query(5,    ge=1,   le=100,  description='Minimum systems per voxel'),
+    max_cells:   int = Query(
+        MAX_MAP_HEATMAP_CELLS,
+        ge=100,
+        le=MAX_MAP_HEATMAP_CELLS,
+        description='Maximum heatmap cells returned',
+    ),
     economy:     Optional[str] = Query(None, description='Filter to a specific economy score'),
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
@@ -179,7 +187,7 @@ async def map_heatmap(
             raise HTTPException(status_code=422, detail=f'Invalid economy: {economy}')
         eco_col = ratings_score_column(eco_key)
 
-    cache_key = f'map:heatmap:v1:{voxel_size}:{min_systems}:{eco_col or "overall"}'
+    cache_key = f'map:heatmap:v2:{voxel_size}:{min_systems}:{max_cells}:{eco_col or "overall"}'
     cached = await cache_get(cache_key, redis)
     if cached is not None:
         return JSONResponse(content=cached)
@@ -212,7 +220,9 @@ async def map_heatmap(
                        {_eco_col} AS max_score
                 FROM   {_mv}
                 WHERE  n >= $1 AND {_filter_col} IS NOT NULL
-            """, min_systems)
+                ORDER BY n DESC, cx, cy, cz
+                LIMIT $2
+            """, min_systems, max_cells + 1)
         except asyncpg.exceptions.UndefinedTableError:
             log.warning('%s missing; falling back to live GROUP BY', _mv)
             # Defence-in-depth: cap heatmap scan at 8 s.
@@ -231,14 +241,21 @@ async def map_heatmap(
                     WHERE  r.{score_col} IS NOT NULL
                     GROUP BY cx, cy, cz
                     HAVING COUNT(*) >= $2
-                """, voxel_size, min_systems, timeout=15)
+                    ORDER BY n DESC, cx, cy, cz
+                    LIMIT $3
+                """, voxel_size, min_systems, max_cells + 1, timeout=15)
+
+    truncated = len(rows) > max_cells
+    bounded_rows = rows[:max_cells]
 
     result = {
         'voxel_size': voxel_size,
         'voxel_bucket': _bucket,        # actual MV resolution used
         'economy':    economy,
-        'cells':      [dict(r) for r in rows],
-        'count':      len(rows),
+        'cells':      [dict(r) for r in bounded_rows],
+        'count':      len(bounded_rows),
+        'max_cells':  max_cells,
+        'truncated':  truncated,
     }
     await cache_set(cache_key, result, settings.ttl_cluster, redis)
     return result

@@ -143,6 +143,8 @@ export function MapLayerStatusRow({
   regionsError,
   heatmapLoading,
   heatmapError,
+  heatmapTruncated,
+  heatmapMaxCells,
   clustersLoading,
   clustersError,
   timelineLoading,
@@ -158,6 +160,8 @@ export function MapLayerStatusRow({
   regionsError: boolean;
   heatmapLoading: boolean;
   heatmapError: boolean;
+  heatmapTruncated: boolean;
+  heatmapMaxCells: number | null;
   clustersLoading: boolean;
   clustersError: boolean;
   timelineLoading: boolean;
@@ -183,6 +187,11 @@ export function MapLayerStatusRow({
       {showRegions && regionsError && <StatusText tone="error">Regions failed</StatusText>}
       {showHeatmap && heatmapLoading && <StatusText tone="loading">Loading heatmap…</StatusText>}
       {showHeatmap && heatmapError && <StatusText tone="error">Heatmap failed</StatusText>}
+      {showHeatmap && !heatmapLoading && !heatmapError && heatmapTruncated && (
+        <span data-testid="map-heatmap-truncated" className="font-mono text-[10px] text-gold">
+          Heatmap capped at {heatmapMaxCells?.toLocaleString() ?? 'server limit'} densest cells
+        </span>
+      )}
       {showClusters && clustersLoading && <StatusText tone="loading">Loading clusters…</StatusText>}
       {showClusters && clustersError && <StatusText tone="error">Clusters failed</StatusText>}
       {showTimeline && timelineLoading && <StatusText tone="loading">Loading timeline…</StatusText>}

@@ -250,6 +250,8 @@ export interface MapHeatmapResponse {
   economy: string | null;
   cells: MapHeatmapCell[];
   count: number;
+  max_cells: number;
+  truncated: boolean;
 }
 
 export interface MapTimelinePoint {
@@ -630,10 +632,11 @@ export const api = {
     return jsonFetch(`/map/clusters/hulls${qs ? `?${qs}` : ''}`);
   },
 
-  mapHeatmap(opts?: { voxel_size?: number; min_systems?: number; economy?: string | null }): Promise<MapHeatmapResponse> {
+  mapHeatmap(opts?: { voxel_size?: number; min_systems?: number; max_cells?: number; economy?: string | null }): Promise<MapHeatmapResponse> {
     const params = new URLSearchParams();
     if (opts?.voxel_size !== undefined) params.set('voxel_size', String(opts.voxel_size));
     if (opts?.min_systems !== undefined) params.set('min_systems', String(opts.min_systems));
+    if (opts?.max_cells !== undefined) params.set('max_cells', String(opts.max_cells));
     if (opts?.economy != null) params.set('economy', opts.economy);
     const qs = params.toString();
     return jsonFetch(`/map/heatmap${qs ? `?${qs}` : ''}`);

@@ -381,7 +381,7 @@ describe('MapTab', () => {
     expect(screen.getByText('Heatmap failed')).toBeTruthy();
   });
 
-  it('updates badge when heatmap is loaded', () => {
+  it('updates the badge and reports a capped heatmap response', () => {
     vi.mocked(useMapLayers).mockReturnValue({
       regions:  { data: undefined, isLoading: false, isError: false, error: null },
       clusters: { data: undefined, isLoading: false, isError: false, error: null },
@@ -392,6 +392,8 @@ describe('MapTab', () => {
           economy: null,
           cells: [{ cx: 0, cy: 0, cz: 0, n: 12, avg_score: 70, max_score: 90 }],
           count: 1,
+          max_cells: 50_000,
+          truncated: true,
         },
         isLoading: false,
         isError: false,
@@ -407,6 +409,7 @@ describe('MapTab', () => {
 
     fireEvent.click(screen.getByTestId('map-heatmap-toggle'));
     expect(screen.getByText('Finder results + Heatmap')).toBeTruthy();
+    expect(screen.getByTestId('map-heatmap-truncated').textContent).toContain('50,000 densest cells');
   });
 
   it('does not fetch clusters by default', () => {

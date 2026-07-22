@@ -19,6 +19,8 @@ function heatmap(cellCount: number): MapHeatmapResponse {
     voxel_bucket: 200,
     economy: null,
     count: cellCount,
+    max_cells: PRODUCTION_PARITY_LIMITS.heatmapCells,
+    truncated: false,
     cells: Array.from({ length: cellCount }, (_, index) => ({
       cx: index * 200,
       cy: 0,
@@ -59,6 +61,7 @@ describe('Stage 26E production parity composition', () => {
 
     expect(composition.overlays.heatmap?.cellCount).toBe(PRODUCTION_PARITY_LIMITS.heatmapCells);
     expect(composition.overlays.heatmap?.omittedCellCount).toBe(10);
+    expect(composition.overlays.heatmap?.sourceTruncated).toBe(false);
     expect(composition.overlays.aggregateHulls?.hullCount).toBe(PRODUCTION_PARITY_LIMITS.aggregateHulls);
     expect(composition.overlays.aggregateHulls?.omittedHullCount).toBe(10);
     expect(composition.timeline).toEqual({
@@ -72,10 +75,11 @@ describe('Stage 26E production parity composition', () => {
   it('rejects invalid coordinates without inventing positions', () => {
     const invalidHeatmap = heatmap(2);
     invalidHeatmap.cells[0]!.cx = Number.NaN;
+    invalidHeatmap.truncated = true;
     const invalidHulls = hulls(2);
     invalidHulls[0]!.x = null;
 
-    expect(adaptHeatmap(invalidHeatmap)?.cellCount).toBe(1);
+    expect(adaptHeatmap(invalidHeatmap)).toMatchObject({ cellCount: 1, sourceTruncated: true });
     expect(adaptAggregateHulls(invalidHulls)?.hullCount).toBe(1);
   });
 

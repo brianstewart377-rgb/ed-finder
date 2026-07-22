@@ -67,11 +67,13 @@ describe('useMapLayers', () => {
       economy: null,
       cells: [{ cx: 0, cy: 0, cz: 0, n: 10, avg_score: 75, max_score: 90 }],
       count: 1,
+      max_cells: 50_000,
+      truncated: false,
     });
 
     const { result } = renderHook(
       () => useMapLayers({
-        heatmap: { enabled: true, voxel_size: 200, min_systems: 5, economy: 'Refinery' },
+        heatmap: { enabled: true, voxel_size: 200, min_systems: 5, max_cells: 500, economy: 'Refinery' },
       }),
       { wrapper },
     );
@@ -83,6 +85,7 @@ describe('useMapLayers', () => {
     expect(api.mapHeatmap).toHaveBeenCalledWith({
       voxel_size: 200,
       min_systems: 5,
+      max_cells: 500,
       economy: 'Refinery',
     });
   });
