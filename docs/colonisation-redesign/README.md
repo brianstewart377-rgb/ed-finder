@@ -24,6 +24,9 @@ product-shell and selected-system context baseline for this new lane.
 - [`stage-26d-feature-handoff-contract.md`](./stage-26d-feature-handoff-contract.md)
   records the typed Finder, Compare, saved/evidence, System Detail, Cluster
   Search, and read-only Planner hand-offs retained behind the isolated entry.
+- [`stage-26e-cutover-readiness.md`](./stage-26e-cutover-readiness.md)
+  records current browser, accessibility, visual, and performance evidence plus
+  the parity, memory, GPU, and legal blockers that keep cutover unauthorized.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 

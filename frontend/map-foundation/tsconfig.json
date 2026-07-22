@@ -13,6 +13,10 @@
     "../src/features/map-foundation/**/*.tsx",
     "../vite.map-foundation.config.ts",
     "../vite.authoritative-regions.ts",
+    "../playwright.map-foundation.config.ts",
+    "../playwright.map-foundation.matrix.config.ts",
+    "../playwright.map-foundation.visual.config.ts",
+    "../playwright.map-foundation.accessibility.config.ts",
     "../../artifacts/map-foundation/stage-26b/*.ts"
   ]
 }

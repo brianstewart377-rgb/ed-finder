@@ -7,6 +7,7 @@ import type {
   MapSceneState,
   SystemRecord,
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
+import type { FoundationPerformanceMeasurement } from './performance';
 
 export type RegionLabel = {
   id: number;
@@ -81,8 +82,9 @@ export type ProjectedLabel = RegionLabel & { screen: GalaxyCoord; visible: boole
 declare global {
   interface Window {
     __stage26cFoundation?: {
-      snapshot: () => FoundationSnapshot;
-      loseContext: () => boolean;
+    snapshot: () => FoundationSnapshot;
+    loseContext: () => boolean;
+    measurePerformance: () => Promise<FoundationPerformanceMeasurement>;
     };
   }
 }

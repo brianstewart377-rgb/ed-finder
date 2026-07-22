@@ -1,0 +1,15 @@
+{
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "browser": "chromium",
+  "measurement": {
+    "frameSampleCount": 60,
+    "frameP95Ms": 16.700000000000728,
+    "frameMaxMs": 16.700000000000728,
+    "gpuTimerSupported": false,
+    "gpuProbeMs": null,
+    "jsHeapBytes": 212000000
+  }
+}

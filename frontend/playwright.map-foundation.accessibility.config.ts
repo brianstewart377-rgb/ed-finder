@@ -1,15 +1,15 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './map-foundation/e2e',
-  testMatch: 'foundation.spec.ts',
+  testMatch: 'accessibility.spec.ts',
   fullyParallel: false,
   workers: 1,
   retries: 0,
   reporter: 'line',
   use: {
+    ...devices['Desktop Chrome'],
     baseURL: 'http://127.0.0.1:4175',
-    browserName: 'chromium',
     headless: true,
   },
   webServer: {

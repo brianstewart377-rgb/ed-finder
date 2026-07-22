@@ -1,0 +1,102 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "status": "in_progress_cutover_not_authorized",
+  "baseline_sha": "88400407c7cdedfe62ea17e4a0dd31e7ee201d11",
+  "recorded_on": "2026-07-22",
+  "gates": {
+    "typed_feature_handoffs": {
+      "status": "pass",
+      "evidence": "Stage 26D PR #357 and 17 focused unit tests"
+    },
+    "required_viewports": {
+      "status": "pass",
+      "viewports": ["1280x720", "1440x900"]
+    },
+    "desktop_browser_matrix": {
+      "status": "pass",
+      "playwright": "1.59.1",
+      "browsers": [
+        "Chromium 147.0.7727.15",
+        "Firefox 148.0.2",
+        "WebKit 26.4"
+      ],
+      "tests_passed": 6
+    },
+    "accessibility": {
+      "status": "pass_for_isolated_foundation",
+      "automated_standard": "WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules",
+      "axe_violations": 0,
+      "keyboard_journey": "pass"
+    },
+    "visual_regression": {
+      "status": "pass_for_isolated_foundation",
+      "viewport": "1440x900",
+      "baseline": "frontend/map-foundation/e2e/visual.spec.ts-snapshots/stage-26e-foundation-1440x900-win32.png",
+      "max_diff_pixel_ratio": 0.01,
+      "manual_review": "pass"
+    },
+    "steady_state_frame_time": {
+      "status": "pass_for_isolated_500k_fixture",
+      "chromium_p95_ms": {
+        "1280x720": 16.700000000000728,
+        "1440x900": 16.799999999999272
+      },
+      "budget_ms": 50
+    },
+    "gpu_timing": {
+      "status": "unknown_blocking_final_performance_claim",
+      "extension": "EXT_disjoint_timer_query_webgl2",
+      "extension_available": false,
+      "gpu_probe_ms": null
+    },
+    "memory": {
+      "status": "open_requires_production_budget",
+      "chromium_used_js_heap_bytes": {
+        "1280x720": 212000000,
+        "1440x900": 410000000
+      },
+      "note": "The deterministic 500k development fixture is not the current production response shape. No production cutover budget is inferred from these readings."
+    },
+    "production_feature_parity": {
+      "status": "blocked",
+      "supported": [
+        "Finder coordinate-bearing systems",
+        "selected-system context",
+        "typed compare and cluster highlights",
+        "explicit overlap choice",
+        "camera return state",
+        "planner hand-off without mutation"
+      ],
+      "not_yet_wired": [
+        "live heatmap cells",
+        "live aggregate cluster hulls",
+        "timeline summary and bucket state",
+        "Results, Galaxy, and Reference view presets",
+        "production route error and empty-state composition"
+      ]
+    },
+    "region_redistribution_legal": {
+      "status": "blocked_requires_owner_or_legal_review",
+      "repository_source_first_seen": "f4e9ff6b2b2f201441eaf70301dc98ee15efe992",
+      "upstream_code_license": "MIT",
+      "region_names_and_rle_geometry_rights": "unresolved",
+      "frontier_media_guidance": "https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media",
+      "required_decisions": [
+        "confirm whether ed-finder.app is non-commercial under Frontier's guidance",
+        "confirm that the derived region geometry is covered",
+        "add the required Frontier attribution if approved",
+        "retain the upstream MIT notice for reused algorithm code"
+      ]
+    },
+    "production_route_cutover": {
+      "status": "not_authorized",
+      "blocking_gates": [
+        "gpu_timing",
+        "memory",
+        "production_feature_parity",
+        "region_redistribution_legal"
+      ]
+    }
+  }
+}

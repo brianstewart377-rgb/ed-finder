@@ -8,9 +8,9 @@ document that should answer "what next?".
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
-  complete. The isolated Three.js/R3F foundation and typed feature hand-offs
-  are bounded and verified at the required desktop viewports; no production
-  route or cutover is authorized.
+  complete. Stage 26E is in progress: its isolated browser, accessibility,
+  visual, and steady-state frame gates are recorded, while production parity,
+  memory, GPU timing, and region-data legal review still block cutover.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -295,6 +295,23 @@ competing roadmap source.
   hand-off. The production map route remains unchanged; Stage 26E owns parity,
   final gates, deliberate cutover, and superseded-map removal.
 
+### Stage 26E
+
+- In progress: Chromium, Firefox, and WebKit pass the isolated typed-foundation
+  journey at both required desktop viewports. Axe reports zero detectable WCAG
+  2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
+- The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
+  the required viewports. The WebGL GPU timer extension was unavailable, so GPU
+  time remains unknown. Development-fixture heap readings require a separate
+  production budget before cutover.
+- Production feature parity remains incomplete for live heatmap cells,
+  aggregate cluster hulls, timeline state, view presets, and production
+  empty/error composition.
+- Region names and RLE geometry still require owner or legal review against
+  Frontier's current media guidance plus retained attribution. The live map
+  route remains unchanged and cutover is not authorized. See
+  [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
+
 ### Stage 25C
 
 - Completed: shared product shell, selected-system context spine, and explicit
@@ -395,8 +412,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Execute Stage 26E parity and final performance, GPU, accessibility, browser,
-   visual-regression, and legal gates; cut over only after explicit review.
+1. Continue Stage 26E production parity and memory work; obtain region-data
+   legal/owner review and real GPU evidence before any deliberate cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.
