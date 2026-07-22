@@ -5,6 +5,21 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E hardware GPU timing gate
+
+**GPU duration is now measured on the real candidate render** - Added a
+development-only `?gpu-test=1` diagnostic that runs 30
+`EXT_disjoint_timer_query_webgl2` queries around
+`WebGLRenderer.render(scene, camera)` for the visible 500,000-system scene. A
+hardware-backed Chromium session returned 30/30 valid queries with no disjoint
+samples at both required viewports: 1.358 ms p95 at 1280x720 and 1.747 ms p95
+at 1440x900.
+
+**The remaining cutover blocker is unchanged in scope** - The GPU evidence gate
+is closed, but the production candidate stays default-off and region geometry
+stays withheld. Region-geometry coverage and required attribution still need
+owner or qualified legal review before deliberate cutover.
+
 ## 2026-07-22 - Stage 26E default-off production route and heap budget
 
 **The R3F candidate now has a production-route composition without a cutover** -
@@ -20,9 +35,9 @@ measured seven steady `JSHeapUsedSize` samples at both required viewports after
 composing 500 Finder systems, 50,000 heatmap cells, 2,000 hulls, and 100
 timeline points from live API payloads. Maxima were 26,392,356 and 28,724,676
 bytes against a predeclared 268,435,456-byte budget. Axe reported zero
-detectable WCAG 2/2.1 A/AA violations at both composed-route viewports. GPU
-timing and region-data review still block cutover; the production flag remains
-off.
+detectable WCAG 2/2.1 A/AA violations at both composed-route viewports. The
+separate hardware-backed timing run now closes GPU evidence; region-data review
+still blocks cutover and the production flag remains off.
 
 **The owner-approved Frontier disclaimer is now site-wide** - The application
 footer carries the supplied non-commercial, non-endorsement, and no-employee-

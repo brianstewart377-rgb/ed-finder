@@ -7,7 +7,10 @@ import type {
   MapSceneState,
   SystemRecord,
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
-import type { FoundationPerformanceMeasurement } from './performance';
+import type {
+  FoundationGpuTimer,
+  FoundationPerformanceMeasurement,
+} from './performance';
 
 export type RegionLabel = {
   id: number;
@@ -95,6 +98,7 @@ export type FoundationRendererProps = {
   onInteraction: (event: MapInteractionEvent) => void;
   onVisibilityChange?: (metadata: VisibilityMetadata) => void;
   onReady?: () => void;
+  onGpuTimerReady?: (timer: FoundationGpuTimer | null) => void;
 };
 
 export type ClusterGeometry = {
@@ -113,6 +117,7 @@ declare global {
     snapshot: () => FoundationSnapshot;
     loseContext: () => boolean;
     measurePerformance: () => Promise<FoundationPerformanceMeasurement>;
+    measureGpuTiming: FoundationGpuTimer;
     };
   }
 }

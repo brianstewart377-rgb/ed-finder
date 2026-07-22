@@ -96,6 +96,12 @@ for (const viewport of viewports) {
     expect(performance.frameP95Ms).toBeLessThan(50);
     expect(performance.frameMaxMs).toBeLessThan(100);
     if (performance.gpuTimerSupported) expect(performance.gpuProbeMs).not.toBeNull();
+    const gpuTiming = await page.evaluate(() => window.__stage26cFoundation!.measureGpuTiming(3));
+    expect(gpuTiming.requestedSampleCount).toBe(3);
+    if (gpuTiming.timerSupported) {
+      expect(gpuTiming.validSampleCount).toBeGreaterThan(0);
+      expect(gpuTiming.p95Ms).not.toBeNull();
+    }
     await test.info().attach('stage-26e-performance', {
       body: JSON.stringify(performance, null, 2),
       contentType: 'application/json',

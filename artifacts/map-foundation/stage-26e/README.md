@@ -7,6 +7,10 @@ claiming production cutover readiness.
 - `performance-1280x720.json` and `performance-1440x900.json` are Chromium
   steady-state readings from the deterministic 500,000-system development
   fixture after the Stage 26D hand-off journey.
+- `hardware-gpu-timing.json` records 30 actual-render WebGL2 timer-query
+  samples at each required viewport on a hardware-backed Chromium session.
+  Both runs returned 30 valid samples with no disjoint results; p95 GPU time
+  was 1.358 ms at 1280x720 and 1.747 ms at 1440x900.
 - `production-memory-budget.json` records the bounded normalized overlay
   buffers, their deterministic worst-case byte count, the closed raw-response
   bound, and the closed live-route heap budget.
@@ -26,8 +30,9 @@ claiming production cutover readiness.
 - The visual golden is retained beside its Playwright test under
   `frontend/map-foundation/e2e/visual.spec.ts-snapshots/`.
 
-The GPU timer extension was unavailable, so GPU time remains unknown rather
-than being inferred from JavaScript frame callbacks. The candidate is composed
-behind an exact default-off production flag, and region geometry is withheld.
-Production cutover remains blocked by GPU evidence and region-data provenance
-coverage and attribution review.
+The earlier automated Chromium environment did not expose the timer extension.
+The hardware-backed rerun now closes that evidence gap using real
+`WebGLRenderer.render(scene, camera)` timer queries rather than JavaScript frame
+callbacks. The candidate is composed behind an exact default-off production
+flag, and production region geometry is withheld. Production cutover remains
+blocked by region-data coverage and attribution review.

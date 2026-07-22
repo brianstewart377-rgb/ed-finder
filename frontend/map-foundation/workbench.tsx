@@ -10,7 +10,11 @@ import {
 import { R3FMapFoundation } from '../src/features/map-foundation/R3FMapFoundation';
 import { createFoundationDemoScene } from '../src/features/map-foundation/demo-scene';
 import { applyFeatureHandoff, resolveMapInteraction } from '../src/features/map-foundation/feature-handoffs';
-import { measureFoundationPerformance } from '../src/features/map-foundation/performance';
+import {
+  measureFoundationPerformance,
+  type FoundationGpuTimer,
+  type FoundationGpuTimingMeasurement,
+} from '../src/features/map-foundation/performance';
 import {
   applyViewPreset,
   composeProductionParity,
@@ -105,7 +109,11 @@ export function MapFoundationWorkbench() {
   const [omittedHandoffSystemIds, setOmittedHandoffSystemIds] = useState<number[]>([]);
   const [visibility, setVisibility] = useState<VisibilityMetadata>(EMPTY_VISIBILITY);
   const [viewPreset, setViewPreset] = useState<MapViewPreset>('results');
+  const [gpuTiming, setGpuTiming] = useState<FoundationGpuTimingMeasurement | null>(null);
+  const [gpuTimingRunning, setGpuTimingRunning] = useState(false);
   const viewportRef = useRef<HTMLDivElement>(null);
+  const gpuTimerRef = useRef<FoundationGpuTimer | null>(null);
+  const gpuDiagnosticsEnabled = new URLSearchParams(window.location.search).get('gpu-test') === '1';
   const sceneRef = useRef(scene);
   sceneRef.current = scene;
   const contextStateRef = useRef(contextState);
@@ -281,6 +289,23 @@ export function MapFoundationWorkbench() {
     estimatedOverlayBufferBytes: productionParity.estimatedOverlayBufferBytes,
   }), [contextState, datasetSize, highlightIds.size, lastHostCommand, lastInteraction, omittedHandoffSystemIds, overlapCandidateIds, productionParity, ready, regions, scene, viewPreset, visibility]);
 
+  const onGpuTimerReady = useCallback((timer: FoundationGpuTimer | null) => {
+    gpuTimerRef.current = timer;
+  }, []);
+
+  const runGpuTiming = useCallback(async (sampleCount = 30) => {
+    const timer = gpuTimerRef.current;
+    if (!timer) throw new Error('Map foundation GPU timer is unavailable');
+    setGpuTimingRunning(true);
+    try {
+      const measurement = await timer(sampleCount);
+      setGpuTiming(measurement);
+      return measurement;
+    } finally {
+      setGpuTimingRunning(false);
+    }
+  }, []);
+
   useEffect(() => {
     window.__stage26cFoundation = {
       snapshot,
@@ -300,9 +325,10 @@ export function MapFoundationWorkbench() {
         setScene((current) => ({ ...current, camera: { ...current.camera } }));
         return measurement;
       },
+      measureGpuTiming: runGpuTiming,
     };
     return () => { delete window.__stage26cFoundation; };
-  }, [snapshot]);
+  }, [runGpuTiming, snapshot]);
 
   const chooseOverlap = (systemId64: number) => onInteraction({
     type: 'overlapChoice',
@@ -314,7 +340,7 @@ export function MapFoundationWorkbench() {
   return <main className="foundation-shell">
     <header className="foundation-header">
       <div>
-        <p className="eyebrow">Development-only · Stage 26D</p>
+        <p className="eyebrow">Development-only · Stage 26E</p>
         <h1>Typed feature hand-offs</h1>
       </div>
       <label>Dataset
@@ -383,11 +409,27 @@ export function MapFoundationWorkbench() {
       <div className="foundation-viewport" ref={viewportRef}>
         <R3FMapFoundation scene={scene} regions={regionVisible ? regions : EMPTY_REGIONS}
           productionOverlays={productionParity.overlays} viewport={viewport}
-          onReady={() => setReady(true)} onInteraction={onInteraction} onVisibilityChange={setVisibility} />
+          onReady={() => setReady(true)} onInteraction={onInteraction} onVisibilityChange={setVisibility}
+          onGpuTimerReady={onGpuTimerReady} />
       </div>
       <aside className="foundation-companion" aria-label="Map keyboard companion">
         <h2>Context companion</h2>
         <p>Tab to any system and press Enter. Shift-drag rotates/tilts; drag pans; wheel zooms.</p>
+        {gpuDiagnosticsEnabled && <section className="gpu-diagnostics" aria-labelledby="gpu-diagnostics-heading">
+          <h3 id="gpu-diagnostics-heading">Hardware GPU timing</h3>
+          <p>Runs 30 WebGL timer queries around real renders of the visible 500k candidate scene.</p>
+          <button type="button" disabled={gpuTimingRunning || !ready} onClick={() => { void runGpuTiming(); }}>
+            {gpuTimingRunning ? 'Measuring GPU…' : 'Run GPU timing'}
+          </button>
+          {gpuTiming && <>
+            <p role="status" data-testid="gpu-timing-summary">
+              {gpuTiming.timerSupported
+                ? `${gpuTiming.validSampleCount}/${gpuTiming.requestedSampleCount} valid · p95 ${gpuTiming.p95Ms?.toFixed(3) ?? 'unknown'} ms`
+                : 'Timer extension unavailable; use a Chrome system trace.'}
+            </p>
+            <pre data-testid="gpu-timing-json">{JSON.stringify(gpuTiming, null, 2)}</pre>
+          </>}
+        </section>}
         {overlapCandidateIds.length > 0 && <section data-testid="overlap-choices">
           <h3>Choose overlapping system</h3>
           {overlapCandidateIds.map((id) => <button type="button" key={id} onClick={() => chooseOverlap(id)}>

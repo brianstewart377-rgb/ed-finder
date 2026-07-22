@@ -10,8 +10,8 @@ document that should answer "what next?".
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E is in progress: browser, accessibility, visual,
   steady-state frame, default-off production parity, and live-route memory
-  gates are recorded, while GPU timing and region-data legal review still
-  block cutover.
+  gates are recorded, hardware GPU timing is now closed, and region-data legal
+  review is the remaining cutover blocker.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -302,9 +302,10 @@ competing roadmap source.
   journey at both required desktop viewports. Axe reports zero detectable WCAG
   2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
 - The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
-  the required viewports. The WebGL GPU timer extension was unavailable, so GPU
-  time remains unknown. Normalized overlay buffers now pass a deterministic
-  8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
+  the required viewports. A hardware-backed Chromium rerun produced 30/30 valid
+  actual-render GPU timer queries at both viewports, with 1.358 ms and 1.747 ms
+  p95 and no disjoint samples. Normalized overlay buffers now pass a
+  deterministic 8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
   worst-case fixture passes a separate 8 MiB raw-response budget. A default-off
   `#map` composition with live payloads measured 26,392,356 and 28,724,676-byte
   Chromium heap maxima at the required viewports against a 256 MiB budget and
@@ -423,8 +424,8 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E by obtaining region-geometry/attribution review and real
-   GPU evidence before any deliberate route-flag activation or cutover.
+1. Continue Stage 26E by obtaining region-geometry coverage and attribution
+   review before any deliberate route-flag activation or cutover.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.
