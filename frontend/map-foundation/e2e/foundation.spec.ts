@@ -54,10 +54,19 @@ for (const viewport of viewports) {
     expect(cameraAfter.bearingDeg).not.toBe(0);
     expect(cameraAfter.pitchDeg).not.toBe(0);
 
+    const handoffSelect = page.getByLabel('Return from feature');
+    for (const workflow of ['compare', 'savedSystems', 'evidenceMap', 'systemDetail', 'clusterSearch', 'planner', 'finder'] as const) {
+      await handoffSelect.selectOption(workflow);
+      await expect(page.getByTestId('return-workflow')).toHaveText(workflow);
+      expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).camera).toEqual(cameraAfter);
+    }
+    expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).omittedHandoffSystemIds).toEqual([]);
+
     await page.getByRole('button', { name: 'Hide regions' }).click();
     await expect(page.locator('.map-foundation-labels span')).toHaveCount(0);
     await page.getByRole('button', { name: 'Request Plan hand-off' }).click();
     await expect(page.getByTestId('last-interaction')).toHaveText('navigateToPlanner');
+    await expect(page.getByTestId('last-host-command')).toHaveText('openPlanner');
     await expect(page.getByText('No plan mutation occurred.')).toBeVisible();
     expect(consoleErrors).toEqual([]);
   });

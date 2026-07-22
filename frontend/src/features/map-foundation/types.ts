@@ -3,6 +3,7 @@ import type {
   ClusterRepresentation,
   GalaxyCoord,
   MapInteractionEvent,
+  MapReturnWorkflow,
   MapSceneState,
   SystemRecord,
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
@@ -52,6 +53,9 @@ export type FoundationSnapshot = {
   overlapCandidateIds: number[];
   contextState: 'ready' | 'lost' | 'restored' | 'usable';
   lastInteraction: MapInteractionEvent | null;
+  returnWorkflowType: MapReturnWorkflow['type'] | null;
+  lastHostCommand: string;
+  omittedHandoffSystemIds: number[];
 };
 
 export type FoundationRendererProps = {

@@ -20,7 +20,10 @@ product-shell and selected-system context baseline for this new lane.
   Three.js/R3F selection for the isolated Stage 26C foundation.
 - [`stage-26c-region-first-foundation-contract.md`](./stage-26c-region-first-foundation-contract.md)
   records the isolated R3F foundation, bounded visibility contract, local
-  evidence, and the feature-integration work deferred to Stage 26D.
+  evidence, and the feature-integration work completed in Stage 26D.
+- [`stage-26d-feature-handoff-contract.md`](./stage-26d-feature-handoff-contract.md)
+  records the typed Finder, Compare, saved/evidence, System Detail, Cluster
+  Search, and read-only Planner hand-offs retained behind the isolated entry.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 
