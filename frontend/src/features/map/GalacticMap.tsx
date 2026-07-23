@@ -543,7 +543,7 @@ export function GalacticMap({
 
   return (
     <div
-      className="relative h-[calc(100vh-14rem)] min-h-[400px] rounded-chunk-lg overflow-hidden"
+      className="relative h-full min-h-[420px] rounded-chunk-lg overflow-hidden"
       style={{
         border: '1px solid hsl(216 10% 24%)',
         boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04), 0 14px 40px -16px rgba(0,0,0,0.85)',

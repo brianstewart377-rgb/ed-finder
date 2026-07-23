@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, Info, Layers } from 'lucide-react';
 import {
   initOverlapCycling,
   reduceScene,
@@ -231,39 +232,16 @@ export function ProductionMapTab({
   }, [composition, regionLayer.data, scene.boundedResponse.truncated, scene.systems.length, showRegions]);
 
   return (
-    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="space-y-4">
-      <section className="premium-subpanel space-y-3 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-cyan/35 bg-cyan/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-            Stage 26E app map
-          </span>
-          <span data-testid="stage26e-route-flag-state" className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gold">
-            Stage 26E production map active
-          </span>
-        </div>
-        <h2 className="font-display text-base tracking-[0.12em] text-text">R3F galaxy map</h2>
-        <p className="max-w-4xl text-sm leading-relaxed text-silver">
-          The app map consumes the current Finder result set, bounded authoritative region geometry, and live aggregate map responses. An explicit disabled production build retains the established renderer as an immediate rollback.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" data-testid="map-return-to-finder" onClick={onReturnToFinder} className="btn-metal text-[11px] font-mono">
-            Back to Finder
-          </button>
-          <button
-            type="button"
-            data-testid="map-open-selected-system"
-            disabled={!selected || !onOpenSelectedSystem}
-            onClick={() => selected && onOpenSelectedSystem?.(selected.id64)}
-            className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] text-orange disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            Inspect selected system
-          </button>
-        </div>
-      </section>
-
-      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-        <h2 className="font-display text-orange tracking-[0.14em] text-lg">Galactic Map</h2>
-        <span className="font-mono text-xs text-silver-dk">{scene.systems.length} bounded Finder systems</span>
+    <section
+      data-testid="stage26e-production-map"
+      aria-label="ED-Finder galaxy map"
+      className="flex h-full min-h-0 flex-col gap-2 overflow-hidden"
+    >
+      <header className="panel flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 sm:px-4">
+        <h1 className="font-display text-sm tracking-[0.14em] text-cyan sm:text-base">Galactic Map</h1>
+        <span className="font-mono text-[10px] text-silver-dk sm:text-xs">
+          {scene.systems.length} Finder system{scene.systems.length === 1 ? '' : 's'}
+        </span>
         <span className="flex-1" />
         <div role="group" aria-label="Map view mode" className="flex overflow-hidden rounded-chunk-sm border border-border">
           {VIEW_MODES.map((mode) => (
@@ -273,7 +251,9 @@ export function ProductionMapTab({
               data-testid={`map-view-${mode.id}`}
               aria-pressed={viewPreset === mode.id}
               onClick={() => selectViewPreset(mode.id)}
-              className={viewPreset === mode.id ? 'bg-orange/20 px-2.5 py-1 font-mono text-[10px] text-orange' : 'px-2.5 py-1 font-mono text-[10px] text-silver-dk'}
+              className={viewPreset === mode.id
+                ? 'bg-cyan/20 px-2.5 py-1 font-mono text-[10px] text-cyan'
+                : 'px-2.5 py-1 font-mono text-[10px] text-silver-dk hover:text-silver'}
             >
               {mode.label}
             </button>
@@ -294,64 +274,83 @@ export function ProductionMapTab({
             </button>
           ))}
         </div>
-        <LayerToggle testId="stage26e-map-regions-toggle" label="Regions" checked={showRegions} onChange={setShowRegions} />
-        <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
-        <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
-        <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
-        {showTimeline && (
-          <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
-            Bucket
-            <select value={timelineBucket} onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)} className="rounded border border-border bg-bg3 px-2 py-1">
-              <option value="month">Month</option>
-              <option value="quarter">Quarter</option>
-              <option value="year">Year</option>
-            </select>
-          </label>
-        )}
+        <details className="group relative">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-chunk-sm border border-border bg-bg3 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver transition-colors hover:border-cyan/50 hover:text-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/70">
+            <Layers size={12} aria-hidden />
+            Layers
+            <ChevronDown size={12} aria-hidden className="transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="absolute right-0 z-30 mt-2 w-56 space-y-2 rounded-chunk border border-border bg-bg2/95 p-3 shadow-metal backdrop-blur-xl">
+            <LayerToggle testId="stage26e-map-regions-toggle" label="Regions" checked={showRegions} onChange={setShowRegions} />
+            <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
+            <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
+            <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
+            {showTimeline && (
+              <label className="flex items-center justify-between gap-2 border-t border-border/60 pt-2 font-mono text-[10px] text-silver-dk">
+                Bucket
+                <select
+                  value={timelineBucket}
+                  onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)}
+                  className="rounded border border-border bg-bg3 px-2 py-1"
+                >
+                  <option value="month">Month</option>
+                  <option value="quarter">Quarter</option>
+                  <option value="year">Year</option>
+                </select>
+              </label>
+            )}
+          </div>
+        </details>
+
+        <details className="group relative">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-chunk-sm border border-border bg-bg3 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-silver transition-colors hover:border-cyan/50 hover:text-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan/70">
+            <Info size={12} aria-hidden />
+            About
+            <ChevronDown size={12} aria-hidden className="transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="absolute right-0 z-30 mt-2 w-[22rem] max-w-[88vw] space-y-3 rounded-chunk border border-border bg-bg2/95 p-4 shadow-metal backdrop-blur-xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-cyan/35 bg-cyan/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
+                App map
+              </span>
+              <span
+                data-testid="stage26e-route-flag-state"
+                className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gold"
+              >
+                Stage 26E production map active
+              </span>
+            </div>
+            <p className="text-xs leading-relaxed text-silver">
+              The live R3F map combines the current Finder result set with bounded authoritative regions and optional aggregate overlays. The established renderer remains the rollback path.
+            </p>
+          </div>
+        </details>
+
+        <button
+          type="button"
+          data-testid="map-return-to-finder"
+          onClick={onReturnToFinder}
+          className="rounded-chunk-sm border border-border bg-bg3 px-2.5 py-1 font-mono text-[10px] text-silver hover:border-cyan/50 hover:text-cyan"
+        >
+          Finder
+        </button>
+        <button
+          type="button"
+          data-testid="map-open-selected-system"
+          disabled={!selected || !onOpenSelectedSystem}
+          onClick={() => selected && onOpenSelectedSystem?.(selected.id64)}
+          className="rounded-chunk-sm border border-gold/45 bg-gold/10 px-2.5 py-1 font-mono text-[10px] text-gold disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          Inspect
+        </button>
       </header>
 
-      <MapLegend
-        activeLayerSummary={activeLayerSummary}
-        currentViewLabel={currentViewMode.label}
-        currentViewDescription={currentViewMode.description}
-      />
-      <MapLayerStatusRow
-        sourceLabel={sourceLabel}
-        showRegions={showRegions}
-        showHeatmap={showHeatmap}
-        showClusters={showClusters}
-        showTimeline={showTimeline}
-        timelineBucket={timelineBucket}
-        regionsLoading={regionLayer.isLoading}
-        regionsError={regionLayer.isError}
-        heatmapLoading={layers.heatmap.isLoading}
-        heatmapError={layers.heatmap.isError}
-        heatmapTruncated={layers.heatmap.data?.truncated ?? false}
-        heatmapMaxCells={layers.heatmap.data?.max_cells ?? null}
-        clustersLoading={layers.clusters.isLoading}
-        clustersError={layers.clusters.isError}
-        timelineLoading={layers.timeline.isLoading}
-        timelineError={layers.timeline.isError}
-      />
-      {showTimeline && composition.timeline && (
-        <TimelineSummary
-          dataTestId="stage26e-map-timeline-summary"
-          bucket={timelineBucket}
-          total={composition.timeline.total}
-          pointCount={composition.timeline.pointCount}
-          latestDate={composition.timeline.latestDate}
-        />
-      )}
-      {!composition.withinOverlayBufferBudget && (
-        <p role="alert" className="font-mono text-xs text-red">Normalized overlay buffer budget exceeded.</p>
-      )}
-      {composition.surface.kind === 'error' && (
-        <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">{composition.surface.message}</p>
-      )}
       {composition.surface.kind === 'empty' ? (
-        <div className="panel-thin px-4 py-16 text-center text-sm text-silver-dk">{composition.surface.message}</div>
+        <div className="panel-thin flex min-h-0 flex-1 items-center justify-center px-4 text-center text-sm text-silver-dk">
+          {composition.surface.message}
+        </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="relative min-h-0 flex-1">
           <MapErrorBoundary>
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
               <R3FMapFoundation
@@ -364,8 +363,61 @@ export function ProductionMapTab({
               />
             </div>
           </MapErrorBoundary>
-          <div className="space-y-3">
-            <SelectionPanel system={selected} />
+
+          <div className="pointer-events-none absolute left-3 top-3 z-10 flex max-w-[min(92%,34rem)] flex-col gap-2">
+            <div className="pointer-events-auto">
+              <MapLayerStatusRow
+                sourceLabel={sourceLabel}
+                showRegions={showRegions}
+                showHeatmap={showHeatmap}
+                showClusters={showClusters}
+                showTimeline={showTimeline}
+                timelineBucket={timelineBucket}
+                regionsLoading={regionLayer.isLoading}
+                regionsError={regionLayer.isError}
+                heatmapLoading={layers.heatmap.isLoading}
+                heatmapError={layers.heatmap.isError}
+                heatmapTruncated={layers.heatmap.data?.truncated ?? false}
+                heatmapMaxCells={layers.heatmap.data?.max_cells ?? null}
+                clustersLoading={layers.clusters.isLoading}
+                clustersError={layers.clusters.isError}
+                timelineLoading={layers.timeline.isLoading}
+                timelineError={layers.timeline.isError}
+              />
+            </div>
+            <div className="pointer-events-auto">
+              <MapLegend
+                activeLayerSummary={activeLayerSummary}
+                currentViewLabel={currentViewMode.label}
+                currentViewDescription={currentViewMode.description}
+              />
+            </div>
+            {showTimeline && composition.timeline && (
+              <div className="pointer-events-auto">
+                <TimelineSummary
+                  dataTestId="stage26e-map-timeline-summary"
+                  bucket={timelineBucket}
+                  total={composition.timeline.total}
+                  pointCount={composition.timeline.pointCount}
+                  latestDate={composition.timeline.latestDate}
+                />
+              </div>
+            )}
+            {!composition.withinOverlayBufferBudget && (
+              <p role="alert" className="pointer-events-auto panel-thin px-3 py-2 font-mono text-xs text-red">
+                Normalized overlay buffer budget exceeded.
+              </p>
+            )}
+            {composition.surface.kind === 'error' && (
+              <p role="alert" className="pointer-events-auto panel-thin px-3 py-2 font-mono text-xs text-red">
+                {composition.surface.message}
+              </p>
+            )}
+          </div>
+
+          <div className="absolute inset-x-3 bottom-3 z-10 sm:inset-x-auto sm:right-3 sm:w-72">
+            <div className="max-h-[45vh] space-y-3 overflow-y-auto">
+              <SelectionPanel system={selected} />
             {overlapCandidateIds.length > 0 && (
               <aside aria-label="Overlapping systems" className="panel-thin space-y-2 p-3">
                 <h3 className="font-display text-xs text-orange">Choose overlapping system</h3>
@@ -376,6 +428,7 @@ export function ProductionMapTab({
                 ))}
               </aside>
             )}
+            </div>
           </div>
         </div>
       )}
@@ -401,7 +454,7 @@ function LayerToggle({
         data-testid={testId}
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
-        className="accent-orange"
+        className="accent-cyan"
       />
       {label}
     </label>

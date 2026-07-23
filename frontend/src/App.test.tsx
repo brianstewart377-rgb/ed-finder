@@ -903,6 +903,28 @@ describe('App Colony Planner workspace route', () => {
     expect(mockSearchRun).not.toHaveBeenCalled();
   });
 
+  it('contains keyboard focus in the mobile filter drawer and restores the opener', async () => {
+    window.location.hash = '#finder';
+
+    await renderApp();
+
+    const opener = await screen.findByTestId('finder-open-filters');
+    fireEvent.click(opener);
+
+    const dialog = screen.getByRole('dialog', { name: 'System filters' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close filters' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(document, { key: 'Tab' });
+    expect(document.activeElement).toBe(closeButton);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'System filters' })).toBeNull();
+    });
+    expect(document.activeElement).toBe(opener);
+  });
+
   it('keeps admin and operator out of the normal mobile player menu', async () => {
     window.location.hash = '#finder';
 

@@ -72,7 +72,28 @@ describe('NavBar', () => {
     expect(supportingText.className).toContain('max-w-none');
     expect(supportingText.className).not.toContain('max-w-3xl');
 
+    // Map is now an immersive route: with no selected system it does not
+    // render the large workspace-context header (keeps the map from being
+    // pushed down by an extra stacked bar). It still appears once a system
+    // is selected.
     rerender(<NavBar current="map" onNavigate={vi.fn()} health="Online" />);
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+
+    rerender(
+      <NavBar
+        current="map"
+        onNavigate={vi.fn()}
+        health="Online"
+        selectedSystem={{
+          id64: 123,
+          name: 'Shinrarta Dezhra',
+          loading: false,
+          evidenceLabel: 'Available candidate',
+          evidenceTone: 'available',
+          evidenceSummary: 'Candidate remains in focus for inspect hand-off from the map.',
+        }}
+      />,
+    );
     expect(within(screen.getByTestId('product-shell-context')).getByText(/^Explore$/i)).toBeTruthy();
   });
   it('keeps Finder compact when no system is selected, but shows shell context once Plan owns a selected system', () => {

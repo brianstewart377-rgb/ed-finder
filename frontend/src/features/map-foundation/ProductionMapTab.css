@@ -1,6 +1,8 @@
 .stage26e-production-map-viewport {
   position: relative;
-  min-height: 520px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   overflow: hidden;
   border: 1px solid hsl(216 10% 24%);
   border-radius: 6px;
