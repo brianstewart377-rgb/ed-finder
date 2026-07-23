@@ -59,6 +59,15 @@ approved.
 
 ## Next review gate
 
-Review Finder and Map at desktop and mobile breakpoints. Only after layout
-approval should the work proceed to a wider token migration or the remaining
+The owner's broader review is captured in
+[`ui-reskin-concept-mockup-brief.md`](./ui-reskin-concept-mockup-brief.md).
+The next external design pass is an isolated interactive mockup gallery for the
+shared shell, Finder, Map, My Work, Compare, and explicitly labelled
+roadmap-backed concepts. It must branch from `codex/ui-reskin-salvage`, must not
+change canonical runtime behaviour, and must pass both `main` and reskin-branch
+ancestry checks before it is accepted.
+
+Review the mockup gallery at desktop and mobile breakpoints. Only after the
+owner selects the strongest patterns should the work proceed to bounded
+production implementation, a wider token migration, or the remaining
 application workspaces.
