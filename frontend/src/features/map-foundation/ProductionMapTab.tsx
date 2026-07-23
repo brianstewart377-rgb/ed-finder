@@ -217,19 +217,19 @@ export function ProductionMapTab({
   }, [composition, regionLayer.data, scene.boundedResponse.truncated, scene.systems.length, showRegions]);
 
   return (
-    <section data-testid="stage26e-production-map" aria-label="Stage 26E production map candidate" className="space-y-4">
+    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="space-y-4">
       <section className="premium-subpanel space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-cyan/35 bg-cyan/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-            Stage 26E measured candidate
+            Stage 26E app map
           </span>
           <span data-testid="stage26e-route-flag-state" className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gold">
-            Explicit route flag enabled
+            Stage 26E production map active
           </span>
         </div>
-        <h2 className="font-display text-base tracking-[0.12em] text-text">Production-route R3F composition</h2>
+        <h2 className="font-display text-base tracking-[0.12em] text-text">R3F galaxy map</h2>
         <p className="max-w-4xl text-sm leading-relaxed text-silver">
-          This candidate consumes the current Finder result set, bounded authoritative region geometry, and live aggregate map responses. Normal production still selects the established renderer unless the exact Stage 26E flag is enabled.
+          The app map consumes the current Finder result set, bounded authoritative region geometry, and live aggregate map responses. An explicit disabled production build retains the established renderer as an immediate rollback.
         </p>
         <div className="flex flex-wrap gap-2">
           <button type="button" data-testid="map-return-to-finder" onClick={onReturnToFinder} className="btn-metal text-[11px] font-mono">

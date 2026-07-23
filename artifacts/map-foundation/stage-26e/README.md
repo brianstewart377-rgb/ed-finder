@@ -23,8 +23,8 @@ claiming production cutover readiness.
   2/2.1 A/AA violations on both composed-route viewports.
 - `production-region-geometry.json` records the build-only delivery contract:
   a 2,312,898-byte static asset against a 4 MiB response budget, exact label
-  and boundary limits, client validation, and confirmed omission from the
-  normal unflagged production build.
+  and boundary limits, client validation, default production emission, and
+  confirmed omission from the explicit disabled rollback build.
 - `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
   stable density-first ordering, truncation contract, and compact JSON budget.
 - `region-source-review.json` records the exact local/upstream RLE comparison
@@ -39,6 +39,7 @@ The earlier automated Chromium environment did not expose the timer extension.
 The hardware-backed rerun closes that evidence gap using real
 `WebGLRenderer.render(scene, camera)` timer queries rather than JavaScript frame
 callbacks. Region-data provenance, attribution, owner review, bounded delivery,
-and the full default-off regression are now closed. The candidate remains
-behind an exact default-off production flag; explicit activation, deployment,
-and public smoke/rollback verification are the remaining route work.
+and the full pre-activation regression are now closed. The production Vite
+configuration now selects the Stage 26E map by default and retains
+`VITE_STAGE26E_PRODUCTION_MAP=disabled` as the established-renderer rollback.
+Merge, deployment, and public smoke/rollback verification remain.

@@ -9,11 +9,12 @@ document that should answer "what next?".
   next-generation map replacement lane without reopening planner scope.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E is in progress: browser, accessibility, visual,
-  steady-state frame, default-off production parity, and live-route memory
+  steady-state frame, pre-activation production parity, and live-route memory
   gates are recorded; hardware GPU timing and the owner-reviewed region-data
-  gate are closed. Bounded region delivery and the full default-off regression
-  now pass; explicit production activation and smoke/rollback verification are
-  the remaining steps before the new map becomes the app default.
+  gate are closed. Bounded region delivery and the full regression pass, and
+  the production build now selects the Stage 26E map by default. Merge,
+  deployment, and public smoke/rollback verification remain before claiming the
+  new map is live.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -317,9 +318,9 @@ competing roadmap source.
 - The candidate now carries live heatmap cells, aggregate cluster hulls,
   timeline state, view presets, 42 authoritative region labels, 22,595
   continuous boundaries, and typed ready/empty/error composition.
-  The live route composition now exists only behind the exact
-  `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag; normal production
-  builds leave it unset and keep the established renderer.
+  The production Vite configuration now supplies the exact enabled value by
+  default. `VITE_STAGE26E_PRODUCTION_MAP=disabled` retains the established
+  renderer as an explicit build-time rollback.
 - The project owner confirmed ED-Finder is non-commercial and confirmed the 42
   region names and derived RLE geometry are covered by Frontier's current media
   guidance. The local grid is pinned to the upstream MIT-licensed
@@ -327,10 +328,11 @@ competing roadmap source.
   official long-form attribution is site-wide. This closes the internal gate
   as an owner governance decision, not independent legal advice. Donations are
   outside the current implementation and are not relied on by the review. The
-  flagged candidate emits a guarded 2,312,898-byte static region asset; normal
-  builds omit it. The retained interaction, three-browser, accessibility,
-  visual, and live-route regressions all pass. The live map route remains
-  unchanged only until the explicit activation/deployment step. See
+  default production build emits a guarded 2,312,898-byte static region asset;
+  the explicit rollback build omits it. The retained interaction,
+  three-browser, accessibility, visual, live-route, and ordinary app smoke
+  regressions all pass. The public map remains unchanged until merge and
+  deployment. See
   [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
 - ED Astro's 134-file, roughly 335.58 GiB published catalogue is inventoried
   without opening a bulk-ingest lane. Nebula coordinates and combined POIs are
@@ -439,9 +441,9 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Continue Stage 26E with the deliberate production route-flag activation,
-   deploy and smoke-check the new app map, and retain the established renderer
-   as an immediate flag-based rollback until the candidate has a stable period.
+1. Merge the Stage 26E production-default activation, deploy and smoke-check
+   the new public app map, and retain the explicit disabled build as an
+   immediate rollback until the candidate has a stable period.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

@@ -5,6 +5,28 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-22 - Stage 26E production map activation
+
+**The Stage 26E map is now the production-build default** - Vite supplies the
+exact enabled route value when no override is present, so the ordinary
+`yarn build` used by deployment selects the R3F map and emits its authoritative
+region asset. This same default applies to the normal local app, making further
+map development happen on the real application route rather than only in the
+isolated harness.
+
+**Rollback stays explicit and tested** - Building with
+`VITE_STAGE26E_PRODUCTION_MAP=disabled` selects the established renderer and
+omits the region asset. A post-build contract verifies both forms: the default
+must contain the 2,312,898-byte asset with 42 labels and 22,595 boundaries; the
+disabled form must not contain it.
+
+**The ordinary app route is covered before deployment** - The production-app
+Playwright smoke now navigates through the real Map tab, requires a successful
+region-asset response, and asserts the activated Stage 26E surface and visible
+Regions toggle. All seven ordinary app smoke tests pass against the default
+production bundle. This entry records activation implementation and local
+verification; public deployment and its smoke receipt follow after merge.
+
 ## 2026-07-22 - Stage 26E production region delivery and cutover regression
 
 **The default-off production candidate now carries authoritative regions** -
