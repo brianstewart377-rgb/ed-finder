@@ -32,16 +32,17 @@ export default defineConfig(({ mode }) => {
   const cacheDir = loadedEnv.VITE_CACHE_DIR
     || process.env.VITE_CACHE_DIR
     || 'node_modules/.vite';
-  const stage26eProductionMapEnabled = (
-    loadedEnv.VITE_STAGE26E_PRODUCTION_MAP
-    || process.env.VITE_STAGE26E_PRODUCTION_MAP
-  ) === 'enabled';
+  const stage26eProductionMapValue = process.env.VITE_STAGE26E_PRODUCTION_MAP
+    ?? loadedEnv.VITE_STAGE26E_PRODUCTION_MAP
+    ?? 'enabled';
+  const stage26eProductionMapEnabled = stage26eProductionMapValue === 'enabled';
 
   return {
     base: publicBase,
     cacheDir,
     define: {
       __APP_VERSION__: JSON.stringify(appVersion),
+      'import.meta.env.VITE_STAGE26E_PRODUCTION_MAP': JSON.stringify(stage26eProductionMapValue),
     },
     plugins: [
       react(),

@@ -6,11 +6,12 @@ Stage 26E is in progress. The isolated production-candidate foundation now has
 measured desktop-browser, viewport, accessibility, visual-regression, and
 steady-state frame evidence. Its isolated boundary now carries the remaining
 production feature shapes, continuous authoritative region boundaries, and a
-closed owner-reviewed region-data gate. The same bounded region layer is now
-wired into the default-off production `#map` candidate and the full regression
-passes. Normal production still selects the established map until an explicit
-activation/deployment decision. This document is a progress checkpoint, not a
-shipping claim.
+closed owner-reviewed region-data gate. The same bounded region layer is wired
+into the production `#map` candidate and the full regression passes. The Vite
+production configuration now selects the Stage 26E map by default, while an
+explicit disabled override preserves the established renderer as rollback.
+Merge, deployment, and public smoke-checking remain; this document does not yet
+claim the public site has changed.
 
 The machine-readable source of truth is
 [`cutover-gates.json`](../../artifacts/map-foundation/stage-26e/cutover-gates.json).
@@ -33,9 +34,10 @@ The machine-readable source of truth is
   sentinel row to report truncation, and emits explicit `max_cells` and
   `truncated` metadata. A maximum-width compact JSON fixture measured 4,550,111
   bytes against an 8 MiB raw-response budget.
-- The candidate is composed on the production `#map` route behind the exact
-  `VITE_STAGE26E_PRODUCTION_MAP=enabled` measurement flag. Normal builds leave
-  the value unset and continue to select the established map.
+- The candidate is composed on the production `#map` route with the exact
+  enabled value supplied by the default Vite production configuration. The
+  explicit `VITE_STAGE26E_PRODUCTION_MAP=disabled` override builds the
+  established renderer and omits the Stage 26E region asset.
 - With 500 live Finder systems, 50,000 heatmap cells, 2,000 aggregate hulls,
   100 timeline points, 42 region labels, and 22,595 continuous boundary
   segments, Chromium CDP reported composed-route heap maxima of 30,353,992
@@ -47,10 +49,13 @@ The machine-readable source of truth is
   matrix passes all six Chromium/Firefox/WebKit viewport cells; the dedicated
   Axe journey and 1440x900 visual golden also pass. The exact live-route
   candidate passes both viewports with zero detectable Axe violations.
-- A normal `yarn build:typecheck` omits
-  `stage26e/authoritative-regions.json`; the asset is emitted only by the exact
-  flagged candidate build. This preserves the established renderer and a
-  build-time rollback boundary until activation.
+- A normal `yarn build:typecheck` emits and validates
+  `stage26e/authoritative-regions.json`. A separate explicit disabled build
+  omits it and passes the inverse build contract, preserving a tested
+  build-time rollback boundary.
+- The ordinary production-app smoke passes seven tests, including Map
+  navigation, a 200 response for the region asset, the activated route state,
+  and the default-visible Regions toggle.
 
 These are local Windows/Playwright readings. They do not imply a broad hardware
 performance guarantee.
@@ -91,10 +96,11 @@ ready/empty/error composition. Invalid overlay coordinates are omitted rather
 than invented, and the large-result preset calculation is iterative rather
 than spreading an unbounded result array onto the call stack.
 
-This closes the feature-parity adapter, bounded region delivery, and disabled
-live-route regression gates. The established renderer remains selected in
-normal production builds; deliberate flag activation/deployment is now the
-next route step, while superseded-map removal remains later and explicit.
+This closes the feature-parity adapter, bounded region delivery, pre-activation
+regression, and build-activation gates. Merge, production deployment, and a
+public browser smoke-check are now the next route steps. The established
+renderer remains available through the explicit disabled rollback build;
+superseded-map removal remains later and explicit.
 
 ## Closed GPU Evidence
 
@@ -172,10 +178,10 @@ not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E is ready for the deliberate activation decision. The next bounded
-change may set `VITE_STAGE26E_PRODUCTION_MAP=enabled` in the production build,
-deploy the candidate as the app's real `#map`, smoke-check the public route,
-and retain the established renderer as an immediate flag-based rollback.
+Stage 26E activation is implemented locally. The next bounded steps are to
+merge this configuration, deploy the ordinary production build, verify the
+public root and `#map` route plus the region asset, and retain
+`VITE_STAGE26E_PRODUCTION_MAP=disabled` as the immediate rebuild rollback.
 Superseded-map deletion remains a later, explicit step after a stable period.
 
 The supplied Raven Colonial reference identifies a useful post-cutover visual

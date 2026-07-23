@@ -11,8 +11,9 @@
   "delivery": {
     "path": "stage26e/authoritative-regions.json",
     "mechanism": "Vite build-emitted static asset",
-    "activation": "emitted only when VITE_STAGE26E_PRODUCTION_MAP=enabled",
-    "normal_build_asset_present": false,
+    "activation": "emitted by the default production build; VITE_STAGE26E_PRODUCTION_MAP=disabled selects the rollback build",
+    "production_default_asset_present": true,
+    "rollback_build_asset_present": false,
     "response_bytes": 2312898,
     "response_budget_bytes": 4194304,
     "within_response_budget": true

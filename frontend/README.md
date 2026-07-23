@@ -114,12 +114,24 @@ VITE_DEV_API_TARGET=https://ed-finder.app yarn dev
 ## Production build
 
 ```bash
-yarn build                # → dist/
+yarn build                # → dist/, Stage 26E map is the app map
 ```
 
 `vite.config.ts` defaults to `base: '/'` for the canonical root-served app.
 The `dist/` directory is meant to be served by nginx at `/` (see deployment
 section).
+
+The production build defaults to the Stage 26E R3F map and verifies its
+authoritative 42-region asset after bundling. To produce the immediate rollback
+build with the established renderer, set the explicit override before building:
+
+```bash
+VITE_STAGE26E_PRODUCTION_MAP=disabled yarn build
+```
+
+In PowerShell, use
+`$env:VITE_STAGE26E_PRODUCTION_MAP='disabled'; yarn build`. The build contract
+also verifies that the region asset is absent in this rollback form.
 
 ## Deployment
 

@@ -113,7 +113,7 @@ describe('Stage 26E production route composition', () => {
   it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
     render(<ProductionMapTab systems={Array.from({ length: 510 }, (_, index) => system(index))} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
-    expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Explicit route flag enabled');
+    expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Stage 26E production map active');
     expect((screen.getByTestId('stage26e-map-regions-toggle') as HTMLInputElement).checked).toBe(true);
     const renderer = screen.getByTestId('r3f-production-renderer');
     expect(renderer.getAttribute('data-system-count')).toBe('500');

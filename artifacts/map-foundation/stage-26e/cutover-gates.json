@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "stage": "26E",
-  "status": "in_progress_cutover_not_authorized",
+  "status": "activation_implemented_public_deploy_pending",
   "baseline_sha": "3352938b42c2dc5d4954b9577a1a734b553df582",
   "recorded_on": "2026-07-22",
   "gates": {
@@ -127,8 +127,8 @@
       ],
       "normalized_overlay_buffer_test": "pass at 4272000 bytes against an 8388608-byte budget",
       "region_asset": "pass at 2312898 bytes, 42 labels, and 22595 boundaries against a 4194304-byte response budget",
-      "live_route_wiring": "pass behind exact VITE_STAGE26E_PRODUCTION_MAP=enabled flag with the region asset emitted only in flagged builds; normal production value remains unset and omits the asset",
-      "full_regression": "31 focused unit tests, two retained Chromium journeys, six Chromium/Firefox/WebKit viewport cells, Axe, visual golden, and two live-route viewport measurements pass"
+      "live_route_wiring": "pass; the production Vite configuration now supplies the exact enabled value by default and emits the region asset, while VITE_STAGE26E_PRODUCTION_MAP=disabled preserves the established renderer and omits the asset",
+      "full_regression": "31 focused unit tests, two retained Chromium journeys, six Chromium/Firefox/WebKit viewport cells, Axe, visual golden, two live-route viewport measurements, and the seven-test ordinary production-app smoke pass"
     },
     "region_redistribution_legal": {
       "status": "pass_owner_reviewed_frontier_noncommercial_media_guidance_and_mit_provenance",
@@ -165,9 +165,11 @@
       "required_decisions": []
     },
     "production_route_cutover": {
-      "status": "ready_for_deliberate_activation_decision",
+      "status": "activation_implemented_public_deploy_pending",
       "blocking_gates": [],
-      "remaining_route_step": "make the explicit production flag activation and deployment decision, smoke-check the public route, and retain the established renderer as an immediate flag-based rollback"
+      "production_default": "Stage 26E R3F map",
+      "rollback_override": "VITE_STAGE26E_PRODUCTION_MAP=disabled",
+      "remaining_route_step": "merge and deploy the activation build, smoke-check the public route and region asset, and retain the established renderer as an immediate flag-based rollback during the stability period"
     }
   }
 }

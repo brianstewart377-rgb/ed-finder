@@ -107,4 +107,18 @@ test.describe('ED Finder — smoke', () => {
     expect(body).toHaveProperty('voxel_bucket');
     expect([200, 500, 1000]).toContain(body.voxel_bucket);
   });
+
+  test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
+    const regionResponsePromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/stage26e/authoritative-regions.json'
+    ));
+
+    await page.getByTestId('nav-map').click();
+
+    const regionResponse = await regionResponsePromise;
+    expect(regionResponse.status()).toBe(200);
+    await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
+    await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Stage 26E production map active');
+    await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
+  });
 });
