@@ -24,8 +24,14 @@ disabled form must not contain it.
 Playwright smoke now navigates through the real Map tab, requires a successful
 region-asset response, and asserts the activated Stage 26E surface and visible
 Regions toggle. All seven ordinary app smoke tests pass against the default
-production bundle. This entry records activation implementation and local
-verification; public deployment and its smoke receipt follow after merge.
+production bundle.
+
+**Production cutover is complete** - PR #365 deployed commit `3b53477` to
+ed-finder.app. Public root, index, legacy `/v2/`, API health, data invariants,
+and the 2,312,898-byte region asset pass. The visible public Map tab reports
+`Stage 26E production map active`, Regions is enabled, and the map exposes all
+42 authoritative region labels. The established renderer remains available
+through the explicit disabled rollback build during the observation period.
 
 ## 2026-07-22 - Stage 26E production region delivery and cutover regression
 

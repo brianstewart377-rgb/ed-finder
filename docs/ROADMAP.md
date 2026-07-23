@@ -8,13 +8,14 @@ document that should answer "what next?".
 - Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
   next-generation map replacement lane without reopening planner scope.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
-  complete. Stage 26E is in progress: browser, accessibility, visual,
+  complete. Stage 26E production cutover is complete and in observation:
+  browser, accessibility, visual,
   steady-state frame, pre-activation production parity, and live-route memory
   gates are recorded; hardware GPU timing and the owner-reviewed region-data
   gate are closed. Bounded region delivery and the full regression pass, and
-  the production build now selects the Stage 26E map by default. Merge,
-  deployment, and public smoke/rollback verification remain before claiming the
-  new map is live.
+  commit `3b53477` now serves the Stage 26E map as the public app map. Root,
+  index, legacy `/v2/`, region-asset, and visible `#map` smoke checks pass; the
+  explicit disabled build remains the immediate rollback.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -245,9 +246,9 @@ competing roadmap source.
 - The replacement must render all 42 named in-game galaxy regions correctly,
   support arbitrary multi-system and cluster overlays, preserve selected-system
   context, and keep the Colony Cockpit as the sole planning workspace.
-- The current frontend map renderer is not an architectural baseline. It stays
-  live until deliberate cutover; independently verified backend/API assets may
-  be reused.
+- The then-current frontend map renderer was not an architectural baseline and
+  was retained only until the deliberate Stage 26E cutover; independently
+  verified backend/API assets remained reusable.
 - Stage 26A selects no renderer and changes no runtime route. Its only follow-on
   authorization is Stage 26B: a paid artifact-backed Research Control run and
   an isolated, equally measured deck.gl OrbitView, deck.gl OrthographicView,
@@ -301,7 +302,7 @@ competing roadmap source.
 
 ### Stage 26E
 
-- In progress: Chromium, Firefox, and WebKit pass the isolated typed-foundation
+- Cutover complete, observation in progress: Chromium, Firefox, and WebKit pass the isolated typed-foundation
   journey at both required desktop viewports. Axe reports zero detectable WCAG
   2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
 - The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
@@ -310,8 +311,8 @@ competing roadmap source.
   produced 30/30 valid actual-render GPU timer queries at both viewports, with
   18.982 ms and 27.243 ms p95 and no disjoint samples. Normalized overlay buffers pass a
   deterministic 8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
-  worst-case fixture passes a separate 8 MiB raw-response budget. A default-off
-  `#map` composition with live payloads plus 42 region labels and 22,595
+  worst-case fixture passes a separate 8 MiB raw-response budget. The
+  pre-activation `#map` composition with live payloads plus 42 region labels and 22,595
   continuous boundaries measured 30,353,992 and 27,463,288-byte Chromium heap
   maxima at the required viewports against a 256 MiB budget and passed Axe at
   both viewports with zero detectable violations.
@@ -331,8 +332,8 @@ competing roadmap source.
   default production build emits a guarded 2,312,898-byte static region asset;
   the explicit rollback build omits it. The retained interaction,
   three-browser, accessibility, visual, live-route, and ordinary app smoke
-  regressions all pass. The public map remains unchanged until merge and
-  deployment. See
+  regressions all pass. PR #365 deployed commit `3b53477`; public root,
+  compatibility, region-asset, health, and visible Map-tab checks pass. See
   [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
 - ED Astro's 134-file, roughly 335.58 GiB published catalogue is inventoried
   without opening a bulk-ingest lane. Nebula coordinates and combined POIs are
@@ -441,9 +442,9 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Merge the Stage 26E production-default activation, deploy and smoke-check
-   the new public app map, and retain the explicit disabled build as an
-   immediate rollback until the candidate has a stable period.
+1. Observe and continue developing the live Stage 26E app map, address bounded
+   visual and interaction follow-ups on the real route, and retain the explicit
+   disabled build as an immediate rollback until a later removal decision.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

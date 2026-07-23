@@ -2,7 +2,8 @@
 
 ## Status
 
-Stage 26E is in progress. The isolated production-candidate foundation now has
+Stage 26E is deployed and in its observation period. The isolated
+production-candidate foundation has
 measured desktop-browser, viewport, accessibility, visual-regression, and
 steady-state frame evidence. Its isolated boundary now carries the remaining
 production feature shapes, continuous authoritative region boundaries, and a
@@ -10,11 +11,30 @@ closed owner-reviewed region-data gate. The same bounded region layer is wired
 into the production `#map` candidate and the full regression passes. The Vite
 production configuration now selects the Stage 26E map by default, while an
 explicit disabled override preserves the established renderer as rollback.
-Merge, deployment, and public smoke-checking remain; this document does not yet
-claim the public site has changed.
+Commit `3b53477` now serves this map on the public `#map` route. Public root,
+compatibility, region-asset, and visible-browser checks pass.
 
 The machine-readable source of truth is
 [`cutover-gates.json`](../../artifacts/map-foundation/stage-26e/cutover-gates.json).
+
+## Production Activation Receipt
+
+- PR #365 merged and deployed commit
+  `3b534772c6c4fb2fafacdfafd7f98a35d7b4baba`.
+- Public `/`, `/index.html`, and legacy `/v2/` probes returned HTTP 200.
+- `/stage26e/authoritative-regions.json` returned HTTP 200 with exactly
+  2,312,898 bytes, 42 labels, and 22,595 boundaries.
+- The in-app browser opened the public Map navigation item and observed
+  `Stage 26E production map active`, the checked Regions control, and 42
+  authoritative regions.
+- Public API health and post-deploy data invariants passed. The deploy saved
+  `2d9e9c6` in `/tmp/ed-finder-pre-deploy-commit.txt`; the explicit disabled
+  build remains the renderer rollback.
+- The existing `/sw.js` HTML-shell registration warning remains non-blocking
+  post-cutover hygiene and did not affect the map route.
+
+The machine-readable receipt is
+[`production-activation.json`](../../artifacts/map-foundation/stage-26e/production-activation.json).
 
 ## Closed Engineering Evidence
 
@@ -23,7 +43,7 @@ The machine-readable source of truth is
 - The existing overlap, context-restoration, camera, all-feature hand-off, and
   read-only Planner journey remains green in Chromium at both viewports.
 - Axe reports zero detectable WCAG 2/2.1 A/AA violations on the isolated
-  foundation and on the default-off composed live route at both viewports; the
+  foundation and on the pre-activation composed live route at both viewports; the
   companion selection and hand-off controls remain keyboard operable and named.
 - A repeatable 1440x900 Chromium golden image passes with a maximum one-percent
   pixel-difference budget and has been manually inspected.
@@ -78,7 +98,7 @@ reported roughly 167-662 MB at 1280x720 and 188-386 MB at 1440x900, demonstratin
 that these development-fixture heap snapshots are not stable enough to serve as
 a production budget.
 
-The raw transport, normalized overlay buffers, and default-off live-route heap
+The raw transport, normalized overlay buffers, and pre-activation live-route heap
 are now all bounded. The live-route evidence supersedes the variable isolated
 fixture snapshots for the memory gate because it measures the actual route
 composition and live production-shaped payloads. It does not by itself close
@@ -97,10 +117,9 @@ than invented, and the large-result preset calculation is iterative rather
 than spreading an unbounded result array onto the call stack.
 
 This closes the feature-parity adapter, bounded region delivery, pre-activation
-regression, and build-activation gates. Merge, production deployment, and a
-public browser smoke-check are now the next route steps. The established
-renderer remains available through the explicit disabled rollback build;
-superseded-map removal remains later and explicit.
+regression, build activation, production deployment, and public browser smoke
+gates. The established renderer remains available through the explicit
+disabled rollback build; superseded-map removal remains later and explicit.
 
 ## Closed GPU Evidence
 
@@ -178,11 +197,10 @@ not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E activation is implemented locally. The next bounded steps are to
-merge this configuration, deploy the ordinary production build, verify the
-public root and `#map` route plus the region asset, and retain
+Stage 26E is the live app map. Continue bounded visual and interaction work on
+the real `#map` route, monitor the observation period, and retain
 `VITE_STAGE26E_PRODUCTION_MAP=disabled` as the immediate rebuild rollback.
-Superseded-map deletion remains a later, explicit step after a stable period.
+Superseded-map deletion remains a later, explicit decision after stability.
 
 The supplied Raven Colonial reference identifies a useful post-cutover visual
 follow-up: an explicit 2D/3D control, a restrained oblique tabletop preset,

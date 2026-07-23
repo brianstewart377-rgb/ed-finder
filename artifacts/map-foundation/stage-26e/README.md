@@ -1,7 +1,7 @@
 # Stage 26E Cutover-Readiness Evidence
 
-This directory records the measured Stage 26E engineering progress without
-claiming production cutover readiness.
+This directory records the measured Stage 26E engineering progress and the
+completed production cutover receipt.
 
 - `cutover-gates.json` is the machine-readable gate ledger.
 - `performance-1280x720.json` and `performance-1440x900.json` are Chromium
@@ -15,7 +15,7 @@ claiming production cutover readiness.
 - `production-memory-budget.json` records the bounded normalized overlay
   buffers, their deterministic worst-case byte count, the closed raw-response
   bound, and the closed live-route heap budget.
-- `live-route-memory.json` records the exact default-off `#map` candidate at
+- `live-route-memory.json` records the exact pre-activation `#map` candidate at
   both required viewports with 500 live Finder systems, 50,000 heatmap cells,
   2,000 aggregate hulls, 100 timeline points, 42 region labels, and 22,595
   continuous region boundaries. Chromium CDP heap maxima were 30,353,992 and
@@ -25,6 +25,9 @@ claiming production cutover readiness.
   a 2,312,898-byte static asset against a 4 MiB response budget, exact label
   and boundary limits, client validation, default production emission, and
   confirmed omission from the explicit disabled rollback build.
+- `production-activation.json` records the deployed commit, public health and
+  compatibility probes, exact region-asset response, visible `#map` browser
+  smoke, and retained rollback target.
 - `heatmap-response-envelope.json` records the server-side 50,000-cell ceiling,
   stable density-first ordering, truncation contract, and compact JSON budget.
 - `region-source-review.json` records the exact local/upstream RLE comparison
@@ -42,4 +45,6 @@ callbacks. Region-data provenance, attribution, owner review, bounded delivery,
 and the full pre-activation regression are now closed. The production Vite
 configuration now selects the Stage 26E map by default and retains
 `VITE_STAGE26E_PRODUCTION_MAP=disabled` as the established-renderer rollback.
-Merge, deployment, and public smoke/rollback verification remain.
+Commit `3b53477` is deployed, the public route and region asset pass, and Stage
+26E is now in an observation period while normal map development continues on
+the app route.
