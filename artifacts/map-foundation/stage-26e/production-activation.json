@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "status": "pass",
+  "deployed_commit": "3b534772c6c4fb2fafacdfafd7f98a35d7b4baba",
+  "pull_request": 365,
+  "public_url": "https://ed-finder.app",
+  "checked_at_utc": "2026-07-23T07:32:33.8826105Z",
+  "release": {
+    "public_health": "ok",
+    "database": "connected",
+    "app_http_status": 200,
+    "data_invariants": "pass",
+    "rollback_target_commit": "2d9e9c6",
+    "rollback_target_file": "/tmp/ed-finder-pre-deploy-commit.txt"
+  },
+  "http_smoke": {
+    "/": 200,
+    "/index.html": 200,
+    "/v2/": 200,
+    "/stage26e/authoritative-regions.json": 200
+  },
+  "region_asset": {
+    "response_bytes": 2312898,
+    "labels": 42,
+    "boundaries": 22595,
+    "content_type": "application/json"
+  },
+  "browser_smoke": {
+    "route": "#map",
+    "surface": "Stage 26E production map active",
+    "regions_checked": true,
+    "authoritative_region_labels_visible": 42,
+    "result": "pass"
+  },
+  "non_blocking_observation": "The existing service-worker registration warning remains visible because /sw.js resolves to the app HTML shell. It did not affect the map cutover and is retained as post-cutover hygiene."
+}

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "stage": "26E",
-  "status": "activation_implemented_public_deploy_pending",
+  "status": "activated_observation_period",
   "baseline_sha": "3352938b42c2dc5d4954b9577a1a734b553df582",
-  "recorded_on": "2026-07-22",
+  "recorded_on": "2026-07-23",
   "gates": {
     "typed_feature_handoffs": {
       "status": "pass",
@@ -24,7 +24,7 @@
       "tests_passed": 6
     },
     "accessibility": {
-      "status": "pass_for_isolated_foundation_and_default_off_live_route",
+      "status": "pass_for_isolated_foundation_and_activated_live_route",
       "automated_standard": "WCAG 2 A/AA and WCAG 2.1 A/AA detectable rules",
       "axe_violations": 0,
       "keyboard_journey": "pass",
@@ -90,7 +90,7 @@
       "live_production_route": {
         "status": "pass",
         "route": "#map",
-        "activation": "measurement build only; normal production flag remains unset",
+        "activation": "production default deployed in 3b534772c6c4fb2fafacdfafd7f98a35d7b4baba",
         "data_source": "live ED-Finder API payloads plus the bounded build-emitted authoritative region asset, fulfilled unchanged into the measured route",
         "budget_bytes": 268435456,
         "chromium_cdp_js_heap_used_size_max_bytes": {
@@ -110,7 +110,7 @@
       "remaining": null
     },
     "production_feature_parity": {
-      "status": "pass_for_default_off_live_route_candidate",
+      "status": "pass_for_activated_live_route",
       "supported": [
         "Finder coordinate-bearing systems",
         "selected-system context",
@@ -165,11 +165,15 @@
       "required_decisions": []
     },
     "production_route_cutover": {
-      "status": "activation_implemented_public_deploy_pending",
+      "status": "pass_activated_observation_period",
       "blocking_gates": [],
       "production_default": "Stage 26E R3F map",
       "rollback_override": "VITE_STAGE26E_PRODUCTION_MAP=disabled",
-      "remaining_route_step": "merge and deploy the activation build, smoke-check the public route and region asset, and retain the established renderer as an immediate flag-based rollback during the stability period"
+      "deployed_commit": "3b534772c6c4fb2fafacdfafd7f98a35d7b4baba",
+      "pull_request": 365,
+      "public_smoke": "pass for root, index.html, v2 compatibility, authoritative region asset, and visible #map activation state",
+      "evidence": "artifacts/map-foundation/stage-26e/production-activation.json",
+      "remaining_route_step": "observe the live map, continue normal map development on the app route, and retain the established renderer as an immediate flag-based rollback until a later explicit removal decision"
     }
   }
 }
