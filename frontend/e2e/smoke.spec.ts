@@ -120,5 +120,14 @@ test.describe('ED Finder — smoke', () => {
     await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
     await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Stage 26E production map active');
     await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
+
+    const flatProjection = page.getByTestId('map-projection-2d');
+    const tabletopProjection = page.getByTestId('map-projection-3d');
+    await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
+    await tabletopProjection.click();
+    await expect(tabletopProjection).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
+    await flatProjection.click();
+    await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
   });
 });

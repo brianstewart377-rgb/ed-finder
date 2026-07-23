@@ -9,7 +9,10 @@ vi.mock('@/features/map/useMapLayers');
 vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
   R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction }: {
-    scene: { systems: Array<{ id64: number }> };
+    scene: {
+      systems: Array<{ id64: number }>;
+      camera: { bearingDeg: number; pitchDeg: number };
+    };
     regions: { labels: unknown[]; boundaries: unknown[] };
     productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
     onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
@@ -19,6 +22,8 @@ vi.mock('./R3FMapFoundation', () => ({
       data-system-count={scene.systems.length}
       data-region-label-count={regions.labels.length}
       data-region-boundary-count={regions.boundaries.length}
+      data-camera-bearing={scene.camera.bearingDeg}
+      data-camera-pitch={scene.camera.pitchDeg}
       data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
       data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
     >
@@ -164,5 +169,24 @@ describe('Stage 26E production route composition', () => {
     expect(screen.getByTestId('map-selection-panel').textContent).toContain('System 1');
     fireEvent.click(screen.getByTestId('map-open-selected-system'));
     expect(onOpenSelectedSystem).toHaveBeenCalledWith(1);
+  });
+
+  it('offers explicit flat and oblique tabletop projections without changing map data', () => {
+    render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    const renderer = screen.getByTestId('r3f-production-renderer');
+    expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
+
+    fireEvent.click(screen.getByTestId('map-projection-3d'));
+    expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
+    expect(renderer.getAttribute('data-camera-bearing')).toBe('-18');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('46');
+    expect(renderer.getAttribute('data-system-count')).toBe('1');
+
+    fireEvent.click(screen.getByTestId('map-projection-2d'));
+    expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
+    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
   });
 });

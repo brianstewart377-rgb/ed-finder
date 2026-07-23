@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "stage": "26E",
+  "status": "implementation_verified_deploy_pending",
+  "checked_at_utc": "2026-07-23T08:37:44Z",
+  "scope": {
+    "route": "#map",
+    "region_geometry_changed": false,
+    "authoritative_boundaries": 22595,
+    "authoritative_region_asset_bytes": 2312898,
+    "projection_controls": [
+      "2d",
+      "3d"
+    ],
+    "tabletop_camera": {
+      "bearing_deg": -18,
+      "pitch_deg": 46
+    }
+  },
+  "boundary_renderer": {
+    "geometry_instances": 1,
+    "draw_layers": 2,
+    "mode": "screen_space_antialiased_line_segments",
+    "halo": {
+      "color": "#f1a04a",
+      "linewidth_px": 2.6,
+      "opacity": 0.12
+    },
+    "core": {
+      "color": "#d88b37",
+      "linewidth_px": 1.15,
+      "opacity": 0.66
+    }
+  },
+  "bundle": {
+    "activation_map_chunk_bytes": 930260,
+    "polished_map_chunk_bytes": 948580,
+    "raw_delta_bytes": 18320
+  },
+  "verification": {
+    "focused_tests": "pass: 8 files, 32 tests",
+    "typecheck": "pass",
+    "lint": "pass",
+    "production_build_contract": "pass",
+    "ordinary_app_projection_smoke": "pass",
+    "visual_golden_1440x900": "pass and manually inspected",
+    "axe_wcag_a_aa": "pass: zero detectable violations",
+    "manual_region_toggle": "pass",
+    "manual_projection_toggle": "pass",
+    "retained_isolated_interaction": "local slow-Windows automation exceeded its journey deadline at varying later actions; protected CI remains the publication gate"
+  },
+  "production": {
+    "deployment": "pending",
+    "public_browser_smoke": "pending"
+  }
+}

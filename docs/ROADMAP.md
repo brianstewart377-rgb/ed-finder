@@ -15,7 +15,9 @@ document that should answer "what next?".
   gate are closed. Bounded region delivery and the full regression pass, and
   commit `3b53477` now serves the Stage 26E map as the public app map. Root,
   index, legacy `/v2/`, region-asset, and visible `#map` smoke checks pass; the
-  explicit disabled build remains the immediate rollback.
+  explicit disabled build remains the immediate rollback. The first bounded
+  post-cutover slice is implementation-verified: it improves region-boundary
+  hierarchy and adds explicit 2D/3D projection controls on the real route.
 - Local engineering posture: the repo-local Python 3.12 `.venv` path is now
   the canonical local test runner, Docker-backed disposable Postgres/Redis on
   `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
@@ -341,6 +343,13 @@ competing roadmap source.
   provenance are confirmed; multi-gigabyte body/star dumps stay outside Stage
   26E. See
   [`edastro-data-source-inventory.md`](./colonisation-redesign/edastro-data-source-inventory.md).
+- The first post-cutover visual slice preserves all 22,595 authoritative
+  endpoints while replacing the single-pixel divider with one batched
+  screen-space anti-aliased halo/core treatment. Region labels now share a
+  restrained warm hierarchy, and the live control rail exposes explicit flat
+  2D and oblique tabletop 3D presets through the existing camera state. The
+  1440x900 golden and Axe gate pass; production publication remains the final
+  step for this slice.
 
 ### Stage 25C
 
@@ -442,9 +451,10 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Observe and continue developing the live Stage 26E app map, address bounded
-   visual and interaction follow-ups on the real route, and retain the explicit
-   disabled build as an immediate rollback until a later removal decision.
+1. Publish and observe the first Stage 26E post-cutover boundary/projection
+   polish, then continue bounded orientation and interaction follow-ups on the
+   real route while retaining the explicit disabled build as immediate
+   rollback until a later removal decision.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

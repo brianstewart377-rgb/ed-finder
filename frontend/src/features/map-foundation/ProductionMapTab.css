@@ -31,10 +31,13 @@
 .stage26e-production-map-viewport .map-foundation-labels span,
 .stage26e-production-map-viewport .map-foundation-cluster-labels span {
   position: absolute;
-  color: #b9cbd6;
+  color: #d9b47a;
   font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.015em;
+  opacity: 0.92;
   white-space: nowrap;
-  text-shadow: 0 1px 3px #000, 0 0 3px #000;
+  text-shadow: 0 1px 3px #000, 0 0 5px #05090e;
   transform: translate(-50%, -50%);
 }
 
