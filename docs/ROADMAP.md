@@ -348,8 +348,9 @@ competing roadmap source.
   screen-space anti-aliased halo/core treatment. Region labels now share a
   restrained warm hierarchy, and the live control rail exposes explicit flat
   2D and oblique tabletop 3D presets through the existing camera state. The
-  1440x900 golden and Axe gate pass; production publication remains the final
-  step for this slice.
+  1440x900 golden and Axe gate pass. PR #367 deployed commit `c0eef72`; public
+  root, compatibility, health, exact region-asset, and 2D -> 3D -> 2D browser
+  checks pass.
 
 ### Stage 25C
 
@@ -451,10 +452,10 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Publish and observe the first Stage 26E post-cutover boundary/projection
-   polish, then continue bounded orientation and interaction follow-ups on the
-   real route while retaining the explicit disabled build as immediate
-   rollback until a later removal decision.
+1. Observe the deployed Stage 26E post-cutover boundary/projection polish, then
+   continue bounded orientation and interaction follow-ups on the real route
+   while retaining the explicit disabled build as immediate rollback until a
+   later removal decision.
 2. Preserve production data-integrity receipts and the bounded rerating cadence.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.

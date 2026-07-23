@@ -25,6 +25,12 @@ inspected 1440x900 golden records the new boundary treatment. The production
 map chunk is 948,580 bytes, an 18,320-byte raw increase from the activated
 baseline, while the 2,312,898-byte authoritative region asset is unchanged.
 
+**Production promotion is complete** - PR #367 deployed commit `c0eef72`.
+Public root, index, legacy `/v2/`, API health, and the exact region asset pass.
+The live browser reports 42 authoritative regions, keeps Regions enabled, and
+survives the explicit 2D -> 3D -> 2D journey. Production-safe data invariants
+pass and the release saved `3b53477` as its rollback target.
+
 ## 2026-07-22 - Stage 26E production map activation
 
 **The Stage 26E map is now the production-build default** - Vite supplies the

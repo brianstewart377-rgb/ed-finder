@@ -53,6 +53,12 @@ projection directions. The ordinary production-app smoke switches 2D -> 3D ->
 chunk is 948,580 bytes, up 18,320 raw bytes from the activation baseline; the
 separate authoritative region response remains exactly 2,312,898 bytes.
 
+PR #367 deployed commit `c0eef7270ebabd93463580e1f9288919748a804d`.
+Public root, index, legacy `/v2/`, health, and exact region-asset probes pass.
+The live browser reports 42 authoritative regions, Regions enabled, and a
+successful 2D -> 3D -> 2D journey with the map remaining visible. The canonical
+release passed production-safe data invariants and saved `3b53477` as rollback.
+
 The implementation receipt is
 [`post-cutover-visual-polish.json`](../../artifacts/map-foundation/stage-26e/post-cutover-visual-polish.json).
 
@@ -217,9 +223,8 @@ not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E is the live app map. Publish and observe the verified first
-post-cutover slice, then continue bounded visual and interaction work on the
-real `#map` route and retain
+Stage 26E is the live app map. Observe the deployed first post-cutover slice,
+then continue bounded visual and interaction work on the real `#map` route and retain
 `VITE_STAGE26E_PRODUCTION_MAP=disabled` as the immediate rebuild rollback.
 Superseded-map deletion remains a later, explicit decision after stability.
 

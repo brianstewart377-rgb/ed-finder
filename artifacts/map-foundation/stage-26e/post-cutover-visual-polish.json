@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "stage": "26E",
-  "status": "implementation_verified_deploy_pending",
-  "checked_at_utc": "2026-07-23T08:37:44Z",
+  "status": "pass",
+  "checked_at_utc": "2026-07-23T08:53:05Z",
   "scope": {
     "route": "#map",
     "region_geometry_changed": false,
@@ -50,7 +50,26 @@
     "retained_isolated_interaction": "local slow-Windows automation exceeded its journey deadline at varying later actions; protected CI remains the publication gate"
   },
   "production": {
-    "deployment": "pending",
-    "public_browser_smoke": "pending"
+    "deployment": {
+      "pull_request": 367,
+      "commit": "c0eef7270ebabd93463580e1f9288919748a804d",
+      "health": "pass",
+      "data_invariants": "pass",
+      "rollback_target_commit": "3b53477"
+    },
+    "http_smoke": {
+      "/": 200,
+      "/index.html": 200,
+      "/v2/": 200,
+      "/stage26e/authoritative-regions.json": 200,
+      "/api/health": 200
+    },
+    "public_browser_smoke": {
+      "stage26e_active": true,
+      "regions_checked": true,
+      "authoritative_regions": 42,
+      "projection_2d_to_3d_to_2d": "pass",
+      "map_remained_visible": true
+    }
   }
 }
