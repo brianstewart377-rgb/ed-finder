@@ -1,6 +1,9 @@
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import type {
   CameraState,
   MapInteractionEvent,
@@ -56,6 +59,65 @@ function GpuTimingBridge({ onReady }: { onReady: FoundationRendererProps['onGpuT
     return () => onReady(null);
   }, [camera, gl, onReady, scene]);
   return null;
+}
+
+function RegionBoundaryLines({
+  positions: boundaryPositions,
+  viewport,
+}: {
+  positions: Float32Array;
+  viewport: FoundationRendererProps['viewport'];
+}) {
+  const layer = useMemo(() => {
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(boundaryPositions);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+
+    const haloMaterial = new LineMaterial({
+      color: 0xf1a04a,
+      linewidth: 2.6,
+      transparent: true,
+      opacity: 0.12,
+      depthTest: false,
+      depthWrite: false,
+      alphaToCoverage: true,
+    });
+    const coreMaterial = new LineMaterial({
+      color: 0xd88b37,
+      linewidth: 1.15,
+      transparent: true,
+      opacity: 0.66,
+      depthTest: false,
+      depthWrite: false,
+      alphaToCoverage: true,
+    });
+    const halo = new LineSegments2(geometry, haloMaterial);
+    const core = new LineSegments2(geometry, coreMaterial);
+    halo.renderOrder = 1;
+    core.renderOrder = 2;
+    halo.frustumCulled = false;
+    core.frustumCulled = false;
+
+    return { geometry, halo, core, haloMaterial, coreMaterial };
+  }, [boundaryPositions]);
+
+  useEffect(() => {
+    layer.haloMaterial.resolution.set(viewport.width, viewport.height);
+    layer.coreMaterial.resolution.set(viewport.width, viewport.height);
+  }, [layer, viewport.height, viewport.width]);
+
+  useEffect(() => () => {
+    layer.haloMaterial.dispose();
+    layer.coreMaterial.dispose();
+    layer.geometry.dispose();
+  }, [layer]);
+
+  if (boundaryPositions.length === 0) return null;
+  return <>
+    <primitive object={layer.halo} />
+    <primitive object={layer.core} />
+  </>;
 }
 
 function SceneContents(props: FoundationRendererProps & { visible: ReturnType<typeof selectVisibleSystems> }) {
@@ -114,15 +176,7 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
       </bufferGeometry>
       <lineBasicMaterial vertexColors transparent opacity={0.38} />
     </lineSegments>}
-    <lineSegments>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[
-          boundaryPositions,
-          3,
-        ]} />
-      </bufferGeometry>
-      <lineBasicMaterial color="#b97822" transparent opacity={0.72} />
-    </lineSegments>
+    <RegionBoundaryLines positions={boundaryPositions} viewport={props.viewport} />
     <points onPointerDown={(event) => select(visible.background, event)}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
       <pointsMaterial color="#5e8093" size={1.5} sizeAttenuation={false} transparent opacity={0.7} />

@@ -34,6 +34,7 @@ import './ProductionMapTab.css';
 
 const EMPTY_REGIONS: RegionLayerData = { labels: [], boundaries: [] };
 const DEFAULT_VIEWPORT: ViewportSize = { width: 1280, height: 720 };
+const TABLETOP_CAMERA = { bearingDeg: -18, pitchDeg: 46 } as const;
 
 function emptyProductionScene(reference: { x: number; z: number }): MapSceneState {
   return {
@@ -175,8 +176,21 @@ export function ProductionMapTab({
     setScene((current) => applyViewPreset(current, preset, referenceCoords, viewport));
   }, [referenceCoords, viewport]);
 
+  const selectProjection = useCallback((projection: '2d' | '3d') => {
+    setScene((current) => ({
+      ...current,
+      cameraIntent: 'user',
+      camera: {
+        ...current.camera,
+        bearingDeg: projection === '3d' ? TABLETOP_CAMERA.bearingDeg : 0,
+        pitchDeg: projection === '3d' ? TABLETOP_CAMERA.pitchDeg : 0,
+      },
+    }));
+  }, []);
+
   const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
+  const projection = scene.camera.pitchDeg >= 8 ? '3d' : '2d';
   const activeLayerSummary = [
     'Finder dots',
     showRegions ? 'Regions' : null,
@@ -262,6 +276,21 @@ export function ProductionMapTab({
               className={viewPreset === mode.id ? 'bg-orange/20 px-2.5 py-1 font-mono text-[10px] text-orange' : 'px-2.5 py-1 font-mono text-[10px] text-silver-dk'}
             >
               {mode.label}
+            </button>
+          ))}
+        </div>
+        <div role="group" aria-label="Map projection" className="flex overflow-hidden rounded-chunk-sm border border-border">
+          {(['2d', '3d'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              data-testid={`map-projection-${mode}`}
+              aria-pressed={projection === mode}
+              title={mode === '3d' ? 'Oblique tabletop view' : 'Flat galactic plane view'}
+              onClick={() => selectProjection(mode)}
+              className={projection === mode ? 'bg-gold/15 px-2.5 py-1 font-mono text-[10px] uppercase text-gold' : 'px-2.5 py-1 font-mono text-[10px] uppercase text-silver-dk'}
+            >
+              {mode}
             </button>
           ))}
         </div>

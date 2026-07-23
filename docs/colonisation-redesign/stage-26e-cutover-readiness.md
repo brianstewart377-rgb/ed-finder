@@ -36,6 +36,26 @@ The machine-readable source of truth is
 The machine-readable receipt is
 [`production-activation.json`](../../artifacts/map-foundation/stage-26e/production-activation.json).
 
+## First Post-Cutover Slice
+
+The first development slice on the live map keeps the authoritative region
+asset and all 22,595 exact endpoints unchanged. It replaces the thin divider
+with a shared-geometry, batched screen-space halo/core treatment, warms the
+region-label hierarchy, and adds explicit 2D and restrained oblique 3D
+projection controls to the ordinary app route. The 3D control reuses existing
+bearing and pitch state; it does not introduce a second renderer or alter map
+payloads.
+
+The manually inspected 1440x900 baseline and the repeat comparison pass, Axe
+reports no detectable WCAG A/AA violations, and focused tests cover both
+projection directions. The ordinary production-app smoke switches 2D -> 3D ->
+2D while requiring the map to remain mounted. The resulting production map
+chunk is 948,580 bytes, up 18,320 raw bytes from the activation baseline; the
+separate authoritative region response remains exactly 2,312,898 bytes.
+
+The implementation receipt is
+[`post-cutover-visual-polish.json`](../../artifacts/map-foundation/stage-26e/post-cutover-visual-polish.json).
+
 ## Closed Engineering Evidence
 
 - Chromium, Firefox, and WebKit pass the typed foundation journey at 1280x720
@@ -197,13 +217,14 @@ not treated as formal permission.
 
 ## Next Authorized Work
 
-Stage 26E is the live app map. Continue bounded visual and interaction work on
-the real `#map` route, monitor the observation period, and retain
+Stage 26E is the live app map. Publish and observe the verified first
+post-cutover slice, then continue bounded visual and interaction work on the
+real `#map` route and retain
 `VITE_STAGE26E_PRODUCTION_MAP=disabled` as the immediate rebuild rollback.
 Superseded-map deletion remains a later, explicit decision after stability.
 
-The supplied Raven Colonial reference identifies a useful post-cutover visual
-follow-up: an explicit 2D/3D control, a restrained oblique tabletop preset,
-map-plane region labels, and a faint orientation grid. ED-Finder may adapt
-those interaction principles through its existing bearing/pitch state, without
-copying Raven assets or widening the current cutover slice.
+The supplied Raven Colonial reference identified useful interaction principles
+without authorizing asset copying. Explicit 2D/3D control, the restrained
+oblique preset, and the map-plane label treatment are now implemented through
+ED-Finder's own renderer and camera state. A faint, measured orientation grid
+remains a possible later slice rather than being bundled into this one.

@@ -5,6 +5,26 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-07-23 - Stage 26E post-cutover boundary and projection polish
+
+**The live map's region structure is clearer without changing its data** -
+the same 22,595 authoritative exact-grid segments now render as one batched,
+screen-space anti-aliased boundary layer with a restrained amber halo and core.
+Region labels use a warmer, quieter hierarchy. No region name, endpoint, or
+source asset changed.
+
+**The real app route now has an explicit 2D/3D choice** - the default 2D
+galactic-plane view is paired with a bounded 3D tabletop preset using the
+existing camera bearing and pitch state. Switching projection preserves the
+scene data and remains separate from layer visibility.
+
+**The post-cutover slice is regression-locked** - focused tests cover both
+projection directions, the ordinary production-app smoke exercises the new
+controls, Axe reports no detectable WCAG A/AA violations, and the manually
+inspected 1440x900 golden records the new boundary treatment. The production
+map chunk is 948,580 bytes, an 18,320-byte raw increase from the activated
+baseline, while the 2,312,898-byte authoritative region asset is unchanged.
+
 ## 2026-07-22 - Stage 26E production map activation
 
 **The Stage 26E map is now the production-build default** - Vite supplies the
