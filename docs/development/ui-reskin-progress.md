@@ -71,3 +71,12 @@ Review the mockup gallery at desktop and mobile breakpoints. Only after the
 owner selects the strongest patterns should the work proceed to bounded
 production implementation, a wider token migration, or the remaining
 application workspaces.
+
+## Concept gallery branch correction
+
+Emergent initially pushed the isolated mockup gallery directly onto this reskin
+branch. Its ancestry and file scope were safe, but the destination did not
+match the brief. The gallery has been recovered and reviewed on the dedicated
+`codex/ui-concept-mockups` branch. The misplaced gallery commit is reverted
+here without force-pushing so this branch and draft PR remain limited to the
+production reskin and its design documentation.

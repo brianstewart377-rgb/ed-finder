@@ -2,7 +2,6 @@ node_modules
 dist
 dist-bakeoff
 dist-map-foundation
-dist-concept-mockups
 
 # TypeScript incremental-build artefacts (regenerate every build).
 *.tsbuildinfo
