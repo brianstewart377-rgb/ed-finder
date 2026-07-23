@@ -273,6 +273,12 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   }, []);
 
   const plannerWorkspaceRoute = route === 'colony-planner';
+  // "Immersive" routes give the main content the full viewport beneath the
+  // header (no legal footer / news bar pushing the page into a scroll). The
+  // Map is the primary example — it should fill the screen, not begin below
+  // several stacked bars.
+  const immersiveRoute = route === 'map';
+  const fullBleedRoute = plannerWorkspaceRoute || immersiveRoute;
 
   return (
     <>
@@ -285,9 +291,10 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       <main
         id="app-content"
         className={[
-          'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
-          plannerWorkspaceRoute ? 'pb-10' : 'pb-28',
-          plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
+          'min-h-screen px-4 sm:px-6',
+          immersiveRoute ? 'flex h-dvh flex-col overflow-hidden py-4 sm:py-5' : 'py-6 sm:py-10',
+          plannerWorkspaceRoute ? 'pb-10' : immersiveRoute ? 'pb-5' : 'pb-28',
+          fullBleedRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
         ].join(' ')}
       >
       <NavBar
@@ -298,7 +305,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         compareCount={compare.entries.length}
         fcCount={fc.waypoints.length}
         health={health}
-        fullWidth={plannerWorkspaceRoute}
+        fullWidth={fullBleedRoute}
+        compactSpacing={immersiveRoute}
         selectedSystem={shellSelectedSystem}
         onOpenSelectedSystemInPlan={shellSelectedSystem && route !== 'colony-planner' ? openShellContextInPlan : undefined}
         onDismissSelectedSystem={closeSystemDetail}
@@ -398,20 +406,23 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
 
         {route === 'map' && (
-          <LazyMapTab
-            systems={search.results}
-            reference={{
-              name: search.filters.refName,
-              x:    search.filters.refCoords.x,
-              z:    search.filters.refCoords.z,
-            }}
-            initialSelectedSystemId={selectedSystemId}
-            onReturnToFinder={() => navigate('finder')}
-            onOpenSelectedSystem={(id64) => openSystemDetail(id64, { hostRoute: 'map' })}
-          />
+          <div className="min-h-0 flex-1">
+            <LazyMapTab
+              systems={search.results}
+              reference={{
+                name: search.filters.refName,
+                x:    search.filters.refCoords.x,
+                z:    search.filters.refCoords.z,
+              }}
+              initialSelectedSystemId={selectedSystemId}
+              onReturnToFinder={() => navigate('finder')}
+              onOpenSelectedSystem={(id64) => openSystemDetail(id64, { hostRoute: 'map' })}
+            />
+          </div>
         )}
       </Suspense>
 
+      {!immersiveRoute && (
       <footer className="mt-16 space-y-2 text-center text-label font-mono text-silver-2 opacity-55">
         ED:Finder — Elite Dangerous colonisation planner
         <section aria-labelledby="data-ip-attribution-title" className="mx-auto max-w-4xl space-y-1 text-[10px] leading-relaxed">
@@ -433,6 +444,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
           ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.
         </p>
       </footer>
+      )}
 
       {selectedSystemId !== null && (
         <Suspense fallback={null}>
@@ -514,7 +526,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         </Suspense>
       )}
 
-      {!plannerWorkspaceRoute && <EliteNewsBar />}
+      {!plannerWorkspaceRoute && !immersiveRoute && <EliteNewsBar />}
       </main>
     </>
   );

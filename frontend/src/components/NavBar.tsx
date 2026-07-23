@@ -24,6 +24,7 @@ export interface NavBarProps {
   fcCount?:        number;
   health?:         string;
   fullWidth?:      boolean;
+  compactSpacing?: boolean;
   selectedSystem?: {
     id64: number;
     name: string | null;
@@ -43,6 +44,7 @@ export function NavBar({
   compareCount, fcCount,
   health,
   fullWidth = false,
+  compactSpacing = false,
   selectedSystem = null,
   onOpenSelectedSystemInPlan,
   onDismissSelectedSystem,
@@ -79,7 +81,10 @@ export function NavBar({
   );
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = selectedSystem != null || !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
+  // 'map' is an immersive route: suppress the large workspace-context header
+  // there unless a system is actually selected, so the map is not pushed down
+  // by an extra stacked bar.
+  const showPlayerContext = selectedSystem != null || !['finder', 'map', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
   const currentPrimary = primaryWorkspaceForRoute(current);
   const currentRouteDescriptor = PLAYER_WORKSPACES
     .flatMap((workspace) => groupedRoutes[workspace])
@@ -119,7 +124,8 @@ export function NavBar({
   return (
     <nav
       className={[
-        'sticky top-3 z-30 mb-8 px-3',
+        'sticky top-3 z-30 px-3',
+        compactSpacing ? 'mb-3' : 'mb-8',
         fullWidth ? 'w-full max-w-none' : 'mx-auto max-w-[1840px]',
       ].join(' ')}
       data-testid="navbar"
@@ -144,12 +150,12 @@ export function NavBar({
           <span className="hidden h-9 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent sm:block" />
 
           <div
-            className="hidden min-w-0 flex-1 items-center gap-3 lg:flex"
+            className="hidden min-w-0 flex-1 items-center gap-3 min-[1380px]:flex"
             data-testid="nav-desktop-route-strip"
           >
             {!operatorMode ? (
               <div
-                className="premium-toolbar flex min-w-0 flex-wrap items-center gap-1 overflow-x-auto rounded-full px-2 py-1.5"
+                className="premium-toolbar flex min-w-0 items-center gap-1 overflow-x-auto rounded-full px-2 py-1.5"
                 aria-label="Player routes"
                 data-testid="nav-player-routes"
               >
@@ -168,8 +174,8 @@ export function NavBar({
             ) : null}
           </div>
 
-          <div className="min-w-0 flex-1 lg:hidden">
-            <span className="truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
+          <div className="min-w-0 flex-1 min-[1380px]:hidden">
+            <span className="block truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
               {currentPrimary ? `${currentWorkspaceMeta.primaryLabel} · ${currentRouteDescriptor?.label ?? currentWorkspaceMeta.title}` : currentWorkspaceMeta.title}
             </span>
           </div>
@@ -192,7 +198,7 @@ export function NavBar({
             data-testid="nav-menu-toggle"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
+            className="premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 min-[1380px]:hidden"
           >
             Menu
           </button>
@@ -356,7 +362,7 @@ export function NavBar({
         <div
           ref={menuRef}
           data-testid="nav-menu-panel"
-          className="panel mt-2 p-2 lg:hidden"
+          className="panel mt-2 p-2 min-[1380px]:hidden"
         >
           <div className="grid gap-3">
             <MenuSection

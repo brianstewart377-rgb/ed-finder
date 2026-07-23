@@ -107,7 +107,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         </div>
       </div>
 
-      <Section title="Search Radius">
+      <Section title="Search Radius" collapsible defaultOpen>
         <RangeRow
           label="Min distance (LY)"
           min={0} max={2000}
@@ -133,7 +133,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         />
       </Section>
 
-      <Section title="Filters">
+      <Section title="Filters" collapsible defaultOpen>
         <Select
           label="Colony status"
           size="sm"
@@ -161,13 +161,13 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
       </Section>
 
       {/* Body-type range filters — grouped with progressive disclosure */}
-      {SLIDER_GROUPS.map((group, gi) => {
+      {SLIDER_GROUPS.map((group) => {
         const sliders = BODY_SLIDERS.filter((s) => KEY_GROUP.get(s.key as BodySliderKey) === group.id);
         if (sliders.length === 0) return null;
         return (
           <Collapsible
             key={group.id}
-            defaultOpen={gi === 0}
+            defaultOpen={false}
             trigger={group.label}
           >
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
@@ -193,7 +193,7 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
         );
       })}
 
-      <Section title="Sort">
+      <Section title="Sort" collapsible>
         <Select
           label="Order by"
           size="sm"
@@ -237,10 +237,30 @@ export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: Se
 // here. Promote to `components/` when a second feature reuses one.
 // ─────────────────────────────────────────────────────────────────────────
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, collapsible = false, defaultOpen = false }: {
+  title: string;
+  children: React.ReactNode;
+  collapsible?: boolean;
+  defaultOpen?: boolean;
+}) {
+  if (collapsible) {
+    return (
+      <Collapsible
+        defaultOpen={defaultOpen}
+        className="premium-subpanel px-3 py-2.5"
+        trigger={
+          <span className="font-mono text-overline uppercase tracking-[0.18em] text-cyan">
+            {title}
+          </span>
+        }
+      >
+        <div className="space-y-3 pt-2">{children}</div>
+      </Collapsible>
+    );
+  }
   return (
     <fieldset className="space-y-2.5">
-      <legend className="px-1 font-mono text-overline tracking-[0.18em] text-orange uppercase">
+      <legend className="px-1 font-mono text-overline tracking-[0.18em] text-cyan uppercase">
         {title}
       </legend>
       <div className="premium-subpanel space-y-3 p-3">{children}</div>
