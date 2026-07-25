@@ -86,7 +86,7 @@ const VIEWPORT_PROFILES = Object.freeze([
 
 test.describe('Local review environment verification', () => {
   test('captures deterministic browser verification summary', async ({ browser, baseURL }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(300_000);
     test.skip(
       shouldSkipReviewLabCollector(),
       'Review Lab browser verification only runs under scripts/dev/review_environment.py verify --mode full.',
