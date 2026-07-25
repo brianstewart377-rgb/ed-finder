@@ -123,11 +123,16 @@ test.describe('ED Finder — smoke', () => {
 
     const flatProjection = page.getByTestId('map-projection-2d');
     const tabletopProjection = page.getByTestId('map-projection-3d');
+    await page.getByTestId('map-view-galaxy').click();
     await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.authoritative-region-map[data-projection="2d"]')).toBeVisible();
     await tabletopProjection.click();
     await expect(tabletopProjection).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.map-foundation-renderer[data-projection="3d"]')).toBeVisible();
+    await expect(page.locator('.authoritative-region-map')).toHaveCount(0);
     await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
     await flatProjection.click();
     await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.authoritative-region-map[data-projection="2d"]')).toBeVisible();
   });
 });

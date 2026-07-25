@@ -26,6 +26,7 @@ describe('AuthoritativeRegionMap', () => {
         systems={[sol]}
         selectedSystemId64={null}
         viewport={{ width: 1058, height: 519 }}
+        viewPreset="galaxy"
         showRegions
         onInteraction={vi.fn()}
       />,
@@ -44,6 +45,7 @@ describe('AuthoritativeRegionMap', () => {
         systems={[]}
         selectedSystemId64={null}
         viewport={{ width: 1058, height: 519 }}
+        viewPreset="galaxy"
         showRegions
         onInteraction={onInteraction}
       />,
@@ -62,5 +64,62 @@ describe('AuthoritativeRegionMap', () => {
       },
     });
     expect(onInteraction.mock.calls[0][0].camera.center).toEqual(camera.center);
+  });
+
+  it('draws enabled heatmap and cluster geometry over the authoritative SVG', () => {
+    const gradient = { addColorStop: vi.fn() };
+    const context = {
+      setTransform: vi.fn(),
+      clearRect: vi.fn(),
+      createRadialGradient: vi.fn(() => gradient),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      fill: vi.fn(),
+      moveTo: vi.fn(),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+      globalCompositeOperation: 'source-over',
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      shadowColor: '',
+      shadowBlur: 0,
+    } as unknown as CanvasRenderingContext2D;
+    const originalGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = vi.fn(() => context) as unknown as typeof originalGetContext;
+
+    render(
+      <AuthoritativeRegionMap
+        camera={camera}
+        systems={[sol]}
+        selectedSystemId64={null}
+        viewport={{ width: 1058, height: 519 }}
+        viewPreset="galaxy"
+        showRegions
+        productionOverlays={{
+          heatmap: {
+            positions: new Float32Array([0, 0, -2]),
+            colors: new Float32Array([1, 0.5, 0.2]),
+            voxelSize: 200,
+            cellCount: 1,
+            omittedCellCount: 0,
+            sourceTruncated: false,
+          },
+          aggregateHulls: {
+            linePositions: new Float32Array([0, 0, -1, 500, 0, -1]),
+            lineColors: new Float32Array([1, 0.5, 0.2, 1, 0.5, 0.2]),
+            hullCount: 1,
+            omittedHullCount: 0,
+          },
+        }}
+        onInteraction={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('authoritative-map-heatmap').getAttribute('data-cell-count')).toBe('1');
+    expect(screen.getByTestId('authoritative-map-clusters').getAttribute('data-hull-count')).toBe('1');
+    expect(context.arc).toHaveBeenCalled();
+    expect(context.stroke).toHaveBeenCalled();
+    HTMLCanvasElement.prototype.getContext = originalGetContext;
   });
 });

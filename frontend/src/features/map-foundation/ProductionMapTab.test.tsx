@@ -7,6 +7,35 @@ import type { SystemResult } from '@/types/api';
 
 vi.mock('@/features/map/useMapLayers');
 vi.mock('./production-regions');
+vi.mock('./AuthoritativeRegionMap', () => ({
+  AuthoritativeRegionMap: ({
+    camera,
+    systems,
+    showRegions,
+    productionOverlays,
+    onInteraction,
+  }: {
+    camera: { bearingDeg: number; pitchDeg: number };
+    systems: Array<{ id64: number }>;
+    showRegions: boolean;
+    productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
+    onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
+  }) => (
+    <div
+      data-testid="authoritative-production-renderer"
+      data-system-count={systems.length}
+      data-regions-visible={showRegions}
+      data-camera-bearing={camera.bearingDeg}
+      data-camera-pitch={camera.pitchDeg}
+      data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
+      data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
+    >
+      <button type="button" onClick={() => onInteraction({ type: 'selectSystem', systemId64: systems[0]?.id64 ?? 0, clusterAnchorId64: null })}>
+        Select first
+      </button>
+    </div>
+  ),
+}));
 vi.mock('./R3FMapFoundation', () => ({
   R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction }: {
     scene: {
@@ -121,7 +150,7 @@ describe('Stage 26E production route composition', () => {
 
     expect(screen.getByText('No systems to map yet')).toBeTruthy();
     fireEvent.click(screen.getByTestId('map-view-galaxy'));
-    expect(screen.getByTestId('r3f-production-renderer')).toBeTruthy();
+    expect(screen.getByTestId('authoritative-production-renderer')).toBeTruthy();
   });
 
   it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
@@ -129,10 +158,9 @@ describe('Stage 26E production route composition', () => {
 
     expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Live map');
     expect((screen.getByTestId('stage26e-map-regions-toggle') as HTMLInputElement).checked).toBe(true);
-    const renderer = screen.getByTestId('r3f-production-renderer');
+    const renderer = screen.getByTestId('authoritative-production-renderer');
     expect(renderer.getAttribute('data-system-count')).toBe('500');
-    expect(renderer.getAttribute('data-region-label-count')).toBe('42');
-    expect(renderer.getAttribute('data-region-boundary-count')).toBe('1');
+    expect(renderer.getAttribute('data-regions-visible')).toBe('true');
     expect(renderer.getAttribute('data-heatmap-count')).toBe('0');
     expect(renderer.getAttribute('data-hull-count')).toBe('0');
 
@@ -143,6 +171,7 @@ describe('Stage 26E production route composition', () => {
     expect(renderer.getAttribute('data-heatmap-count')).toBe('1');
     expect(renderer.getAttribute('data-hull-count')).toBe('1');
     expect(screen.getByTestId('stage26e-map-timeline-summary').textContent).toContain('3 discoveries tracked');
+    expect(screen.getByTestId('stage26e-map-timeline-geometry').getAttribute('data-point-count')).toBe('1');
     expect(window.__stage26eProductionMap?.snapshot()).toMatchObject({
       renderer: 'r3f',
       routeFlagEnabled: true,
@@ -160,8 +189,36 @@ describe('Stage 26E production route composition', () => {
     });
 
     fireEvent.click(screen.getByTestId('stage26e-map-regions-toggle'));
-    expect(renderer.getAttribute('data-region-label-count')).toBe('0');
+    expect(renderer.getAttribute('data-regions-visible')).toBe('false');
     expect(window.__stage26eProductionMap?.snapshot().regionGeometryVisible).toBe(false);
+  });
+
+  it('reports empty backend layer collections instead of claiming invisible geometry', () => {
+    vi.mocked(useMapLayers).mockReturnValue({
+      ...layers,
+      heatmap: {
+        ...layers.heatmap,
+        data: { ...layers.heatmap.data!, cells: [], count: 0 },
+      },
+      clusters: {
+        ...layers.clusters,
+        data: { ...layers.clusters.data!, clusters: [], count: 0 },
+      },
+      timeline: {
+        ...layers.timeline,
+        data: { ...layers.timeline.data!, points: [], total: 0 },
+      },
+    });
+
+    render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+    fireEvent.click(screen.getByTestId('stage26e-map-heatmap-toggle'));
+    fireEvent.click(screen.getByTestId('stage26e-map-clusters-toggle'));
+    fireEvent.click(screen.getByTestId('stage26e-map-timeline-toggle'));
+
+    expect(screen.getByTestId('stage26e-map-layer-empty').textContent).toContain(
+      'no heatmap cells, cluster hulls, timeline buckets',
+    );
+    expect(screen.queryByTestId('stage26e-map-timeline-geometry')).toBeNull();
   });
 
   it('preserves selection and inspect hand-off on the candidate route', () => {
@@ -197,15 +254,16 @@ describe('Stage 26E production route composition', () => {
 
     render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
-    const renderer = screen.getByTestId('r3f-production-renderer');
+    const renderer = screen.getByTestId('authoritative-production-renderer');
     expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
     expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
 
     fireEvent.click(screen.getByTestId('map-projection-3d'));
+    const spatialRenderer = screen.getByTestId('r3f-production-renderer');
     expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
-    expect(renderer.getAttribute('data-system-count')).toBe('1');
+    expect(spatialRenderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(spatialRenderer.getAttribute('data-camera-pitch')).toBe('52');
+    expect(spatialRenderer.getAttribute('data-system-count')).toBe('1');
 
     act(() => {
       resize?.([{
@@ -213,12 +271,13 @@ describe('Stage 26E production route composition', () => {
       } as ResizeObserverEntry], {} as ResizeObserver);
     });
     expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
+    expect(spatialRenderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(spatialRenderer.getAttribute('data-camera-pitch')).toBe('52');
 
     fireEvent.click(screen.getByTestId('map-projection-2d'));
     expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
+    const restoredRenderer = screen.getByTestId('authoritative-production-renderer');
+    expect(restoredRenderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(restoredRenderer.getAttribute('data-camera-pitch')).toBe('0');
   });
 });

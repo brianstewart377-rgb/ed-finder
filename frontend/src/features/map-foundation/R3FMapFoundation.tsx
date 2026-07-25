@@ -701,7 +701,9 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       systems={props.scene.systems}
       selectedSystemId64={props.scene.selectedSystemId64}
       viewport={props.viewport}
+      viewPreset={viewPreset}
       showRegions={props.regions.labels.length > 0}
+      productionOverlays={props.productionOverlays}
       onInteraction={props.onInteraction}
       onReady={props.onReady}
     />;

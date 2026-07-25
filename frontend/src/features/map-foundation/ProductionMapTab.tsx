@@ -7,6 +7,7 @@ import {
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
 import { MapErrorBoundary } from '@/features/map/MapErrorBoundary';
 import type { MapTabProps } from '@/features/map/MapTab';
+import type { MapTimelinePoint } from '@/lib/api';
 import {
   MapLayerStatusRow,
   MapLegend,
@@ -27,6 +28,7 @@ import {
   PRODUCTION_PARITY_LIMITS,
   type MapViewPreset,
 } from './production-parity';
+import { AuthoritativeRegionMap } from './AuthoritativeRegionMap';
 import { useAuthoritativeRegionLayer } from './production-regions';
 import { R3FMapFoundation } from './R3FMapFoundation';
 import type { RegionLayerData, ViewportSize } from './types';
@@ -407,16 +409,47 @@ export function ProductionMapTab({
         <div className="map-workspace__map-frame">
           <MapErrorBoundary>
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
-              <R3FMapFoundation
-                scene={scene}
-                regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
-                productionOverlays={composition.overlays}
-                viewport={viewport}
-                viewPreset={viewPreset}
-                reference={reference}
-                systemYById64={systemYById64}
-                maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
-                onInteraction={onInteraction}
+              {projection === '2d' ? (
+                <AuthoritativeRegionMap
+                  camera={scene.camera}
+                  systems={scene.systems}
+                  selectedSystemId64={scene.selectedSystemId64}
+                  viewport={viewport}
+                  viewPreset={viewPreset}
+                  showRegions={showRegions}
+                  productionOverlays={composition.overlays}
+                  onInteraction={onInteraction}
+                />
+              ) : (
+                <R3FMapFoundation
+                  scene={scene}
+                  regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
+                  productionOverlays={composition.overlays}
+                  viewport={viewport}
+                  viewPreset={viewPreset}
+                  reference={reference}
+                  systemYById64={systemYById64}
+                  maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
+                  onInteraction={onInteraction}
+                />
+              )}
+              {showTimeline && composition.timeline && composition.timeline.pointCount > 0 && (
+                <TimelineDensityGeometry
+                  points={layers.timeline.data?.points ?? []}
+                  bucket={timelineBucket}
+                  total={composition.timeline.total}
+                />
+              )}
+              <EmptyLayerNotice
+                showHeatmap={showHeatmap}
+                heatmapLoaded={layers.heatmap.data != null}
+                heatmapCount={composition.overlays.heatmap?.cellCount ?? 0}
+                showClusters={showClusters}
+                clustersLoaded={layers.clusters.data != null}
+                clusterCount={composition.overlays.aggregateHulls?.hullCount ?? 0}
+                showTimeline={showTimeline}
+                timelineLoaded={layers.timeline.data != null}
+                timelineCount={composition.timeline?.pointCount ?? 0}
               />
             </div>
           </MapErrorBoundary>
@@ -464,4 +497,101 @@ function LayerToggle({
       {label}
     </label>
   );
+}
+
+function TimelineDensityGeometry({
+  points,
+  bucket,
+  total,
+}: {
+  points: MapTimelinePoint[];
+  bucket: 'month' | 'quarter' | 'year';
+  total: number;
+}) {
+  const bins = useMemo(() => buildTimelineDensityBins(points), [points]);
+  const maxCount = Math.max(1, ...bins.map((bin) => bin.count));
+  const barWidth = 480 / Math.max(1, bins.length);
+  return (
+    <aside
+      data-testid="stage26e-map-timeline-geometry"
+      data-point-count={points.length}
+      className="stage26e-map-timeline-geometry"
+      aria-label={`Discovery timeline density: ${points.length.toLocaleString()} ${bucket} buckets`}
+    >
+      <div className="stage26e-map-timeline-geometry__header">
+        <span>Discovery density · {bucket}</span>
+        <span>{total.toLocaleString()} systems</span>
+      </div>
+      <svg viewBox="0 0 480 54" preserveAspectRatio="none" role="img" aria-label="Discovery counts over time">
+        {bins.map((bin, index) => {
+          const height = Math.max(3, (bin.count / maxCount) * 48);
+          return (
+            <rect
+              key={`${bin.date ?? 'unknown'}:${index}`}
+              x={index * barWidth + 1}
+              y={52 - height}
+              width={Math.max(1, barWidth - 2)}
+              height={height}
+              rx={Math.min(2, barWidth / 4)}
+              fill="rgba(255, 139, 43, 0.82)"
+            >
+              <title>{bin.date ?? 'Unknown date'}: {bin.count.toLocaleString()} discoveries</title>
+            </rect>
+          );
+        })}
+      </svg>
+    </aside>
+  );
+}
+
+function EmptyLayerNotice({
+  showHeatmap,
+  heatmapLoaded,
+  heatmapCount,
+  showClusters,
+  clustersLoaded,
+  clusterCount,
+  showTimeline,
+  timelineLoaded,
+  timelineCount,
+}: {
+  showHeatmap: boolean;
+  heatmapLoaded: boolean;
+  heatmapCount: number;
+  showClusters: boolean;
+  clustersLoaded: boolean;
+  clusterCount: number;
+  showTimeline: boolean;
+  timelineLoaded: boolean;
+  timelineCount: number;
+}) {
+  const emptyLayers = [
+    showHeatmap && heatmapLoaded && heatmapCount === 0 ? 'heatmap cells' : null,
+    showClusters && clustersLoaded && clusterCount === 0 ? 'cluster hulls' : null,
+    showTimeline && timelineLoaded && timelineCount === 0 ? 'timeline buckets' : null,
+  ].filter((value): value is string => value != null);
+  if (emptyLayers.length === 0) return null;
+  return (
+    <p data-testid="stage26e-map-layer-empty" className="stage26e-map-layer-empty" role="status">
+      The backend returned no {emptyLayers.join(', ')} for this dataset.
+    </p>
+  );
+}
+
+function buildTimelineDensityBins(
+  points: MapTimelinePoint[],
+  maxBins = 48,
+): MapTimelinePoint[] {
+  const valid = points.filter((point) => Number.isFinite(point.count) && point.count >= 0);
+  if (valid.length <= maxBins) return valid;
+  const groupSize = Math.ceil(valid.length / maxBins);
+  const bins: MapTimelinePoint[] = [];
+  for (let index = 0; index < valid.length; index += groupSize) {
+    const group = valid.slice(index, index + groupSize);
+    bins.push({
+      date: group.at(-1)?.date ?? null,
+      count: group.reduce((sum, point) => sum + point.count, 0),
+    });
+  }
+  return bins;
 }
