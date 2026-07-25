@@ -93,6 +93,7 @@ export interface ClusterSearchRequestBody {
   }>;
   limit: number;
   reference_coords: { x: number; y: number; z: number };
+  galaxy_region_id?: number;
 }
 
 export interface ClusterSearchApiResponse<TCluster> {

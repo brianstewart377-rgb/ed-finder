@@ -254,7 +254,11 @@ async def cluster_search(
         cache_prefix = 'cluster'
     reference_coords = _complete_coords(req.reference_coords)
     ref_json = json.dumps(reference_coords, sort_keys=True, default=str)
-    cache_key = f'{cache_prefix}:{CLUSTER_CACHE_VERSION}:{payload_json}:{req.limit}:{req.offset}:{ref_json}'
+    region_json = req.galaxy_region_id if req.galaxy_region_id is not None else 'all'
+    cache_key = (
+        f'{cache_prefix}:{CLUSTER_CACHE_VERSION}:{payload_json}:'
+        f'{req.limit}:{req.offset}:{ref_json}:region:{region_json}'
+    )
     cached = await cache_get(cache_key, redis)
     if cached:
         return cached
@@ -262,6 +266,7 @@ async def cluster_search(
     body_dict: dict[str, Any] = {
         'limit':            req.limit,
         'reference_coords': reference_coords,
+        'galaxy_region_id': req.galaxy_region_id,
     }
     if req.slots:
         body_dict['slots'] = [s.model_dump() for s in req.slots]

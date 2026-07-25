@@ -1,371 +1,687 @@
-import { useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
-  BODY_SLIDERS, PRESETS, applyPreset,
-  type SearchFilters, type BodySliderKey, type BodyRange, type PresetId,
+  BODY_SLIDERS,
+  PRESETS,
+  applyPreset,
+  type SearchFilters,
+  type BodySliderKey,
+  type BodyRange,
+  type PresetId,
 } from './useSearch';
 import { DualSlider } from '@/components/DualSlider';
-import { ChevronDown, Sparkles } from 'lucide-react';
+import {
+  ArrowDownUp,
+  Check,
+  ChevronRight,
+  Factory,
+  Footprints,
+  Gem,
+  Globe2,
+  ListChecks,
+  MapPin,
+  Radar,
+  RadioTower,
+  RotateCcw,
+  Search,
+  Star,
+  X,
+} from 'lucide-react';
 import { RefSystemPicker } from './RefSystemPicker';
 import { hasKnownCoords } from '@/lib/format';
-import { Button } from '@/components/ui/Button';
 import { Select } from '@/components/ui/Select';
-import { Collapsible } from '@/components/ui/Collapsible';
 
-/** Group body sliders into progressive-disclosure sections. */
-const SLIDER_GROUPS: { id: string; label: string; keys: BodySliderKey[] }[] = [
+const SLIDER_GROUPS = [
   {
     id: 'high-value',
-    label: 'High-value bodies',
+    label: 'Valuable worlds',
+    shortLabel: 'Valuable worlds',
+    description: 'Look for systems containing Earth-like, water or ammonia worlds.',
+    summary: 'Earth-like, water and ammonia worlds',
     keys: ['elw', 'ww', 'ammonia'],
   },
   {
     id: 'stars',
-    label: 'Stars & Remnants',
+    label: 'Stellar objects',
+    shortLabel: 'Stellar objects',
+    description: 'Look for systems containing black holes, neutron stars, white dwarfs or other stars.',
+    summary: 'Black holes, neutron stars and more',
     keys: ['blackHole', 'neutron', 'whiteDwarf', 'otherStar'],
   },
   {
     id: 'landable',
-    label: 'Landable bodies',
+    label: 'Accessible surfaces',
+    shortLabel: 'Accessible surfaces',
+    description: 'Look for systems with landable bodies or bodies that can be explored on foot.',
+    summary: 'Landable and walkable bodies',
     keys: ['landable', 'walkable'],
   },
   {
     id: 'planetary',
-    label: 'Planetary bodies',
+    label: 'Planet classes',
+    shortLabel: 'Planet classes',
+    description: 'Look for specific planet types, from gas giants to rocky, icy and metal-rich worlds.',
+    summary: 'Rocky, icy, metal-rich and gas worlds',
     keys: ['gasGiant', 'hmc', 'metalRich', 'rockyIce', 'rocky', 'icy'],
   },
   {
     id: 'signals',
-    label: 'Surface signals',
+    label: 'Rings & signals',
+    shortLabel: 'Rings & signals',
+    description: 'Look for systems with rings, geological activity or biological signals.',
+    summary: 'Rings, geological and biological signals',
     keys: ['rings', 'geoSignals', 'bioSignals'],
   },
-];
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  shortLabel: string;
+  description: string;
+  summary: string;
+  keys: readonly BodySliderKey[];
+}[];
 
-/** Quick lookup: slider key → group id. Any slider key not listed here won't render. */
-const KEY_GROUP = new Map<BodySliderKey, string>();
-for (const g of SLIDER_GROUPS) {
-  for (const k of g.keys) {
-    KEY_GROUP.set(k, g.id);
-  }
-}
+type SliderGroupId = (typeof SLIDER_GROUPS)[number]['id'];
+type FilterSectionId = 'reference' | 'presets' | 'distance' | 'system' | SliderGroupId | 'sort';
 
 export interface SearchFormProps {
-  filters:   SearchFilters;
-  onChange:  (patch: Partial<SearchFilters>) => void;
-  onSubmit:  () => void;
-  onReset:   () => void;
-  loading?:  boolean;
+  filters: SearchFilters;
+  onChange: (patch: Partial<SearchFilters>) => void;
+  onSubmit: () => void;
+  onReset: () => void;
+  loading?: boolean;
+  onWorkspaceChange?: (open: boolean) => void;
 }
 
-export function SearchForm({ filters, onChange, onSubmit, onReset, loading }: SearchFormProps) {
+export function SearchForm({
+  filters,
+  onChange,
+  onSubmit,
+  onReset,
+  loading,
+  onWorkspaceChange,
+}: SearchFormProps) {
   const [referencePending, setReferencePending] = useState(false);
+  const [activeSection, setActiveSection] = useState<FilterSectionId | null>(null);
+  const triggerRefs = useRef<Partial<Record<FilterSectionId, HTMLButtonElement | null>>>({});
+
+  const openSection = (section: FilterSectionId) => {
+    setActiveSection(section);
+    onWorkspaceChange?.(true);
+  };
+
+  const closeSection = useCallback(() => {
+    const previous = activeSection;
+    setActiveSection(null);
+    onWorkspaceChange?.(false);
+    if (previous) triggerRefs.current[previous]?.focus();
+  }, [activeSection, onWorkspaceChange]);
+
+  useEffect(() => {
+    if (!activeSection) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeSection();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [activeSection, closeSection]);
+
+  const sliderGroups = SLIDER_GROUPS.map((group) => ({
+    ...group,
+    sliders: BODY_SLIDERS.filter((slider) => group.keys.some((key) => key === slider.key)),
+  }));
+
+  const navigationItems: {
+    id: FilterSectionId;
+    index: string;
+    label: string;
+    summary: string;
+    iconName: string;
+    icon: React.ReactNode;
+  }[] = [
+    {
+      id: 'reference',
+      index: '01',
+      label: 'Origin system',
+      summary: `Distances measured from ${filters.refName}`,
+      iconName: 'origin',
+      icon: <MapPin size={18} strokeWidth={1.8} />,
+    },
+    {
+      id: 'presets',
+      index: '02',
+      label: 'Search profiles',
+      summary: 'Ready-made searches for common goals',
+      iconName: 'profiles',
+      icon: <ListChecks size={18} strokeWidth={1.8} />,
+    },
+    {
+      id: 'distance',
+      index: '03',
+      label: 'Range & results',
+      summary: distanceSummary(filters),
+      iconName: 'range',
+      icon: <Radar size={18} strokeWidth={1.8} />,
+    },
+    {
+      id: 'system',
+      index: '04',
+      label: 'Settlement & economy',
+      summary: systemProfileSummary(filters),
+      iconName: 'system',
+      icon: <Factory size={18} strokeWidth={1.8} />,
+    },
+    ...sliderGroups.map((group, index) => {
+      const groupIcons = {
+        'high-value': <Gem size={18} strokeWidth={1.8} />,
+        stars: <Star size={18} strokeWidth={1.8} />,
+        landable: <Footprints size={18} strokeWidth={1.8} />,
+        planetary: <Globe2 size={18} strokeWidth={1.8} />,
+        signals: <RadioTower size={18} strokeWidth={1.8} />,
+      };
+      return {
+        id: group.id,
+        index: String(index + 5).padStart(2, '0'),
+        label: group.shortLabel,
+        summary: rangeGroupSummary(filters, group.keys, group.summary),
+        iconName: group.id,
+        icon: groupIcons[group.id],
+      };
+    }),
+    {
+      id: 'sort',
+      index: '10',
+      label: 'Sort results',
+      summary: sortLabel(filters.sortBy),
+      iconName: 'sort',
+      icon: <ArrowDownUp size={18} strokeWidth={1.8} />,
+    },
+  ];
 
   return (
     <form
-      onSubmit={(e) => { e.preventDefault(); onSubmit(); }}
-      className="space-y-6 p-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSubmit();
+      }}
+      className="finder-filter-console"
       data-testid="search-form"
+      data-workspace-open={activeSection ? 'true' : 'false'}
     >
-      <Section title="Reference System">
-        <RefSystemPicker
-          value={filters.refName}
-          onPendingSelectionChange={setReferencePending}
-          onPick={(hit) => {
-            if (!hasKnownCoords(hit, hit.id64)) return;
-            onChange({
-              refName:   hit.name,
-              refCoords: { x: hit.x, y: hit.y, z: hit.z },
-            });
-          }}
-        />
-        <p
-          className={[
-            'font-mono text-label',
-            referencePending ? 'text-orange-lt' : 'text-text-dim',
-          ].join(' ')}
-          data-testid="reference-system-status"
-        >
-          {referencePending
-            ? 'Pick a system from autocomplete to update the active reference.'
-            : `${filters.refName}: ${filters.refCoords.x.toFixed(2)}, ${filters.refCoords.y.toFixed(2)}, ${filters.refCoords.z.toFixed(2)}`}
-        </p>
-      </Section>
+      <div className="finder-filter-array">
+        <div className="finder-filter-array__heading">
+          <span>Search filters</span>
+        </div>
 
-      <QuickPresets
-        onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
-      />
+        <nav className="finder-filter-array__modules" aria-label="Search filter categories">
+          {navigationItems.map((item) => {
+            const active = activeSection === item.id;
+            return (
+              <button
+                key={item.id}
+                ref={(node) => {
+                  triggerRefs.current[item.id] = node;
+                }}
+                type="button"
+                onClick={() => active ? closeSection() : openSection(item.id)}
+                className="finder-filter-module"
+                data-active={active ? 'true' : 'false'}
+                data-testid={`filter-module-${item.id}`}
+                aria-expanded={active}
+                aria-controls={active ? 'finder-filter-workspace' : undefined}
+              >
+                <span className="finder-filter-module__index">{item.index}</span>
+                <span
+                  className="finder-filter-module__icon"
+                  data-icon={item.iconName}
+                  aria-hidden
+                >
+                  {item.icon}
+                </span>
+                <span className="finder-filter-module__copy">
+                  <strong>{item.label}</strong>
+                  <small>{item.summary}</small>
+                </span>
+                <ChevronRight className="finder-filter-module__chevron" size={15} aria-hidden />
+              </button>
+            );
+          })}
+        </nav>
 
-      <div className="rounded-chunk-sm border border-orange/20 bg-orange/6 px-3 py-2.5 font-mono text-label leading-relaxed text-silver-dk">
-        Development score is a Finder-side triage signal. Inspect and Colony Planner remain the authoritative places for evidence-backed planning decisions.
-        <div className="mt-2">
-          <a
-            href="#search-tuning"
-            className="inline-flex items-center rounded-chunk-sm border border-cyan/30 px-2 py-1 text-label uppercase tracking-[0.12em] text-cyan transition-colors hover:border-cyan/50 hover:text-white"
-            data-testid="open-search-tuning-link"
+        <div className="finder-filter-array__actions">
+          <button
+            type="submit"
+            disabled={loading || referencePending}
+            data-testid="search-submit"
+            className="finder-search-action"
           >
-            Open Development Tuning
-          </a>
+            <Search size={17} aria-hidden />
+            <span>{loading ? 'Scanning…' : referencePending ? 'Pick reference' : 'Run search'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={onReset}
+            data-testid="search-reset"
+            className="finder-reset-action"
+          >
+            <RotateCcw size={14} aria-hidden />
+            Reset
+          </button>
         </div>
       </div>
 
-      <Section title="Search Radius">
-        <RangeRow
-          label="Min distance (LY)"
-          min={0} max={2000}
-          value={filters.minDistance}
-          onChange={(v) => onChange({ minDistance: Math.min(v, filters.maxDistance) })}
-        />
-        <RangeRow
-          label="Max distance (LY)"
-          min={0} max={2000}
-          value={filters.maxDistance}
-          onChange={(v) => onChange({ maxDistance: Math.max(v, filters.minDistance) })}
-        />
-        <RangeRow
-          label="Results per page"
-          min={5} max={500} step={5}
-          value={filters.size}
-          onChange={(v) => onChange({ size: v })}
-        />
-        <CheckboxRow
-          label="Galaxy-wide (ignore distance)"
-          checked={filters.galaxyWide}
-          onChange={(c) => onChange({ galaxyWide: c })}
-        />
-      </Section>
+      {activeSection && (
+        <section
+          id="finder-filter-workspace"
+          className="finder-filter-workspace"
+          data-testid="filter-workspace"
+          aria-labelledby="finder-filter-workspace-title"
+        >
+          <FilterWorkspaceHeader
+            section={activeSection}
+            items={navigationItems}
+            onClose={closeSection}
+          />
 
-      <Section title="Filters">
-        <Select
-          label="Colony status"
-          size="sm"
-          value={filters.populated}
-          onChange={(v) => onChange({ populated: v as SearchFilters['populated'] })}
-          options={[
-            { value: 'any',         label: 'Any' },
-            { value: 'populated',   label: 'Inhabited only' },
-            { value: 'uninhabited', label: 'Non-colonised only' },
-          ]}
-        />
-        <Select
-          label="Primary economy"
-          size="sm"
-          value={filters.economy}
-          onChange={(v) => onChange({ economy: v })}
-          options={ECONOMY_OPTIONS}
-        />
-        <RangeRow
-          label="Min development score"
-          min={0} max={100}
-          value={filters.minDevelopmentScore}
-          onChange={(v) => onChange({ minDevelopmentScore: v })}
-        />
-      </Section>
-
-      {/* Body-type range filters — grouped with progressive disclosure */}
-      {SLIDER_GROUPS.map((group, gi) => {
-        const sliders = BODY_SLIDERS.filter((s) => KEY_GROUP.get(s.key as BodySliderKey) === group.id);
-        if (sliders.length === 0) return null;
-        return (
-          <Collapsible
-            key={group.id}
-            defaultOpen={gi === 0}
-            trigger={group.label}
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-3">
-              {sliders.map((b) => {
-                const r = filters.bodyRanges[b.key as BodySliderKey] ?? { min: 0, max: b.max };
-                return (
-                  <DualSlider
-                    key={b.key}
-                    label={b.label}
-                    color={b.color}
-                    min={0}
-                    max={b.max}
-                    value={r}
-                    onChange={(nv: BodyRange) => onChange({
-                      bodyRanges: { ...filters.bodyRanges, [b.key]: nv },
-                    })}
-                    testid={`body-slider-${b.key}`}
+          <div className="finder-filter-workspace__body">
+            {activeSection === 'reference' && (
+              <WorkspaceSection
+                title="Choose where the scan begins"
+                description="Choose the system distances should be measured from. Start typing and select a matching system."
+              >
+                <div className="finder-control-block">
+                  <RefSystemPicker
+                    value={filters.refName}
+                    onPendingSelectionChange={setReferencePending}
+                    onPick={(hit) => {
+                      if (!hasKnownCoords(hit, hit.id64)) return;
+                      onChange({
+                        refName: hit.name,
+                        refCoords: { x: hit.x, y: hit.y, z: hit.z },
+                      });
+                    }}
                   />
-                );
-              })}
-            </div>
-          </Collapsible>
-        );
-      })}
+                  <p
+                    className={referencePending ? 'finder-control-note finder-control-note--attention' : 'finder-control-note'}
+                    data-testid="reference-system-status"
+                  >
+                    {referencePending
+                      ? 'Pick a system from autocomplete to update the active reference.'
+                      : `${filters.refName} is the current distance reference.`}
+                  </p>
+                </div>
+              </WorkspaceSection>
+            )}
 
-      <Section title="Sort">
-        <Select
-          label="Order by"
-          size="sm"
-          value={filters.sortBy}
-          onChange={(v) => onChange({ sortBy: v as SearchFilters['sortBy'] })}
-          options={[
-            { value: 'development', label: 'Development first' },
-            { value: 'distance',    label: 'Distance nearest' },
-            { value: 'population',  label: 'Population highest' },
-          ]}
-        />
-      </Section>
+            {activeSection === 'presets' && (
+              <WorkspaceSection
+                eyebrow="Prepared searches"
+                title="Choose a starting profile"
+                description="Start with a ready-made search for a common colony or exploration goal. You can change any filter afterwards."
+              >
+                <QuickPresets
+                  onPick={(id) => onChange(applyPreset(filters, id) as Partial<SearchFilters>)}
+                />
+              </WorkspaceSection>
+            )}
 
-      <div className="flex gap-2 pt-1">
-        <Button
-          type="submit"
-          variant="primary"
-          size="lg"
-          disabled={loading || referencePending}
-          data-testid="search-submit"
-          className="flex-1"
-        >
-          {loading ? 'Scanning…' : referencePending ? 'Pick reference' : 'Search'}
-        </Button>
-        <Button
-          type="button"
-          variant="metal"
-          size="lg"
-          onClick={onReset}
-          data-testid="search-reset"
-        >
-          Reset
-        </Button>
-      </div>
+            {activeSection === 'distance' && (
+              <WorkspaceSection
+                eyebrow="Range and result limit"
+                title="Define the search area"
+                description="Choose how far from the origin to search and the maximum number of systems to show."
+              >
+                <div className="finder-control-grid">
+                  <RangeRow
+                    label="Minimum distance"
+                    unit="LY"
+                    min={0}
+                    max={2000}
+                    value={filters.minDistance}
+                    onChange={(value) => onChange({ minDistance: Math.min(value, filters.maxDistance) })}
+                  />
+                  <RangeRow
+                    label="Maximum distance"
+                    unit="LY"
+                    min={0}
+                    max={2000}
+                    value={filters.maxDistance}
+                    onChange={(value) => onChange({ maxDistance: Math.max(value, filters.minDistance) })}
+                  />
+                  <RangeRow
+                    label="Results per scan"
+                    min={5}
+                    max={500}
+                    step={5}
+                    value={filters.size}
+                    onChange={(value) => onChange({ size: value })}
+                  />
+                  <CheckboxRow
+                    label="Ignore distance and scan galaxy-wide"
+                    checked={filters.galaxyWide}
+                    onChange={(checked) => onChange({ galaxyWide: checked })}
+                  />
+                </div>
+              </WorkspaceSection>
+            )}
+
+            {activeSection === 'system' && (
+              <WorkspaceSection
+                eyebrow="Settlement and economy"
+                title="Choose the system context"
+                description="Choose whether systems are inhabited, which economy they have, and how promising they must be for development."
+              >
+                <div className="finder-control-grid finder-control-grid--two">
+                  <Select
+                    label="Colony status"
+                    value={filters.populated}
+                    onChange={(value) => onChange({ populated: value as SearchFilters['populated'] })}
+                    options={[
+                      { value: 'any', label: 'Any' },
+                      { value: 'populated', label: 'Inhabited only' },
+                      { value: 'uninhabited', label: 'Non-colonised only' },
+                    ]}
+                  />
+                  <Select
+                    label="Primary economy"
+                    value={filters.economy}
+                    onChange={(value) => onChange({ economy: value })}
+                    options={ECONOMY_OPTIONS}
+                  />
+                  <div className="finder-control-grid__wide">
+                    <RangeRow
+                      label="Minimum development score"
+                      description="This 0–100 colony-development ranking filters out systems below the chosen value. Higher values return fewer, stronger candidates; 0 applies no minimum."
+                      min={0}
+                      max={100}
+                      value={filters.minDevelopmentScore}
+                      onChange={(value) => onChange({ minDevelopmentScore: value })}
+                    />
+                  </div>
+                </div>
+                <div className="finder-evidence-note">
+                  <strong>Development score is a triage signal.</strong>
+                  <span>Inspect and Colony Planner remain authoritative for evidence-backed planning decisions.</span>
+                  <a href="#search-tuning" data-testid="open-search-tuning-link">
+                    Open development tuning
+                  </a>
+                </div>
+              </WorkspaceSection>
+            )}
+
+            {sliderGroups.map((group) => activeSection === group.id && (
+              <WorkspaceSection
+                key={group.id}
+                eyebrow="Body composition"
+                title={group.label}
+                description={`${group.description} Adjust a range only when you want that body type to narrow the results.`}
+              >
+                <div className="finder-body-slider-grid">
+                  {group.sliders.map((body) => {
+                    const range = filters.bodyRanges[body.key] ?? { min: 0, max: body.max };
+                    return (
+                      <DualSlider
+                        key={body.key}
+                        label={body.label}
+                        color={body.color}
+                        min={0}
+                        max={body.max}
+                        value={range}
+                        onChange={(nextRange: BodyRange) => onChange({
+                          bodyRanges: { ...filters.bodyRanges, [body.key]: nextRange },
+                        })}
+                        testid={`body-slider-${body.key}`}
+                      />
+                    );
+                  })}
+                </div>
+              </WorkspaceSection>
+            ))}
+
+            {activeSection === 'sort' && (
+              <WorkspaceSection
+                eyebrow="Result ordering"
+                title="Choose which matches appear first"
+                description="Choose which matching systems appear first. This does not change which systems qualify."
+              >
+                <div className="finder-control-block">
+                  <Select
+                    label="Order results by"
+                    value={filters.sortBy}
+                    onChange={(value) => onChange({ sortBy: value as SearchFilters['sortBy'] })}
+                    options={[
+                      { value: 'development', label: 'Development first' },
+                      { value: 'distance', label: 'Distance nearest' },
+                      { value: 'population', label: 'Population highest' },
+                    ]}
+                  />
+                </div>
+              </WorkspaceSection>
+            )}
+          </div>
+
+          <div className="finder-filter-workspace__footer">
+            <span>Changes apply immediately to this search setup</span>
+            <button type="button" onClick={closeSection} data-testid="filter-workspace-done">
+              <Check size={15} aria-hidden />
+              Done
+            </button>
+          </div>
+        </section>
+      )}
     </form>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Internal building blocks. Inline because they're trivial and only used
-// here. Promote to `components/` when a second feature reuses one.
-// ─────────────────────────────────────────────────────────────────────────
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function FilterWorkspaceHeader({
+  section,
+  items,
+  onClose,
+}: {
+  section: FilterSectionId;
+  items: { id: FilterSectionId; label: string }[];
+  onClose: () => void;
+}) {
+  const item = items.find((candidate) => candidate.id === section);
   return (
-    <fieldset className="space-y-2.5">
-      <legend className="px-1 font-mono text-overline tracking-[0.18em] text-orange uppercase">
-        {title}
-      </legend>
-      <div className="premium-subpanel space-y-3 p-3">{children}</div>
-    </fieldset>
+    <header className="finder-filter-workspace__header">
+      <h2 id="finder-filter-workspace-title">{item?.label ?? section}</h2>
+      <button type="button" onClick={onClose} aria-label="Close filter workspace">
+        <X size={19} aria-hidden />
+      </button>
+    </header>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Quick presets — collapsed by default.
-// ─────────────────────────────────────────────────────────────────────────
+function WorkspaceSection({
+  eyebrow,
+  title,
+  description,
+  children,
+}: {
+  eyebrow?: string;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="finder-workspace-section">
+      <div className="finder-workspace-section__intro">
+        {eyebrow ? <span>{eyebrow}</span> : null}
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+      {children}
+    </div>
+  );
+}
 
 function QuickPresets({ onPick }: { onPick: (id: PresetId) => void }) {
-  const [open, setOpen] = useState(false);
   return (
-    <fieldset className="space-y-2" data-testid="quick-presets">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        data-testid="quick-presets-toggle"
-        className={[
-          'w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-chunk-sm',
-          'border transition-all duration-200 cursor-pointer',
-          open
-            ? 'border-orange/55 bg-orange/10 shadow-brand-glow'
-            : 'border-border bg-bg3/55 hover:border-orange/45 hover:bg-orange/5',
-        ].join(' ')}
-      >
-        <span className="flex items-center gap-2 font-mono text-overline tracking-[0.14em] uppercase">
-          <Sparkles size={13} className="text-orange-lt" />
-          <span className={open ? 'text-orange-lt' : 'text-orange'}>Quick Presets</span>
-          <span className="text-silver-dk text-caption font-normal normal-case tracking-normal">
-            {open ? '— pick a profile' : '— click to expand'}
-          </span>
-        </span>
-        <ChevronDown
-          size={14}
-          className={['text-silver-dk transition-transform duration-200', open && 'rotate-180 text-orange-lt'].filter(Boolean).join(' ')}
-        />
-      </button>
-
-      {open && (
-        <div className="grid grid-cols-2 gap-2 pt-1 animate-fade-up">
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              data-testid={`preset-${p.id}`}
-              onClick={() => onPick(p.id)}
-              className="premium-subpanel text-left px-3 py-2.5 transition-all duration-200 group hover:border-orange/55 hover:bg-orange/10 hover:shadow-brand-glow"
-            >
-              <div className="flex items-center gap-1.5 font-mono text-overline tracking-[0.08em] text-silver group-hover:text-orange-lt mb-0.5">
-                <span className="text-base leading-none">{p.icon}</span>
-                <span className="truncate">{p.label}</span>
-              </div>
-              <div className="font-mono text-caption text-silver-dk leading-snug line-clamp-2">
-                {p.hint}
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </fieldset>
+    <div className="finder-preset-grid" data-testid="quick-presets">
+      {PRESETS.map((preset, index) => (
+        <button
+          key={preset.id}
+          type="button"
+          data-testid={`preset-${preset.id}`}
+          onClick={() => onPick(preset.id)}
+          className="finder-preset"
+        >
+          <span className="finder-preset__number">{String(index + 1).padStart(2, '0')}</span>
+          <span className="finder-preset__icon" aria-hidden>{preset.icon}</span>
+          <strong>{preset.label}</strong>
+          <small>{preset.hint}</small>
+          <ChevronRight size={15} aria-hidden />
+        </button>
+      ))}
+    </div>
   );
 }
 
 function RangeRow({
-  label, min, max, step = 1, value, onChange,
+  label,
+  description,
+  unit,
+  min,
+  max,
+  step = 1,
+  value,
+  onChange,
 }: {
-  label: string; min: number; max: number; step?: number;
-  value: number; onChange: (v: number) => void;
+  label: string;
+  description?: string;
+  unit?: string;
+  min: number;
+  max: number;
+  step?: number;
+  value: number;
+  onChange: (value: number) => void;
 }) {
   const id = useId();
+  const descriptionId = description ? `${id}-description` : undefined;
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5">
-      <label htmlFor={id} className="font-mono text-overline text-text-dim col-span-2">
-        {label}
-      </label>
+    <div className="finder-range-control">
+      <label htmlFor={id}>{label}</label>
+      <div className="finder-range-control__value">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (!Number.isNaN(next)) onChange(Math.max(min, Math.min(max, next)));
+          }}
+          aria-label={`${label} value`}
+          aria-describedby={descriptionId}
+        />
+        {unit && <span>{unit}</span>}
+      </div>
+      {description ? (
+        <p id={descriptionId} className="finder-range-control__description">
+          {description}
+        </p>
+      ) : null}
       <input
         id={id}
         type="range"
-        min={min} max={max} step={step}
+        min={min}
+        max={max}
+        step={step}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="accent-orange"
+        onChange={(event) => onChange(Number(event.target.value))}
+        aria-describedby={descriptionId}
       />
-      <input
-        type="number"
-        min={min} max={max} step={step}
-        value={value}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          if (!Number.isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
-        }}
-        className="w-20 rounded border border-border bg-bg4/70 px-2 py-1 font-mono text-xs text-orange text-right tabular-nums no-spinner"
-      />
+      <div className="finder-range-control__limits" aria-hidden>
+        <span>{min}</span>
+        <span>{max}</span>
+      </div>
     </div>
   );
 }
 
 function CheckboxRow({
-  label, checked, onChange,
-}: { label: string; checked: boolean; onChange: (c: boolean) => void }) {
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   const id = useId();
   return (
-    <label htmlFor={id} className="flex items-center gap-2 font-mono text-overline text-text-dim cursor-pointer">
+    <label htmlFor={id} className="finder-checkbox-control">
       <input
         id={id}
         type="checkbox"
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="accent-orange"
+        onChange={(event) => onChange(event.target.checked)}
       />
-      {label}
+      <span aria-hidden>{checked ? <Check size={15} /> : null}</span>
+      <strong>{label}</strong>
     </label>
   );
 }
 
+function distanceSummary(filters: SearchFilters) {
+  if (filters.galaxyWide) return `Across the galaxy · show up to ${filters.size}`;
+  const range = filters.minDistance > 0
+    ? `${filters.minDistance}–${filters.maxDistance} LY from origin`
+    : `Within ${filters.maxDistance} LY`;
+  return `${range} · show up to ${filters.size}`;
+}
+
+function rangeGroupSummary(
+  filters: SearchFilters,
+  keys: readonly BodySliderKey[],
+  defaultSummary: string,
+) {
+  const constraints: string[] = [];
+  for (const key of keys) {
+    const definition = BODY_SLIDERS.find((slider) => slider.key === key);
+    const range = filters.bodyRanges[key];
+    if (!definition || !range || (range.min === 0 && range.max === definition.max)) continue;
+    if (range.min > 0 && range.max < definition.max) {
+      constraints.push(`${definition.label} ${range.min}–${range.max}`);
+    } else if (range.min > 0) {
+      constraints.push(`${definition.label} ≥ ${range.min}`);
+    } else {
+      constraints.push(`${definition.label} ≤ ${range.max}`);
+    }
+  }
+  if (constraints.length === 0) return defaultSummary;
+  const visible = constraints.slice(0, 2).join(' · ');
+  return constraints.length > 2 ? `${visible} · +${constraints.length - 2} more` : visible;
+}
+
+function systemProfileSummary(filters: SearchFilters) {
+  const status = filters.populated === 'uninhabited'
+    ? 'Non-colonised'
+    : filters.populated === 'populated'
+      ? 'Inhabited'
+      : 'Any status';
+  const economy = filters.economy === 'any' ? 'any economy' : economyLabel(filters.economy);
+  return `${status} · ${economy}`;
+}
+
+function economyLabel(economy: string) {
+  return ECONOMY_OPTIONS.find((option) => option.value === economy)?.label ?? economy;
+}
+
+function sortLabel(sortBy: SearchFilters['sortBy']) {
+  if (sortBy === 'distance') return 'Nearest first';
+  if (sortBy === 'population') return 'Highest population';
+  return 'Best development potential first';
+}
+
 const ECONOMY_OPTIONS: { value: string; label: string }[] = [
-  { value: 'any',         label: 'Any' },
+  { value: 'any', label: 'Any' },
   { value: 'Agriculture', label: 'Agriculture' },
-  { value: 'Refinery',    label: 'Refinery' },
-  { value: 'Industrial',  label: 'Industrial' },
-  { value: 'HighTech',    label: 'High Tech' },
-  { value: 'Military',    label: 'Military' },
-  { value: 'Tourism',     label: 'Tourism' },
-  { value: 'Extraction',  label: 'Extraction' },
+  { value: 'Refinery', label: 'Refinery' },
+  { value: 'Industrial', label: 'Industrial' },
+  { value: 'HighTech', label: 'High Tech' },
+  { value: 'Military', label: 'Military' },
+  { value: 'Tourism', label: 'Tourism' },
+  { value: 'Extraction', label: 'Extraction' },
 ];

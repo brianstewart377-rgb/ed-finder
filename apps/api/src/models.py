@@ -588,6 +588,7 @@ class ClusterSearchRequest(BaseModel):
     limit:            int = Field(default=50, le=200)
     offset:           int = 0
     reference_coords: Optional[CoordsModel] = None
+    galaxy_region_id: Optional[int] = Field(default=None, ge=1, le=42)
 
     @model_validator(mode='after')
     def validate_input(self) -> 'ClusterSearchRequest':

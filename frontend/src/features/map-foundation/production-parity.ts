@@ -181,7 +181,7 @@ export function composeProductionParity(input: {
 
 function zoomForRadius(radius: number, viewport: ViewportSize): number {
   const usableHalfExtent = Math.max(1, Math.min(viewport.width, viewport.height) / 2 - 40);
-  return Math.max(2, radius / usableHalfExtent);
+  return Math.max(0.01, radius / usableHalfExtent);
 }
 
 export function cameraForViewPreset(
@@ -189,8 +189,27 @@ export function cameraForViewPreset(
   systems: SystemRecord[],
   reference: { x: number; z: number },
   viewport: ViewportSize,
+  galaxyBounds?: { minX: number; maxX: number; minZ: number; maxZ: number },
 ): CameraState {
   if (preset === 'galaxy') {
+    if (galaxyBounds) {
+      const usableWidth = Math.max(1, viewport.width - 80);
+      const usableHeight = Math.max(1, viewport.height - 80);
+      const zoom = Math.max(
+        2,
+        (galaxyBounds.maxX - galaxyBounds.minX) / usableWidth,
+        (galaxyBounds.maxZ - galaxyBounds.minZ) / usableHeight,
+      );
+      return {
+        center: {
+          x: (galaxyBounds.minX + galaxyBounds.maxX) / 2,
+          z: (galaxyBounds.minZ + galaxyBounds.maxZ) / 2,
+        },
+        zoom,
+        pitchDeg: 0,
+        bearingDeg: 0,
+      };
+    }
     return { center: { x: 0, z: 0 }, zoom: zoomForRadius(50_000, viewport), pitchDeg: 0, bearingDeg: 0 };
   }
   if (preset === 'reference') {
@@ -215,8 +234,9 @@ export function applyViewPreset(
   preset: MapViewPreset,
   reference: { x: number; z: number },
   viewport: ViewportSize,
+  galaxyBounds?: { minX: number; maxX: number; minZ: number; maxZ: number },
 ): MapSceneState {
-  const camera = cameraForViewPreset(preset, scene.systems, reference, viewport);
+  const camera = cameraForViewPreset(preset, scene.systems, reference, viewport, galaxyBounds);
   const armed = reduceScene(scene, { type: 'enableOneTimeFit', center: camera.center, zoom: camera.zoom });
   const fitted = reduceScene(armed, { type: 'advanceSceneRevision', revision: scene.sceneRevision + 1 });
   return { ...fitted, camera: { ...fitted.camera, pitchDeg: camera.pitchDeg, bearingDeg: camera.bearingDeg } };

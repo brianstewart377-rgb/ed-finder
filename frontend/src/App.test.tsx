@@ -60,6 +60,9 @@ vi.mock('@/features/search/useSearch', () => ({
     filters: {
       refName: 'Sol',
       refCoords: { x: 0, y: 0, z: 0 },
+      minDistance: 0,
+      maxDistance: 200,
+      galaxyWide: false,
     },
     setFilters: vi.fn(),
     reset: vi.fn(),
@@ -881,6 +884,11 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.getByTestId('finder-page-heading').textContent).toContain(
       'Find promising systems. Save them for later or inspect them before starting a plan.',
     );
+    expect(screen.getByTestId('finder-page-heading').textContent).not.toContain('/ 02');
+    expect(screen.queryByText('Exploration instrument')).toBeNull();
+    expect(screen.getByText('Search results')).toBeTruthy();
+    expect(screen.getAllByText('Ready to search').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('finder-search-context').textContent).toBe('Origin: Sol · Range: 0–200 LY');
     expect(screen.queryByTestId('product-shell-context')).toBeNull();
     expect(screen.queryByText('Primary workspace')).toBeNull();
     expect(screen.queryByText('Discovery workspace')).toBeNull();
@@ -897,8 +905,10 @@ describe('App Colony Planner workspace route', () => {
     await renderApp();
 
     await waitFor(() => {
-      expect(screen.getByText('Ready to search')).toBeTruthy();
+      expect(within(screen.getByTestId('results-panel')).getAllByText('Ready to search')).toHaveLength(2);
     });
+    expect(screen.getByText('Search the galaxy,')).toBeTruthy();
+    expect(screen.getByText('find your future.')).toBeTruthy();
     expect(screen.getByText('Adjust the filters on the left, then run a search.')).toBeTruthy();
     expect(mockSearchRun).not.toHaveBeenCalled();
   });
@@ -920,22 +930,18 @@ describe('App Colony Planner workspace route', () => {
     expect(screen.queryByTestId('operator-mode-menu')).toBeNull();
   });
 
-  it('renders Compare with the full existing shared-header supporting text', async () => {
+  it('lets Compare own one concise route header', async () => {
     window.location.hash = '#compare';
 
     await renderApp();
 
     await waitFor(() => {
-      expect(screen.getByTestId('product-shell-context')).toBeTruthy();
+      expect(screen.getByTestId('compare-workspace-header')).toBeTruthy();
     });
 
-    const context = screen.getByTestId('product-shell-context');
-    const supportingText = within(context).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
-    expect(context.textContent).toContain('Decision review');
-    expect(context.textContent).toContain('Compare');
-    expect(within(context).queryByText(/^Review$/i)).toBeNull();
-    expect(supportingText.className).toContain('max-w-none');
-    expect(supportingText.className).not.toContain('max-w-3xl');
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Compare systems' })).toBeTruthy();
+    expect(screen.getByText(/Best values are highlighted/i)).toBeTruthy();
   });
   it('keeps Finder content compact while preserving selected-system context into My Work after inspect', async () => {
     window.location.hash = '#finder/system/123';

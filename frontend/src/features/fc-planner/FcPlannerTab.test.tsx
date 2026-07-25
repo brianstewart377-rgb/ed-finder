@@ -52,7 +52,7 @@ describe('FcPlannerTab', () => {
     expect(screen.getByTestId('fc-workspace-header')).toBeTruthy();
     expect(screen.getByText('Shinrarta Dezhra')).toBeTruthy();
     expect(screen.getByText('Observed colony state')).toBeTruthy();
-    expect(screen.getByText(/player-journey reference/i)).toBeTruthy();
+    expect(screen.getByText(/Plan Fleet Carrier waypoints, jump distances, and estimated tritium requirements/i)).toBeTruthy();
   });
 
   it('shows an explicit empty selected-system state before anything is pinned', () => {
@@ -61,7 +61,7 @@ describe('FcPlannerTab', () => {
     expect(screen.getByTestId('fc-workspace-header')).toBeTruthy();
     expect(screen.getByText('No selected system')).toBeTruthy();
     expect(screen.getByText('Waiting for selection')).toBeTruthy();
-    expect(screen.getByText(/Choose a system in Explore, Inspect, or Plan/i)).toBeTruthy();
+    expect(screen.getByText(/Select a system in Finder or My Work to keep it visible while you plan this route/i)).toBeTruthy();
   });
 
   it('associates the waypoint label with its input', () => {

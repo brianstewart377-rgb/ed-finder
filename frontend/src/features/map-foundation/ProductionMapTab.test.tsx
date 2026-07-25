@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductionMapTab } from './ProductionMapTab';
 import { useMapLayers } from '@/features/map/useMapLayers';
@@ -112,13 +112,22 @@ beforeEach(() => {
 
 afterEach(() => {
   delete window.__stage26eProductionMap;
+  vi.unstubAllGlobals();
 });
 
 describe('Stage 26E production route composition', () => {
+  it('keeps the whole-galaxy chart available before Finder has results', () => {
+    render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    expect(screen.getByText('No systems to map yet')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('map-view-galaxy'));
+    expect(screen.getByTestId('r3f-production-renderer')).toBeTruthy();
+  });
+
   it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
     render(<ProductionMapTab systems={Array.from({ length: 510 }, (_, index) => system(index))} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
-    expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Stage 26E production map active');
+    expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Live map');
     expect((screen.getByTestId('stage26e-map-regions-toggle') as HTMLInputElement).checked).toBe(true);
     const renderer = screen.getByTestId('r3f-production-renderer');
     expect(renderer.getAttribute('data-system-count')).toBe('500');
@@ -171,7 +180,21 @@ describe('Stage 26E production route composition', () => {
     expect(onOpenSelectedSystem).toHaveBeenCalledWith(1);
   });
 
-  it('offers explicit flat and oblique tabletop projections without changing map data', () => {
+  it('offers explicit flat-map and spatial projections without changing map data', () => {
+    let resize: ResizeObserverCallback | null = null;
+    class ResizeObserverMock {
+      constructor(callback: ResizeObserverCallback) {
+        resize = callback;
+      }
+
+      observe() {}
+
+      unobserve() {}
+
+      disconnect() {}
+    }
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+
     render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
     const renderer = screen.getByTestId('r3f-production-renderer');
@@ -180,9 +203,18 @@ describe('Stage 26E production route composition', () => {
 
     fireEvent.click(screen.getByTestId('map-projection-3d'));
     expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-bearing')).toBe('-18');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('46');
+    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
     expect(renderer.getAttribute('data-system-count')).toBe('1');
+
+    act(() => {
+      resize?.([{
+        contentRect: { width: 1059, height: 520 },
+      } as ResizeObserverEntry], {} as ResizeObserver);
+    });
+    expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
+    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
 
     fireEvent.click(screen.getByTestId('map-projection-2d'));
     expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');

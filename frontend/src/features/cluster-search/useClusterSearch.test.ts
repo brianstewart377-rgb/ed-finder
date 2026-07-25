@@ -56,9 +56,26 @@ describe('useClusterSearch', () => {
       }],
       limit: 50,
       reference_coords: { x: 0, y: 0, z: 0 },
+      galaxy_region_id: undefined,
     });
     expect(result.current.results).toEqual([cluster]);
     expect(result.current.state.kind).toBe('ok');
+  });
+
+  it('passes the selected named galactic region to the API', async () => {
+    clusterSearchMock.mockResolvedValue({ clusters: [], count: 0, query_ms: 1 });
+    const { result } = renderHook(() => useClusterSearch());
+
+    act(() => {
+      result.current.setFilters({ galaxyRegionId: 31 });
+    });
+    await act(async () => {
+      await result.current.run();
+    });
+
+    expect(clusterSearchMock).toHaveBeenCalledWith(
+      expect.objectContaining({ galaxy_region_id: 31 }),
+    );
   });
 
   it('exposes shared API errors and clears stale results', async () => {

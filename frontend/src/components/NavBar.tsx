@@ -79,7 +79,9 @@ export function NavBar({
   );
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = selectedSystem != null || !['finder', 'colony-planner', 'my-work', 'watchlist', 'pinned'].includes(current);
+  const showPlayerContext = current === 'compare'
+    ? false
+    : selectedSystem != null;
   const currentPrimary = primaryWorkspaceForRoute(current);
   const currentRouteDescriptor = PLAYER_WORKSPACES
     .flatMap((workspace) => groupedRoutes[workspace])
@@ -128,13 +130,13 @@ export function NavBar({
       <div className="panel relative overflow-hidden px-4 py-3.5 sm:px-6">
         <div className="flex items-center gap-3 sm:gap-5">
         {/* ── Logo lockup ─────────────────────────────── */}
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="app-brand-lockup flex shrink-0 items-center">
           <Logo />
-          <div className="flex flex-col leading-tight hidden sm:flex">
-            <span className="font-mono text-[15px] font-bold tracking-[0.18em] text-orange">
-              ED:FINDER
+          <div className="app-brand-copy hidden flex-col sm:flex">
+            <span className="app-brand-name" aria-label="ED Finder">
+              <span>ED:</span><strong>FINDER</strong>
             </span>
-            <span className="font-mono text-[9px] tracking-[0.32em] text-silver-dk -mt-0.5">
+            <span className="app-brand-version">
               {appVersionLabel}
             </span>
           </div>

@@ -6,6 +6,7 @@ import { economyColor } from '@/features/colony-planner/economyVisuals';
 import type { AutocompleteHit } from '@/types/api';
 import type { ClusterSearchFilters, SlotRequirement } from './useClusterSearch';
 import { ARCHETYPE_PROFILES, ALL_ECONOMIES } from './useClusterSearch';
+import { GALAXY_REGIONS } from './galaxyRegions';
 
 export interface ClusterSearchFormProps {
   filters:            ClusterSearchFilters;
@@ -53,15 +54,52 @@ export function ClusterSearchForm({
           >
             {referencePending
               ? 'Pick a system from autocomplete to update the active reference.'
-              : `${filters.refName}: ${filters.refCoords.x.toFixed(2)}, ${filters.refCoords.y.toFixed(2)}, ${filters.refCoords.z.toFixed(2)}`}
+              : `Results ranked by distance from ${filters.refName}.`}
           </p>
         </div>
       </fieldset>
 
-      {/* Colony Worlds (slots) */}
+      {/* Search area */}
       <fieldset className="space-y-2.5">
         <legend className="px-1 font-mono text-[11px] tracking-[0.18em] text-orange uppercase">
-          Colony Worlds
+          Search Area
+        </legend>
+        <div className="premium-subpanel space-y-2 p-3">
+          <label
+            htmlFor="cluster-galaxy-region"
+            className="block font-mono text-[11px] text-text"
+          >
+            Galactic region
+          </label>
+          <select
+            id="cluster-galaxy-region"
+            value={filters.galaxyRegionId ?? ''}
+            onChange={(event) => {
+              onChange({
+                galaxyRegionId: event.target.value === ''
+                  ? null
+                  : Number(event.target.value),
+              });
+            }}
+            className="w-full rounded border border-border bg-bg4/70 px-3 py-2 font-mono text-xs text-text"
+          >
+            <option value="">All 42 named regions</option>
+            {GALAXY_REGIONS.map((region) => (
+              <option key={region.id} value={region.id}>
+                {region.name}
+              </option>
+            ))}
+          </select>
+          <p className="font-mono text-[10px] leading-relaxed text-text-dim">
+            Keep cluster locations and their matched systems inside one named region, or search all 42.
+          </p>
+        </div>
+      </fieldset>
+
+      {/* Economy requirements (slots) */}
+      <fieldset className="space-y-2.5">
+        <legend className="px-1 font-mono text-[11px] tracking-[0.18em] text-orange uppercase">
+          Economies Needed
         </legend>
         <div className="premium-subpanel space-y-3 p-3">
           {filters.slots.map((slot, i) => (
@@ -86,7 +124,7 @@ export function ClusterSearchForm({
             ].join(' ')}
           >
             <Plus size={12} className="inline mr-1" />
-            Add World
+            Add Economy Requirement
           </button>
         </div>
       </fieldset>
@@ -94,12 +132,12 @@ export function ClusterSearchForm({
       {/* Limit */}
       <fieldset className="space-y-2.5">
         <legend className="px-1 font-mono text-[11px] tracking-[0.18em] text-orange uppercase">
-          Results
+          Result Limit
         </legend>
         <div className="premium-subpanel space-y-3 p-3">
           <div className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5">
             <label className="font-mono text-[11px] text-text-dim col-span-2">
-              Max regions to return
+              Maximum cluster matches
             </label>
             <input
               type="range"
@@ -118,6 +156,9 @@ export function ClusterSearchForm({
               }}
               className="w-20 rounded border border-border bg-bg4/70 px-2 py-1 font-mono text-xs text-orange text-right tabular-nums no-spinner"
             />
+            <p className="col-span-2 font-mono text-[10px] leading-relaxed text-text-dim">
+              Controls how many matching locations are returned, not the number of galactic regions.
+            </p>
           </div>
         </div>
       </fieldset>
@@ -211,7 +252,7 @@ function SlotRow({
           type="button"
           onClick={onRemove}
           className="p-1 text-text-dim hover:text-red transition-colors shrink-0"
-          title="Remove world"
+          title="Remove economy requirement"
         >
           <X size={14} />
         </button>

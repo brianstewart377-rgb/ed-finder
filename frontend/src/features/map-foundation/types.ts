@@ -94,6 +94,9 @@ export type FoundationRendererProps = {
   regions: RegionLayerData;
   productionOverlays?: ProductionMapOverlays;
   viewport: ViewportSize;
+  viewPreset?: 'results' | 'galaxy' | 'reference';
+  reference?: { name: string; x: number; z: number };
+  systemYById64?: ReadonlyMap<number, number>;
   maxBackgroundPoints?: number;
   onInteraction: (event: MapInteractionEvent) => void;
   onVisibilityChange?: (metadata: VisibilityMetadata) => void;

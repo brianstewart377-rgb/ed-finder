@@ -109,7 +109,17 @@ describe('Stage 26E production parity composition', () => {
     const reference = { x: 100, z: -200 };
 
     expect(cameraForViewPreset('galaxy', scene.systems, reference, viewport).center).toEqual({ x: 0, z: 0 });
-    expect(cameraForViewPreset('reference', scene.systems, reference, viewport).center).toEqual(reference);
+    const fittedGalaxy = cameraForViewPreset('galaxy', scene.systems, reference, viewport, {
+      minX: -49_000,
+      maxX: 49_000,
+      minZ: -22_000,
+      maxZ: 74_000,
+    });
+    expect(fittedGalaxy.center).toEqual({ x: 0, z: 26_000 });
+    expect(fittedGalaxy.zoom).toBeCloseTo(150);
+    const referenceView = cameraForViewPreset('reference', scene.systems, reference, viewport);
+    expect(referenceView.center).toEqual(reference);
+    expect(referenceView.zoom).toBeLessThan(1);
     expect(cameraForViewPreset('results', scene.systems, reference, viewport).center).toEqual(reference);
     const largeResultSet = Array.from({ length: 500_001 }, () => scene.systems[0]!);
     expect(cameraForViewPreset('results', largeResultSet, reference, viewport).center).toEqual(reference);

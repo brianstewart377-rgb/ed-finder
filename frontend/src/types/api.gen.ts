@@ -2343,6 +2343,8 @@ export interface components {
              */
             offset: number;
             reference_coords?: components["schemas"]["CoordsModel"] | null;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
         };
         /** ClusterSearchResponse */
         ClusterSearchResponse: {

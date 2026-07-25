@@ -25,9 +25,9 @@ describe('SearchForm reference autocomplete data trust', () => {
       />,
     );
 
-    const colonyStatus = screen.getByLabelText('Colony status') as HTMLSelectElement;
-    expect(colonyStatus.value).toBe('uninhabited');
-    expect(screen.getByRole('option', { name: 'Non-colonised only' })).toBeTruthy();
+    fireEvent.click(screen.getByTestId('filter-module-system'));
+    const colonyStatus = screen.getByLabelText('Colony status');
+    expect(colonyStatus.textContent).toBe('Non-colonised only');
   });
 
   it('does not accept unknown-coordinate reference systems', () => {
@@ -47,6 +47,7 @@ describe('SearchForm reference autocomplete data trust', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('filter-module-reference'));
     fireEvent.focus(screen.getByTestId('ref-system-input'));
     fireEvent.click(screen.getByTestId('ref-system-option-2008132031194'));
 
@@ -71,6 +72,7 @@ describe('SearchForm reference autocomplete data trust', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('filter-module-reference'));
     fireEvent.focus(screen.getByTestId('ref-system-input'));
     fireEvent.click(screen.getByTestId('ref-system-option-42'));
 
@@ -96,6 +98,7 @@ describe('SearchForm reference autocomplete data trust', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('filter-module-reference'));
     fireEvent.change(screen.getByTestId('ref-system-input'), { target: { value: 'Know' } });
 
     expect(screen.getByTestId('search-submit').getAttribute('disabled')).not.toBeNull();
@@ -120,6 +123,7 @@ describe('SearchForm reference autocomplete data trust', () => {
       />,
     );
 
+    fireEvent.click(screen.getByTestId('filter-module-reference'));
     const input = screen.getByTestId('ref-system-input');
     fireEvent.change(input, { target: { value: 'Know' } });
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter', charCode: 13 });
@@ -129,5 +133,134 @@ describe('SearchForm reference autocomplete data trust', () => {
       refCoords: { x: 1, y: 2, z: 3 },
     });
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('opens one adjacent filter workspace and returns focus when Done closes it', () => {
+    vi.mocked(useAutocomplete).mockReturnValue({
+      hits: [],
+      loading: false,
+      err: null,
+    });
+    const onWorkspaceChange = vi.fn();
+
+    render(
+      <SearchForm
+        filters={DEFAULT_FILTERS}
+        onChange={() => undefined}
+        onSubmit={() => undefined}
+        onReset={() => undefined}
+        onWorkspaceChange={onWorkspaceChange}
+      />,
+    );
+
+    const radiusModule = screen.getByTestId('filter-module-distance');
+    fireEvent.click(radiusModule);
+
+    expect(screen.getByTestId('filter-workspace')).toBeTruthy();
+    expect(screen.getByText('Define the search area')).toBeTruthy();
+    expect(onWorkspaceChange).toHaveBeenLastCalledWith(true);
+
+    fireEvent.click(screen.getByTestId('filter-workspace-done'));
+
+    expect(screen.queryByTestId('filter-workspace')).toBeNull();
+    expect(onWorkspaceChange).toHaveBeenLastCalledWith(false);
+    expect(document.activeElement).toBe(radiusModule);
+  });
+
+  it('gives every filter module a distinct icon and explanatory collapsed summary', () => {
+    vi.mocked(useAutocomplete).mockReturnValue({
+      hits: [],
+      loading: false,
+      err: null,
+    });
+
+    render(
+      <SearchForm
+        filters={DEFAULT_FILTERS}
+        onChange={() => undefined}
+        onSubmit={() => undefined}
+        onReset={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('Search filters')).toBeTruthy();
+    expect(screen.queryByText('categories')).toBeNull();
+    expect(screen.getByRole('navigation', { name: 'Search filter categories' })).toBeTruthy();
+
+    const expectedModules = [
+      ['reference', 'Origin system', 'Distances measured from Sol', 'origin'],
+      ['presets', 'Search profiles', 'Ready-made searches for common goals', 'profiles'],
+      ['distance', 'Range & results', 'Within 200 LY · show up to 50', 'range'],
+      ['system', 'Settlement & economy', 'Non-colonised · any economy', 'system'],
+      ['high-value', 'Valuable worlds', 'Earth-like, water and ammonia worlds', 'high-value'],
+      ['stars', 'Stellar objects', 'Black holes, neutron stars and more', 'stars'],
+      ['landable', 'Accessible surfaces', 'Landable and walkable bodies', 'landable'],
+      ['planetary', 'Planet classes', 'Rocky, icy, metal-rich and gas worlds', 'planetary'],
+      ['signals', 'Rings & signals', 'Rings, geological and biological signals', 'signals'],
+      ['sort', 'Sort results', 'Best development potential first', 'sort'],
+    ] as const;
+
+    const iconNames = new Set<string>();
+    for (const [id, label, summary, iconName] of expectedModules) {
+      const module = screen.getByTestId(`filter-module-${id}`);
+      expect(module.textContent).toContain(label);
+      expect(module.textContent).toContain(summary);
+      const icon = module.querySelector('[data-icon]');
+      expect(icon?.getAttribute('data-icon')).toBe(iconName);
+      iconNames.add(iconName);
+    }
+
+    expect(iconNames.size).toBe(expectedModules.length);
+  });
+
+  it('names active body constraints instead of replacing them with a count', () => {
+    vi.mocked(useAutocomplete).mockReturnValue({
+      hits: [],
+      loading: false,
+      err: null,
+    });
+
+    render(
+      <SearchForm
+        filters={{
+          ...DEFAULT_FILTERS,
+          bodyRanges: {
+            ...DEFAULT_FILTERS.bodyRanges,
+            elw: { min: 1, max: 6 },
+            ww: { min: 2, max: 4 },
+            ammonia: { min: 1, max: 5 },
+          },
+        }}
+        onChange={() => undefined}
+        onSubmit={() => undefined}
+        onReset={() => undefined}
+      />,
+    );
+
+    expect(screen.getByTestId('filter-module-high-value').textContent)
+      .toContain('Earth-like ≥ 1 · Water Worlds 2–4 · +1 more');
+  });
+
+  it('closes the active filter workspace with Escape', () => {
+    vi.mocked(useAutocomplete).mockReturnValue({
+      hits: [],
+      loading: false,
+      err: null,
+    });
+
+    render(
+      <SearchForm
+        filters={DEFAULT_FILTERS}
+        onChange={() => undefined}
+        onSubmit={() => undefined}
+        onReset={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('filter-module-sort'));
+    expect(screen.getByTestId('filter-workspace')).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('filter-workspace')).toBeNull();
   });
 });

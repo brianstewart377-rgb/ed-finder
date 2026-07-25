@@ -192,7 +192,7 @@ function EmptyWorkspace({ onBackToFinder }: { onBackToFinder: () => void }) {
         No system selected for Colony Planner.
       </h1>
       <p className="mx-auto mt-2 max-w-xl font-mono text-xs leading-relaxed text-silver-dk">
-        Open System Detail from Explore and start a plan there, or continue with an existing direct planner route.
+        Open a system from Finder or My Work, then choose Start a plan.
       </p>
       <button
         type="button"

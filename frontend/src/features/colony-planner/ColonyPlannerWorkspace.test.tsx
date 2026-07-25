@@ -436,7 +436,7 @@ describe('ColonyPlannerWorkspace', () => {
 
     expect(screen.getByTestId('colony-planner-workspace')).toBeTruthy();
     expect(screen.getByText('No system selected for Colony Planner.')).toBeTruthy();
-    expect(screen.getByText(/Open System Detail from Explore and start a plan there/i)).toBeTruthy();
+    expect(screen.getByText(/Open a system from Finder or My Work, then choose Start a plan/i)).toBeTruthy();
     await click(screen.getByRole('button', { name: /Back to Finder/i }));
     expect(onBackToFinder).toHaveBeenCalledTimes(1);
     expect(mockedSimulationPreviewPanel).not.toHaveBeenCalled();

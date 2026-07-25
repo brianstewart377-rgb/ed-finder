@@ -31,21 +31,15 @@ export function ReviewWorkspaceHeader({
   const selectedSystemName = selectedSystem
     ? (selectedSystem.name ?? (selectedSystem.loading ? 'Refreshing selected system...' : `System ${selectedSystem.id64}`))
     : 'No selected system';
-  const selectedSystemMeta = selectedSystem
-    ? (selectedSystem.loading ? 'Refreshing selected-system context' : 'Selected-system context')
-    : 'Selected-system context';
-
   return (
     <header className="panel overflow-hidden p-4 sm:p-5">
       <WorkspaceContextHeader
-        journeyLabel="Review"
         title={title}
         supportingText={supportingText}
         facts={facts}
         actions={actions}
         testId={testId}
         selectedSystemName={selectedSystemName}
-        selectedSystemMeta={<span>{selectedSystemMeta}</span>}
         selectedSystemDetail={(
           <div className="space-y-2 text-left xl:text-right" data-testid="review-workspace-selected-system">
             {selectedSystem ? (
@@ -68,7 +62,7 @@ export function ReviewWorkspaceHeader({
                   tone="not_evaluated"
                 />
                 <p className="text-xs leading-relaxed text-silver">
-                  Choose a system in Explore, Inspect, or Plan to pin that player-journey context here while you review supporting tools.
+                  Select a system in Finder or My Work to keep it visible while you plan this route.
                 </p>
               </>
             )}

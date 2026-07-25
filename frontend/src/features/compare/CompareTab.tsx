@@ -2,7 +2,6 @@ import type { ReactNode } from 'react';
 import type { SystemResult } from '@/types/api';
 import type { UseCompare } from './useCompare';
 import { COMPARE_MAX } from './useCompare';
-import { ReviewWorkspaceHeader, type ReviewSelectedSystem } from '@/components/ReviewWorkspaceHeader';
 import {
   formatPopulationForSystem,
   formatDistance,
@@ -13,22 +12,19 @@ import { archetypeTierFromScore, formatArchetypeLabel, getDevelopmentScore } fro
 export interface CompareTabProps {
   compare: UseCompare;
   onOpenDetail?: (id64: number) => void;
-  selectedSystem?: ReviewSelectedSystem | null;
 }
 
-export function CompareTab({ compare, onOpenDetail, selectedSystem = null }: CompareTabProps) {
+export function CompareTab({ compare, onOpenDetail }: CompareTabProps) {
   const { entries } = compare;
 
   if (entries.length === 0) {
     return (
       <section data-testid="compare-tab" className="space-y-5">
-        <CompareHeader compare={compare} selectedSystem={selectedSystem} />
+        <CompareHeader compare={compare} />
         <div className="panel-thin text-center py-16 px-4">
-          <div className="text-3xl mb-2" aria-hidden>⚖️</div>
-          <h3 className="font-display text-orange text-sm tracking-wider mb-1">No systems selected</h3>
+          <h2 className="font-display text-orange text-base tracking-wider mb-2">No systems added</h2>
           <p className="text-silver-dk text-xs max-w-sm mx-auto">
-            Click ⚖️ on up to {COMPARE_MAX} system cards in the Finder tab to
-            line them up side-by-side.
+            Use Compare on a system in Finder or My Work. Add at least two for a useful side-by-side view.
           </p>
         </div>
       </section>
@@ -39,7 +35,7 @@ export function CompareTab({ compare, onOpenDetail, selectedSystem = null }: Com
 
   return (
     <section data-testid="compare-tab" className="space-y-5">
-      <CompareHeader compare={compare} selectedSystem={selectedSystem} />
+      <CompareHeader compare={compare} />
 
       {compare.lastError && (
         <div className="panel-thin border-red/50 p-2 font-mono text-xs text-red flex items-center gap-2" style={{ background: 'rgba(248,113,113,0.10)' }}>
@@ -135,32 +131,39 @@ export function CompareTab({ compare, onOpenDetail, selectedSystem = null }: Com
 
 function CompareHeader({
   compare,
-  selectedSystem,
 }: {
   compare: UseCompare;
-  selectedSystem: ReviewSelectedSystem | null;
 }) {
   return (
-    <ReviewWorkspaceHeader
-      testId="compare-workspace-header"
-      title="Compare"
-      supportingText="Review candidate systems side-by-side while the selected-system context stays visible for the wider player journey."
-      selectedSystem={selectedSystem}
-      facts={[
-        {
-          label: 'Compared',
-          value: `${compare.entries.length} / ${COMPARE_MAX}`,
-          tone: compare.entries.length > 0 ? 'cyan' : 'default',
-        },
-      ]}
-      actions={(
-        <>
+    <header
+      data-testid="compare-workspace-header"
+      className="panel flex flex-wrap items-center gap-4 p-4 sm:p-5"
+    >
+      <div className="min-w-0 flex-1">
+        <h1 className="font-display text-xl tracking-[0.1em] text-text sm:text-2xl">
+          Compare systems
+        </h1>
+        <p className="mt-1.5 text-sm text-silver">
+          Up to {COMPARE_MAX} candidates side by side. Best values are highlighted.
+        </p>
+      </div>
+
+      <div className="premium-subpanel px-3 py-2 text-center">
+        <strong className="block font-mono text-lg tabular-nums text-orange">
+          {compare.entries.length} / {COMPARE_MAX}
+        </strong>
+        <span className="font-mono text-[9px] uppercase tracking-[0.16em] text-silver-dk">
+          systems added
+        </span>
+      </div>
+
+      {compare.entries.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
             onClick={compare.exportCsv}
-            disabled={compare.entries.length === 0}
             data-testid="compare-export-csv"
-            className="btn-metal text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            className="btn-metal text-[11px] py-1.5 px-3"
           >
             ↓ Export CSV
           </button>
@@ -172,15 +175,14 @@ function CompareHeader({
                 compare.clear();
               }
             }}
-            disabled={compare.entries.length === 0}
             data-testid="compare-clear"
-            className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="text-[11px] py-1.5 px-3 rounded-chunk-sm border border-red/40 bg-red/10 text-red hover:bg-red/20 font-mono transition-colors"
           >
             ✕ Clear all
           </button>
-        </>
-      )}
-    />
+        </div>
+      ) : null}
+    </header>
   );
 }
 
