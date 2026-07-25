@@ -118,7 +118,7 @@ test.describe('ED Finder — smoke', () => {
     const regionResponse = await regionResponsePromise;
     expect(regionResponse.status()).toBe(200);
     await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
-    await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Stage 26E production map active');
+    await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Live map');
     await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
 
     const flatProjection = page.getByTestId('map-projection-2d');
