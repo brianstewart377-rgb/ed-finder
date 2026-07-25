@@ -54,6 +54,15 @@ and other independently useful assets may be reused after review.
     captured system trace. JavaScript callback duration is not GPU duration.
 12. Target desktop browsers only. Required viewports are 1280x720 and 1440x900.
     Mobile, touch gestures, and phone-width map layouts are out of scope.
+13. Support independently toggleable, data-driven overlay layers in the
+    scene descriptor, including at minimum: live activity pulse (recent
+    ingest events), freshness/age heat (colonisation freshness policy),
+    cluster constellations (anchors, member edges, radius/hull), and plan
+    routes (expansion-plan paths with explicit planner hand-off).
+    Per-system animation state must be derivable from descriptor data
+    attributes, not hand-placed. Applying a streamed scene update must
+    preserve camera and selection (extending requirement 8) and must not
+    produce visible frame hitching.
 
 ## Scene Boundary
 
@@ -68,12 +77,25 @@ equivalent in responsibility to:
 - `MapClusterDescriptor`: anchor, members, member roles, edges, radius/hull,
   economy context, and labels;
 - `MapInteractionResult`: selection, deselection, overlap choice, navigation,
-  camera change, and layer change events;
+  camera change, and layer change events, and extensible contextual-action
+  events carrying a target system or named region (for example, originating a
+  Finder search from a map location), so feature stages can add map-initiated
+  workflows without renderer changes. Named regions are addressable
+  interaction targets, not only rendered geometry.
 - `MapRendererAdapter`: renderer-independent mount, update, resize, context-loss
   recovery, measurement, and disposal behavior.
 
 Names may change during the research run, but these responsibilities and their
 separation may not disappear.
+
+As recorded owner priority for the first Stage 26D wiring wave (not
+authorized by this contract, and binding only on boundary design):
+search-from-here contextual actions, a live radius indicator
+bidirectionally synced with the Finder radius input including pre-query
+scope tinting, hover synchronization between result surfaces and map
+systems, and region-scoped search. The Finder retains sole ownership of
+query semantics; the map acts as parameter input and result display
+through this boundary.
 
 ## Required Integration Scenarios
 
@@ -93,6 +115,10 @@ renderer candidate:
    text-supported semantics.
 7. One-time auto-fit followed by manual camera movement that survives
    selection, loading, and layer changes.
+8. Live-update stream: a deterministic fixture applies successive scene
+   update batches while the activity-pulse layer animates; camera,
+   selection, and layer toggles survive every batch, and frame cost
+   during the stream is measured and recorded.
 
 ## Region Data And Legal Gate
 
@@ -125,7 +151,7 @@ Required retained artifacts are:
 
 1. `map-scene-contract.ts`, validated by the strict in-memory TypeScript gate;
 2. `map-renderer-adapter.ts`, validated by the same gate;
-3. `map-bakeoff-scenarios.ts`, containing deterministic fixtures for all seven
+3. `map-bakeoff-scenarios.ts`, containing deterministic fixtures for all eight
    integration scenarios and validated by the same gate;
 4. `map-region-verification.json`, validated as JSON and covering the 42 named
    regions plus the unmapped sentinel; and
@@ -154,6 +180,18 @@ click-selection latency, memory, compressed bundle contribution, context-loss
 recovery, region correctness, overlap handling, keyboard workflow, and all seven
 integration scenarios. Unknown measurements remain unknown; they are not
 converted into passes.
+
+The dimensions above are correctness and performance gates: a candidate
+failing them is eliminated regardless of appearance. Candidates passing
+the gates then receive an owner-judged visual quality review, conducted
+side-by-side on the required viewports against the same scenes, scoring
+glow/bloom rendering, softness of region boundaries, motion design of
+the animated layers, and overall depth and atmosphere. The review notes
+and comparison screenshots are retained in the recorded decision, and
+the final selection among gate-passing candidates weighs this review as
+a first-class criterion. As informational context only, the recorded
+decision also notes each candidate's WebXR support path; this selects
+nothing and authorizes nothing.
 
 ## Delivery Sequence
 
