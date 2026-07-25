@@ -10,10 +10,11 @@ export interface SlotRequirement {
 }
 
 export interface ClusterSearchFilters {
-  slots:     SlotRequirement[];
-  refName:   string;
-  refCoords: { x: number; y: number; z: number };
-  limit:     number;
+  slots:          SlotRequirement[];
+  refName:        string;
+  refCoords:      { x: number; y: number; z: number };
+  galaxyRegionId: number | null;
+  limit:          number;
 }
 
 // ── Response types ───────────────────────────────────────────────────────
@@ -78,9 +79,10 @@ const SOL_COORDS = { x: 0, y: 0, z: 0 };
 
 const DEFAULT_FILTERS: ClusterSearchFilters = {
   slots: [{ archetype_key: 'refinery_industrial', label: 'Refinery + Industrial', economies: [] }],
-  refName:   'Sol',
-  refCoords: SOL_COORDS,
-  limit:     50,
+  refName:        'Sol',
+  refCoords:      SOL_COORDS,
+  galaxyRegionId: null,
+  limit:          50,
 };
 
 export function useClusterSearch() {
@@ -131,6 +133,7 @@ export function useClusterSearch() {
         })),
         limit: filters.limit,
         reference_coords: filters.refCoords,
+        galaxy_region_id: filters.galaxyRegionId ?? undefined,
       };
       const data = await api.clusterSearch<ClusterResult>(body);
       if (data.error) throw new Error(data.error);

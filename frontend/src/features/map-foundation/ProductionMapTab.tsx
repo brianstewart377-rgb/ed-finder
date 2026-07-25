@@ -34,7 +34,7 @@ import './ProductionMapTab.css';
 
 const EMPTY_REGIONS: RegionLayerData = { labels: [], boundaries: [] };
 const DEFAULT_VIEWPORT: ViewportSize = { width: 1280, height: 720 };
-const TABLETOP_CAMERA = { bearingDeg: -18, pitchDeg: 46 } as const;
+const SPATIAL_CAMERA = { bearingDeg: 0, pitchDeg: 52 } as const;
 
 function emptyProductionScene(reference: { x: number; z: number }): MapSceneState {
   return {
@@ -79,6 +79,14 @@ export function ProductionMapTab({
     () => ({ x: reference.x, z: reference.z }),
     [reference.x, reference.z],
   );
+  const systemYById64 = useMemo(
+    () => new Map(
+      boundedSystems
+        .filter((system) => typeof system.coords?.y === 'number' && Number.isFinite(system.coords.y))
+        .map((system) => [system.id64, system.coords!.y!] as const),
+    ),
+    [boundedSystems],
+  );
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [scene, setScene] = useState<MapSceneState>(() => emptyProductionScene(referenceCoords));
   const [viewPreset, setViewPreset] = useState<MapViewPreset>('results');
@@ -101,9 +109,9 @@ export function ProductionMapTab({
         continuationToken: null,
       },
     });
-    setScene(applyViewPreset(handoff.scene, 'results', referenceCoords, viewport));
+    setScene(applyViewPreset(handoff.scene, 'results', referenceCoords, DEFAULT_VIEWPORT));
     setViewPreset('results');
-  }, [boundedSystems, initialSelectedSystemId, referenceCoords, systems.length, viewport]);
+  }, [boundedSystems, initialSelectedSystemId, referenceCoords, systems.length]);
 
   useEffect(() => {
     const element = viewportRef.current;
@@ -119,7 +127,7 @@ export function ProductionMapTab({
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [scene.systems.length, viewPreset]);
 
   const layers = useMapLayers({
     heatmap: { enabled: showHeatmap, max_cells: PRODUCTION_PARITY_LIMITS.heatmapCells },
@@ -127,6 +135,21 @@ export function ProductionMapTab({
     timeline: { enabled: showTimeline, bucket: timelineBucket },
   });
   const regionLayer = useAuthoritativeRegionLayer();
+  const galaxyBounds = useMemo(() => {
+    const boundaries = regionLayer.data?.boundaries;
+    if (!boundaries?.length) return undefined;
+    let minX = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let minZ = Number.POSITIVE_INFINITY;
+    let maxZ = Number.NEGATIVE_INFINITY;
+    boundaries.forEach(({ source, target }) => {
+      minX = Math.min(minX, source[0], target[0]);
+      maxX = Math.max(maxX, source[0], target[0]);
+      minZ = Math.min(minZ, source[1], target[1]);
+      maxZ = Math.max(maxZ, source[1], target[1]);
+    });
+    return { minX, maxX, minZ, maxZ };
+  }, [regionLayer.data]);
   const layerError = [regionLayer, layers.heatmap, layers.clusters, layers.timeline]
     .find((layer) => layer.isError)?.error?.message ?? null;
   const composition = useMemo(() => composeProductionParity({
@@ -147,6 +170,18 @@ export function ProductionMapTab({
     showTimeline,
     timelineBucket,
   ]);
+
+  useEffect(() => {
+    setScene((current) => current.cameraIntent === 'user'
+      ? current
+      : applyViewPreset(
+        current,
+        viewPreset,
+        referenceCoords,
+        viewport,
+        galaxyBounds,
+      ));
+  }, [galaxyBounds, referenceCoords, viewPreset, viewport]);
 
   const onInteraction = useCallback((event: MapInteractionEvent) => {
     if (event.type === 'overlapChoiceRequired') {
@@ -173,19 +208,29 @@ export function ProductionMapTab({
 
   const selectViewPreset = useCallback((preset: MapViewPreset) => {
     setViewPreset(preset);
-    setScene((current) => applyViewPreset(current, preset, referenceCoords, viewport));
-  }, [referenceCoords, viewport]);
+    setScene((current) => applyViewPreset(
+      current,
+      preset,
+      referenceCoords,
+      viewport,
+      galaxyBounds,
+    ));
+  }, [galaxyBounds, referenceCoords, viewport]);
 
   const selectProjection = useCallback((projection: '2d' | '3d') => {
-    setScene((current) => ({
-      ...current,
-      cameraIntent: 'user',
-      camera: {
-        ...current.camera,
-        bearingDeg: projection === '3d' ? TABLETOP_CAMERA.bearingDeg : 0,
-        pitchDeg: projection === '3d' ? TABLETOP_CAMERA.pitchDeg : 0,
-      },
-    }));
+    setScene((current) => {
+      const currently3d = current.camera.pitchDeg >= 8;
+      if ((projection === '3d') === currently3d) return current;
+      return {
+        ...current,
+        cameraIntent: 'user',
+        camera: {
+          ...current.camera,
+          bearingDeg: projection === '3d' ? SPATIAL_CAMERA.bearingDeg : 0,
+          pitchDeg: projection === '3d' ? SPATIAL_CAMERA.pitchDeg : 0,
+        },
+      };
+    });
   }, []);
 
   const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
@@ -231,22 +276,22 @@ export function ProductionMapTab({
   }, [composition, regionLayer.data, scene.boundedResponse.truncated, scene.systems.length, showRegions]);
 
   return (
-    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="space-y-4">
-      <section className="premium-subpanel space-y-3 p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full border border-cyan/35 bg-cyan/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-            Stage 26E app map
-          </span>
-          <span data-testid="stage26e-route-flag-state" className="rounded-full border border-gold/35 bg-gold/10 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-gold">
-            Stage 26E production map active
-          </span>
+    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="map-workspace panel">
+      <header className="map-workspace__header">
+        <div className="map-workspace__title">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-orange tracking-[0.12em] text-xl">Galactic Map</h2>
+            <span data-testid="stage26e-route-flag-state" className="rounded-full border border-orange/30 bg-orange/8 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange-lt">
+              Live map
+            </span>
+            <span className="font-mono text-xs text-silver-dk">{scene.systems.length} Finder systems shown</span>
+          </div>
+          <p className="mt-1 text-sm text-silver">
+            Plot Finder results and explore their position in the galaxy.
+          </p>
         </div>
-        <h2 className="font-display text-base tracking-[0.12em] text-text">R3F galaxy map</h2>
-        <p className="max-w-4xl text-sm leading-relaxed text-silver">
-          The app map consumes the current Finder result set, bounded authoritative region geometry, and live aggregate map responses. An explicit disabled production build retains the established renderer as an immediate rollback.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" data-testid="map-return-to-finder" onClick={onReturnToFinder} className="btn-metal text-[11px] font-mono">
+        <div className="map-workspace__actions">
+          <button type="button" data-testid="map-return-to-finder" onClick={onReturnToFinder}>
             Back to Finder
           </button>
           <button
@@ -254,85 +299,90 @@ export function ProductionMapTab({
             data-testid="map-open-selected-system"
             disabled={!selected || !onOpenSelectedSystem}
             onClick={() => selected && onOpenSelectedSystem?.(selected.id64)}
-            className="rounded-chunk-sm border border-orange/55 bg-orange/15 px-3 py-1.5 font-mono text-[11px] text-orange disabled:cursor-not-allowed disabled:opacity-50"
+            data-accent="true"
           >
             Inspect selected system
           </button>
         </div>
-      </section>
-
-      <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
-        <h2 className="font-display text-orange tracking-[0.14em] text-lg">Galactic Map</h2>
-        <span className="font-mono text-xs text-silver-dk">{scene.systems.length} bounded Finder systems</span>
-        <span className="flex-1" />
-        <div role="group" aria-label="Map view mode" className="flex overflow-hidden rounded-chunk-sm border border-border">
+      </header>
+      <div className="map-workspace__controls">
+        <div role="group" aria-label="Map view mode" className="map-workspace__segmented">
           {VIEW_MODES.map((mode) => (
             <button
               key={mode.id}
               type="button"
               data-testid={`map-view-${mode.id}`}
               aria-pressed={viewPreset === mode.id}
+              title={mode.description}
               onClick={() => selectViewPreset(mode.id)}
-              className={viewPreset === mode.id ? 'bg-orange/20 px-2.5 py-1 font-mono text-[10px] text-orange' : 'px-2.5 py-1 font-mono text-[10px] text-silver-dk'}
+              className={viewPreset === mode.id ? 'is-active' : ''}
             >
               {mode.label}
             </button>
           ))}
         </div>
-        <div role="group" aria-label="Map projection" className="flex overflow-hidden rounded-chunk-sm border border-border">
+        <div role="group" aria-label="Map projection" className="map-workspace__segmented">
           {(['2d', '3d'] as const).map((mode) => (
             <button
               key={mode}
               type="button"
               data-testid={`map-projection-${mode}`}
               aria-pressed={projection === mode}
-              title={mode === '3d' ? 'Oblique tabletop view' : 'Flat galactic plane view'}
+              title={mode === '3d'
+                ? 'Spatial view with real system height above or below the galactic plane'
+                : 'Flat chart view of galactic X/Z coordinates'}
               onClick={() => selectProjection(mode)}
-              className={projection === mode ? 'bg-gold/15 px-2.5 py-1 font-mono text-[10px] uppercase text-gold' : 'px-2.5 py-1 font-mono text-[10px] uppercase text-silver-dk'}
+              className={projection === mode ? 'is-active' : ''}
             >
-              {mode}
+              {mode === '2d' ? '2D map' : '3D space'}
             </button>
           ))}
         </div>
-        <LayerToggle testId="stage26e-map-regions-toggle" label="Regions" checked={showRegions} onChange={setShowRegions} />
-        <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
-        <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
-        <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
-        {showTimeline && (
-          <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
-            Bucket
-            <select value={timelineBucket} onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)} className="rounded border border-border bg-bg3 px-2 py-1">
-              <option value="month">Month</option>
-              <option value="quarter">Quarter</option>
-              <option value="year">Year</option>
-            </select>
-          </label>
-        )}
-      </header>
-
-      <MapLegend
-        activeLayerSummary={activeLayerSummary}
-        currentViewLabel={currentViewMode.label}
-        currentViewDescription={currentViewMode.description}
-      />
-      <MapLayerStatusRow
-        sourceLabel={sourceLabel}
-        showRegions={showRegions}
-        showHeatmap={showHeatmap}
-        showClusters={showClusters}
-        showTimeline={showTimeline}
-        timelineBucket={timelineBucket}
-        regionsLoading={regionLayer.isLoading}
-        regionsError={regionLayer.isError}
-        heatmapLoading={layers.heatmap.isLoading}
-        heatmapError={layers.heatmap.isError}
-        heatmapTruncated={layers.heatmap.data?.truncated ?? false}
-        heatmapMaxCells={layers.heatmap.data?.max_cells ?? null}
-        clustersLoading={layers.clusters.isLoading}
-        clustersError={layers.clusters.isError}
-        timelineLoading={layers.timeline.isLoading}
-        timelineError={layers.timeline.isError}
-      />
+        <details className="map-workspace__layers">
+          <summary>Layers &amp; legend</summary>
+          <div className="map-workspace__layers-content">
+            <div className="map-workspace__layer-toggles">
+              <LayerToggle testId="stage26e-map-regions-toggle" label="Regions" checked={showRegions} onChange={setShowRegions} />
+              <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
+              <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
+              <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
+              {showTimeline && (
+                <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
+                  Time range
+                  <select value={timelineBucket} onChange={(event) => setTimelineBucket(event.target.value as typeof timelineBucket)} className="rounded border border-border bg-bg3 px-2 py-1">
+                    <option value="month">Month</option>
+                    <option value="quarter">Quarter</option>
+                    <option value="year">Year</option>
+                  </select>
+                </label>
+              )}
+            </div>
+            <MapLegend
+              activeLayerSummary={activeLayerSummary}
+              currentViewLabel={currentViewMode.label}
+              currentViewDescription={currentViewMode.description}
+            />
+            <MapLayerStatusRow
+              sourceLabel={sourceLabel}
+              showRegions={showRegions}
+              showHeatmap={showHeatmap}
+              showClusters={showClusters}
+              showTimeline={showTimeline}
+              timelineBucket={timelineBucket}
+              regionsLoading={regionLayer.isLoading}
+              regionsError={regionLayer.isError}
+              heatmapLoading={layers.heatmap.isLoading}
+              heatmapError={layers.heatmap.isError}
+              heatmapTruncated={layers.heatmap.data?.truncated ?? false}
+              heatmapMaxCells={layers.heatmap.data?.max_cells ?? null}
+              clustersLoading={layers.clusters.isLoading}
+              clustersError={layers.clusters.isError}
+              timelineLoading={layers.timeline.isLoading}
+              timelineError={layers.timeline.isError}
+            />
+          </div>
+        </details>
+      </div>
       {showTimeline && composition.timeline && (
         <TimelineSummary
           dataTestId="stage26e-map-timeline-summary"
@@ -348,10 +398,13 @@ export function ProductionMapTab({
       {composition.surface.kind === 'error' && (
         <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">{composition.surface.message}</p>
       )}
-      {composition.surface.kind === 'empty' ? (
-        <div className="panel-thin px-4 py-16 text-center text-sm text-silver-dk">{composition.surface.message}</div>
+      {composition.surface.kind === 'empty' && viewPreset === 'results' ? (
+        <div className="map-workspace__empty">
+          <strong>No systems to map yet</strong>
+          <span>Run a Finder search, or choose Whole galaxy to explore the region chart.</span>
+        </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="map-workspace__map-frame">
           <MapErrorBoundary>
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
               <R3FMapFoundation
@@ -359,14 +412,18 @@ export function ProductionMapTab({
                 regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
                 productionOverlays={composition.overlays}
                 viewport={viewport}
+                viewPreset={viewPreset}
+                reference={reference}
+                systemYById64={systemYById64}
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
                 onInteraction={onInteraction}
               />
             </div>
           </MapErrorBoundary>
-          <div className="space-y-3">
-            <SelectionPanel system={selected} />
-            {overlapCandidateIds.length > 0 && (
+          {(selected || overlapCandidateIds.length > 0) && (
+            <div className="map-workspace__selection">
+              {selected && <SelectionPanel system={selected} />}
+              {overlapCandidateIds.length > 0 && (
               <aside aria-label="Overlapping systems" className="panel-thin space-y-2 p-3">
                 <h3 className="font-display text-xs text-orange">Choose overlapping system</h3>
                 {overlapCandidateIds.map((id64) => (
@@ -375,8 +432,9 @@ export function ProductionMapTab({
                   </button>
                 ))}
               </aside>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </section>

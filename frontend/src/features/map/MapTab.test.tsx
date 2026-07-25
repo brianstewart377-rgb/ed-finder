@@ -158,7 +158,7 @@ describe('MapTab', () => {
     expect(within(legend).getByText('Centers the chosen reference system.')).toBeTruthy();
 
     fireEvent.click(screen.getByTestId('map-view-galaxy'));
-    expect(within(legend).getByText(/Galaxy: Frames the full galactic disc and axes/)).toBeTruthy();
+    expect(within(legend).getByText(/Whole galaxy: Show the complete galaxy and its named regions/)).toBeTruthy();
   });
 
   it('renders GalacticMap canvas when systems are present', () => {

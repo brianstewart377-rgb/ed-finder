@@ -242,6 +242,8 @@ export type SearchState =
   | { kind: 'ok'; data: SearchResponse; queriedAt: number }
   | { kind: 'err'; message: string };
 
+const EMPTY_SEARCH_RESULTS: SystemResult[] = [];
+
 function toRequestBody(f: SearchFilters): LocalSearchBody {
   const body: LocalSearchBody = {
     reference_coords: f.refCoords,
@@ -321,7 +323,7 @@ export function useSearch() {
     [filters],
   );
 
-  const results: SystemResult[] = state.kind === 'ok' ? state.data.results : [];
+  const results: SystemResult[] = state.kind === 'ok' ? state.data.results : EMPTY_SEARCH_RESULTS;
 
   return { filters, setFilters, reset, run, state, results };
 }

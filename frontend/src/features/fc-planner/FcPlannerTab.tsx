@@ -22,7 +22,7 @@ export function FcPlannerTab({ fc, onOpenDetail, selectedSystem = null }: FcPlan
       <ReviewWorkspaceHeader
         testId="fc-workspace-header"
         title="FC Route Planner"
-        supportingText="Review Fleet Carrier waypoint plans while the selected-system context remains visible as player-journey reference, not route authority."
+        supportingText="Plan Fleet Carrier waypoints, jump distances, and estimated tritium requirements."
         selectedSystem={selectedSystem}
         facts={[
           {

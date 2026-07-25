@@ -50,3 +50,18 @@ def test_cluster_search_accepts_slots_or_legacy_requirements_but_not_both():
             requirements=[{'economy': 'Agriculture'}],
             slots=[SlotRequirement(economies=['Refinery'])],
         )
+
+
+def test_cluster_search_accepts_only_named_galactic_region_ids():
+    request = ClusterSearchRequest(
+        slots=[SlotRequirement(archetype_key='refinery_industrial')],
+        galaxy_region_id=31,
+    )
+    assert request.galaxy_region_id == 31
+
+    for invalid_id in (0, 43):
+        with pytest.raises(ValidationError):
+            ClusterSearchRequest(
+                slots=[SlotRequirement(archetype_key='refinery_industrial')],
+                galaxy_region_id=invalid_id,
+            )

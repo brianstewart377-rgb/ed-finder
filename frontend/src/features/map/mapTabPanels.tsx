@@ -3,9 +3,9 @@ import { archetypeTierFromScore, getDevelopmentScore, getFinderArchetypeSummary 
 import type { SystemResult } from '@/types/api';
 
 export const VIEW_MODES = [
-  { id: 'results', label: 'Results', description: 'Fits the current Finder result dots.' },
-  { id: 'galaxy', label: 'Galaxy', description: 'Frames the full galactic disc and axes.' },
-  { id: 'reference', label: 'Reference', description: 'Centers the chosen reference system.' },
+  { id: 'results', label: 'Finder results', description: 'Fit the systems from your current Finder search.' },
+  { id: 'galaxy', label: 'Whole galaxy', description: 'Show the complete galaxy and its named regions.' },
+  { id: 'reference', label: 'Origin system', description: 'Centre the map on the system used for distance measurements.' },
 ] as const;
 
 export function MapLegend({

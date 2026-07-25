@@ -10,7 +10,7 @@ This locks the contract that audit §C5 was about: there is exactly ONE
 search SQL builder, and its failures are surfaced — not masked.
 """
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 
 pytestmark = pytest.mark.asyncio
@@ -94,3 +94,24 @@ async def test_cluster_search_returns_503_on_db_failure(client):
             'limit': 5,
         })
     assert r.status_code == 503
+
+
+async def test_cluster_search_passes_named_region_scope_to_sql_builder(client):
+    captured = {}
+
+    async def capture(body, pool):
+        captured.update(body)
+        return {'clusters': [], 'count': 0, 'query_ms': 1}
+
+    with (
+        patch('routers.search.cache_get', AsyncMock(return_value=None)),
+        patch('routers.search._ls.local_db_cluster_search', capture),
+    ):
+        r = await client.post('/api/search/cluster', json={
+            'requirements': [{'economy': 'Agriculture', 'min_count': 1}],
+            'galaxy_region_id': 31,
+            'limit': 5,
+        })
+
+    assert r.status_code == 200, r.text
+    assert captured['galaxy_region_id'] == 31

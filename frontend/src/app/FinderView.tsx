@@ -51,93 +51,114 @@ export function FinderView({
   onOpenDetail: (id64: number, options?: { focus?: 'colony-planner' }) => void;
 }) {
   const [mode, setMode] = useState<FinderMode>('system');
+  const [filterWorkspaceOpen, setFilterWorkspaceOpen] = useState(false);
   const { filters, setFilters, reset, run, state, results } = search;
-
   const clusterSearch = useClusterSearch();
 
-  const subtitle =
-    mode === 'system'
-      ? 'Find promising systems. Save them for later or inspect them before starting a plan.'
-      : 'Define colony worlds and find regions where the needed economies cluster within 500 LY of each other.';
+  const subtitle = mode === 'system'
+    ? 'Find promising systems. Save them for later or inspect them before starting a plan.'
+    : 'Find regions where the economies your colony needs cluster within 500 LY.';
 
   return (
-    <div className="space-y-4">
-      <header data-testid="finder-page-heading" className="max-w-4xl">
-        <h1 className="font-display text-2xl tracking-[0.12em] text-text sm:text-3xl">
-          Finder
-        </h1>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-silver sm:text-base">
-          {subtitle}
-        </p>
+    <section className="finder-console">
+      <header data-testid="finder-page-heading" className="finder-console__header">
+        <div className="finder-console__title">
+          <h1>System <em>Finder</em></h1>
+          <p>{subtitle}</p>
+        </div>
+        <div className="finder-console__mode" data-testid="finder-mode-toggle">
+          <span>Search mode</span>
+          <div>
+            <button
+              type="button"
+              onClick={() => setMode('system')}
+              data-active={mode === 'system' ? 'true' : 'false'}
+            >
+              Systems
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('region')}
+              data-active={mode === 'region' ? 'true' : 'false'}
+            >
+              Regions
+            </button>
+          </div>
+        </div>
       </header>
 
-      {/* Mode toggle */}
-      <div className="flex gap-2" data-testid="finder-mode-toggle">
-        <button
-          type="button"
-          onClick={() => setMode('system')}
-          className={[
-            'font-mono text-[10px] uppercase tracking-[0.14em] px-4 py-1.5 rounded-full border transition-colors',
-            mode === 'system'
-              ? 'bg-orange/20 text-orange border-orange/40'
-              : 'bg-bg3 text-text-dim border-border-bright',
-          ].join(' ')}
-        >
-          System Search
-        </button>
-        <button
-          type="button"
-          onClick={() => setMode('region')}
-          className={[
-            'font-mono text-[10px] uppercase tracking-[0.14em] px-4 py-1.5 rounded-full border transition-colors',
-            mode === 'region'
-              ? 'bg-orange/20 text-orange border-orange/40'
-              : 'bg-bg3 text-text-dim border-border-bright',
-          ].join(' ')}
-        >
-          Region Search
-        </button>
-      </div>
-
-      {/* System Search mode */}
       {mode === 'system' && (
-        <div className="grid lg:grid-cols-[340px_1fr] gap-6">
-          <aside className="panel overflow-hidden lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] flex flex-col">
-            <div className="overflow-y-auto flex-1 p-1">
-              <SearchForm
-                filters={filters}
-                onChange={setFilters}
-                onSubmit={() => void run()}
-                onReset={reset}
-                loading={state.kind === 'loading'}
-              />
-            </div>
+        <div
+          className="finder-workspace-grid"
+          data-filters-open={filterWorkspaceOpen ? 'true' : 'false'}
+        >
+          <aside className="finder-workspace-grid__filters" aria-label="Finder filters">
+            <SearchForm
+              filters={filters}
+              onChange={setFilters}
+              onSubmit={() => void run()}
+              onReset={reset}
+              loading={state.kind === 'loading'}
+              onWorkspaceChange={setFilterWorkspaceOpen}
+            />
           </aside>
 
-          <section data-testid="results-panel">
+          <section className="finder-results-stage" data-testid="results-panel">
+            <div className="finder-results-stage__masthead">
+              <div>
+                <span>Search results</span>
+                <strong>
+                  {state.kind === 'ok'
+                    ? `${state.data.count} matches`
+                    : state.kind === 'loading'
+                      ? 'Searching systems…'
+                      : state.kind === 'err'
+                        ? 'Search failed'
+                        : 'Ready to search'}
+                </strong>
+              </div>
+              <small data-testid="finder-search-context">
+                Origin: {filters.refName} · {filters.galaxyWide
+                  ? 'Range: entire galaxy'
+                  : `Range: ${filters.minDistance}–${filters.maxDistance} LY`}
+              </small>
+            </div>
+
             {state.kind === 'idle' && (
-              <EmptyState
-                icon="🔭"
-                title="Ready to search"
-                description="Adjust the filters on the left, then run a search."
-              />
+              <div className="finder-results-idle">
+                <div className="finder-results-idle__orbit" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+                <div>
+                  <span>Ready to search</span>
+                  <h2>Search the galaxy,<br /><em>find your future.</em></h2>
+                  <span className="sr-only">Adjust the filters on the left, then run a search.</span>
+                  <p>
+                    Open a filter module to shape the search. Results appear here without
+                    replacing the controls or sending you down a long sidebar.
+                  </p>
+                </div>
+              </div>
             )}
 
             {state.kind === 'loading' && (
-              <div className="text-text-dim font-mono text-sm py-12 text-center">
+              <div className="finder-results-loading">
+                <span aria-hidden />
                 Scanning systems…
               </div>
             )}
 
             {state.kind === 'err' && (
-              <div className="rounded border border-red/50 bg-red/10 p-4 font-mono text-sm text-red">
-                <div className="font-bold mb-1">Search failed</div>
-                <div className="text-xs">{state.message}</div>
+              <div className="finder-results-error">
+                <strong>Search failed</strong>
+                <span>{state.message}</span>
               </div>
             )}
 
             {state.kind === 'ok' && (
-              <>
+              <div className="finder-results-list">
                 <SummaryBar
                   count={state.data.count}
                   total={state.data.total}
@@ -145,55 +166,54 @@ export function FinderView({
                 />
                 {results.length === 0 ? (
                   <EmptyState
-                    icon="🔍"
+                    icon="⌁"
                     title="No systems found"
                     description="Try expanding the radius or relaxing filters."
                   />
                 ) : (
                   <ul className="space-y-2">
-                    {results.map((sys, i) => (
-                      <li key={sys.id64}>
+                    {results.map((system, index) => (
+                      <li key={system.id64}>
                         <ResultCard
-                          system={sys}
-                          index={i}
-                          isPinned={pinned.has(sys.id64)}
-                          isCompared={compare.has(sys.id64)}
-                          isSavedForLater={watchlist.has(sys.id64)}
-                          savedActionState={savedActionStates[sys.id64] ?? 'idle'}
+                          system={system}
+                          index={index}
+                          isPinned={pinned.has(system.id64)}
+                          isCompared={compare.has(system.id64)}
+                          isSavedForLater={watchlist.has(system.id64)}
+                          savedActionState={savedActionStates[system.id64] ?? 'idle'}
                           onToggleSavedForLater={(id) => {
                             void onToggleSavedForLater(id, {
-                              name: sys.name,
-                              x: sys.coords?.x ?? null,
-                              y: sys.coords?.y ?? null,
-                              z: sys.coords?.z ?? null,
-                              population: sys.population ?? null,
-                              is_colonised: !!sys.is_colonised,
-                              developmentScore: getDevelopmentScore(sys),
-                              economy_suggestion: sys.economy_suggestion ?? null,
-                              primary_archetype: sys.primary_archetype ?? null,
-                              secondary_archetype: sys.secondary_archetype ?? null,
-                              buildability_score: sys.buildability_score ?? null,
-                              purity_score: sys.purity_score ?? null,
+                              name: system.name,
+                              x: system.coords?.x ?? null,
+                              y: system.coords?.y ?? null,
+                              z: system.coords?.z ?? null,
+                              population: system.population ?? null,
+                              is_colonised: !!system.is_colonised,
+                              developmentScore: getDevelopmentScore(system),
+                              economy_suggestion: system.economy_suggestion ?? null,
+                              primary_archetype: system.primary_archetype ?? null,
+                              secondary_archetype: system.secondary_archetype ?? null,
+                              buildability_score: system.buildability_score ?? null,
+                              purity_score: system.purity_score ?? null,
                             });
                           }}
                           onShowOnMap={onShowOnMap}
-                          onPin={() => pinned.toggle(toPinnedEntry(sys))}
-                          onCompare={() => compare.toggle(sys)}
+                          onPin={() => pinned.toggle(toPinnedEntry(system))}
+                          onCompare={() => compare.toggle(system)}
                           onOpenDetail={onOpenDetail}
                         />
                       </li>
                     ))}
                   </ul>
                 )}
-              </>
+              </div>
             )}
           </section>
         </div>
       )}
 
-      {/* Region Search mode */}
       {mode === 'region' && (
-        <div className="grid lg:grid-cols-[340px_1fr] gap-6">
+        <div className="finder-region-workspace">
           <aside className="panel overflow-hidden lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-11rem)] flex flex-col">
             <div className="overflow-y-auto flex-1 p-1">
               <ClusterSearchForm
@@ -212,9 +232,9 @@ export function FinderView({
           <section data-testid="cluster-results-panel">
             {clusterSearch.state.kind === 'idle' && (
               <EmptyState
-                icon="🌌"
+                icon="◎"
                 title="Find region clusters"
-                description="Define your colony worlds above and run a search to find regions where the needed economies cluster together."
+                description="Choose the economies your colony needs, then search for regions where matching systems cluster."
               />
             )}
 
@@ -246,7 +266,7 @@ export function FinderView({
                 </div>
                 {clusterSearch.results.length === 0 ? (
                   <EmptyState
-                    icon="🔍"
+                    icon="⌁"
                     title="No clusters found"
                     description="Try different economy requirements or relax the constraints."
                   />
@@ -257,8 +277,8 @@ export function FinderView({
                         <ClusterResultCard
                           cluster={cluster}
                           requiredEconomies={
-                            new Set(clusterSearch.filters.slots.flatMap(s => s.economies.length > 0
-                              ? s.economies
+                            new Set(clusterSearch.filters.slots.flatMap((slot) => slot.economies.length > 0
+                              ? slot.economies
                               : []))
                           }
                           onOpenDetail={onOpenDetail}
@@ -273,26 +293,27 @@ export function FinderView({
           </section>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-function SummaryBar({ count, total, queriedAt }: {
-  count: number; total: number; queriedAt: number;
+function SummaryBar({
+  count,
+  total,
+  queriedAt,
+}: {
+  count: number;
+  total: number;
+  queriedAt: number;
 }) {
   const elapsed = ((Date.now() - queriedAt) / 1000).toFixed(1);
   return (
-    <div
-      data-testid="search-summary"
-      className="premium-toolbar mb-4 flex flex-wrap items-center gap-3 rounded-2xl px-3.5 py-2.5 text-xs font-mono"
-    >
-      <span className="text-orange font-bold">{count}</span>
-      <span className="text-text-dim">shown</span>
-      <span className="text-text-dim">·</span>
-      <span className="text-text-dim">{total.toLocaleString()} total</span>
-      <span className="flex-1" />
-      <span className="text-text-dim">queried {elapsed}s ago</span>
+    <div data-testid="search-summary" className="finder-search-summary">
+      <strong>{count}</strong>
+      <span>shown</span>
+      <i />
+      <span>{total.toLocaleString()} total</span>
+      <small>queried {elapsed}s ago</small>
     </div>
   );
 }
-

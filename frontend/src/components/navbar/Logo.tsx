@@ -2,7 +2,7 @@
 export function Logo() {
   return (
     <div
-      className="relative w-10 h-10 rounded-chunk-sm grid place-items-center"
+      className="app-brand-mark relative grid h-10 w-10 place-items-center rounded-chunk-sm"
       style={{
         background: 'radial-gradient(circle at 30% 25%, rgba(111,229,255,0.15), transparent 38%), linear-gradient(135deg, #1c1f24 0%, #0a0c10 100%)',
         boxShadow:

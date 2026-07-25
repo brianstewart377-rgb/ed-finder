@@ -86,7 +86,7 @@ const VIEWPORT_PROFILES = Object.freeze([
 
 test.describe('Local review environment verification', () => {
   test('captures deterministic browser verification summary', async ({ browser, baseURL }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(300_000);
     test.skip(
       shouldSkipReviewLabCollector(),
       'Review Lab browser verification only runs under scripts/dev/review_environment.py verify --mode full.',
@@ -588,9 +588,19 @@ function visibleByTestId(page, testId) {
 async function gotoFinder(page, baseURL) {
   await page.goto(resolveUrl(baseURL, '/#finder'), { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('finder-page-heading')).toBeVisible();
-  await page.getByLabel('Colony status').click();
-  await page.getByRole('option', { name: 'Any', exact: true }).click();
-  await page.getByTestId('search-submit').click();
+  const systemFilters = page.getByTestId('filter-module-system');
+  await expect(systemFilters).toBeVisible();
+  await systemFilters.click();
+  const colonyStatus = page.getByLabel('Colony status');
+  await expect(colonyStatus).toBeVisible();
+  await colonyStatus.click();
+  const anyStatus = page.getByRole('option', { name: 'Any', exact: true });
+  await expect(anyStatus).toBeVisible();
+  await anyStatus.click();
+  await page.keyboard.press('Escape');
+  const submit = page.getByTestId('search-submit');
+  await expect(submit).toBeVisible();
+  await submit.click();
   await page.waitForSelector('[data-testid="search-summary"]', { timeout: 20_000 });
   await expectReviewCardsAccessible(page);
 }

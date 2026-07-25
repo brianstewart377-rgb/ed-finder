@@ -9,7 +9,7 @@ import type { JournalImportParseResult } from './types';
 
 function formatEventCounts(eventCounts: Record<string, number>): string {
   const entries = Object.entries(eventCounts).sort((a, b) => b[1] - a[1]);
-  if (entries.length === 0) return 'No allowlisted events found yet.';
+  if (entries.length === 0) return 'No supported journal events found yet.';
   return entries.map(([eventType, count]) => `${eventType} ${count}`).join(' | ');
 }
 
@@ -75,20 +75,20 @@ export function JournalImportPanel() {
             Journal Import
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-relaxed text-silver">
-            Parse local journal files in your browser, preview the allowlisted observations, and stage evidence without writing directly into canonical data.
+            Choose local journal files, review the supported observations found, then add the evidence to your synced workspace.
           </p>
         </div>
-        <span className="premium-toolbar rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-          A-1 staging only
+        <span className="premium-toolbar rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange-lt">
+          Preview before saving
         </span>
       </div>
 
-      <div className="rounded-chunk-lg border border-cyan/30 bg-cyan/8 px-3 py-3 text-sm text-cyan">
-        Nothing else leaves your machine. The worker strips to an allowlist before upload and sends normalised observations only, scoped to your sync key and staged without opening the canonical evidence lane.
+      <div className="rounded-chunk-lg border border-orange/25 bg-orange/5 px-3 py-3 text-sm text-silver">
+        Only the previewed, supported observations are uploaded. They stay tied to your sync key and remain separate from the shared reference data until reviewed.
       </div>
 
       <div className="rounded border border-border/60 bg-bg2/35 px-3 py-2 font-mono text-[11px] text-silver-dk">
-        Sync key scope: <span className="text-cyan">{syncKey}</span>
+        Sync key: <span className="text-orange-lt">{syncKey}</span>
       </div>
 
       {telemetryQuery.isLoading ? (
@@ -146,7 +146,7 @@ export function JournalImportPanel() {
           className="btn-primary text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="journal-import-submit"
         >
-          {importMutation.isPending ? 'Staging evidence...' : 'Stage evidence'}
+          {importMutation.isPending ? 'Adding evidence...' : 'Add reviewed evidence'}
         </button>
         <span className="font-mono text-[11px] text-silver-dk" data-testid="journal-import-selection">
           {selectionLabel}

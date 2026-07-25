@@ -595,6 +595,7 @@ async def _resolve_slot_matches(
     anchors: list[dict],
     slots_raw: list[dict],
     max_matches: int = 3,
+    galaxy_region_id: int | None = None,
 ) -> dict[int, list[dict]]:
     """For each anchor, find the best-matching system for each slot.
 
@@ -676,6 +677,10 @@ async def _resolve_slot_matches(
             score_selects = []
             where_clauses = []
             detail_params: list[Any] = [search_cells, min_score, ax, ay, az, CLUSTER_RADIUS_LY]
+            region_where = ""
+            if galaxy_region_id is not None:
+                detail_params.append(galaxy_region_id)
+                region_where = "AND s.galaxy_region_id = $7"
 
             for econ in economies:
                 canon = canon_econ(econ)
@@ -708,6 +713,7 @@ async def _resolve_slot_matches(
                 WHERE s.grid_cell_id = ANY($1)
                   AND s.population = 0
                   AND {score_where}
+                  {region_where}
                   AND SQRT(POWER(s.x - $3, 2) + POWER(s.y - $4, 2)
                          + POWER(s.z - $5, 2)) <= $6
                 ORDER BY ({score_sum}) DESC
@@ -929,7 +935,12 @@ async def local_db_cluster_search(body: dict, pool: asyncpg.Pool) -> dict:
 
     # ── Slot detail resolution (only when slots format is used) ────────
     if use_slots and clusters:
-        slot_matches = await _resolve_slot_matches(pool, clusters, slots_raw)
+        slot_matches = await _resolve_slot_matches(
+            pool,
+            clusters,
+            slots_raw,
+            galaxy_region_id=galaxy_region,
+        )
         for i, cluster in enumerate(clusters):
             anchor_id64 = cluster["anchor_id64"]
             cluster["slots"] = slot_matches.get(anchor_id64, [])

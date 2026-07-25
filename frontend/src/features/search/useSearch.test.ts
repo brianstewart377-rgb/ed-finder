@@ -67,4 +67,13 @@ describe('useSearch', () => {
     expect(result.current.filters.economy).toBe('any');
     expect(result.current.state).toEqual({ kind: 'idle' });
   });
+
+  it('keeps the idle results array stable across parent rerenders', () => {
+    const { result, rerender } = renderHook(() => useSearch());
+    const initialResults = result.current.results;
+
+    rerender();
+
+    expect(result.current.results).toBe(initialResults);
+  });
 });

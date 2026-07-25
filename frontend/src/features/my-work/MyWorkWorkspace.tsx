@@ -246,8 +246,8 @@ export function MyWorkWorkspace({
             <div className="premium-toolbar rounded-2xl px-3 py-2 font-mono text-[11px] text-silver-dk">
               Saved systems {savedSystems.length} · Plans {activeProjects.length} · Colonies {myColonies.length}
             </div>
-            <span className="premium-toolbar rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-cyan">
-              Local workspace
+            <span className="premium-toolbar rounded-full px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-orange-lt">
+              Stored on this device
             </span>
           </div>
         </div>
@@ -338,7 +338,7 @@ export function MyWorkWorkspace({
           {groupedPlans.length === 0 ? (
             <EmptyPanel
               title="No plans yet"
-              body="Start a plan from System Detail and it will appear here with its objective, start approach, and local draft context."
+              body="Start a plan from a system’s details and it will appear here with its objective, starting approach, and saved progress."
             />
           ) : (
             <div className="space-y-4">
@@ -1011,11 +1011,11 @@ function TelemetrySection({
               <div>
                 <h2 className="font-display text-base tracking-[0.1em] text-text">Recently observed systems</h2>
                 <p className="mt-1 text-sm text-silver-dk">
-                  Recent systems seen in your imported telemetry. Use these as personal context, not shared canonical truth.
+                  Recent systems found in your imported journal history. This is your personal reference and does not alter shared system data.
                 </p>
               </div>
               {telemetry.recent_systems.length === 0 ? (
-                <p className="text-sm text-silver-dk">No telemetry-backed systems yet. Import journal files above to start building your personal observed context.</p>
+                <p className="text-sm text-silver-dk">No journal systems yet. Import journal files above to start building your personal history.</p>
               ) : (
                 <ul className="space-y-2">
                   {telemetry.recent_systems.map((system) => (

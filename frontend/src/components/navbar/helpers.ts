@@ -81,11 +81,11 @@ export function workspaceMetaForRoute(route: Route): WorkspaceMeta {
       };
     case 'compare':
       return {
-        title: 'Compare',
+        title: 'Compare systems',
         primaryLabel: 'Review',
-        supportingText: 'Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.',
-        nextAction: 'Inspect a compared system or return to Explore to find a better candidate.',
-        statusLabel: 'Decision review',
+        supportingText: 'Compare up to 6 systems side by side. The strongest value in each row is highlighted.',
+        nextAction: 'Add systems from Finder or My Work.',
+        statusLabel: 'Side-by-side comparison',
         statusTone: 'available',
       };
     case 'fc':

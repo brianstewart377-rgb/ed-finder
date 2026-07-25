@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { NavBar } from './NavBar';
 
@@ -61,19 +61,13 @@ describe('NavBar', () => {
     expect(plannerButton.className).toContain('focus-visible:ring-2');
   });
 
-  it('uses full-width supporting text for Compare and removes its redundant Review eyebrow', () => {
+  it('does not stack global workspace context above Compare', () => {
     const { rerender } = render(<NavBar current="compare" onNavigate={vi.fn()} health="Online" />);
 
-    const context = screen.getByTestId('product-shell-context');
-    const supportingText = within(context).getByText('Review candidate systems side by side before committing to a plan. This remains a decision-support surface, not a planning workspace.');
-    expect(context.textContent).toContain('Decision review');
-    expect(context.textContent).toContain('Compare');
-    expect(within(context).queryByText(/^Review$/i)).toBeNull();
-    expect(supportingText.className).toContain('max-w-none');
-    expect(supportingText.className).not.toContain('max-w-3xl');
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
 
     rerender(<NavBar current="map" onNavigate={vi.fn()} health="Online" />);
-    expect(within(screen.getByTestId('product-shell-context')).getByText(/^Explore$/i)).toBeTruthy();
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
   });
   it('keeps Finder compact when no system is selected, but shows shell context once Plan owns a selected system', () => {
     const { rerender } = render(<NavBar current="finder" onNavigate={vi.fn()} health="Online" />);
