@@ -127,3 +127,6 @@ The Finder direction was approved on 2026-07-24 and is now being propagated thro
 - [x] Stabilised the idle Finder result array so parent-shell updates no longer reset an empty Whole Galaxy view back to Finder results during map interaction
 - [x] Rendered-browser QA at the active 1105×898 review resolution confirmed the exact SVG and attribution, all-region label layout, locked-centre 2D drag, centred 2D zoom, persistent Whole Galaxy selection, 3D orbit with stable labels, and live three-result Finder marker placement
 - [x] 13 focused frontend tests passed for the authoritative map, production map, parity logic, and Finder result stability; focused ESLint and full frontend typecheck passed
+- [x] Updated the Review Lab Finder journey for the approved compact filter workspaces: it now opens Settlement & economy, chooses the colony-status fixture, closes the workspace, and runs the search through visible controls
+- [x] Repaired the 1024×768 Finder breakpoint that collapsed the filter panel behind the results stage; the compact two-column module grid now receives its own height and the results stage begins below it
+- [x] Rendered-browser QA at 1024×768 and 390×844 confirmed all ten filter modules remain visible and usable, the expanded workspace is readable, and neither viewport has horizontal overflow

@@ -2093,16 +2093,35 @@ nav[data-testid='navbar'] .app-brand-name {
   .finder-workspace-grid,
   .finder-workspace-grid[data-filters-open='true'] {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
+    height: auto;
+    min-height: 0;
+    max-height: none;
   }
 
   .finder-workspace-grid__filters {
+    height: 36rem;
+    min-height: 36rem;
     border-right: 0;
     border-bottom: 1px solid var(--finder-line);
   }
 
   .finder-filter-console {
     grid-template-columns: minmax(17rem, 20rem) minmax(0, 1fr);
-    min-height: 0;
+    min-height: 36rem;
+  }
+
+  .finder-filter-console[data-workspace-open='false'] {
+    grid-template-columns: 1fr;
+  }
+
+  .finder-filter-console[data-workspace-open='false'] .finder-filter-array__modules {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .finder-filter-console[data-workspace-open='false'] .finder-filter-module:nth-child(odd) {
+    border-right: 1px solid rgba(167, 172, 179, 0.13);
   }
 
   .finder-results-stage {
@@ -2114,7 +2133,7 @@ nav[data-testid='navbar'] .app-brand-name {
   }
 }
 
-@media (max-height: 780px) and (min-width: 701px) {
+@media (max-height: 780px) and (min-width: 1025px) {
   body:has(.finder-console) nav[data-testid='navbar'] > .panel {
     padding-block: 0.55rem;
   }

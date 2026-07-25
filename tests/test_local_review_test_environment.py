@@ -1186,11 +1186,13 @@ def test_browser_finder_helper_performs_explicit_search_before_asserting_results
 
     assert "resolveUrl(baseURL, '/#finder')" in helper
     assert "page.getByTestId('finder-page-heading')" in helper
-    assert "page.getByLabel('Colony status').click()" in helper
-    assert "page.getByRole('option', { name: 'Any', exact: true }).click()" in helper
-    assert "page.getByTestId('search-submit').click()" in helper
-    assert helper.index("page.getByRole('option', { name: 'Any', exact: true }).click()") < helper.index("page.getByTestId('search-submit').click()")
-    assert helper.index("page.getByTestId('search-submit').click()") < helper.index('search-summary')
+    assert "page.getByTestId('filter-module-system')" in helper
+    assert "page.getByLabel('Colony status')" in helper
+    assert "page.getByRole('option', { name: 'Any', exact: true })" in helper
+    assert "page.getByTestId('search-submit')" in helper
+    assert helper.index("page.getByTestId('filter-module-system')") < helper.index("page.getByLabel('Colony status')")
+    assert helper.index("page.getByRole('option', { name: 'Any', exact: true })") < helper.index("page.getByTestId('search-submit')")
+    assert helper.index("page.getByTestId('search-submit')") < helper.index('search-summary')
     assert helper.index('search-summary') < helper.index('expectReviewCardsAccessible(page)')
 
 
