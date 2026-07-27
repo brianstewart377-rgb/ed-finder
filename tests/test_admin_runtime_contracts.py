@@ -47,7 +47,7 @@ def test_maintenance_script_schedules_freshness_sweep_and_retention_pruning():
     assert "record_status = 'active'" in script
     assert "freshness_status = 'expired'" in script
     assert "record_status = 'quarantined'" not in script
-    assert "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(FALSE);" in script
+    assert "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(TRUE);" in script
 
 
 def test_maintenance_script_has_valid_bash_syntax():

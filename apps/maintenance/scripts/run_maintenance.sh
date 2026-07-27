@@ -143,10 +143,10 @@ updated AS (
 SELECT COUNT(*)::int AS stale_by_age FROM updated;
 SQL
 )"
-        # Refresh map materialised views — concurrently when supported,
-        # falls back to plain refresh on first build.
+        # Refresh populated map materialised views concurrently so readers
+        # remain available throughout the maintenance run.
         run_step "refresh_map_mviews()"  \
-            "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(FALSE);"
+            "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(TRUE);"
         echo "===== Nightly maintenance complete ====="
         ;;
     weekly)
