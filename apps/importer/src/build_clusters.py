@@ -62,6 +62,7 @@ LOG_FILE       = os.getenv('LOG_FILE', '/tmp/build_clusters.log')
 DEFAULT_RADIUS = 500    # LY — the standard colonisation bubble radius
 DEFAULT_SCORE  = 65     # Minimum score for a system to be considered viable
 TOP_N_ANCHORS  = 50     # Top N anchors to compute per macro-cell
+DEFAULT_CELL_TIMEOUT = 1800  # 30 min — proven at 187M-system scale
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 logging.basicConfig(
@@ -262,7 +263,8 @@ def _connect_with_retry(worker_id: int, db_url: str, cell_timeout: int = 120,
 # ---------------------------------------------------------------------------
 def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
               radius: float, min_score: int, dirty_only: bool,
-              cell_timeout: int = 300, top_n: int = TOP_N_ANCHORS):
+              cell_timeout: int = DEFAULT_CELL_TIMEOUT,
+              top_n: int = TOP_N_ANCHORS):
     """
     Pull macro-cells from the queue and process each one.
 
@@ -445,8 +447,8 @@ def main():
                         help=f'Top N anchors to compute per macro-cell (default: {TOP_N_ANCHORS})')
     parser.add_argument('--dirty-only',   action='store_true',
                         help='Only rebuild clusters for dirty anchors')
-    parser.add_argument('--cell-timeout', type=int,   default=300,
-                        help='Max seconds per anchor query (default: 300)')
+    parser.add_argument('--cell-timeout', type=int,   default=DEFAULT_CELL_TIMEOUT,
+                        help=f'Max seconds per anchor query (default: {DEFAULT_CELL_TIMEOUT})')
     args = parser.parse_args()
 
     script_start = time.time()
@@ -567,23 +569,23 @@ def main():
         VALUES ('clusters_built', 'true', NOW())
         ON CONFLICT (key) DO UPDATE SET value = 'true', updated_at = NOW()
     """)
-    log.info("Clearing orphaned cluster_dirty flags "
-             "(systems with no macro_grid_id or no body data) ...")
-    cur2.execute(
-        "UPDATE systems SET cluster_dirty = FALSE "
-        "WHERE cluster_dirty = TRUE "
-        "  AND (macro_grid_id IS NULL OR has_body_data = FALSE)"
-    )
-    orphans_cleared = cur2.rowcount
-    conn2.commit()
-    log.info(f"Cleared {orphans_cleared} orphaned cluster_dirty flags.")
 
     if not args.dirty_only:
         log.info("Clearing cluster_dirty flags after full rebuild ...")
+        full_cleanup_started = time.monotonic()
         cur2.execute(
-            "UPDATE systems SET cluster_dirty = FALSE WHERE has_body_data = TRUE"
+            "UPDATE systems SET cluster_dirty = FALSE "
+            "WHERE has_body_data = TRUE "
+            "AND macro_grid_id IS NOT NULL "
+            "AND cluster_dirty = TRUE"
         )
-        log.info("cluster_dirty flags cleared.")
+        full_cleanup_cleared = cur2.rowcount
+        full_cleanup_elapsed = time.monotonic() - full_cleanup_started
+        log.info(
+            "Cleared %s cluster_dirty flags after full rebuild in %s.",
+            fmt_num(full_cleanup_cleared),
+            fmt_duration(full_cleanup_elapsed),
+        )
 
     # Quick stats
     cur2.execute("SELECT COUNT(*), AVG(coverage_score)::int, MAX(coverage_score) FROM cluster_summary")

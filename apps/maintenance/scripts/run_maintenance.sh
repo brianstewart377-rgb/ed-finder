@@ -145,7 +145,8 @@ SQL
 )"
         # Refresh map materialised views — concurrently when supported,
         # falls back to plain refresh on first build.
-        run_step "refresh_map_mviews()"  "SELECT * FROM refresh_map_mviews(FALSE);"
+        run_step "refresh_map_mviews()"  \
+            "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(FALSE);"
         echo "===== Nightly maintenance complete ====="
         ;;
     weekly)

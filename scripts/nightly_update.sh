@@ -334,6 +334,7 @@ log "--- Step 4: Rebuild clusters ---"
 # Strategy:
 # - Sunday (DOW=7): Full rebuild (ensures everything is in sync)
 # - Other days:     Incremental rebuild (dirty anchors only)
+ELIGIBLE_CLUSTER_DIRTY_SQL="cluster_dirty = TRUE AND has_body_data = TRUE AND macro_grid_id IS NOT NULL"
 
 if [[ "$DOW" == "7" ]]; then
     log "Weekly full cluster rebuild (Sunday) ..."
@@ -342,8 +343,8 @@ if [[ "$DOW" == "7" ]]; then
     #     && success "Full cluster rebuild complete" \
     #     || warn "Full cluster rebuild had errors (check ${LOG_DIR}/build_clusters_full.log)"
 else
-    DIRTY_CLUSTERS=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
-    log "Dirty cluster anchors: $DIRTY_CLUSTERS"
+    DIRTY_CLUSTERS=$(pg_count "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}")
+    log "Eligible dirty cluster anchors: $DIRTY_CLUSTERS"
 
     if (( DIRTY_CLUSTERS > 0 )); then
         log "Running build_clusters.py --dirty-only ..."
@@ -352,11 +353,11 @@ else
             || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
 
         # Post-rebuild verification
-        STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE cluster_dirty = TRUE")
+        STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}")
         if (( STILL_DIRTY_C > 0 )); then
-            warn "Cluster rebuild incomplete: $STILL_DIRTY_C systems still have cluster_dirty=TRUE"
+            warn "Cluster rebuild incomplete: $STILL_DIRTY_C eligible systems remain dirty"
         else
-            success "All cluster_dirty flags cleared"
+            success "All eligible cluster_dirty flags cleared"
         fi
     fi
 fi
@@ -404,7 +405,7 @@ done
 DISK_USED=$(df -h /data | awk 'NR==2{print $3 "/" $2 " (" $5 ")"}')
 PG_SIZE=$(pg_count "SELECT pg_size_pretty(pg_database_size('edfinder'))")
 SYS_COUNT=$(pg_count "SELECT TO_CHAR(COUNT(*), '999,999,999') FROM systems")
-REMAINING_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE rating_dirty OR cluster_dirty")
+REMAINING_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE rating_dirty OR (${ELIGIBLE_CLUSTER_DIRTY_SQL})")
 
 log "Systems: $SYS_COUNT | Disk: $DISK_USED | PostgreSQL DB: $PG_SIZE | Remaining dirty: $REMAINING_DIRTY"
 
