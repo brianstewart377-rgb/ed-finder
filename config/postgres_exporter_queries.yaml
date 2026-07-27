@@ -4,7 +4,11 @@ ed_finder_dirty_counts:
   query: |
     SELECT
       COUNT(*) FILTER (WHERE rating_dirty)  AS rating_dirty,
-      COUNT(*) FILTER (WHERE cluster_dirty) AS cluster_dirty
+      COUNT(*) FILTER (
+        WHERE cluster_dirty
+          AND has_body_data
+          AND macro_grid_id IS NOT NULL
+      ) AS cluster_dirty
     FROM systems
   metrics:
     - rating_dirty:
@@ -12,7 +16,7 @@ ed_finder_dirty_counts:
         description: "Number of systems with rating_dirty = true"
     - cluster_dirty:
         usage: GAUGE
-        description: "Number of systems with cluster_dirty = true"
+        description: "Number of eligible systems with cluster_dirty = true"
 
 ed_finder_import_progress:
   query: |

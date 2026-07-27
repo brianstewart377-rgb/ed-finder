@@ -169,7 +169,12 @@ def main() -> None:
 def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
     where = ''
     if args.dirty:
-        where = 'WHERE rating_dirty = TRUE OR cluster_dirty = TRUE'
+        where = (
+            'WHERE rating_dirty = TRUE '
+            'OR (cluster_dirty = TRUE '
+            'AND has_body_data = TRUE '
+            'AND macro_grid_id IS NOT NULL)'
+        )
     elif not args.all:
         where = 'WHERE NOT EXISTS (SELECT 1 FROM system_regional_analysis r WHERE r.system_id64 = systems.id64)'
     limit = f' LIMIT {int(args.limit)}' if args.limit else ''

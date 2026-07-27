@@ -76,7 +76,7 @@
       "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
       "targets": [
         { "expr": "ed_finder_rating_dirty_count", "legendFormat": "rating dirty" },
-        { "expr": "ed_finder_cluster_dirty_count", "legendFormat": "cluster dirty" }
+        { "expr": "ed_finder_cluster_dirty_count", "legendFormat": "eligible cluster dirty" }
       ]
     },
     {
