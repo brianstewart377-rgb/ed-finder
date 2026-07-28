@@ -121,6 +121,7 @@ test.describe('ED Finder — smoke', () => {
     await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Live map');
     await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
 
+    await page.getByTestId('map-view-galaxy').click();
     await expect(page.getByTestId('map-projection-2d')).toHaveCount(0);
     await expect(page.getByTestId('map-projection-3d')).toHaveCount(0);
     const renderer = page.locator('.map-foundation-renderer');
