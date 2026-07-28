@@ -127,9 +127,10 @@ describe('MapTab', () => {
     expect(within(legend).getByText(/Map legend/)).toBeTruthy();
     expect(within(legend).getByText(/Active: Finder dots \+ Galactic frame/)).toBeTruthy();
     expect(within(legend).getByText('Current Finder systems with archetype-led development scores.')).toBeTruthy();
-    expect(within(legend).getByText('Canonical galaxy region labels.')).toBeTruthy();
-    expect(within(legend).getByText('Voxel cells summarising legacy rating density from map aggregate views.')).toBeTruthy();
-    expect(within(legend).getByText('Approximate hulls around high-rating grouped systems.')).toBeTruthy();
+    expect(within(legend).getByText(/42 canonical named regions/)).toBeTruthy();
+    expect(within(legend).getByText(/rated-system density grouped into 3d voxels/i)).toBeTruthy();
+    expect(within(legend).getByText(/500 LY bubbles around top anchors/)).toBeTruthy();
+    expect(within(legend).getByText(/first-discovery date/)).toBeTruthy();
   });
 
   it('updates the legend active-layer summary as toggles change', () => {

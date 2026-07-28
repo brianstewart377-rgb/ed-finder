@@ -145,7 +145,13 @@ describe('Stage 26D inbound feature hand-offs', () => {
   });
 
   it('normalizes every coordinate-bearing production shape', () => {
-    expect(toSystemRecord(result(70))).toMatchObject({ id64: 70, primaryEconomy: 'Industrial' });
+    const elevated = result(70);
+    elevated.coords = { x: 70, y: 321, z: -70 };
+    expect(toSystemRecord(elevated)).toMatchObject({
+      id64: 70,
+      primaryEconomy: 'Industrial',
+      coords: { x: 70, y: 321, z: -70 },
+    });
     expect(toSystemRecord(detail(71))).toMatchObject({ id64: 71, primaryEconomy: 'Refinery' });
   });
 });

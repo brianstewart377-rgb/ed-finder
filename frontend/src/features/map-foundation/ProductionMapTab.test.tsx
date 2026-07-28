@@ -180,7 +180,7 @@ describe('Stage 26E production route composition', () => {
     expect(onOpenSelectedSystem).toHaveBeenCalledWith(1);
   });
 
-  it('offers explicit flat-map and spatial projections without changing map data', () => {
+  it('uses one continuous camera and offers a top-down snap without replacing the renderer', () => {
     let resize: ResizeObserverCallback | null = null;
     class ResizeObserverMock {
       constructor(callback: ResizeObserverCallback) {
@@ -198,13 +198,14 @@ describe('Stage 26E production route composition', () => {
     render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
     const renderer = screen.getByTestId('r3f-production-renderer');
-    expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
-
-    fireEvent.click(screen.getByTestId('map-projection-3d'));
-    expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByTestId('map-projection-2d')).toBeNull();
+    expect(screen.queryByTestId('map-projection-3d')).toBeNull();
     expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('42');
+    expect(renderer.getAttribute('data-system-count')).toBe('1');
+
+    fireEvent.click(screen.getByTestId('map-snap-top-down'));
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('0.5');
     expect(renderer.getAttribute('data-system-count')).toBe('1');
 
     act(() => {
@@ -212,13 +213,16 @@ describe('Stage 26E production route composition', () => {
         contentRect: { width: 1059, height: 520 },
       } as ResizeObserverEntry], {} as ResizeObserver);
     });
-    expect(screen.getByTestId('map-projection-3d').getAttribute('aria-pressed')).toBe('true');
     expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('52');
+    expect(renderer.getAttribute('data-camera-pitch')).toBe('0.5');
+  });
 
-    fireEvent.click(screen.getByTestId('map-projection-2d'));
-    expect(screen.getByTestId('map-projection-2d').getAttribute('aria-pressed')).toBe('true');
-    expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
-    expect(renderer.getAttribute('data-camera-pitch')).toBe('0');
+  it('explains every optional data layer using its underlying data semantics', () => {
+    render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    expect(screen.getByText(/rated-system density grouped into 3d voxels/i)).toBeTruthy();
+    expect(screen.getByText(/500 LY bubbles around top anchors/i)).toBeTruthy();
+    expect(screen.getByText(/first-discovery date/i)).toBeTruthy();
+    expect(screen.getByText(/42 canonical named regions/i)).toBeTruthy();
   });
 });

@@ -67,7 +67,7 @@ describe('Stage 26C bounded visibility', () => {
     const hullCluster: ClusterRepresentation = {
       ...base,
       label: 'Hull fixture',
-      hull: [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 5, z: 10 }],
+      hull: [{ x: 0, y: -4, z: 0 }, { x: 10, y: 8, z: 0 }, { x: 5, y: 2, z: 10 }],
     };
     scene.clusters = [hullCluster];
     scene.highlights = [];
@@ -77,6 +77,9 @@ describe('Stage 26C bounded visibility', () => {
     expect(geometry?.members).toHaveLength(3);
     expect(geometry?.edgePositions).toHaveLength(12);
     expect(geometry?.hullPositions).toHaveLength(18);
+    expect([...geometry!.hullPositions!].filter((_, index) => index % 3 === 2)).toEqual([
+      -2, 10, 10, 4, 4, -2,
+    ]);
   });
 
   it('rejects an invalid background cap', () => {

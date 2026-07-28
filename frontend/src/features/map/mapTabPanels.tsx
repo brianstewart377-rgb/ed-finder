@@ -30,10 +30,10 @@ export function MapLegend({
         <LegendItem label="Galaxy" value="Frames the full galactic disc and axes." />
         <LegendItem label="Reference" value="Centers the chosen reference system." />
         <LegendItem label="Finder dots" value="Current Finder systems with archetype-led development scores." />
-        <LegendItem label="Regions" value="Canonical galaxy region labels." />
-        <LegendItem label="Heatmap" value="Voxel cells summarising legacy rating density from map aggregate views." />
-        <LegendItem label="Clusters" value="Approximate hulls around high-rating grouped systems." />
-        <LegendItem label="Timeline" value="Discovery-count buckets for the map scrubber foundation." />
+        <LegendItem label="Regions" value="The 42 canonical named regions and their authoritative MIT-licensed boundaries." />
+        <LegendItem label="Heatmap" value="Rated-system density grouped into 3D voxels; colour reflects each voxel's average development score." />
+        <LegendItem label="Clusters" value="500 LY bubbles around top anchors, counting unpopulated systems scoring 65+ for six core economies." />
+        <LegendItem label="Timeline" value="Systems bucketed by first-discovery date, using their latest update when no discovery date is known." />
       </div>
     </details>
   );

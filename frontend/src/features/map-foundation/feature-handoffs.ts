@@ -77,8 +77,9 @@ function identity(system: CoordinateBearingSystem): { id64: number; name: string
 export function toSystemRecord(system: CoordinateBearingSystem): SystemRecord | null {
   const { id64, name } = identity(system);
   const value = system as {
-    coords?: { x?: unknown; z?: unknown } | null;
+    coords?: { x?: unknown; y?: unknown; z?: unknown } | null;
     x?: unknown;
+    y?: unknown;
     z?: unknown;
     overall_development_potential?: unknown;
     archetype_score?: unknown;
@@ -90,7 +91,13 @@ export function toSystemRecord(system: CoordinateBearingSystem): SystemRecord | 
     population?: unknown;
   };
   const coords = value.coords ?? value;
-  if (!Number.isFinite(id64) || id64 <= 0 || !finite(coords.x) || !finite(coords.z)) return null;
+  if (
+    !Number.isFinite(id64)
+    || id64 <= 0
+    || !finite(coords.x)
+    || !finite(coords.y)
+    || !finite(coords.z)
+  ) return null;
   const scoreCandidates = [value.overall_development_potential, value.archetype_score, value.score];
   const economyCandidates = [value.primaryEconomy, value.primary_economy, value.economy, value.economy_suggestion];
   const developmentScore = scoreCandidates.find(finite) ?? null;
@@ -99,7 +106,7 @@ export function toSystemRecord(system: CoordinateBearingSystem): SystemRecord | 
   return {
     id64,
     name: name || `System ${id64}`,
-    coords: { x: coords.x, z: coords.z },
+    coords: { x: coords.x, y: coords.y, z: coords.z },
     developmentScore,
     primaryEconomy,
     population: finite(value.population) ? value.population : null,

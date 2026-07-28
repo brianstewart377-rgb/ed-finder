@@ -15,7 +15,13 @@ import type {
   RegionLabel,
   ViewportSize,
 } from './types';
-import { AuthoritativeRegionMap } from './AuthoritativeRegionMap';
+import {
+  CAMERA_VIEWPORT_HEIGHT_RATIO,
+  clampCameraCenter,
+  MAX_CAMERA_PITCH_DEG,
+  MIN_CAMERA_PITCH_DEG,
+  zoomCamera,
+} from './camera';
 import { measureRendererGpuTiming } from './performance';
 import {
   buildClusterGeometry,
@@ -25,75 +31,71 @@ import {
   selectVisibleSystems,
 } from './visibility';
 
-const MIN_ZOOM_LY_PER_PIXEL = 0.01;
-const MAX_ZOOM_LY_PER_PIXEL = 4_096;
 const GALAXY_CENTER = { x: 25.2, z: 25_899.9 } as const;
 const GALAXY_RADIUS_LY = 50_000;
 const GALAXY_POINT_COUNT = 18_000;
 
 function positions(
   systems: SystemRecord[],
-  systemYById64?: ReadonlyMap<number, number>,
   heightOffset = 0,
 ): Float32Array {
   const values = new Float32Array(systems.length * 3);
   systems.forEach((system, index) => values.set([
     system.coords.x,
     system.coords.z,
-    (systemYById64?.get(system.id64) ?? 0) + heightOffset,
+    system.coords.y + heightOffset,
   ], index * 3));
   return values;
 }
 
+function cameraDistanceForView(camera: CameraState, size: ViewportSize): number {
+  const visibleHeight = Math.max(
+    20,
+    camera.zoom * size.height * CAMERA_VIEWPORT_HEIGHT_RATIO,
+  );
+  return visibleHeight / (2 * Math.tan((42 * Math.PI / 180) / 2));
+}
+
+function attenuatedPointSize(zoom: number, pixels: number): number {
+  return Math.max(0.12, zoom * pixels * 0.78);
+}
+
 function configureRenderCamera(
-  camera: THREE.Camera,
+  camera: THREE.PerspectiveCamera,
   size: ViewportSize,
   cameraState: CameraState,
 ) {
   const bearing = cameraState.bearingDeg * Math.PI / 180;
-  if (camera instanceof THREE.OrthographicCamera) {
-    camera.left = -size.width / 2;
-    camera.right = size.width / 2;
-    camera.top = size.height / 2;
-    camera.bottom = -size.height / 2;
-    camera.position.set(cameraState.center.x, cameraState.center.z, 160_000);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(cameraState.center.x, cameraState.center.z, 0);
-    camera.near = 0.1;
-    camera.far = 400_000;
-    camera.zoom = 1 / cameraState.zoom;
-    camera.updateProjectionMatrix();
-    return;
-  }
-
-  if (camera instanceof THREE.PerspectiveCamera) {
-    const pitch = Math.max(12, Math.min(72, cameraState.pitchDeg)) * Math.PI / 180;
-    const fov = 42;
-    const visibleHeight = Math.max(20, cameraState.zoom * size.height * 0.78);
-    const distance = visibleHeight / (2 * Math.tan((fov * Math.PI / 180) / 2));
-    const horizontalDistance = Math.sin(pitch) * distance;
-    const verticalDistance = Math.cos(pitch) * distance;
-    const targetX = cameraState.center.x - Math.sin(bearing) * visibleHeight * 0.05;
-    const targetZ = cameraState.center.z - Math.cos(bearing) * visibleHeight * 0.05;
-    camera.fov = fov;
-    camera.aspect = Math.max(0.1, size.width / Math.max(1, size.height));
-    camera.position.set(
-      targetX - Math.sin(bearing) * horizontalDistance,
-      targetZ - Math.cos(bearing) * horizontalDistance,
-      Math.max(10, verticalDistance),
-    );
-    camera.up.set(0, 0, 1);
-    camera.lookAt(targetX, targetZ, 0);
-    camera.near = Math.max(0.1, distance / 20_000);
-    camera.far = Math.max(250_000, distance + 200_000);
-    camera.updateProjectionMatrix();
-  }
+  const pitch = Math.max(
+    MIN_CAMERA_PITCH_DEG,
+    Math.min(MAX_CAMERA_PITCH_DEG, cameraState.pitchDeg),
+  ) * Math.PI / 180;
+  const fov = 42;
+  const visibleHeight = Math.max(
+    20,
+    cameraState.zoom * size.height * CAMERA_VIEWPORT_HEIGHT_RATIO,
+  );
+  const distance = visibleHeight / (2 * Math.tan((fov * Math.PI / 180) / 2));
+  const horizontalDistance = Math.sin(pitch) * distance;
+  const verticalDistance = Math.cos(pitch) * distance;
+  camera.fov = fov;
+  camera.aspect = Math.max(0.1, size.width / Math.max(1, size.height));
+  camera.position.set(
+    cameraState.center.x - Math.sin(bearing) * horizontalDistance,
+    cameraState.center.z - Math.cos(bearing) * horizontalDistance,
+    Math.max(10, verticalDistance),
+  );
+  camera.up.set(0, 0, 1);
+  camera.lookAt(cameraState.center.x, cameraState.center.z, 0);
+  camera.near = Math.max(0.1, distance / 20_000);
+  camera.far = Math.max(250_000, distance + 200_000);
+  camera.updateProjectionMatrix();
 }
 
 function CameraProjection({ cameraState }: { cameraState: CameraState }) {
   const { camera, size, invalidate } = useThree();
   useEffect(() => {
-    configureRenderCamera(camera, size, cameraState);
+    configureRenderCamera(camera as THREE.PerspectiveCamera, size, cameraState);
     invalidate();
   }, [camera, cameraState, invalidate, size]);
   return null;
@@ -273,7 +275,7 @@ function makeGalaxyTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
-function GalaxyBackdrop({ spatial }: { spatial: boolean }) {
+function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
   const galaxy = useMemo(makeGalaxyPointCloud, []);
   const texture = useMemo(makeGalaxyTexture, []);
   useEffect(() => () => texture?.dispose(), [texture]);
@@ -307,8 +309,8 @@ function GalaxyBackdrop({ spatial }: { spatial: boolean }) {
       </bufferGeometry>
       <pointsMaterial
         vertexColors
-        size={spatial ? 1.5 : 1.15}
-        sizeAttenuation={false}
+        size={Math.max(18, zoom * (spatial ? 1.4 : 1.1))}
+        sizeAttenuation
         transparent
         opacity={spatial ? 0.56 : 0.44}
         depthWrite={false}
@@ -409,30 +411,35 @@ function ReferenceMarker({
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[new Float32Array([0, 0, 0]), 3]} />
       </bufferGeometry>
-      <pointsMaterial color="#ffffff" size={4} sizeAttenuation={false} depthTest={false} />
+      <pointsMaterial
+        color="#ffffff"
+        size={attenuatedPointSize(zoom, 4)}
+        sizeAttenuation
+        depthTest={false}
+      />
     </points>
   </group>;
 }
 
 function SceneContents(props: FoundationRendererProps & { visible: ReturnType<typeof selectVisibleSystems> }) {
   const { visible } = props;
-  const spatial = props.scene.camera.pitchDeg > 0;
+  const spatial = props.scene.camera.pitchDeg > 4;
   const reference = props.reference ?? { name: 'Origin', x: props.scene.origin.x, z: props.scene.origin.z };
   const backgroundPositions = useMemo(
-    () => positions(visible.background, props.systemYById64),
-    [props.systemYById64, visible.background],
+    () => positions(visible.background),
+    [visible.background],
   );
   const guaranteedPositions = useMemo(
-    () => positions(visible.guaranteed, props.systemYById64, 3),
-    [props.systemYById64, visible.guaranteed],
+    () => positions(visible.guaranteed, 3),
+    [visible.guaranteed],
   );
   const selected = useMemo(
     () => visible.guaranteed.filter((system) => system.id64 === props.scene.selectedSystemId64),
     [props.scene.selectedSystemId64, visible.guaranteed],
   );
   const selectedPositions = useMemo(
-    () => positions(selected, props.systemYById64, 8),
-    [props.systemYById64, selected],
+    () => positions(selected, 8),
+    [selected],
   );
   const clusters = useMemo(() => buildClusterGeometry(props.scene), [props.scene]);
   const boundaryPositions = useMemo(
@@ -445,6 +452,7 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
   );
   const heatmap = props.productionOverlays?.heatmap ?? null;
   const aggregateHulls = props.productionOverlays?.aggregateHulls ?? null;
+  const cameraDistance = cameraDistanceForView(props.scene.camera, props.viewport);
 
   const select = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
     if (event.index == null) return;
@@ -465,7 +473,15 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
 
   return <>
     <CameraProjection cameraState={props.scene.camera} />
-    <GalaxyBackdrop spatial={spatial} />
+    <fog
+      attach="fog"
+      args={[
+        '#03070b',
+        Math.max(500, cameraDistance * 0.58),
+        Math.max(5_000, cameraDistance * 1.65),
+      ]}
+    />
+    <GalaxyBackdrop spatial={spatial} zoom={props.scene.camera.zoom} />
     {props.viewPreset !== 'galaxy' && (
       <>
         <RangeGrid
@@ -484,10 +500,13 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
       </bufferGeometry>
       <pointsMaterial
         vertexColors
-        size={Math.max(1, heatmap.voxelSize / props.scene.camera.zoom)}
-        sizeAttenuation={false}
+        size={Math.min(
+          heatmap.voxelSize * 0.72,
+          attenuatedPointSize(props.scene.camera.zoom, 10),
+        )}
+        sizeAttenuation
         transparent
-        opacity={0.24}
+        opacity={0.34}
       />
     </points>}
     {aggregateHulls && <lineSegments>
@@ -500,19 +519,43 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
     <RegionBoundaryLines positions={boundaryPositions} viewport={props.viewport} spatial={spatial} />
     <points renderOrder={7}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
-      <pointsMaterial color="#ff7518" size={18} sizeAttenuation={false} transparent opacity={0.2} depthTest={false} />
+      <pointsMaterial
+        color="#ff7518"
+        size={attenuatedPointSize(props.scene.camera.zoom, 18)}
+        sizeAttenuation
+        transparent
+        opacity={0.2}
+        depthTest={false}
+      />
     </points>
     <points onPointerDown={(event) => select(visible.background, event)} renderOrder={8}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
-      <pointsMaterial color="#ff9a3d" size={8} sizeAttenuation={false} transparent opacity={1} depthTest={false} />
+      <pointsMaterial
+        color="#ff9a3d"
+        size={attenuatedPointSize(props.scene.camera.zoom, 8)}
+        sizeAttenuation
+        transparent
+        opacity={1}
+        depthTest={false}
+      />
     </points>
     <points onPointerDown={(event) => select(visible.guaranteed, event)} renderOrder={9}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[guaranteedPositions, 3]} /></bufferGeometry>
-      <pointsMaterial color="#ff9a3d" size={8} sizeAttenuation={false} depthTest={false} />
+      <pointsMaterial
+        color="#ff9a3d"
+        size={attenuatedPointSize(props.scene.camera.zoom, 8)}
+        sizeAttenuation
+        depthTest={false}
+      />
     </points>
     <points onPointerDown={(event) => select(selected, event)} renderOrder={10}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[selectedPositions, 3]} /></bufferGeometry>
-      <pointsMaterial color="#ffffff" size={13} sizeAttenuation={false} depthTest={false} />
+      <pointsMaterial
+        color="#ffffff"
+        size={attenuatedPointSize(props.scene.camera.zoom, 13)}
+        sizeAttenuation
+        depthTest={false}
+      />
     </points>
     {clusters.map(({ cluster, anchor, edgePositions, hullPositions }) => <group key={`${cluster.anchorId64}:${cluster.label}`}>
       <lineSegments>
@@ -523,7 +566,7 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
         <bufferGeometry><bufferAttribute attach="attributes-position" args={[hullPositions, 3]} /></bufferGeometry>
         <lineBasicMaterial color="#ffd180" />
       </lineSegments>}
-      {!hullPositions && anchor && <mesh position={[anchor.coords.x, anchor.coords.z, 1]}>
+      {!hullPositions && anchor && <mesh position={[anchor.coords.x, anchor.coords.z, anchor.coords.y]}>
         <ringGeometry args={[cluster.radiusLy * 0.98, cluster.radiusLy, 64]} />
         <meshBasicMaterial color="#ffd180" transparent opacity={0.75} side={THREE.DoubleSide} />
       </mesh>}
@@ -565,9 +608,12 @@ function stableRegionLabels(labels: RegionLabel[]): RegionLabel[] {
 function projectLabels(props: FoundationRendererProps): ProjectedLabel[] {
   if (props.viewPreset !== 'galaxy') return [];
   const size = props.viewport;
-  const camera = props.scene.camera.pitchDeg > 0
-    ? new THREE.PerspectiveCamera(42, size.width / Math.max(1, size.height), 0.1, 500_000)
-    : new THREE.OrthographicCamera();
+  const camera = new THREE.PerspectiveCamera(
+    42,
+    size.width / Math.max(1, size.height),
+    0.1,
+    500_000,
+  );
   configureRenderCamera(camera, size, props.scene.camera);
   camera.updateMatrixWorld(true);
 
@@ -598,9 +644,12 @@ function projectSystemLabels(
 }> {
   if (props.viewPreset === 'galaxy' || systems.length === 0) return [];
   const size = props.viewport;
-  const camera = props.scene.camera.pitchDeg > 0
-    ? new THREE.PerspectiveCamera(42, size.width / Math.max(1, size.height), 0.1, 500_000)
-    : new THREE.OrthographicCamera();
+  const camera = new THREE.PerspectiveCamera(
+    42,
+    size.width / Math.max(1, size.height),
+    0.1,
+    500_000,
+  );
   configureRenderCamera(camera, size, props.scene.camera);
   camera.updateMatrixWorld(true);
 
@@ -608,18 +657,15 @@ function projectSystemLabels(
   return systems
     .slice(0, 40)
     .map((system) => {
-      const point = new THREE.Vector3(system.coords.x, system.coords.z, 0).project(camera);
-      const screen = props.scene.camera.pitchDeg === 0
-        ? {
-            x: size.width / 2
-              + (system.coords.x - props.scene.camera.center.x) / props.scene.camera.zoom,
-            z: size.height / 2
-              - (system.coords.z - props.scene.camera.center.z) / props.scene.camera.zoom,
-          }
-        : {
-            x: (point.x * 0.5 + 0.5) * size.width,
-            z: (-point.y * 0.5 + 0.5) * size.height,
-          };
+      const point = new THREE.Vector3(
+        system.coords.x,
+        system.coords.z,
+        system.coords.y,
+      ).project(camera);
+      const screen = {
+        x: (point.x * 0.5 + 0.5) * size.width,
+        z: (-point.y * 0.5 + 0.5) * size.height,
+      };
       if (
         screen.x < -80
         || screen.x > size.width + 80
@@ -644,6 +690,7 @@ function projectSystemLabels(
 export function R3FMapFoundation(props: FoundationRendererProps) {
   const { onVisibilityChange } = props;
   const pointer = useRef<{ x: number; y: number; camera: CameraState } | null>(null);
+  const rendererRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(
     () => selectVisibleSystems(props.scene, props.viewport, props.maxBackgroundPoints),
     [props.maxBackgroundPoints, props.scene, props.viewport],
@@ -656,7 +703,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     [...visible.background, ...visible.guaranteed].forEach((system) => byId.set(system.id64, system));
     return projectSystemLabels(props, [...byId.values()]);
   }, [props, visible.background, visible.guaranteed]);
-  const spatial = props.scene.camera.pitchDeg > 0;
+  const spatial = props.scene.camera.pitchDeg > 4;
   const viewPreset = props.viewPreset ?? 'results';
   const reference = props.reference ?? {
     name: 'Origin',
@@ -695,21 +742,33 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     props.onInteraction({ type: 'cameraChanged', camera });
   }, [props]);
 
-  if (viewPreset === 'galaxy' && !spatial) {
-    return <AuthoritativeRegionMap
-      camera={props.scene.camera}
-      systems={props.scene.systems}
-      selectedSystemId64={props.scene.selectedSystemId64}
-      viewport={props.viewport}
-      showRegions={props.regions.labels.length > 0}
-      onInteraction={props.onInteraction}
-      onReady={props.onReady}
-    />;
-  }
+  const handleWheel = useCallback((event: WheelEvent) => {
+    event.preventDefault();
+    emitCamera(zoomCamera(
+      props.scene.camera,
+      event.deltaY,
+      props.viewport,
+      props.galaxyBounds,
+    ));
+  }, [
+    emitCamera,
+    props.galaxyBounds,
+    props.scene.camera,
+    props.viewport,
+  ]);
+
+  useEffect(() => {
+    const element = rendererRef.current;
+    if (!element) return undefined;
+    element.addEventListener('wheel', handleWheel, { passive: false, capture: true });
+    return () => element.removeEventListener('wheel', handleWheel, { capture: true });
+  }, [handleWheel]);
 
   return <div
+    ref={rendererRef}
     className="map-foundation-renderer"
-    data-projection={spatial ? '3d' : '2d'}
+    data-projection="perspective"
+    data-camera-view={spatial ? 'tilted' : 'top-down'}
     data-view-preset={viewPreset}
     data-camera-bearing={props.scene.camera.bearingDeg}
     data-camera-pitch={props.scene.camera.pitchDeg}
@@ -717,7 +776,6 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-camera-center-x={props.scene.camera.center.x}
     data-camera-center-z={props.scene.camera.center.z}
     onPointerDownCapture={(event) => {
-      if (viewPreset === 'galaxy' && !spatial) return;
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
       event.currentTarget.setPointerCapture(event.pointerId);
     }}
@@ -725,42 +783,35 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       if (!pointer.current || event.buttons !== 1) return;
       const dx = event.clientX - pointer.current.x;
       const dy = event.clientY - pointer.current.y;
-      if (spatial && event.shiftKey) {
+      if (event.shiftKey) {
         emitCamera({
           ...pointer.current.camera,
           bearingDeg: 0,
-          pitchDeg: Math.max(12, Math.min(72, pointer.current.camera.pitchDeg + dy * 0.2)),
+          pitchDeg: Math.max(
+            MIN_CAMERA_PITCH_DEG,
+            Math.min(MAX_CAMERA_PITCH_DEG, pointer.current.camera.pitchDeg + dy * 0.2),
+          ),
         });
       } else {
         const bearing = pointer.current.camera.bearingDeg * Math.PI / 180;
         const screenX = -dx * pointer.current.camera.zoom;
         const screenZ = dy * pointer.current.camera.zoom;
+        const center = clampCameraCenter({
+          x: pointer.current.camera.center.x + screenX * Math.cos(bearing) + screenZ * Math.sin(bearing),
+          z: pointer.current.camera.center.z - screenX * Math.sin(bearing) + screenZ * Math.cos(bearing),
+        }, pointer.current.camera.zoom, props.viewport, props.galaxyBounds);
         emitCamera({
           ...pointer.current.camera,
-          center: {
-            x: pointer.current.camera.center.x + screenX * Math.cos(bearing) + screenZ * Math.sin(bearing),
-            z: pointer.current.camera.center.z - screenX * Math.sin(bearing) + screenZ * Math.cos(bearing),
-          },
+          center,
         });
       }
     }}
     onPointerUp={() => { pointer.current = null; }}
-    onPointerCancel={() => { pointer.current = null; }}
-    onWheel={(event) => {
-      const zoom = Math.max(
-        MIN_ZOOM_LY_PER_PIXEL,
-        Math.min(MAX_ZOOM_LY_PER_PIXEL, props.scene.camera.zoom * Math.exp(event.deltaY * 0.001)),
-      );
-      emitCamera({ ...props.scene.camera, zoom });
-    }}>
+    onPointerCancel={() => { pointer.current = null; }}>
     <Canvas
-      key={spatial ? 'perspective' : 'orthographic'}
-      orthographic={!spatial}
       frameloop="demand"
       dpr={[1, 2]}
-      camera={spatial
-        ? { fov: 42, near: 0.1, far: 500_000 }
-        : { near: 0.1, far: 400_000 }}
+      camera={{ fov: 42, near: 0.1, far: 500_000 }}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         const canvas = gl.domElement;
@@ -791,13 +842,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
           : `${rangeStep.toLocaleString()} LY rings · ${reference.name} at centre`}
       </span>
       <span>
-        {viewPreset === 'galaxy'
-          ? spatial
-            ? 'Drag to pan · Shift-drag to tilt · Scroll to zoom'
-            : 'Scroll to zoom'
-          : spatial
-            ? 'Drag to pan · Shift-drag to tilt · Scroll to zoom'
-            : 'Drag to pan · Scroll to zoom'}
+        Drag to pan · Shift-drag to tilt · Scroll to zoom
       </span>
     </div>
     <div className="map-foundation-labels" aria-hidden="true">
@@ -835,7 +880,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
               position: [
                 anchor.coords.x,
                 anchor.coords.z,
-                props.systemYById64?.get(anchor.id64) ?? 0,
+                anchor.coords.y,
               ],
             }],
           },

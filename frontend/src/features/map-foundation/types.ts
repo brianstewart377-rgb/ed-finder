@@ -96,7 +96,7 @@ export type FoundationRendererProps = {
   viewport: ViewportSize;
   viewPreset?: 'results' | 'galaxy' | 'reference';
   reference?: { name: string; x: number; z: number };
-  systemYById64?: ReadonlyMap<number, number>;
+  galaxyBounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
   maxBackgroundPoints?: number;
   onInteraction: (event: MapInteractionEvent) => void;
   onVisibilityChange?: (metadata: VisibilityMetadata) => void;
