@@ -33,6 +33,7 @@ import type { RegionLayerData, ViewportSize } from './types';
 import {
   DEFAULT_CAMERA_PITCH_DEG,
   snapCameraTopDown,
+  zoomCamera,
 } from './camera';
 import './ProductionMapTab.css';
 
@@ -224,6 +225,13 @@ export function ProductionMapTab({
       camera: snapCameraTopDown(current.camera),
     }));
   }, []);
+  const stepZoom = useCallback((deltaY: number) => {
+    setScene((current) => ({
+      ...current,
+      cameraIntent: 'user',
+      camera: zoomCamera(current.camera, deltaY, viewport, galaxyBounds),
+    }));
+  }, [galaxyBounds, viewport]);
 
   const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
@@ -320,6 +328,31 @@ export function ProductionMapTab({
             onClick={snapTopDown}
           >
             Top-down view
+          </button>
+        </div>
+        <div role="group" aria-label="Zoom controls" className="map-workspace__zoom-controls">
+          <button
+            type="button"
+            data-testid="map-zoom-out"
+            aria-label="Zoom out"
+            title="Zoom out"
+            onClick={() => stepZoom(220)}
+          >
+            −
+          </button>
+          <output aria-live="polite" aria-label="Map zoom">
+            {scene.camera.zoom < 1
+              ? scene.camera.zoom.toFixed(2)
+              : Math.round(scene.camera.zoom).toLocaleString()} LY/px
+          </output>
+          <button
+            type="button"
+            data-testid="map-zoom-in"
+            aria-label="Zoom in"
+            title="Zoom in"
+            onClick={() => stepZoom(-220)}
+          >
+            +
           </button>
         </div>
         <details className="map-workspace__layers">

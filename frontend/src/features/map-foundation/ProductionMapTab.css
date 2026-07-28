@@ -4,7 +4,7 @@
   overflow: hidden;
   border: 1px solid rgba(211, 137, 61, 0.28);
   border-radius: 18px;
-  background: #05090e;
+  background: #010306;
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.025),
     inset 0 18px 50px rgba(0, 0, 0, 0.32),
@@ -47,7 +47,12 @@
     0 1px 2px #000,
     0 0 4px #000,
     0 0 9px #03070b;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, -50%) scale(var(--region-label-scale, 1));
+  transform-origin: center;
+  transition:
+    color 160ms ease,
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .stage26e-production-map-viewport .map-foundation-cluster-labels span {
@@ -96,6 +101,47 @@
     0 1px 3px #000,
     0 0 7px #03070b,
     0 0 14px rgba(255, 138, 48, 0.2);
+}
+
+.map-workspace__zoom-controls {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(5.6rem, auto) 2.25rem;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid rgba(255, 148, 66, 0.34);
+  border-radius: 0.75rem;
+  background: rgba(5, 6, 8, 0.72);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.04),
+    0 0 18px rgba(255, 114, 0, 0.08);
+}
+
+.map-workspace__zoom-controls button {
+  min-height: 2.25rem;
+  color: #ffd0a1;
+  background:
+    radial-gradient(circle at 50% 120%, rgba(255, 122, 20, 0.24), transparent 62%);
+  font: 800 1.05rem var(--font-display, Orbitron, ui-monospace, monospace);
+  transition:
+    color 160ms ease,
+    background 160ms ease;
+}
+
+.map-workspace__zoom-controls button:hover {
+  color: #fff;
+  background: rgba(255, 132, 40, 0.16);
+}
+
+.map-workspace__zoom-controls output {
+  display: grid;
+  place-items: center;
+  padding: 0.4rem 0.65rem;
+  border-right: 1px solid rgba(255, 148, 66, 0.18);
+  border-left: 1px solid rgba(255, 148, 66, 0.18);
+  color: #b6bec6;
+  font: 9px ui-monospace, monospace;
+  letter-spacing: 0.035em;
+  white-space: nowrap;
 }
 
 .stage26e-production-map-viewport .authoritative-region-map {
