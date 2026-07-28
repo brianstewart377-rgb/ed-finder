@@ -63,6 +63,7 @@ DEFAULT_RADIUS = 500    # LY — the standard colonisation bubble radius
 DEFAULT_SCORE  = 65     # Minimum score for a system to be considered viable
 TOP_N_ANCHORS  = 50     # Top N anchors to compute per macro-cell
 DEFAULT_CELL_TIMEOUT = 1800  # 30 min — proven at 187M-system scale
+FULL_CLEANUP_STATEMENT_TIMEOUT = '4h'  # >2x the observed 1h41m production cleanup
 
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 logging.basicConfig(
@@ -256,6 +257,20 @@ def _connect_with_retry(worker_id: int, db_url: str, cell_timeout: int = 120,
             print(f"[W{worker_id}] DB connect attempt {attempt} failed: {e} — retrying in {wait}s", flush=True)
             time.sleep(wait)
     raise RuntimeError(f"[W{worker_id}] Could not connect to DB after {max_attempts} attempts")
+
+
+def _clear_full_rebuild_dirty_flags(cur) -> int:
+    """Clear eligible dirty flags with a timeout sized for production scale."""
+    cur.execute(
+        f"SET statement_timeout = '{FULL_CLEANUP_STATEMENT_TIMEOUT}'"
+    )
+    cur.execute(
+        "UPDATE systems SET cluster_dirty = FALSE "
+        "WHERE has_body_data = TRUE "
+        "AND macro_grid_id IS NOT NULL "
+        "AND cluster_dirty = TRUE"
+    )
+    return cur.rowcount
 
 
 # ---------------------------------------------------------------------------
@@ -573,13 +588,7 @@ def main():
     if not args.dirty_only:
         log.info("Clearing cluster_dirty flags after full rebuild ...")
         full_cleanup_started = time.monotonic()
-        cur2.execute(
-            "UPDATE systems SET cluster_dirty = FALSE "
-            "WHERE has_body_data = TRUE "
-            "AND macro_grid_id IS NOT NULL "
-            "AND cluster_dirty = TRUE"
-        )
-        full_cleanup_cleared = cur2.rowcount
+        full_cleanup_cleared = _clear_full_rebuild_dirty_flags(cur2)
         full_cleanup_elapsed = time.monotonic() - full_cleanup_started
         log.info(
             "Cleared %s cluster_dirty flags after full rebuild in %s.",
