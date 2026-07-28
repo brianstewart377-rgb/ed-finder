@@ -130,10 +130,14 @@ test.describe('ED Finder — smoke', () => {
     const zoomBefore = await renderer.getAttribute('data-camera-zoom');
     const centerXBefore = await renderer.getAttribute('data-camera-center-x');
     const centerZBefore = await renderer.getAttribute('data-camera-center-z');
+    await page.getByTestId('map-zoom-in').click();
+    expect(Number(await renderer.getAttribute('data-camera-zoom'))).toBeLessThan(Number(zoomBefore));
+    await page.getByTestId('map-zoom-out').click();
+    const zoomBeforeSnap = await renderer.getAttribute('data-camera-zoom');
     await page.getByTestId('map-snap-top-down').click();
     await expect(renderer).toHaveAttribute('data-camera-pitch', '0.5');
     await expect(renderer).toHaveAttribute('data-projection', 'perspective');
-    await expect(renderer).toHaveAttribute('data-camera-zoom', zoomBefore ?? '');
+    await expect(renderer).toHaveAttribute('data-camera-zoom', zoomBeforeSnap ?? '');
     await expect(renderer).toHaveAttribute('data-camera-center-x', centerXBefore ?? '');
     await expect(renderer).toHaveAttribute('data-camera-center-z', centerZBefore ?? '');
   });

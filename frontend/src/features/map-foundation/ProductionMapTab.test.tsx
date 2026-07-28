@@ -11,7 +11,7 @@ vi.mock('./R3FMapFoundation', () => ({
   R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction }: {
     scene: {
       systems: Array<{ id64: number }>;
-      camera: { bearingDeg: number; pitchDeg: number };
+      camera: { bearingDeg: number; pitchDeg: number; zoom: number };
     };
     regions: { labels: unknown[]; boundaries: unknown[] };
     productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
@@ -24,6 +24,7 @@ vi.mock('./R3FMapFoundation', () => ({
       data-region-boundary-count={regions.boundaries.length}
       data-camera-bearing={scene.camera.bearingDeg}
       data-camera-pitch={scene.camera.pitchDeg}
+      data-camera-zoom={scene.camera.zoom}
       data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
       data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
     >
@@ -202,7 +203,13 @@ describe('Stage 26E production route composition', () => {
     expect(screen.queryByTestId('map-projection-3d')).toBeNull();
     expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
     expect(renderer.getAttribute('data-camera-pitch')).toBe('42');
+    const initialZoom = Number(renderer.getAttribute('data-camera-zoom'));
     expect(renderer.getAttribute('data-system-count')).toBe('1');
+
+    fireEvent.click(screen.getByTestId('map-zoom-in'));
+    expect(Number(renderer.getAttribute('data-camera-zoom'))).toBeLessThan(initialZoom);
+    fireEvent.click(screen.getByTestId('map-zoom-out'));
+    expect(Number(renderer.getAttribute('data-camera-zoom'))).toBeCloseTo(initialZoom);
 
     fireEvent.click(screen.getByTestId('map-snap-top-down'));
     expect(renderer.getAttribute('data-camera-pitch')).toBe('0.5');

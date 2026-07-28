@@ -1,9 +1,9 @@
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import * as THREE from 'three';
+import { Line2 } from 'three/examples/jsm/lines/Line2.js';
+import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
-import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import type {
   CameraState,
   MapInteractionEvent,
@@ -12,7 +12,6 @@ import type {
 import type {
   FoundationRendererProps,
   ProjectedLabel,
-  RegionLabel,
   ViewportSize,
 } from './types';
 import {
@@ -22,6 +21,12 @@ import {
   MIN_CAMERA_PITCH_DEG,
   zoomCamera,
 } from './camera';
+import {
+  buildBoundaryPolylines,
+  declutterRegionLabels,
+  regionLabelScale,
+  safariGestureZoomDelta,
+} from './map-presentation';
 import { measureRendererGpuTiming } from './performance';
 import {
   buildClusterGeometry,
@@ -112,47 +117,48 @@ function GpuTimingBridge({ onReady }: { onReady: FoundationRendererProps['onGpuT
 }
 
 function RegionBoundaryLines({
-  positions: boundaryPositions,
+  boundaries,
   viewport,
   spatial,
 }: {
-  positions: Float32Array;
+  boundaries: FoundationRendererProps['regions']['boundaries'];
   viewport: FoundationRendererProps['viewport'];
   spatial: boolean;
 }) {
+  const polylines = useMemo(() => buildBoundaryPolylines(boundaries), [boundaries]);
   const layer = useMemo(() => {
-    const geometry = new LineSegmentsGeometry();
-    geometry.setPositions(boundaryPositions);
-    geometry.computeBoundingBox();
-    geometry.computeBoundingSphere();
-
     const haloMaterial = new LineMaterial({
       color: 0xff8a2c,
-      linewidth: spatial ? 2.2 : 2.8,
+      linewidth: spatial ? 3.4 : 3.8,
       transparent: true,
-      opacity: spatial ? 0.1 : 0.08,
+      opacity: spatial ? 0.16 : 0.12,
       depthTest: false,
       depthWrite: false,
-      alphaToCoverage: true,
     });
     const coreMaterial = new LineMaterial({
       color: spatial ? 0xf0ad56 : 0xd58b3b,
-      linewidth: spatial ? 1.25 : 1.05,
+      linewidth: spatial ? 2.15 : 1.8,
       transparent: true,
-      opacity: spatial ? 0.72 : 0.58,
+      opacity: spatial ? 0.9 : 0.76,
       depthTest: false,
       depthWrite: false,
-      alphaToCoverage: true,
     });
-    const halo = new LineSegments2(geometry, haloMaterial);
-    const core = new LineSegments2(geometry, coreMaterial);
-    halo.renderOrder = 5;
-    core.renderOrder = 6;
-    halo.frustumCulled = false;
-    core.frustumCulled = false;
+    const lines = polylines.map((positions) => {
+      const geometry = new LineGeometry();
+      geometry.setPositions(positions);
+      geometry.computeBoundingBox();
+      geometry.computeBoundingSphere();
+      const halo = new Line2(geometry, haloMaterial);
+      const core = new Line2(geometry, coreMaterial);
+      halo.renderOrder = 5;
+      core.renderOrder = 6;
+      halo.frustumCulled = false;
+      core.frustumCulled = false;
+      return { geometry, halo, core };
+    });
 
-    return { geometry, halo, core, haloMaterial, coreMaterial };
-  }, [boundaryPositions, spatial]);
+    return { lines, haloMaterial, coreMaterial };
+  }, [polylines, spatial]);
 
   useEffect(() => {
     layer.haloMaterial.resolution.set(viewport.width, viewport.height);
@@ -162,13 +168,63 @@ function RegionBoundaryLines({
   useEffect(() => () => {
     layer.haloMaterial.dispose();
     layer.coreMaterial.dispose();
-    layer.geometry.dispose();
+    layer.lines.forEach(({ geometry }) => geometry.dispose());
   }, [layer]);
 
-  if (boundaryPositions.length === 0) return null;
+  if (boundaries.length === 0) return null;
   return <>
-    <primitive object={layer.halo} />
-    <primitive object={layer.core} />
+    {layer.lines.map(({ halo, core }, index) => <group key={index}>
+      <primitive object={halo} />
+      <primitive object={core} />
+    </group>)}
+  </>;
+}
+
+function CameraCenterGuide({
+  camera,
+  viewport,
+}: {
+  camera: CameraState;
+  viewport: ViewportSize;
+}) {
+  const layer = useMemo(() => {
+    const halfWidth = camera.zoom * viewport.width * 0.7;
+    const halfHeight = camera.zoom * viewport.height * 0.7;
+    const horizontalGeometry = new LineGeometry();
+    horizontalGeometry.setPositions([
+      camera.center.x - halfWidth, camera.center.z, -8,
+      camera.center.x + halfWidth, camera.center.z, -8,
+    ]);
+    const verticalGeometry = new LineGeometry();
+    verticalGeometry.setPositions([
+      camera.center.x, camera.center.z - halfHeight, -8,
+      camera.center.x, camera.center.z + halfHeight, -8,
+    ]);
+    const material = new LineMaterial({
+      color: 0x8b6746,
+      linewidth: 1,
+      transparent: true,
+      opacity: 0.22,
+      depthTest: false,
+      depthWrite: false,
+      resolution: new THREE.Vector2(viewport.width, viewport.height),
+    });
+    const horizontal = new Line2(horizontalGeometry, material);
+    const vertical = new Line2(verticalGeometry, material);
+    horizontal.renderOrder = 1;
+    vertical.renderOrder = 1;
+    return { horizontal, vertical, horizontalGeometry, verticalGeometry, material };
+  }, [camera.center.x, camera.center.z, camera.zoom, viewport.height, viewport.width]);
+
+  useEffect(() => () => {
+    layer.horizontalGeometry.dispose();
+    layer.verticalGeometry.dispose();
+    layer.material.dispose();
+  }, [layer]);
+
+  return <>
+    <primitive object={layer.horizontal} />
+    <primitive object={layer.vertical} />
   </>;
 }
 
@@ -285,22 +341,22 @@ function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
       <meshBasicMaterial
         map={texture}
         transparent
-        opacity={spatial ? 0.82 : 0.72}
+        opacity={spatial ? 0.66 : 0.56}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
     </mesh>}
     <mesh position={[GALAXY_CENTER.x, GALAXY_CENTER.z, -1_250]} renderOrder={-4}>
       <circleGeometry args={[GALAXY_RADIUS_LY * 1.02, 128]} />
-      <meshBasicMaterial color="#27160d" transparent opacity={spatial ? 0.18 : 0.28} depthWrite={false} />
+      <meshBasicMaterial color="#1b100b" transparent opacity={spatial ? 0.13 : 0.2} depthWrite={false} />
     </mesh>
     <mesh position={[GALAXY_CENTER.x, GALAXY_CENTER.z, -1_100]} renderOrder={-3}>
       <circleGeometry args={[GALAXY_RADIUS_LY * 0.48, 128]} />
-      <meshBasicMaterial color="#5d2b11" transparent opacity={spatial ? 0.13 : 0.18} depthWrite={false} />
+      <meshBasicMaterial color="#48210f" transparent opacity={spatial ? 0.1 : 0.14} depthWrite={false} />
     </mesh>
     <mesh position={[GALAXY_CENTER.x, GALAXY_CENTER.z, -1_000]} renderOrder={-2}>
       <circleGeometry args={[GALAXY_RADIUS_LY * 0.16, 96]} />
-      <meshBasicMaterial color="#d06b20" transparent opacity={spatial ? 0.15 : 0.2} depthWrite={false} />
+      <meshBasicMaterial color="#b45a1b" transparent opacity={spatial ? 0.11 : 0.15} depthWrite={false} />
     </mesh>
     <points renderOrder={-1}>
       <bufferGeometry>
@@ -312,7 +368,7 @@ function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
         size={Math.max(18, zoom * (spatial ? 1.4 : 1.1))}
         sizeAttenuation
         transparent
-        opacity={spatial ? 0.56 : 0.44}
+        opacity={spatial ? 0.44 : 0.34}
         depthWrite={false}
       />
     </points>
@@ -423,6 +479,7 @@ function ReferenceMarker({
 
 function SceneContents(props: FoundationRendererProps & { visible: ReturnType<typeof selectVisibleSystems> }) {
   const { visible } = props;
+  const [hoveredSystemId, setHoveredSystemId] = useState<number | null>(null);
   const spatial = props.scene.camera.pitchDeg > 4;
   const reference = props.reference ?? { name: 'Origin', x: props.scene.origin.x, z: props.scene.origin.z };
   const backgroundPositions = useMemo(
@@ -433,6 +490,10 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
     () => positions(visible.guaranteed, 3),
     [visible.guaranteed],
   );
+  const selectableSystems = useMemo(
+    () => [...visible.guaranteed, ...visible.background],
+    [visible.background, visible.guaranteed],
+  );
   const selected = useMemo(
     () => visible.guaranteed.filter((system) => system.id64 === props.scene.selectedSystemId64),
     [props.scene.selectedSystemId64, visible.guaranteed],
@@ -442,13 +503,11 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
     [selected],
   );
   const clusters = useMemo(() => buildClusterGeometry(props.scene), [props.scene]);
-  const boundaryPositions = useMemo(
-    () => new Float32Array(props.regions.boundaries.flatMap((boundary) => [...boundary.source, ...boundary.target])),
-    [props.regions.boundaries],
-  );
-  const selectableSystems = useMemo(
-    () => [...visible.guaranteed, ...visible.background],
-    [visible.background, visible.guaranteed],
+  const emphasizedSystems = useMemo(
+    () => selectableSystems.filter((system) => (
+      system.id64 === props.scene.selectedSystemId64 || system.id64 === hoveredSystemId
+    )),
+    [hoveredSystemId, props.scene.selectedSystemId64, selectableSystems],
   );
   const heatmap = props.productionOverlays?.heatmap ?? null;
   const aggregateHulls = props.productionOverlays?.aggregateHulls ?? null;
@@ -470,6 +529,13 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
         };
     props.onInteraction(interaction);
   }, [props, selectableSystems]);
+  const hover = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
+    if (event.index == null) return;
+    const system = systems[event.index];
+    if (system) setHoveredSystemId(system.id64);
+  }, []);
+  const markerRingRadius = Math.max(0.16, props.scene.camera.zoom * 10);
+  const markerRingWidth = Math.max(0.02, props.scene.camera.zoom * 0.7);
 
   return <>
     <CameraProjection cameraState={props.scene.camera} />
@@ -482,6 +548,7 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
       ]}
     />
     <GalaxyBackdrop spatial={spatial} zoom={props.scene.camera.zoom} />
+    <CameraCenterGuide camera={props.scene.camera} viewport={props.viewport} />
     {props.viewPreset !== 'galaxy' && (
       <>
         <RangeGrid
@@ -516,19 +583,13 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
       </bufferGeometry>
       <lineBasicMaterial vertexColors transparent opacity={0.42} />
     </lineSegments>}
-    <RegionBoundaryLines positions={boundaryPositions} viewport={props.viewport} spatial={spatial} />
-    <points renderOrder={7}>
-      <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
-      <pointsMaterial
-        color="#ff7518"
-        size={attenuatedPointSize(props.scene.camera.zoom, 18)}
-        sizeAttenuation
-        transparent
-        opacity={0.2}
-        depthTest={false}
-      />
-    </points>
-    <points onPointerDown={(event) => select(visible.background, event)} renderOrder={8}>
+    <RegionBoundaryLines boundaries={props.regions.boundaries} viewport={props.viewport} spatial={spatial} />
+    <points
+      onPointerDown={(event) => select(visible.background, event)}
+      onPointerOver={(event) => hover(visible.background, event)}
+      onPointerOut={() => setHoveredSystemId(null)}
+      renderOrder={8}
+    >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
       <pointsMaterial
         color="#ff9a3d"
@@ -539,11 +600,16 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
         depthTest={false}
       />
     </points>
-    <points onPointerDown={(event) => select(visible.guaranteed, event)} renderOrder={9}>
+    <points
+      onPointerDown={(event) => select(visible.guaranteed, event)}
+      onPointerOver={(event) => hover(visible.guaranteed, event)}
+      onPointerOut={() => setHoveredSystemId(null)}
+      renderOrder={9}
+    >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[guaranteedPositions, 3]} /></bufferGeometry>
       <pointsMaterial
         color="#ff9a3d"
-        size={attenuatedPointSize(props.scene.camera.zoom, 8)}
+        size={attenuatedPointSize(props.scene.camera.zoom, 7)}
         sizeAttenuation
         depthTest={false}
       />
@@ -552,11 +618,29 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[selectedPositions, 3]} /></bufferGeometry>
       <pointsMaterial
         color="#ffffff"
-        size={attenuatedPointSize(props.scene.camera.zoom, 13)}
+        size={attenuatedPointSize(props.scene.camera.zoom, 7)}
         sizeAttenuation
         depthTest={false}
       />
     </points>
+    {emphasizedSystems.map((system) => <mesh
+      key={`marker-ring-${system.id64}`}
+      position={[system.coords.x, system.coords.z, system.coords.y + 6]}
+      renderOrder={11}
+    >
+      <ringGeometry args={[
+        markerRingRadius - markerRingWidth,
+        markerRingRadius + markerRingWidth,
+        48,
+      ]} />
+      <meshBasicMaterial
+        color={system.id64 === props.scene.selectedSystemId64 ? '#fff2e4' : '#ffad62'}
+        transparent
+        opacity={0.9}
+        depthTest={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>)}
     {clusters.map(({ cluster, anchor, edgePositions, hullPositions }) => <group key={`${cluster.anchorId64}:${cluster.label}`}>
       <lineSegments>
         <bufferGeometry><bufferAttribute attach="attributes-position" args={[edgePositions, 3]} /></bufferGeometry>
@@ -574,37 +658,6 @@ function SceneContents(props: FoundationRendererProps & { visible: ReturnType<ty
   </>;
 }
 
-function stableRegionLabels(labels: RegionLabel[]): RegionLabel[] {
-  if (labels.length <= 20) return labels;
-  const selected = new Map<number, RegionLabel>();
-  const centreLabel = labels.find((label) => label.name === 'Galactic Centre');
-  if (centreLabel) selected.set(centreLabel.id, centreLabel);
-
-  const chooseBySector = (
-    sectors: number,
-    score: (radius: number) => number,
-  ) => {
-    const buckets = new Map<number, { label: RegionLabel; score: number }>();
-    labels.forEach((label) => {
-      if (label.id === centreLabel?.id) return;
-      const dx = label.position[0] - GALAXY_CENTER.x;
-      const dz = label.position[1] - GALAXY_CENTER.z;
-      const angle = (Math.atan2(dz, dx) + Math.PI * 2) % (Math.PI * 2);
-      const sector = Math.floor(angle / (Math.PI * 2) * sectors);
-      const candidateScore = score(Math.hypot(dx, dz));
-      const current = buckets.get(sector);
-      if (!current || candidateScore > current.score) {
-        buckets.set(sector, { label, score: candidateScore });
-      }
-    });
-    buckets.forEach(({ label }) => selected.set(label.id, label));
-  };
-
-  chooseBySector(12, (radius) => radius);
-  chooseBySector(6, (radius) => -Math.abs(radius - 17_000));
-  return [...selected.values()];
-}
-
 function projectLabels(props: FoundationRendererProps): ProjectedLabel[] {
   if (props.viewPreset !== 'galaxy') return [];
   const size = props.viewport;
@@ -617,7 +670,7 @@ function projectLabels(props: FoundationRendererProps): ProjectedLabel[] {
   configureRenderCamera(camera, size, props.scene.camera);
   camera.updateMatrixWorld(true);
 
-  return stableRegionLabels(props.regions.labels).map((label) => {
+  const projected = props.regions.labels.map((label) => {
     const point = new THREE.Vector3(...label.position).project(camera);
     const screen = {
       x: (point.x * 0.5 + 0.5) * size.width,
@@ -626,11 +679,10 @@ function projectLabels(props: FoundationRendererProps): ProjectedLabel[] {
     return {
       ...label,
       screen,
-      visible: point.z >= -1 && point.z <= 1
-        && screen.x > -120 && screen.x < size.width + 120
-        && screen.z > -30 && screen.z < size.height + 30,
+      depthVisible: point.z >= -1 && point.z <= 1,
     };
   });
+  return declutterRegionLabels(projected, size, props.scene.camera.zoom);
 }
 
 function projectSystemLabels(
@@ -643,6 +695,8 @@ function projectSystemLabels(
   selected: boolean;
 }> {
   if (props.viewPreset === 'galaxy' || systems.length === 0) return [];
+  const selected = systems.find((system) => system.id64 === props.scene.selectedSystemId64);
+  if (!selected) return [];
   const size = props.viewport;
   const camera = new THREE.PerspectiveCamera(
     42,
@@ -653,9 +707,7 @@ function projectSystemLabels(
   configureRenderCamera(camera, size, props.scene.camera);
   camera.updateMatrixWorld(true);
 
-  const occupied: Array<{ x: number; z: number }> = [];
-  return systems
-    .slice(0, 40)
+  return [selected]
     .map((system) => {
       const point = new THREE.Vector3(
         system.coords.x,
@@ -673,14 +725,10 @@ function projectSystemLabels(
         || screen.z > size.height + 30
       ) return null;
 
-      const overlapCount = occupied.filter((candidate) => (
-        Math.abs(candidate.x - screen.x) < 16 && Math.abs(candidate.z - screen.z) < 16
-      )).length;
-      occupied.push(screen);
       return {
         id: system.id64,
         name: system.name,
-        screen: { x: screen.x, z: screen.z - overlapCount * 18 },
+        screen,
         selected: system.id64 === props.scene.selectedSystemId64,
       };
     })
@@ -696,6 +744,8 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     [props.maxBackgroundPoints, props.scene, props.viewport],
   );
   const labels = useMemo(() => projectLabels(props), [props]);
+  const labelScale = regionLabelScale(props.scene.camera.zoom);
+  const safariGesture = useRef<{ scale: number; camera: CameraState } | null>(null);
   const highlightedIds = useMemo(() => highlightedSystemIds(props.scene.highlights), [props.scene.highlights]);
   const clusters = useMemo(() => buildClusterGeometry(props.scene), [props.scene]);
   const systemLabels = useMemo(() => {
@@ -760,9 +810,45 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   useEffect(() => {
     const element = rendererRef.current;
     if (!element) return undefined;
+    const handleGestureStart = (event: Event) => {
+      const gesture = event as Event & { scale?: number };
+      event.preventDefault();
+      safariGesture.current = {
+        scale: gesture.scale ?? 1,
+        camera: props.scene.camera,
+      };
+    };
+    const handleGestureChange = (event: Event) => {
+      if (!safariGesture.current) return;
+      const gesture = event as Event & { scale?: number };
+      event.preventDefault();
+      emitCamera(zoomCamera(
+        safariGesture.current.camera,
+        safariGestureZoomDelta(safariGesture.current.scale, gesture.scale ?? 1),
+        props.viewport,
+        props.galaxyBounds,
+      ));
+    };
+    const handleGestureEnd = () => {
+      safariGesture.current = null;
+    };
     element.addEventListener('wheel', handleWheel, { passive: false, capture: true });
-    return () => element.removeEventListener('wheel', handleWheel, { capture: true });
-  }, [handleWheel]);
+    element.addEventListener('gesturestart', handleGestureStart, { passive: false });
+    element.addEventListener('gesturechange', handleGestureChange, { passive: false });
+    element.addEventListener('gestureend', handleGestureEnd);
+    return () => {
+      element.removeEventListener('wheel', handleWheel, { capture: true });
+      element.removeEventListener('gesturestart', handleGestureStart);
+      element.removeEventListener('gesturechange', handleGestureChange);
+      element.removeEventListener('gestureend', handleGestureEnd);
+    };
+  }, [
+    emitCamera,
+    handleWheel,
+    props.galaxyBounds,
+    props.scene.camera,
+    props.viewport,
+  ]);
 
   return <div
     ref={rendererRef}
@@ -824,7 +910,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
         });
         props.onReady?.();
       }}>
-      <color attach="background" args={['#03070b']} />
+      <color attach="background" args={['#010306']} />
       <GpuTimingBridge onReady={props.onGpuTimerReady} />
       <SceneContents {...props} visible={visible} />
     </Canvas>
@@ -842,12 +928,16 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
           : `${rangeStep.toLocaleString()} LY rings · ${reference.name} at centre`}
       </span>
       <span>
-        Drag to pan · Shift-drag to tilt · Scroll to zoom
+        Drag to pan · Shift-drag to tilt · Scroll, pinch, or +/− to zoom
       </span>
     </div>
     <div className="map-foundation-labels" aria-hidden="true">
       {labels.filter((label) => label.visible).map((label) => <span key={label.id}
-        style={{ left: label.screen.x, top: label.screen.z }}>{label.name}</span>)}
+        style={{
+          left: label.screen.x,
+          top: label.screen.z,
+          '--region-label-scale': labelScale,
+        } as CSSProperties}>{label.name}</span>)}
     </div>
     <div className="map-foundation-range-labels" aria-hidden="true">
       {rangeLabels.map((label) => <span
