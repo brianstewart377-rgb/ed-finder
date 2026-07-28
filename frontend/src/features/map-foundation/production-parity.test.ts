@@ -23,7 +23,7 @@ function heatmap(cellCount: number): MapHeatmapResponse {
     truncated: false,
     cells: Array.from({ length: cellCount }, (_, index) => ({
       cx: index * 200,
-      cy: 0,
+      cy: index * 25,
       cz: index * -200,
       n: 5,
       avg_score: index % 100,
@@ -70,6 +70,7 @@ describe('Stage 26E production parity composition', () => {
     expect(composition.surface).toEqual({ kind: 'ready', systemCount: 500 });
     expect(composition.estimatedOverlayBufferBytes).toBe(4_272_000);
     expect(composition.withinOverlayBufferBudget).toBe(true);
+    expect([...composition.overlays.heatmap!.positions.slice(3, 6)]).toEqual([200, -200, 25]);
   });
 
   it('rejects invalid coordinates without inventing positions', () => {
@@ -117,6 +118,7 @@ describe('Stage 26E production parity composition', () => {
     });
     expect(fittedGalaxy.center).toEqual({ x: 0, z: 26_000 });
     expect(fittedGalaxy.zoom).toBeCloseTo(150);
+    expect(fittedGalaxy.pitchDeg).toBe(42);
     const referenceView = cameraForViewPreset('reference', scene.systems, reference, viewport);
     expect(referenceView.center).toEqual(reference);
     expect(referenceView.zoom).toBeLessThan(1);

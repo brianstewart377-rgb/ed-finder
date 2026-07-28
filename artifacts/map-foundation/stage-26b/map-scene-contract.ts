@@ -6,6 +6,7 @@
 // All types are JSON‑safe (no callbacks, no runtime objects).
 
 export type GalaxyCoord = { x: number; z: number };
+export type GalaxyPosition = GalaxyCoord & { y: number };
 export type CameraState = {
   center: GalaxyCoord;
   zoom: number;           // LY per pixel at the map centre
@@ -25,7 +26,7 @@ export type SceneRevision = number; // monotonically increasing
 export type SystemRecord = {
   id64: number;
   name: string;
-  coords: GalaxyCoord;     // must be non‑null for renderability
+  coords: GalaxyPosition;  // must be non-null for renderability
   developmentScore: number | null;
   primaryEconomy: string | null;
   population: number | null;
@@ -39,7 +40,7 @@ export type ClusterRepresentation = {
   memberRoles: Record<number, ClusterRole[]>;
   edges: ClusterEdge[];
   radiusLy: number;
-  hull: GalaxyCoord[] | null;   // convex hull vertices, or null if radius suffices
+  hull: GalaxyPosition[] | null;   // convex hull vertices, or null if radius suffices
   label: string;
   groupContext: { name: string; description: string } | null;
 };
@@ -57,7 +58,7 @@ export type Route = {
 export type Annotation = {
   id: string;
   text: string;
-  position: GalaxyCoord;
+  position: GalaxyPosition;
 };
 
 export type MapLayer =

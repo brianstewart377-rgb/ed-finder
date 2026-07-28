@@ -30,18 +30,26 @@ import {
 import { useAuthoritativeRegionLayer } from './production-regions';
 import { R3FMapFoundation } from './R3FMapFoundation';
 import type { RegionLayerData, ViewportSize } from './types';
+import {
+  DEFAULT_CAMERA_PITCH_DEG,
+  snapCameraTopDown,
+} from './camera';
 import './ProductionMapTab.css';
 
 const EMPTY_REGIONS: RegionLayerData = { labels: [], boundaries: [] };
 const DEFAULT_VIEWPORT: ViewportSize = { width: 1280, height: 720 };
-const SPATIAL_CAMERA = { bearingDeg: 0, pitchDeg: 52 } as const;
 
 function emptyProductionScene(reference: { x: number; z: number }): MapSceneState {
   return {
     sceneRevision: 1,
     oneTimeFitIntent: null,
     cameraIntent: 'user',
-    camera: { center: { ...reference }, zoom: 64, pitchDeg: 0, bearingDeg: 0 },
+    camera: {
+      center: { ...reference },
+      zoom: 64,
+      pitchDeg: DEFAULT_CAMERA_PITCH_DEG,
+      bearingDeg: 0,
+    },
     origin: { ...reference },
     systems: [],
     selectedSystemId64: null,
@@ -78,14 +86,6 @@ export function ProductionMapTab({
   const referenceCoords = useMemo(
     () => ({ x: reference.x, z: reference.z }),
     [reference.x, reference.z],
-  );
-  const systemYById64 = useMemo(
-    () => new Map(
-      boundedSystems
-        .filter((system) => typeof system.coords?.y === 'number' && Number.isFinite(system.coords.y))
-        .map((system) => [system.id64, system.coords!.y!] as const),
-    ),
-    [boundedSystems],
   );
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [scene, setScene] = useState<MapSceneState>(() => emptyProductionScene(referenceCoords));
@@ -217,25 +217,16 @@ export function ProductionMapTab({
     ));
   }, [galaxyBounds, referenceCoords, viewport]);
 
-  const selectProjection = useCallback((projection: '2d' | '3d') => {
-    setScene((current) => {
-      const currently3d = current.camera.pitchDeg >= 8;
-      if ((projection === '3d') === currently3d) return current;
-      return {
-        ...current,
-        cameraIntent: 'user',
-        camera: {
-          ...current.camera,
-          bearingDeg: projection === '3d' ? SPATIAL_CAMERA.bearingDeg : 0,
-          pitchDeg: projection === '3d' ? SPATIAL_CAMERA.pitchDeg : 0,
-        },
-      };
-    });
+  const snapTopDown = useCallback(() => {
+    setScene((current) => ({
+      ...current,
+      cameraIntent: 'user',
+      camera: snapCameraTopDown(current.camera),
+    }));
   }, []);
 
   const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
-  const projection = scene.camera.pitchDeg >= 8 ? '3d' : '2d';
   const activeLayerSummary = [
     'Finder dots',
     showRegions ? 'Regions' : null,
@@ -321,22 +312,15 @@ export function ProductionMapTab({
             </button>
           ))}
         </div>
-        <div role="group" aria-label="Map projection" className="map-workspace__segmented">
-          {(['2d', '3d'] as const).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              data-testid={`map-projection-${mode}`}
-              aria-pressed={projection === mode}
-              title={mode === '3d'
-                ? 'Spatial view with real system height above or below the galactic plane'
-                : 'Flat chart view of galactic X/Z coordinates'}
-              onClick={() => selectProjection(mode)}
-              className={projection === mode ? 'is-active' : ''}
-            >
-              {mode === '2d' ? '2D map' : '3D space'}
-            </button>
-          ))}
+        <div role="group" aria-label="Camera controls" className="map-workspace__segmented">
+          <button
+            type="button"
+            data-testid="map-snap-top-down"
+            title="Snap to a precise overhead view without changing your position or zoom"
+            onClick={snapTopDown}
+          >
+            Top-down view
+          </button>
         </div>
         <details className="map-workspace__layers">
           <summary>Layers &amp; legend</summary>
@@ -414,7 +398,7 @@ export function ProductionMapTab({
                 viewport={viewport}
                 viewPreset={viewPreset}
                 reference={reference}
-                systemYById64={systemYById64}
+                galaxyBounds={galaxyBounds}
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
                 onInteraction={onInteraction}
               />

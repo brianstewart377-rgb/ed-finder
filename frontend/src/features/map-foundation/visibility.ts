@@ -111,7 +111,16 @@ function edgePositions(cluster: ClusterRepresentation, systemsById: Map<number, 
   for (const edge of cluster.edges) {
     const from = systemsById.get(edge.fromId64);
     const to = systemsById.get(edge.toId64);
-    if (from && to) coordinates.push(from.coords.x, from.coords.z, 2, to.coords.x, to.coords.z, 2);
+    if (from && to) {
+      coordinates.push(
+        from.coords.x,
+        from.coords.z,
+        from.coords.y + 2,
+        to.coords.x,
+        to.coords.z,
+        to.coords.y + 2,
+      );
+    }
   }
   return new Float32Array(coordinates);
 }
@@ -137,7 +146,14 @@ export function buildClusterGeometry(scene: MapSceneState): ClusterGeometry[] {
     hullPositions: cluster.hull
       ? new Float32Array(cluster.hull.flatMap((point, index, hull) => {
         const next = hull[(index + 1) % hull.length]!;
-        return [point.x, point.z, 2, next.x, next.z, 2];
+        return [
+          point.x,
+          point.z,
+          point.y + 2,
+          next.x,
+          next.z,
+          next.y + 2,
+        ];
       }))
       : null,
   }));

@@ -121,13 +121,20 @@ test.describe('ED Finder — smoke', () => {
     await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Live map');
     await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
 
-    const flatProjection = page.getByTestId('map-projection-2d');
-    const tabletopProjection = page.getByTestId('map-projection-3d');
-    await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
-    await tabletopProjection.click();
-    await expect(tabletopProjection).toHaveAttribute('aria-pressed', 'true');
-    await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
-    await flatProjection.click();
-    await expect(flatProjection).toHaveAttribute('aria-pressed', 'true');
+    await page.getByTestId('map-view-galaxy').click();
+    await expect(page.getByTestId('map-projection-2d')).toHaveCount(0);
+    await expect(page.getByTestId('map-projection-3d')).toHaveCount(0);
+    const renderer = page.locator('.map-foundation-renderer');
+    await expect(renderer).toHaveAttribute('data-projection', 'perspective');
+    await expect(renderer).toHaveAttribute('data-camera-pitch', '42');
+    const zoomBefore = await renderer.getAttribute('data-camera-zoom');
+    const centerXBefore = await renderer.getAttribute('data-camera-center-x');
+    const centerZBefore = await renderer.getAttribute('data-camera-center-z');
+    await page.getByTestId('map-snap-top-down').click();
+    await expect(renderer).toHaveAttribute('data-camera-pitch', '0.5');
+    await expect(renderer).toHaveAttribute('data-projection', 'perspective');
+    await expect(renderer).toHaveAttribute('data-camera-zoom', zoomBefore ?? '');
+    await expect(renderer).toHaveAttribute('data-camera-center-x', centerXBefore ?? '');
+    await expect(renderer).toHaveAttribute('data-camera-center-z', centerZBefore ?? '');
   });
 });

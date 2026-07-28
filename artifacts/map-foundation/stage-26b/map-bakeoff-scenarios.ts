@@ -47,8 +47,9 @@ export function generateDataset(size: DatasetSize): SystemRecord[] {
       name: `System ${i}`,
       // Index zero is a deterministic centre-screen pick target shared by all
       // candidates; the remaining systems retain the spiral distribution.
-      coords: i === 0 ? { x: 16_000, z: 0 } : {
+      coords: i === 0 ? { x: 16_000, y: 0, z: 0 } : {
         x: radius * Math.cos(angle),
+        y: Math.sin(i * 0.013) * 900,
         z: radius * Math.sin(angle),
       },
       developmentScore: 50 + (i % 50),
@@ -194,7 +195,7 @@ export const CLUSTER_FIXTURE: Fixture = {
       memberRoles: { 100_000_001: ['anchor'], 100_000_002: ['member'], 100_000_003: ['edge'] },
       edges: [{ fromId64: 100_000_001, toId64: 100_000_002 }, { fromId64: 100_000_002, toId64: 100_000_003 }],
       radiusLy: 15,
-      hull: [{ x: 10, z: 0 }, { x: 20, z: 10 }, { x: 30, z: -5 }],
+      hull: [{ x: 10, y: -2, z: 0 }, { x: 20, y: 4, z: 10 }, { x: 30, y: 1, z: -5 }],
       label: 'Test Cluster',
       groupContext: { name: 'Nearby Systems', description: 'A test group' },
     } }] } },
@@ -207,7 +208,7 @@ export const CLUSTER_FIXTURE: Fixture = {
         memberRoles: { 100_000_001: ['anchor'], 100_000_002: ['member'], 100_000_003: ['edge'] },
         edges: [{ fromId64: 100_000_001, toId64: 100_000_002 }, { fromId64: 100_000_002, toId64: 100_000_003 }],
         radiusLy: 15,
-        hull: [{ x: 10, z: 0 }, { x: 20, z: 10 }, { x: 30, z: -5 }],
+        hull: [{ x: 10, y: -2, z: 0 }, { x: 20, y: 4, z: 10 }, { x: 30, y: 1, z: -5 }],
         label: 'Test Cluster',
         groupContext: { name: 'Nearby Systems', description: 'A test group' },
       },
@@ -343,7 +344,7 @@ export const AUTO_FIT_FIXTURE: Fixture = {
     { type: 'applySceneAction', action: { type: 'advanceSceneRevision', revision: 2 } },
     { type: 'applySceneAction', action: { type: 'dragCamera', newCenter: { x: 20, z: 30 } } },
     { type: 'applySceneAction', action: { type: 'selectSystem', systemId64: 100_000_010 } },
-    { type: 'applySceneAction', action: { type: 'loadMoreSystems', newSystems: [{ id64: 100_000_010, name: 'Sys010', coords: { x: 10, z: 10 }, developmentScore: null, primaryEconomy: null, population: null }] } },
+    { type: 'applySceneAction', action: { type: 'loadMoreSystems', newSystems: [{ id64: 100_000_010, name: 'Sys010', coords: { x: 10, y: 5, z: 10 }, developmentScore: null, primaryEconomy: null, population: null }] } },
     { type: 'applySceneAction', action: { type: 'layerToggle', layerType: 'regions' } },
     { type: 'applySceneAction', action: { type: 'setHighlights', highlights: [{ type: 'cluster', cluster: { anchorId64: 100_000_020, memberIds: [100_000_020], memberRoles: {}, edges: [], radiusLy: 0, hull: null, label: 'Test', groupContext: null } }] } },
   ],

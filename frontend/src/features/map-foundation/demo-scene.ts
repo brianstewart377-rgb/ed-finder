@@ -5,7 +5,7 @@ import type {
   SystemRecord,
 } from '../../../../artifacts/map-foundation/stage-26b/map-scene-contract';
 
-export const OVERLAP_TARGET = { x: 16_000, z: 0 };
+export const OVERLAP_TARGET = { x: 16_000, y: 0, z: 0 };
 
 function withFoundationFixtures(systems: SystemRecord[]): SystemRecord[] {
   return systems.map((system, index) => index < 2

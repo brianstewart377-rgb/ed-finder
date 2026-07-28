@@ -414,7 +414,7 @@ export function MapFoundationWorkbench() {
       </div>
       <aside className="foundation-companion" aria-label="Map keyboard companion">
         <h2>Context companion</h2>
-        <p>Tab to any system and press Enter. Shift-drag rotates/tilts; drag pans; wheel zooms.</p>
+        <p>Tab to any system and press Enter. Shift-drag tilts; drag pans; wheel zooms.</p>
         {gpuDiagnosticsEnabled && <section className="gpu-diagnostics" aria-labelledby="gpu-diagnostics-heading">
           <h3 id="gpu-diagnostics-heading">Hardware GPU timing</h3>
           <p>Runs 30 WebGL timer queries around real renders of the visible 500k candidate scene.</p>

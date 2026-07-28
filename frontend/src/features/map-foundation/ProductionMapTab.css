@@ -88,7 +88,7 @@
   background: rgba(78, 38, 15, 0.9);
 }
 
-.stage26e-production-map-viewport .map-foundation-renderer[data-projection='3d'] .map-foundation-labels span {
+.stage26e-production-map-viewport .map-foundation-renderer[data-camera-view='tilted'] .map-foundation-labels span {
   color: #f1d6ae;
   font-size: 11px;
   font-weight: 700;

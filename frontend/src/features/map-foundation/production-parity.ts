@@ -7,6 +7,7 @@ import type {
   ProductionMapOverlays,
   ViewportSize,
 } from './types';
+import { DEFAULT_CAMERA_PITCH_DEG } from './camera';
 
 export const PRODUCTION_PARITY_LIMITS = {
   finderSystems: 500,
@@ -66,10 +67,10 @@ export function adaptHeatmap(
   let validCount = 0;
   let retainedCount = 0;
   for (const cell of response.cells) {
-    if (!finite(cell.cx) || !finite(cell.cz)) continue;
+    if (!finite(cell.cx) || !finite(cell.cy) || !finite(cell.cz)) continue;
     validCount += 1;
     if (retainedCount >= limit) continue;
-    positions.set([cell.cx, cell.cz, -2], retainedCount * 3);
+    positions.set([cell.cx, cell.cz, cell.cy], retainedCount * 3);
     colors.set(colorForScore(cell.avg_score), retainedCount * 3);
     retainedCount += 1;
   }
@@ -96,7 +97,13 @@ export function adaptAggregateHulls(
   let validCount = 0;
   let retainedCount = 0;
   for (const hull of hulls) {
-    if (!finite(hull.x) || !finite(hull.z) || !finite(hull.radius_ly) || hull.radius_ly <= 0) continue;
+    if (
+      !finite(hull.x)
+      || !finite(hull.y)
+      || !finite(hull.z)
+      || !finite(hull.radius_ly)
+      || hull.radius_ly <= 0
+    ) continue;
     validCount += 1;
     if (retainedCount >= limit) continue;
     retainedCount += 1;
@@ -108,10 +115,10 @@ export function adaptAggregateHulls(
       linePositions.set([
         hull.x + Math.cos(start) * hull.radius_ly,
         hull.z + Math.sin(start) * hull.radius_ly,
-        -1,
+        hull.y,
         hull.x + Math.cos(end) * hull.radius_ly,
         hull.z + Math.sin(end) * hull.radius_ly,
-        -1,
+        hull.y,
       ], offset);
       lineColors.set([...color, ...color], offset);
     }
@@ -206,14 +213,24 @@ export function cameraForViewPreset(
           z: (galaxyBounds.minZ + galaxyBounds.maxZ) / 2,
         },
         zoom,
-        pitchDeg: 0,
+        pitchDeg: DEFAULT_CAMERA_PITCH_DEG,
         bearingDeg: 0,
       };
     }
-    return { center: { x: 0, z: 0 }, zoom: zoomForRadius(50_000, viewport), pitchDeg: 0, bearingDeg: 0 };
+    return {
+      center: { x: 0, z: 0 },
+      zoom: zoomForRadius(50_000, viewport),
+      pitchDeg: DEFAULT_CAMERA_PITCH_DEG,
+      bearingDeg: 0,
+    };
   }
   if (preset === 'reference') {
-    return { center: { ...reference }, zoom: zoomForRadius(50, viewport), pitchDeg: 0, bearingDeg: 0 };
+    return {
+      center: { ...reference },
+      zoom: zoomForRadius(50, viewport),
+      pitchDeg: DEFAULT_CAMERA_PITCH_DEG,
+      bearingDeg: 0,
+    };
   }
   let radius = 50;
   if (systems.length > 0) {
@@ -226,7 +243,12 @@ export function cameraForViewPreset(
     }
     radius = furthest * 1.1;
   }
-  return { center: { ...reference }, zoom: zoomForRadius(radius, viewport), pitchDeg: 0, bearingDeg: 0 };
+  return {
+    center: { ...reference },
+    zoom: zoomForRadius(radius, viewport),
+    pitchDeg: DEFAULT_CAMERA_PITCH_DEG,
+    bearingDeg: 0,
+  };
 }
 
 export function applyViewPreset(

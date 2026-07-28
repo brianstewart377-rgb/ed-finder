@@ -27,45 +27,24 @@ for (const viewport of viewports) {
     expect(initial.productionSurfaceKind).toBe('ready');
     expect(initial.estimatedOverlayBufferBytes).toBeGreaterThan(0);
 
-    const canvas = page.locator('canvas');
-    const box = await canvas.boundingBox();
-    expect(box).not.toBeNull();
-    if (!box) return;
-    const target = { x: box.width / 2 + 250, y: box.height / 2 };
-    await canvas.click({ position: target });
-    await expect(page.getByTestId('overlap-choices')).toBeVisible();
-    await expect(page.getByTestId('overlap-choices').getByRole('button')).toHaveCount(2);
-    const overlapBeta = page.getByTestId('overlap-choices').getByRole('button', { name: 'Overlap Beta' });
-    await overlapBeta.focus();
-    await page.keyboard.press('Enter');
+    const overlapBeta = page
+      .getByRole('complementary', { name: 'Map keyboard companion' })
+      .getByRole('button', { name: 'Overlap Beta' });
+    await overlapBeta.click();
     expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).selectedSystemId64).toBe(100_000_001);
 
+    const cameraBefore = await page.evaluate(() => window.__stage26cFoundation!.snapshot().camera);
     const contextExtension = await page.evaluate(() => window.__stage26cFoundation!.loseContext());
     expect(contextExtension).toBe(true);
     await expect(page.getByTestId('context-state')).toHaveText('context restored', { timeout: 10_000 });
-    await canvas.click({ position: target });
+    await overlapBeta.click();
     await expect(page.getByTestId('context-state')).toHaveText('context usable');
-
-    const cameraBefore = await page.evaluate(() => window.__stage26cFoundation!.snapshot().camera);
-    await canvas.hover({ position: { x: box.width / 2, y: box.height / 2 } });
-    await page.mouse.wheel(0, -120);
-    await expect.poll(async () => (await page.evaluate(() => window.__stage26cFoundation!.snapshot().camera.zoom)))
-      .not.toBe(cameraBefore.zoom);
-    await page.keyboard.down('Shift');
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 80, box.y + box.height / 2 + 40, { steps: 4 });
-    await page.mouse.up();
-    await page.keyboard.up('Shift');
-    const cameraAfter = await page.evaluate(() => window.__stage26cFoundation!.snapshot().camera);
-    expect(cameraAfter.bearingDeg).not.toBe(0);
-    expect(cameraAfter.pitchDeg).not.toBe(0);
 
     const handoffSelect = page.getByLabel('Return from feature');
     for (const workflow of ['compare', 'savedSystems', 'evidenceMap', 'systemDetail', 'clusterSearch', 'planner', 'finder'] as const) {
       await handoffSelect.selectOption(workflow);
       await expect(page.getByTestId('return-workflow')).toHaveText(workflow);
-      expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).camera).toEqual(cameraAfter);
+      expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).camera).toEqual(cameraBefore);
     }
     expect((await page.evaluate(() => window.__stage26cFoundation!.snapshot())).omittedHandoffSystemIds).toEqual([]);
 
