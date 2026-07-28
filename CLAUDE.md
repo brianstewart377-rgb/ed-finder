@@ -58,7 +58,7 @@ If it fails, **stop** — do not edit, commit, push, run DB writes, or report an
 
 ### Plan-change discipline
 - If a plan changes mid-execution (e.g. switching from approach A to approach B), stop and confirm the change before committing. Do not silently substitute one fix for another the user approved.
-- Every commit pushed to origin/main must be followed through to production deploy in the same message, unless the user explicitly says to hold.
+- A merge to `origin/main` does not authorize a production deploy. Follow the explicit owner-approved release sequence under **Frontend deployment**.
 - After any deploy, verify the deployed HEAD matches origin/main and report the receipt (commit hash + production `git log`).
 - DeepSeek must NEVER edit production files directly. All changes go through the local repo, commit, push, deploy flow — even for one-line production hotfixes.
 - Every bug fix ships with a contract/regression test if one could have caught the bug. Fix-only commits without hardening are incomplete — the test is part of the fix, not a follow-up.
@@ -196,6 +196,27 @@ Split across multiple workflow files now, not just one `ci.yml`:
 Stage 19 warehouse/enrichment operator scripts live here, split into active (top level + `actions/`) and `archive/`. `require_hetzner_operator_env.sh` gates production-touching operator scripts. **Stage 19 (data warehouse/enrichment) is currently paused** for test-environment hardening, not actively worked — don't resume Stage 19 operator actions without checking `docs/ROADMAP.md`'s current status first; the state-resolution gate above will hard-stop most of them anyway outside the right branch/context.
 
 ## Frontend deployment
+
+### Deliberate release sequence
+
+Production promotion is manual and explicit:
+
+1. The PR merges to `main`.
+2. The reviewer or owner checks the **local preview**, from `frontend/`, with
+   `VITE_STAGE26E_PRODUCTION_MAP=enabled` and `yarn dev`, and confirms the
+   change looks right.
+3. The owner explicitly requests a production deploy. A merge by itself is not
+   deploy authorization.
+4. Run `scripts/release-main-to-prod.ps1`, which delegates to the canonical
+   server-side `scripts/deploy_main.sh`.
+5. Only after that wrapper succeeds, check `https://ed-finder.app` and verify
+   the change on the real live site.
+
+Failure mode: checking the live site for a change that is merged but not yet
+deployed looks identical to a broken fix. First run
+`scripts/check-production-drift.ps1`; it compares the SHA reported by live
+`/api/health` with `origin/main`, prints how many commits production is behind,
+and exits non-zero on drift. This is visibility only: it never deploys.
 
 After any frontend code change is pushed to origin/main, the production deploy sequence is:
 

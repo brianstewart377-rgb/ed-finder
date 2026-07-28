@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     rate_limit_search:  str  = '30/minute'
     rate_limit_default: str  = '120/minute'
     app_version:        str  = '3.0.1-hetzner'
+    build_sha:          str  = 'unknown'
     admin_token:        Optional[str] = None
     # Optional read-only station enrichment status artifact. This should point
     # at JSON produced by `scripts/station_enrichment_status.py --json` on a

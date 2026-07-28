@@ -82,6 +82,7 @@ async def test_health_endpoint(client):
     assert body['status'] == 'ok'
     assert body['database'] == 'connected'
     assert 'version' in body
+    assert 'build_sha' in body
 
 
 async def test_status_endpoint(client):
