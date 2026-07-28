@@ -266,6 +266,10 @@ $health = Invoke-RestMethod -Uri $healthUrl -TimeoutSec 20
 if ($health.status -ne 'ok') {
   throw "Public health check did not return status=ok from $healthUrl"
 }
+if ($health.build_sha -ne (git rev-parse HEAD).Trim()) {
+  throw "Public health build_sha does not match local HEAD. live=$($health.build_sha) local=$((git rev-parse HEAD).Trim())"
+}
+Write-Host "[release] Public build SHA matches local HEAD: $($health.build_sha)"
 
 $baseUrl = $PublicUrl.TrimEnd('/')
 $probePath = if ($AppProbePath.StartsWith('/')) { $AppProbePath } else { "/$AppProbePath" }

@@ -62,6 +62,7 @@ async def health(pool: asyncpg.Pool = Depends(get_pool)):
             status='ok',
             database='connected',
             version=settings.app_version,
+            build_sha=settings.build_sha,
         )
     except asyncio.TimeoutError:
         raise HTTPException(

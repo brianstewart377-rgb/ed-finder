@@ -396,6 +396,7 @@ class HealthResponse(BaseModel):
     status:   str
     database: str
     version:  str
+    build_sha: str
 
 
 class AutocompleteHit(BaseModel):

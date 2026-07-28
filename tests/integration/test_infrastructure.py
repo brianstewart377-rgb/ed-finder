@@ -10,6 +10,7 @@ async def test_health(client):
     assert r.status_code == 200
     body = r.json()
     assert body['status'] == 'ok'
+    assert body['build_sha']
 
 
 async def test_db_reachable(pool):

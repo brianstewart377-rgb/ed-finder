@@ -159,6 +159,9 @@ else
 fi
 
 say "Rebuild/restart application containers"
+export EDFINDER_BUILD_SHA
+EDFINDER_BUILD_SHA="$(git rev-parse HEAD)"
+ok "deployment build SHA: $EDFINDER_BUILD_SHA"
 docker compose up -d --build api eddn maintenance
 ok "application containers updated"
 

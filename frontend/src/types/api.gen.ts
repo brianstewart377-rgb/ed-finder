@@ -2783,6 +2783,8 @@ export interface components {
             database: string;
             /** Version */
             version: string;
+            /** Build Sha */
+            build_sha: string;
         };
         /** JournalImportClientManifest */
         JournalImportClientManifest: {

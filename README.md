@@ -440,6 +440,19 @@ docker compose up -d eddn
 
 ### Deploy `main`
 
+Promotion is deliberate and manual: merge, verify the flag-enabled local
+preview, obtain explicit owner approval, run the release wrapper, and only then
+verify the live site. Before assuming a merged change is broken, check whether
+production is simply behind:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/check-production-drift.ps1
+```
+
+The check fetches `origin/main`, compares it with the `build_sha` reported by
+the public `/api/health` endpoint, prints the exact number of commits behind,
+and exits non-zero on drift. It reports status only and never deploys.
+
 Use the production deploy wrapper for normal code/schema releases. It pulls
 `main`, applies the known safe additive SQL migrations, builds the frontend,
 rebuilds/restarts app containers, reloads nginx, and runs health checks.
