@@ -74,18 +74,44 @@ export function declutterRegionLabels(
   labels: ScreenLabel[],
   viewport: ViewportSize,
   zoom: number,
+  persistentRegionId?: number,
+  safeArea: Partial<{
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  }> = {},
 ): Array<ScreenLabel & { visible: boolean }> {
   const horizontalMargin = Math.min(150, Math.max(72, viewport.width * 0.075));
-  const verticalMargin = 28;
-  const inFrame = labels.filter((label) => (
+  const leftMargin = Math.max(horizontalMargin, safeArea.left ?? 0);
+  const rightMargin = Math.max(horizontalMargin, safeArea.right ?? 0);
+  const topMargin = Math.max(28, safeArea.top ?? 0);
+  const bottomMargin = Math.max(28, safeArea.bottom ?? 0);
+  const persistent = labels.find((label) => label.id === persistentRegionId);
+  const persistentScreen = persistent ? {
+    x: Number.isFinite(persistent.screen.x)
+      ? Math.max(leftMargin, Math.min(viewport.width - rightMargin, persistent.screen.x))
+      : viewport.width / 2,
+    z: Number.isFinite(persistent.screen.z)
+      ? Math.max(topMargin, Math.min(viewport.height - bottomMargin, persistent.screen.z))
+      : viewport.height / 2,
+  } : null;
+  const positioned = labels.map((label) => (
+    label.id === persistentRegionId && persistentScreen
+      ? { ...label, screen: persistentScreen, depthVisible: true }
+      : label
+  ));
+  const inFrame = positioned.filter((label) => (
     label.depthVisible
-    && label.screen.x >= horizontalMargin
-    && label.screen.x <= viewport.width - horizontalMargin
-    && label.screen.z >= verticalMargin
-    && label.screen.z <= viewport.height - verticalMargin
+    && label.screen.x >= leftMargin
+    && label.screen.x <= viewport.width - rightMargin
+    && label.screen.z >= topMargin
+    && label.screen.z <= viewport.height - bottomMargin
   ));
   const centre = { x: viewport.width / 2, z: viewport.height / 2 };
   const sorted = [...inFrame].sort((left, right) => {
+    if (left.id === persistentRegionId) return -1;
+    if (right.id === persistentRegionId) return 1;
     if (left.name === 'Galactic Centre') return -1;
     if (right.name === 'Galactic Centre') return 1;
     const leftDistance = Math.hypot(left.screen.x - centre.x, left.screen.z - centre.z);
@@ -106,7 +132,7 @@ export function declutterRegionLabels(
   });
   const visibleIds = new Set(accepted.map((label) => label.id));
 
-  return labels.map((label) => ({ ...label, visible: visibleIds.has(label.id) }));
+  return positioned.map((label) => ({ ...label, visible: visibleIds.has(label.id) }));
 }
 
 export function regionLabelScale(zoom: number): number {

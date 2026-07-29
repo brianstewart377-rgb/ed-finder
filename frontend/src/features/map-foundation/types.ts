@@ -105,6 +105,12 @@ export type FoundationRendererProps = {
   viewPreset?: 'results' | 'galaxy' | 'reference';
   reference?: { name: string; x: number; z: number };
   galaxyBounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
+  labelSafeArea?: Partial<{
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+  }>;
   maxBackgroundPoints?: number;
   onInteraction: (event: MapInteractionEvent) => void;
   onZoomIntent?: (deltaY: number) => void;

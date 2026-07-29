@@ -1,0 +1,91 @@
+{
+  "captured_from": "http://127.0.0.1:4319/#map",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "diagnosis": {
+    "max_zoom_ly_per_pixel": 4096,
+    "old_whole_galaxy_zoom_ly_per_pixel": 149.5132530120482,
+    "old_projected_boundary_max_y": 791.0551320009454,
+    "old_keplers_crest_label_y": 701.8812728308324,
+    "old_formidine_rift_label_y": 661.4866149542235,
+    "canvas_height": 720,
+    "label_safe_bottom_y": 692,
+    "cause": "The preset and center clamp used the raw viewport dimensions, but the perspective renderer exposes 0.78 of that height at the focal plane. The maximum zoom cap was not reached."
+  },
+  "fixed_whole_galaxy_view": {
+    "zoom_ly_per_pixel": 191.6836577077541,
+    "keplers_crest_visible": true,
+    "formidine_rift_visible": true,
+    "giant_current_region_layer_count": 0,
+    "ordinary_current_region_label_count": 1
+  },
+  "authoritative_grid_reach_check": {
+    "camera_zoom_ly_per_pixel": 10,
+    "region_count": 42,
+    "centers_shifted_by_clamp": 0,
+    "lookup_matches_expected_region_count": 42,
+    "all_match": true,
+    "bottom_region_details": [
+      {
+        "id": 31,
+        "name": "Formidine Rift",
+        "reachable_center": { "x": -14034.0, "z": -10928.7 },
+        "lookup_id": 31,
+        "matches": true
+      },
+      {
+        "id": 41,
+        "name": "Kepler's Crest",
+        "reachable_center": { "x": 9653.7, "z": -14629.9 },
+        "lookup_id": 41,
+        "matches": true
+      }
+    ],
+    "regions": [
+      { "id": 1, "name": "Galactic Centre", "matches": true },
+      { "id": 2, "name": "Empyrean Straits", "matches": true },
+      { "id": 3, "name": "Ryker's Hope", "matches": true },
+      { "id": 4, "name": "Odin's Hold", "matches": true },
+      { "id": 5, "name": "Norma Arm", "matches": true },
+      { "id": 6, "name": "Arcadian Stream", "matches": true },
+      { "id": 7, "name": "Izanami", "matches": true },
+      { "id": 8, "name": "Inner Orion-Perseus Conflux", "matches": true },
+      { "id": 9, "name": "Inner Scutum-Centaurus Arm", "matches": true },
+      { "id": 10, "name": "Norma Expanse", "matches": true },
+      { "id": 11, "name": "Trojan Belt", "matches": true },
+      { "id": 12, "name": "The Veils", "matches": true },
+      { "id": 13, "name": "Newton's Vault", "matches": true },
+      { "id": 14, "name": "The Conduit", "matches": true },
+      { "id": 15, "name": "Outer Orion-Perseus Conflux", "matches": true },
+      { "id": 16, "name": "Orion-Cygnus Arm", "matches": true },
+      { "id": 17, "name": "Temple", "matches": true },
+      { "id": 18, "name": "Inner Orion Spur", "matches": true },
+      { "id": 19, "name": "Hawking's Gap", "matches": true },
+      { "id": 20, "name": "Dryman's Point", "matches": true },
+      { "id": 21, "name": "Sagittarius-Carina Arm", "matches": true },
+      { "id": 22, "name": "Mare Somnia", "matches": true },
+      { "id": 23, "name": "Acheron", "matches": true },
+      { "id": 24, "name": "Formorian Frontier", "matches": true },
+      { "id": 25, "name": "Hieronymus Delta", "matches": true },
+      { "id": 26, "name": "Outer Scutum-Centaurus Arm", "matches": true },
+      { "id": 27, "name": "Outer Arm", "matches": true },
+      { "id": 28, "name": "Aquila's Halo", "matches": true },
+      { "id": 29, "name": "Errant Marches", "matches": true },
+      { "id": 30, "name": "Perseus Arm", "matches": true },
+      { "id": 31, "name": "Formidine Rift", "matches": true },
+      { "id": 32, "name": "Vulcan Gate", "matches": true },
+      { "id": 33, "name": "Elysian Shore", "matches": true },
+      { "id": 34, "name": "Sanguineous Rim", "matches": true },
+      { "id": 35, "name": "Outer Orion Spur", "matches": true },
+      { "id": 36, "name": "Achilles's Altar", "matches": true },
+      { "id": 37, "name": "Xibalba", "matches": true },
+      { "id": 38, "name": "Lyra's Song", "matches": true },
+      { "id": 39, "name": "Tenebrae", "matches": true },
+      { "id": 40, "name": "The Abyss", "matches": true },
+      { "id": 41, "name": "Kepler's Crest", "matches": true },
+      { "id": 42, "name": "The Void", "matches": true }
+    ]
+  }
+}

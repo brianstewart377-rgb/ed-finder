@@ -136,6 +136,13 @@ export function ProductionMapTab({
     timeline: { enabled: showTimeline, bucket: timelineBucket },
   });
   const regionLayer = useAuthoritativeRegionLayer();
+  const regionLabelSafeArea = useMemo(() => ({
+    // The map canvas fills the viewport, while the production navigation,
+    // mode controls, and legal footer float above it. Keep labels inside the
+    // unobscured interaction area rather than merely inside the canvas box.
+    top: Math.min(240, viewport.height * 0.42),
+    bottom: Math.min(90, viewport.height * 0.12),
+  }), [viewport.height]);
   const galaxyBounds = useMemo(() => {
     const boundaries = regionLayer.data?.boundaries;
     if (!boundaries?.length) return undefined;
@@ -445,6 +452,7 @@ export function ProductionMapTab({
                 viewPreset={viewPreset}
                 reference={reference}
                 galaxyBounds={galaxyBounds}
+                labelSafeArea={regionLabelSafeArea}
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
                 onInteraction={onInteraction}
                 onZoomIntent={requestZoomDelta}

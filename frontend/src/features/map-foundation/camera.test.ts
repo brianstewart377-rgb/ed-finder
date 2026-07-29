@@ -4,9 +4,11 @@ import {
   DEFAULT_CAMERA_PITCH_DEG,
   easeInOutSine,
   interpolateZoomLog,
+  KEYBOARD_PAN_ACCELERATION_MS,
   MAX_ZOOM_LY_PER_PIXEL,
   MIN_CAMERA_PITCH_DEG,
   MIN_ZOOM_LY_PER_PIXEL,
+  sampleKeyboardPanTransition,
   snapCameraTopDown,
   zoomCamera,
   zoomLevelForDelta,
@@ -33,7 +35,7 @@ describe('unified map camera', () => {
   it('pins a whole-galaxy view to the real extent and bounds closer pans with margin', () => {
     expect(clampCameraCenter(
       { x: 500_000, z: -500_000 },
-      150,
+      192.31,
       { width: 1280, height: 720 },
       bounds,
     )).toEqual({ x: 0, z: 26_000 });
@@ -44,8 +46,16 @@ describe('unified map camera', () => {
       { width: 1000, height: 500 },
       bounds,
     );
-    expect(closer.x).toBeLessThanOrEqual(47_920);
+    expect(closer.x).toBeLessThanOrEqual(49_020);
     expect(closer.z).toBeGreaterThanOrEqual(-24_500);
+
+    const previousWholeGalaxyZoom = clampCameraCenter(
+      { x: 500_000, z: -500_000 },
+      150,
+      { width: 1280, height: 720 },
+      bounds,
+    );
+    expect(previousWholeGalaxyZoom.z).toBeLessThan(26_000);
   });
 
   it('zooms continuously without changing pitch and clamps both zoom and pan extent', () => {
@@ -78,5 +88,32 @@ describe('unified map camera', () => {
     expect(interpolateZoomLog(100, 25, 0.5)).toBeCloseTo(50);
     expect(interpolateZoomLog(100, 25, 1)).toBeCloseTo(25);
     expect(zoomLevelForDelta(100, -220)).toBeCloseTo(100 * Math.exp(-0.22));
+  });
+
+  it('eases keyboard-pan velocity through acceleration, coasting, and reversal', () => {
+    const accelerating = {
+      startTime: 0,
+      duration: KEYBOARD_PAN_ACCELERATION_MS,
+      from: { x: 0, z: 0 },
+      target: { x: 0, z: 480 },
+    };
+    expect(sampleKeyboardPanTransition(accelerating, 0).velocity.z).toBe(0);
+    expect(sampleKeyboardPanTransition(accelerating, 65).velocity.z).toBeGreaterThan(0);
+    expect(sampleKeyboardPanTransition(accelerating, 65).velocity.z).toBeLessThan(240);
+    expect(sampleKeyboardPanTransition(accelerating, 130).velocity.z).toBeCloseTo(240);
+    expect(sampleKeyboardPanTransition(accelerating, 260)).toEqual({
+      velocity: { x: 0, z: 480 },
+      complete: true,
+    });
+
+    const reversing = {
+      startTime: 300,
+      duration: KEYBOARD_PAN_ACCELERATION_MS,
+      from: { x: 0, z: 480 },
+      target: { x: 0, z: -480 },
+    };
+    expect(sampleKeyboardPanTransition(reversing, 365).velocity.z).toBeGreaterThan(0);
+    expect(sampleKeyboardPanTransition(reversing, 430).velocity.z).toBeCloseTo(0);
+    expect(sampleKeyboardPanTransition(reversing, 495).velocity.z).toBeLessThan(0);
   });
 });
