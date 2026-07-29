@@ -43,7 +43,10 @@ const KEYBOARD_PAN_PIXELS_PER_SECOND = 480;
 const KEYBOARD_ZOOM_DELTA_PER_SECOND = 1_200;
 const KEYBOARD_TAP_DURATION_SECONDS = 1 / 15;
 const MAX_KEYBOARD_FRAME_SECONDS = 0.05;
-const GALACTIC_CORE_GLOW_RADIUS_LY = 18_000;
+const GALACTIC_CORE_GLOW_CLOSE_RADIUS_LY = 18_000;
+const GALACTIC_CORE_GLOW_WIDE_RADIUS_LY = 10_000;
+const GALACTIC_CORE_GLOW_CLOSE_ZOOM = 70;
+const GALACTIC_CORE_GLOW_WIDE_ZOOM = 145;
 const GALACTIC_CORE_GLOW_HEIGHT_LY = -850;
 
 type MapControlKey = 'w' | 'a' | 's' | 'd' | 'z' | 'x';
@@ -58,6 +61,29 @@ function mapControlKey(key: string): MapControlKey | null {
     || normalized === 'x'
     ? normalized
     : null;
+}
+
+function protectsFocusFromMap(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  return element.isContentEditable || element.matches(
+    'input, textarea, select, [role="textbox"], [role="searchbox"], [role="combobox"]',
+  );
+}
+
+function galacticCoreGlowPresentation(zoom: number, spatial: boolean) {
+  const closeProgress = Math.max(0, Math.min(
+    1,
+    (GALACTIC_CORE_GLOW_WIDE_ZOOM - zoom)
+      / (GALACTIC_CORE_GLOW_WIDE_ZOOM - GALACTIC_CORE_GLOW_CLOSE_ZOOM),
+  ));
+  const easedProgress = closeProgress * closeProgress * (3 - 2 * closeProgress);
+  return {
+    radiusLy: GALACTIC_CORE_GLOW_WIDE_RADIUS_LY
+      + (GALACTIC_CORE_GLOW_CLOSE_RADIUS_LY - GALACTIC_CORE_GLOW_WIDE_RADIUS_LY)
+      * easedProgress,
+    opacity: (spatial ? 0.38 : 0.44)
+      + (spatial ? 0.68 - 0.38 : 0.76 - 0.44) * easedProgress,
+  };
 }
 
 function positions(
@@ -387,8 +413,9 @@ function makeGalacticCoreGlowTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
-function GalacticCoreGlow({ spatial }: { spatial: boolean }) {
+function GalacticCoreGlow({ spatial, zoom }: { spatial: boolean; zoom: number }) {
   const texture = useMemo(makeGalacticCoreGlowTexture, []);
+  const presentation = galacticCoreGlowPresentation(zoom, spatial);
   useEffect(() => () => texture?.dispose(), [texture]);
   if (!texture) return null;
   return <mesh
@@ -397,16 +424,14 @@ function GalacticCoreGlow({ spatial }: { spatial: boolean }) {
       GALAXY_CENTER.z,
       GALACTIC_CORE_GLOW_HEIGHT_LY,
     ]}
+    scale={[presentation.radiusLy, presentation.radiusLy, 1]}
     renderOrder={-2}
   >
-    <planeGeometry args={[
-      GALACTIC_CORE_GLOW_RADIUS_LY * 2,
-      GALACTIC_CORE_GLOW_RADIUS_LY * 2,
-    ]} />
+    <planeGeometry args={[2, 2]} />
     <meshBasicMaterial
       map={texture}
       transparent
-      opacity={spatial ? 0.68 : 0.76}
+      opacity={presentation.opacity}
       blending={THREE.AdditiveBlending}
       depthTest={false}
       depthWrite={false}
@@ -441,7 +466,7 @@ function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
       <circleGeometry args={[GALAXY_RADIUS_LY * 0.16, 96]} />
       <meshBasicMaterial color="#b45a1b" transparent opacity={spatial ? 0.11 : 0.15} depthWrite={false} />
     </mesh>
-    <GalacticCoreGlow spatial={spatial} />
+    <GalacticCoreGlow spatial={spatial} zoom={zoom} />
     <points renderOrder={-1}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[galaxy.positions, 3]} />
@@ -832,6 +857,8 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   );
   const labels = useMemo(() => projectLabels(props), [props]);
   const labelScale = regionLabelScale(props.scene.camera.zoom);
+  const spatial = props.scene.camera.pitchDeg > 4;
+  const galacticCoreGlow = galacticCoreGlowPresentation(props.scene.camera.zoom, spatial);
   const galacticCoreProjection = useMemo(() => {
     const centre = projectWorldPoint(
       props.scene.camera,
@@ -842,7 +869,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       props.scene.camera,
       props.viewport,
       [
-        GALAXY_CENTER.x + GALACTIC_CORE_GLOW_RADIUS_LY,
+        GALAXY_CENTER.x + galacticCoreGlow.radiusLy,
         GALAXY_CENTER.z,
         GALACTIC_CORE_GLOW_HEIGHT_LY,
       ],
@@ -851,7 +878,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       ...centre,
       radius: Math.hypot(edge.x - centre.x, edge.y - centre.y),
     };
-  }, [props.scene.camera, props.viewport]);
+  }, [galacticCoreGlow.radiusLy, props.scene.camera, props.viewport]);
   const safariGesture = useRef<{
     startScale: number;
     scale: number;
@@ -864,7 +891,6 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     [...visible.background, ...visible.guaranteed].forEach((system) => byId.set(system.id64, system));
     return projectSystemLabels(props, [...byId.values()]);
   }, [props, visible.background, visible.guaranteed]);
-  const spatial = props.scene.camera.pitchDeg > 4;
   const viewPreset = props.viewPreset ?? 'results';
   const reference = props.reference ?? {
     name: 'Origin',
@@ -898,6 +924,13 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   ]);
 
   useEffect(() => onVisibilityChange?.(visible.metadata), [onVisibilityChange, visible.metadata]);
+
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (!renderer || renderer === document.activeElement) return;
+    if (protectsFocusFromMap(document.activeElement)) return;
+    renderer.focus({ preventScroll: true });
+  }, [viewPreset]);
 
   const emitCamera = useCallback((camera: CameraState) => {
     props.onInteraction({ type: 'cameraChanged', camera });
@@ -1078,7 +1111,8 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-camera-center-z={props.scene.camera.center.z}
     data-galactic-core-world-x={GALAXY_CENTER.x}
     data-galactic-core-world-z={GALAXY_CENTER.z}
-    data-galactic-core-radius-ly={GALACTIC_CORE_GLOW_RADIUS_LY}
+    data-galactic-core-radius-ly={galacticCoreGlow.radiusLy}
+    data-galactic-core-opacity={galacticCoreGlow.opacity}
     data-galactic-core-screen-x={galacticCoreProjection.x}
     data-galactic-core-screen-y={galacticCoreProjection.y}
     data-galactic-core-screen-radius={galacticCoreProjection.radius}
