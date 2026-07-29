@@ -142,6 +142,38 @@ describe('R3F focused keyboard controls', () => {
     pending.forEach((callback) => callback(now));
   }
 
+  it('auto-focuses on mount so keyboard controls work without a prior click', () => {
+    const onInteraction = vi.fn();
+    const { container } = render(
+      <R3FMapFoundation
+        scene={{
+          ...scene,
+          camera: {
+            ...scene.camera,
+            center: { x: 5_000, z: 5_000 },
+            zoom: 1,
+          },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_000, height: 1_000 }}
+        onInteraction={onInteraction}
+      />,
+    );
+    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
+
+    expect(document.activeElement).toBe(renderer);
+    fireEvent.keyDown(renderer, { key: 'w' });
+    fireEvent.keyUp(renderer, { key: 'w' });
+
+    expect(onInteraction).toHaveBeenCalledWith({
+      type: 'cameraChanged',
+      camera: expect.objectContaining({
+        center: { x: 5_000, z: 5_032 },
+        bearingDeg: 0,
+      }),
+    });
+  });
+
   it.each([
     ['w', { x: 5_000, z: 5_032 }],
     ['a', { x: 4_968, z: 5_000 }],
@@ -238,11 +270,15 @@ describe('R3F focused keyboard controls', () => {
     fireEvent.keyUp(renderer, { key: 'x' });
   });
 
-  it('ignores map keys unless the map itself has focus and leaves text input typing alone', () => {
+  it('does not steal focus from an active form field and leaves its typing alone', () => {
     const onInteraction = vi.fn();
     const onZoomIntent = vi.fn();
-    const view = render(
+    const view = render(<input aria-label="Unrelated finder field" />);
+    const input = view.getByRole('textbox', { name: 'Unrelated finder field' });
+    input.focus();
+    view.rerender(
       <>
+        <input aria-label="Unrelated finder field" />
         <R3FMapFoundation
           scene={scene}
           regions={{ labels: [], boundaries: [] }}
@@ -250,22 +286,45 @@ describe('R3F focused keyboard controls', () => {
           onInteraction={onInteraction}
           onZoomIntent={onZoomIntent}
         />
-        <input aria-label="Unrelated finder field" />
       </>,
     );
     const renderer = view.container.querySelector<HTMLElement>('.map-foundation-renderer')!;
-    const input = view.getByRole('textbox', { name: 'Unrelated finder field' });
+    const preservedInput = view.getByRole('textbox', { name: 'Unrelated finder field' });
     expect(renderer.getAttribute('aria-keyshortcuts')).toBe('W A S D Z X');
     expect(view.getByText(/Z in \/ X out/)).toBeTruthy();
+    expect(document.activeElement).toBe(preservedInput);
 
     fireEvent.keyDown(renderer, { key: 'w' });
-    input.focus();
-    fireEvent.keyDown(input, { key: 'w' });
-    fireEvent.input(input, { target: { value: 'wasdzx' } });
+    fireEvent.keyDown(preservedInput, { key: 'w' });
+    fireEvent.input(preservedInput, { target: { value: 'wasdzx' } });
 
-    expect((input as HTMLInputElement).value).toBe('wasdzx');
+    expect((preservedInput as HTMLInputElement).value).toBe('wasdzx');
     expect(onInteraction).not.toHaveBeenCalled();
     expect(onZoomIntent).not.toHaveBeenCalled();
+  });
+
+  it('restores map focus after a view preset control activates a new view', () => {
+    const renderView = (viewPreset: 'results' | 'galaxy') => (
+      <>
+        <button type="button">Whole galaxy</button>
+        <R3FMapFoundation
+          scene={scene}
+          regions={{ labels: [], boundaries: [] }}
+          viewport={{ width: 1_280, height: 720 }}
+          viewPreset={viewPreset}
+          onInteraction={vi.fn()}
+        />
+      </>
+    );
+    const view = render(renderView('results'));
+    const modeButton = view.getByRole('button', { name: 'Whole galaxy' });
+    modeButton.focus();
+
+    view.rerender(renderView('galaxy'));
+
+    expect(document.activeElement).toBe(
+      view.container.querySelector('.map-foundation-renderer'),
+    );
   });
 });
 
@@ -296,12 +355,14 @@ describe('R3F galactic core glow', () => {
       screenX: Number(renderer().getAttribute('data-galactic-core-screen-x')),
       screenY: Number(renderer().getAttribute('data-galactic-core-screen-y')),
       screenRadius: Number(renderer().getAttribute('data-galactic-core-screen-radius')),
+      opacity: Number(renderer().getAttribute('data-galactic-core-opacity')),
     });
     const initial = projection();
 
     expect(initial.worldX).toBe(25.2);
     expect(initial.worldZ).toBe(25_899.9);
-    expect(initial.radiusLy).toBe(18_000);
+    expect(initial.radiusLy).toBe(10_000);
+    expect(initial.opacity).toBe(0.38);
     expect(initial.screenX).toBeCloseTo(640);
 
     view.rerender(
@@ -337,7 +398,9 @@ describe('R3F galactic core glow', () => {
     const zoomed = projection();
     expect(zoomed.worldX).toBe(initial.worldX);
     expect(zoomed.worldZ).toBe(initial.worldZ);
-    expect(zoomed.screenRadius).toBeGreaterThan(initial.screenRadius * 1.9);
+    expect(zoomed.radiusLy).toBeGreaterThan(17_800);
+    expect(zoomed.opacity).toBeGreaterThan(0.67);
+    expect(zoomed.screenRadius).toBeGreaterThan(initial.screenRadius * 3.5);
 
     view.rerender(
       <R3FMapFoundation
