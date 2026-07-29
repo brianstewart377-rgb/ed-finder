@@ -1,0 +1,75 @@
+{
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "initial": {
+    "camera_center": {
+      "x": -240.80722891566256,
+      "z": 25762.566265060246
+    },
+    "zoom_ly_per_px": 149.5132530120482,
+    "current_region": "Galactic Centre"
+  },
+  "wrapped_labels": [
+    {
+      "name": "Inner Orion-Perseus Conflux",
+      "width_px": 148.24072265625,
+      "height_px": 26.00057029724121,
+      "line_height_px": 12.98,
+      "line_count": 2
+    },
+    {
+      "name": "Outer Scutum-Centaurus Arm",
+      "width_px": 148.24072265625,
+      "height_px": 26.00054931640625,
+      "line_height_px": 12.98,
+      "line_count": 2
+    },
+    {
+      "name": "Sagittarius-Carina Arm",
+      "width_px": 129.49154663085938,
+      "height_px": 13.000285148620605,
+      "line_height_px": 12.98,
+      "line_count": 1
+    },
+    {
+      "name": "Xibalba",
+      "width_px": 41.59879684448242,
+      "height_px": 13.000285148620605,
+      "line_height_px": 12.98,
+      "line_count": 1
+    }
+  ],
+  "region_transition": [
+    {
+      "camera_center": {
+        "x": -525.7521189410827,
+        "z": 25762.566265060246
+      },
+      "current_region": "Galactic Centre"
+    },
+    {
+      "camera_center": {
+        "x": -2998.5880979321946,
+        "z": 25762.566265060246
+      },
+      "current_region": "Odin's Hold"
+    }
+  ],
+  "close_zoom": {
+    "camera_center": {
+      "x": -3708.3556009006497,
+      "z": 30940.762773161074
+    },
+    "zoom_ly_per_px": 13.294960289445806,
+    "current_region": "Odin's Hold",
+    "ambient_indicator_text": "Odin's Hold",
+    "ambient_indicator_opacity": 0.1,
+    "ordinary_current_region_label_visible": false,
+    "ordinary_labels_visible": [
+      "Ryker's Hope",
+      "Izanami"
+    ]
+  }
+}

@@ -1,22 +1,23 @@
-export type RegionMapBlob = {
-  origin: { x: number; z: number };
-  pixel_scale: number;
-  regions: string[];
-  regionmap: Array<Array<[number, number]>>;
-};
+import type { RegionLayerData, RegionLookupData } from './types';
+
+export type RegionMapBlob = RegionLookupData;
 
 type GalaxyPoint = [number, number, number];
 type RegionBoundary = { source: GalaxyPoint; target: GalaxyPoint };
-type RegionLayer = {
-  labels: Array<{ id: number; name: string; position: GalaxyPoint }>;
-  boundaries: RegionBoundary[];
+export type DecodedRegionLookup = {
+  origin: RegionLookupData['origin'];
+  pixelScale: number;
+  regions: string[];
+  width: number;
+  height: number;
+  cells: Uint8Array;
 };
 
 function boundaryPair(left: number, right: number): string {
   return left < right ? `${left}:${right}` : `${right}:${left}`;
 }
 
-export function buildAuthoritativeRegionLayerFromBlob(blob: RegionMapBlob): RegionLayer {
+export function buildAuthoritativeRegionLayerFromBlob(blob: RegionMapBlob): RegionLayerData {
   if (blob.regions.length !== 43 || blob.regions[0] !== '') {
     throw new Error('Authoritative region source must contain the sentinel plus 42 named regions');
   }
@@ -109,5 +110,53 @@ export function buildAuthoritativeRegionLayerFromBlob(blob: RegionMapBlob): Regi
     }, { px: 0, pz: 0, distance: Number.POSITIVE_INFINITY });
     return { id, name, position: toGalaxy(interior.px, interior.pz) };
   });
-  return { labels, boundaries };
+  return {
+    labels,
+    boundaries,
+    lookup: {
+      origin: blob.origin,
+      pixel_scale: blob.pixel_scale,
+      regions: blob.regions,
+      regionmap: blob.regionmap,
+    },
+  };
+}
+
+export function decodeAuthoritativeRegionLookup(
+  lookup: RegionLookupData,
+): DecodedRegionLookup {
+  const width = Math.max(
+    0,
+    ...lookup.regionmap.map((row) => row.reduce((sum, [length]) => sum + length, 0)),
+  );
+  const height = lookup.regionmap.length;
+  const cells = new Uint8Array(width * height);
+  lookup.regionmap.forEach((row, pz) => {
+    let px = 0;
+    row.forEach(([runLength, regionId]) => {
+      cells.fill(regionId, pz * width + px, pz * width + px + runLength);
+      px += runLength;
+    });
+  });
+  return {
+    origin: lookup.origin,
+    pixelScale: lookup.pixel_scale,
+    regions: lookup.regions,
+    width,
+    height,
+    cells,
+  };
+}
+
+export function findAuthoritativeRegionAt(
+  lookup: DecodedRegionLookup,
+  point: { x: number; z: number },
+): { id: number; name: string } | null {
+  if (lookup.pixelScale <= 0) return null;
+  const px = Math.floor((point.x - lookup.origin.x) / lookup.pixelScale);
+  const pz = Math.floor((point.z - lookup.origin.z) / lookup.pixelScale);
+  if (px < 0 || px >= lookup.width || pz < 0 || pz >= lookup.height) return null;
+  const id = lookup.cells[pz * lookup.width + px] ?? 0;
+  const name = lookup.regions[id];
+  return id > 0 && name ? { id, name } : null;
 }

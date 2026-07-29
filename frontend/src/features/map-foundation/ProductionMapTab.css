@@ -237,7 +237,6 @@
   font-weight: 600;
   letter-spacing: 0.025em;
   opacity: 0.94;
-  white-space: nowrap;
   text-shadow:
     0 1px 2px #000,
     0 0 4px #000,
@@ -250,9 +249,53 @@
     transform 160ms ease;
 }
 
+.stage26e-production-map-viewport .map-foundation-labels {
+  z-index: 2;
+}
+
+.stage26e-production-map-viewport .map-foundation-labels span {
+  width: max-content;
+  max-width: 148px;
+  line-height: 1.18;
+  text-align: center;
+  text-wrap: balance;
+  white-space: normal;
+}
+
 .stage26e-production-map-viewport .map-foundation-cluster-labels span {
   color: #ffd180;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.stage26e-production-map-viewport .map-foundation-current-region {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stage26e-production-map-viewport .map-foundation-current-region span {
+  width: min(76vw, 900px);
+  color: #e7954b;
+  font-family: var(--font-display, ui-sans-serif, sans-serif);
+  font-size: clamp(2.75rem, 7vw, 6.5rem);
+  font-weight: 700;
+  line-height: 0.94;
+  letter-spacing: 0.055em;
+  opacity: 0.1;
+  text-align: center;
+  text-shadow: 0 0 28px rgba(255, 126, 30, 0.22);
+  text-wrap: balance;
+  transform: scale(calc(0.72 + var(--region-label-scale, 1) * 0.28));
+  transform-origin: center;
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+  white-space: normal;
 }
 
 .stage26e-production-map-viewport .map-foundation-range-labels span {
