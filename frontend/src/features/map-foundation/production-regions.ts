@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import type { RegionLayerData } from './types';
+import type { RegionLayerData, RegionLookupData } from './types';
 
 export const AUTHORITATIVE_REGION_LAYER_PATH = 'stage26e/authoritative-regions.json';
 export const AUTHORITATIVE_REGION_LABEL_COUNT = 42;
@@ -10,6 +10,59 @@ function isPoint(value: unknown): value is [number, number, number] {
   return Array.isArray(value)
     && value.length === 3
     && value.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate));
+}
+
+function validateRegionLookup(value: unknown): RegionLookupData {
+  if (!value || typeof value !== 'object') {
+    throw new Error('Authoritative region layer must include its lookup grid');
+  }
+  const candidate = value as Partial<RegionLookupData>;
+  if (
+    !candidate.origin
+    || typeof candidate.origin.x !== 'number'
+    || !Number.isFinite(candidate.origin.x)
+    || typeof candidate.origin.z !== 'number'
+    || !Number.isFinite(candidate.origin.z)
+    || typeof candidate.pixel_scale !== 'number'
+    || !Number.isFinite(candidate.pixel_scale)
+    || candidate.pixel_scale <= 0
+  ) {
+    throw new Error('Authoritative region lookup has invalid coordinates');
+  }
+  if (
+    !Array.isArray(candidate.regions)
+    || candidate.regions.length !== AUTHORITATIVE_REGION_LABEL_COUNT + 1
+    || candidate.regions[0] !== ''
+    || candidate.regions.slice(1).some((name) => typeof name !== 'string' || name.length === 0)
+  ) {
+    throw new Error('Authoritative region lookup has invalid region names');
+  }
+  if (
+    !Array.isArray(candidate.regionmap)
+    || candidate.regionmap.length === 0
+    || candidate.regionmap.some((row) => (
+      !Array.isArray(row)
+      || row.length === 0
+      || row.some((run) => (
+        !Array.isArray(run)
+        || run.length !== 2
+        || !Number.isInteger(run[0])
+        || run[0] <= 0
+        || !Number.isInteger(run[1])
+        || run[1] < 0
+        || run[1] > AUTHORITATIVE_REGION_LABEL_COUNT
+      ))
+    ))
+  ) {
+    throw new Error('Authoritative region lookup has an invalid RLE grid');
+  }
+  const rowWidths = candidate.regionmap.map(
+    (row) => row.reduce((width, [runLength]) => width + runLength, 0),
+  );
+  if (rowWidths.some((width) => width !== rowWidths[0])) {
+    throw new Error('Authoritative region lookup rows must share one width');
+  }
+  return candidate as RegionLookupData;
 }
 
 export function validateAuthoritativeRegionLayer(value: unknown): RegionLayerData {
@@ -37,6 +90,7 @@ export function validateAuthoritativeRegionLayer(value: unknown): RegionLayerDat
       throw new Error('Authoritative region layer contains an invalid boundary');
     }
   });
+  candidate.lookup = validateRegionLookup(candidate.lookup);
   return candidate as RegionLayerData;
 }
 

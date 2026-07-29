@@ -356,3 +356,60 @@ describe('R3F galactic core glow', () => {
     expect(tilted.screenY).not.toBeCloseTo(initial.screenY);
   });
 });
+
+describe('R3F current-region indicator', () => {
+  const regionNames = ['', 'Inner Orion Spur', 'Outer Scutum-Centaurus Arm'];
+  const regions = {
+    labels: [
+      { id: 1, name: regionNames[1]!, position: [50, 50, 0] as [number, number, number] },
+      { id: 2, name: regionNames[2]!, position: [150, 50, 0] as [number, number, number] },
+    ],
+    boundaries: [],
+    lookup: {
+      origin: { x: 0, z: 0 },
+      pixel_scale: 100,
+      regions: regionNames,
+      regionmap: [[[1, 1], [1, 2]]] as Array<Array<[number, number]>>,
+    },
+  };
+
+  it('bypasses normal decluttering and updates from the camera-centre grid cell', () => {
+    const cameraAt = (x: number, zoom: number): MapSceneState => ({
+      ...scene,
+      camera: {
+        ...scene.camera,
+        center: { x, z: 50 },
+        zoom,
+      },
+    });
+    const view = render(
+      <R3FMapFoundation
+        scene={cameraAt(50, 150)}
+        regions={regions}
+        viewPreset="galaxy"
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const renderer = () => view.container.querySelector('.map-foundation-renderer')!;
+    const indicator = () => view.container.querySelector('.map-foundation-current-region span')!;
+
+    expect(renderer().getAttribute('data-current-region-name')).toBe('Inner Orion Spur');
+    expect(indicator().textContent).toBe('Inner Orion Spur');
+
+    view.rerender(
+      <R3FMapFoundation
+        scene={cameraAt(150, 20)}
+        regions={regions}
+        viewPreset="galaxy"
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+
+    expect(renderer().getAttribute('data-current-region-id')).toBe('2');
+    expect(renderer().getAttribute('data-current-region-name')).toBe('Outer Scutum-Centaurus Arm');
+    expect(indicator().textContent).toBe('Outer Scutum-Centaurus Arm');
+    expect(indicator().getAttribute('style')).toContain('--region-label-scale');
+  });
+});

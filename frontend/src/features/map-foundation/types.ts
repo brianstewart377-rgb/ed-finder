@@ -23,9 +23,17 @@ export type RegionBoundary = {
   target: [number, number, number];
 };
 
+export type RegionLookupData = {
+  origin: { x: number; z: number };
+  pixel_scale: number;
+  regions: string[];
+  regionmap: Array<Array<[number, number]>>;
+};
+
 export type RegionLayerData = {
   labels: RegionLabel[];
   boundaries: RegionBoundary[];
+  lookup?: RegionLookupData;
 };
 
 export type ViewportSize = { width: number; height: number };
