@@ -199,6 +199,9 @@ export function ProductionMapTab({
   }, [galaxyBounds, referenceCoords, viewPreset, viewport]);
 
   const onInteraction = useCallback((event: MapInteractionEvent) => {
+    if (event.type === 'cameraChanged') {
+      cancelZoom();
+    }
     if (event.type === 'overlapChoiceRequired') {
       setOverlapCandidateIds(event.candidateSystemIds);
       setScene((current) => ({
@@ -214,7 +217,7 @@ export function ProductionMapTab({
     if (event.type === 'selectSystem' || event.type === 'overlapChoice' || event.type === 'deselectSystem') {
       setOverlapCandidateIds([]);
     }
-  }, []);
+  }, [cancelZoom]);
 
   const selectOverlapCandidate = useCallback((systemId64: number) => {
     setScene((current) => reduceScene(current, { type: 'selectSystem', systemId64 }));
@@ -234,12 +237,13 @@ export function ProductionMapTab({
   }, [cancelZoom, galaxyBounds, referenceCoords, viewport]);
 
   const snapTopDown = useCallback(() => {
+    cancelZoom();
     setScene((current) => ({
       ...current,
       cameraIntent: 'user',
       camera: snapCameraTopDown(current.camera),
     }));
-  }, []);
+  }, [cancelZoom]);
   const stepZoom = useCallback((deltaY: number) => {
     requestZoomDelta(deltaY);
   }, [requestZoomDelta]);

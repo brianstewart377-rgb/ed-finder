@@ -20,6 +20,7 @@ function ZoomHarness() {
       <output data-testid="centre">{camera.center.x},{camera.center.z}</output>
       <button type="button" onClick={() => zoom.requestDelta(-220)}>Zoom in</button>
       <button type="button" onClick={() => zoom.requestDelta(220)}>Zoom out</button>
+      <button type="button" onClick={zoom.cancel}>Cancel zoom</button>
     </div>
   );
 }
@@ -121,6 +122,19 @@ describe('retargetable smooth map zoom', () => {
 
     expect(emitted).toHaveLength(3);
     expect(emitted[2].zoom).toBeLessThan(emitted[1].zoom);
+  });
+
+  it('stops at the current camera when a non-zoom action cancels the transition', () => {
+    render(<ZoomHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in' }));
+    act(() => advanceFrame(200));
+    const zoomAtCancel = Number(screen.getByTestId('zoom').textContent);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel zoom' }));
+    act(() => advanceFrame(500));
+
+    expect(Number(screen.getByTestId('zoom').textContent)).toBe(zoomAtCancel);
+    expect(frames.size).toBe(0);
   });
 
   it('settles immediately when reduced motion is requested', () => {
