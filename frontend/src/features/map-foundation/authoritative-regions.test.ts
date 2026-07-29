@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAuthoritativeRegionLayerFromBlob,
+  decodeAuthoritativeRegionLookup,
+  findAuthoritativeRegionAt,
   type RegionMapBlob,
 } from './authoritative-regions';
 
@@ -41,5 +43,23 @@ describe('authoritative region boundaries', () => {
       { source: [3, 2, 0], target: [3, 4, 0] },
       { source: [2, 2, 0], target: [3, 2, 0] },
     ]);
+  });
+
+  it('decodes the existing RLE grid once for constant-time camera-centre lookup', () => {
+    const decoded = decodeAuthoritativeRegionLookup(fixture([
+      [[2, 1], [2, 2]],
+      [[1, 1], [3, 2]],
+    ]));
+
+    expect(findAuthoritativeRegionAt(decoded, { x: 0.5, z: 0.5 })).toEqual({
+      id: 1,
+      name: 'Region 1',
+    });
+    expect(findAuthoritativeRegionAt(decoded, { x: 2.5, z: 0.5 })).toEqual({
+      id: 2,
+      name: 'Region 2',
+    });
+    expect(findAuthoritativeRegionAt(decoded, { x: -1, z: 0 })).toBeNull();
+    expect(findAuthoritativeRegionAt(decoded, { x: 4, z: 0 })).toBeNull();
   });
 });

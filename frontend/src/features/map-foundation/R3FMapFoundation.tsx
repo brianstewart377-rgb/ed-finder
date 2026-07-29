@@ -27,6 +27,10 @@ import {
   regionLabelScale,
   safariGestureZoomDelta,
 } from './map-presentation';
+import {
+  decodeAuthoritativeRegionLookup,
+  findAuthoritativeRegionAt,
+} from './authoritative-regions';
 import { measureRendererGpuTiming } from './performance';
 import {
   buildClusterGeometry,
@@ -832,6 +836,18 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   );
   const labels = useMemo(() => projectLabels(props), [props]);
   const labelScale = regionLabelScale(props.scene.camera.zoom);
+  const decodedRegionLookup = useMemo(
+    () => props.viewPreset === 'galaxy' && props.regions.lookup
+      ? decodeAuthoritativeRegionLookup(props.regions.lookup)
+      : null,
+    [props.regions.lookup, props.viewPreset],
+  );
+  const currentRegion = useMemo(
+    () => decodedRegionLookup
+      ? findAuthoritativeRegionAt(decodedRegionLookup, props.scene.camera.center)
+      : null,
+    [decodedRegionLookup, props.scene.camera.center],
+  );
   const galacticCoreProjection = useMemo(() => {
     const centre = projectWorldPoint(
       props.scene.camera,
@@ -1076,6 +1092,8 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-camera-zoom={props.scene.camera.zoom}
     data-camera-center-x={props.scene.camera.center.x}
     data-camera-center-z={props.scene.camera.center.z}
+    data-current-region-id={currentRegion?.id}
+    data-current-region-name={currentRegion?.name}
     data-galactic-core-world-x={GALAXY_CENTER.x}
     data-galactic-core-world-z={GALAXY_CENTER.z}
     data-galactic-core-radius-ly={GALACTIC_CORE_GLOW_RADIUS_LY}
@@ -1180,12 +1198,21 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     </div>
     <div className="map-foundation-labels" aria-hidden="true">
       {labels.filter((label) => label.visible).map((label) => <span key={label.id}
+        data-region-name={label.name}
         style={{
           left: label.screen.x,
           top: label.screen.z,
           '--region-label-scale': labelScale,
         } as CSSProperties}>{label.name}</span>)}
     </div>
+    {currentRegion && <div className="map-foundation-current-region" aria-hidden="true">
+      <span
+        data-current-region-id={currentRegion.id}
+        style={{ '--region-label-scale': labelScale } as CSSProperties}
+      >
+        {currentRegion.name}
+      </span>
+    </div>}
     <div className="map-foundation-range-labels" aria-hidden="true">
       {rangeLabels.map((label) => <span
         key={label.distance}

@@ -13,6 +13,12 @@ function layer() {
       position: [index, index + 1, 0],
     })),
     boundaries: [{ source: [0, 0, 0], target: [1, 1, 0] }],
+    lookup: {
+      origin: { x: 0, z: 0 },
+      pixel_scale: 1,
+      regions: ['', ...Array.from({ length: 42 }, (_, index) => `Region ${index + 1}`)],
+      regionmap: [[[42, 1]]],
+    },
   };
 }
 
@@ -26,6 +32,7 @@ describe('production authoritative region layer', () => {
 
     expect(result.labels).toHaveLength(42);
     expect(result.boundaries).toHaveLength(1);
+    expect(result.lookup?.regionmap).toEqual([[[42, 1]]]);
     expect(fetch).toHaveBeenCalledWith('/stage26e/authoritative-regions.json', { cache: 'no-cache' });
   });
 
@@ -40,6 +47,16 @@ describe('production authoritative region layer', () => {
       () => ({ source: [0, 0, 0], target: [1, 1, 0] }),
     );
     expect(() => validateAuthoritativeRegionLayer(excessive)).toThrow('exceeds 25000 boundaries');
+  });
+
+  it('rejects missing or malformed lookup data', () => {
+    const missing = layer();
+    delete (missing as Partial<typeof missing>).lookup;
+    expect(() => validateAuthoritativeRegionLayer(missing)).toThrow('must include its lookup grid');
+
+    const malformed = layer();
+    malformed.lookup.regionmap = [[[0, 1]]];
+    expect(() => validateAuthoritativeRegionLayer(malformed)).toThrow('invalid RLE grid');
   });
 
   it('rejects a response above the four-MiB transport budget', async () => {
