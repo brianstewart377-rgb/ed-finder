@@ -108,3 +108,91 @@ describe('R3F map north lock', () => {
     ).toEqual([0, 0]);
   });
 });
+
+describe('R3F galactic core glow', () => {
+  it('keeps one real-world core position while its projection follows pan, zoom, and tilt', () => {
+    const coreScene: MapSceneState = {
+      ...scene,
+      camera: {
+        center: { x: 25.2, z: 25_899.9 },
+        zoom: 150,
+        pitchDeg: 42,
+        bearingDeg: 0,
+      },
+    };
+    const view = render(
+      <R3FMapFoundation
+        scene={coreScene}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const renderer = () => view.container.querySelector('.map-foundation-renderer')!;
+    const projection = () => ({
+      worldX: Number(renderer().getAttribute('data-galactic-core-world-x')),
+      worldZ: Number(renderer().getAttribute('data-galactic-core-world-z')),
+      radiusLy: Number(renderer().getAttribute('data-galactic-core-radius-ly')),
+      screenX: Number(renderer().getAttribute('data-galactic-core-screen-x')),
+      screenY: Number(renderer().getAttribute('data-galactic-core-screen-y')),
+      screenRadius: Number(renderer().getAttribute('data-galactic-core-screen-radius')),
+    });
+    const initial = projection();
+
+    expect(initial.worldX).toBe(25.2);
+    expect(initial.worldZ).toBe(25_899.9);
+    expect(initial.radiusLy).toBe(18_000);
+    expect(initial.screenX).toBeCloseTo(640);
+
+    view.rerender(
+      <R3FMapFoundation
+        scene={{
+          ...coreScene,
+          camera: {
+            ...coreScene.camera,
+            center: { x: 12_025.2, z: 25_899.9 },
+          },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const panned = projection();
+    expect(panned.worldX).toBe(initial.worldX);
+    expect(panned.worldZ).toBe(initial.worldZ);
+    expect(panned.screenX).toBeLessThan(initial.screenX);
+
+    view.rerender(
+      <R3FMapFoundation
+        scene={{
+          ...coreScene,
+          camera: { ...coreScene.camera, zoom: 75 },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const zoomed = projection();
+    expect(zoomed.worldX).toBe(initial.worldX);
+    expect(zoomed.worldZ).toBe(initial.worldZ);
+    expect(zoomed.screenRadius).toBeGreaterThan(initial.screenRadius * 1.9);
+
+    view.rerender(
+      <R3FMapFoundation
+        scene={{
+          ...coreScene,
+          camera: { ...coreScene.camera, pitchDeg: 60 },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const tilted = projection();
+    expect(tilted.worldX).toBe(initial.worldX);
+    expect(tilted.worldZ).toBe(initial.worldZ);
+    expect(tilted.screenY).not.toBeCloseTo(initial.screenY);
+  });
+});
