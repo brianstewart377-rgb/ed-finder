@@ -8,7 +8,7 @@ import type { SystemResult } from '@/types/api';
 vi.mock('@/features/map/useMapLayers');
 vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
-  R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction }: {
+  R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction, onZoomIntent }: {
     scene: {
       systems: Array<{ id64: number }>;
       camera: { bearingDeg: number; pitchDeg: number; zoom: number };
@@ -16,6 +16,7 @@ vi.mock('./R3FMapFoundation', () => ({
     regions: { labels: unknown[]; boundaries: unknown[] };
     productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
     onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
+    onZoomIntent?: (deltaY: number) => void;
   }) => (
     <div
       data-testid="r3f-production-renderer"
@@ -30,6 +31,9 @@ vi.mock('./R3FMapFoundation', () => ({
     >
       <button type="button" onClick={() => onInteraction({ type: 'selectSystem', systemId64: scene.systems[0]?.id64 ?? 0, clusterAnchorId64: null })}>
         Select first
+      </button>
+      <button type="button" onClick={() => onZoomIntent?.(-120)}>
+        Simulate wheel zoom
       </button>
     </div>
   ),
@@ -195,6 +199,11 @@ describe('Stage 26E production route composition', () => {
       disconnect() {}
     }
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
 
     render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
@@ -210,6 +219,8 @@ describe('Stage 26E production route composition', () => {
     expect(Number(renderer.getAttribute('data-camera-zoom'))).toBeLessThan(initialZoom);
     fireEvent.click(screen.getByTestId('map-zoom-out'));
     expect(Number(renderer.getAttribute('data-camera-zoom'))).toBeCloseTo(initialZoom);
+    fireEvent.click(screen.getByRole('button', { name: 'Simulate wheel zoom' }));
+    expect(Number(renderer.getAttribute('data-camera-zoom'))).toBeLessThan(initialZoom);
 
     fireEvent.click(screen.getByTestId('map-snap-top-down'));
     expect(renderer.getAttribute('data-camera-pitch')).toBe('0.5');

@@ -99,6 +99,7 @@ export type FoundationRendererProps = {
   galaxyBounds?: { minX: number; maxX: number; minZ: number; maxZ: number };
   maxBackgroundPoints?: number;
   onInteraction: (event: MapInteractionEvent) => void;
+  onZoomIntent?: (deltaY: number) => void;
   onVisibilityChange?: (metadata: VisibilityMetadata) => void;
   onReady?: () => void;
   onGpuTimerReady?: (timer: FoundationGpuTimer | null) => void;

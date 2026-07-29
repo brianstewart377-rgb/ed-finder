@@ -11,6 +11,196 @@
     0 18px 42px -28px rgba(255, 119, 22, 0.4);
 }
 
+.map-workspace--immersive {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  min-height: 100%;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #010306;
+  isolation: isolate;
+}
+
+.map-workspace--immersive .map-workspace__top-hud {
+  position: absolute;
+  z-index: 15;
+  top: 6.4rem;
+  right: 1rem;
+  left: 1rem;
+  display: flex;
+  align-items: stretch;
+  gap: 0.7rem;
+  pointer-events: none;
+}
+
+.map-workspace--immersive .map-workspace__header,
+.map-workspace--immersive .map-workspace__controls {
+  min-width: 0;
+  border: 1px solid rgba(211, 137, 61, 0.25);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(21, 21, 23, 0.84), rgba(7, 10, 13, 0.7));
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.04),
+    0 14px 34px -24px rgba(0, 0, 0, 0.94);
+  backdrop-filter: blur(13px) saturate(112%);
+  pointer-events: auto;
+}
+
+.map-workspace--immersive .map-workspace__header {
+  flex: 1 1 31rem;
+  gap: 0.9rem;
+  padding: 0.62rem 0.8rem;
+}
+
+.map-workspace--immersive .map-workspace__title > p {
+  display: none;
+}
+
+.map-workspace--immersive .map-workspace__title h2 {
+  font-size: 1rem;
+}
+
+.map-workspace--immersive .map-workspace__actions {
+  gap: 0.45rem;
+}
+
+.map-workspace--immersive .map-workspace__actions button {
+  min-height: 2.1rem;
+  padding: 0.4rem 0.68rem;
+  border-radius: 0.7rem;
+  font-size: 0.58rem;
+}
+
+.map-workspace--immersive .map-workspace__controls {
+  flex: 1.3 1 42rem;
+  flex-wrap: nowrap;
+  align-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 0.65rem;
+  border-bottom: 1px solid rgba(211, 137, 61, 0.25);
+  background:
+    linear-gradient(180deg, rgba(21, 21, 23, 0.82), rgba(7, 10, 13, 0.68));
+}
+
+.map-workspace--immersive .map-workspace__segmented button {
+  min-height: 2.1rem;
+  padding: 0.42rem 0.58rem;
+  font-size: 0.57rem;
+}
+
+.map-workspace--immersive .map-workspace__layers {
+  margin-left: auto;
+}
+
+.map-workspace--immersive .map-workspace__layers-content {
+  position: absolute;
+  z-index: 24;
+  top: calc(100% + 0.55rem);
+  right: 0;
+  width: min(48rem, calc(100vw - 2rem));
+  max-height: min(60vh, 32rem);
+  overflow-y: auto;
+  margin-top: 0;
+  background: rgba(10, 12, 15, 0.94);
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(16px);
+}
+
+.map-workspace--immersive .map-workspace__map-frame {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  min-width: 0;
+}
+
+.map-workspace--immersive .stage26e-production-map-viewport {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.map-workspace--immersive .map-workspace__empty {
+  position: absolute;
+  z-index: 8;
+  top: 50%;
+  left: 50%;
+  width: min(30rem, calc(100% - 2rem));
+  min-height: 0;
+  padding: 1.2rem 1.4rem;
+  border: 1px solid rgba(211, 137, 61, 0.27);
+  border-radius: 14px;
+  transform: translate(-50%, -50%);
+  background: rgba(5, 8, 11, 0.78);
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(12px);
+}
+
+.map-workspace--immersive .map-workspace__status-overlays {
+  position: absolute;
+  z-index: 14;
+  right: 50%;
+  bottom: 4.75rem;
+  display: grid;
+  width: min(56rem, calc(100% - 2rem));
+  gap: 0.45rem;
+  transform: translateX(50%);
+  pointer-events: none;
+}
+
+.map-workspace--immersive .map-workspace__status-overlays > * {
+  background: rgba(7, 9, 12, 0.8);
+  backdrop-filter: blur(12px);
+  pointer-events: auto;
+}
+
+.map-workspace--immersive .map-workspace__selection {
+  z-index: 18;
+  top: 10.75rem;
+  right: 1rem;
+  width: min(320px, calc(100% - 2rem));
+  max-height: calc(100% - 16rem);
+  overflow-y: auto;
+}
+
+.map-workspace--immersive .map-workspace__selection > * {
+  background: rgba(8, 10, 13, 0.88);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(14px);
+}
+
+.map-workspace--immersive .map-foundation-map-readout {
+  top: 10.75rem;
+}
+
+.map-workspace--immersive .map-foundation-render-stats,
+.map-workspace--immersive .authoritative-region-map__credit {
+  bottom: 4.6rem;
+}
+
+@media (max-width: 1360px) {
+  .map-workspace--immersive .map-workspace__top-hud {
+    flex-wrap: wrap;
+  }
+
+  .map-workspace--immersive .map-workspace__header,
+  .map-workspace--immersive .map-workspace__controls {
+    flex-basis: 100%;
+  }
+
+  .map-workspace--immersive .map-workspace__selection,
+  .map-workspace--immersive .map-foundation-map-readout {
+    top: 15rem;
+  }
+}
+
 .stage26e-production-map-viewport .map-foundation-renderer {
   position: absolute;
   inset: 0;
