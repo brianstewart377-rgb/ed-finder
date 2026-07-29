@@ -335,9 +335,7 @@
 }
 
 .stage26e-production-map-viewport .authoritative-region-map {
-  background:
-    radial-gradient(circle at 50% 48%, rgba(111, 54, 22, 0.17), transparent 32%),
-    linear-gradient(180deg, #03070b, #06090d);
+  background: linear-gradient(180deg, #03070b, #06090d);
 }
 
 .authoritative-region-map__sheet {

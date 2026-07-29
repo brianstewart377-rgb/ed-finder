@@ -39,6 +39,8 @@ import {
 const GALAXY_CENTER = { x: 25.2, z: 25_899.9 } as const;
 const GALAXY_RADIUS_LY = 50_000;
 const GALAXY_POINT_COUNT = 18_000;
+const GALACTIC_CORE_GLOW_RADIUS_LY = 18_000;
+const GALACTIC_CORE_GLOW_HEIGHT_LY = -850;
 
 function positions(
   systems: SystemRecord[],
@@ -95,6 +97,27 @@ function configureRenderCamera(
   camera.near = Math.max(0.1, distance / 20_000);
   camera.far = Math.max(250_000, distance + 200_000);
   camera.updateProjectionMatrix();
+}
+
+function projectWorldPoint(
+  cameraState: CameraState,
+  viewport: ViewportSize,
+  point: [number, number, number],
+): { x: number; y: number; depth: number } {
+  const camera = new THREE.PerspectiveCamera(
+    42,
+    viewport.width / Math.max(1, viewport.height),
+    0.1,
+    500_000,
+  );
+  configureRenderCamera(camera, viewport, cameraState);
+  camera.updateMatrixWorld(true);
+  const projected = new THREE.Vector3(...point).project(camera);
+  return {
+    x: (projected.x * 0.5 + 0.5) * viewport.width,
+    y: (-projected.y * 0.5 + 0.5) * viewport.height,
+    depth: projected.z,
+  };
 }
 
 function CameraProjection({ cameraState }: { cameraState: CameraState }) {
@@ -283,14 +306,6 @@ function makeGalaxyTexture(): THREE.CanvasTexture | null {
   if (!context) return null;
   const centre = 512;
 
-  const core = context.createRadialGradient(centre, centre, 0, centre, centre, 240);
-  core.addColorStop(0, 'rgba(255, 178, 92, 0.72)');
-  core.addColorStop(0.16, 'rgba(220, 111, 40, 0.32)');
-  core.addColorStop(0.5, 'rgba(113, 58, 33, 0.12)');
-  core.addColorStop(1, 'rgba(35, 39, 52, 0)');
-  context.fillStyle = core;
-  context.fillRect(0, 0, canvas.width, canvas.height);
-
   context.globalCompositeOperation = 'lighter';
   context.save();
   context.translate(centre, centre);
@@ -331,6 +346,56 @@ function makeGalaxyTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
+function makeGalacticCoreGlowTexture(): THREE.CanvasTexture | null {
+  if (typeof document === 'undefined') return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const context = canvas.getContext('2d');
+  if (!context) return null;
+  const centre = canvas.width / 2;
+  const glow = context.createRadialGradient(centre, centre, 0, centre, centre, centre);
+  glow.addColorStop(0, 'rgba(255, 196, 116, 0.92)');
+  glow.addColorStop(0.12, 'rgba(255, 150, 62, 0.58)');
+  glow.addColorStop(0.36, 'rgba(190, 86, 31, 0.28)');
+  glow.addColorStop(0.68, 'rgba(93, 45, 27, 0.1)');
+  glow.addColorStop(1, 'rgba(35, 39, 52, 0)');
+  context.fillStyle = glow;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+function GalacticCoreGlow({ spatial }: { spatial: boolean }) {
+  const texture = useMemo(makeGalacticCoreGlowTexture, []);
+  useEffect(() => () => texture?.dispose(), [texture]);
+  if (!texture) return null;
+  return <mesh
+    position={[
+      GALAXY_CENTER.x,
+      GALAXY_CENTER.z,
+      GALACTIC_CORE_GLOW_HEIGHT_LY,
+    ]}
+    renderOrder={-2}
+  >
+    <planeGeometry args={[
+      GALACTIC_CORE_GLOW_RADIUS_LY * 2,
+      GALACTIC_CORE_GLOW_RADIUS_LY * 2,
+    ]} />
+    <meshBasicMaterial
+      map={texture}
+      transparent
+      opacity={spatial ? 0.68 : 0.76}
+      blending={THREE.AdditiveBlending}
+      depthTest={false}
+      depthWrite={false}
+    />
+  </mesh>;
+}
+
 function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
   const galaxy = useMemo(makeGalaxyPointCloud, []);
   const texture = useMemo(makeGalaxyTexture, []);
@@ -358,6 +423,7 @@ function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: number }) {
       <circleGeometry args={[GALAXY_RADIUS_LY * 0.16, 96]} />
       <meshBasicMaterial color="#b45a1b" transparent opacity={spatial ? 0.11 : 0.15} depthWrite={false} />
     </mesh>
+    <GalacticCoreGlow spatial={spatial} />
     <points renderOrder={-1}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[galaxy.positions, 3]} />
@@ -745,6 +811,26 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   );
   const labels = useMemo(() => projectLabels(props), [props]);
   const labelScale = regionLabelScale(props.scene.camera.zoom);
+  const galacticCoreProjection = useMemo(() => {
+    const centre = projectWorldPoint(
+      props.scene.camera,
+      props.viewport,
+      [GALAXY_CENTER.x, GALAXY_CENTER.z, GALACTIC_CORE_GLOW_HEIGHT_LY],
+    );
+    const edge = projectWorldPoint(
+      props.scene.camera,
+      props.viewport,
+      [
+        GALAXY_CENTER.x + GALACTIC_CORE_GLOW_RADIUS_LY,
+        GALAXY_CENTER.z,
+        GALACTIC_CORE_GLOW_HEIGHT_LY,
+      ],
+    );
+    return {
+      ...centre,
+      radius: Math.hypot(edge.x - centre.x, edge.y - centre.y),
+    };
+  }, [props.scene.camera, props.viewport]);
   const safariGesture = useRef<{
     startScale: number;
     scale: number;
@@ -880,6 +966,13 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-camera-zoom={props.scene.camera.zoom}
     data-camera-center-x={props.scene.camera.center.x}
     data-camera-center-z={props.scene.camera.center.z}
+    data-galactic-core-world-x={GALAXY_CENTER.x}
+    data-galactic-core-world-z={GALAXY_CENTER.z}
+    data-galactic-core-radius-ly={GALACTIC_CORE_GLOW_RADIUS_LY}
+    data-galactic-core-screen-x={galacticCoreProjection.x}
+    data-galactic-core-screen-y={galacticCoreProjection.y}
+    data-galactic-core-screen-radius={galacticCoreProjection.radius}
+    data-galactic-core-screen-depth={galacticCoreProjection.depth}
     onPointerDownCapture={(event) => {
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
       event.currentTarget.setPointerCapture(event.pointerId);
