@@ -208,6 +208,11 @@
   touch-action: none;
 }
 
+.stage26e-production-map-viewport .map-foundation-renderer:focus-visible {
+  outline: 1px solid rgba(255, 139, 43, 0.72);
+  outline-offset: -3px;
+}
+
 .stage26e-production-map-viewport .map-foundation-renderer:not(.authoritative-region-map) > div:first-child,
 .stage26e-production-map-viewport .map-foundation-renderer canvas {
   width: 100% !important;
