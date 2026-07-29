@@ -272,6 +272,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   }, []);
 
   const plannerWorkspaceRoute = route === 'colony-planner';
+  const immersiveMapRoute = route === 'map';
 
   return (
     <>
@@ -284,10 +285,12 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
       <main
         id="app-content"
         className={[
-          'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
-          plannerWorkspaceRoute ? 'pb-10' : 'pb-28',
-          plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]',
-        ].join(' ')}
+          immersiveMapRoute
+            ? 'map-immersive-shell'
+            : 'min-h-screen px-4 py-6 sm:px-6 sm:py-10',
+          !immersiveMapRoute && (plannerWorkspaceRoute ? 'pb-10' : 'pb-28'),
+          !immersiveMapRoute && (plannerWorkspaceRoute ? 'max-w-none' : 'mx-auto max-w-[1840px]'),
+        ].filter(Boolean).join(' ')}
       >
       <NavBar
         current={route}
@@ -297,7 +300,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         compareCount={compare.entries.length}
         fcCount={fc.waypoints.length}
         health={health}
-        fullWidth={plannerWorkspaceRoute}
+        fullWidth={plannerWorkspaceRoute || immersiveMapRoute}
+        immersive={immersiveMapRoute}
         selectedSystem={shellSelectedSystem}
         onOpenSelectedSystemInPlan={shellSelectedSystem && route !== 'colony-planner' ? openShellContextInPlan : undefined}
         onDismissSelectedSystem={closeSystemDetail}
@@ -325,7 +329,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         />
       )}
 
-      <Suspense fallback={<WorkspaceFallback label="Loading workspace" fullWidth={plannerWorkspaceRoute} />}>
+      <Suspense fallback={<WorkspaceFallback label="Loading workspace" fullWidth={plannerWorkspaceRoute || immersiveMapRoute} />}>
         {route === 'my-work' && (
           <LazyMyWorkWorkspace
             key={route}
@@ -410,7 +414,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
       </Suspense>
 
-      <footer className="app-attribution">
+      <footer className={immersiveMapRoute ? 'app-attribution app-attribution--map' : 'app-attribution'}>
         <details>
           <summary>
             <span>ED:Finder</span>

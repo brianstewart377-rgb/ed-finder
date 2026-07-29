@@ -301,6 +301,24 @@ vi.mock('@/features/map/MapTab', () => ({
   ),
 }));
 
+vi.mock('@/features/map-foundation/ProductionMapTab', () => ({
+  ProductionMapTab: ({
+    systems,
+    reference,
+    initialSelectedSystemId,
+  }: {
+    systems: Array<{ name?: string; id64: number }>;
+    reference: { name: string };
+    initialSelectedSystemId?: number | null;
+  }) => (
+    <div data-testid="map-tab">
+      <span>Map for {reference.name}</span>
+      <span data-testid="map-tab-system-count">{systems.length}</span>
+      <span data-testid="map-tab-selected-id">{initialSelectedSystemId ?? 'none'}</span>
+    </div>
+  ),
+}));
+
 afterEach(() => {
   window.location.hash = '';
   localStorage.clear();
@@ -374,6 +392,31 @@ describe('App Development Tuning route', () => {
     expect(screen.getByTestId('frontier-ip-attribution').textContent).toBe(
       'Elite Dangerous is a registered trademark of Frontier Developments plc. This application is an unofficial fan-made tool and is not affiliated with, endorsed by, or reflective of the views or opinions of Frontier Developments.',
     );
+  });
+
+  it('scopes the fixed immersive shell and floating legal HUD to the Map route', async () => {
+    window.location.hash = '#map';
+
+    const { container } = await renderApp();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('map-tab')).toBeTruthy();
+    });
+    const main = container.querySelector('main');
+    const footer = container.querySelector('footer');
+    expect(main?.classList.contains('map-immersive-shell')).toBe(true);
+    expect(screen.getByTestId('navbar').getAttribute('data-immersive')).toBe('true');
+    expect(footer?.classList.contains('app-attribution--map')).toBe(true);
+
+    window.location.hash = '#finder';
+    fireEvent(window, new HashChangeEvent('hashchange'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('finder-page-heading')).toBeTruthy();
+    });
+    expect(main?.classList.contains('map-immersive-shell')).toBe(false);
+    expect(screen.getByTestId('navbar').getAttribute('data-immersive')).toBe('false');
+    expect(footer?.classList.contains('app-attribution--map')).toBe(false);
   });
 
   it('renders Development Tuning for the direct route', async () => {
@@ -811,7 +854,8 @@ describe('App Colony Planner workspace route', () => {
     await waitFor(() => {
       expect(screen.getByTestId('map-tab-selected-id').textContent).toBe('777');
     });
-    expect(screen.getByTestId('product-shell-context').textContent).toContain('System 777');
+    expect(screen.queryByTestId('product-shell-context')).toBeNull();
+    expect(screen.getByRole('navigation').getAttribute('data-immersive')).toBe('true');
   });
 
   it('lets Finder remove an already saved system through the same Watchlist path', async () => {

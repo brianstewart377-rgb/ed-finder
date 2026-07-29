@@ -2,11 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   clampCameraCenter,
   DEFAULT_CAMERA_PITCH_DEG,
+  easeInOutSine,
+  interpolateZoomLog,
   MAX_ZOOM_LY_PER_PIXEL,
   MIN_CAMERA_PITCH_DEG,
   MIN_ZOOM_LY_PER_PIXEL,
   snapCameraTopDown,
   zoomCamera,
+  zoomLevelForDelta,
 } from './camera';
 
 const bounds = { minX: -49_000, maxX: 49_000, minZ: -22_000, maxZ: 74_000 };
@@ -63,5 +66,17 @@ describe('unified map camera', () => {
       .toBe(MIN_ZOOM_LY_PER_PIXEL);
     expect(zoomCamera(camera, 1_000_000, { width: 1, height: 1 }).zoom)
       .toBe(MAX_ZOOM_LY_PER_PIXEL);
+  });
+
+  it('uses symmetric sine easing and logarithmic scale interpolation', () => {
+    expect(easeInOutSine(0)).toBe(0);
+    expect(easeInOutSine(0.5)).toBeCloseTo(0.5);
+    expect(easeInOutSine(1)).toBe(1);
+    expect(easeInOutSine(0.25)).toBeCloseTo(1 - easeInOutSine(0.75));
+
+    expect(interpolateZoomLog(100, 25, 0)).toBeCloseTo(100);
+    expect(interpolateZoomLog(100, 25, 0.5)).toBeCloseTo(50);
+    expect(interpolateZoomLog(100, 25, 1)).toBeCloseTo(25);
+    expect(zoomLevelForDelta(100, -220)).toBeCloseTo(100 * Math.exp(-0.22));
   });
 });

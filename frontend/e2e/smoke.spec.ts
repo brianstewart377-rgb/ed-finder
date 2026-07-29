@@ -127,12 +127,22 @@ test.describe('ED Finder — smoke', () => {
     const renderer = page.locator('.map-foundation-renderer');
     await expect(renderer).toHaveAttribute('data-projection', 'perspective');
     await expect(renderer).toHaveAttribute('data-camera-pitch', '42');
+    const mapViewport = page.getByTestId('stage26e-production-map-viewport');
+    const viewportBox = await mapViewport.boundingBox();
+    const browserViewport = page.viewportSize();
+    expect(viewportBox).not.toBeNull();
+    expect(browserViewport).not.toBeNull();
+    expect(viewportBox!.width / browserViewport!.width).toBeGreaterThanOrEqual(0.98);
+    expect(viewportBox!.height / browserViewport!.height).toBeGreaterThanOrEqual(0.98);
     const zoomBefore = await renderer.getAttribute('data-camera-zoom');
     const centerXBefore = await renderer.getAttribute('data-camera-center-x');
     const centerZBefore = await renderer.getAttribute('data-camera-center-z');
     await page.getByTestId('map-zoom-in').click();
-    expect(Number(await renderer.getAttribute('data-camera-zoom'))).toBeLessThan(Number(zoomBefore));
+    await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+      .toBeLessThan(Number(zoomBefore));
+    await page.waitForTimeout(550);
     await page.getByTestId('map-zoom-out').click();
+    await page.waitForTimeout(550);
     const zoomBeforeSnap = await renderer.getAttribute('data-camera-zoom');
     await page.getByTestId('map-snap-top-down').click();
     await expect(renderer).toHaveAttribute('data-camera-pitch', '0.5');

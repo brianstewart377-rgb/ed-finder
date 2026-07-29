@@ -1,0 +1,36 @@
+{
+  "route": "http://127.0.0.1:3000/#map",
+  "productionMapFlag": "enabled",
+  "prefersReducedMotion": false,
+  "cameraCenter": {
+    "before": [-240.80722891566256, 25762.566265060246],
+    "after": [-240.80722891566256, 25762.566265060246]
+  },
+  "continuousRenderedSample": {
+    "note": "Timestamps include browser-control round trips and are evidence of intermediate rendered values, not the source of truth for the configured duration.",
+    "startZoom": 116.69327064354981,
+    "targetZoom": 93.64854328717178,
+    "samples": [
+      {"ms": 127, "zoom": 116.69327064354981},
+      {"ms": 208, "zoom": 116.68998705590502},
+      {"ms": 327, "zoom": 116.58801680085348},
+      {"ms": 450, "zoom": 115.97440456948976},
+      {"ms": 604, "zoom": 109.06012483337472},
+      {"ms": 759, "zoom": 97.7543056909915},
+      {"ms": 898, "zoom": 93.6828949941043},
+      {"ms": 1023, "zoom": 93.64854328717175}
+    ]
+  },
+  "postActionAcknowledgementSample": {
+    "note": "The browser-control click round trip completed at 324 ms. Intermediate values remained visible after acknowledgement and settled exactly on target.",
+    "startZoom": 60.31307265831977,
+    "targetZoom": 48.402374571178406,
+    "clickControlRoundTripMs": 324,
+    "samples": [
+      {"ms": 371, "zoom": 56.95715662572656},
+      {"ms": 496, "zoom": 56.95715662572656},
+      {"ms": 711, "zoom": 48.626602696969925},
+      {"ms": 900, "zoom": 48.4023745711784}
+    ]
+  }
+}

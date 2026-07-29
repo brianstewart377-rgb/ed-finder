@@ -736,7 +736,7 @@ function projectSystemLabels(
 }
 
 export function R3FMapFoundation(props: FoundationRendererProps) {
-  const { onVisibilityChange } = props;
+  const { onVisibilityChange, onZoomIntent } = props;
   const pointer = useRef<{ x: number; y: number; camera: CameraState } | null>(null);
   const rendererRef = useRef<HTMLDivElement>(null);
   const visible = useMemo(
@@ -745,7 +745,11 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   );
   const labels = useMemo(() => projectLabels(props), [props]);
   const labelScale = regionLabelScale(props.scene.camera.zoom);
-  const safariGesture = useRef<{ scale: number; camera: CameraState } | null>(null);
+  const safariGesture = useRef<{
+    startScale: number;
+    scale: number;
+    camera: CameraState;
+  } | null>(null);
   const highlightedIds = useMemo(() => highlightedSystemIds(props.scene.highlights), [props.scene.highlights]);
   const clusters = useMemo(() => buildClusterGeometry(props.scene), [props.scene]);
   const systemLabels = useMemo(() => {
@@ -794,6 +798,10 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
+    if (onZoomIntent) {
+      onZoomIntent(event.deltaY);
+      return;
+    }
     emitCamera(zoomCamera(
       props.scene.camera,
       event.deltaY,
@@ -802,6 +810,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     ));
   }, [
     emitCamera,
+    onZoomIntent,
     props.galaxyBounds,
     props.scene.camera,
     props.viewport,
@@ -813,8 +822,10 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     const handleGestureStart = (event: Event) => {
       const gesture = event as Event & { scale?: number };
       event.preventDefault();
+      const scale = gesture.scale ?? 1;
       safariGesture.current = {
-        scale: gesture.scale ?? 1,
+        startScale: scale,
+        scale,
         camera: props.scene.camera,
       };
     };
@@ -822,9 +833,16 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       if (!safariGesture.current) return;
       const gesture = event as Event & { scale?: number };
       event.preventDefault();
+      const nextScale = gesture.scale ?? safariGesture.current.scale;
+      const deltaY = safariGestureZoomDelta(safariGesture.current.scale, nextScale);
+      safariGesture.current.scale = nextScale;
+      if (onZoomIntent) {
+        onZoomIntent(deltaY);
+        return;
+      }
       emitCamera(zoomCamera(
         safariGesture.current.camera,
-        safariGestureZoomDelta(safariGesture.current.scale, gesture.scale ?? 1),
+        safariGestureZoomDelta(safariGesture.current.startScale, nextScale),
         props.viewport,
         props.galaxyBounds,
       ));
@@ -845,6 +863,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   }, [
     emitCamera,
     handleWheel,
+    onZoomIntent,
     props.galaxyBounds,
     props.scene.camera,
     props.viewport,

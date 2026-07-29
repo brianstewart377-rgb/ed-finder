@@ -7,6 +7,7 @@ export const MAX_CAMERA_PITCH_DEG = 72;
 export const CAMERA_VIEWPORT_HEIGHT_RATIO = 0.78;
 export const MIN_ZOOM_LY_PER_PIXEL = 0.01;
 export const MAX_ZOOM_LY_PER_PIXEL = 4_096;
+export const ZOOM_TRANSITION_DURATION_MS = 500;
 
 export type GalaxyBounds = {
   minX: number;
@@ -55,16 +56,36 @@ export function snapCameraTopDown(camera: CameraState): CameraState {
   };
 }
 
+export function zoomLevelForDelta(zoom: number, deltaY: number): number {
+  return Math.max(
+    MIN_ZOOM_LY_PER_PIXEL,
+    Math.min(MAX_ZOOM_LY_PER_PIXEL, zoom * Math.exp(deltaY * 0.001)),
+  );
+}
+
+export function easeInOutSine(progress: number): number {
+  const boundedProgress = Math.max(0, Math.min(1, progress));
+  return 0.5 - 0.5 * Math.cos(Math.PI * boundedProgress);
+}
+
+export function interpolateZoomLog(
+  fromZoom: number,
+  toZoom: number,
+  progress: number,
+): number {
+  const easedProgress = easeInOutSine(progress);
+  const fromLog = Math.log(Math.max(MIN_ZOOM_LY_PER_PIXEL, fromZoom));
+  const toLog = Math.log(Math.max(MIN_ZOOM_LY_PER_PIXEL, toZoom));
+  return Math.exp(fromLog + (toLog - fromLog) * easedProgress);
+}
+
 export function zoomCamera(
   camera: CameraState,
   deltaY: number,
   viewport: ViewportSize,
   bounds?: GalaxyBounds,
 ): CameraState {
-  const zoom = Math.max(
-    MIN_ZOOM_LY_PER_PIXEL,
-    Math.min(MAX_ZOOM_LY_PER_PIXEL, camera.zoom * Math.exp(deltaY * 0.001)),
-  );
+  const zoom = zoomLevelForDelta(camera.zoom, deltaY);
   return {
     ...camera,
     zoom,

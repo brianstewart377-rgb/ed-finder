@@ -33,8 +33,8 @@ import type { RegionLayerData, ViewportSize } from './types';
 import {
   DEFAULT_CAMERA_PITCH_DEG,
   snapCameraTopDown,
-  zoomCamera,
 } from './camera';
+import { useSmoothMapZoom } from './useSmoothMapZoom';
 import './ProductionMapTab.css';
 
 const EMPTY_REGIONS: RegionLayerData = { labels: [], boundaries: [] };
@@ -171,6 +171,20 @@ export function ProductionMapTab({
     showTimeline,
     timelineBucket,
   ]);
+  const applyAnimatedCamera = useCallback((camera: MapSceneState['camera']) => {
+    setScene((current) => ({
+      ...current,
+      cameraIntent: 'user',
+      camera,
+    }));
+  }, []);
+  const {
+    requestDelta: requestZoomDelta,
+    cancel: cancelZoom,
+  } = useSmoothMapZoom({
+    camera: scene.camera,
+    onCameraChange: applyAnimatedCamera,
+  });
 
   useEffect(() => {
     setScene((current) => current.cameraIntent === 'user'
@@ -208,6 +222,7 @@ export function ProductionMapTab({
   }, []);
 
   const selectViewPreset = useCallback((preset: MapViewPreset) => {
+    cancelZoom();
     setViewPreset(preset);
     setScene((current) => applyViewPreset(
       current,
@@ -216,7 +231,7 @@ export function ProductionMapTab({
       viewport,
       galaxyBounds,
     ));
-  }, [galaxyBounds, referenceCoords, viewport]);
+  }, [cancelZoom, galaxyBounds, referenceCoords, viewport]);
 
   const snapTopDown = useCallback(() => {
     setScene((current) => ({
@@ -226,12 +241,8 @@ export function ProductionMapTab({
     }));
   }, []);
   const stepZoom = useCallback((deltaY: number) => {
-    setScene((current) => ({
-      ...current,
-      cameraIntent: 'user',
-      camera: zoomCamera(current.camera, deltaY, viewport, galaxyBounds),
-    }));
-  }, [galaxyBounds, viewport]);
+    requestZoomDelta(deltaY);
+  }, [requestZoomDelta]);
 
   const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
@@ -275,7 +286,8 @@ export function ProductionMapTab({
   }, [composition, regionLayer.data, scene.boundedResponse.truncated, scene.systems.length, showRegions]);
 
   return (
-    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="map-workspace panel">
+    <section data-testid="stage26e-production-map" aria-label="ED-Finder galaxy map" className="map-workspace map-workspace--immersive">
+      <div className="map-workspace__top-hud">
       <header className="map-workspace__header">
         <div className="map-workspace__title">
           <div className="flex flex-wrap items-center gap-2">
@@ -400,6 +412,8 @@ export function ProductionMapTab({
           </div>
         </details>
       </div>
+      </div>
+      <div className="map-workspace__status-overlays">
       {showTimeline && composition.timeline && (
         <TimelineSummary
           dataTestId="stage26e-map-timeline-summary"
@@ -415,13 +429,8 @@ export function ProductionMapTab({
       {composition.surface.kind === 'error' && (
         <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">{composition.surface.message}</p>
       )}
-      {composition.surface.kind === 'empty' && viewPreset === 'results' ? (
-        <div className="map-workspace__empty">
-          <strong>No systems to map yet</strong>
-          <span>Run a Finder search, or choose Whole galaxy to explore the region chart.</span>
-        </div>
-      ) : (
-        <div className="map-workspace__map-frame">
+      </div>
+      <div className="map-workspace__map-frame">
           <MapErrorBoundary>
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
               <R3FMapFoundation
@@ -434,9 +443,16 @@ export function ProductionMapTab({
                 galaxyBounds={galaxyBounds}
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
                 onInteraction={onInteraction}
+                onZoomIntent={requestZoomDelta}
               />
             </div>
           </MapErrorBoundary>
+          {composition.surface.kind === 'empty' && viewPreset === 'results' && (
+            <div className="map-workspace__empty">
+              <strong>No systems to map yet</strong>
+              <span>Run a Finder search, or choose Whole galaxy to explore the region chart.</span>
+            </div>
+          )}
           {(selected || overlapCandidateIds.length > 0) && (
             <div className="map-workspace__selection">
               {selected && <SelectionPanel system={selected} />}
@@ -452,8 +468,7 @@ export function ProductionMapTab({
               )}
             </div>
           )}
-        </div>
-      )}
+      </div>
     </section>
   );
 }

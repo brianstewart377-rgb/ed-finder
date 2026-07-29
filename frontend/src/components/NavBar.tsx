@@ -24,6 +24,7 @@ export interface NavBarProps {
   fcCount?:        number;
   health?:         string;
   fullWidth?:      boolean;
+  immersive?:      boolean;
   selectedSystem?: {
     id64: number;
     name: string | null;
@@ -43,6 +44,7 @@ export function NavBar({
   compareCount, fcCount,
   health,
   fullWidth = false,
+  immersive = false,
   selectedSystem = null,
   onOpenSelectedSystemInPlan,
   onDismissSelectedSystem,
@@ -79,7 +81,7 @@ export function NavBar({
   );
 
   const operatorMode = current === 'admin' || current === 'operator';
-  const showPlayerContext = current === 'compare'
+  const showPlayerContext = immersive || current === 'compare'
     ? false
     : selectedSystem != null;
   const currentPrimary = primaryWorkspaceForRoute(current);
@@ -121,13 +123,17 @@ export function NavBar({
   return (
     <nav
       className={[
-        'sticky top-3 z-30 mb-8 px-3',
+        immersive ? 'navbar--immersive fixed inset-x-0 top-0 z-40 px-3 pt-3' : 'sticky top-3 z-30 mb-8 px-3',
         fullWidth ? 'w-full max-w-none' : 'mx-auto max-w-[1840px]',
       ].join(' ')}
       data-testid="navbar"
+      data-immersive={immersive ? 'true' : 'false'}
     >
       {/* py-1.5 here matches the bottom headline banner so top + bottom chrome align */}
-      <div className="panel relative overflow-hidden px-4 py-3.5 sm:px-6">
+      <div className={[
+        'panel relative overflow-hidden px-4 py-3.5 sm:px-6',
+        immersive ? 'map-nav-overlay' : '',
+      ].join(' ')}>
         <div className="flex items-center gap-3 sm:gap-5">
         {/* ── Logo lockup ─────────────────────────────── */}
           <div className="app-brand-lockup flex shrink-0 items-center">
@@ -146,7 +152,7 @@ export function NavBar({
           <span className="hidden h-9 w-px shrink-0 bg-gradient-to-b from-transparent via-border-bright to-transparent sm:block" />
 
           <div
-            className="hidden min-w-0 flex-1 items-center gap-3 lg:flex"
+            className="nav-route-strip hidden min-w-0 flex-1 items-center gap-3 lg:flex"
             data-testid="nav-desktop-route-strip"
           >
             {!operatorMode ? (
@@ -170,7 +176,7 @@ export function NavBar({
             ) : null}
           </div>
 
-          <div className="min-w-0 flex-1 lg:hidden">
+          <div className="nav-mobile-route-summary min-w-0 flex-1 lg:hidden">
             <span className="truncate rounded border border-orange/35 bg-orange/10 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-orange">
               {currentPrimary ? `${currentWorkspaceMeta.primaryLabel} · ${currentRouteDescriptor?.label ?? currentWorkspaceMeta.title}` : currentWorkspaceMeta.title}
             </span>
@@ -194,7 +200,7 @@ export function NavBar({
             data-testid="nav-menu-toggle"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((value) => !value)}
-            className="premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
+            className="nav-menu-toggle premium-toolbar inline-flex items-center justify-center rounded-chunk-sm px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-silver hover:border-orange/50 hover:text-orange focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/80 lg:hidden"
           >
             Menu
           </button>
@@ -358,7 +364,7 @@ export function NavBar({
         <div
           ref={menuRef}
           data-testid="nav-menu-panel"
-          className="panel mt-2 p-2 lg:hidden"
+          className="nav-menu-panel panel mt-2 p-2 lg:hidden"
         >
           <div className="grid gap-3">
             <MenuSection
