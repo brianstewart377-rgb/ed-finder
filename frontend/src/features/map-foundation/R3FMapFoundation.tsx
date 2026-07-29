@@ -39,6 +39,24 @@ import {
 const GALAXY_CENTER = { x: 25.2, z: 25_899.9 } as const;
 const GALAXY_RADIUS_LY = 50_000;
 const GALAXY_POINT_COUNT = 18_000;
+const KEYBOARD_PAN_PIXELS_PER_SECOND = 480;
+const KEYBOARD_ZOOM_DELTA_PER_SECOND = 1_200;
+const KEYBOARD_TAP_DURATION_SECONDS = 1 / 15;
+const MAX_KEYBOARD_FRAME_SECONDS = 0.05;
+
+type MapControlKey = 'w' | 'a' | 's' | 'd' | 'z' | 'x';
+
+function mapControlKey(key: string): MapControlKey | null {
+  const normalized = key.toLowerCase();
+  return normalized === 'w'
+    || normalized === 'a'
+    || normalized === 's'
+    || normalized === 'd'
+    || normalized === 'z'
+    || normalized === 'x'
+    ? normalized
+    : null;
+}
 
 function positions(
   systems: SystemRecord[],
@@ -739,6 +757,9 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   const { onVisibilityChange, onZoomIntent } = props;
   const pointer = useRef<{ x: number; y: number; camera: CameraState } | null>(null);
   const rendererRef = useRef<HTMLDivElement>(null);
+  const pressedMapKeys = useRef(new Set<MapControlKey>());
+  const keyboardFrame = useRef<number | null>(null);
+  const keyboardPreviousTime = useRef<number | null>(null);
   const visible = useMemo(
     () => selectVisibleSystems(props.scene, props.viewport, props.maxBackgroundPoints),
     [props.maxBackgroundPoints, props.scene, props.viewport],
@@ -795,6 +816,90 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   const emitCamera = useCallback((camera: CameraState) => {
     props.onInteraction({ type: 'cameraChanged', camera });
   }, [props]);
+
+  const applyKeyboardInput = useCallback((durationSeconds: number) => {
+    const horizontal = Number(pressedMapKeys.current.has('d'))
+      - Number(pressedMapKeys.current.has('a'));
+    const forward = Number(pressedMapKeys.current.has('w'))
+      - Number(pressedMapKeys.current.has('s'));
+    if (horizontal !== 0 || forward !== 0) {
+      const magnitude = Math.hypot(horizontal, forward);
+      const distance = props.scene.camera.zoom
+        * KEYBOARD_PAN_PIXELS_PER_SECOND
+        * durationSeconds;
+      const screenX = horizontal / magnitude * distance;
+      const screenZ = forward / magnitude * distance;
+      const bearing = props.scene.camera.bearingDeg * Math.PI / 180;
+      const center = clampCameraCenter({
+        x: props.scene.camera.center.x
+          + screenX * Math.cos(bearing)
+          + screenZ * Math.sin(bearing),
+        z: props.scene.camera.center.z
+          - screenX * Math.sin(bearing)
+          + screenZ * Math.cos(bearing),
+      }, props.scene.camera.zoom, props.viewport, props.galaxyBounds);
+      emitCamera({
+        ...props.scene.camera,
+        center,
+      });
+    }
+
+    const zoomDirection = Number(pressedMapKeys.current.has('x'))
+      - Number(pressedMapKeys.current.has('z'));
+    if (zoomDirection === 0) return;
+    const deltaY = zoomDirection * KEYBOARD_ZOOM_DELTA_PER_SECOND * durationSeconds;
+    if (onZoomIntent) {
+      onZoomIntent(deltaY);
+      return;
+    }
+    emitCamera(zoomCamera(
+      props.scene.camera,
+      deltaY,
+      props.viewport,
+      props.galaxyBounds,
+    ));
+  }, [
+    emitCamera,
+    onZoomIntent,
+    props.galaxyBounds,
+    props.scene.camera,
+    props.viewport,
+  ]);
+
+  const keyboardTick = useRef<(timestamp: number) => void>(() => undefined);
+  keyboardTick.current = (timestamp: number) => {
+    if (pressedMapKeys.current.size === 0) {
+      keyboardFrame.current = null;
+      keyboardPreviousTime.current = null;
+      return;
+    }
+    const previousTime = keyboardPreviousTime.current ?? timestamp;
+    const elapsedSeconds = Math.min(
+      MAX_KEYBOARD_FRAME_SECONDS,
+      Math.max(0, (timestamp - previousTime) / 1_000),
+    );
+    keyboardPreviousTime.current = timestamp;
+    if (elapsedSeconds > 0) applyKeyboardInput(elapsedSeconds);
+    keyboardFrame.current = window.requestAnimationFrame(keyboardTick.current);
+  };
+
+  const ensureKeyboardFrame = useCallback(() => {
+    if (keyboardFrame.current == null) {
+      keyboardPreviousTime.current = performance.now();
+      keyboardFrame.current = window.requestAnimationFrame(keyboardTick.current);
+    }
+  }, []);
+
+  const stopKeyboardInput = useCallback(() => {
+    pressedMapKeys.current.clear();
+    keyboardPreviousTime.current = null;
+    if (keyboardFrame.current != null) {
+      window.cancelAnimationFrame(keyboardFrame.current);
+      keyboardFrame.current = null;
+    }
+  }, []);
+
+  useEffect(() => stopKeyboardInput, [stopKeyboardInput]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -872,6 +977,11 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   return <div
     ref={rendererRef}
     className="map-foundation-renderer"
+    role="region"
+    tabIndex={0}
+    aria-label="Interactive galaxy map. Use W A S D to pan, Z to zoom in, and X to zoom out."
+    aria-keyshortcuts="W A S D Z X"
+    data-keyboard-controls="WASD pan; Z zoom in; X zoom out"
     data-projection="perspective"
     data-camera-view={spatial ? 'tilted' : 'top-down'}
     data-view-preset={viewPreset}
@@ -880,7 +990,32 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-camera-zoom={props.scene.camera.zoom}
     data-camera-center-x={props.scene.camera.center.x}
     data-camera-center-z={props.scene.camera.center.z}
+    onKeyDown={(event) => {
+      const key = mapControlKey(event.key);
+      if (
+        !key
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || event.target !== event.currentTarget
+        || document.activeElement !== event.currentTarget
+      ) return;
+      event.preventDefault();
+      if (pressedMapKeys.current.has(key)) return;
+      pressedMapKeys.current.add(key);
+      applyKeyboardInput(KEYBOARD_TAP_DURATION_SECONDS);
+      ensureKeyboardFrame();
+    }}
+    onKeyUp={(event) => {
+      const key = mapControlKey(event.key);
+      if (!key || !pressedMapKeys.current.has(key)) return;
+      event.preventDefault();
+      pressedMapKeys.current.delete(key);
+      if (pressedMapKeys.current.size === 0) stopKeyboardInput();
+    }}
+    onBlur={stopKeyboardInput}
     onPointerDownCapture={(event) => {
+      event.currentTarget.focus({ preventScroll: true });
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
       event.currentTarget.setPointerCapture(event.pointerId);
     }}
@@ -947,7 +1082,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
           : `${rangeStep.toLocaleString()} LY rings · ${reference.name} at centre`}
       </span>
       <span>
-        Drag to pan · Shift-drag to tilt · Scroll, pinch, or +/− to zoom
+        Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out
       </span>
     </div>
     <div className="map-foundation-labels" aria-hidden="true">
