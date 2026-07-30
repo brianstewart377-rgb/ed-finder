@@ -1,0 +1,38 @@
+{
+  "captured_from": "http://127.0.0.1:4319/#map",
+  "viewport": {
+    "width": 1280,
+    "height": 720
+  },
+  "camera_zoom_ly_per_pixel": 0.15625,
+  "input": "focused map, W key input",
+  "configuration": {
+    "acceleration_ms": 260,
+    "deceleration_ms": 320,
+    "easing": "easeInOutSine",
+    "reduced_motion": "instant velocity changes"
+  },
+  "observed": {
+    "sample_count": 14,
+    "contains_acceleration_samples": true,
+    "contains_deceleration_samples": true,
+    "settles_exactly_at_zero": true,
+    "camera_center_z_monotonic": true
+  },
+  "samples": [
+    { "t_ms": 1.0, "center_x": 0, "center_z": 2.959, "velocity_x": 0, "velocity_z": 0.018, "phase": "accelerating" },
+    { "t_ms": 7.1, "center_x": 0, "center_z": 2.959, "velocity_x": 0, "velocity_z": 0.883, "phase": "accelerating" },
+    { "t_ms": 13.1, "center_x": 0, "center_z": 2.960, "velocity_x": 0, "velocity_z": 3.000, "phase": "accelerating" },
+    { "t_ms": 19.2, "center_x": 0, "center_z": 2.963, "velocity_x": 0, "velocity_z": 6.430, "phase": "accelerating" },
+    { "t_ms": 55.6, "center_x": 0, "center_z": 2.969, "velocity_x": 0, "velocity_z": 155.166, "phase": "decelerating" },
+    { "t_ms": 104.1, "center_x": 0, "center_z": 3.852, "velocity_x": 0, "velocity_z": 155.106, "phase": "decelerating" },
+    { "t_ms": 158.6, "center_x": 0, "center_z": 5.027, "velocity_x": 0, "velocity_z": 142.719, "phase": "decelerating" },
+    { "t_ms": 201.0, "center_x": 0, "center_z": 6.142, "velocity_x": 0, "velocity_z": 120.114, "phase": "decelerating" },
+    { "t_ms": 225.2, "center_x": 0, "center_z": 6.938, "velocity_x": 0, "velocity_z": 103.648, "phase": "decelerating" },
+    { "t_ms": 273.6, "center_x": 0, "center_z": 7.330, "velocity_x": 0, "velocity_z": 67.331, "phase": "decelerating" },
+    { "t_ms": 316.1, "center_x": 0, "center_z": 7.839, "velocity_x": 0, "velocity_z": 37.046, "phase": "decelerating" },
+    { "t_ms": 358.6, "center_x": 0, "center_z": 8.085, "velocity_x": 0, "velocity_z": 13.717, "phase": "decelerating" },
+    { "t_ms": 401.0, "center_x": 0, "center_z": 8.176, "velocity_x": 0, "velocity_z": 1.360, "phase": "decelerating" },
+    { "t_ms": 443.4, "center_x": 0, "center_z": 8.185, "velocity_x": 0, "velocity_z": 0, "phase": "idle" }
+  ]
+}

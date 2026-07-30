@@ -163,23 +163,24 @@ describe('R3F focused keyboard controls', () => {
 
     expect(document.activeElement).toBe(renderer);
     fireEvent.keyDown(renderer, { key: 'w' });
+    advanceFrame(50);
     fireEvent.keyUp(renderer, { key: 'w' });
 
-    expect(onInteraction).toHaveBeenCalledWith({
+    const cameraEvent = onInteraction.mock.calls.at(-1)?.[0];
+    expect(cameraEvent).toEqual({
       type: 'cameraChanged',
-      camera: expect.objectContaining({
-        center: { x: 5_000, z: 5_032 },
-        bearingDeg: 0,
-      }),
+      camera: expect.objectContaining({ bearingDeg: 0 }),
     });
+    expect(cameraEvent.camera.center.x).toBe(5_000);
+    expect(cameraEvent.camera.center.z).toBeGreaterThan(5_000);
   });
 
   it.each([
-    ['w', { x: 5_000, z: 5_032 }],
-    ['a', { x: 4_968, z: 5_000 }],
-    ['s', { x: 5_000, z: 4_968 }],
-    ['d', { x: 5_032, z: 5_000 }],
-  ])('pans with %s in its screen-relative direction while focused', (key, center) => {
+    ['w', 'z', 1],
+    ['a', 'x', -1],
+    ['s', 'z', -1],
+    ['d', 'x', 1],
+  ] as const)('pans with %s in its screen-relative direction while focused', (key, axis, direction) => {
     const onInteraction = vi.fn();
     const { container } = render(
       <R3FMapFoundation
@@ -201,12 +202,13 @@ describe('R3F focused keyboard controls', () => {
     renderer.focus();
 
     fireEvent.keyDown(renderer, { key });
+    advanceFrame(50);
     fireEvent.keyUp(renderer, { key });
 
-    expect(onInteraction).toHaveBeenCalledWith({
-      type: 'cameraChanged',
-      camera: expect.objectContaining({ center, bearingDeg: 0 }),
-    });
+    const cameraEvent = onInteraction.mock.calls.at(-1)?.[0];
+    expect(cameraEvent.camera.bearingDeg).toBe(0);
+    expect(Math.sign(cameraEvent.camera.center[axis] - 5_000)).toBe(direction);
+    expect(cameraEvent.camera.center[axis === 'x' ? 'z' : 'x']).toBe(5_000);
   });
 
   it('uses the drag-pan bounds for keyboard panning', () => {
@@ -232,15 +234,121 @@ describe('R3F focused keyboard controls', () => {
     renderer.focus();
 
     fireEvent.keyDown(renderer, { key: 'd' });
+    for (let frame = 0; frame < 12; frame += 1) advanceFrame(50);
     fireEvent.keyUp(renderer, { key: 'd' });
 
     expect(onInteraction).toHaveBeenCalledWith({
       type: 'cameraChanged',
       camera: expect.objectContaining({
-        center: { x: 10_500, z: 5_000 },
+        center: { x: 10_610, z: 5_000 },
         bearingDeg: 0,
       }),
     });
+  });
+
+  it('ramps pan velocity, coasts on release, and blends a direction reversal', () => {
+    const onInteraction = vi.fn();
+    const { container } = render(
+      <R3FMapFoundation
+        scene={{
+          ...scene,
+          camera: {
+            ...scene.camera,
+            center: { x: 5_000, z: 5_000 },
+            zoom: 1,
+          },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_000, height: 1_000 }}
+        onInteraction={onInteraction}
+      />,
+    );
+    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
+    const velocity = () => Number(renderer.dataset.keyboardPanVelocityZ);
+    renderer.focus();
+
+    fireEvent.keyDown(renderer, { key: 'w' });
+    const accelerating = Array.from({ length: 6 }, () => {
+      advanceFrame(50);
+      return velocity();
+    });
+    expect(accelerating[0]).toBeGreaterThan(0);
+    expect(accelerating[0]).toBeLessThan(accelerating[3]!);
+    expect(accelerating[3]).toBeLessThanOrEqual(480);
+    expect(accelerating.at(-1)).toBe(480);
+
+    fireEvent.keyUp(renderer, { key: 'w' });
+    const coasting = Array.from({ length: 7 }, () => {
+      advanceFrame(50);
+      return velocity();
+    });
+    expect(coasting[0]).toBeLessThan(480);
+    expect(coasting[0]).toBeGreaterThan(coasting[4]!);
+    expect(coasting.at(-1)).toBe(0);
+    expect(renderer.dataset.keyboardPanPhase).toBe('idle');
+    const completedTrace = JSON.parse(renderer.dataset.keyboardPanLastTrace ?? '[]') as Array<{
+      centerZ: number;
+      velocityZ: number;
+      phase: string;
+    }>;
+    expect(completedTrace.some((sample) => sample.phase === 'accelerating')).toBe(true);
+    expect(completedTrace.some((sample) => sample.phase === 'decelerating')).toBe(true);
+    expect(completedTrace.at(-1)?.velocityZ).toBe(0);
+    expect(completedTrace.at(-1)?.centerZ).toBeGreaterThan(completedTrace[0]!.centerZ);
+
+    fireEvent.keyDown(renderer, { key: 'w' });
+    for (let frame = 0; frame < 6; frame += 1) advanceFrame(50);
+    fireEvent.keyUp(renderer, { key: 'w' });
+    fireEvent.keyDown(renderer, { key: 's' });
+    const reversing = Array.from({ length: 5 }, () => {
+      advanceFrame(50);
+      return velocity();
+    });
+    expect(reversing[0]).toBeGreaterThan(0);
+    expect(reversing.at(-1)).toBeLessThan(0);
+    expect(reversing.every((value, index) => (
+      index === 0 || Math.abs(value - reversing[index - 1]!) < 480
+    ))).toBe(true);
+  });
+
+  it('skips keyboard-pan easing when reduced motion is requested', () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: true,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const onInteraction = vi.fn();
+    const { container } = render(
+      <R3FMapFoundation
+        scene={{
+          ...scene,
+          camera: {
+            ...scene.camera,
+            center: { x: 5_000, z: 5_000 },
+            zoom: 1,
+          },
+        }}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_000, height: 1_000 }}
+        onInteraction={onInteraction}
+      />,
+    );
+    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
+
+    fireEvent.keyDown(renderer, { key: 'w' });
+    expect(renderer.dataset.keyboardPanVelocityZ).toBe('480.000');
+    advanceFrame(50);
+    expect(onInteraction.mock.calls.at(-1)?.[0].camera.center.z).toBe(5_024);
+
+    fireEvent.keyUp(renderer, { key: 'w' });
+    expect(renderer.dataset.keyboardPanVelocityZ).toBe('0.000');
+    expect(renderer.dataset.keyboardPanPhase).toBe('idle');
+    expect(frames.size).toBe(0);
   });
 
   it('repeats Z-in and X-out zoom intents while keys are held', () => {
@@ -455,7 +563,9 @@ describe('R3F current-region indicator', () => {
       />,
     );
     const renderer = () => view.container.querySelector('.map-foundation-renderer')!;
-    const indicator = () => view.container.querySelector('.map-foundation-current-region span')!;
+    const indicator = () => view.container.querySelector(
+      '.map-foundation-labels span.is-current-region',
+    )!;
 
     expect(renderer().getAttribute('data-current-region-name')).toBe('Inner Orion Spur');
     expect(indicator().textContent).toBe('Inner Orion Spur');
@@ -474,5 +584,6 @@ describe('R3F current-region indicator', () => {
     expect(renderer().getAttribute('data-current-region-name')).toBe('Outer Scutum-Centaurus Arm');
     expect(indicator().textContent).toBe('Outer Scutum-Centaurus Arm');
     expect(indicator().getAttribute('style')).toContain('--region-label-scale');
+    expect(view.container.querySelector('.map-foundation-current-region')).toBeNull();
   });
 });

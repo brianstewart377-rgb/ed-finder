@@ -7,7 +7,10 @@ import type {
   ProductionMapOverlays,
   ViewportSize,
 } from './types';
-import { DEFAULT_CAMERA_PITCH_DEG } from './camera';
+import {
+  CAMERA_VIEWPORT_HEIGHT_RATIO,
+  DEFAULT_CAMERA_PITCH_DEG,
+} from './camera';
 
 export const PRODUCTION_PARITY_LIMITS = {
   finderSystems: 500,
@@ -204,8 +207,10 @@ export function cameraForViewPreset(
       const usableHeight = Math.max(1, viewport.height - 80);
       const zoom = Math.max(
         2,
-        (galaxyBounds.maxX - galaxyBounds.minX) / usableWidth,
-        (galaxyBounds.maxZ - galaxyBounds.minZ) / usableHeight,
+        (galaxyBounds.maxX - galaxyBounds.minX)
+          / (usableWidth * CAMERA_VIEWPORT_HEIGHT_RATIO),
+        (galaxyBounds.maxZ - galaxyBounds.minZ)
+          / (usableHeight * CAMERA_VIEWPORT_HEIGHT_RATIO),
       );
       return {
         center: {

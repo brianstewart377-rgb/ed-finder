@@ -25,13 +25,16 @@ describe('map presentation polish', () => {
       { id: 1, name: 'Galactic Centre', position: [0, 0, 0], screen: { x: 500, z: 300 }, depthVisible: true },
       { id: 2, name: 'Near centre', position: [0, 0, 0], screen: { x: 510, z: 304 }, depthVisible: true },
       { id: 3, name: 'Outer Arm', position: [0, 0, 0], screen: { x: 760, z: 420 }, depthVisible: true },
-      { id: 4, name: 'Clipped edge', position: [0, 0, 0], screen: { x: 20, z: 300 }, depthVisible: true },
-    ], { width: 1_000, height: 600 }, 150);
+      { id: 4, name: 'Clipped edge', position: [0, 0, 0], screen: { x: 20, z: 10 }, depthVisible: true },
+    ], { width: 1_000, height: 600 }, 150, 4, { top: 200, bottom: 70 });
 
     expect(labels.find((label) => label.id === 1)?.visible).toBe(true);
     expect(labels.find((label) => label.id === 2)?.visible).toBe(false);
     expect(labels.find((label) => label.id === 3)?.visible).toBe(true);
-    expect(labels.find((label) => label.id === 4)?.visible).toBe(false);
+    const persistent = labels.find((label) => label.id === 4);
+    expect(persistent?.visible).toBe(true);
+    expect(persistent?.screen.x).toBe(75);
+    expect(persistent?.screen.z).toBe(200);
   });
 
   it('grows ambient labels on close zoom and maps Safari pinch scale to zoom direction', () => {

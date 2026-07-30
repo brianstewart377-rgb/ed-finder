@@ -8,6 +8,20 @@ export const CAMERA_VIEWPORT_HEIGHT_RATIO = 0.78;
 export const MIN_ZOOM_LY_PER_PIXEL = 0.01;
 export const MAX_ZOOM_LY_PER_PIXEL = 4_096;
 export const ZOOM_TRANSITION_DURATION_MS = 500;
+export const KEYBOARD_PAN_ACCELERATION_MS = 260;
+export const KEYBOARD_PAN_DECELERATION_MS = 320;
+
+export type KeyboardPanVelocity = {
+  x: number;
+  z: number;
+};
+
+export type KeyboardPanTransition = {
+  startTime: number;
+  duration: number;
+  from: KeyboardPanVelocity;
+  target: KeyboardPanVelocity;
+};
 
 export type GalaxyBounds = {
   minX: number;
@@ -43,8 +57,18 @@ export function clampCameraCenter(
 ): GalaxyCoord {
   if (!bounds) return center;
   return {
-    x: clampAxis(center.x, bounds.minX, bounds.maxX, zoom * viewport.width / 2),
-    z: clampAxis(center.z, bounds.minZ, bounds.maxZ, zoom * viewport.height / 2),
+    x: clampAxis(
+      center.x,
+      bounds.minX,
+      bounds.maxX,
+      zoom * viewport.width * CAMERA_VIEWPORT_HEIGHT_RATIO / 2,
+    ),
+    z: clampAxis(
+      center.z,
+      bounds.minZ,
+      bounds.maxZ,
+      zoom * viewport.height * CAMERA_VIEWPORT_HEIGHT_RATIO / 2,
+    ),
   };
 }
 
@@ -77,6 +101,26 @@ export function interpolateZoomLog(
   const fromLog = Math.log(Math.max(MIN_ZOOM_LY_PER_PIXEL, fromZoom));
   const toLog = Math.log(Math.max(MIN_ZOOM_LY_PER_PIXEL, toZoom));
   return Math.exp(fromLog + (toLog - fromLog) * easedProgress);
+}
+
+export function sampleKeyboardPanTransition(
+  transition: KeyboardPanTransition,
+  timestamp: number,
+): { velocity: KeyboardPanVelocity; complete: boolean } {
+  const progress = Math.max(
+    0,
+    Math.min(1, (timestamp - transition.startTime) / Math.max(1, transition.duration)),
+  );
+  const easedProgress = easeInOutSine(progress);
+  return {
+    velocity: {
+      x: transition.from.x
+        + (transition.target.x - transition.from.x) * easedProgress,
+      z: transition.from.z
+        + (transition.target.z - transition.from.z) * easedProgress,
+    },
+    complete: progress >= 1,
+  };
 }
 
 export function zoomCamera(
