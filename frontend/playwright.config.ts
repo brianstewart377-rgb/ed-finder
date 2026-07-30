@@ -25,6 +25,7 @@ export default defineConfig({
   timeout: 30_000,
   expect: { timeout: 5_000 },
   fullyParallel: false,           // shared backend = sequential is safer
+  workers: process.env.CI ? 1 : undefined, // avoid concurrent software-WebGL contexts
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? 'github' : 'list',
   use: {

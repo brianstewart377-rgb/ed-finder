@@ -30,19 +30,22 @@ async function waitForSearchBackend(request: APIRequestContext) {
 
 async function readCanvasMetrics(page: Page) {
   return page.locator('.map-foundation-renderer canvas').evaluate((canvas) => {
-    const gl = canvas.getContext('webgl2') ?? canvas.getContext('webgl');
-    if (!gl) throw new Error('Map canvas did not expose a WebGL context.');
     const rect = canvas.getBoundingClientRect();
     return {
       cssWidth: Math.round(rect.width),
       cssHeight: Math.round(rect.height),
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
-      drawingBufferWidth: gl.drawingBufferWidth,
-      drawingBufferHeight: gl.drawingBufferHeight,
-      viewport: Array.from(gl.getParameter(gl.VIEWPORT) as Int32Array),
+      drawingBufferWidth: Number(canvas.dataset.drawingBufferWidth),
+      drawingBufferHeight: Number(canvas.dataset.drawingBufferHeight),
+      viewport: [
+        Number(canvas.dataset.viewportX),
+        Number(canvas.dataset.viewportY),
+        Number(canvas.dataset.viewportWidth),
+        Number(canvas.dataset.viewportHeight),
+      ],
       syncGuard: canvas.dataset.drawingBufferSynced,
-      contextLost: gl.isContextLost(),
+      contextLost: canvas.dataset.contextLost === 'true',
     };
   });
 }
@@ -58,6 +61,7 @@ function expectCanvasMetricsToBeSynced(metrics: Awaited<ReturnType<typeof readCa
     metrics.drawingBufferWidth,
     metrics.drawingBufferHeight,
   ]);
+  expect(metrics.syncGuard).toBe('true');
   expect(metrics.contextLost).toBe(false);
 }
 
@@ -73,6 +77,7 @@ async function expectCanvasToBeSynced(page: Page) {
       && metrics.viewport[1] === 0
       && metrics.viewport[2] === metrics.drawingBufferWidth
       && metrics.viewport[3] === metrics.drawingBufferHeight
+      && metrics.syncGuard === 'true'
       && !metrics.contextLost
     );
   }).toBe(true);

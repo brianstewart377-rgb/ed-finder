@@ -245,10 +245,17 @@ function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
       gl.setViewport(0, 0, width, height);
 
       const syncedBuffer = gl.getDrawingBufferSize(new THREE.Vector2());
+      const context = gl.getContext();
+      const syncedViewport = context.getParameter(context.VIEWPORT) as Int32Array;
       canvas.dataset.cssWidth = String(width);
       canvas.dataset.cssHeight = String(height);
       canvas.dataset.drawingBufferWidth = String(syncedBuffer.x);
       canvas.dataset.drawingBufferHeight = String(syncedBuffer.y);
+      canvas.dataset.viewportX = String(syncedViewport[0]);
+      canvas.dataset.viewportY = String(syncedViewport[1]);
+      canvas.dataset.viewportWidth = String(syncedViewport[2]);
+      canvas.dataset.viewportHeight = String(syncedViewport[3]);
+      canvas.dataset.contextLost = String(context.isContextLost());
       canvas.dataset.drawingBufferSynced = String(
         Math.abs(syncedBuffer.x - expectedWidth) <= 1
         && Math.abs(syncedBuffer.y - expectedHeight) <= 1,
