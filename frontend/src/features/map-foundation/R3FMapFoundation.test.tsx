@@ -109,7 +109,7 @@ describe('R3F map north lock', () => {
   });
 });
 
-describe('R3F focused keyboard controls', () => {
+describe('R3F document-scoped keyboard controls', () => {
   let now = 0;
   let nextFrameId = 1;
   let frames = new Map<number, FrameRequestCallback>();
@@ -142,7 +142,7 @@ describe('R3F focused keyboard controls', () => {
     pending.forEach((callback) => callback(now));
   }
 
-  it('auto-focuses on mount so keyboard controls work without a prior click', () => {
+  it('works from the document on mount without focus or a prior click', () => {
     const onInteraction = vi.fn();
     const { container } = render(
       <R3FMapFoundation
@@ -161,10 +161,10 @@ describe('R3F focused keyboard controls', () => {
     );
     const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
 
-    expect(document.activeElement).toBe(renderer);
-    fireEvent.keyDown(renderer, { key: 'w' });
+    expect(document.activeElement).not.toBe(renderer);
+    fireEvent.keyDown(document, { key: 'w' });
     advanceFrame(50);
-    fireEvent.keyUp(renderer, { key: 'w' });
+    fireEvent.keyUp(document, { key: 'w' });
 
     const cameraEvent = onInteraction.mock.calls.at(-1)?.[0];
     expect(cameraEvent).toEqual({
@@ -180,7 +180,7 @@ describe('R3F focused keyboard controls', () => {
     ['a', 'x', -1],
     ['s', 'z', -1],
     ['d', 'x', 1],
-  ] as const)('pans with %s in its screen-relative direction while focused', (key, axis, direction) => {
+  ] as const)('pans with %s in its screen-relative direction without map focus', (key, axis, direction) => {
     const onInteraction = vi.fn();
     const { container } = render(
       <R3FMapFoundation
@@ -198,12 +198,10 @@ describe('R3F focused keyboard controls', () => {
         onInteraction={onInteraction}
       />,
     );
-    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
-    renderer.focus();
-
-    fireEvent.keyDown(renderer, { key });
+    expect(container.querySelector('.map-foundation-renderer')).not.toBe(document.activeElement);
+    fireEvent.keyDown(document, { key });
     advanceFrame(50);
-    fireEvent.keyUp(renderer, { key });
+    fireEvent.keyUp(document, { key });
 
     const cameraEvent = onInteraction.mock.calls.at(-1)?.[0];
     expect(cameraEvent.camera.bearingDeg).toBe(0);
@@ -213,7 +211,7 @@ describe('R3F focused keyboard controls', () => {
 
   it('uses the drag-pan bounds for keyboard panning', () => {
     const onInteraction = vi.fn();
-    const { container } = render(
+    render(
       <R3FMapFoundation
         scene={{
           ...scene,
@@ -230,12 +228,9 @@ describe('R3F focused keyboard controls', () => {
         onInteraction={onInteraction}
       />,
     );
-    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
-    renderer.focus();
-
-    fireEvent.keyDown(renderer, { key: 'd' });
+    fireEvent.keyDown(document, { key: 'd' });
     for (let frame = 0; frame < 12; frame += 1) advanceFrame(50);
-    fireEvent.keyUp(renderer, { key: 'd' });
+    fireEvent.keyUp(document, { key: 'd' });
 
     expect(onInteraction).toHaveBeenCalledWith({
       type: 'cameraChanged',
@@ -265,9 +260,7 @@ describe('R3F focused keyboard controls', () => {
     );
     const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
     const velocity = () => Number(renderer.dataset.keyboardPanVelocityZ);
-    renderer.focus();
-
-    fireEvent.keyDown(renderer, { key: 'w' });
+    fireEvent.keyDown(document, { key: 'w' });
     const accelerating = Array.from({ length: 6 }, () => {
       advanceFrame(50);
       return velocity();
@@ -277,7 +270,7 @@ describe('R3F focused keyboard controls', () => {
     expect(accelerating[3]).toBeLessThanOrEqual(480);
     expect(accelerating.at(-1)).toBe(480);
 
-    fireEvent.keyUp(renderer, { key: 'w' });
+    fireEvent.keyUp(document, { key: 'w' });
     const coasting = Array.from({ length: 7 }, () => {
       advanceFrame(50);
       return velocity();
@@ -296,10 +289,10 @@ describe('R3F focused keyboard controls', () => {
     expect(completedTrace.at(-1)?.velocityZ).toBe(0);
     expect(completedTrace.at(-1)?.centerZ).toBeGreaterThan(completedTrace[0]!.centerZ);
 
-    fireEvent.keyDown(renderer, { key: 'w' });
+    fireEvent.keyDown(document, { key: 'w' });
     for (let frame = 0; frame < 6; frame += 1) advanceFrame(50);
-    fireEvent.keyUp(renderer, { key: 'w' });
-    fireEvent.keyDown(renderer, { key: 's' });
+    fireEvent.keyUp(document, { key: 'w' });
+    fireEvent.keyDown(document, { key: 's' });
     const reversing = Array.from({ length: 5 }, () => {
       advanceFrame(50);
       return velocity();
@@ -340,12 +333,12 @@ describe('R3F focused keyboard controls', () => {
     );
     const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
 
-    fireEvent.keyDown(renderer, { key: 'w' });
+    fireEvent.keyDown(document, { key: 'w' });
     expect(renderer.dataset.keyboardPanVelocityZ).toBe('480.000');
     advanceFrame(50);
     expect(onInteraction.mock.calls.at(-1)?.[0].camera.center.z).toBe(5_024);
 
-    fireEvent.keyUp(renderer, { key: 'w' });
+    fireEvent.keyUp(document, { key: 'w' });
     expect(renderer.dataset.keyboardPanVelocityZ).toBe('0.000');
     expect(renderer.dataset.keyboardPanPhase).toBe('idle');
     expect(frames.size).toBe(0);
@@ -353,7 +346,7 @@ describe('R3F focused keyboard controls', () => {
 
   it('repeats Z-in and X-out zoom intents while keys are held', () => {
     const onZoomIntent = vi.fn();
-    const { container } = render(
+    render(
       <R3FMapFoundation
         scene={scene}
         regions={{ labels: [], boundaries: [] }}
@@ -362,20 +355,17 @@ describe('R3F focused keyboard controls', () => {
         onZoomIntent={onZoomIntent}
       />,
     );
-    const renderer = container.querySelector<HTMLElement>('.map-foundation-renderer')!;
-    renderer.focus();
-
-    fireEvent.keyDown(renderer, { key: 'z' });
+    fireEvent.keyDown(document, { key: 'z' });
     expect(onZoomIntent).toHaveBeenLastCalledWith(-80);
     advanceFrame(50);
     advanceFrame(50);
     expect(onZoomIntent.mock.calls).toEqual([[-80], [-60], [-60]]);
-    fireEvent.keyUp(renderer, { key: 'z' });
+    fireEvent.keyUp(document, { key: 'z' });
     expect(frames.size).toBe(0);
 
-    fireEvent.keyDown(renderer, { key: 'x' });
+    fireEvent.keyDown(document, { key: 'x' });
     expect(onZoomIntent).toHaveBeenLastCalledWith(80);
-    fireEvent.keyUp(renderer, { key: 'x' });
+    fireEvent.keyUp(document, { key: 'x' });
   });
 
   it('does not steal focus from an active form field and leaves its typing alone', () => {
@@ -399,10 +389,11 @@ describe('R3F focused keyboard controls', () => {
     const renderer = view.container.querySelector<HTMLElement>('.map-foundation-renderer')!;
     const preservedInput = view.getByRole('textbox', { name: 'Unrelated finder field' });
     expect(renderer.getAttribute('aria-keyshortcuts')).toBe('W A S D Z X');
-    expect(view.getByText(/Z in \/ X out/)).toBeTruthy();
+    expect(view.container.querySelector('.map-foundation-control-hint')?.textContent)
+      .toMatch(/Z in \/ X out/);
     expect(document.activeElement).toBe(preservedInput);
 
-    fireEvent.keyDown(renderer, { key: 'w' });
+    fireEvent.keyDown(document, { key: 'w' });
     fireEvent.keyDown(preservedInput, { key: 'w' });
     fireEvent.input(preservedInput, { target: { value: 'wasdzx' } });
 
@@ -411,7 +402,7 @@ describe('R3F focused keyboard controls', () => {
     expect(onZoomIntent).not.toHaveBeenCalled();
   });
 
-  it('restores map focus after a view preset control activates a new view', () => {
+  it('does not steal focus when a view preset changes', () => {
     const renderView = (viewPreset: 'results' | 'galaxy') => (
       <>
         <button type="button">Whole galaxy</button>
@@ -430,9 +421,7 @@ describe('R3F focused keyboard controls', () => {
 
     view.rerender(renderView('galaxy'));
 
-    expect(document.activeElement).toBe(
-      view.container.querySelector('.map-foundation-renderer'),
-    );
+    expect(document.activeElement).toBe(modeButton);
   });
 });
 

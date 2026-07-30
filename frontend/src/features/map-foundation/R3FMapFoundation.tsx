@@ -1130,13 +1130,6 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     cameraRef.current = camera;
   }, [props.scene.camera]);
 
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer || renderer === document.activeElement) return;
-    if (protectsFocusFromMap(document.activeElement)) return;
-    renderer.focus({ preventScroll: true });
-  }, [viewPreset]);
-
   const emitCamera = useCallback((camera: CameraState) => {
     cameraRef.current = camera;
     onInteraction({ type: 'cameraChanged', camera });
@@ -1391,7 +1384,59 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     return () => preference.removeEventListener?.('change', onPreferenceChange);
   }, [ensureKeyboardFrame, retargetKeyboardPan]);
 
-  useEffect(() => stopKeyboardInput, [stopKeyboardInput]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = mapControlKey(event.key);
+      if (
+        !key
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || protectsFocusFromMap(document.activeElement)
+      ) return;
+      event.preventDefault();
+      if (pressedMapKeys.current.has(key)) return;
+      pressedMapKeys.current.add(key);
+      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        retargetKeyboardPan(performance.now());
+      } else {
+        applyKeyboardZoom(KEYBOARD_TAP_DURATION_SECONDS);
+      }
+      ensureKeyboardFrame();
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const key = mapControlKey(event.key);
+      // Release a key that this map claimed even if focus moved into a field
+      // while it was held, otherwise the camera could keep moving indefinitely.
+      if (!key || !pressedMapKeys.current.has(key)) return;
+      event.preventDefault();
+      pressedMapKeys.current.delete(key);
+      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        retargetKeyboardPan(performance.now());
+      }
+      if (keyboardMotionActive()) {
+        ensureKeyboardFrame();
+      } else {
+        cancelKeyboardFrame();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', stopKeyboardInput);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', stopKeyboardInput);
+      stopKeyboardInput();
+    };
+  }, [
+    applyKeyboardZoom,
+    cancelKeyboardFrame,
+    ensureKeyboardFrame,
+    keyboardMotionActive,
+    retargetKeyboardPan,
+    stopKeyboardInput,
+  ]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -1495,41 +1540,6 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-galactic-core-screen-radius={galacticCoreProjection.radius}
     data-galactic-core-screen-depth={galacticCoreProjection.depth}
     data-galaxy-point-count={GALAXY_POINT_COUNT}
-    onKeyDown={(event) => {
-      const key = mapControlKey(event.key);
-      if (
-        !key
-        || event.altKey
-        || event.ctrlKey
-        || event.metaKey
-        || event.target !== event.currentTarget
-        || document.activeElement !== event.currentTarget
-      ) return;
-      event.preventDefault();
-      if (pressedMapKeys.current.has(key)) return;
-      pressedMapKeys.current.add(key);
-      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-        retargetKeyboardPan(performance.now());
-      } else {
-        applyKeyboardZoom(KEYBOARD_TAP_DURATION_SECONDS);
-      }
-      ensureKeyboardFrame();
-    }}
-    onKeyUp={(event) => {
-      const key = mapControlKey(event.key);
-      if (!key || !pressedMapKeys.current.has(key)) return;
-      event.preventDefault();
-      pressedMapKeys.current.delete(key);
-      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-        retargetKeyboardPan(performance.now());
-      }
-      if (keyboardMotionActive()) {
-        ensureKeyboardFrame();
-      } else {
-        cancelKeyboardFrame();
-      }
-    }}
-    onBlur={stopKeyboardInput}
     onPointerDownCapture={(event) => {
       event.currentTarget.focus({ preventScroll: true });
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
@@ -1598,8 +1608,9 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
           ? `${props.regions.labels.length} named regions · galactic plane`
           : `${rangeStep.toLocaleString()} LY rings · ${reference.name} at centre`}
       </span>
-      <span>
-        Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out
+      <span className="map-foundation-control-hint">
+        <b>Controls</b>
+        {' · Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out'}
       </span>
     </div>
     <div className="map-foundation-labels" aria-hidden="true">
