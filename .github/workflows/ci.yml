@@ -573,7 +573,7 @@ jobs:
         working-directory: frontend
         run: yarn build
 
-      - name: Install Playwright Chromium
+      - name: Install Playwright browsers
         working-directory: frontend
         run: yarn e2e:install
 
@@ -586,7 +586,7 @@ jobs:
           # else mapped to :8001 on the runner.
           VITE_DEV_API_TARGET: http://127.0.0.1:8002
           CI: 'true'
-        run: yarn e2e
+        run: xvfb-run --auto-servernum yarn e2e
 
       - name: Upload Playwright report on failure
         if: failure()

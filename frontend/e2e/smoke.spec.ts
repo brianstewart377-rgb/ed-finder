@@ -1,4 +1,9 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import {
+  test,
+  expect,
+  type APIRequestContext,
+  type Page,
+} from '@playwright/test';
 
 const SEARCH_PAYLOAD = {
   reference_coords: { x: 0, y: 0, z: 0 },
@@ -21,6 +26,70 @@ async function waitForSearchBackend(request: APIRequestContext) {
   }
 
   throw new Error(`search backend did not become ready: status=${lastStatus}, body=${lastBody}`);
+}
+
+async function readCanvasMetrics(page: Page) {
+  return page.locator('.map-foundation-renderer canvas').evaluate((canvas) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      cssWidth: Math.round(rect.width),
+      cssHeight: Math.round(rect.height),
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      drawingBufferWidth: Number(canvas.dataset.drawingBufferWidth),
+      drawingBufferHeight: Number(canvas.dataset.drawingBufferHeight),
+      viewport: [
+        Number(canvas.dataset.viewportX),
+        Number(canvas.dataset.viewportY),
+        Number(canvas.dataset.viewportWidth),
+        Number(canvas.dataset.viewportHeight),
+      ],
+      syncGuard: canvas.dataset.drawingBufferSynced,
+      contextLost: canvas.dataset.contextLost === 'true',
+    };
+  });
+}
+
+function expectCanvasMetricsToBeSynced(metrics: Awaited<ReturnType<typeof readCanvasMetrics>>) {
+  expect(metrics.cssWidth).toBeGreaterThan(0);
+  expect(metrics.cssHeight).toBeGreaterThan(0);
+  expect(metrics.canvasWidth).toBe(metrics.drawingBufferWidth);
+  expect(metrics.canvasHeight).toBe(metrics.drawingBufferHeight);
+  expect(metrics.viewport).toEqual([
+    0,
+    0,
+    metrics.drawingBufferWidth,
+    metrics.drawingBufferHeight,
+  ]);
+  expect(metrics.syncGuard).toBe('true');
+  expect(metrics.contextLost).toBe(false);
+}
+
+async function expectCanvasToBeSynced(page: Page) {
+  let lastMetrics: Awaited<ReturnType<typeof readCanvasMetrics>> | null = null;
+  try {
+    await expect.poll(async () => {
+      lastMetrics = await readCanvasMetrics(page);
+      return (
+        lastMetrics.cssWidth > 0
+        && lastMetrics.cssHeight > 0
+        && lastMetrics.canvasWidth === lastMetrics.drawingBufferWidth
+        && lastMetrics.canvasHeight === lastMetrics.drawingBufferHeight
+        && lastMetrics.viewport[0] === 0
+        && lastMetrics.viewport[1] === 0
+        && lastMetrics.viewport[2] === lastMetrics.drawingBufferWidth
+        && lastMetrics.viewport[3] === lastMetrics.drawingBufferHeight
+        && lastMetrics.syncGuard === 'true'
+        && !lastMetrics.contextLost
+      );
+    }).toBe(true);
+  } catch (error) {
+    throw new Error(
+      `Canvas metrics did not synchronize: ${JSON.stringify(lastMetrics)}`,
+      { cause: error },
+    );
+  }
+  expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
 }
 
 /**
@@ -109,6 +178,15 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
+    const graphicsWarnings: string[] = [];
+    page.on('console', (message) => {
+      if (
+        (message.type() === 'warning' || message.type() === 'error')
+        && /drawArraysInstanced|destination rect|viewport rect/i.test(message.text())
+      ) {
+        graphicsWarnings.push(message.text());
+      }
+    });
     const regionResponsePromise = page.waitForResponse((response) => (
       new URL(response.url()).pathname === '/stage26e/authoritative-regions.json'
     ));
@@ -127,6 +205,7 @@ test.describe('ED Finder — smoke', () => {
     const renderer = page.locator('.map-foundation-renderer');
     await expect(renderer).toHaveAttribute('data-projection', 'perspective');
     await expect(renderer).toHaveAttribute('data-camera-pitch', '42');
+    await expect(renderer).toHaveAttribute('data-galaxy-point-count', '18000');
     const mapViewport = page.getByTestId('stage26e-production-map-viewport');
     const viewportBox = await mapViewport.boundingBox();
     const browserViewport = page.viewportSize();
@@ -154,5 +233,41 @@ test.describe('ED Finder — smoke', () => {
     await expect(renderer).toHaveAttribute('data-camera-zoom', zoomBeforeSnap ?? '');
     await expect(renderer).toHaveAttribute('data-camera-center-x', centerXBefore ?? '');
     await expect(renderer).toHaveAttribute('data-camera-center-z', centerZBefore ?? '');
+
+    await expectCanvasToBeSynced(page);
+    await page.setViewportSize({ width: 1111, height: 733 });
+    await expect.poll(async () => (await readCanvasMetrics(page)).cssWidth).toBe(1111);
+    await expectCanvasToBeSynced(page);
+
+    await page.getByTestId('map-view-results').click();
+    await page.getByTestId('map-view-galaxy').click();
+    await expectCanvasToBeSynced(page);
+    expect(graphicsWarnings).toEqual([]);
+  });
+});
+
+test.describe('ED Finder — cross-browser runtime', () => {
+  test('installs and controls with the cache-neutral service worker', async ({ page, request }) => {
+    const serviceWorkerErrors: string[] = [];
+    page.on('console', (message) => {
+      if (/SW registration failed|ServiceWorker.*(?:error|failed)/i.test(message.text())) {
+        serviceWorkerErrors.push(message.text());
+      }
+    });
+
+    const scriptResponse = await request.get('/sw.js');
+    expect(scriptResponse.status()).toBe(200);
+    expect(scriptResponse.headers()['content-type']).toMatch(/javascript/);
+    expect(await scriptResponse.text()).toContain('event.waitUntil(self.skipWaiting())');
+
+    await page.goto('/?service-worker-install=clean');
+    await expect.poll(() => page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration('/');
+      return registration?.active?.state ?? null;
+    })).toBe('activated');
+    await expect.poll(() => page.evaluate(
+      () => navigator.serviceWorker.controller?.scriptURL ?? null,
+    )).toMatch(/\/sw\.js$/);
+    expect(serviceWorkerErrors).toEqual([]);
   });
 });

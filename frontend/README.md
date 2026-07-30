@@ -15,7 +15,10 @@ contract with the API.
 **Status: feature parity with the retired vanilla app.** The React app is now
 the canonical frontend served from `/`. Now also:
 
-- **Installable PWA** — `manifest.webmanifest` + `sw.js` shipped at build time. Service worker scope follows the app base (`/` in production). NetworkFirst-with-5s-timeout cache for `/api/*`, StaleWhileRevalidate for static assets. Auto-update on next reload.
+- **Cross-browser service-worker lifecycle** — `sw.js` ships at the app base
+  (`/` in production), activates updates immediately, and deliberately does
+  not intercept or cache requests. Hashed assets and production data retain
+  their explicit HTTP cache policy without a second stale-cache layer.
 - **Vitest unit tests** — `yarn test` runs the frontend unit suite for features, hooks, and UI flows.
 - **OpenAPI codegen** — `yarn types:gen` writes `src/types/api.gen.ts` from a local OpenAPI dump by default. You can also point it at a live URL with `ED_FINDER_OPENAPI_URL` or `VITE_OPENAPI_URL` when needed.
 - **Profile sync** — single backend endpoint (`PUT/GET/DELETE /api/profile/sync/{key}`) backed by a JSONB slot table. Frontend hook in Admin tab pushes/pulls Pinned + Compare + FC route + Colony tracker as one blob. Sync key = credential; 1 MiB per slot; manual push/pull (no auto-merge).

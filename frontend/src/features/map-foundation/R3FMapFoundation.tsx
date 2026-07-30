@@ -1,5 +1,13 @@
 import { Canvas, type ThreeEvent, useThree } from '@react-three/fiber';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import * as THREE from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
@@ -195,6 +203,93 @@ function CameraProjection({ cameraState }: { cameraState: CameraState }) {
     configureRenderCamera(camera as THREE.PerspectiveCamera, size, cameraState);
     invalidate();
   }, [camera, cameraState, invalidate, size]);
+  return null;
+}
+
+function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
+  const {
+    get,
+    gl,
+    invalidate,
+    setDpr,
+    setSize,
+  } = useThree();
+
+  useLayoutEffect(() => {
+    const canvas = gl.domElement;
+
+    let frame: number | null = null;
+    const sync = () => {
+      frame = null;
+      const rect = canvas.getBoundingClientRect();
+      const width = Math.max(1, Math.round(rect.width || viewport.width));
+      const height = Math.max(1, Math.round(rect.height || viewport.height));
+      const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      const state = get();
+
+      if (Math.abs(state.viewport.dpr - dpr) > 0.001) setDpr(dpr);
+      if (state.size.width !== width || state.size.height !== height) {
+        setSize(width, height);
+      }
+
+      const expectedWidth = Math.round(width * dpr);
+      const expectedHeight = Math.round(height * dpr);
+      const drawingBuffer = gl.getDrawingBufferSize(new THREE.Vector2());
+      if (
+        Math.abs(drawingBuffer.x - expectedWidth) > 1
+        || Math.abs(drawingBuffer.y - expectedHeight) > 1
+      ) {
+        gl.setPixelRatio(dpr);
+        gl.setSize(width, height, false);
+      }
+      gl.setViewport(0, 0, width, height);
+
+      const syncedBuffer = gl.getDrawingBufferSize(new THREE.Vector2());
+      const context = gl.getContext();
+      const syncedViewport = context.getParameter(context.VIEWPORT) as Int32Array;
+      canvas.dataset.cssWidth = String(width);
+      canvas.dataset.cssHeight = String(height);
+      canvas.dataset.drawingBufferWidth = String(syncedBuffer.x);
+      canvas.dataset.drawingBufferHeight = String(syncedBuffer.y);
+      canvas.dataset.viewportX = String(syncedViewport[0]);
+      canvas.dataset.viewportY = String(syncedViewport[1]);
+      canvas.dataset.viewportWidth = String(syncedViewport[2]);
+      canvas.dataset.viewportHeight = String(syncedViewport[3]);
+      canvas.dataset.contextLost = String(context.isContextLost());
+      canvas.dataset.drawingBufferSynced = String(
+        Math.abs(syncedBuffer.x - expectedWidth) <= 1
+        && Math.abs(syncedBuffer.y - expectedHeight) <= 1,
+      );
+      invalidate();
+    };
+    const queueSync = () => {
+      if (frame != null) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(sync);
+    };
+
+    sync();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(queueSync);
+    observer?.observe(canvas);
+    window.addEventListener('resize', queueSync);
+    window.visualViewport?.addEventListener('resize', queueSync);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', queueSync);
+      window.visualViewport?.removeEventListener('resize', queueSync);
+      if (frame != null) window.cancelAnimationFrame(frame);
+    };
+  }, [
+    get,
+    gl,
+    invalidate,
+    setDpr,
+    setSize,
+    viewport.height,
+    viewport.width,
+  ]);
+
   return null;
 }
 
@@ -1378,6 +1473,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-galactic-core-screen-y={galacticCoreProjection.y}
     data-galactic-core-screen-radius={galacticCoreProjection.radius}
     data-galactic-core-screen-depth={galacticCoreProjection.depth}
+    data-galaxy-point-count={GALAXY_POINT_COUNT}
     onKeyDown={(event) => {
       const key = mapControlKey(event.key);
       if (
@@ -1464,6 +1560,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
         props.onReady?.();
       }}>
       <color attach="background" args={['#010306']} />
+      <RendererSizeSync viewport={props.viewport} />
       <GpuTimingBridge onReady={props.onGpuTimerReady} />
       <SceneContents {...props} visible={visible} />
     </Canvas>

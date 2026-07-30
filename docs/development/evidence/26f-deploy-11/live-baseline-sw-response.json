@@ -1,0 +1,9 @@
+{
+  "captured_at": "2026-07-30",
+  "url": "https://ed-finder.app/sw.js",
+  "status": 200,
+  "content_type": "text/html",
+  "content_length": 750,
+  "body_prefix": "<!doctype html><html lang=\"en\">",
+  "finding": "The service-worker artifact was absent, so the SPA fallback served index.html at /sw.js. Firefox rejected the HTML response during installation."
+}
