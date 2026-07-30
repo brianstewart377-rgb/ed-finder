@@ -43,6 +43,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Firefox'],
         launchOptions: {
+          headless: process.env.CI ? false : undefined,
           firefoxUserPrefs: {
             'webgl.force-enabled': true,
             'webgl.forbid-software': false,
