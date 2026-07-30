@@ -217,13 +217,11 @@ function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
 
   useLayoutEffect(() => {
     const canvas = gl.domElement;
-    const container = canvas.parentElement;
-    if (!container) return undefined;
 
     let frame: number | null = null;
     const sync = () => {
       frame = null;
-      const rect = container.getBoundingClientRect();
+      const rect = canvas.getBoundingClientRect();
       const width = Math.max(1, Math.round(rect.width || viewport.width));
       const height = Math.max(1, Math.round(rect.height || viewport.height));
       const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
@@ -266,7 +264,7 @@ function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
     const observer = typeof ResizeObserver === 'undefined'
       ? null
       : new ResizeObserver(queueSync);
-    observer?.observe(container);
+    observer?.observe(canvas);
     window.addEventListener('resize', queueSync);
     window.visualViewport?.addEventListener('resize', queueSync);
     return () => {
