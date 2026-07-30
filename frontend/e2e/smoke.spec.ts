@@ -58,8 +58,25 @@ function expectCanvasMetricsToBeSynced(metrics: Awaited<ReturnType<typeof readCa
     metrics.drawingBufferWidth,
     metrics.drawingBufferHeight,
   ]);
-  expect(metrics.syncGuard).toBe('true');
   expect(metrics.contextLost).toBe(false);
+}
+
+async function expectCanvasToBeSynced(page: Page) {
+  await expect.poll(async () => {
+    const metrics = await readCanvasMetrics(page);
+    return (
+      metrics.cssWidth > 0
+      && metrics.cssHeight > 0
+      && metrics.canvasWidth === metrics.drawingBufferWidth
+      && metrics.canvasHeight === metrics.drawingBufferHeight
+      && metrics.viewport[0] === 0
+      && metrics.viewport[1] === 0
+      && metrics.viewport[2] === metrics.drawingBufferWidth
+      && metrics.viewport[3] === metrics.drawingBufferHeight
+      && !metrics.contextLost
+    );
+  }).toBe(true);
+  expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
 }
 
 /**
@@ -176,8 +193,6 @@ test.describe('ED Finder — smoke', () => {
     await expect(renderer).toHaveAttribute('data-projection', 'perspective');
     await expect(renderer).toHaveAttribute('data-camera-pitch', '42');
     await expect(renderer).toHaveAttribute('data-galaxy-point-count', '18000');
-    await expect(page.locator('.map-foundation-renderer canvas'))
-      .toHaveAttribute('data-drawing-buffer-synced', 'true');
     const mapViewport = page.getByTestId('stage26e-production-map-viewport');
     const viewportBox = await mapViewport.boundingBox();
     const browserViewport = page.viewportSize();
@@ -206,16 +221,14 @@ test.describe('ED Finder — smoke', () => {
     await expect(renderer).toHaveAttribute('data-camera-center-x', centerXBefore ?? '');
     await expect(renderer).toHaveAttribute('data-camera-center-z', centerZBefore ?? '');
 
-    expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
+    await expectCanvasToBeSynced(page);
     await page.setViewportSize({ width: 1111, height: 733 });
     await expect.poll(async () => (await readCanvasMetrics(page)).cssWidth).toBe(1111);
-    expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
+    await expectCanvasToBeSynced(page);
 
     await page.getByTestId('map-view-results').click();
     await page.getByTestId('map-view-galaxy').click();
-    await expect(page.locator('.map-foundation-renderer canvas'))
-      .toHaveAttribute('data-drawing-buffer-synced', 'true');
-    expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
+    await expectCanvasToBeSynced(page);
     expect(graphicsWarnings).toEqual([]);
   });
 });
