@@ -244,6 +244,139 @@ test.describe('ED Finder — smoke', () => {
     await expectCanvasToBeSynced(page);
     expect(graphicsWarnings).toEqual([]);
   });
+
+  test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
+    await page.getByTestId('nav-map').click();
+    await page.getByTestId('map-view-galaxy').click();
+
+    const renderer = page.locator('.map-foundation-renderer');
+    await expect(renderer).toHaveAttribute('data-galaxy-point-count', '18000');
+    const canvas = renderer.locator('canvas');
+    await expect.poll(
+      () => canvas.evaluate((element) => element.dataset.drawingBufferSynced),
+    ).toBe('true');
+
+    await canvas.evaluate((element) => {
+      const instrumented = element as HTMLCanvasElement & {
+        resizeTelemetryObserver?: MutationObserver;
+        resizeTelemetrySequence?: string[];
+      };
+      instrumented.resizeTelemetrySequence = [
+        element.dataset.drawingBufferSynced ?? 'missing',
+      ];
+      instrumented.resizeTelemetryObserver = new MutationObserver(() => {
+        instrumented.resizeTelemetrySequence?.push(
+          element.dataset.drawingBufferSynced ?? 'missing',
+        );
+      });
+      instrumented.resizeTelemetryObserver.observe(element, {
+        attributes: true,
+        attributeFilter: ['data-drawing-buffer-synced'],
+      });
+    });
+
+    await page.setViewportSize({ width: 1111, height: 733 });
+    await expect.poll(async () => {
+      const sequence = await canvas.evaluate((element) => (
+        (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
+          .resizeTelemetrySequence ?? []
+      ));
+      const invalidatedAt = sequence.indexOf('false');
+      return invalidatedAt >= 0
+        && sequence.slice(invalidatedAt + 1).includes('true');
+    }).toBe(true);
+
+    const sequence = await canvas.evaluate((element) => (
+      (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
+        .resizeTelemetrySequence ?? []
+    ));
+    const invalidatedAt = sequence.indexOf('false');
+    const revalidatedAt = sequence.indexOf('true', invalidatedAt + 1);
+    expect(invalidatedAt).toBeGreaterThanOrEqual(0);
+    expect(revalidatedAt).toBeGreaterThan(invalidatedAt);
+  });
+
+  test('keeps renderer sync telemetry verified for a same-size ResizeObserver fire', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const NativeResizeObserver = window.ResizeObserver;
+      if (!NativeResizeObserver) return;
+      const callbacks = new WeakMap<ResizeObserver, ResizeObserverCallback>();
+      const testWindow = window as typeof window & {
+        triggerMapResizeObserver?: () => void;
+      };
+      window.ResizeObserver = class TestResizeObserver extends NativeResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          super(callback);
+          callbacks.set(this, callback);
+        }
+
+        observe(target: Element, options?: ResizeObserverOptions) {
+          super.observe(target, options);
+          if (
+            target instanceof HTMLCanvasElement
+            && target.closest('.map-foundation-renderer')
+          ) {
+            testWindow.triggerMapResizeObserver = () => {
+              callbacks.get(this)?.([], this);
+            };
+          }
+        }
+      };
+    });
+    await page.reload();
+    await page.getByTestId('nav-map').click();
+    await page.getByTestId('map-view-galaxy').click();
+
+    const renderer = page.locator('.map-foundation-renderer');
+    await expect(renderer).toHaveAttribute('data-galaxy-point-count', '18000');
+    const canvas = renderer.locator('canvas');
+    await expect.poll(
+      () => canvas.evaluate((element) => element.dataset.drawingBufferSynced),
+    ).toBe('true');
+
+    const observation = await canvas.evaluate(async (element) => {
+      const testWindow = window as typeof window & {
+        triggerMapResizeObserver?: () => void;
+      };
+      const instrumented = element as HTMLCanvasElement & {
+        resizeTelemetryObserver?: MutationObserver;
+        resizeTelemetrySequence?: string[];
+      };
+      const before = element.getBoundingClientRect();
+      instrumented.resizeTelemetrySequence = [
+        element.dataset.drawingBufferSynced ?? 'missing',
+      ];
+      instrumented.resizeTelemetryObserver = new MutationObserver(() => {
+        instrumented.resizeTelemetrySequence?.push(
+          element.dataset.drawingBufferSynced ?? 'missing',
+        );
+      });
+      instrumented.resizeTelemetryObserver.observe(element, {
+        attributes: true,
+        attributeFilter: ['data-drawing-buffer-synced'],
+      });
+
+      const triggerInstalled = typeof testWindow.triggerMapResizeObserver === 'function';
+      testWindow.triggerMapResizeObserver?.();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const after = element.getBoundingClientRect();
+      instrumented.resizeTelemetryObserver.disconnect();
+      return {
+        before: { width: before.width, height: before.height },
+        after: { width: after.width, height: after.height },
+        sequence: instrumented.resizeTelemetrySequence ?? [],
+        triggerInstalled,
+      };
+    });
+
+    expect(observation.triggerInstalled).toBe(true);
+    expect(observation.after).toEqual(observation.before);
+    expect(observation.sequence.length).toBeGreaterThan(1);
+    expect(observation.sequence).not.toContain('false');
+  });
 });
 
 test.describe('ED Finder — cross-browser runtime', () => {
