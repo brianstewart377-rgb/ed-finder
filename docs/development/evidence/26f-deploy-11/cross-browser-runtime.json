@@ -1,0 +1,68 @@
+[
+  {
+    "browser": "chromium",
+    "version": "147.0.7727.15",
+    "service_worker": {
+      "active_state": "activated",
+      "script_url": "http://localhost:4173/sw.js",
+      "controller_url": "http://localhost:4173/sw.js",
+      "status": 200,
+      "content_type": "text/javascript",
+      "registration_errors": []
+    },
+    "renderer": {
+      "galaxy_point_count": 18000,
+      "css_size": [1280, 720],
+      "canvas_size": [1280, 720],
+      "drawing_buffer_size": [1280, 720],
+      "viewport": [0, 0, 1280, 720],
+      "drawing_buffer_synced": true,
+      "context_lost": false,
+      "viewport_warnings": []
+    }
+  },
+  {
+    "browser": "firefox",
+    "version": "148.0.2",
+    "service_worker": {
+      "active_state": "activated",
+      "script_url": "http://localhost:4173/sw.js",
+      "controller_url": "http://localhost:4173/sw.js",
+      "status": 200,
+      "content_type": "text/javascript",
+      "registration_errors": []
+    },
+    "renderer": {
+      "galaxy_point_count": 18000,
+      "css_size": [1280, 720],
+      "canvas_size": [1280, 720],
+      "drawing_buffer_size": [1280, 720],
+      "viewport": [0, 0, 1280, 720],
+      "drawing_buffer_synced": true,
+      "context_lost": false,
+      "viewport_warnings": []
+    }
+  },
+  {
+    "browser": "msedge",
+    "version": "150.0.4078.105",
+    "service_worker": {
+      "active_state": "activated",
+      "script_url": "http://localhost:4173/sw.js",
+      "controller_url": "http://localhost:4173/sw.js",
+      "status": 200,
+      "content_type": "text/javascript",
+      "registration_errors": []
+    },
+    "renderer": {
+      "galaxy_point_count": 18000,
+      "css_size": [1280, 720],
+      "canvas_size": [1280, 720],
+      "drawing_buffer_size": [1280, 720],
+      "viewport": [0, 0, 1280, 720],
+      "drawing_buffer_synced": true,
+      "context_lost": false,
+      "viewport_warnings": []
+    }
+  }
+]

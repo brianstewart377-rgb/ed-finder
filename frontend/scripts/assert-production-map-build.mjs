@@ -5,7 +5,21 @@ import { fileURLToPath } from 'node:url';
 
 const frontendRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const assetPath = path.join(frontendRoot, 'dist', 'stage26e', 'authoritative-regions.json');
+const serviceWorkerPath = path.join(frontendRoot, 'dist', 'sw.js');
 const rollbackRequested = process.env.VITE_STAGE26E_PRODUCTION_MAP === 'disabled';
+
+if (!fs.existsSync(serviceWorkerPath)) {
+  throw new Error('Production build did not emit sw.js');
+}
+const serviceWorker = fs.readFileSync(serviceWorkerPath, 'utf8');
+if (
+  !serviceWorker.includes("self.addEventListener('install'")
+  || !serviceWorker.includes('event.waitUntil(self.skipWaiting())')
+  || !serviceWorker.includes('event.waitUntil(self.clients.claim())')
+) {
+  throw new Error('Production sw.js is missing the cross-browser lifecycle contract');
+}
+console.log(`[build-contract] Cross-browser service worker emitted: ${serviceWorker.length} bytes.`);
 
 if (rollbackRequested) {
   if (fs.existsSync(assetPath)) {

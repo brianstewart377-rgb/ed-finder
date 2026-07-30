@@ -43,7 +43,7 @@
     "test:watch": "node scripts/run-vitest.mjs watch",
     "e2e": "playwright test",
     "e2e:headed": "playwright test --headed",
-    "e2e:install": "playwright install --with-deps chromium",
+    "e2e:install": "playwright install --with-deps chromium firefox msedge",
     "types:gen": "node scripts/types-gen.mjs"
   },
   "dependencies": {

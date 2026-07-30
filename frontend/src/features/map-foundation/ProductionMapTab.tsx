@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   initOverlapCycling,
   reduceScene,
@@ -114,21 +121,26 @@ export function ProductionMapTab({
     setViewPreset('results');
   }, [boundedSystems, initialSelectedSystemId, referenceCoords, systems.length]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = viewportRef.current;
     if (!element || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (entry && entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-        const width = Math.round(entry.contentRect.width);
-        const height = Math.round(entry.contentRect.height);
-        setViewport((current) => current.width === width && current.height === height
+    const updateViewport = (width: number, height: number) => {
+      if (width > 0 && height > 0) {
+        const nextWidth = Math.round(width);
+        const nextHeight = Math.round(height);
+        setViewport((current) => current.width === nextWidth && current.height === nextHeight
           ? current
-          : { width, height });
+          : { width: nextWidth, height: nextHeight });
       }
+    };
+    const initialRect = element.getBoundingClientRect();
+    updateViewport(initialRect.width, initialRect.height);
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) updateViewport(entry.contentRect.width, entry.contentRect.height);
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, [scene.systems.length, viewPreset]);
+  }, []);
 
   const layers = useMapLayers({
     heatmap: { enabled: showHeatmap, max_cells: PRODUCTION_PARITY_LIMITS.heatmapCells },
