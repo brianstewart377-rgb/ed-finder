@@ -86,19 +86,35 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
     });
 
     let regionGeometryResponseStatus = 0;
+    let heatmapResponseStatus = 0;
+    let heatmapCellCount = 0;
+    let heatmapSourceTruncated = false;
     await test.step('mount the flagged production route candidate with bounded region geometry', async () => {
       const regionResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/stage26e/authoritative-regions.json'
       ));
+      const heatmapResponsePromise = page.waitForResponse((response) => (
+        new URL(response.url()).pathname === '/api/map/heatmap'
+      ));
       await page.getByTestId('nav-map').click();
-      const regionResponse = await regionResponsePromise;
+      const [regionResponse, heatmapResponse] = await Promise.all([
+        regionResponsePromise,
+        heatmapResponsePromise,
+      ]);
       regionGeometryResponseStatus = regionResponse.status();
+      heatmapResponseStatus = heatmapResponse.status();
       const regionBody = await regionResponse.json() as { labels?: unknown[]; boundaries?: unknown[] };
+      const heatmapBody = await heatmapResponse.json() as { cells?: unknown[]; truncated?: boolean };
+      heatmapCellCount = Math.min(50_000, heatmapBody.cells?.length ?? 0);
+      heatmapSourceTruncated = heatmapBody.truncated ?? false;
       expect(regionGeometryResponseStatus).toBe(200);
+      expect(heatmapResponseStatus).toBe(200);
       expect(regionBody.labels).toHaveLength(42);
       expect(regionBody.boundaries).toHaveLength(22_595);
+      expect(heatmapCellCount).toBeGreaterThan(0);
       await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
       await expect(page.getByTestId('stage26e-production-map-viewport')).toBeVisible();
+      await expect(page.getByTestId('stage26e-map-heatmap-toggle')).toBeChecked();
       await expect.poll(async () => page.evaluate(() => window.__stage26eProductionMap?.snapshot().finderSystemCount ?? 0))
         .toBe(500);
       await expect.poll(async () => page.evaluate(() => window.__stage26eProductionMap?.snapshot().regionBoundaryCount ?? 0))
@@ -106,16 +122,13 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
     });
 
     let beforeOverlays!: Awaited<ReturnType<typeof measureHeap>>;
-    await test.step('sample precise heap before aggregate overlays', async () => {
+    await test.step('sample precise heap with default heatmap before optional overlays', async () => {
       beforeOverlays = await measureHeap(context, page);
       expect(beforeOverlays.supported).toBe(true);
     });
 
-    let heatmapResponseStatus = 0;
     let clusterResponseStatus = 0;
     let timelineResponseStatus = 0;
-    let heatmapCellCount = 0;
-    let heatmapSourceTruncated = false;
     let aggregateHullCount = 0;
     let timelinePointCount = 0;
     await test.step('load and compose live aggregate overlays', async () => {
@@ -140,15 +153,10 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
       const heatmapBody = JSON.parse(heatmapText) as { cells?: unknown[]; truncated?: boolean };
       const clusterBody = JSON.parse(clusterText) as { clusters?: unknown[] };
       const timelineBody = JSON.parse(timelineText) as { points?: unknown[] };
-      heatmapCellCount = Math.min(50_000, heatmapBody.cells?.length ?? 0);
-      heatmapSourceTruncated = heatmapBody.truncated ?? false;
+      expect(Math.min(50_000, heatmapBody.cells?.length ?? 0)).toBe(heatmapCellCount);
+      expect(heatmapBody.truncated ?? false).toBe(heatmapSourceTruncated);
       aggregateHullCount = Math.min(2_000, clusterBody.clusters?.length ?? 0);
       timelinePointCount = Math.min(1_200, timelineBody.points?.length ?? 0);
-      await page.route('**/api/map/heatmap?**', (route) => route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: heatmapText,
-      }));
       await page.route('**/api/map/clusters/hulls?**', (route) => route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -159,27 +167,20 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
         contentType: 'application/json',
         body: timelineText,
       }));
-      const heatmapResponsePromise = page.waitForResponse((response) => (
-        new URL(response.url()).pathname === '/api/map/heatmap'
-      ));
       const clusterResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/api/map/clusters/hulls'
       ));
       const timelineResponsePromise = page.waitForResponse((response) => (
         new URL(response.url()).pathname === '/api/map/timeline'
       ));
-      await page.getByTestId('stage26e-map-heatmap-toggle').click();
       await page.getByTestId('stage26e-map-clusters-toggle').click();
       await page.getByTestId('stage26e-map-timeline-toggle').click();
-      const [heatmapResponse, clusterResponse, timelineResponse] = await Promise.all([
-        heatmapResponsePromise,
+      const [clusterResponse, timelineResponse] = await Promise.all([
         clusterResponsePromise,
         timelineResponsePromise,
       ]);
-      heatmapResponseStatus = heatmapResponse.status();
       clusterResponseStatus = clusterResponse.status();
       timelineResponseStatus = timelineResponse.status();
-      expect(heatmapResponseStatus).toBe(200);
       expect(clusterResponseStatus).toBe(200);
       expect(timelineResponseStatus).toBe(200);
       expect(heatmapCellCount).toBeGreaterThan(0);
@@ -216,6 +217,7 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
       expect(snapshot.regionPositionBytes).toBe(542_280);
       expect(requestedApiPaths.some((apiPath) => apiPath.startsWith('/api/map/regions'))).toBe(false);
       expect(requestedApiPaths).toContain('/stage26e/authoritative-regions.json');
+      expect(requestedApiPaths).toContain('/api/map/heatmap?max_cells=50000');
     });
 
     return {
@@ -239,7 +241,7 @@ async function measureViewport(browser: Browser, viewport: typeof VIEWPORTS[numb
 const measurements: RouteMeasurement[] = [];
 
 for (const viewport of VIEWPORTS) {
-  test(`measures the default-off candidate at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
+  test(`measures the default-on candidate at ${viewport.width}x${viewport.height}`, async ({ browser }) => {
     test.setTimeout(180_000);
     const measurement = await measureViewport(browser, viewport);
     measurements.push(measurement);
