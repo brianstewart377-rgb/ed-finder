@@ -219,12 +219,19 @@ function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
     const canvas = gl.domElement;
 
     let frame: number | null = null;
-    const sync = () => {
-      frame = null;
+    let lastWidth: number | null = null;
+    let lastHeight: number | null = null;
+    let lastDpr: number | null = null;
+    const measure = () => {
       const rect = canvas.getBoundingClientRect();
       const width = Math.max(1, Math.round(rect.width || viewport.width));
       const height = Math.max(1, Math.round(rect.height || viewport.height));
       const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+      return { width, height, dpr };
+    };
+    const sync = () => {
+      frame = null;
+      const { width, height, dpr } = measure();
       const state = get();
 
       if (Math.abs(state.viewport.dpr - dpr) > 0.001) setDpr(dpr);
@@ -261,8 +268,22 @@ function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
         && Math.abs(syncedBuffer.y - expectedHeight) <= 1,
       );
       invalidate();
+      lastWidth = width;
+      lastHeight = height;
+      lastDpr = dpr;
     };
     const queueSync = () => {
+      const { width, height, dpr } = measure();
+      if (
+        lastWidth == null
+        || lastHeight == null
+        || lastDpr == null
+        || width !== lastWidth
+        || height !== lastHeight
+        || Math.abs(dpr - lastDpr) > 0.001
+      ) {
+        canvas.dataset.drawingBufferSynced = 'false';
+      }
       if (frame != null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(sync);
     };
