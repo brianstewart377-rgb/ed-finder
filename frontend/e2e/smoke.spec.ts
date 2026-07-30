@@ -66,21 +66,29 @@ function expectCanvasMetricsToBeSynced(metrics: Awaited<ReturnType<typeof readCa
 }
 
 async function expectCanvasToBeSynced(page: Page) {
-  await expect.poll(async () => {
-    const metrics = await readCanvasMetrics(page);
-    return (
-      metrics.cssWidth > 0
-      && metrics.cssHeight > 0
-      && metrics.canvasWidth === metrics.drawingBufferWidth
-      && metrics.canvasHeight === metrics.drawingBufferHeight
-      && metrics.viewport[0] === 0
-      && metrics.viewport[1] === 0
-      && metrics.viewport[2] === metrics.drawingBufferWidth
-      && metrics.viewport[3] === metrics.drawingBufferHeight
-      && metrics.syncGuard === 'true'
-      && !metrics.contextLost
+  let lastMetrics: Awaited<ReturnType<typeof readCanvasMetrics>> | null = null;
+  try {
+    await expect.poll(async () => {
+      lastMetrics = await readCanvasMetrics(page);
+      return (
+        lastMetrics.cssWidth > 0
+        && lastMetrics.cssHeight > 0
+        && lastMetrics.canvasWidth === lastMetrics.drawingBufferWidth
+        && lastMetrics.canvasHeight === lastMetrics.drawingBufferHeight
+        && lastMetrics.viewport[0] === 0
+        && lastMetrics.viewport[1] === 0
+        && lastMetrics.viewport[2] === lastMetrics.drawingBufferWidth
+        && lastMetrics.viewport[3] === lastMetrics.drawingBufferHeight
+        && lastMetrics.syncGuard === 'true'
+        && !lastMetrics.contextLost
+      );
+    }).toBe(true);
+  } catch (error) {
+    throw new Error(
+      `Canvas metrics did not synchronize: ${JSON.stringify(lastMetrics)}`,
+      { cause: error },
     );
-  }).toBe(true);
+  }
   expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
 }
 
