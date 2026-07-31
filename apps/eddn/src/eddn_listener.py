@@ -789,8 +789,8 @@ async def flush_pending(pool: asyncpg.Pool):
                                 rating_dirty, cluster_dirty,
                                 eddn_updated_at, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4,$5,$6::economy_type,$7::bigint,
-                                $8,$9,$10,$11,$12,
+                                $1,COALESCE($2, 'Unknown'),$3,$4,$5,$6::economy_type,$7::bigint,
+                                $8,$9,$10,COALESCE($11, FALSE),COALESCE($12, FALSE),
                                 TRUE,TRUE,NOW(),NOW()
                             )
                             ON CONFLICT (id64) DO UPDATE SET
@@ -881,7 +881,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 is_tidal_lock, spectral_class, stellar_mass, is_scoopable,
                                 estimated_mapping_value, estimated_scan_value, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4::body_type,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                                $1,$2,COALESCE($3, 'Unknown'),$4::body_type,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                                 $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW()
                             )
                             ON CONFLICT (id) DO UPDATE SET
