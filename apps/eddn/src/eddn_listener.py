@@ -790,7 +790,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 eddn_updated_at, updated_at
                             ) VALUES (
                                 $1,$2,$3,$4,$5,$6::economy_type,$7::bigint,
-                                $8,$9,$10,$11,$12,
+                                $8,$9,$10,COALESCE($11, FALSE),COALESCE($12, FALSE),
                                 TRUE,TRUE,NOW(),NOW()
                             )
                             ON CONFLICT (id64) DO UPDATE SET
