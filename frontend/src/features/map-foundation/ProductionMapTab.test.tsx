@@ -8,13 +8,14 @@ import type { SystemResult } from '@/types/api';
 vi.mock('@/features/map/useMapLayers');
 vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
-  R3FMapFoundation: ({ scene, regions, productionOverlays, onInteraction, onZoomIntent }: {
+  R3FMapFoundation: ({ scene, regions, productionOverlays, viewPreset, onInteraction, onZoomIntent }: {
     scene: {
       systems: Array<{ id64: number }>;
       camera: { bearingDeg: number; pitchDeg: number; zoom: number };
     };
     regions: { labels: unknown[]; boundaries: unknown[] };
     productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
+    viewPreset: string;
     onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
     onZoomIntent?: (deltaY: number) => void;
   }) => (
@@ -26,6 +27,7 @@ vi.mock('./R3FMapFoundation', () => ({
       data-camera-bearing={scene.camera.bearingDeg}
       data-camera-pitch={scene.camera.pitchDeg}
       data-camera-zoom={scene.camera.zoom}
+      data-view-preset={viewPreset}
       data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
       data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
     >
@@ -124,9 +126,22 @@ describe('Stage 26E production route composition', () => {
   it('keeps the whole-galaxy chart available before Finder has results', () => {
     render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
-    expect(screen.getByText('No systems to map yet')).toBeTruthy();
-    fireEvent.click(screen.getByTestId('map-view-galaxy'));
+    expect(screen.getByTestId('map-view-galaxy').getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByTestId('r3f-production-renderer')).toBeTruthy();
+  });
+
+  it('keeps galaxy framing on a cold open with no Finder systems', () => {
+    render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    expect(screen.getByTestId('r3f-production-renderer').getAttribute('data-view-preset')).toBe('galaxy');
+    expect(screen.queryByText('No systems to map yet')).toBeNull();
+  });
+
+  it('shows the empty state for Finder results with no systems', () => {
+    render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    fireEvent.click(screen.getByTestId('map-view-results'));
+    expect(screen.getByText('No systems to map yet')).toBeTruthy();
   });
 
   it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
@@ -134,14 +149,24 @@ describe('Stage 26E production route composition', () => {
 
     expect(screen.getByTestId('stage26e-route-flag-state').textContent).toContain('Live map');
     expect((screen.getByTestId('stage26e-map-regions-toggle') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('stage26e-map-heatmap-toggle') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('stage26e-map-clusters-toggle') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('stage26e-map-timeline-toggle') as HTMLInputElement).checked).toBe(false);
+    expect(vi.mocked(useMapLayers)).toHaveBeenCalledWith(expect.objectContaining({
+      heatmap: { enabled: true, max_cells: 50_000 },
+    }));
     const renderer = screen.getByTestId('r3f-production-renderer');
     expect(renderer.getAttribute('data-system-count')).toBe('500');
     expect(renderer.getAttribute('data-region-label-count')).toBe('42');
     expect(renderer.getAttribute('data-region-boundary-count')).toBe('1');
-    expect(renderer.getAttribute('data-heatmap-count')).toBe('0');
+    expect(renderer.getAttribute('data-heatmap-count')).toBe('1');
     expect(renderer.getAttribute('data-hull-count')).toBe('0');
 
     fireEvent.click(screen.getByTestId('stage26e-map-heatmap-toggle'));
+    expect((screen.getByTestId('stage26e-map-heatmap-toggle') as HTMLInputElement).checked).toBe(false);
+    expect(renderer.getAttribute('data-heatmap-count')).toBe('0');
+    fireEvent.click(screen.getByTestId('stage26e-map-heatmap-toggle'));
+    expect((screen.getByTestId('stage26e-map-heatmap-toggle') as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByTestId('stage26e-map-clusters-toggle'));
     fireEvent.click(screen.getByTestId('stage26e-map-timeline-toggle'));
 

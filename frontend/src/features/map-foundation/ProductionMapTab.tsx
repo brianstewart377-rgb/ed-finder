@@ -97,9 +97,9 @@ export function ProductionMapTab({
   );
   const [viewport, setViewport] = useState(DEFAULT_VIEWPORT);
   const [scene, setScene] = useState<MapSceneState>(() => emptyProductionScene(referenceCoords));
-  const [viewPreset, setViewPreset] = useState<MapViewPreset>('results');
+  const [viewPreset, setViewPreset] = useState<MapViewPreset>('galaxy');
   const [showRegions, setShowRegions] = useState(true);
-  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(true);
   const [showClusters, setShowClusters] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
   const [timelineBucket, setTimelineBucket] = useState<'month' | 'quarter' | 'year'>('month');
@@ -117,8 +117,9 @@ export function ProductionMapTab({
         continuationToken: null,
       },
     });
-    setScene(applyViewPreset(handoff.scene, 'results', referenceCoords, DEFAULT_VIEWPORT));
-    setViewPreset('results');
+    const preset = boundedSystems.length > 0 ? 'results' : 'galaxy';
+    setScene(applyViewPreset(handoff.scene, preset, referenceCoords, DEFAULT_VIEWPORT));
+    setViewPreset(preset);
   }, [boundedSystems, initialSelectedSystemId, referenceCoords, systems.length]);
 
   useLayoutEffect(() => {

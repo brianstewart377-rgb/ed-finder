@@ -190,14 +190,22 @@ test.describe('ED Finder — smoke', () => {
     const regionResponsePromise = page.waitForResponse((response) => (
       new URL(response.url()).pathname === '/stage26e/authoritative-regions.json'
     ));
+    const heatmapResponsePromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/map/heatmap'
+    ));
 
     await page.getByTestId('nav-map').click();
 
-    const regionResponse = await regionResponsePromise;
+    const [regionResponse, heatmapResponse] = await Promise.all([
+      regionResponsePromise,
+      heatmapResponsePromise,
+    ]);
     expect(regionResponse.status()).toBe(200);
+    expect(heatmapResponse.status()).toBe(200);
     await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
     await expect(page.getByTestId('stage26e-route-flag-state')).toContainText('Live map');
     await expect(page.getByTestId('stage26e-map-regions-toggle')).toBeChecked();
+    await expect(page.getByTestId('stage26e-map-heatmap-toggle')).toBeChecked();
 
     await page.getByTestId('map-view-galaxy').click();
     await expect(page.getByTestId('map-projection-2d')).toHaveCount(0);
