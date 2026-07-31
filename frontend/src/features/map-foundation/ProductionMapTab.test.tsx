@@ -134,6 +134,14 @@ describe('Stage 26E production route composition', () => {
     render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
 
     expect(screen.getByTestId('r3f-production-renderer').getAttribute('data-view-preset')).toBe('galaxy');
+    expect(screen.queryByText('No systems to map yet')).toBeNull();
+  });
+
+  it('shows the empty state for Finder results with no systems', () => {
+    render(<ProductionMapTab systems={[]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    fireEvent.click(screen.getByTestId('map-view-results'));
+    expect(screen.getByText('No systems to map yet')).toBeTruthy();
   });
 
   it('bounds Finder systems and composes authoritative regions plus enabled live overlays', () => {
