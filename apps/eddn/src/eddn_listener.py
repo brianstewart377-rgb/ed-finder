@@ -881,7 +881,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 is_tidal_lock, spectral_class, stellar_mass, is_scoopable,
                                 estimated_mapping_value, estimated_scan_value, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4::body_type,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                                $1,$2,COALESCE($3, 'Unknown'),$4::body_type,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                                 $15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,NOW()
                             )
                             ON CONFLICT (id) DO UPDATE SET
