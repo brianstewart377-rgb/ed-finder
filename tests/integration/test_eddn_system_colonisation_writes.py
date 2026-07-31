@@ -23,6 +23,8 @@ TEST_SYSTEM_IDS = (
     92_000_000_000_003,
     92_000_000_000_004,
     92_000_000_000_005,
+    92_000_000_000_006,
+    92_000_000_000_007,
 )
 
 TEST_BODY_IDS = (
@@ -263,3 +265,72 @@ async def test_scan_with_null_body_name_preserves_existing_real_name(
     assert row is not None
     assert row['name'] == 'Existing Real Body Name'
     assert row['subtype'] == 'Rocky body'
+
+
+@pytest.mark.asyncio
+async def test_fss_with_null_system_name_inserts_unknown(
+    pool,
+    isolated_eddn_system_writes,
+):
+    system_id = TEST_SYSTEM_IDS[5]
+    await eddn_listener.handle_fss_discovery(
+        pool,
+        {},
+        {
+            'StarSystem': {
+                'SystemAddress': system_id,
+                'name': None,
+            },
+        },
+    )
+
+    await eddn_listener.flush_pending(pool)
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT name FROM systems WHERE id64 = $1',
+            system_id,
+        )
+
+    assert row is not None
+    assert row['name'] == 'Unknown'
+
+
+@pytest.mark.asyncio
+async def test_fss_with_null_system_name_preserves_existing_real_name(
+    pool,
+    isolated_eddn_system_writes,
+):
+    system_id = TEST_SYSTEM_IDS[6]
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO systems (id64, name, population)
+            VALUES ($1, 'Existing Real System Name', 1)
+            """,
+            system_id,
+        )
+
+    await eddn_listener.handle_fss_discovery(
+        pool,
+        {},
+        {
+            'StarSystem': {
+                'SystemAddress': system_id,
+                'name': None,
+                'Population': 42,
+            },
+        },
+    )
+
+    await eddn_listener.flush_pending(pool)
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT name, population FROM systems WHERE id64 = $1',
+            system_id,
+        )
+
+    assert row is not None
+    assert row['name'] == 'Existing Real System Name'
+    assert row['population'] == 42

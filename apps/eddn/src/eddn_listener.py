@@ -789,7 +789,7 @@ async def flush_pending(pool: asyncpg.Pool):
                                 rating_dirty, cluster_dirty,
                                 eddn_updated_at, updated_at
                             ) VALUES (
-                                $1,$2,$3,$4,$5,$6::economy_type,$7::bigint,
+                                $1,COALESCE($2, 'Unknown'),$3,$4,$5,$6::economy_type,$7::bigint,
                                 $8,$9,$10,COALESCE($11, FALSE),COALESCE($12, FALSE),
                                 TRUE,TRUE,NOW(),NOW()
                             )
