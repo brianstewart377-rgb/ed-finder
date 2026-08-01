@@ -551,26 +551,122 @@ def test_offsite_retention_never_deletes_latest_json(tmp_path: Path):
     )
 
 
-def test_remote_prune_failure_preserves_local_pruning_and_backup_success(tmp_path: Path):
+def test_remote_prune_failure_exits_nonzero_without_changing_local_archive_set(
+    tmp_path: Path,
+):
+    successful_root = tmp_path / 'successful'
+    failed_root = tmp_path / 'failed'
+    successful_root.mkdir()
+    failed_root.mkdir()
+    scenario_options = {
+        'offsite': True,
+        'old_archive_count': 2,
+        'retention_min_archives': 1,
+        'remote_archive_count': 4,
+        'offsite_retention_min_archives': 1,
+    }
+    successful = _run_backup_scenario(successful_root, **scenario_options)
+    failed = _run_backup_scenario(
+        failed_root,
+        rclone_prune_result='fail',
+        **scenario_options,
+    )
+    successful_completed = successful['completed']
+    failed_completed = failed['completed']
+
+    assert isinstance(successful_completed, subprocess.CompletedProcess)
+    assert isinstance(failed_completed, subprocess.CompletedProcess)
+    assert successful_completed.returncode == 0
+    assert failed_completed.returncode != 0
+    assert all(not path.exists() for path in successful['old_files'])
+    assert all(not path.exists() for path in failed['old_files'])
+    successful_shape = (
+        len(list(successful['backup_dir'].glob('edfinder_*.dump'))),
+        len(list(successful['backup_dir'].glob('edfinder_*.dump.sha256'))),
+        len(list(successful['backup_dir'].glob('edfinder_*.dump.json'))),
+    )
+    failed_shape = (
+        len(list(failed['backup_dir'].glob('edfinder_*.dump'))),
+        len(list(failed['backup_dir'].glob('edfinder_*.dump.sha256'))),
+        len(list(failed['backup_dir'].glob('edfinder_*.dump.json'))),
+    )
+    assert failed_shape == successful_shape == (1, 1, 1)
+    assert failed['metadata']['offsite_sync_status'] == 'synced'
+    assert failed['metadata']['offsite_prune_status'] == 'failed'
+    assert failed['remote_delete_calls']
+    assert 'ERROR: offsite backup prune failed' in failed['log']
+
+
+def test_remote_prune_failure_skips_offsite_heartbeat_with_reason(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-prune-failure'
+    offsite_url = 'https://heartbeat.invalid/offsite-prune-failure'
     observation = _run_backup_scenario(
         tmp_path,
         offsite=True,
         rclone_prune_result='fail',
-        old_archive_count=2,
-        retention_min_archives=1,
         remote_archive_count=4,
         offsite_retention_min_archives=1,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert offsite_url not in observation['heartbeat_calls']
+    assert 'offsite heartbeat: skipped (offsite prune failed)' in output
+
+
+def test_remote_prune_failure_still_sends_local_heartbeat(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-prune-failure'
+    offsite_url = 'https://heartbeat.invalid/offsite-prune-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_prune_result='fail',
+        remote_archive_count=4,
+        offsite_retention_min_archives=1,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+
+    assert observation['heartbeat_calls'] == [local_url]
+
+
+def test_fully_healthy_offsite_path_sends_both_heartbeats_and_exits_zero(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-healthy'
+    offsite_url = 'https://heartbeat.invalid/offsite-healthy'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
     )
     completed = observation['completed']
 
     assert isinstance(completed, subprocess.CompletedProcess)
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert all(not path.exists() for path in observation['old_files'])
-    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
-    assert observation['metadata']['offsite_sync_status'] == 'synced'
-    assert observation['metadata']['offsite_prune_status'] == 'failed'
-    assert observation['remote_delete_calls']
-    assert 'ERROR: offsite backup prune failed' in observation['log']
+    assert observation['metadata']['offsite_prune_status'] == 'not_required'
+    assert observation['heartbeat_calls'] == [local_url, offsite_url]
+
+
+def test_offsite_disabled_exits_zero_without_offsite_heartbeat(tmp_path: Path):
+    backup = _read('apps', 'maintenance', 'scripts', 'run_backup.sh')
+    local_url = 'https://heartbeat.invalid/local-disabled'
+    offsite_url = 'https://heartbeat.invalid/offsite-disabled'
+    observation = _run_backup_scenario(
+        tmp_path,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+    completed = observation['completed']
+
+    assert '"$OFFSITE_PRUNE_STATUS" == "not_required"' in backup
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['metadata']['offsite_sync_status'] == 'disabled'
+    assert observation['heartbeat_calls'] == [local_url]
 
 
 def test_failed_pg_dump_still_prunes_without_replacing_latest(tmp_path: Path):

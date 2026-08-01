@@ -152,6 +152,7 @@ prune_offsite_backups() {
         fi
 
         echo "offsite pruned: $archive with sidecars"
+        OFFSITE_PRUNE_STATUS="succeeded"
         archive_count=$((archive_count - 1))
     done
 }
@@ -293,10 +294,10 @@ if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
 fi
 
 if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
-    if prune_offsite_backups; then
-        OFFSITE_PRUNE_STATUS="succeeded"
-    else
+    OFFSITE_PRUNE_STATUS="not_required"
+    if ! prune_offsite_backups; then
         OFFSITE_PRUNE_STATUS="failed"
+        OFFSITE_EXIT_CODE=1
         echo "ERROR: offsite backup prune failed; backup upload and local retention remain successful" >&2
     fi
     write_metadata
@@ -304,8 +305,12 @@ elif [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
     echo "offsite prune: skipped (offsite status $OFFSITE_SYNC_STATUS)"
 fi
 
-if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
+if [[ "$OFFSITE_SYNC_STATUS" == "synced" \
+    && ( "$OFFSITE_PRUNE_STATUS" == "succeeded" \
+        || "$OFFSITE_PRUNE_STATUS" == "not_required" ) ]]; then
     send_heartbeat "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL"
+elif [[ "$OFFSITE_PRUNE_STATUS" == "failed" ]]; then
+    echo "offsite heartbeat: skipped (offsite prune failed)"
 else
     log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "offsite status $OFFSITE_SYNC_STATUS"
 fi
