@@ -1,5 +1,7 @@
+from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 
@@ -17,6 +19,23 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
+def _postgres_timestamp_minutes_ago(
+    minutes: float,
+    *,
+    include_timezone: bool = True,
+) -> str:
+    timestamp = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    if include_timezone:
+        return timestamp.strftime('%Y-%m-%d %H:%M:%S.%f+00')
+    return timestamp.replace(tzinfo=None).strftime('%Y-%m-%d %H:%M:%S.%f')
+
+
+def _logged_actual_age_minutes(output: str) -> float:
+    match = re.search(r'actual age ([0-9]+(?:\.[0-9]+)?) minutes', output)
+    assert match is not None, output
+    return float(match.group(1))
+
+
 def _run_watchdog(
     tmp_path: Path,
     *,
@@ -27,6 +46,8 @@ def _run_watchdog(
     freshness: str = 'fresh',
     query_result: str = 'success',
     curl_result: str = 'success',
+    eddn_timestamp: str = '2026-08-01 12:00:00+00',
+    use_real_python: bool = False,
 ) -> dict[str, object]:
     bash = shutil.which('bash')
     assert bash is not None, 'bash is required for watchdog behavior tests'
@@ -46,7 +67,8 @@ if [[ "${FAKE_QUERY_RESULT:-success}" == 'fail' ]]; then
 fi
 printf '%s\n' "${FAKE_EDDN_TIMESTAMP:-2026-08-01 12:00:00+00}"
 ''')
-    _write_executable(fake_bin / 'python3', '''#!/bin/bash
+    if not use_real_python:
+        _write_executable(fake_bin / 'python3', '''#!/bin/bash
 set -eu
 printf '%s\n' "$*" >> "${PYTHON_CALL_LOG}"
 printf '%s\t%s\t%s\n' \
@@ -70,16 +92,19 @@ fi
         'DATA_INVARIANTS_DATABASE_URL': 'postgresql://watchdog-readonly/test',
         'DATABASE_URL': 'postgresql://watchdog-fallback/test',
         'FAKE_QUERY_RESULT': query_result,
-        'FAKE_EDDN_TIMESTAMP': '2026-08-01 12:00:00+00',
-        'FAKE_AGE_SECONDS': str(age_seconds),
-        'FAKE_AGE_MINUTES': age_minutes,
-        'FAKE_FRESHNESS': freshness,
+        'FAKE_EDDN_TIMESTAMP': eddn_timestamp,
         'FAKE_CURL_RESULT': curl_result,
         'PSQL_CALL_LOG': psql_log.as_posix(),
         'PYTHON_CALL_LOG': python_log.as_posix(),
         'CURL_CALL_LOG': curl_log.as_posix(),
         'PATH': f'{fake_bin}{os.pathsep}{os.environ.get("PATH", "")}',
     }
+    if not use_real_python:
+        env.update({
+            'FAKE_AGE_SECONDS': str(age_seconds),
+            'FAKE_AGE_MINUTES': age_minutes,
+            'FAKE_FRESHNESS': freshness,
+        })
     completed = subprocess.run(
         [bash, str(WATCHDOG)],
         cwd=ROOT,
@@ -180,6 +205,93 @@ def test_ping_failure_does_not_change_fresh_data_exit_code(tmp_path: Path):
     assert completed.returncode == 0, observation['output']
     assert len(observation['curl_calls']) == 1
     assert 'watchdog heartbeat: failed' in observation['output']
+
+
+def test_real_age_arithmetic_pings_for_timestamp_five_minutes_old(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/eddn-real-fresh'
+    observation = _run_watchdog(
+        tmp_path,
+        heartbeat_url=heartbeat_url,
+        eddn_timestamp=_postgres_timestamp_minutes_ago(5),
+        use_real_python=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert observation['curl_calls'] == [heartbeat_url]
+    assert observation['python_calls'] == []
+    assert 4.9 <= _logged_actual_age_minutes(observation['output']) <= 5.5
+
+
+def test_real_age_arithmetic_rejects_timestamp_ninety_minutes_old(tmp_path: Path):
+    observation = _run_watchdog(
+        tmp_path,
+        eddn_timestamp=_postgres_timestamp_minutes_ago(90),
+        use_real_python=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['curl_calls'] == []
+    assert observation['python_calls'] == []
+    assert 89.9 <= _logged_actual_age_minutes(observation['output']) <= 90.5
+
+
+def test_real_age_arithmetic_treats_observed_threshold_boundary_as_stale(
+    tmp_path: Path,
+):
+    # The comparison itself includes equality. In a real run, a timestamp that
+    # was exactly 30 minutes old when produced is fractionally older by the time
+    # it is evaluated, so the observed boundary fails closed as stale.
+    observation = _run_watchdog(
+        tmp_path,
+        max_age_minutes=30,
+        eddn_timestamp=_postgres_timestamp_minutes_ago(30),
+        use_real_python=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['curl_calls'] == []
+    assert observation['python_calls'] == []
+    assert 30.0 <= _logged_actual_age_minutes(observation['output']) < 31.0
+
+
+def test_real_age_arithmetic_rejects_malformed_database_timestamp(tmp_path: Path):
+    observation = _run_watchdog(
+        tmp_path,
+        eddn_timestamp='not-a-postgresql-timestamp',
+        use_real_python=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['curl_calls'] == []
+    assert observation['python_calls'] == []
+    assert 'cannot verify freshness from database timestamp' in observation['output']
+
+
+def test_real_age_arithmetic_assumes_naive_database_timestamp_is_utc(tmp_path: Path):
+    # The production parser attaches UTC to a timestamp that has no offset; it
+    # does not interpret the value in the container's local timezone.
+    heartbeat_url = 'https://heartbeat.invalid/eddn-real-naive-utc'
+    observation = _run_watchdog(
+        tmp_path,
+        heartbeat_url=heartbeat_url,
+        eddn_timestamp=_postgres_timestamp_minutes_ago(5, include_timezone=False),
+        use_real_python=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert observation['curl_calls'] == [heartbeat_url]
+    assert observation['python_calls'] == []
+    assert 4.9 <= _logged_actual_age_minutes(observation['output']) <= 5.5
 
 
 def test_ingest_watchdog_is_wired_into_maintenance_runtime():
