@@ -19,8 +19,11 @@ TASK="${1:-nightly}"
 DB_URL="${DATABASE_URL:?DATABASE_URL must be set}"
 BACKUP_DIR="${BACKUP_DIR:-/data/backups/postgres}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+RETENTION_MIN_ARCHIVES="${BACKUP_RETENTION_MIN_ARCHIVES:-3}"
 LOG_FILE="${BACKUP_LOG_FILE:-/data/logs/backup.log}"
 BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"
+BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"
+BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"
 
 mkdir -p "$BACKUP_DIR" "$(dirname "$LOG_FILE")"
 
@@ -42,9 +45,68 @@ META_FILE="${ARCHIVE}.json"
 LATEST_LINK="$BACKUP_DIR/latest.dump"
 LATEST_META_LINK="$BACKUP_DIR/latest.json"
 
+cleanup_tmp_archive() {
+    rm -f -- "${TMP_ARCHIVE:-}" || true
+}
+trap cleanup_tmp_archive EXIT
+
+prune_local_backups() {
+    local archive
+    local archive_count
+    local -a expired_archives=()
+
+    archive_count="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' | wc -l | tr -d '[:space:]')"
+    mapfile -t expired_archives < <(
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print | sort
+    )
+
+    for archive in "${expired_archives[@]}"; do
+        if (( archive_count <= RETENTION_MIN_ARCHIVES )); then
+            echo "retention floor: keeping $archive because only $archive_count archive(s) remain (minimum $RETENTION_MIN_ARCHIVES)"
+            break
+        fi
+
+        rm -f -- "$archive" "${archive}.sha256" "${archive}.json"
+        echo "$archive"
+        echo "${archive}.sha256"
+        echo "${archive}.json"
+        archive_count=$((archive_count - 1))
+    done
+}
+
+log_heartbeat_skipped() {
+    local label="$1"
+    local url="$2"
+    local reason="$3"
+
+    if [[ -z "$url" ]]; then
+        echo "$label heartbeat: skipped (unconfigured)"
+    else
+        echo "$label heartbeat: skipped ($reason)"
+    fi
+}
+
+send_heartbeat() {
+    local label="$1"
+    local url="$2"
+
+    if [[ -z "$url" ]]; then
+        echo "$label heartbeat: skipped (unconfigured)"
+        return 0
+    fi
+
+    if curl -fsS -m 10 --retry 3 "$url"; then
+        echo "$label heartbeat: sent"
+    else
+        echo "$label heartbeat: failed" >&2
+    fi
+    return 0
+}
+
 echo "===== Postgres backup starting ====="
 echo "backup dir: $BACKUP_DIR"
 echo "retention:  ${RETENTION_DAYS} days"
+echo "minimum:    ${RETENTION_MIN_ARCHIVES} archives"
 echo "archive:    $ARCHIVE"
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
     echo "offsite:    $BACKUP_OFFSITE_REMOTE"
@@ -52,12 +114,21 @@ else
     echo "offsite:    disabled"
 fi
 
-pg_dump "$DB_URL" \
+if pg_dump "$DB_URL" \
     --format=custom \
     --compress=6 \
     --no-owner \
     --no-privileges \
-    --file="$TMP_ARCHIVE"
+    --file="$TMP_ARCHIVE"; then
+    ARCHIVE_CREATED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+else
+    DUMP_EXIT_CODE=$?
+    prune_local_backups
+    log_heartbeat_skipped "local" "$BACKUP_HEARTBEAT_URL" "no valid local archive"
+    log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "no valid local archive"
+    echo "ERROR: pg_dump failed for $ARCHIVE; local retention completed" >&2
+    exit "$DUMP_EXIT_CODE"
+fi
 
 mv "$TMP_ARCHIVE" "$ARCHIVE"
 pg_restore --list "$ARCHIVE" >/dev/null
@@ -69,20 +140,14 @@ OFFSITE_SYNCED_AT_JSON="null"
 OFFSITE_REMOTE_JSON="null"
 
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
-    command -v rclone >/dev/null 2>&1 || {
-        echo "BACKUP_OFFSITE_REMOTE is set but rclone is unavailable" >&2
-        exit 1
-    }
+    OFFSITE_SYNC_STATUS="failed"
     OFFSITE_REMOTE_JSON="\"$BACKUP_OFFSITE_REMOTE\""
-    rclone copyto "$ARCHIVE" "$BACKUP_OFFSITE_REMOTE/$(basename "$ARCHIVE")"
-    rclone copyto "$SHA_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$SHA_FILE")"
-    OFFSITE_SYNC_STATUS="synced"
-    OFFSITE_SYNCED_AT_JSON="\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\""
 fi
 
-cat > "$META_FILE" <<EOF
+write_metadata() {
+    cat > "$META_FILE" <<EOF
 {
-  "created_at_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+  "created_at_utc": "$ARCHIVE_CREATED_AT_UTC",
   "task": "$TASK",
   "archive_file": "$(basename "$ARCHIVE")",
   "sha256_file": "$(basename "$SHA_FILE")",
@@ -95,20 +160,59 @@ cat > "$META_FILE" <<EOF
   "offsite_synced_at_utc": $OFFSITE_SYNCED_AT_JSON
 }
 EOF
+}
 
-if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
-    rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$META_FILE")"
-    rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/latest.json"
-fi
+write_metadata
 
 ln -sfn "$(basename "$ARCHIVE")" "$LATEST_LINK"
 ln -sfn "$(basename "$META_FILE")" "$LATEST_META_LINK"
 
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print -delete
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.sha256' -mtime +"$RETENTION_DAYS" -print -delete
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.json' -mtime +"$RETENTION_DAYS" -print -delete
+prune_local_backups
+send_heartbeat "local" "$BACKUP_HEARTBEAT_URL"
+
+OFFSITE_EXIT_CODE=0
+if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
+    if ! command -v rclone >/dev/null 2>&1; then
+        echo "BACKUP_OFFSITE_REMOTE is set but rclone is unavailable" >&2
+        OFFSITE_EXIT_CODE=1
+    elif rclone copyto "$ARCHIVE" "$BACKUP_OFFSITE_REMOTE/$(basename "$ARCHIVE")" \
+        && rclone copyto "$SHA_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$SHA_FILE")"; then
+        OFFSITE_SYNC_STATUS="synced"
+        OFFSITE_SYNCED_AT_JSON="\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\""
+        write_metadata
+        if ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$META_FILE")" \
+            || ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/latest.json"; then
+            OFFSITE_EXIT_CODE=1
+            OFFSITE_SYNC_STATUS="synced_metadata_failed"
+            write_metadata
+        fi
+    else
+        OFFSITE_EXIT_CODE=1
+    fi
+
+    if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
+        if [[ "$OFFSITE_SYNC_STATUS" == "synced_metadata_failed" ]]; then
+            echo "ERROR: offsite backup metadata sync failed for $ARCHIVE; archive and checksum are synced; local archive, metadata, latest symlinks, and retention completed" >&2
+        else
+            OFFSITE_SYNC_STATUS="failed"
+            OFFSITE_SYNCED_AT_JSON="null"
+            write_metadata
+            echo "ERROR: offsite backup sync failed for $ARCHIVE; local archive, metadata, latest symlinks, and retention completed" >&2
+        fi
+    fi
+fi
+
+if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
+    send_heartbeat "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL"
+else
+    log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "offsite status $OFFSITE_SYNC_STATUS"
+fi
 
 echo "===== Postgres backup complete ====="
 echo "archive size bytes: $SIZE_BYTES"
 echo "latest symlink:     $LATEST_LINK"
 echo "offsite status:     $OFFSITE_SYNC_STATUS"
+
+if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
+    exit "$OFFSITE_EXIT_CODE"
+fi

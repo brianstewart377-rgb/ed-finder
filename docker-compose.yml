@@ -276,6 +276,9 @@ services:
       BACKUP_DIR:    /data/backups/postgres
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
       BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}
+      # Optional dead-man's-switch services alert when an expected ping does not arrive.
+      BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
+      BACKUP_OFFSITE_HEARTBEAT_URL: ${BACKUP_OFFSITE_HEARTBEAT_URL:-}
       EVIDENCE_RECORD_RETENTION_DAYS: ${EVIDENCE_RECORD_RETENTION_DAYS:-90}
       ADMIN_JOB_RUN_RETENTION_DAYS: ${ADMIN_JOB_RUN_RETENTION_DAYS:-60}
       BACKUP_LOG_FILE: /data/logs/backup.log

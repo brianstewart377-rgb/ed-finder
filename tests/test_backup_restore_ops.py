@@ -1,4 +1,9 @@
+import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,8 +17,210 @@ def _squash(text: str) -> str:
     return ' '.join(text.split())
 
 
+def _write_executable(path: Path, body: str) -> None:
+    path.write_text(body, encoding='utf-8', newline='\n')
+    path.chmod(0o755)
+
+
+def _run_backup_scenario(
+    tmp_path: Path,
+    *,
+    offsite: bool = False,
+    rclone_result: str = 'success',
+    rclone_sleep_seconds: int = 0,
+    pg_dump_result: str = 'success',
+    existing_latest: bool = False,
+    old_archive_count: int = 1,
+    retention_min_archives: int | None = 1,
+    fresh_sidecars_for_oldest: bool = False,
+    local_heartbeat_url: str = '',
+    offsite_heartbeat_url: str = '',
+    curl_result: str = 'success',
+) -> dict[str, object]:
+    bash = shutil.which('bash')
+    assert bash is not None, 'bash is required for the backup-script behavior tests'
+
+    backup_dir = tmp_path / 'backups'
+    fake_bin = tmp_path / 'bin'
+    backup_dir.mkdir()
+    fake_bin.mkdir()
+
+    old_archive_groups = []
+    old_timestamp = time.time() - (3 * 24 * 60 * 60)
+    for index in range(old_archive_count):
+        old_base = backup_dir / f'edfinder_200001{index + 1:02d}T000000Z.dump'
+        old_group = [
+            old_base,
+            Path(f'{old_base}.sha256'),
+            Path(f'{old_base}.json'),
+        ]
+        for path in old_group:
+            path.write_text('expired', encoding='utf-8')
+            os.utime(path, (old_timestamp + index, old_timestamp + index))
+        old_archive_groups.append(old_group)
+
+    if fresh_sidecars_for_oldest:
+        for path in old_archive_groups[0][1:]:
+            os.utime(path, None)
+
+    old_archives = [group[0] for group in old_archive_groups]
+    old_files = [path for group in old_archive_groups for path in group]
+    old_base = old_archives[0]
+
+    previous_archive = None
+    previous_metadata = None
+    if existing_latest:
+        previous_archive = backup_dir / 'edfinder_20010101T000000Z.dump'
+        previous_metadata = Path(f'{previous_archive}.json')
+        previous_checksum = Path(f'{previous_archive}.sha256')
+        previous_archive.write_text('previous valid archive', encoding='utf-8')
+        previous_checksum.write_text('previous checksum', encoding='utf-8')
+        previous_metadata.write_text('{"previous": true}\n', encoding='utf-8')
+        (backup_dir / 'latest.dump').symlink_to(previous_archive.name)
+        (backup_dir / 'latest.json').symlink_to(previous_metadata.name)
+
+    baseline_metadata_files = set(backup_dir.glob('edfinder_*.dump.json'))
+
+    _write_executable(fake_bin / 'pg_dump', '''#!/bin/bash
+set -eu
+output=''
+for argument in "$@"; do
+    case "$argument" in
+        --file=*) output="${argument#--file=}" ;;
+    esac
+done
+test -n "$output"
+: > "$output"
+if [[ "${FAKE_PG_DUMP_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake pg_dump failure' >&2
+    exit 41
+fi
+printf 'valid fake archive\n' > "$output"
+''')
+    _write_executable(fake_bin / 'pg_restore', '''#!/bin/bash
+exit 0
+''')
+    _write_executable(fake_bin / 'rclone', '''#!/bin/bash
+set -eu
+if [[ -e "${RCLONE_OBSERVED_OLD_FILE}" ]]; then
+    echo 'old-present' >> "${RCLONE_ORDER_LOG}"
+else
+    echo 'old-absent' >> "${RCLONE_ORDER_LOG}"
+fi
+printf '%s\n' "$*" >> "${RCLONE_CALL_LOG}"
+if [[ "$2" == *.dump ]]; then
+    cp "${2}.json" "${RCLONE_PRE_UPLOAD_METADATA}"
+    sleep "${FAKE_RCLONE_SLEEP_SECONDS:-0}"
+fi
+if [[ "${FAKE_RCLONE_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake rclone failure' >&2
+    exit 23
+fi
+if [[ "${FAKE_RCLONE_RESULT:-success}" == 'metadata-fail' && "$2" == *.dump.json ]]; then
+    echo 'fake rclone metadata failure' >&2
+    exit 24
+fi
+''')
+    _write_executable(fake_bin / 'curl', '''#!/bin/bash
+set -eu
+printf '%s\n' "${!#}" >> "${CURL_CALL_LOG}"
+if [[ "${FAKE_CURL_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake curl failure' >&2
+    exit 28
+fi
+''')
+
+    log_file = tmp_path / 'backup.log'
+    order_log = tmp_path / 'rclone-order.log'
+    call_log = tmp_path / 'rclone-calls.log'
+    curl_call_log = tmp_path / 'curl-calls.log'
+    pre_upload_metadata = tmp_path / 'pre-upload-metadata.json'
+    env = {
+        **os.environ,
+        'DATABASE_URL': 'postgresql://unused/backup-test',
+        'BACKUP_DIR': str(backup_dir),
+        'BACKUP_LOG_FILE': str(log_file),
+        'BACKUP_RETENTION_DAYS': '0',
+        'BACKUP_OFFSITE_REMOTE': 'fake:backups' if offsite else '',
+        'BACKUP_HEARTBEAT_URL': local_heartbeat_url,
+        'BACKUP_OFFSITE_HEARTBEAT_URL': offsite_heartbeat_url,
+        'FAKE_PG_DUMP_RESULT': pg_dump_result,
+        'FAKE_RCLONE_RESULT': rclone_result,
+        'FAKE_RCLONE_SLEEP_SECONDS': str(rclone_sleep_seconds),
+        'FAKE_CURL_RESULT': curl_result,
+        'CURL_CALL_LOG': str(curl_call_log),
+        'RCLONE_OBSERVED_OLD_FILE': str(old_base),
+        'RCLONE_ORDER_LOG': str(order_log),
+        'RCLONE_CALL_LOG': str(call_log),
+        'RCLONE_PRE_UPLOAD_METADATA': str(pre_upload_metadata),
+        'PATH': f'{fake_bin}{os.pathsep}{os.environ.get("PATH", "")}',
+    }
+    if retention_min_archives is not None:
+        env['BACKUP_RETENTION_MIN_ARCHIVES'] = str(retention_min_archives)
+    completed = subprocess.run(
+        [bash, str(ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_backup.sh'), 'manual'],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    # The script's process-substitution logger can finish a few milliseconds
+    # after the parent shell exits. Give it a bounded window to flush.
+    deadline = time.monotonic() + 1
+    while not log_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    metadata_files = list(backup_dir.glob('edfinder_*.dump.json'))
+    current_metadata = [path for path in metadata_files if path not in baseline_metadata_files]
+    metadata = (
+        json.loads(current_metadata[0].read_text(encoding='utf-8'))
+        if len(current_metadata) == 1
+        else None
+    )
+    return {
+        'completed': completed,
+        'backup_dir': backup_dir,
+        'old_archives': old_archives,
+        'old_files': old_files,
+        'previous_archive': previous_archive,
+        'previous_metadata': previous_metadata,
+        'metadata': metadata,
+        'metadata_files_created': current_metadata,
+        'pre_upload_metadata': (
+            json.loads(pre_upload_metadata.read_text(encoding='utf-8'))
+            if pre_upload_metadata.exists()
+            else None
+        ),
+        'log': log_file.read_text(encoding='utf-8') if log_file.exists() else '',
+        'order': order_log.read_text(encoding='utf-8').splitlines() if order_log.exists() else [],
+        'calls': call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else [],
+        'heartbeat_calls': (
+            curl_call_log.read_text(encoding='utf-8').splitlines()
+            if curl_call_log.exists()
+            else []
+        ),
+    }
+
+
+def _assert_archive_sidecars_consistent(backup_dir: Path) -> None:
+    archives = list(backup_dir.glob('edfinder_*.dump'))
+    checksums = list(backup_dir.glob('edfinder_*.dump.sha256'))
+    metadata_files = list(backup_dir.glob('edfinder_*.dump.json'))
+
+    for archive in archives:
+        assert Path(f'{archive}.sha256').exists()
+        assert Path(f'{archive}.json').exists()
+    for checksum in checksums:
+        assert Path(str(checksum).removesuffix('.sha256')).exists()
+    for metadata_file in metadata_files:
+        assert Path(str(metadata_file).removesuffix('.json')).exists()
+
+
 def test_backup_automation_is_wired_through_maintenance_sidecar():
     compose = _read('docker-compose.yml')
+    env_example = _read('env.example')
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
@@ -21,12 +228,17 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
     assert 'BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}' in compose
+    assert 'BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}' in compose
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL: ${BACKUP_OFFSITE_HEARTBEAT_URL:-}' in compose
+    assert 'BACKUP_HEARTBEAT_URL=' in env_example
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL=' in env_example
+    assert "dead-man's-switch heartbeat URLs" in env_example
     assert '- /data/backups:/data/backups' in compose
     assert '- /data/receipts:/data/receipts' in compose
     assert '/usr/local/bin/run_backup.sh nightly' in crontab
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--production-safe --allow-stale-colonisation-status' in crontab
-    assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone' in dockerfile
+    assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl' in dockerfile
     assert 'COPY apps/maintenance/scripts/run_backup.sh                /usr/local/bin/run_backup.sh' in dockerfile
     assert 'COPY scripts/run_data_invariants_receipted.sh              /usr/local/bin/run_data_invariants_receipted.sh' in dockerfile
     assert 'COPY scripts/checks/data_invariants.py                     /opt/ed-finder/scripts/checks/data_invariants.py' in dockerfile
@@ -66,12 +278,266 @@ def test_backup_script_can_optionally_mirror_archives_offsite():
     backup = _read('apps', 'maintenance', 'scripts', 'run_backup.sh')
 
     assert 'BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"' in backup
+    assert 'BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"' in backup
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"' in backup
+    assert 'BACKUP_RETENTION_MIN_ARCHIVES:-3' in backup
+    assert 'curl -fsS -m 10 --retry 3 "$url"' in backup
     assert 'command -v rclone >/dev/null 2>&1' in backup
     assert 'rclone copyto "$ARCHIVE"' in backup
     assert 'rclone copyto "$SHA_FILE"' in backup
     assert 'rclone copyto "$META_FILE"' in backup
     assert '"offsite_sync_status": "$OFFSITE_SYNC_STATUS"' in backup
     assert 'latest.json' in backup
+
+
+def test_backup_with_offsite_disabled_creates_metadata_and_prunes(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['metadata']['offsite_sync_status'] == 'disabled'
+    assert observation['metadata']['offsite_synced_at_utc'] is None
+    assert all(not path.exists() for path in observation['old_files'])
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
+
+
+def test_successful_offsite_sync_runs_after_prune_and_records_synced(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-offsite-success'
+    offsite_url = 'https://heartbeat.invalid/offsite-success'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['metadata']['offsite_sync_status'] == 'synced'
+    assert observation['metadata']['offsite_synced_at_utc'] is not None
+    assert all(not path.exists() for path in observation['old_files'])
+    assert observation['order'] == ['old-absent'] * 4
+    assert len(observation['calls']) == 4
+    assert observation['heartbeat_calls'] == [local_url, offsite_url]
+
+
+def test_offsite_metadata_rewrite_preserves_archive_creation_time(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_sleep_seconds=2,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['pre_upload_metadata'] is not None
+    assert (
+        observation['pre_upload_metadata']['created_at_utc']
+        == observation['metadata']['created_at_utc']
+    )
+
+
+def test_failed_offsite_sync_still_prunes_and_records_loud_failure(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path, offsite=True, rclone_result='fail')
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(not path.exists() for path in observation['old_files'])
+    assert observation['metadata']['offsite_sync_status'] == 'failed'
+    assert observation['metadata']['offsite_synced_at_utc'] is None
+    assert 'ERROR: offsite backup sync failed' in observation['log']
+
+
+def test_metadata_upload_failure_records_archive_as_synced_and_exits_nonzero(tmp_path: Path):
+    offsite_heartbeat_url = 'https://heartbeat.invalid/offsite-metadata-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_result='metadata-fail',
+        offsite_heartbeat_url=offsite_heartbeat_url,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(not path.exists() for path in observation['old_files'])
+    assert observation['metadata']['offsite_sync_status'] == 'synced_metadata_failed'
+    assert observation['metadata']['offsite_synced_at_utc'] is not None
+    assert 'ERROR: offsite backup metadata sync failed' in observation['log']
+    assert len(observation['calls']) == 3
+    assert '.dump ' in observation['calls'][0]
+    assert '.dump.sha256 ' in observation['calls'][1]
+    assert '.dump.json ' in observation['calls'][2]
+    assert observation['heartbeat_calls'] == []
+
+
+def test_failed_pg_dump_still_prunes_without_replacing_latest(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        existing_latest=True,
+    )
+    completed = observation['completed']
+    latest_dump = observation['backup_dir'] / 'latest.dump'
+    latest_metadata = observation['backup_dir'] / 'latest.json'
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(not path.exists() for path in observation['old_files'])
+    assert list(observation['backup_dir'].glob('*.dump.tmp')) == []
+    assert observation['metadata_files_created'] == []
+    assert latest_dump.readlink() == Path(observation['previous_archive'].name)
+    assert latest_metadata.readlink() == Path(observation['previous_metadata'].name)
+    assert observation['previous_archive'].exists()
+    assert observation['previous_metadata'].exists()
+
+
+def test_retention_floor_holds_under_repeated_dump_failure(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        old_archive_count=3,
+        retention_min_archives=None,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(path.exists() for path in observation['old_files'])
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 3
+    assert 'retention floor: keeping' in completed.stdout + completed.stderr
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_floor_allows_normal_pruning_down_to_floor(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        old_archive_count=6,
+        retention_min_archives=None,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 3
+    assert all(not path.exists() for path in observation['old_archives'][:4])
+    assert all(path.exists() for path in observation['old_archives'][4:])
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_prunes_archive_and_sidecars_as_one_unit(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        old_archive_count=4,
+        retention_min_archives=3,
+        fresh_sidecars_for_oldest=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_floor_is_configurable(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        old_archive_count=3,
+        retention_min_archives=1,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
+    assert all(not path.exists() for path in observation['old_archives'][:2])
+    assert observation['old_archives'][2].exists()
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_unconfigured_heartbeats_are_skipped_without_attempting_a_ping(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path)
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == []
+    assert 'local heartbeat: skipped (unconfigured)' in output
+    assert 'offsite heartbeat: skipped (unconfigured)' in output
+
+
+def test_local_success_sends_the_local_heartbeat_once(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/local-success'
+    observation = _run_backup_scenario(
+        tmp_path,
+        local_heartbeat_url=heartbeat_url,
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == [heartbeat_url]
+    assert 'local heartbeat: sent' in output
+
+
+def test_offsite_failure_does_not_suppress_the_local_heartbeat(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-offsite-failure'
+    offsite_url = 'https://heartbeat.invalid/offsite-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_result='fail',
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['heartbeat_calls'] == [local_url]
+    assert 'local heartbeat: sent' in output
+    assert 'offsite heartbeat: skipped (offsite status failed)' in output
+
+
+def test_dump_failure_sends_no_heartbeat(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        local_heartbeat_url='https://heartbeat.invalid/local-dump-failure',
+        offsite_heartbeat_url='https://heartbeat.invalid/offsite-dump-failure',
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['heartbeat_calls'] == []
+    assert 'local heartbeat: skipped (no valid local archive)' in output
+    assert 'offsite heartbeat: skipped (no valid local archive)' in output
+
+
+def test_heartbeat_failure_does_not_change_backup_success(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/local-ping-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        local_heartbeat_url=heartbeat_url,
+        curl_result='fail',
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == [heartbeat_url]
+    assert 'local heartbeat: failed' in output
 
 
 def test_backup_runbook_and_remediation_docs_reflect_current_state():
