@@ -52,6 +52,21 @@ if [[ ! -f "$COMPOSE/docker-compose.yml" ]]; then
     exit 1
 fi
 
+# Host cron does not load the compose environment. Read only the heartbeat key
+# rather than sourcing .env, because other values may contain shell syntax.
+if [[ -z "${NIGHTLY_UPDATE_HEARTBEAT_URL+x}" ]] && [[ -r "$COMPOSE/.env" ]]; then
+    while IFS= read -r env_line || [[ -n "$env_line" ]]; do
+        env_line="${env_line%$'\r'}"
+        case "$env_line" in
+            NIGHTLY_UPDATE_HEARTBEAT_URL=*)
+                NIGHTLY_UPDATE_HEARTBEAT_URL="${env_line#*=}"
+                break
+                ;;
+        esac
+    done < "$COMPOSE/.env"
+fi
+NIGHTLY_UPDATE_HEARTBEAT_URL="${NIGHTLY_UPDATE_HEARTBEAT_URL-}"
+
 mkdir -p "$LOG_DIR"
 
 log()     { echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO]  $*" | tee -a "$LOG"; }
@@ -411,6 +426,30 @@ log "Systems: $SYS_COUNT | Disk: $DISK_USED | PostgreSQL DB: $PG_SIZE | Remainin
 
 if [[ -n "$ERRORS" ]]; then
     warn "=== Nightly update completed WITH WARNINGS: $ERRORS ==="
+    if [[ -z "$NIGHTLY_UPDATE_HEARTBEAT_URL" ]]; then
+        log "Nightly update heartbeat: skipped (URL unconfigured)"
+    else
+        HEARTBEAT_CURL_STATUS=0
+        curl -fsS -m 10 --retry 3 "$NIGHTLY_UPDATE_HEARTBEAT_URL/fail" \
+            || HEARTBEAT_CURL_STATUS=$?
+        if (( HEARTBEAT_CURL_STATUS == 0 )); then
+            log "Nightly update heartbeat: sent-fail"
+        else
+            log "Nightly update heartbeat: ping-failed (fail signal)"
+        fi
+    fi
 else
     success "=== Nightly update complete — no errors ==="
+    if [[ -z "$NIGHTLY_UPDATE_HEARTBEAT_URL" ]]; then
+        log "Nightly update heartbeat: skipped (URL unconfigured)"
+    else
+        HEARTBEAT_CURL_STATUS=0
+        curl -fsS -m 10 --retry 3 "$NIGHTLY_UPDATE_HEARTBEAT_URL" \
+            || HEARTBEAT_CURL_STATUS=$?
+        if (( HEARTBEAT_CURL_STATUS == 0 )); then
+            log "Nightly update heartbeat: sent-clean"
+        else
+            log "Nightly update heartbeat: ping-failed (clean signal)"
+        fi
+    fi
 fi
