@@ -22,6 +22,8 @@ RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 RETENTION_MIN_ARCHIVES="${BACKUP_RETENTION_MIN_ARCHIVES:-3}"
 LOG_FILE="${BACKUP_LOG_FILE:-/data/logs/backup.log}"
 BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"
+BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"
+BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"
 
 mkdir -p "$BACKUP_DIR" "$(dirname "$LOG_FILE")"
 
@@ -72,6 +74,35 @@ prune_local_backups() {
     done
 }
 
+log_heartbeat_skipped() {
+    local label="$1"
+    local url="$2"
+    local reason="$3"
+
+    if [[ -z "$url" ]]; then
+        echo "$label heartbeat: skipped (unconfigured)"
+    else
+        echo "$label heartbeat: skipped ($reason)"
+    fi
+}
+
+send_heartbeat() {
+    local label="$1"
+    local url="$2"
+
+    if [[ -z "$url" ]]; then
+        echo "$label heartbeat: skipped (unconfigured)"
+        return 0
+    fi
+
+    if curl -fsS -m 10 --retry 3 "$url"; then
+        echo "$label heartbeat: sent"
+    else
+        echo "$label heartbeat: failed" >&2
+    fi
+    return 0
+}
+
 echo "===== Postgres backup starting ====="
 echo "backup dir: $BACKUP_DIR"
 echo "retention:  ${RETENTION_DAYS} days"
@@ -93,6 +124,8 @@ if pg_dump "$DB_URL" \
 else
     DUMP_EXIT_CODE=$?
     prune_local_backups
+    log_heartbeat_skipped "local" "$BACKUP_HEARTBEAT_URL" "no valid local archive"
+    log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "no valid local archive"
     echo "ERROR: pg_dump failed for $ARCHIVE; local retention completed" >&2
     exit "$DUMP_EXIT_CODE"
 fi
@@ -135,6 +168,7 @@ ln -sfn "$(basename "$ARCHIVE")" "$LATEST_LINK"
 ln -sfn "$(basename "$META_FILE")" "$LATEST_META_LINK"
 
 prune_local_backups
+send_heartbeat "local" "$BACKUP_HEARTBEAT_URL"
 
 OFFSITE_EXIT_CODE=0
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
@@ -166,6 +200,12 @@ if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
             echo "ERROR: offsite backup sync failed for $ARCHIVE; local archive, metadata, latest symlinks, and retention completed" >&2
         fi
     fi
+fi
+
+if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
+    send_heartbeat "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL"
+else
+    log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "offsite status $OFFSITE_SYNC_STATUS"
 fi
 
 echo "===== Postgres backup complete ====="

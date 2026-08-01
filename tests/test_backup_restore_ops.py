@@ -33,6 +33,9 @@ def _run_backup_scenario(
     old_archive_count: int = 1,
     retention_min_archives: int | None = 1,
     fresh_sidecars_for_oldest: bool = False,
+    local_heartbeat_url: str = '',
+    offsite_heartbeat_url: str = '',
+    curl_result: str = 'success',
 ) -> dict[str, object]:
     bash = shutil.which('bash')
     assert bash is not None, 'bash is required for the backup-script behavior tests'
@@ -118,10 +121,19 @@ if [[ "${FAKE_RCLONE_RESULT:-success}" == 'metadata-fail' && "$2" == *.dump.json
     exit 24
 fi
 ''')
+    _write_executable(fake_bin / 'curl', '''#!/bin/bash
+set -eu
+printf '%s\n' "${!#}" >> "${CURL_CALL_LOG}"
+if [[ "${FAKE_CURL_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake curl failure' >&2
+    exit 28
+fi
+''')
 
     log_file = tmp_path / 'backup.log'
     order_log = tmp_path / 'rclone-order.log'
     call_log = tmp_path / 'rclone-calls.log'
+    curl_call_log = tmp_path / 'curl-calls.log'
     pre_upload_metadata = tmp_path / 'pre-upload-metadata.json'
     env = {
         **os.environ,
@@ -130,9 +142,13 @@ fi
         'BACKUP_LOG_FILE': str(log_file),
         'BACKUP_RETENTION_DAYS': '0',
         'BACKUP_OFFSITE_REMOTE': 'fake:backups' if offsite else '',
+        'BACKUP_HEARTBEAT_URL': local_heartbeat_url,
+        'BACKUP_OFFSITE_HEARTBEAT_URL': offsite_heartbeat_url,
         'FAKE_PG_DUMP_RESULT': pg_dump_result,
         'FAKE_RCLONE_RESULT': rclone_result,
         'FAKE_RCLONE_SLEEP_SECONDS': str(rclone_sleep_seconds),
+        'FAKE_CURL_RESULT': curl_result,
+        'CURL_CALL_LOG': str(curl_call_log),
         'RCLONE_OBSERVED_OLD_FILE': str(old_base),
         'RCLONE_ORDER_LOG': str(order_log),
         'RCLONE_CALL_LOG': str(call_log),
@@ -180,6 +196,11 @@ fi
         'log': log_file.read_text(encoding='utf-8') if log_file.exists() else '',
         'order': order_log.read_text(encoding='utf-8').splitlines() if order_log.exists() else [],
         'calls': call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else [],
+        'heartbeat_calls': (
+            curl_call_log.read_text(encoding='utf-8').splitlines()
+            if curl_call_log.exists()
+            else []
+        ),
     }
 
 
@@ -199,6 +220,7 @@ def _assert_archive_sidecars_consistent(backup_dir: Path) -> None:
 
 def test_backup_automation_is_wired_through_maintenance_sidecar():
     compose = _read('docker-compose.yml')
+    env_example = _read('env.example')
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
@@ -206,12 +228,17 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
     assert 'BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}' in compose
+    assert 'BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}' in compose
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL: ${BACKUP_OFFSITE_HEARTBEAT_URL:-}' in compose
+    assert 'BACKUP_HEARTBEAT_URL=' in env_example
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL=' in env_example
+    assert "dead-man's-switch heartbeat URLs" in env_example
     assert '- /data/backups:/data/backups' in compose
     assert '- /data/receipts:/data/receipts' in compose
     assert '/usr/local/bin/run_backup.sh nightly' in crontab
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
     assert '--production-safe --allow-stale-colonisation-status' in crontab
-    assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone' in dockerfile
+    assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl' in dockerfile
     assert 'COPY apps/maintenance/scripts/run_backup.sh                /usr/local/bin/run_backup.sh' in dockerfile
     assert 'COPY scripts/run_data_invariants_receipted.sh              /usr/local/bin/run_data_invariants_receipted.sh' in dockerfile
     assert 'COPY scripts/checks/data_invariants.py                     /opt/ed-finder/scripts/checks/data_invariants.py' in dockerfile
@@ -251,7 +278,10 @@ def test_backup_script_can_optionally_mirror_archives_offsite():
     backup = _read('apps', 'maintenance', 'scripts', 'run_backup.sh')
 
     assert 'BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"' in backup
+    assert 'BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"' in backup
+    assert 'BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"' in backup
     assert 'BACKUP_RETENTION_MIN_ARCHIVES:-3' in backup
+    assert 'curl -fsS -m 10 --retry 3 "$url"' in backup
     assert 'command -v rclone >/dev/null 2>&1' in backup
     assert 'rclone copyto "$ARCHIVE"' in backup
     assert 'rclone copyto "$SHA_FILE"' in backup
@@ -273,7 +303,14 @@ def test_backup_with_offsite_disabled_creates_metadata_and_prunes(tmp_path: Path
 
 
 def test_successful_offsite_sync_runs_after_prune_and_records_synced(tmp_path: Path):
-    observation = _run_backup_scenario(tmp_path, offsite=True)
+    local_url = 'https://heartbeat.invalid/local-offsite-success'
+    offsite_url = 'https://heartbeat.invalid/offsite-success'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
     completed = observation['completed']
 
     assert isinstance(completed, subprocess.CompletedProcess)
@@ -283,6 +320,7 @@ def test_successful_offsite_sync_runs_after_prune_and_records_synced(tmp_path: P
     assert all(not path.exists() for path in observation['old_files'])
     assert observation['order'] == ['old-absent'] * 4
     assert len(observation['calls']) == 4
+    assert observation['heartbeat_calls'] == [local_url, offsite_url]
 
 
 def test_offsite_metadata_rewrite_preserves_archive_creation_time(tmp_path: Path):
@@ -315,10 +353,12 @@ def test_failed_offsite_sync_still_prunes_and_records_loud_failure(tmp_path: Pat
 
 
 def test_metadata_upload_failure_records_archive_as_synced_and_exits_nonzero(tmp_path: Path):
+    offsite_heartbeat_url = 'https://heartbeat.invalid/offsite-metadata-failure'
     observation = _run_backup_scenario(
         tmp_path,
         offsite=True,
         rclone_result='metadata-fail',
+        offsite_heartbeat_url=offsite_heartbeat_url,
     )
     completed = observation['completed']
 
@@ -332,6 +372,7 @@ def test_metadata_upload_failure_records_archive_as_synced_and_exits_nonzero(tmp
     assert '.dump ' in observation['calls'][0]
     assert '.dump.sha256 ' in observation['calls'][1]
     assert '.dump.json ' in observation['calls'][2]
+    assert observation['heartbeat_calls'] == []
 
 
 def test_failed_pg_dump_still_prunes_without_replacing_latest(tmp_path: Path):
@@ -417,6 +458,86 @@ def test_retention_floor_is_configurable(tmp_path: Path):
     assert all(not path.exists() for path in observation['old_archives'][:2])
     assert observation['old_archives'][2].exists()
     _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_unconfigured_heartbeats_are_skipped_without_attempting_a_ping(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path)
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == []
+    assert 'local heartbeat: skipped (unconfigured)' in output
+    assert 'offsite heartbeat: skipped (unconfigured)' in output
+
+
+def test_local_success_sends_the_local_heartbeat_once(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/local-success'
+    observation = _run_backup_scenario(
+        tmp_path,
+        local_heartbeat_url=heartbeat_url,
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == [heartbeat_url]
+    assert 'local heartbeat: sent' in output
+
+
+def test_offsite_failure_does_not_suppress_the_local_heartbeat(tmp_path: Path):
+    local_url = 'https://heartbeat.invalid/local-offsite-failure'
+    offsite_url = 'https://heartbeat.invalid/offsite-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_result='fail',
+        local_heartbeat_url=local_url,
+        offsite_heartbeat_url=offsite_url,
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['heartbeat_calls'] == [local_url]
+    assert 'local heartbeat: sent' in output
+    assert 'offsite heartbeat: skipped (offsite status failed)' in output
+
+
+def test_dump_failure_sends_no_heartbeat(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        local_heartbeat_url='https://heartbeat.invalid/local-dump-failure',
+        offsite_heartbeat_url='https://heartbeat.invalid/offsite-dump-failure',
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert observation['heartbeat_calls'] == []
+    assert 'local heartbeat: skipped (no valid local archive)' in output
+    assert 'offsite heartbeat: skipped (no valid local archive)' in output
+
+
+def test_heartbeat_failure_does_not_change_backup_success(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/local-ping-failure'
+    observation = _run_backup_scenario(
+        tmp_path,
+        local_heartbeat_url=heartbeat_url,
+        curl_result='fail',
+    )
+    completed = observation['completed']
+    output = completed.stdout + completed.stderr
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, output
+    assert observation['heartbeat_calls'] == [heartbeat_url]
+    assert 'local heartbeat: failed' in output
 
 
 def test_backup_runbook_and_remediation_docs_reflect_current_state():

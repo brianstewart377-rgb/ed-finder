@@ -9,9 +9,10 @@ FROM postgres:16-alpine
 # plays nicely with `docker logs`.
 #
 # `python3` + `py3-psycopg2` let the sidecar run the production-safe
-# invariants wrapper directly on its weekly schedule, and `rclone`
-# provides the optional offsite backup sync path.
-RUN apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone
+# invariants wrapper directly on its weekly schedule, `rclone`
+# provides the optional offsite backup sync path, and `curl` sends the
+# optional dead-man's-switch heartbeats.
+RUN apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl
 
 WORKDIR /opt/ed-finder
 
