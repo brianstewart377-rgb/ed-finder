@@ -47,6 +47,12 @@ cleanup_tmp_archive() {
 }
 trap cleanup_tmp_archive EXIT
 
+prune_local_backups() {
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print -delete
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.sha256' -mtime +"$RETENTION_DAYS" -print -delete
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.json' -mtime +"$RETENTION_DAYS" -print -delete
+}
+
 echo "===== Postgres backup starting ====="
 echo "backup dir: $BACKUP_DIR"
 echo "retention:  ${RETENTION_DAYS} days"
@@ -57,12 +63,19 @@ else
     echo "offsite:    disabled"
 fi
 
-pg_dump "$DB_URL" \
+if pg_dump "$DB_URL" \
     --format=custom \
     --compress=6 \
     --no-owner \
     --no-privileges \
-    --file="$TMP_ARCHIVE"
+    --file="$TMP_ARCHIVE"; then
+    ARCHIVE_CREATED_AT_UTC="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+else
+    DUMP_EXIT_CODE=$?
+    prune_local_backups
+    echo "ERROR: pg_dump failed for $ARCHIVE; local retention completed" >&2
+    exit "$DUMP_EXIT_CODE"
+fi
 
 mv "$TMP_ARCHIVE" "$ARCHIVE"
 pg_restore --list "$ARCHIVE" >/dev/null
@@ -81,7 +94,7 @@ fi
 write_metadata() {
     cat > "$META_FILE" <<EOF
 {
-  "created_at_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
+  "created_at_utc": "$ARCHIVE_CREATED_AT_UTC",
   "task": "$TASK",
   "archive_file": "$(basename "$ARCHIVE")",
   "sha256_file": "$(basename "$SHA_FILE")",
@@ -101,9 +114,7 @@ write_metadata
 ln -sfn "$(basename "$ARCHIVE")" "$LATEST_LINK"
 ln -sfn "$(basename "$META_FILE")" "$LATEST_META_LINK"
 
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print -delete
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.sha256' -mtime +"$RETENTION_DAYS" -print -delete
-find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.json' -mtime +"$RETENTION_DAYS" -print -delete
+prune_local_backups
 
 OFFSITE_EXIT_CODE=0
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
@@ -118,16 +129,22 @@ if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
         if ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$META_FILE")" \
             || ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/latest.json"; then
             OFFSITE_EXIT_CODE=1
+            OFFSITE_SYNC_STATUS="synced_metadata_failed"
+            write_metadata
         fi
     else
         OFFSITE_EXIT_CODE=1
     fi
 
     if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
-        OFFSITE_SYNC_STATUS="failed"
-        OFFSITE_SYNCED_AT_JSON="null"
-        write_metadata
-        echo "ERROR: offsite backup sync failed for $ARCHIVE; local archive, metadata, latest symlinks, and retention completed" >&2
+        if [[ "$OFFSITE_SYNC_STATUS" == "synced_metadata_failed" ]]; then
+            echo "ERROR: offsite backup metadata sync failed for $ARCHIVE; archive and checksum are synced; local archive, metadata, latest symlinks, and retention completed" >&2
+        else
+            OFFSITE_SYNC_STATUS="failed"
+            OFFSITE_SYNCED_AT_JSON="null"
+            write_metadata
+            echo "ERROR: offsite backup sync failed for $ARCHIVE; local archive, metadata, latest symlinks, and retention completed" >&2
+        fi
     fi
 fi
 
