@@ -19,6 +19,7 @@ TASK="${1:-nightly}"
 DB_URL="${DATABASE_URL:?DATABASE_URL must be set}"
 BACKUP_DIR="${BACKUP_DIR:-/data/backups/postgres}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+RETENTION_MIN_ARCHIVES="${BACKUP_RETENTION_MIN_ARCHIVES:-3}"
 LOG_FILE="${BACKUP_LOG_FILE:-/data/logs/backup.log}"
 BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"
 
@@ -48,14 +49,33 @@ cleanup_tmp_archive() {
 trap cleanup_tmp_archive EXIT
 
 prune_local_backups() {
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print -delete
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.sha256' -mtime +"$RETENTION_DAYS" -print -delete
-    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.json' -mtime +"$RETENTION_DAYS" -print -delete
+    local archive
+    local archive_count
+    local -a expired_archives=()
+
+    archive_count="$(find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' | wc -l | tr -d '[:space:]')"
+    mapfile -t expired_archives < <(
+        find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTION_DAYS" -print | sort
+    )
+
+    for archive in "${expired_archives[@]}"; do
+        if (( archive_count <= RETENTION_MIN_ARCHIVES )); then
+            echo "retention floor: keeping $archive because only $archive_count archive(s) remain (minimum $RETENTION_MIN_ARCHIVES)"
+            break
+        fi
+
+        rm -f -- "$archive" "${archive}.sha256" "${archive}.json"
+        echo "$archive"
+        echo "${archive}.sha256"
+        echo "${archive}.json"
+        archive_count=$((archive_count - 1))
+    done
 }
 
 echo "===== Postgres backup starting ====="
 echo "backup dir: $BACKUP_DIR"
 echo "retention:  ${RETENTION_DAYS} days"
+echo "minimum:    ${RETENTION_MIN_ARCHIVES} archives"
 echo "archive:    $ARCHIVE"
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
     echo "offsite:    $BACKUP_OFFSITE_REMOTE"

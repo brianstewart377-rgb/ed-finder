@@ -30,6 +30,9 @@ def _run_backup_scenario(
     rclone_sleep_seconds: int = 0,
     pg_dump_result: str = 'success',
     existing_latest: bool = False,
+    old_archive_count: int = 1,
+    retention_min_archives: int | None = 1,
+    fresh_sidecars_for_oldest: bool = False,
 ) -> dict[str, object]:
     bash = shutil.which('bash')
     assert bash is not None, 'bash is required for the backup-script behavior tests'
@@ -39,23 +42,36 @@ def _run_backup_scenario(
     backup_dir.mkdir()
     fake_bin.mkdir()
 
-    old_base = backup_dir / 'edfinder_20000101T000000Z.dump'
-    old_files = [
-        old_base,
-        Path(f'{old_base}.sha256'),
-        Path(f'{old_base}.json'),
-    ]
+    old_archive_groups = []
     old_timestamp = time.time() - (3 * 24 * 60 * 60)
-    for path in old_files:
-        path.write_text('expired', encoding='utf-8')
-        os.utime(path, (old_timestamp, old_timestamp))
+    for index in range(old_archive_count):
+        old_base = backup_dir / f'edfinder_200001{index + 1:02d}T000000Z.dump'
+        old_group = [
+            old_base,
+            Path(f'{old_base}.sha256'),
+            Path(f'{old_base}.json'),
+        ]
+        for path in old_group:
+            path.write_text('expired', encoding='utf-8')
+            os.utime(path, (old_timestamp + index, old_timestamp + index))
+        old_archive_groups.append(old_group)
+
+    if fresh_sidecars_for_oldest:
+        for path in old_archive_groups[0][1:]:
+            os.utime(path, None)
+
+    old_archives = [group[0] for group in old_archive_groups]
+    old_files = [path for group in old_archive_groups for path in group]
+    old_base = old_archives[0]
 
     previous_archive = None
     previous_metadata = None
     if existing_latest:
         previous_archive = backup_dir / 'edfinder_20010101T000000Z.dump'
         previous_metadata = Path(f'{previous_archive}.json')
+        previous_checksum = Path(f'{previous_archive}.sha256')
         previous_archive.write_text('previous valid archive', encoding='utf-8')
+        previous_checksum.write_text('previous checksum', encoding='utf-8')
         previous_metadata.write_text('{"previous": true}\n', encoding='utf-8')
         (backup_dir / 'latest.dump').symlink_to(previous_archive.name)
         (backup_dir / 'latest.json').symlink_to(previous_metadata.name)
@@ -123,6 +139,8 @@ fi
         'RCLONE_PRE_UPLOAD_METADATA': str(pre_upload_metadata),
         'PATH': f'{fake_bin}{os.pathsep}{os.environ.get("PATH", "")}',
     }
+    if retention_min_archives is not None:
+        env['BACKUP_RETENTION_MIN_ARCHIVES'] = str(retention_min_archives)
     completed = subprocess.run(
         [bash, str(ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_backup.sh'), 'manual'],
         cwd=ROOT,
@@ -148,6 +166,7 @@ fi
     return {
         'completed': completed,
         'backup_dir': backup_dir,
+        'old_archives': old_archives,
         'old_files': old_files,
         'previous_archive': previous_archive,
         'previous_metadata': previous_metadata,
@@ -162,6 +181,20 @@ fi
         'order': order_log.read_text(encoding='utf-8').splitlines() if order_log.exists() else [],
         'calls': call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else [],
     }
+
+
+def _assert_archive_sidecars_consistent(backup_dir: Path) -> None:
+    archives = list(backup_dir.glob('edfinder_*.dump'))
+    checksums = list(backup_dir.glob('edfinder_*.dump.sha256'))
+    metadata_files = list(backup_dir.glob('edfinder_*.dump.json'))
+
+    for archive in archives:
+        assert Path(f'{archive}.sha256').exists()
+        assert Path(f'{archive}.json').exists()
+    for checksum in checksums:
+        assert Path(str(checksum).removesuffix('.sha256')).exists()
+    for metadata_file in metadata_files:
+        assert Path(str(metadata_file).removesuffix('.json')).exists()
 
 
 def test_backup_automation_is_wired_through_maintenance_sidecar():
@@ -218,6 +251,7 @@ def test_backup_script_can_optionally_mirror_archives_offsite():
     backup = _read('apps', 'maintenance', 'scripts', 'run_backup.sh')
 
     assert 'BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"' in backup
+    assert 'BACKUP_RETENTION_MIN_ARCHIVES:-3' in backup
     assert 'command -v rclone >/dev/null 2>&1' in backup
     assert 'rclone copyto "$ARCHIVE"' in backup
     assert 'rclone copyto "$SHA_FILE"' in backup
@@ -319,6 +353,70 @@ def test_failed_pg_dump_still_prunes_without_replacing_latest(tmp_path: Path):
     assert latest_metadata.readlink() == Path(observation['previous_metadata'].name)
     assert observation['previous_archive'].exists()
     assert observation['previous_metadata'].exists()
+
+
+def test_retention_floor_holds_under_repeated_dump_failure(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        old_archive_count=3,
+        retention_min_archives=None,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(path.exists() for path in observation['old_files'])
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 3
+    assert 'retention floor: keeping' in completed.stdout + completed.stderr
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_floor_allows_normal_pruning_down_to_floor(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        old_archive_count=6,
+        retention_min_archives=None,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 3
+    assert all(not path.exists() for path in observation['old_archives'][:4])
+    assert all(path.exists() for path in observation['old_archives'][4:])
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_prunes_archive_and_sidecars_as_one_unit(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        old_archive_count=4,
+        retention_min_archives=3,
+        fresh_sidecars_for_oldest=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
+
+
+def test_retention_floor_is_configurable(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        pg_dump_result='fail',
+        old_archive_count=3,
+        retention_min_archives=1,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
+    assert all(not path.exists() for path in observation['old_archives'][:2])
+    assert observation['old_archives'][2].exists()
+    _assert_archive_sidecars_consistent(observation['backup_dir'])
 
 
 def test_backup_runbook_and_remediation_docs_reflect_current_state():
