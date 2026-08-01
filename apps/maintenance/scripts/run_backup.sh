@@ -42,6 +42,11 @@ META_FILE="${ARCHIVE}.json"
 LATEST_LINK="$BACKUP_DIR/latest.dump"
 LATEST_META_LINK="$BACKUP_DIR/latest.json"
 
+cleanup_tmp_archive() {
+    rm -f -- "${TMP_ARCHIVE:-}" || true
+}
+trap cleanup_tmp_archive EXIT
+
 echo "===== Postgres backup starting ====="
 echo "backup dir: $BACKUP_DIR"
 echo "retention:  ${RETENTION_DAYS} days"
@@ -69,18 +74,12 @@ OFFSITE_SYNCED_AT_JSON="null"
 OFFSITE_REMOTE_JSON="null"
 
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
-    command -v rclone >/dev/null 2>&1 || {
-        echo "BACKUP_OFFSITE_REMOTE is set but rclone is unavailable" >&2
-        exit 1
-    }
+    OFFSITE_SYNC_STATUS="failed"
     OFFSITE_REMOTE_JSON="\"$BACKUP_OFFSITE_REMOTE\""
-    rclone copyto "$ARCHIVE" "$BACKUP_OFFSITE_REMOTE/$(basename "$ARCHIVE")"
-    rclone copyto "$SHA_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$SHA_FILE")"
-    OFFSITE_SYNC_STATUS="synced"
-    OFFSITE_SYNCED_AT_JSON="\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\""
 fi
 
-cat > "$META_FILE" <<EOF
+write_metadata() {
+    cat > "$META_FILE" <<EOF
 {
   "created_at_utc": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
   "task": "$TASK",
@@ -95,11 +94,9 @@ cat > "$META_FILE" <<EOF
   "offsite_synced_at_utc": $OFFSITE_SYNCED_AT_JSON
 }
 EOF
+}
 
-if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
-    rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$META_FILE")"
-    rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/latest.json"
-fi
+write_metadata
 
 ln -sfn "$(basename "$ARCHIVE")" "$LATEST_LINK"
 ln -sfn "$(basename "$META_FILE")" "$LATEST_META_LINK"
@@ -108,7 +105,37 @@ find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump' -mtime +"$RETENTI
 find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.sha256' -mtime +"$RETENTION_DAYS" -print -delete
 find "$BACKUP_DIR" -maxdepth 1 -type f -name 'edfinder_*.dump.json' -mtime +"$RETENTION_DAYS" -print -delete
 
+OFFSITE_EXIT_CODE=0
+if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
+    if ! command -v rclone >/dev/null 2>&1; then
+        echo "BACKUP_OFFSITE_REMOTE is set but rclone is unavailable" >&2
+        OFFSITE_EXIT_CODE=1
+    elif rclone copyto "$ARCHIVE" "$BACKUP_OFFSITE_REMOTE/$(basename "$ARCHIVE")" \
+        && rclone copyto "$SHA_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$SHA_FILE")"; then
+        OFFSITE_SYNC_STATUS="synced"
+        OFFSITE_SYNCED_AT_JSON="\"$(date -u +'%Y-%m-%dT%H:%M:%SZ')\""
+        write_metadata
+        if ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/$(basename "$META_FILE")" \
+            || ! rclone copyto "$META_FILE" "$BACKUP_OFFSITE_REMOTE/latest.json"; then
+            OFFSITE_EXIT_CODE=1
+        fi
+    else
+        OFFSITE_EXIT_CODE=1
+    fi
+
+    if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
+        OFFSITE_SYNC_STATUS="failed"
+        OFFSITE_SYNCED_AT_JSON="null"
+        write_metadata
+        echo "ERROR: offsite backup sync failed for $ARCHIVE; local archive, metadata, latest symlinks, and retention completed" >&2
+    fi
+fi
+
 echo "===== Postgres backup complete ====="
 echo "archive size bytes: $SIZE_BYTES"
 echo "latest symlink:     $LATEST_LINK"
 echo "offsite status:     $OFFSITE_SYNC_STATUS"
+
+if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
+    exit "$OFFSITE_EXIT_CODE"
+fi

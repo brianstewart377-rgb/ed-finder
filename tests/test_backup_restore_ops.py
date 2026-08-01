@@ -1,4 +1,9 @@
+import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import time
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +15,120 @@ def _read(*parts: str) -> str:
 
 def _squash(text: str) -> str:
     return ' '.join(text.split())
+
+
+def _write_executable(path: Path, body: str) -> None:
+    path.write_text(body, encoding='utf-8', newline='\n')
+    path.chmod(0o755)
+
+
+def _run_backup_scenario(
+    tmp_path: Path,
+    *,
+    offsite: bool = False,
+    rclone_result: str = 'success',
+    pg_dump_result: str = 'success',
+) -> dict[str, object]:
+    bash = shutil.which('bash')
+    assert bash is not None, 'bash is required for the backup-script behavior tests'
+
+    backup_dir = tmp_path / 'backups'
+    fake_bin = tmp_path / 'bin'
+    backup_dir.mkdir()
+    fake_bin.mkdir()
+
+    old_base = backup_dir / 'edfinder_20000101T000000Z.dump'
+    old_files = [
+        old_base,
+        Path(f'{old_base}.sha256'),
+        Path(f'{old_base}.json'),
+    ]
+    old_timestamp = time.time() - (3 * 24 * 60 * 60)
+    for path in old_files:
+        path.write_text('expired', encoding='utf-8')
+        os.utime(path, (old_timestamp, old_timestamp))
+
+    _write_executable(fake_bin / 'pg_dump', '''#!/bin/bash
+set -eu
+output=''
+for argument in "$@"; do
+    case "$argument" in
+        --file=*) output="${argument#--file=}" ;;
+    esac
+done
+test -n "$output"
+: > "$output"
+if [[ "${FAKE_PG_DUMP_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake pg_dump failure' >&2
+    exit 41
+fi
+printf 'valid fake archive\n' > "$output"
+''')
+    _write_executable(fake_bin / 'pg_restore', '''#!/bin/bash
+exit 0
+''')
+    _write_executable(fake_bin / 'rclone', '''#!/bin/bash
+set -eu
+if [[ -e "${RCLONE_OBSERVED_OLD_FILE}" ]]; then
+    echo 'old-present' >> "${RCLONE_ORDER_LOG}"
+else
+    echo 'old-absent' >> "${RCLONE_ORDER_LOG}"
+fi
+printf '%s\n' "$*" >> "${RCLONE_CALL_LOG}"
+if [[ "${FAKE_RCLONE_RESULT:-success}" == 'fail' ]]; then
+    echo 'fake rclone failure' >&2
+    exit 23
+fi
+''')
+
+    log_file = tmp_path / 'backup.log'
+    order_log = tmp_path / 'rclone-order.log'
+    call_log = tmp_path / 'rclone-calls.log'
+    env = {
+        **os.environ,
+        'DATABASE_URL': 'postgresql://unused/backup-test',
+        'BACKUP_DIR': str(backup_dir),
+        'BACKUP_LOG_FILE': str(log_file),
+        'BACKUP_RETENTION_DAYS': '0',
+        'BACKUP_OFFSITE_REMOTE': 'fake:backups' if offsite else '',
+        'FAKE_PG_DUMP_RESULT': pg_dump_result,
+        'FAKE_RCLONE_RESULT': rclone_result,
+        'RCLONE_OBSERVED_OLD_FILE': str(old_base),
+        'RCLONE_ORDER_LOG': str(order_log),
+        'RCLONE_CALL_LOG': str(call_log),
+        'PATH': f'{fake_bin}{os.pathsep}{os.environ.get("PATH", "")}',
+    }
+    completed = subprocess.run(
+        [bash, str(ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_backup.sh'), 'manual'],
+        cwd=ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    # The script's process-substitution logger can finish a few milliseconds
+    # after the parent shell exits. Give it a bounded window to flush.
+    deadline = time.monotonic() + 1
+    while not log_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+
+    metadata_files = list(backup_dir.glob('edfinder_*.dump.json'))
+    current_metadata = [path for path in metadata_files if path not in old_files]
+    metadata = (
+        json.loads(current_metadata[0].read_text(encoding='utf-8'))
+        if len(current_metadata) == 1
+        else None
+    )
+    return {
+        'completed': completed,
+        'backup_dir': backup_dir,
+        'old_files': old_files,
+        'metadata': metadata,
+        'log': log_file.read_text(encoding='utf-8') if log_file.exists() else '',
+        'order': order_log.read_text(encoding='utf-8').splitlines() if order_log.exists() else [],
+        'calls': call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else [],
+    }
 
 
 def test_backup_automation_is_wired_through_maintenance_sidecar():
@@ -72,6 +191,52 @@ def test_backup_script_can_optionally_mirror_archives_offsite():
     assert 'rclone copyto "$META_FILE"' in backup
     assert '"offsite_sync_status": "$OFFSITE_SYNC_STATUS"' in backup
     assert 'latest.json' in backup
+
+
+def test_backup_with_offsite_disabled_creates_metadata_and_prunes(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['metadata']['offsite_sync_status'] == 'disabled'
+    assert observation['metadata']['offsite_synced_at_utc'] is None
+    assert all(not path.exists() for path in observation['old_files'])
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
+
+
+def test_successful_offsite_sync_runs_after_prune_and_records_synced(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path, offsite=True)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert observation['metadata']['offsite_sync_status'] == 'synced'
+    assert observation['metadata']['offsite_synced_at_utc'] is not None
+    assert all(not path.exists() for path in observation['old_files'])
+    assert observation['order'] == ['old-absent'] * 4
+    assert len(observation['calls']) == 4
+
+
+def test_failed_offsite_sync_still_prunes_and_records_loud_failure(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path, offsite=True, rclone_result='fail')
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert all(not path.exists() for path in observation['old_files'])
+    assert observation['metadata']['offsite_sync_status'] == 'failed'
+    assert observation['metadata']['offsite_synced_at_utc'] is None
+    assert 'ERROR: offsite backup sync failed' in observation['log']
+
+
+def test_failed_pg_dump_removes_temporary_archive(tmp_path: Path):
+    observation = _run_backup_scenario(tmp_path, pg_dump_result='fail')
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0
+    assert list(observation['backup_dir'].glob('*.dump.tmp')) == []
 
 
 def test_backup_runbook_and_remediation_docs_reflect_current_state():
