@@ -221,13 +221,27 @@ def _assert_archive_sidecars_consistent(backup_dir: Path) -> None:
 def test_backup_automation_is_wired_through_maintenance_sidecar():
     compose = _read('docker-compose.yml')
     env_example = _read('env.example')
+    env_example_lines = env_example.splitlines()
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
     assert 'context: .' in compose
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
+    assert 'BACKUP_RETENTION_MIN_ARCHIVES: ${BACKUP_RETENTION_MIN_ARCHIVES:-3}' in compose
     assert 'BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}' in compose
+    for key in (
+        'RCLONE_CONFIG_STORAGEBOX_TYPE',
+        'RCLONE_CONFIG_STORAGEBOX_HOST',
+        'RCLONE_CONFIG_STORAGEBOX_USER',
+        'RCLONE_CONFIG_STORAGEBOX_PORT',
+        'RCLONE_CONFIG_STORAGEBOX_PASS',
+    ):
+        assert f'{key}: ${{{key}:-}}' in compose
+        assert f'{key}=' in env_example_lines
+    assert 'BACKUP_RETENTION_MIN_ARCHIVES=3' in env_example_lines
+    assert 'names must match the remote name used in' in env_example
+    assert 'BACKUP_OFFSITE_REMOTE; change one, change all.' in env_example
     assert 'BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}' in compose
     assert 'BACKUP_OFFSITE_HEARTBEAT_URL: ${BACKUP_OFFSITE_HEARTBEAT_URL:-}' in compose
     assert 'BACKUP_HEARTBEAT_URL=' in env_example
