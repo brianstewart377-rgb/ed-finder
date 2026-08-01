@@ -27,11 +27,15 @@ def _run_backup_scenario(
     *,
     offsite: bool = False,
     rclone_result: str = 'success',
+    rclone_prune_result: str = 'success',
     rclone_sleep_seconds: int = 0,
     pg_dump_result: str = 'success',
     existing_latest: bool = False,
     old_archive_count: int = 1,
     retention_min_archives: int | None = 1,
+    remote_archive_count: int = 0,
+    offsite_retention_days: int | None = 30,
+    offsite_retention_min_archives: int | None = 3,
     fresh_sidecars_for_oldest: bool = False,
     local_heartbeat_url: str = '',
     offsite_heartbeat_url: str = '',
@@ -41,8 +45,10 @@ def _run_backup_scenario(
     assert bash is not None, 'bash is required for the backup-script behavior tests'
 
     backup_dir = tmp_path / 'backups'
+    remote_dir = tmp_path / 'remote'
     fake_bin = tmp_path / 'bin'
     backup_dir.mkdir()
+    remote_dir.mkdir()
     fake_bin.mkdir()
 
     old_archive_groups = []
@@ -66,6 +72,19 @@ def _run_backup_scenario(
     old_archives = [group[0] for group in old_archive_groups]
     old_files = [path for group in old_archive_groups for path in group]
     old_base = old_archives[0]
+
+    remote_archive_groups = []
+    for index in range(remote_archive_count):
+        remote_base = remote_dir / f'edfinder_200002{index + 1:02d}T000000Z.dump'
+        remote_group = [
+            remote_base,
+            Path(f'{remote_base}.sha256'),
+            Path(f'{remote_base}.json'),
+        ]
+        for path in remote_group:
+            path.write_text('remote expired', encoding='utf-8')
+        remote_archive_groups.append(remote_group)
+    (remote_dir / 'latest.json').write_text('remote latest sentinel', encoding='utf-8')
 
     previous_archive = None
     previous_metadata = None
@@ -108,18 +127,43 @@ else
     echo 'old-absent' >> "${RCLONE_ORDER_LOG}"
 fi
 printf '%s\n' "$*" >> "${RCLONE_CALL_LOG}"
-if [[ "$2" == *.dump ]]; then
-    cp "${2}.json" "${RCLONE_PRE_UPLOAD_METADATA}"
-    sleep "${FAKE_RCLONE_SLEEP_SECONDS:-0}"
-fi
-if [[ "${FAKE_RCLONE_RESULT:-success}" == 'fail' ]]; then
-    echo 'fake rclone failure' >&2
-    exit 23
-fi
-if [[ "${FAKE_RCLONE_RESULT:-success}" == 'metadata-fail' && "$2" == *.dump.json ]]; then
-    echo 'fake rclone metadata failure' >&2
-    exit 24
-fi
+command="$1"
+shift
+case "$command" in
+    copyto)
+        source="$1"
+        destination="$2"
+        if [[ "$source" == *.dump ]]; then
+            cp "${source}.json" "${RCLONE_PRE_UPLOAD_METADATA}"
+            sleep "${FAKE_RCLONE_SLEEP_SECONDS:-0}"
+        fi
+        if [[ "${FAKE_RCLONE_RESULT:-success}" == 'fail' ]]; then
+            echo 'fake rclone failure' >&2
+            exit 23
+        fi
+        if [[ "${FAKE_RCLONE_RESULT:-success}" == 'metadata-fail' && "$source" == *.dump.json ]]; then
+            echo 'fake rclone metadata failure' >&2
+            exit 24
+        fi
+        cp "$source" "${RCLONE_REMOTE_DIR}/${destination##*/}"
+        ;;
+    lsf)
+        find "${RCLONE_REMOTE_DIR}" -maxdepth 1 -type f -printf '%f\n' | sort
+        ;;
+    deletefile)
+        if [[ "${FAKE_RCLONE_PRUNE_RESULT:-success}" == 'fail' ]]; then
+            echo 'fake rclone prune failure' >&2
+            exit 25
+        fi
+        remote_name="${1##*/}"
+        test -f "${RCLONE_REMOTE_DIR}/${remote_name}"
+        rm -f -- "${RCLONE_REMOTE_DIR}/${remote_name}"
+        ;;
+    *)
+        echo "unexpected fake rclone command: $command" >&2
+        exit 26
+        ;;
+esac
 ''')
     _write_executable(fake_bin / 'curl', '''#!/bin/bash
 set -eu
@@ -138,25 +182,33 @@ fi
     env = {
         **os.environ,
         'DATABASE_URL': 'postgresql://unused/backup-test',
-        'BACKUP_DIR': str(backup_dir),
-        'BACKUP_LOG_FILE': str(log_file),
+        'BACKUP_DIR': backup_dir.as_posix(),
+        'BACKUP_LOG_FILE': log_file.as_posix(),
         'BACKUP_RETENTION_DAYS': '0',
         'BACKUP_OFFSITE_REMOTE': 'fake:backups' if offsite else '',
         'BACKUP_HEARTBEAT_URL': local_heartbeat_url,
         'BACKUP_OFFSITE_HEARTBEAT_URL': offsite_heartbeat_url,
         'FAKE_PG_DUMP_RESULT': pg_dump_result,
         'FAKE_RCLONE_RESULT': rclone_result,
+        'FAKE_RCLONE_PRUNE_RESULT': rclone_prune_result,
         'FAKE_RCLONE_SLEEP_SECONDS': str(rclone_sleep_seconds),
         'FAKE_CURL_RESULT': curl_result,
-        'CURL_CALL_LOG': str(curl_call_log),
-        'RCLONE_OBSERVED_OLD_FILE': str(old_base),
-        'RCLONE_ORDER_LOG': str(order_log),
-        'RCLONE_CALL_LOG': str(call_log),
-        'RCLONE_PRE_UPLOAD_METADATA': str(pre_upload_metadata),
+        'CURL_CALL_LOG': curl_call_log.as_posix(),
+        'RCLONE_OBSERVED_OLD_FILE': old_base.as_posix(),
+        'RCLONE_ORDER_LOG': order_log.as_posix(),
+        'RCLONE_CALL_LOG': call_log.as_posix(),
+        'RCLONE_PRE_UPLOAD_METADATA': pre_upload_metadata.as_posix(),
+        'RCLONE_REMOTE_DIR': remote_dir.as_posix(),
         'PATH': f'{fake_bin}{os.pathsep}{os.environ.get("PATH", "")}',
     }
     if retention_min_archives is not None:
         env['BACKUP_RETENTION_MIN_ARCHIVES'] = str(retention_min_archives)
+    if offsite_retention_days is not None:
+        env['BACKUP_OFFSITE_RETENTION_DAYS'] = str(offsite_retention_days)
+    if offsite_retention_min_archives is not None:
+        env['BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES'] = str(
+            offsite_retention_min_archives
+        )
     completed = subprocess.run(
         [bash, str(ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_backup.sh'), 'manual'],
         cwd=ROOT,
@@ -179,6 +231,7 @@ fi
         if len(current_metadata) == 1
         else None
     )
+    rclone_calls = call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else []
     return {
         'completed': completed,
         'backup_dir': backup_dir,
@@ -195,7 +248,12 @@ fi
         ),
         'log': log_file.read_text(encoding='utf-8') if log_file.exists() else '',
         'order': order_log.read_text(encoding='utf-8').splitlines() if order_log.exists() else [],
-        'calls': call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else [],
+        'calls': rclone_calls,
+        'remote_archive_groups': remote_archive_groups,
+        'remote_files': sorted(path.name for path in remote_dir.iterdir()),
+        'remote_delete_calls': [
+            call for call in rclone_calls if call.startswith('deletefile ')
+        ],
         'heartbeat_calls': (
             curl_call_log.read_text(encoding='utf-8').splitlines()
             if curl_call_log.exists()
@@ -230,6 +288,11 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
     assert 'BACKUP_RETENTION_MIN_ARCHIVES: ${BACKUP_RETENTION_MIN_ARCHIVES:-3}' in compose
     assert 'BACKUP_OFFSITE_REMOTE: ${BACKUP_OFFSITE_REMOTE:-}' in compose
+    assert 'BACKUP_OFFSITE_RETENTION_DAYS: ${BACKUP_OFFSITE_RETENTION_DAYS:-30}' in compose
+    assert (
+        'BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES: '
+        '${BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES:-3}'
+    ) in compose
     for key in (
         'RCLONE_CONFIG_STORAGEBOX_TYPE',
         'RCLONE_CONFIG_STORAGEBOX_HOST',
@@ -240,6 +303,8 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
         assert f'{key}: ${{{key}:-}}' in compose
         assert f'{key}=' in env_example_lines
     assert 'BACKUP_RETENTION_MIN_ARCHIVES=3' in env_example_lines
+    assert 'BACKUP_OFFSITE_RETENTION_DAYS=30' in env_example_lines
+    assert 'BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES=3' in env_example_lines
     assert 'names must match the remote name used in' in env_example
     assert 'BACKUP_OFFSITE_REMOTE; change one, change all.' in env_example
     assert 'BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}' in compose
@@ -295,11 +360,17 @@ def test_backup_script_can_optionally_mirror_archives_offsite():
     assert 'BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"' in backup
     assert 'BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"' in backup
     assert 'BACKUP_RETENTION_MIN_ARCHIVES:-3' in backup
+    assert 'BACKUP_OFFSITE_RETENTION_DAYS:-30' in backup
+    assert 'BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES:-3' in backup
     assert 'curl -fsS -m 10 --retry 3 "$url"' in backup
     assert 'command -v rclone >/dev/null 2>&1' in backup
     assert 'rclone copyto "$ARCHIVE"' in backup
     assert 'rclone copyto "$SHA_FILE"' in backup
     assert 'rclone copyto "$META_FILE"' in backup
+    assert 'rclone lsf "$BACKUP_OFFSITE_REMOTE" --files-only' in backup
+    assert 'rclone deletefile "$BACKUP_OFFSITE_REMOTE/$sidecar"' in backup
+    assert 'rclone deletefile "$BACKUP_OFFSITE_REMOTE/$archive"' in backup
+    assert 'rclone delete --min-age' not in backup
     assert '"offsite_sync_status": "$OFFSITE_SYNC_STATUS"' in backup
     assert 'latest.json' in backup
 
@@ -332,8 +403,8 @@ def test_successful_offsite_sync_runs_after_prune_and_records_synced(tmp_path: P
     assert observation['metadata']['offsite_sync_status'] == 'synced'
     assert observation['metadata']['offsite_synced_at_utc'] is not None
     assert all(not path.exists() for path in observation['old_files'])
-    assert observation['order'] == ['old-absent'] * 4
-    assert len(observation['calls']) == 4
+    assert observation['order'] == ['old-absent'] * 5
+    assert len(observation['calls']) == 5
     assert observation['heartbeat_calls'] == [local_url, offsite_url]
 
 
@@ -387,6 +458,119 @@ def test_metadata_upload_failure_records_archive_as_synced_and_exits_nonzero(tmp
     assert '.dump.sha256 ' in observation['calls'][1]
     assert '.dump.json ' in observation['calls'][2]
     assert observation['heartbeat_calls'] == []
+
+
+def test_offsite_retention_prunes_over_age_archives_with_sidecars(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        remote_archive_count=5,
+        offsite_retention_min_archives=3,
+    )
+    completed = observation['completed']
+    remote_groups = observation['remote_archive_groups']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert all(not path.exists() for group in remote_groups[:3] for path in group)
+    assert all(path.exists() for group in remote_groups[3:] for path in group)
+    assert observation['metadata']['offsite_prune_status'] == 'succeeded'
+    assert len(observation['remote_delete_calls']) == 9
+    for offset in range(0, 9, 3):
+        calls = observation['remote_delete_calls'][offset : offset + 3]
+        assert calls[0].endswith('.dump.sha256')
+        assert calls[1].endswith('.dump.json')
+        assert calls[2].endswith('.dump')
+
+
+def test_offsite_retention_floor_keeps_three_over_age_archives(tmp_path: Path):
+    # The just-uploaded archive is the fourth object, so a floor of four keeps
+    # all three pre-existing over-age archive groups intact.
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        remote_archive_count=3,
+        offsite_retention_min_archives=4,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert all(
+        path.exists()
+        for group in observation['remote_archive_groups']
+        for path in group
+    )
+    assert observation['remote_delete_calls'] == []
+    assert 'offsite retention floor: keeping' in completed.stdout + completed.stderr
+
+
+def test_failed_offsite_upload_never_attempts_remote_pruning(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_result='fail',
+        remote_archive_count=4,
+    )
+
+    assert observation['remote_delete_calls'] == []
+    assert all(not call.startswith('lsf ') for call in observation['calls'])
+    assert observation['metadata']['offsite_prune_status'] == 'not_run'
+    assert 'offsite prune: skipped (offsite status failed)' in (
+        observation['completed'].stdout + observation['completed'].stderr
+    )
+
+
+def test_failed_pg_dump_never_attempts_remote_pruning(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        pg_dump_result='fail',
+        remote_archive_count=4,
+    )
+
+    assert observation['remote_delete_calls'] == []
+    assert observation['calls'] == []
+    assert 'offsite prune: skipped (no valid local archive)' in (
+        observation['completed'].stdout + observation['completed'].stderr
+    )
+
+
+def test_offsite_retention_never_deletes_latest_json(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        remote_archive_count=4,
+        offsite_retention_min_archives=1,
+    )
+
+    assert 'latest.json' in observation['remote_files']
+    assert any(call.startswith('lsf ') for call in observation['calls'])
+    assert all(
+        not call.endswith('/latest.json') for call in observation['remote_delete_calls']
+    )
+
+
+def test_remote_prune_failure_preserves_local_pruning_and_backup_success(tmp_path: Path):
+    observation = _run_backup_scenario(
+        tmp_path,
+        offsite=True,
+        rclone_prune_result='fail',
+        old_archive_count=2,
+        retention_min_archives=1,
+        remote_archive_count=4,
+        offsite_retention_min_archives=1,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert all(not path.exists() for path in observation['old_files'])
+    assert len(list(observation['backup_dir'].glob('edfinder_*.dump'))) == 1
+    assert observation['metadata']['offsite_sync_status'] == 'synced'
+    assert observation['metadata']['offsite_prune_status'] == 'failed'
+    assert observation['remote_delete_calls']
+    assert 'ERROR: offsite backup prune failed' in observation['log']
 
 
 def test_failed_pg_dump_still_prunes_without_replacing_latest(tmp_path: Path):

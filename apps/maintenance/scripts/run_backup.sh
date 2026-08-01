@@ -22,6 +22,8 @@ RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 RETENTION_MIN_ARCHIVES="${BACKUP_RETENTION_MIN_ARCHIVES:-3}"
 LOG_FILE="${BACKUP_LOG_FILE:-/data/logs/backup.log}"
 BACKUP_OFFSITE_REMOTE="${BACKUP_OFFSITE_REMOTE:-}"
+OFFSITE_RETENTION_DAYS="${BACKUP_OFFSITE_RETENTION_DAYS:-30}"
+OFFSITE_RETENTION_MIN_ARCHIVES="${BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES:-3}"
 BACKUP_HEARTBEAT_URL="${BACKUP_HEARTBEAT_URL:-}"
 BACKUP_OFFSITE_HEARTBEAT_URL="${BACKUP_OFFSITE_HEARTBEAT_URL:-}"
 
@@ -74,6 +76,86 @@ prune_local_backups() {
     done
 }
 
+prune_offsite_backups() {
+    local archive
+    local archive_count
+    local archive_stamp
+    local cutoff_epoch
+    local cutoff_stamp
+    local listing
+    local now_epoch
+    local remote_name
+    local sidecar
+    local -a remote_archives=()
+    local -A remote_files=()
+
+    if [[ ! "$OFFSITE_RETENTION_DAYS" =~ ^[0-9]+$ \
+        || ! "$OFFSITE_RETENTION_MIN_ARCHIVES" =~ ^[0-9]+$ ]]; then
+        echo "ERROR: offsite retention settings must be non-negative integers" >&2
+        return 1
+    fi
+
+    if ! now_epoch="$(date -u +%s)"; then
+        echo "ERROR: unable to read current time for offsite retention" >&2
+        return 1
+    fi
+    cutoff_epoch=$((now_epoch - OFFSITE_RETENTION_DAYS * 86400))
+    if ! cutoff_stamp="$(date -u -d "@$cutoff_epoch" +'%Y%m%dT%H%M%SZ')"; then
+        echo "ERROR: unable to calculate offsite retention cutoff" >&2
+        return 1
+    fi
+
+    if ! listing="$(rclone lsf "$BACKUP_OFFSITE_REMOTE" --files-only)"; then
+        echo "ERROR: unable to list offsite backup archives" >&2
+        return 1
+    fi
+
+    while IFS= read -r remote_name; do
+        [[ -n "$remote_name" ]] || continue
+        remote_files["$remote_name"]=1
+        if [[ "$remote_name" =~ ^edfinder_[0-9]{8}T[0-9]{6}Z\.dump$ ]]; then
+            remote_archives+=("$remote_name")
+        fi
+    done <<< "$listing"
+
+    archive_count="${#remote_archives[@]}"
+    if (( archive_count == 0 )); then
+        echo "offsite retention: no edfinder_*.dump archives found"
+        return 0
+    fi
+
+    mapfile -t remote_archives < <(printf '%s\n' "${remote_archives[@]}" | sort)
+    for archive in "${remote_archives[@]}"; do
+        archive_stamp="${archive#edfinder_}"
+        archive_stamp="${archive_stamp%.dump}"
+        if [[ "$archive_stamp" == "$cutoff_stamp" || "$archive_stamp" > "$cutoff_stamp" ]]; then
+            continue
+        fi
+
+        if (( archive_count <= OFFSITE_RETENTION_MIN_ARCHIVES )); then
+            echo "offsite retention floor: keeping $archive because only $archive_count archive(s) remain (minimum $OFFSITE_RETENTION_MIN_ARCHIVES)"
+            break
+        fi
+
+        # Remove existing sidecars first so a failed group deletion can never
+        # leave a checksum or metadata object orphaned from its archive.
+        for sidecar in "${archive}.sha256" "${archive}.json"; do
+            if [[ -n "${remote_files[$sidecar]:-}" ]] \
+                && ! rclone deletefile "$BACKUP_OFFSITE_REMOTE/$sidecar"; then
+                echo "ERROR: unable to prune offsite sidecar $sidecar" >&2
+                return 1
+            fi
+        done
+        if ! rclone deletefile "$BACKUP_OFFSITE_REMOTE/$archive"; then
+            echo "ERROR: unable to prune offsite archive $archive" >&2
+            return 1
+        fi
+
+        echo "offsite pruned: $archive with sidecars"
+        archive_count=$((archive_count - 1))
+    done
+}
+
 log_heartbeat_skipped() {
     local label="$1"
     local url="$2"
@@ -110,6 +192,8 @@ echo "minimum:    ${RETENTION_MIN_ARCHIVES} archives"
 echo "archive:    $ARCHIVE"
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
     echo "offsite:    $BACKUP_OFFSITE_REMOTE"
+    echo "offsite retention: ${OFFSITE_RETENTION_DAYS} days"
+    echo "offsite minimum:   ${OFFSITE_RETENTION_MIN_ARCHIVES} archives"
 else
     echo "offsite:    disabled"
 fi
@@ -126,6 +210,7 @@ else
     prune_local_backups
     log_heartbeat_skipped "local" "$BACKUP_HEARTBEAT_URL" "no valid local archive"
     log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "no valid local archive"
+    echo "offsite prune: skipped (no valid local archive)"
     echo "ERROR: pg_dump failed for $ARCHIVE; local retention completed" >&2
     exit "$DUMP_EXIT_CODE"
 fi
@@ -138,10 +223,12 @@ SIZE_BYTES="$(wc -c < "$ARCHIVE" | tr -d '[:space:]')"
 OFFSITE_SYNC_STATUS="disabled"
 OFFSITE_SYNCED_AT_JSON="null"
 OFFSITE_REMOTE_JSON="null"
+OFFSITE_PRUNE_STATUS="disabled"
 
 if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
     OFFSITE_SYNC_STATUS="failed"
     OFFSITE_REMOTE_JSON="\"$BACKUP_OFFSITE_REMOTE\""
+    OFFSITE_PRUNE_STATUS="not_run"
 fi
 
 write_metadata() {
@@ -157,7 +244,10 @@ write_metadata() {
   "validated_with": "pg_restore --list",
   "offsite_remote": $OFFSITE_REMOTE_JSON,
   "offsite_sync_status": "$OFFSITE_SYNC_STATUS",
-  "offsite_synced_at_utc": $OFFSITE_SYNCED_AT_JSON
+  "offsite_synced_at_utc": $OFFSITE_SYNCED_AT_JSON,
+  "offsite_retention_days": $OFFSITE_RETENTION_DAYS,
+  "offsite_retention_min_archives": $OFFSITE_RETENTION_MIN_ARCHIVES,
+  "offsite_prune_status": "$OFFSITE_PRUNE_STATUS"
 }
 EOF
 }
@@ -203,6 +293,18 @@ if [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
 fi
 
 if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
+    if prune_offsite_backups; then
+        OFFSITE_PRUNE_STATUS="succeeded"
+    else
+        OFFSITE_PRUNE_STATUS="failed"
+        echo "ERROR: offsite backup prune failed; backup upload and local retention remain successful" >&2
+    fi
+    write_metadata
+elif [[ -n "$BACKUP_OFFSITE_REMOTE" ]]; then
+    echo "offsite prune: skipped (offsite status $OFFSITE_SYNC_STATUS)"
+fi
+
+if [[ "$OFFSITE_SYNC_STATUS" == "synced" ]]; then
     send_heartbeat "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL"
 else
     log_heartbeat_skipped "offsite" "$BACKUP_OFFSITE_HEARTBEAT_URL" "offsite status $OFFSITE_SYNC_STATUS"
@@ -212,6 +314,7 @@ echo "===== Postgres backup complete ====="
 echo "archive size bytes: $SIZE_BYTES"
 echo "latest symlink:     $LATEST_LINK"
 echo "offsite status:     $OFFSITE_SYNC_STATUS"
+echo "offsite prune:      $OFFSITE_PRUNE_STATUS"
 
 if [[ "$OFFSITE_EXIT_CODE" -ne 0 ]]; then
     exit "$OFFSITE_EXIT_CODE"
