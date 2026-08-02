@@ -198,6 +198,20 @@ def test_clean_run_pings_plain_url_exactly_once(tmp_path: Path):
     assert all('/fail' not in call for call in observation['curl_calls'])
     assert 'heartbeat: sent-clean' in observation['output']
     docker_calls = observation['docker_calls']
+    vacuum_calls = [call for call in docker_calls if 'VACUUM ANALYZE' in call]
+    expected_vacuum_tables = (
+        'cluster_summary',
+        'stations',
+        'system_archetype_scores',
+        'system_archetype_traits',
+    )
+    assert len(vacuum_calls) == 4
+    assert all(
+        any(f'VACUUM ANALYZE {table}' in call for call in vacuum_calls)
+        for table in expected_vacuum_tables
+    )
+    assert all('VACUUM ANALYZE systems' not in call for call in vacuum_calls)
+    assert all('VACUUM ANALYZE ratings' not in call for call in vacuum_calls)
     stamp_index = next(i for i, call in enumerate(docker_calls) if 'last_nightly_update' in call)
     last_vacuum_index = max(i for i, call in enumerate(docker_calls) if 'VACUUM ANALYZE' in call)
     assert stamp_index > last_vacuum_index
@@ -237,7 +251,7 @@ def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat
     assert all('last_nightly_update' not in call for call in observation['docker_calls'])
 
 
-def test_nightly_psql_calls_disable_the_role_statement_timeout(tmp_path: Path):
+def test_nightly_psql_calls_bound_the_role_statement_timeout(tmp_path: Path):
     observation = _run_nightly_update(tmp_path)
     psql_calls = [
         call for call in observation['docker_calls']
@@ -245,7 +259,7 @@ def test_nightly_psql_calls_disable_the_role_statement_timeout(tmp_path: Path):
     ]
 
     assert psql_calls
-    assert all('-e PGOPTIONS=-c statement_timeout=0' in call for call in psql_calls)
+    assert all('-e PGOPTIONS=-c statement_timeout=1800000' in call for call in psql_calls)
 
 
 def test_fatal_abort_sends_no_heartbeat(tmp_path: Path):

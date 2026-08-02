@@ -104,11 +104,11 @@ run_importer() {
     return "${PIPESTATUS[0]}"
 }
 
-# Every direct psql call bypasses the API pool and therefore inherits the
-# production role's statement_timeout unless it is overridden at connection
-# startup. Passing PGOPTIONS through docker compose exec also works for VACUUM,
-# which cannot share a transaction with an inline SET statement.
-NIGHTLY_PGOPTIONS="-c statement_timeout=0"
+# Bound every direct psql call to 30 minutes so a stuck statement cannot run all
+# night. Anything longer belongs in the maintenance container's weekly path.
+# Passing PGOPTIONS through docker compose exec also works for VACUUM, which
+# cannot share a transaction with an inline SET statement.
+NIGHTLY_PGOPTIONS="-c statement_timeout=1800000"
 
 run_psql() {
     docker compose exec -T -e "PGOPTIONS=$NIGHTLY_PGOPTIONS" \
@@ -412,9 +412,10 @@ docker compose exec -T redis redis-cli FLUSHDB >> "$LOG" 2>&1 \
 # 6. VACUUM ANALYZE
 # ---------------------------------------------------------------------------
 log "--- Step 6: VACUUM ANALYZE ---"
+# systems and ratings are deliberately excluded: the maintenance container
+# ANALYZEs them daily at 03:15 and VACUUMs them in the Sunday weekly task.
+# VACUUMing these 200GB+ tables here would overlap the 02:10 pg_dump.
 VACUUM_TABLES=(
-    systems
-    ratings
     cluster_summary
     stations
     system_archetype_scores
