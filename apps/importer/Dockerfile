@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # All importer scripts + the static region_map.json live under src/.
 COPY apps/importer/src/ ./
 COPY shared_contracts/ ./shared_contracts/
+COPY sql/002_indexes.sql ./sql/002_indexes.sql
 
 ENTRYPOINT ["python3"]
 CMD ["import_spansh.py", "--status"]

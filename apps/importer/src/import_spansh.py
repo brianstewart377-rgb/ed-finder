@@ -159,9 +159,19 @@ else:
 # DB helpers
 # ---------------------------------------------------------------------------
 def get_conn() -> psycopg2.extensions.connection:
-    conn = psycopg2.connect(DB_DSN)
+    conn = psycopg2.connect(DB_DSN, options='-c statement_timeout=0')
     conn.autocommit = False
     return conn
+
+
+def resolve_index_sql_path() -> Path:
+    """Locate the vendored image SQL or the repository-root SQL in development."""
+    source_dir = Path(__file__).resolve().parent
+    for base_dir in (source_dir, *source_dir.parents):
+        candidate = base_dir / 'sql' / '002_indexes.sql'
+        if candidate.is_file():
+            return candidate
+    return source_dir / 'sql' / '002_indexes.sql'
 
 
 def set_import_optimisations(conn):
@@ -1685,7 +1695,7 @@ IMPORT_ORDER = [
 # ---------------------------------------------------------------------------
 # main()
 # ---------------------------------------------------------------------------
-def main():
+def main() -> int:
     global DUMP_DIR, BATCH_SIZE
 
     parser = argparse.ArgumentParser(
@@ -1712,11 +1722,11 @@ def main():
 
     if args.status:
         show_status(conn)
-        return
+        return 0
 
     if args.errors:
         show_errors(conn)
-        return
+        return 0
 
     if args.download or getattr(args, 'download_only', False):
         files = [args.file] if args.file else IMPORT_ORDER
@@ -1724,12 +1734,12 @@ def main():
 
     if getattr(args, 'download_only', False):
         log.info("Download complete. Run with --all (or --file) to import.")
-        return
+        return 0
 
     files_to_import = IMPORT_ORDER if args.all else ([args.file] if args.file else [])
     if not files_to_import:
         parser.print_help()
-        return
+        return 0
 
     def _get_status(fname: str) -> Optional[str]:
         try:
@@ -1741,16 +1751,19 @@ def main():
             return None
 
     total_start = time.time()
+    failures: list[str] = []
     for fname in files_to_import:
         dump_path = DUMP_DIR / fname
         if not dump_path.exists():
             log.error(f"Dump file not found: {dump_path}")
             log.error(f"Run with --download-only first, or place files in {DUMP_DIR}")
+            failures.append(f"{fname}: dump file missing")
             continue
 
         importer_fn = IMPORTER_MAP.get(fname)
         if not importer_fn:
             log.error(f"No importer for: {fname}")
+            failures.append(f"{fname}: no importer registered")
             continue
 
         current_status = _get_status(fname)
@@ -1773,9 +1786,9 @@ def main():
         except Exception as e:
             log.error(f"❌ {fname} failed: {e}", exc_info=True)
             mark_failed(conn, fname, str(e))
+            failures.append(f"{fname}: {e}")
 
     total_elapsed = time.time() - total_start
-    log.info(f"All imports complete in {total_elapsed/3600:.2f} hours")
 
     # Auto-rebuild indexes if they were dropped for the import
     if args.all or args.file:
@@ -1792,7 +1805,7 @@ def main():
                 log.info("--- AUTOMATIC INDEX REBUILD ---")
                 log.info("Indexes are missing (likely dropped for import). Starting rebuild from 002_indexes.sql ...")
                 log.info("This will take 1-3 hours. Do not interrupt.")
-                sql_path = Path(__file__).parent.parent / 'sql' / '002_indexes.sql'
+                sql_path = resolve_index_sql_path()
                 if sql_path.exists():
                     # Phase 2: run CREATE INDEX statements — requires autocommit mode.
                     # Only flip autocommit after the read transaction is fully closed.
@@ -1807,17 +1820,28 @@ def main():
                     finally:
                         conn.autocommit = old_autocommit
                 else:
-                    log.warning(f"Could not find {sql_path} — please run manually.")
+                    log.error(f"Could not find {sql_path} — automatic index rebuild failed.")
+                    failures.append(f"automatic index rebuild: missing {sql_path}")
             else:
                 log.info(f"Indexes already exist ({idx_count} found) — skipping auto-rebuild.")
         except Exception as e:
             log.error(f"Failed to auto-rebuild indexes: {e}")
+            failures.append(f"automatic index rebuild: {e}")
+
+    if failures:
+        log.error(
+            f"Import run completed with {len(failures)} failure(s) in "
+            f"{total_elapsed/3600:.2f} hours: {'; '.join(failures)}"
+        )
+    else:
+        log.info(f"All imports complete in {total_elapsed/3600:.2f} hours")
 
     log.info("Next steps (run in this exact order):")
     log.info("  1. python3 build_grid.py      — build 500 LY + 2000 LY spatial grids (~1-2h)")
     log.info("  2. python3 build_ratings.py   — compute economy scores (~3-5h)")
     log.info("  3. python3 build_clusters.py  — build cluster summaries (~2-4h)")
+    return 1 if failures else 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
