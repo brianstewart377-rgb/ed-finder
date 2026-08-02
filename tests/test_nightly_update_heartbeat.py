@@ -33,6 +33,7 @@ def _run_nightly_update(
     dotenv: str | None = None,
     degraded: bool = False,
     fatal: bool = False,
+    pg_count_failure: bool = False,
     curl_result: str = 'success',
 ) -> dict[str, object]:
     bash = _find_bash()
@@ -100,6 +101,9 @@ if [[ "${FAKE_DEGRADED:-0}" == '1' && "$*" == *'galaxy_stations.json.gz'* ]]; th
     exit 17
 fi
 if [[ "$*" == *'-tAc'* ]]; then
+    if [[ "${FAKE_PG_COUNT_FAILURE:-0}" == '1' ]]; then
+        exit 42
+    fi
     printf '%s\n' '0'
 fi
 ''')
@@ -123,6 +127,7 @@ fi
         'CURL_CALL_LOG': curl_log.as_posix(),
         'FAKE_DEGRADED': '1' if degraded else '0',
         'FAKE_FATAL': '1' if fatal else '0',
+        'FAKE_PG_COUNT_FAILURE': '1' if pg_count_failure else '0',
         'FAKE_CURL_RESULT': curl_result,
     }
     for key in list(env):
@@ -192,6 +197,10 @@ def test_clean_run_pings_plain_url_exactly_once(tmp_path: Path):
     assert observation['curl_calls'] == [f'{heartbeat_url}|<unset>']
     assert all('/fail' not in call for call in observation['curl_calls'])
     assert 'heartbeat: sent-clean' in observation['output']
+    docker_calls = observation['docker_calls']
+    stamp_index = next(i for i, call in enumerate(docker_calls) if 'last_nightly_update' in call)
+    last_vacuum_index = max(i for i, call in enumerate(docker_calls) if 'VACUUM ANALYZE' in call)
+    assert stamp_index > last_vacuum_index
 
 
 def test_degraded_run_pings_fail_url_exactly_once(tmp_path: Path):
@@ -209,6 +218,34 @@ def test_degraded_run_pings_fail_url_exactly_once(tmp_path: Path):
     assert f'{heartbeat_url}|<unset>' not in observation['curl_calls']
     assert 'Nightly update completed WITH WARNINGS' in observation['output']
     assert 'heartbeat: sent-fail' in observation['output']
+    assert all('last_nightly_update' not in call for call in observation['docker_calls'])
+
+
+def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/nightly-measurement-failed'
+    observation = _run_nightly_update(
+        tmp_path,
+        heartbeat_url=heartbeat_url,
+        pg_count_failure=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert observation['curl_calls'] == [f'{heartbeat_url}/fail|<unset>']
+    assert 'Database measurement failed' in observation['output']
+    assert all('last_nightly_update' not in call for call in observation['docker_calls'])
+
+
+def test_nightly_psql_calls_disable_the_role_statement_timeout(tmp_path: Path):
+    observation = _run_nightly_update(tmp_path)
+    psql_calls = [
+        call for call in observation['docker_calls']
+        if ' postgres psql ' in f' {call} '
+    ]
+
+    assert psql_calls
+    assert all('-e PGOPTIONS=-c statement_timeout=0' in call for call in psql_calls)
 
 
 def test_fatal_abort_sends_no_heartbeat(tmp_path: Path):

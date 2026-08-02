@@ -104,9 +104,32 @@ run_importer() {
     return "${PIPESTATUS[0]}"
 }
 
-# Helper: query postgres for a count
-pg_count() {
-    docker compose exec -T postgres psql -U edfinder -d edfinder -tAc "$1" 2>/dev/null || echo "0"
+# Every direct psql call bypasses the API pool and therefore inherits the
+# production role's statement_timeout unless it is overridden at connection
+# startup. Passing PGOPTIONS through docker compose exec also works for VACUUM,
+# which cannot share a transaction with an inline SET statement.
+NIGHTLY_PGOPTIONS="-c statement_timeout=0"
+
+run_psql() {
+    docker compose exec -T -e "PGOPTIONS=$NIGHTLY_PGOPTIONS" \
+        postgres psql -U edfinder -d edfinder "$@"
+}
+
+# Query postgres without letting an unverifiable state masquerade as zero.
+# The output variable is assigned in the current shell so warn() can update
+# ERRORS and force the final heartbeat onto the /fail path.
+pg_count_into() {
+    local output_var="$1"
+    local sql="$2"
+    local value
+    if value=$(run_psql -tAc "$sql" 2>> "$LOG"); then
+        printf -v "$output_var" '%s' "$value"
+    else
+        local psql_exit=$?
+        printf -v "$output_var" '%s' '0'
+        warn "Database measurement failed for $output_var (psql exit $psql_exit); using 0 only to continue"
+        return "$psql_exit"
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -204,7 +227,7 @@ run_importer "import_stations" import_spansh.py --file galaxy_stations.json.gz \
 # 3. Re-rate dirty systems
 # ---------------------------------------------------------------------------
 log "--- Step 3: Re-rate dirty systems ---"
-DIRTY_COUNT=$(pg_count "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE")
+pg_count_into DIRTY_COUNT "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE"
 log "Dirty systems to re-rate: $DIRTY_COUNT"
 
 if (( DIRTY_COUNT > 0 )); then
@@ -214,7 +237,7 @@ if (( DIRTY_COUNT > 0 )); then
         || warn "Rating rebuild had errors (check ${LOG_DIR}/build_ratings.log)"
 
     # Post-rebuild verification: how many are still dirty?
-    STILL_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE")
+    pg_count_into STILL_DIRTY "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE"
     if (( STILL_DIRTY > 0 )); then
         warn "Rating rebuild incomplete: $STILL_DIRTY systems still have rating_dirty=TRUE"
     else
@@ -233,8 +256,8 @@ log "--- Step 3.5: Build archetype topology + scores ---"
 
 # Use the same dirty signal as build_topology.py: ratings rows flagged dirty
 # or systems that have no topology row yet.
-TOPO_DIRTY=$(pg_count "SELECT COUNT(*) FROM ratings WHERE rating_dirty = TRUE")
-ARCH_SCORE_DIRTY=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
+pg_count_into TOPO_DIRTY "SELECT COUNT(*) FROM ratings WHERE rating_dirty = TRUE"
+pg_count_into ARCH_SCORE_DIRTY "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
 log "Topology dirty (rating_dirty): $TOPO_DIRTY | Archetype scores dirty: $ARCH_SCORE_DIRTY"
 
 ARCH_BUILD_RAN=0
@@ -248,7 +271,7 @@ fi
 
 # Re-check arch score dirty count after topology run (topology write sets dirty=TRUE
 # on system_archetype_scores for any system it touches)
-ARCH_SCORE_DIRTY=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
+pg_count_into ARCH_SCORE_DIRTY "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
 log "Archetype scores dirty after topology pass: $ARCH_SCORE_DIRTY"
 
 if (( ARCH_SCORE_DIRTY > 0 )); then
@@ -258,14 +281,14 @@ if (( ARCH_SCORE_DIRTY > 0 )); then
         || warn "Archetype score rebuild had errors (check ${LOG_DIR}/build_archetype_scores.log)"
 
     log "Refreshing mv_archetype_rankings ..."
-    docker compose exec -T postgres psql -U edfinder -d edfinder \
+    run_psql \
         -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed" \
         || warn "MV refresh failed"
 
     # Post-rebuild verification
-    STILL_DIRTY_A=$(pg_count "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE")
+    pg_count_into STILL_DIRTY_A "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
     if (( STILL_DIRTY_A > 0 )); then
         warn "Archetype rebuild incomplete: $STILL_DIRTY_A rows still have dirty=TRUE in system_archetype_scores"
     else
@@ -277,11 +300,11 @@ fi
 # --dirty only rescores existing rows, it never inserts new ones. Note:
 # the `limit or 10_000_000` fallback in build_archetype_scores.py silently
 # caps at 10M rows — always pass --limit explicitly.
-ARCH_SCORE_MISSING=$(pg_count "
+pg_count_into ARCH_SCORE_MISSING "
     SELECT COUNT(*) FROM ratings r
     LEFT JOIN system_archetype_scores a ON a.system_id64 = r.system_id64
     WHERE a.system_id64 IS NULL
-")
+"
 log "Systems missing archetype rows entirely: $ARCH_SCORE_MISSING"
 
 if (( ARCH_SCORE_MISSING > 0 )); then
@@ -295,7 +318,7 @@ if (( ARCH_SCORE_MISSING > 0 )); then
         || warn "New archetype score backfill had errors (check ${LOG_DIR}/build_archetype_scores_new.log)"
 
     log "Refreshing mv_archetype_rankings ..."
-    docker compose exec -T postgres psql -U edfinder -d edfinder \
+    run_psql \
         -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed" \
@@ -307,9 +330,9 @@ fi
 # have failed or been skipped (the build clears dirty flags, so the
 # post-build count can be zero even though data changed).
 if (( ARCH_BUILD_RAN == 1 )); then
-    MV_ROWS=$(pg_count "SELECT COUNT(*) FROM mv_archetype_rankings")
+    pg_count_into MV_ROWS "SELECT COUNT(*) FROM mv_archetype_rankings"
     log "Archetype build ran this cycle — verifying MV is current ($MV_ROWS rows) ..."
-    docker compose exec -T postgres psql -U edfinder -d edfinder \
+    run_psql \
         -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
         >> "$LOG" 2>&1 \
         && success "mv_archetype_rankings refreshed (catch-up)" \
@@ -319,12 +342,12 @@ fi
 # Re-check for systems with body data but no regional analysis row at all —
 # build_regional_analysis.py's default mode only covers systems missing a
 # row, same shape as the archetype new-system step above.
-REGIONAL_MISSING=$(pg_count "
+pg_count_into REGIONAL_MISSING "
     SELECT COUNT(*) FROM systems s
     LEFT JOIN system_regional_analysis r ON r.system_id64 = s.id64
     WHERE r.system_id64 IS NULL
       AND s.has_body_data = TRUE
-")
+"
 log "Systems missing regional analysis rows: $REGIONAL_MISSING"
 
 if (( REGIONAL_MISSING > 0 )); then
@@ -358,7 +381,7 @@ if [[ "$DOW" == "7" ]]; then
     #     && success "Full cluster rebuild complete" \
     #     || warn "Full cluster rebuild had errors (check ${LOG_DIR}/build_clusters_full.log)"
 else
-    DIRTY_CLUSTERS=$(pg_count "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}")
+    pg_count_into DIRTY_CLUSTERS "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}"
     log "Eligible dirty cluster anchors: $DIRTY_CLUSTERS"
 
     if (( DIRTY_CLUSTERS > 0 )); then
@@ -368,7 +391,7 @@ else
             || warn "Cluster rebuild had errors (check ${LOG_DIR}/build_clusters.log)"
 
         # Post-rebuild verification
-        STILL_DIRTY_C=$(pg_count "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}")
+        pg_count_into STILL_DIRTY_C "SELECT COUNT(*) FROM systems WHERE ${ELIGIBLE_CLUSTER_DIRTY_SQL}"
         if (( STILL_DIRTY_C > 0 )); then
             warn "Cluster rebuild incomplete: $STILL_DIRTY_C eligible systems remain dirty"
         else
@@ -386,18 +409,9 @@ docker compose exec -T redis redis-cli FLUSHDB >> "$LOG" 2>&1 \
     || warn "Redis flush failed"
 
 # ---------------------------------------------------------------------------
-# 6. Update last_nightly_update in app_meta
+# 6. VACUUM ANALYZE
 # ---------------------------------------------------------------------------
-docker compose exec -T postgres psql -U edfinder -d edfinder -c \
-    "INSERT INTO app_meta(key,value,updated_at)
-     VALUES('last_nightly_update','$(date -u +%Y-%m-%dT%H:%M:%SZ)',NOW())
-     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
-    >> "$LOG" 2>&1
-
-# ---------------------------------------------------------------------------
-# 7. VACUUM ANALYZE
-# ---------------------------------------------------------------------------
-log "--- Step 7: VACUUM ANALYZE ---"
+log "--- Step 6: VACUUM ANALYZE ---"
 VACUUM_TABLES=(
     systems
     ratings
@@ -408,21 +422,36 @@ VACUUM_TABLES=(
 )
 
 for table in "${VACUUM_TABLES[@]}"; do
-    docker compose exec -T postgres psql -U edfinder -d edfinder \
+    run_psql \
         -c "VACUUM ANALYZE ${table}" >> "$LOG" 2>&1 \
         && success "VACUUM ANALYZE ${table} complete" \
         || warn "VACUUM ANALYZE ${table} failed"
 done
 
 # ---------------------------------------------------------------------------
-# 8. Final stats and summary
+# 7. Final stats
 # ---------------------------------------------------------------------------
 DISK_USED=$(df -h /data | awk 'NR==2{print $3 "/" $2 " (" $5 ")"}')
-PG_SIZE=$(pg_count "SELECT pg_size_pretty(pg_database_size('edfinder'))")
-SYS_COUNT=$(pg_count "SELECT TO_CHAR(COUNT(*), '999,999,999') FROM systems")
-REMAINING_DIRTY=$(pg_count "SELECT COUNT(*) FROM systems WHERE rating_dirty OR (${ELIGIBLE_CLUSTER_DIRTY_SQL})")
+pg_count_into PG_SIZE "SELECT pg_size_pretty(pg_database_size('edfinder'))"
+pg_count_into SYS_COUNT "SELECT TO_CHAR(COUNT(*), '999,999,999') FROM systems"
+pg_count_into REMAINING_DIRTY "SELECT COUNT(*) FROM systems WHERE rating_dirty OR (${ELIGIBLE_CLUSTER_DIRTY_SQL})"
 
 log "Systems: $SYS_COUNT | Disk: $DISK_USED | PostgreSQL DB: $PG_SIZE | Remaining dirty: $REMAINING_DIRTY"
+
+# ---------------------------------------------------------------------------
+# 8. Record completion only after every work and verification step is clean
+# ---------------------------------------------------------------------------
+if [[ -z "$ERRORS" ]]; then
+    run_psql -c \
+        "INSERT INTO app_meta(key,value,updated_at)
+         VALUES('last_nightly_update','$(date -u +%Y-%m-%dT%H:%M:%SZ)',NOW())
+         ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
+        >> "$LOG" 2>&1 \
+        && success "last_nightly_update recorded" \
+        || warn "last_nightly_update update failed"
+else
+    log "last_nightly_update: skipped (run already degraded)"
+fi
 
 if [[ -n "$ERRORS" ]]; then
     warn "=== Nightly update completed WITH WARNINGS: $ERRORS ==="
