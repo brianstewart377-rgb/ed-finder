@@ -14,8 +14,8 @@
 #   weekly  @ 04:00 UTC : run_maintenance.sh weekly  (Sundays)
 #
 # Failures: each step is independent. If ANALYZE bodies fails, we still
-# refresh the MVs. The whole script is wrapped in `set +e` for that
-# reason — we want best-effort, not all-or-nothing.
+# refresh the MVs. The script records every failed step and exits non-zero
+# after the remaining best-effort work has completed.
 #
 # Logs land on stdout (so docker compose logs picks them up) AND in
 # /data/logs/maintenance.log for grep-ability.
@@ -27,6 +27,9 @@ LOG_FILE="${LOG_FILE:-/data/logs/maintenance.log}"
 DB_URL="${DATABASE_URL:?DATABASE_URL must be set}"
 EVIDENCE_RECORD_RETENTION_DAYS="${EVIDENCE_RECORD_RETENTION_DAYS:-90}"
 ADMIN_JOB_RUN_RETENTION_DAYS="${ADMIN_JOB_RUN_RETENTION_DAYS:-60}"
+MAINTENANCE_PGOPTIONS="${PGOPTIONS:+${PGOPTIONS} }-c statement_timeout=0"
+FAILED_STEPS=0
+FAILED_LABELS=()
 
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -40,12 +43,24 @@ run_step() {
     local sql="$*"
     local started; started=$(date +%s)
     echo "▶ $label"
-    if psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -c "$sql"; then
+    if PGOPTIONS="$MAINTENANCE_PGOPTIONS" psql "$DB_URL" -v ON_ERROR_STOP=1 -X -q -c "$sql"; then
         echo "  ✓ $label completed in $(( $(date +%s) - started ))s"
     else
-        echo "  ✗ $label FAILED (exit $?)" >&2
+        local psql_exit=$?
+        FAILED_STEPS=$((FAILED_STEPS + 1))
+        FAILED_LABELS+=("$label")
+        echo "  ✗ $label FAILED (exit $psql_exit)" >&2
+        return "$psql_exit"
+    fi
+}
+
+finish_task() {
+    local label="$1"
+    if (( FAILED_STEPS > 0 )); then
+        echo "===== $label maintenance FAILED: $FAILED_STEPS step(s): ${FAILED_LABELS[*]} =====" >&2
         return 1
     fi
+    echo "===== $label maintenance complete ====="
 }
 
 case "$TASK" in
@@ -147,7 +162,7 @@ SQL
         # remain available throughout the maintenance run.
         run_step "refresh_map_mviews()"  \
             "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(TRUE);"
-        echo "===== Nightly maintenance complete ====="
+        finish_task "Nightly"
         ;;
     weekly)
         echo "===== Weekly maintenance starting ====="
@@ -162,8 +177,8 @@ SQL
         # block the others.
         run_step "REINDEX idx_sys_name_lower_pattern" \
             "REINDEX INDEX CONCURRENTLY idx_sys_name_lower_pattern;"
-        run_step "REINDEX idx_sys_xyz" \
-            "REINDEX INDEX CONCURRENTLY idx_sys_xyz;"
+        run_step "REINDEX idx_sys_coords" \
+            "REINDEX INDEX CONCURRENTLY idx_sys_coords;"
         # VACUUM ANALYZE on the hot tables — autovacuum keeps up most
         # weeks but a manual sweep cleans dead-tuple drift after big
         # nightly EDDN bursts.
@@ -208,7 +223,7 @@ WITH deleted AS (
 SELECT COUNT(*)::int AS admin_job_rows_deleted FROM deleted;
 SQL
 )"
-        echo "===== Weekly maintenance complete ====="
+        finish_task "Weekly"
         ;;
     smoke)
         # Manual sanity check from `docker compose run --rm maintenance smoke`.
@@ -247,6 +262,7 @@ SQL
              FROM pg_class c
              LEFT JOIN pg_stat_user_tables s ON s.relname = c.relname
              WHERE c.relname='bodies';"
+        finish_task "Smoke"
         ;;
     *)
         echo "usage: $0 {nightly|weekly|smoke}" >&2
