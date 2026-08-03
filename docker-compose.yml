@@ -290,6 +290,9 @@ services:
       # EDDN ingest dead-man's switch: the external service alerts when the ping does not arrive.
       EDDN_WATCHDOG_HEARTBEAT_URL: ${EDDN_WATCHDOG_HEARTBEAT_URL:-}
       EDDN_WATCHDOG_MAX_AGE_MINUTES: ${EDDN_WATCHDOG_MAX_AGE_MINUTES:-30}
+      # Maintenance dead-man's switch: alerts when a nightly/weekly run
+      # does not ping (or pings /fail).
+      MAINTENANCE_HEARTBEAT_URL: ${MAINTENANCE_HEARTBEAT_URL:-}
       # Inverted disk dead-man's switch: ping only while healthy. Default 40GB stays
       # below the roughly 61GB nightly backup-before-prune dip; higher alerts nightly.
       DISK_WATCHDOG_HEARTBEAT_URL: ${DISK_WATCHDOG_HEARTBEAT_URL:-}

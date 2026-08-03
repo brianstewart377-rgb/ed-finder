@@ -51,11 +51,12 @@ def _run_maintenance_with_stubbed_psql(
     task: str,
     *,
     fail_match: str = '',
-) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    heartbeat_url: str | None = None,
+) -> tuple[subprocess.CompletedProcess[str], list[str], list[str]]:
     bash = _usable_bash()
 
     stub_dir = tmp_path / 'bin'
-    stub_dir.mkdir()
+    stub_dir.mkdir(parents=True)
     call_log = tmp_path / 'psql-calls.log'
     stub = stub_dir / 'psql'
     stub.write_text(
@@ -73,14 +74,28 @@ exit 0
         encoding='utf-8',
     )
     stub.chmod(0o755)
+    curl_call_log = tmp_path / 'curl-calls.log'
+    curl_stub = stub_dir / 'curl'
+    curl_stub.write_text(
+        '''#!/bin/bash
+printf '%s\n' "$*" >> "${CURL_CALL_LOG:?}"
+exit 0
+''',
+        encoding='utf-8',
+    )
+    curl_stub.chmod(0o755)
 
     env = os.environ.copy()
+    env.pop('MAINTENANCE_HEARTBEAT_URL', None)
     env.update({
         'DATABASE_URL': 'postgresql://test.invalid/edfinder',
         'LOG_FILE': _bash_path(tmp_path / 'maintenance.log'),
         'PSQL_CALL_LOG': _bash_path(call_log),
         'PSQL_FAIL_MATCH': fail_match,
+        'CURL_CALL_LOG': _bash_path(curl_call_log),
     })
+    if heartbeat_url is not None:
+        env['MAINTENANCE_HEARTBEAT_URL'] = heartbeat_url
     command = (
         f'export PATH={shlex.quote(_bash_path(stub_dir))}:$PATH; '
         f'exec {shlex.quote(_bash_path(MAINTENANCE_PATH))} {shlex.quote(task)}'
@@ -94,7 +109,8 @@ exit 0
         check=False,
     )
     calls = call_log.read_text(encoding='utf-8').splitlines() if call_log.exists() else []
-    return result, calls
+    curl_calls = curl_call_log.read_text(encoding='utf-8').splitlines() if curl_call_log.exists() else []
+    return result, calls, curl_calls
 
 
 def test_startup_reaps_stale_admin_operation_runs_and_cron_status_is_schema_visible():
@@ -148,7 +164,7 @@ def test_maintenance_script_has_valid_bash_syntax():
 
 
 def test_weekly_maintenance_disables_role_timeout_and_targets_real_coordinate_index(tmp_path: Path):
-    result, calls = _run_maintenance_with_stubbed_psql(tmp_path, 'weekly')
+    result, calls, _curl_calls = _run_maintenance_with_stubbed_psql(tmp_path, 'weekly')
 
     assert result.returncode == 0, result.stderr or result.stdout
     assert len(calls) == 7
@@ -158,7 +174,7 @@ def test_weekly_maintenance_disables_role_timeout_and_targets_real_coordinate_in
 
 
 def test_weekly_maintenance_finishes_remaining_steps_but_exits_nonzero_after_failure(tmp_path: Path):
-    result, calls = _run_maintenance_with_stubbed_psql(
+    result, calls, _curl_calls = _run_maintenance_with_stubbed_psql(
         tmp_path,
         'weekly',
         fail_match='idx_sys_name_lower_pattern',
@@ -169,3 +185,55 @@ def test_weekly_maintenance_finishes_remaining_steps_but_exits_nonzero_after_fai
     combined_output = result.stdout + result.stderr
     assert 'REINDEX idx_sys_name_lower_pattern FAILED (exit 9)' in combined_output
     assert 'Weekly maintenance FAILED: 1 step(s)' in combined_output
+
+
+def test_nightly_maintenance_success_pings_plain_heartbeat_once(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/maintenance'
+
+    result, _psql_calls, curl_calls = _run_maintenance_with_stubbed_psql(
+        tmp_path,
+        'nightly',
+        heartbeat_url=heartbeat_url,
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert len(curl_calls) == 1
+    assert curl_calls[0].endswith(heartbeat_url)
+    assert '/fail' not in curl_calls[0]
+
+
+def test_nightly_maintenance_failure_pings_fail_heartbeat_once(tmp_path: Path):
+    heartbeat_url = 'https://heartbeat.invalid/maintenance'
+
+    result, _psql_calls, curl_calls = _run_maintenance_with_stubbed_psql(
+        tmp_path,
+        'nightly',
+        fail_match='ANALYZE bodies',
+        heartbeat_url=heartbeat_url,
+    )
+
+    assert result.returncode == 1
+    assert len(curl_calls) == 1
+    assert curl_calls[0].endswith(f'{heartbeat_url}/fail')
+
+
+def test_smoke_maintenance_never_pings_heartbeat(tmp_path: Path):
+    result, _psql_calls, curl_calls = _run_maintenance_with_stubbed_psql(
+        tmp_path,
+        'smoke',
+        heartbeat_url='https://heartbeat.invalid/maintenance',
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert curl_calls == []
+
+
+def test_unset_maintenance_heartbeat_never_calls_curl_in_any_mode(tmp_path: Path):
+    for task in ('nightly', 'weekly', 'smoke'):
+        result, _psql_calls, curl_calls = _run_maintenance_with_stubbed_psql(
+            tmp_path / task,
+            task,
+        )
+
+        assert result.returncode == 0, result.stderr or result.stdout
+        assert curl_calls == []

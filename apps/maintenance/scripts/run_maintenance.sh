@@ -58,9 +58,33 @@ finish_task() {
     local label="$1"
     if (( FAILED_STEPS > 0 )); then
         echo "===== $label maintenance FAILED: $FAILED_STEPS step(s): ${FAILED_LABELS[*]} =====" >&2
+        if [[ "$label" == "Nightly" || "$label" == "Weekly" ]]; then
+            _maintenance_heartbeat fail
+        fi
         return 1
     fi
     echo "===== $label maintenance complete ====="
+    if [[ "$label" == "Nightly" || "$label" == "Weekly" ]]; then
+        _maintenance_heartbeat success
+    fi
+}
+
+_maintenance_heartbeat() {
+    # $1 = "success" | "fail". Pings the healthchecks check so a failed
+    # maintenance run is not silent. Ping delivery never changes exit status.
+    local outcome="$1"
+    local url="${MAINTENANCE_HEARTBEAT_URL:-}"
+    if [[ -z "$url" ]]; then
+        return 0
+    fi
+    if [[ "$outcome" == "fail" ]]; then
+        url="${url%/}/fail"
+    fi
+    if curl -fsS -m 10 --retry 3 "$url" >/dev/null 2>&1; then
+        echo "maintenance heartbeat: sent ($outcome)"
+    else
+        echo "maintenance heartbeat: delivery failed (curl); outcome was $outcome" >&2
+    fi
 }
 
 case "$TASK" in
