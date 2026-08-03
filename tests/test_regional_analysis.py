@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from pathlib import Path
@@ -10,12 +11,48 @@ os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/tes
 os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'importer' / 'src'))
 
+from build_regional_analysis import _load_targets
 from edfinder_api.regional.regional_analysis import compute_regional_analysis, distance_ly, response_from_row
 from edfinder_api.regional.regional_roles import classify_regional_role
 from edfinder_api.regional.regional_scoring import archetype_regional_fit, regional_scores
 from edfinder_api.models import RegionalAnalysisResponse
 from edfinder_api.mechanics.versions import MECHANICS_VERSION
+
+
+class RecordingCursor:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+
+    def execute(self, query: str) -> None:
+        self.queries.append(' '.join(query.split()))
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return []
+
+    def fetchone(self) -> dict[str, int]:
+        return {'excluded_count': 266_000}
+
+
+def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):
+    modes = (
+        argparse.Namespace(dirty=True, all=False, limit=25),
+        argparse.Namespace(dirty=False, all=False, limit=25),
+        argparse.Namespace(dirty=False, all=True, limit=25),
+    )
+
+    for args in modes:
+        cursor = RecordingCursor()
+
+        assert _load_targets(cursor, args) == []
+        assert len(cursor.queries) == 2
+        target_query, excluded_query = cursor.queries
+        assert 'x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL' in target_query
+        assert 'x IS NULL OR y IS NULL OR z IS NULL' in excluded_query
+        assert 'ORDER BY id64 LIMIT 25' in target_query
+
+    assert capsys.readouterr().out.count('Excluded 266,000 coordinate-less systems') == 3
 
 
 def system(id64: int, x: float, y: float, z: float, *, colonised: bool = False, population: int = 0):
