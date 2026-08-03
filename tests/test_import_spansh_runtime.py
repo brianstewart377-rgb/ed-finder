@@ -51,6 +51,117 @@ class _FakeConnection:
         self.rollbacks += 1
 
 
+class _DeadlockCursor:
+    def __init__(self, connection: '_DeadlockConnection') -> None:
+        self.connection = connection
+        self.rowcount = 0
+
+    def __enter__(self) -> '_DeadlockCursor':
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def execute(self, sql: str, _params: object = None) -> None:
+        if self.connection.deadlock_sql in ' '.join(sql.split()):
+            self.connection.attempts += 1
+            if self.connection.attempts <= self.connection.deadlocks_before_success:
+                raise import_spansh.psycopg2.errors.DeadlockDetected()
+            self.rowcount = self.connection.success_rowcount
+
+    def copy_from(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+class _DeadlockConnection:
+    def __init__(
+        self,
+        *,
+        deadlock_sql: str,
+        deadlocks_before_success: int,
+        success_rowcount: int,
+    ) -> None:
+        self.deadlock_sql = deadlock_sql
+        self.deadlocks_before_success = deadlocks_before_success
+        self.success_rowcount = success_rowcount
+        self.attempts = 0
+        self.commits = 0
+        self.rollbacks = 0
+
+    def cursor(self) -> _DeadlockCursor:
+        return _DeadlockCursor(self)
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+def test_upsert_via_temp_retries_deadlocks_then_succeeds(monkeypatch: pytest.MonkeyPatch):
+    connection = _DeadlockConnection(
+        deadlock_sql='INSERT INTO systems',
+        deadlocks_before_success=2,
+        success_rowcount=2,
+    )
+    monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
+
+    count = import_spansh.upsert_via_temp(
+        connection,
+        'systems',
+        ['id64', 'name'],
+        [(1, 'Sol'), (2, 'Achenar')],
+        'id64',
+    )
+
+    assert count == 2
+    assert connection.attempts == 3
+    assert connection.rollbacks == 2
+
+
+def test_upsert_via_temp_reraises_after_final_deadlock(monkeypatch: pytest.MonkeyPatch):
+    connection = _DeadlockConnection(
+        deadlock_sql='INSERT INTO systems',
+        deadlocks_before_success=4,
+        success_rowcount=2,
+    )
+    monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
+
+    with pytest.raises(import_spansh.psycopg2.errors.DeadlockDetected):
+        import_spansh.upsert_via_temp(
+            connection,
+            'systems',
+            ['id64', 'name'],
+            [(1, 'Sol'), (2, 'Achenar')],
+            'id64',
+        )
+
+    assert connection.attempts == 4
+    assert connection.rollbacks == 4
+
+
+def test_upsert_body_rings_retries_deadlocks_then_succeeds(monkeypatch: pytest.MonkeyPatch):
+    connection = _DeadlockConnection(
+        deadlock_sql='UPDATE systems',
+        deadlocks_before_success=2,
+        success_rowcount=1,
+    )
+    monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
+    monkeypatch.setattr(import_spansh.psycopg2.extras, 'execute_values', lambda *_args, **_kwargs: None)
+
+    count = import_spansh.upsert_body_rings(connection, [{
+        'system_id64': 10477373803,
+        'body_id': 1,
+        'body_name': 'Sol A 1',
+        'ring_name': 'Sol A 1 A Ring',
+        'source': 'spansh_dump',
+    }])
+
+    assert count == 1
+    assert connection.attempts == 3
+    assert connection.rollbacks == 2
+
+
 def test_get_conn_disables_the_role_statement_timeout(monkeypatch: pytest.MonkeyPatch):
     captured: dict[str, object] = {}
     fake_connection = _FakeConnection()
