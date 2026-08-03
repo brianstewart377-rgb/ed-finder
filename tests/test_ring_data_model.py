@@ -1,4 +1,6 @@
 import os
+import re
+import sqlite3
 import sys
 
 import pytest
@@ -13,11 +15,93 @@ sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'eddn', 'src'))
 
 eddn_listener = pytest.importorskip('eddn_listener')
+from ingest import eddn_client
 from ingest.journal_normaliser import normalise_scan_event
 from ingest.eddn_client import _resolve_ring_rows_with_local_bodies, _ring_rows_from_scan_facts
 from import_spansh import body_ring_rows_from_spansh_body
+from journal_import import store as journal_import_store
 from ring_facts import normalise_ring_payload, ring_rows_for_body
 from routers.systems import _body_payload_from_row
+
+
+def _evaluate_ring_status_case(
+    case_sql: str,
+    *,
+    bodies: list[tuple[int, int, str]],
+    system_id64: int = 42,
+    body_id: int = 7,
+    source_body_id: int = 7,
+    body_name: str | None = 'Test 4',
+    ring_name: str = 'Test 4 A Ring',
+    source: str = 'eddn_scan',
+) -> str:
+    conn = sqlite3.connect(':memory:')
+    try:
+        conn.execute('CREATE TABLE bodies (id INTEGER, system_id64 INTEGER, name TEXT)')
+        conn.executemany('INSERT INTO bodies (id, system_id64, name) VALUES (?, ?, ?)', bodies)
+        sqlite_case = re.sub(r'\$(\d+)', r':p\1', case_sql).replace(' ILIKE ', ' LIKE ')
+        params = {f'p{index}': None for index in range(1, 12)}
+        params['p1'] = system_id64
+        params['p2'] = body_id
+        params['p3'] = source_body_id
+        params['p4'] = body_name
+        params['p5'] = ring_name
+        params['p11'] = source
+        row = conn.execute(f'SELECT {sqlite_case}', params).fetchone()
+        assert row is not None
+        return str(row[0])
+    finally:
+        conn.close()
+
+
+def _assert_invariant_aligned_ring_upsert_sql(module) -> None:
+    case_sql = module.BODY_RING_ASSOCIATION_STATUS_CASE_SQL
+    upsert_sql = module.BODY_RING_UPSERT_SQL
+    normalized_case = ' '.join(case_sql.split())
+
+    assert upsert_sql.count(case_sql) == 3
+    assert normalized_case.index("THEN 'belt_source_evidence'") < normalized_case.index("THEN 'local_matched'")
+    assert (
+        "WHEN $11 = 'eddn_scan' AND NOT EXISTS ( SELECT 1 FROM bodies b "
+        "WHERE b.id = $2 AND b.system_id64 = $1 ) AND ( $3 = 0 OR $2 = 0 "
+        "OR $4 ILIKE '%% belt%%' OR $5 ILIKE '%% belt%%' ) THEN 'belt_source_evidence'"
+    ) in normalized_case
+    assert (
+        'WHEN EXISTS ( SELECT 1 FROM bodies b WHERE b.id = $2 AND b.system_id64 = $1 '
+        "AND ( $4 IS NULL OR b.name = $4 ) ) THEN 'local_matched'"
+    ) in normalized_case
+    assert normalized_case.endswith("ELSE 'unresolved_body_identity' END")
+    assert "'conflict'" not in case_sql
+    assert "'ambiguous_body_identity'" not in case_sql
+    assert f'association_status = {case_sql}' in upsert_sql
+    assert f'body_rings.association_status IS DISTINCT FROM {case_sql}' in upsert_sql
+    assert '$13' not in upsert_sql
+    assert _evaluate_ring_status_case(case_sql, bodies=[(7, 42, 'Test 4')]) == 'local_matched'
+    assert _evaluate_ring_status_case(
+        case_sql,
+        bodies=[(7, 42, 'Different body name')],
+    ) == 'unresolved_body_identity'
+    assert _evaluate_ring_status_case(
+        case_sql,
+        bodies=[(7, 99, 'Test 4')],
+        body_name='Test Belt',
+    ) == 'belt_source_evidence'
+    assert _evaluate_ring_status_case(
+        case_sql,
+        bodies=[(7, 99, 'Test 4')],
+    ) == 'unresolved_body_identity'
+
+
+def test_listener_ring_upsert_emits_invariant_aligned_association_status_case():
+    _assert_invariant_aligned_ring_upsert_sql(eddn_listener)
+
+
+def test_api_eddn_ring_upsert_emits_invariant_aligned_association_status_case():
+    _assert_invariant_aligned_ring_upsert_sql(eddn_client)
+
+
+def test_journal_ring_upsert_emits_invariant_aligned_association_status_case():
+    _assert_invariant_aligned_ring_upsert_sql(journal_import_store)
 
 
 def test_ring_payload_parses_one_ring_with_class_and_type():
