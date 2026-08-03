@@ -59,6 +59,7 @@ import ijson
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
+import psycopg2.errors
 from tqdm import tqdm
 from ring_facts import ring_rows_for_body
 
@@ -358,6 +359,24 @@ def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int
     return len(rows)
 
 
+def _run_with_deadlock_retry(conn, work, *, label, attempts=4, base_delay=0.5):
+    """Run `work()`, a self-contained self-committing unit against `conn`.
+    On a Postgres deadlock, roll back and retry with exponential backoff.
+    Re-raises after the final attempt so a persistent deadlock still fails
+    honestly (never a silent success)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return work()
+        except psycopg2.errors.DeadlockDetected:
+            conn.rollback()
+            if attempt == attempts:
+                log.error(f"{label}: deadlock persisted after {attempts} attempts — giving up")
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            log.warning(f"{label}: deadlock on attempt {attempt}/{attempts}, retrying in {delay:.1f}s")
+            time.sleep(delay)
+
+
 def upsert_via_temp(conn, target_table: str, columns: List[str],
                     rows: List[Tuple], conflict_col: str,
                     update_cols: Optional[List[str]] = None) -> int:
@@ -379,84 +398,95 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             for c in change_cols
         )
         where_clause = f"\n            WHERE {comparisons}"
+
     with conn.cursor() as cur:
         cur.execute(f"""
             CREATE TEMP TABLE IF NOT EXISTS {temp}
             (LIKE {target_table} INCLUDING DEFAULTS)
             ON COMMIT DELETE ROWS
         """)
-        conn.commit()
-        buf = io.StringIO()
-        for row in rows:
-            parts = []
-            for val in row:
-                if val is None:
-                    parts.append('\\N')
-                elif isinstance(val, bool):
-                    parts.append('t' if val else 'f')
-                elif isinstance(val, str):
-                    escaped = (val
-                        .replace('\\', '\\\\')
-                        .replace('\n', '\\n')
-                        .replace('\r', '\\r')
-                        .replace('\t', '\\t'))
-                    parts.append(escaped)
-                else:
-                    parts.append(str(val))
-            buf.write('\t'.join(parts) + '\n')
-        buf.seek(0)
-        cur.copy_from(buf, temp, columns=columns, null='\\N')
-        cur.execute(f"""
-            INSERT INTO {target_table} ({col_list})
-            SELECT {col_list} FROM {temp}
-            ON CONFLICT ({conflict_col}) DO UPDATE
-            SET {set_clause}{where_clause}
-        """)
-        count = cur.rowcount
     conn.commit()
-    return count
+
+    def _do():
+        with conn.cursor() as cur:
+            cur.execute(f"TRUNCATE {temp}")
+            buf = io.StringIO()
+            for row in rows:
+                parts = []
+                for val in row:
+                    if val is None:
+                        parts.append('\\N')
+                    elif isinstance(val, bool):
+                        parts.append('t' if val else 'f')
+                    elif isinstance(val, str):
+                        escaped = (val
+                            .replace('\\', '\\\\')
+                            .replace('\n', '\\n')
+                            .replace('\r', '\\r')
+                            .replace('\t', '\\t'))
+                        parts.append(escaped)
+                    else:
+                        parts.append(str(val))
+                buf.write('\t'.join(parts) + '\n')
+            buf.seek(0)
+            cur.copy_from(buf, temp, columns=columns, null='\\N')
+            cur.execute(f"""
+                INSERT INTO {target_table} ({col_list})
+                SELECT {col_list} FROM {temp}
+                ON CONFLICT ({conflict_col}) DO UPDATE
+                SET {set_clause}{where_clause}
+            """)
+            count = cur.rowcount
+        conn.commit()
+        return count
+
+    return _run_with_deadlock_retry(conn, _do, label=f"upsert_via_temp({target_table})")
 
 
 def upsert_body_rings(conn, rows: list[dict]) -> int:
     if not rows:
         return 0
     values = [_ring_row_tuple(row) for row in rows]
-    with conn.cursor() as cur:
-        psycopg2.extras.execute_values(
-            cur,
-            """
-            INSERT INTO body_rings (
-                system_id64, body_id, body_name,
-                ring_name, ring_type, ring_class,
-                mass_mt, inner_radius, outer_radius,
-                source, confidence, updated_at
-            ) VALUES %s
-            ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
-                body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
-                ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
-                ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
-                mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
-                inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
-                outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
-                confidence   = EXCLUDED.confidence,
-                updated_at   = NOW()
-            """,
-            values,
-        )
-        system_ids = sorted({row['system_id64'] for row in rows})
-        cur.execute(
-            """
-            UPDATE systems
-               SET rating_dirty = TRUE,
-                   cluster_dirty = TRUE,
-                   updated_at = NOW()
-             WHERE id64 = ANY(%s)
-            """,
-            (system_ids,),
-        )
-        count = len(rows)
-    conn.commit()
-    return count
+
+    def _do():
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO body_rings (
+                    system_id64, body_id, body_name,
+                    ring_name, ring_type, ring_class,
+                    mass_mt, inner_radius, outer_radius,
+                    source, confidence, updated_at
+                ) VALUES %s
+                ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+                    body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                    ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                    ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                    mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                    inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                    outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                    confidence   = EXCLUDED.confidence,
+                    updated_at   = NOW()
+                """,
+                values,
+            )
+            system_ids = sorted({row['system_id64'] for row in rows})
+            cur.execute(
+                """
+                UPDATE systems
+                   SET rating_dirty = TRUE,
+                       cluster_dirty = TRUE,
+                       updated_at = NOW()
+                 WHERE id64 = ANY(%s)
+                """,
+                (system_ids,),
+            )
+            count = len(rows)
+        conn.commit()
+        return count
+
+    return _run_with_deadlock_retry(conn, _do, label="upsert_body_rings")
 
 
 def _ring_row_tuple(row: dict) -> tuple:
