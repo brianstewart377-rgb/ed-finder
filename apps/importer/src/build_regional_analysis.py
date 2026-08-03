@@ -167,16 +167,37 @@ def main() -> None:
 
 
 def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
-    where = ''
+    coord_filter = 'x IS NOT NULL AND y IS NOT NULL AND z IS NOT NULL'
+    missing_coord_filter = 'x IS NULL OR y IS NULL OR z IS NULL'
     if args.dirty:
         where = (
-            'WHERE rating_dirty = TRUE '
+            f'WHERE ({coord_filter}) AND (rating_dirty = TRUE '
             'OR (cluster_dirty = TRUE '
             'AND has_body_data = TRUE '
             'AND macro_grid_id IS NOT NULL)'
+            ')'
+        )
+        excluded_where = (
+            f'WHERE ({missing_coord_filter}) AND (rating_dirty = TRUE '
+            'OR (cluster_dirty = TRUE '
+            'AND has_body_data = TRUE '
+            'AND macro_grid_id IS NOT NULL)'
+            ')'
         )
     elif not args.all:
-        where = 'WHERE NOT EXISTS (SELECT 1 FROM system_regional_analysis r WHERE r.system_id64 = systems.id64)'
+        where = (
+            f'WHERE ({coord_filter}) AND NOT EXISTS '
+            '(SELECT 1 FROM system_regional_analysis r '
+            'WHERE r.system_id64 = systems.id64)'
+        )
+        excluded_where = (
+            f'WHERE ({missing_coord_filter}) AND NOT EXISTS '
+            '(SELECT 1 FROM system_regional_analysis r '
+            'WHERE r.system_id64 = systems.id64)'
+        )
+    else:
+        where = f'WHERE {coord_filter}'
+        excluded_where = f'WHERE {missing_coord_filter}'
     limit = f' LIMIT {int(args.limit)}' if args.limit else ''
     cur.execute(f"""
         SELECT id64, name, x, y, z, population, is_colonised, is_being_colonised
@@ -185,7 +206,15 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
         ORDER BY id64
         {limit}
     """)
-    return [dict(row) for row in cur.fetchall()]
+    targets = [dict(row) for row in cur.fetchall()]
+    cur.execute(f"""
+        SELECT COUNT(*) AS excluded_count
+        FROM systems
+        {excluded_where}
+    """)
+    excluded_count = int(cur.fetchone()['excluded_count'])
+    print(f'Excluded {excluded_count:,} coordinate-less systems from regional analysis this run')
+    return targets
 
 
 def _load_candidates(cur: Any, system: dict[str, Any]) -> list[dict[str, Any]]:
