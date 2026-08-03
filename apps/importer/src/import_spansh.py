@@ -399,14 +399,17 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
         )
         where_clause = f"\n            WHERE {comparisons}"
 
+    with conn.cursor() as cur:
+        cur.execute(f"""
+            CREATE TEMP TABLE IF NOT EXISTS {temp}
+            (LIKE {target_table} INCLUDING DEFAULTS)
+            ON COMMIT DELETE ROWS
+        """)
+    conn.commit()
+
     def _do():
         with conn.cursor() as cur:
-            cur.execute(f"""
-                CREATE TEMP TABLE IF NOT EXISTS {temp}
-                (LIKE {target_table} INCLUDING DEFAULTS)
-                ON COMMIT DELETE ROWS
-            """)
-            conn.commit()
+            cur.execute(f"TRUNCATE {temp}")
             buf = io.StringIO()
             for row in rows:
                 parts = []
