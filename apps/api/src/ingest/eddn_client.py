@@ -43,18 +43,20 @@ RECONNECT_DELAY  = 5     # seconds between reconnect attempts
 DIRTY_MARK_BATCH_SIZE = 500
 DIRTY_MARK_STATEMENT_TIMEOUT_MS = 5000
 
+# These casts are load-bearing: without them Postgres can infer the same bind
+# parameter as both integer and bigint across the CASE and INSERT target.
 BODY_RING_ASSOCIATION_STATUS_CASE_SQL = """
 CASE
     WHEN $11 = 'eddn_scan'
          AND NOT EXISTS (
              SELECT 1
              FROM bodies b
-             WHERE b.id = $2
-               AND b.system_id64 = $1
+             WHERE b.id = $2::bigint
+               AND b.system_id64 = $1::bigint
          )
          AND (
-             $3 = 0
-             OR $2 = 0
+             $3::bigint = 0
+             OR $2::bigint = 0
              OR $4 ILIKE '%% belt%%'
              OR $5 ILIKE '%% belt%%'
          )
@@ -62,8 +64,8 @@ CASE
     WHEN EXISTS (
              SELECT 1
              FROM bodies b
-             WHERE b.id = $2
-               AND b.system_id64 = $1
+             WHERE b.id = $2::bigint
+               AND b.system_id64 = $1::bigint
                AND (
                    $4 IS NULL
                    OR b.name = $4

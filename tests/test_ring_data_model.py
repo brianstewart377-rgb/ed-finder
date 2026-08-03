@@ -39,7 +39,11 @@ def _evaluate_ring_status_case(
     try:
         conn.execute('CREATE TABLE bodies (id INTEGER, system_id64 INTEGER, name TEXT)')
         conn.executemany('INSERT INTO bodies (id, system_id64, name) VALUES (?, ?, ?)', bodies)
-        sqlite_case = re.sub(r'\$(\d+)', r':p\1', case_sql).replace(' ILIKE ', ' LIKE ')
+        sqlite_case = re.sub(
+            r'\$(\d+)',
+            r':p\1',
+            case_sql.replace('::bigint', ''),
+        ).replace(' ILIKE ', ' LIKE ')
         params = {f'p{index}': None for index in range(1, 12)}
         params['p1'] = system_id64
         params['p2'] = body_id
@@ -63,16 +67,25 @@ def _assert_invariant_aligned_ring_upsert_sql(module) -> None:
     assert normalized_case.index("THEN 'belt_source_evidence'") < normalized_case.index("THEN 'local_matched'")
     assert (
         "WHEN $11 = 'eddn_scan' AND NOT EXISTS ( SELECT 1 FROM bodies b "
-        "WHERE b.id = $2 AND b.system_id64 = $1 ) AND ( $3 = 0 OR $2 = 0 "
+        "WHERE b.id = $2::bigint AND b.system_id64 = $1::bigint ) AND ( "
+        "$3::bigint = 0 OR $2::bigint = 0 "
         "OR $4 ILIKE '%% belt%%' OR $5 ILIKE '%% belt%%' ) THEN 'belt_source_evidence'"
     ) in normalized_case
     assert (
-        'WHEN EXISTS ( SELECT 1 FROM bodies b WHERE b.id = $2 AND b.system_id64 = $1 '
+        'WHEN EXISTS ( SELECT 1 FROM bodies b WHERE b.id = $2::bigint '
+        'AND b.system_id64 = $1::bigint '
         "AND ( $4 IS NULL OR b.name = $4 ) ) THEN 'local_matched'"
     ) in normalized_case
     assert normalized_case.endswith("ELSE 'unresolved_body_identity' END")
     assert "'conflict'" not in case_sql
     assert "'ambiguous_body_identity'" not in case_sql
+    assert case_sql.count('b.id = $2::bigint') == 2
+    assert case_sql.count('b.system_id64 = $1::bigint') == 2
+    assert case_sql.count('$3::bigint = 0') == 1
+    assert case_sql.count('$2::bigint = 0') == 1
+    assert upsert_sql.count('$1::bigint') == 6
+    assert upsert_sql.count('$2::bigint') == 9
+    assert upsert_sql.count('$3::bigint') == 3
     assert f'association_status = {case_sql}' in upsert_sql
     assert f'body_rings.association_status IS DISTINCT FROM {case_sql}' in upsert_sql
     assert '$13' not in upsert_sql
