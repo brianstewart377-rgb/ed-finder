@@ -76,6 +76,70 @@ EDDN_PUBSUB_CHANNEL = 'eddn_events'
 DIRTY_MARK_BATCH_SIZE = int(os.getenv('DIRTY_MARK_BATCH_SIZE', '500'))
 DIRTY_MARK_STATEMENT_TIMEOUT_MS = int(os.getenv('DIRTY_MARK_STATEMENT_TIMEOUT_MS', '5000'))
 
+BODY_RING_ASSOCIATION_STATUS_CASE_SQL = """
+CASE
+    WHEN $11 = 'eddn_scan'
+         AND NOT EXISTS (
+             SELECT 1
+             FROM bodies b
+             WHERE b.id = $2
+               AND b.system_id64 = $1
+         )
+         AND (
+             $3 = 0
+             OR $2 = 0
+             OR $4 ILIKE '%% belt%%'
+             OR $5 ILIKE '%% belt%%'
+         )
+        THEN 'belt_source_evidence'
+    WHEN EXISTS (
+             SELECT 1
+             FROM bodies b
+             WHERE b.id = $2
+               AND b.system_id64 = $1
+               AND (
+                   $4 IS NULL
+                   OR b.name = $4
+               )
+         )
+        THEN 'local_matched'
+    ELSE 'unresolved_body_identity'
+END
+""".strip()
+
+BODY_RING_UPSERT_SQL = f"""
+    INSERT INTO body_rings (
+        system_id64, body_id, source_body_id, body_name,
+        ring_name, ring_type, ring_class,
+        mass_mt, inner_radius, outer_radius,
+        source, confidence, association_status, updated_at
+    ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+        {BODY_RING_ASSOCIATION_STATUS_CASE_SQL},
+        NOW()
+    )
+    ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
+        source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
+        body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+        ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+        ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+        mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+        inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+        outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+        confidence   = EXCLUDED.confidence,
+        association_status = {BODY_RING_ASSOCIATION_STATUS_CASE_SQL},
+        updated_at   = NOW()
+    WHERE body_rings.source_body_id IS DISTINCT FROM COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id)
+       OR body_rings.body_name IS DISTINCT FROM COALESCE(EXCLUDED.body_name, body_rings.body_name)
+       OR body_rings.ring_type IS DISTINCT FROM COALESCE(EXCLUDED.ring_type, body_rings.ring_type)
+       OR body_rings.ring_class IS DISTINCT FROM COALESCE(EXCLUDED.ring_class, body_rings.ring_class)
+       OR body_rings.mass_mt IS DISTINCT FROM COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt)
+       OR body_rings.inner_radius IS DISTINCT FROM COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius)
+       OR body_rings.outer_radius IS DISTINCT FROM COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius)
+       OR body_rings.confidence IS DISTINCT FROM EXCLUDED.confidence
+       OR body_rings.association_status IS DISTINCT FROM {BODY_RING_ASSOCIATION_STATUS_CASE_SQL}
+"""
+
 os.makedirs(os.path.dirname(os.path.abspath(LOG_FILE)), exist_ok=True)
 
 
@@ -963,40 +1027,12 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert ring facts ───────────────────────────────────
                 for ring in resolved_rings_snapshot:
                     try:
-                        status = await conn.execute("""
-                            INSERT INTO body_rings (
-                                system_id64, body_id, source_body_id, body_name,
-                                ring_name, ring_type, ring_class,
-                                mass_mt, inner_radius, outer_radius,
-                                source, confidence, association_status, updated_at
-                            ) VALUES (
-                                $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW()
-                            )
-                            ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
-                                source_body_id = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
-                                body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
-                                ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
-                                ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
-                                mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
-                                inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
-                                outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
-                                confidence   = EXCLUDED.confidence,
-                                association_status = 'local_matched',
-                                updated_at   = NOW()
-                            WHERE body_rings.source_body_id IS DISTINCT FROM COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id)
-                               OR body_rings.body_name IS DISTINCT FROM COALESCE(EXCLUDED.body_name, body_rings.body_name)
-                               OR body_rings.ring_type IS DISTINCT FROM COALESCE(EXCLUDED.ring_type, body_rings.ring_type)
-                               OR body_rings.ring_class IS DISTINCT FROM COALESCE(EXCLUDED.ring_class, body_rings.ring_class)
-                               OR body_rings.mass_mt IS DISTINCT FROM COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt)
-                               OR body_rings.inner_radius IS DISTINCT FROM COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius)
-                               OR body_rings.outer_radius IS DISTINCT FROM COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius)
-                               OR body_rings.confidence IS DISTINCT FROM EXCLUDED.confidence
-                               OR body_rings.association_status IS DISTINCT FROM 'local_matched'
-                        """,
+                        status = await conn.execute(
+                            BODY_RING_UPSERT_SQL,
                             ring.get('system_id64'), ring.get('body_id'), ring.get('source_body_id'), ring.get('body_name'),
                             ring.get('ring_name'), ring.get('ring_type'), ring.get('ring_class'),
                             ring.get('mass_mt'), ring.get('inner_radius'), ring.get('outer_radius'),
-                            ring.get('source'), ring.get('confidence'), ring.get('association_status', 'local_matched'),
+                            ring.get('source'), ring.get('confidence'),
                         )
                         changed = _command_row_count(status)
                         if changed:
