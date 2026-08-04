@@ -379,7 +379,13 @@ def _run_with_deadlock_retry(conn, work, *, label, attempts=4, base_delay=0.5):
 
 def upsert_via_temp(conn, target_table: str, columns: List[str],
                     rows: List[Tuple], conflict_col: str,
-                    update_cols: Optional[List[str]] = None) -> int:
+                    update_cols: Optional[List[str]] = None,
+                    guard_col: Optional[str] = None) -> int:
+    """guard_col: if set, an update is applied only when this column's
+    incoming value matches the existing row's value. Use for tables where
+    conflict_col alone doesn't establish ownership (e.g. bodies.id is a
+    source-supplied id that can collide across systems) so a colliding row
+    from a different owner is a no-op instead of a silent re-parent."""
     if not rows:
         return 0
     if update_cols is None:
@@ -387,17 +393,28 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     temp = f"_tmp_{target_table}"
     col_list   = ', '.join(columns)
     set_clause = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    excluded_change_cols = {'updated_at', 'rating_dirty', 'cluster_dirty'}
+    if guard_col:
+        excluded_change_cols = excluded_change_cols | {guard_col}
     change_cols = [
         c for c in update_cols
-        if c not in {'updated_at', 'rating_dirty', 'cluster_dirty'}
+        if c not in excluded_change_cols
     ]
-    where_clause = ''
+    guard_clause = f"{target_table}.{guard_col} = EXCLUDED.{guard_col}" if guard_col else ''
+    change_clause = ''
     if change_cols:
-        comparisons = ' OR '.join(
+        change_clause = ' OR '.join(
             f"{target_table}.{c} IS DISTINCT FROM EXCLUDED.{c}"
             for c in change_cols
         )
-        where_clause = f"\n            WHERE {comparisons}"
+    if guard_clause and change_clause:
+        where_clause = f"\n            WHERE {guard_clause}\n              AND ({change_clause})"
+    elif guard_clause:
+        where_clause = f"\n            WHERE {guard_clause}"
+    elif change_clause:
+        where_clause = f"\n            WHERE {change_clause}"
+    else:
+        where_clause = ''
 
     with conn.cursor() as cur:
         cur.execute(f"""
@@ -819,7 +836,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_bodies():
         flush_systems()
         if body_batch:
-            upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id')
+            upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id', guard_col='system_id64')
             body_batch.clear()
 
     def flush_rings():
