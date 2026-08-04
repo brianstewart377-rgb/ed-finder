@@ -40,7 +40,13 @@ from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
 from edfinder_api.config import settings, log, limiter
-from edfinder_api.state import set_pool, set_readonly_pool, set_redis, metrics as _metrics
+from edfinder_api.state import (
+    metrics as _metrics,
+    observe_request_duration,
+    set_pool,
+    set_readonly_pool,
+    set_redis,
+)
 
 # Routers
 from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_operation_runs
@@ -261,12 +267,22 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 @app.middleware('http')
 async def metrics_middleware(request: Request, call_next: Any) -> Response:
-    _metrics['requests_total'] += 1
-    start = time.time()
-    response = await call_next(request)
-    duration_ms = (time.time() - start) * 1000
-    if duration_ms > 2000:
-        log.warning('Slow request %s %s: %.0fms', request.method, request.url.path, duration_ms)
+    # A Prometheus scrape must not manufacture API traffic or latency.
+    if request.url.path == '/api/metrics':
+        return await call_next(request)
+
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    finally:
+        # Record failed requests too; the exception handler owns the response,
+        # while this middleware owns the complete request-duration contract.
+        duration_seconds = time.perf_counter() - start
+        _metrics['requests_total'] += 1
+        observe_request_duration(duration_seconds)
+        duration_ms = duration_seconds * 1000
+        if duration_ms > 2000:
+            log.warning('Slow request %s %s: %.0fms', request.method, request.url.path, duration_ms)
     return response
 
 

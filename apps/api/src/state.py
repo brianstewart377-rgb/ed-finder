@@ -60,7 +60,28 @@ metrics: dict[str, Any] = {
     'db_queries':      0,
     'errors_total':    0,
     'startup_time':    time.time(),
+    'request_duration_seconds_sum': 0.0,
+    'request_duration_seconds_count': 0,
+    'request_duration_seconds_buckets': {
+        0.05: 0,
+        0.1: 0,
+        0.25: 0,
+        0.5: 0,
+        1.0: 0,
+        2.0: 0,
+        5.0: 0,
+        10.0: 0,
+    },
 }
+
+
+def observe_request_duration(duration_seconds: float) -> None:
+    """Record one request in a bounded, label-free Prometheus histogram."""
+    metrics['request_duration_seconds_sum'] += duration_seconds
+    metrics['request_duration_seconds_count'] += 1
+    for upper_bound in metrics['request_duration_seconds_buckets']:
+        if duration_seconds <= upper_bound:
+            metrics['request_duration_seconds_buckets'][upper_bound] += 1
 
 
 # ── Background job tracking (e.g. cluster rebuild). ─────────────────────

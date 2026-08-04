@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import time
 from typing import Optional
 
@@ -18,6 +19,7 @@ from fastapi.responses import PlainTextResponse
 from edfinder_api.config import settings
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
 from edfinder_api.models import HealthResponse, StatusResponse
+from edfinder_api.monitoring import data_invariants_receipt_metrics
 from edfinder_api.state import metrics
 
 log = logging.getLogger('ed_finder')
@@ -151,8 +153,15 @@ async def local_status(
 @router.get('/api/metrics', response_class=PlainTextResponse, include_in_schema=False)
 async def metrics_endpoint():
     uptime = time.time() - metrics['startup_time']
+    invariant_paths = [
+        path.strip()
+        for path in settings.data_invariants_receipt_paths.split(',')
+        if path.strip()
+    ]
+    invariant_status, invariant_age = data_invariants_receipt_metrics(invariant_paths)
+    invariant_age_text = 'NaN' if math.isnan(invariant_age) else f'{invariant_age:g}'
     lines = [
-        '# HELP ed_finder_requests_total Total HTTP requests',
+        '# HELP ed_finder_requests_total Total HTTP requests excluding metrics scrapes',
         '# TYPE ed_finder_requests_total counter',
         f'ed_finder_requests_total {metrics["requests_total"]}',
         '# HELP ed_finder_cache_hits_total Redis cache hits',
@@ -167,8 +176,29 @@ async def metrics_endpoint():
         '# HELP ed_finder_db_queries_total Total DB queries dispatched',
         '# TYPE ed_finder_db_queries_total counter',
         f'ed_finder_db_queries_total {metrics["db_queries"]}',
+        '# HELP ed_finder_http_request_duration_seconds HTTP request duration excluding metrics scrapes',
+        '# TYPE ed_finder_http_request_duration_seconds histogram',
+    ]
+    duration_count = metrics['request_duration_seconds_count']
+    for upper_bound, count in metrics['request_duration_seconds_buckets'].items():
+        lines.append(
+            'ed_finder_http_request_duration_seconds_bucket'
+            f'{{le="{upper_bound:g}"}} {count}'
+        )
+    lines.extend([
+        'ed_finder_http_request_duration_seconds_bucket'
+        f'{{le="+Inf"}} {duration_count}',
+        'ed_finder_http_request_duration_seconds_sum '
+        f'{metrics["request_duration_seconds_sum"]:.9f}',
+        f'ed_finder_http_request_duration_seconds_count {duration_count}',
+        '# HELP ed_finder_data_invariants_success Latest data-invariants receipt status (-1 unknown, 0 failed, 1 passed)',
+        '# TYPE ed_finder_data_invariants_success gauge',
+        f'ed_finder_data_invariants_success {invariant_status}',
+        '# HELP ed_finder_data_invariants_age_seconds Age of the latest valid data-invariants receipt',
+        '# TYPE ed_finder_data_invariants_age_seconds gauge',
+        f'ed_finder_data_invariants_age_seconds {invariant_age_text}',
         '# HELP ed_finder_uptime_seconds Seconds since startup',
         '# TYPE ed_finder_uptime_seconds gauge',
         f'ed_finder_uptime_seconds {uptime:.0f}',
-    ]
-    return '\n'.join(lines)
+    ])
+    return '\n'.join(lines) + '\n'
