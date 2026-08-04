@@ -388,13 +388,22 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     source-supplied id that can collide across systems) so a colliding row
     from a different owner is a no-op instead of a silent re-parent.
 
-    returning_col: if set, also collect this column's value for every row
-    actually inserted or updated (i.e. not rejected by guard_col or skipped
-    as a no-op change), and return (count, written_keys) instead of a bare
-    count. Use this so dependent rows keyed off conflict_col (e.g.
-    body_rings.body_id -> bodies.id) are not written for a row whose owning
-    upsert was rejected by guard_col — otherwise a rejected collision still
-    lets its dependent rows attach as trusted data to the wrong owner."""
+    returning_col: only meaningful together with guard_col. If set, also
+    compute the set of this column's values among the attempted rows whose
+    guard_col was actually rejected (i.e. the row that ends up in
+    target_table has a guard_col value different from what this call
+    attempted), and return (count, rejected_keys) instead of a bare count.
+    This is deliberately a direct post-write ownership comparison rather
+    than reading back RETURNING from the main statement: RETURNING only
+    reports rows the UPDATE actually touched, and the same-owner no-op case
+    (nothing changed, so the change-detection half of where_clause is
+    false) also produces no RETURNING row even though guard_col was not
+    rejected — conflating the two would wrongly treat an unchanged,
+    correctly-owned row as rejected. Use this so dependent rows keyed off
+    conflict_col (e.g. body_rings.body_id -> bodies.id) are not written for
+    a row whose owning upsert was rejected by guard_col — otherwise a
+    rejected collision still lets its dependent rows attach as trusted data
+    to the wrong owner."""
     if not rows:
         return (0, set()) if returning_col else 0
     if update_cols is None:
@@ -456,17 +465,24 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 buf.write('\t'.join(parts) + '\n')
             buf.seek(0)
             cur.copy_from(buf, temp, columns=columns, null='\\N')
-            returning_clause = f"\n                RETURNING {returning_col}" if returning_col else ''
             cur.execute(f"""
                 INSERT INTO {target_table} ({col_list})
                 SELECT {col_list} FROM {temp}
                 ON CONFLICT ({conflict_col}) DO UPDATE
-                SET {set_clause}{where_clause}{returning_clause}
+                SET {set_clause}{where_clause}
             """)
             count = cur.rowcount
-            written_keys = {row[0] for row in cur.fetchall()} if returning_col else None
+            rejected_keys = set() if returning_col else None
+            if returning_col and guard_col:
+                cur.execute(f"""
+                    SELECT t.{returning_col}
+                    FROM {temp} t
+                    JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}
+                    WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}
+                """)
+                rejected_keys = {row[0] for row in cur.fetchall()}
         conn.commit()
-        return (count, written_keys) if returning_col else count
+        return (count, rejected_keys) if returning_col else count
 
     return _run_with_deadlock_retry(conn, _do, label=f"upsert_via_temp({target_table})")
 
@@ -838,7 +854,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     total_rows  = 0
     skip_count  = 0
     last_save   = time.time()
-    rejected_body_ids: set = set()
+    rejected_body_ids: set = set()  # (system_id64, body_id) pairs rejected by the guard
     rings_skipped_rejected_body = 0
 
     def flush_systems():
@@ -849,19 +865,24 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_bodies():
         flush_systems()
         if body_batch:
-            attempted_ids = {row[0] for row in body_batch}
-            _count, written_ids = upsert_via_temp(
+            _count, rejected_ids = upsert_via_temp(
                 conn, 'bodies', BODY_COLS, body_batch, 'id',
                 guard_col='system_id64', returning_col='id',
             )
-            rejected_body_ids.update(attempted_ids - written_ids)
+            if rejected_ids:
+                rejected_body_ids.update(
+                    (row[1], row[0]) for row in body_batch if row[0] in rejected_ids
+                )
             body_batch.clear()
 
     def flush_rings():
         nonlocal rings_skipped_rejected_body
         flush_bodies()
         if ring_batch:
-            keep = [r for r in ring_batch if r.get('body_id') not in rejected_body_ids]
+            keep = [
+                r for r in ring_batch
+                if (r.get('system_id64'), r.get('body_id')) not in rejected_body_ids
+            ]
             skipped = len(ring_batch) - len(keep)
             if skipped:
                 rings_skipped_rejected_body += skipped
