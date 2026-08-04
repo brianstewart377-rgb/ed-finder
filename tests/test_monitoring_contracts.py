@@ -11,7 +11,7 @@ API_SRC = ROOT / 'apps' / 'api' / 'src'
 if str(API_SRC) not in sys.path:
     sys.path.insert(0, str(API_SRC))
 
-from edfinder_api.monitoring import data_invariants_receipt_metrics
+from edfinder_api.monitoring import data_invariants_receipt_metrics  # noqa: E402
 
 
 def _read(*parts: str) -> str:
