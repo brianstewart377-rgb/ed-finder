@@ -3,13 +3,17 @@
 ed_finder_dirty_counts:
   query: |
     SELECT
-      COUNT(*) FILTER (WHERE rating_dirty)  AS rating_dirty,
-      COUNT(*) FILTER (
-        WHERE cluster_dirty
-          AND has_body_data
-          AND macro_grid_id IS NOT NULL
-      ) AS cluster_dirty
-    FROM systems
+      (SELECT COUNT(*)
+         FROM systems
+        WHERE rating_dirty = TRUE) AS rating_dirty,
+      (SELECT COUNT(*)
+         FROM systems
+        WHERE cluster_dirty = TRUE
+          AND has_body_data = TRUE
+          AND macro_grid_id IS NOT NULL) AS cluster_dirty
+  # These counts are operational backlog indicators, not 15-second data.
+  # Caching also bounds database work if Prometheus retries a scrape.
+  cache_seconds: 300
   metrics:
     - rating_dirty:
         usage: GAUGE

@@ -1,88 +1,315 @@
 {
-  "title": "ED Finder — Overview",
-  "uid": "ed-finder-overview",
-  "schemaVersion": 38,
-  "version": 1,
-  "refresh": "30s",
-  "time": { "from": "now-1h", "to": "now" },
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
   "panels": [
     {
-      "id": 1, "type": "stat", "title": "API Requests / min",
-      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "rate(http_requests_total{job=\"ed-api\"}[1m]) * 60", "legendFormat": "req/min" }],
-      "options": { "colorMode": "background", "graphMode": "area" }
-    },
-    {
-      "id": 2, "type": "stat", "title": "API P95 Latency (ms)",
-      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p95 ms" }],
-      "options": { "colorMode": "background", "thresholds": { "steps": [{"color":"green","value":null},{"color":"yellow","value":200},{"color":"red","value":500}] } }
-    },
-    {
-      "id": 3, "type": "stat", "title": "Active DB Connections",
-      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "pg_stat_activity_count{job=\"postgres\",state=\"active\"}", "legendFormat": "active" }],
-      "options": { "colorMode": "background" }
-    },
-    {
-      "id": 4, "type": "stat", "title": "Redis Memory Used",
-      "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "redis_memory_used_bytes{job=\"redis\"} / 1024 / 1024 / 1024", "legendFormat": "GB" }],
-      "fieldConfig": { "defaults": { "unit": "GB", "decimals": 2 } }
-    },
-    {
-      "id": 5, "type": "stat", "title": "Redis Hit Rate %",
-      "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m])) * 100", "legendFormat": "hit %" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 } }
-    },
-    {
-      "id": 6, "type": "stat", "title": "Systems in DB",
-      "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
-      "targets": [{ "expr": "pg_stat_user_tables_n_live_tup{relname=\"systems\",job=\"postgres\"}", "legendFormat": "rows" }],
-      "fieldConfig": { "defaults": { "unit": "short" } }
-    },
-    {
-      "id": 7, "type": "timeseries", "title": "API Request Rate by Endpoint",
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
-      "targets": [{ "expr": "rate(http_requests_total{job=\"ed-api\"}[2m]) * 60", "legendFormat": "{{method}} {{path}}" }]
-    },
-    {
-      "id": 8, "type": "timeseries", "title": "API Latency Percentiles",
-      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "noValue": "No traffic",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 3000 },
+              { "color": "red", "value": 6000 }
+            ]
+          },
+          "unit": "reqpm"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
       "targets": [
-        { "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p50" },
-        { "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p95" },
-        { "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job=\"ed-api\"}[5m])) * 1000", "legendFormat": "p99" }
+        { "editorMode": "code", "expr": "rate(ed_finder_requests_total{job=\"ed-api\"}[5m]) * 60", "legendFormat": "requests/min", "range": true, "refId": "A" }
       ],
-      "fieldConfig": { "defaults": { "unit": "ms" } }
+      "title": "API Requests / min",
+      "type": "stat"
     },
     {
-      "id": 9, "type": "timeseries", "title": "PostgreSQL Cache Hit Ratio",
-      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
-      "targets": [{ "expr": "pg_stat_database_blks_hit{datname=\"edfinder\"} / (pg_stat_database_blks_hit{datname=\"edfinder\"} + pg_stat_database_blks_read{datname=\"edfinder\"}) * 100", "legendFormat": "cache hit %" }],
-      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
-    },
-    {
-      "id": 10, "type": "timeseries", "title": "PostgreSQL Transactions / sec",
-      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "No traffic",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 500 }, { "color": "red", "value": 2000 }] },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "background", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
       "targets": [
-        { "expr": "rate(pg_stat_database_xact_commit{datname=\"edfinder\"}[1m])", "legendFormat": "commits/s" },
-        { "expr": "rate(pg_stat_database_xact_rollback{datname=\"edfinder\"}[1m])", "legendFormat": "rollbacks/s" }
-      ]
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(ed_finder_http_request_duration_seconds_bucket{job=\"ed-api\"}[5m]))) * 1000", "legendFormat": "p95", "range": true, "refId": "A" }
+      ],
+      "title": "API P95 Latency",
+      "type": "stat"
     },
     {
-      "id": 11, "type": "timeseries", "title": "Dirty Systems Pending Rebuild",
-      "gridPos": { "x": 0, "y": 20, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "0": { "color": "red", "text": "Target down" }, "1": { "color": "green", "text": "All healthy" } }, "type": "value" }],
+          "noValue": "No data",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
       "targets": [
-        { "expr": "ed_finder_rating_dirty_count", "legendFormat": "rating dirty" },
-        { "expr": "ed_finder_cluster_dirty_count", "legendFormat": "eligible cluster dirty" }
-      ]
+        { "editorMode": "code", "expr": "min(up{job=~\"ed-api|eddn|postgres|redis\"})", "legendFormat": "targets", "range": true, "refId": "A" }
+      ],
+      "title": "Core Target Health",
+      "type": "stat"
     },
     {
-      "id": 12, "type": "timeseries", "title": "EDDN Events Received / min",
-      "gridPos": { "x": 12, "y": 20, "w": 12, "h": 8 },
-      "targets": [{ "expr": "rate(ed_finder_eddn_events_total[1m]) * 60", "legendFormat": "events/min" }]
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [{ "options": { "-1": { "color": "gray", "text": "Unknown" }, "0": { "color": "red", "text": "Failed" }, "1": { "color": "green", "text": "Passed" } }, "type": "value" }],
+          "noValue": "Unknown",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "gray", "value": null }, { "color": "red", "value": 0 }, { "color": "green", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [
+        { "editorMode": "code", "expr": "ed_finder_data_invariants_success{job=\"ed-api\"}", "legendFormat": "latest receipt", "range": true, "refId": "A" }
+      ],
+      "title": "Data Invariants",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "Not configured",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 0 },
+      "id": 5,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [
+        { "editorMode": "code", "expr": "hc_checks_down_total{job=\"healthchecks\"}", "legendFormat": "checks down", "range": true, "refId": "A" }
+      ],
+      "title": "Healthchecks.io Down",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "noValue": "None",
+          "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 0 },
+      "id": 6,
+      "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(ALERTS{alertstate=\"firing\"}) or vector(0)", "legendFormat": "firing", "range": true, "refId": "A" }
+      ],
+      "title": "Prometheus Alerts Firing",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 18, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineInterpolation": "linear", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "reqpm" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "rate(ed_finder_requests_total{job=\"ed-api\"}[5m]) * 60", "legendFormat": "HTTP requests", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "rate(ed_finder_db_queries_total{job=\"ed-api\"}[5m]) * 60", "legendFormat": "tracked DB queries", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "rate(ed_finder_errors_total{job=\"ed-api\"}[5m]) * 60", "legendFormat": "unhandled errors", "range": true, "refId": "C" }
+      ],
+      "title": "API Activity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisLabel": "", "axisPlacement": "auto", "barAlignment": 0, "drawStyle": "line", "fillOpacity": 10, "gradientMode": "none", "hideFrom": { "legend": false, "tooltip": false, "viz": false }, "lineInterpolation": "smooth", "lineWidth": 2, "pointSize": 5, "scaleDistribution": { "type": "linear" }, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "ms" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "histogram_quantile(0.50, sum by (le) (rate(ed_finder_http_request_duration_seconds_bucket{job=\"ed-api\"}[5m]))) * 1000", "legendFormat": "p50", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.95, sum by (le) (rate(ed_finder_http_request_duration_seconds_bucket{job=\"ed-api\"}[5m]))) * 1000", "legendFormat": "p95", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "histogram_quantile(0.99, sum by (le) (rate(ed_finder_http_request_duration_seconds_bucket{job=\"ed-api\"}[5m]))) * 1000", "legendFormat": "p99", "range": true, "refId": "C" }
+      ],
+      "title": "API Latency Percentiles",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 13 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "100 * rate(pg_stat_database_blks_hit{job=\"postgres\",datname=\"edfinder\"}[5m]) / (rate(pg_stat_database_blks_hit{job=\"postgres\",datname=\"edfinder\"}[5m]) + rate(pg_stat_database_blks_read{job=\"postgres\",datname=\"edfinder\"}[5m]))", "legendFormat": "cache hit ratio", "range": true, "refId": "A" }
+      ],
+      "title": "PostgreSQL Cache Hit Ratio (recent I/O)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 13 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "rate(pg_stat_database_xact_commit{job=\"postgres\",datname=\"edfinder\"}[5m])", "legendFormat": "commits/s", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "rate(pg_stat_database_xact_rollback{job=\"postgres\",datname=\"edfinder\"}[5m])", "legendFormat": "rollbacks/s", "range": true, "refId": "B" }
+      ],
+      "title": "PostgreSQL Transactions / sec",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 18, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 13 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "ed_finder_dirty_counts_rating_dirty{job=\"postgres\"}", "legendFormat": "rating dirty", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "ed_finder_dirty_counts_cluster_dirty{job=\"postgres\"}", "legendFormat": "eligible cluster dirty", "range": true, "refId": "B" }
+      ],
+      "title": "Dirty Systems Pending Rebuild",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 14, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 21 },
+      "id": 12,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "rate(eddn_events_received_total{job=\"eddn\"}[5m]) * 60", "legendFormat": "received/min", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "rate(eddn_events_processed_total{job=\"eddn\"}[5m]) * 60", "legendFormat": "processed/min", "range": true, "refId": "B" },
+        { "editorMode": "code", "expr": "rate(eddn_errors_total{job=\"eddn\"}[5m]) * 60", "legendFormat": "errors/min", "range": true, "refId": "C" }
+      ],
+      "title": "EDDN Ingest / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 120 }, { "color": "red", "value": 300 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 21 },
+      "id": 13,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "eddn_seconds_since_flush{job=\"eddn\"}", "legendFormat": "seconds since flush", "range": true, "refId": "A" }
+      ],
+      "title": "EDDN Flush Freshness",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 16, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "mappings": [{ "options": { "0": { "color": "red", "text": "Down" }, "1": { "color": "green", "text": "Up" } }, "type": "value" }], "min": 0, "max": 1 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 21 },
+      "id": 14,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "asc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "hc_check_up{job=\"healthchecks\"}", "legendFormat": "{{name}}", "range": true, "refId": "A" }
+      ],
+      "title": "Healthchecks.io Check State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "bytes" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 29 },
+      "id": 15,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "redis_memory_used_bytes{job=\"redis\"}", "legendFormat": "used memory", "range": true, "refId": "A" }
+      ],
+      "title": "Redis Memory Used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 12, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "off" } }, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 29 },
+      "id": 16,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "editorMode": "code", "expr": "sum(pg_stat_activity_count{job=\"postgres\",datname=\"edfinder\",state=\"active\"})", "legendFormat": "active connections", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "pg_stat_user_tables_n_live_tup{job=\"postgres\",relname=\"systems\"}", "legendFormat": "estimated systems", "range": true, "refId": "B" }
+      ],
+      "title": "Database Activity & Row Estimate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 16, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 518400 }, { "color": "red", "value": 691200 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 29 },
+      "id": 17,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "ed_finder_data_invariants_age_seconds{job=\"ed-api\"}", "legendFormat": "latest receipt age", "range": true, "refId": "A" }
+      ],
+      "title": "Data-Invariants Receipt Age",
+      "type": "timeseries"
     }
-  ]
+  ],
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": ["ed-finder", "operations", "healthchecks"],
+  "templating": {
+    "list": [
+      {
+        "current": {},
+        "hide": 2,
+        "includeAll": false,
+        "label": "Prometheus",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": true,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ED Finder — Production Overview",
+  "uid": "ed-finder-overview",
+  "version": 2,
+  "weekStart": "monday"
 }

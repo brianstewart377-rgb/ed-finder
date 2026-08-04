@@ -4,7 +4,8 @@ global:
   external_labels:
     monitor: 'ed-finder'
 
-rule_files: []
+rule_files:
+  - /etc/prometheus/rules.yml
 
 scrape_configs:
 
@@ -40,3 +41,25 @@ scrape_configs:
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
+
+  # Healthchecks.io's native Prometheus endpoint. The default discovery file
+  # is empty, so this performs no external request until an operator supplies
+  # a project target file and a read-only API key file. See the adjacent
+  # healthchecks_targets.example.yml; credentials never enter Git or labels.
+  - job_name: 'healthchecks'
+    scrape_interval: 60s
+    scheme: https
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/healthchecks_readonly_api_key
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/healthchecks-targets.yml
+        refresh_interval: 5m
+    relabel_configs:
+      - source_labels: [healthchecks_project_uuid]
+        regex: '(.+)'
+        target_label: __metrics_path__
+        replacement: '/projects/${1}/metrics/'
+      - action: labeldrop
+        regex: healthchecks_project_uuid

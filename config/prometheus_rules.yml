@@ -1,0 +1,51 @@
+groups:
+  - name: ed-finder-runtime
+    rules:
+      - alert: MonitoringTargetDown
+        expr: up{job=~"ed-api|eddn|postgres|redis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ED Finder monitoring target is down"
+          description: "{{ $labels.job }} target {{ $labels.instance }} has been unreachable for two minutes."
+
+      - alert: DataInvariantsFailed
+        expr: ed_finder_data_invariants_success == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Latest ED Finder data-invariants receipt failed"
+
+      - alert: DataInvariantsUnknown
+        expr: ed_finder_data_invariants_success < 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No valid ED Finder data-invariants receipt is visible"
+
+      - alert: DataInvariantsStale
+        expr: ed_finder_data_invariants_age_seconds > 691200
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Latest ED Finder data-invariants receipt is older than eight days"
+
+      - alert: EddnFlushStalled
+        expr: eddn_seconds_since_flush > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EDDN has not completed a database flush recently"
+
+      - alert: HealthchecksReportedDown
+        expr: hc_checks_down_total > 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Healthchecks.io reports one or more checks down"
