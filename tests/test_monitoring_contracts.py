@@ -110,7 +110,8 @@ def test_dashboard_queries_only_metrics_the_services_export():
 
 
 def test_dirty_backlog_export_uses_partial_index_predicates_and_cache():
-    queries = _read('config', 'postgres_exporter_queries.yaml')
+    queries = _read('config', 'sql_exporter_ed_finder.collector.yml')
+    exporter = _read('config', 'sql_exporter.yml')
 
     assert 'COUNT(*) FILTER' not in queries
     assert queries.count('FROM systems') == 2
@@ -118,7 +119,31 @@ def test_dirty_backlog_export_uses_partial_index_predicates_and_cache():
     assert 'WHERE cluster_dirty = TRUE' in queries
     assert 'AND has_body_data = TRUE' in queries
     assert 'AND macro_grid_id IS NOT NULL' in queries
-    assert 'cache_seconds: 300' in queries
+    assert 'min_interval: 5m' in exporter
+
+
+def test_custom_queries_use_supported_sql_exporter_contract():
+    compose = _read('docker-compose.yml')
+    prometheus = _read('config', 'prometheus.yml')
+    postgres_config = _read('config', 'postgres_exporter.yml')
+    sql_config = _read('config', 'sql_exporter.yml')
+    collector = _read('config', 'sql_exporter_ed_finder.collector.yml')
+    sql_guard = _read('config', 'sql_exporter_start.sh')
+
+    assert 'burningalchemist/sql_exporter:0.24.4' in compose
+    assert 'PG_EXPORTER_EXTEND_QUERY_PATH' not in compose
+    assert 'postgres_exporter_queries.yaml' not in compose
+    assert '--config.file=/etc/postgres_exporter/postgres_exporter.yml' in compose
+    assert postgres_config.strip().endswith('auth_modules: {}')
+    assert "job_name: 'postgres-custom'" in prometheus
+    assert 'postgres_custom_exporter:9399' in prometheus
+    assert 'SQLEXPORTER_TARGET_DSN' not in compose
+    assert 'sql_exporter_start.sh:/etc/sql_exporter/start.sh:ro' in compose
+    assert "sed 's/../%&/g'" in sql_guard
+    assert 'unset POSTGRES_PASSWORD' in sql_guard
+    assert 'disabled:disabled' in sql_config
+    assert 'ed_finder_dirty_counts_rating_dirty' in collector
+    assert 'ed_finder_dirty_counts_cluster_dirty' in collector
 
 
 def test_healthchecks_is_optional_and_uses_a_read_only_secret_file():
@@ -144,6 +169,7 @@ def test_monitoring_images_are_pinned_and_grafana_fails_closed():
     assert 'prom/prometheus:v3.13.2' in compose
     assert 'grafana/grafana:13.1.1' in compose
     assert 'prometheuscommunity/postgres-exporter:v0.20.1' in compose
+    assert 'burningalchemist/sql_exporter:0.24.4' in compose
     assert 'oliver006/redis_exporter:v1.88.0' in compose
     monitoring_section = compose[compose.index('  prometheus:'):]
     assert ':latest' not in monitoring_section
@@ -160,3 +186,16 @@ def test_pr1_does_not_activate_monitoring_in_the_deploy_path():
     assert '--profile monitoring' not in deploy
     assert 'config/prometheus_rules.yml' in _read('docker-compose.yml')
     assert 'DataInvariantsFailed' in _read('config', 'prometheus_rules.yml')
+
+
+def test_gate2_permission_helper_is_explicit_and_monitoring_stays_opt_in():
+    helper = _read('scripts', 'prepare_monitoring.sh')
+    deploy = _read('scripts', 'deploy_main.sh')
+
+    assert "chown 472:0 \"$grafana_password\"" in helper
+    assert "chmod 0400 \"$grafana_password\"" in helper
+    assert "chown 65534:65534 \"$healthchecks_token\"" in helper
+    assert "chmod 0400 \"$healthchecks_token\"" in helper
+    assert "chmod 0644 \"$healthchecks_targets\"" in helper
+    assert '--check' in helper
+    assert '--profile monitoring' not in deploy

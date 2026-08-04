@@ -1,0 +1,5 @@
+---
+# postgres_exporter expects this file even when the legacy single-target
+# DATA_SOURCE_NAME environment variable is used. Keeping the supported config
+# explicit avoids a misleading "config file not found" warning at startup.
+auth_modules: {}
