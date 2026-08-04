@@ -977,30 +977,32 @@ async def flush_pending(pool: asyncpg.Pool):
                                 estimated_scan_value = COALESCE(EXCLUDED.estimated_scan_value, bodies.estimated_scan_value),
                                 updated_at        = NOW()
                             WHERE
-                                bodies.system_id64 IS DISTINCT FROM EXCLUDED.system_id64
-                                OR bodies.name IS DISTINCT FROM COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), bodies.name)
-                                OR bodies.body_type IS DISTINCT FROM EXCLUDED.body_type
-                                OR bodies.subtype IS DISTINCT FROM COALESCE(EXCLUDED.subtype, bodies.subtype)
-                                OR bodies.is_main_star IS DISTINCT FROM EXCLUDED.is_main_star
-                                OR bodies.distance_from_star IS DISTINCT FROM COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star)
-                                OR bodies.radius IS DISTINCT FROM COALESCE(EXCLUDED.radius, bodies.radius)
-                                OR bodies.mass IS DISTINCT FROM COALESCE(EXCLUDED.mass, bodies.mass)
-                                OR bodies.gravity IS DISTINCT FROM COALESCE(EXCLUDED.gravity, bodies.gravity)
-                                OR bodies.is_landable IS DISTINCT FROM EXCLUDED.is_landable
-                                OR bodies.is_terraformable IS DISTINCT FROM EXCLUDED.is_terraformable
-                                OR bodies.is_earth_like IS DISTINCT FROM EXCLUDED.is_earth_like
-                                OR bodies.is_water_world IS DISTINCT FROM EXCLUDED.is_water_world
-                                OR bodies.is_ammonia_world IS DISTINCT FROM EXCLUDED.is_ammonia_world
-                                OR bodies.surface_temp IS DISTINCT FROM COALESCE(EXCLUDED.surface_temp, bodies.surface_temp)
-                                OR bodies.surface_pressure IS DISTINCT FROM COALESCE(EXCLUDED.surface_pressure, bodies.surface_pressure)
-                                OR bodies.volcanism IS DISTINCT FROM COALESCE(EXCLUDED.volcanism, bodies.volcanism)
-                                OR bodies.atmosphere_type IS DISTINCT FROM COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type)
-                                OR bodies.is_tidal_lock IS DISTINCT FROM COALESCE(EXCLUDED.is_tidal_lock, bodies.is_tidal_lock)
-                                OR bodies.spectral_class IS DISTINCT FROM COALESCE(EXCLUDED.spectral_class, bodies.spectral_class)
-                                OR bodies.stellar_mass IS DISTINCT FROM COALESCE(EXCLUDED.stellar_mass, bodies.stellar_mass)
-                                OR bodies.is_scoopable IS DISTINCT FROM COALESCE(EXCLUDED.is_scoopable, bodies.is_scoopable)
-                                OR bodies.estimated_mapping_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_mapping_value, bodies.estimated_mapping_value)
-                                OR bodies.estimated_scan_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_scan_value, bodies.estimated_scan_value)
+                                bodies.system_id64 = EXCLUDED.system_id64
+                                AND (
+                                    bodies.name IS DISTINCT FROM COALESCE(NULLIF(EXCLUDED.name, 'Unknown'), bodies.name)
+                                    OR bodies.body_type IS DISTINCT FROM EXCLUDED.body_type
+                                    OR bodies.subtype IS DISTINCT FROM COALESCE(EXCLUDED.subtype, bodies.subtype)
+                                    OR bodies.is_main_star IS DISTINCT FROM EXCLUDED.is_main_star
+                                    OR bodies.distance_from_star IS DISTINCT FROM COALESCE(EXCLUDED.distance_from_star, bodies.distance_from_star)
+                                    OR bodies.radius IS DISTINCT FROM COALESCE(EXCLUDED.radius, bodies.radius)
+                                    OR bodies.mass IS DISTINCT FROM COALESCE(EXCLUDED.mass, bodies.mass)
+                                    OR bodies.gravity IS DISTINCT FROM COALESCE(EXCLUDED.gravity, bodies.gravity)
+                                    OR bodies.is_landable IS DISTINCT FROM EXCLUDED.is_landable
+                                    OR bodies.is_terraformable IS DISTINCT FROM EXCLUDED.is_terraformable
+                                    OR bodies.is_earth_like IS DISTINCT FROM EXCLUDED.is_earth_like
+                                    OR bodies.is_water_world IS DISTINCT FROM EXCLUDED.is_water_world
+                                    OR bodies.is_ammonia_world IS DISTINCT FROM EXCLUDED.is_ammonia_world
+                                    OR bodies.surface_temp IS DISTINCT FROM COALESCE(EXCLUDED.surface_temp, bodies.surface_temp)
+                                    OR bodies.surface_pressure IS DISTINCT FROM COALESCE(EXCLUDED.surface_pressure, bodies.surface_pressure)
+                                    OR bodies.volcanism IS DISTINCT FROM COALESCE(EXCLUDED.volcanism, bodies.volcanism)
+                                    OR bodies.atmosphere_type IS DISTINCT FROM COALESCE(EXCLUDED.atmosphere_type, bodies.atmosphere_type)
+                                    OR bodies.is_tidal_lock IS DISTINCT FROM COALESCE(EXCLUDED.is_tidal_lock, bodies.is_tidal_lock)
+                                    OR bodies.spectral_class IS DISTINCT FROM COALESCE(EXCLUDED.spectral_class, bodies.spectral_class)
+                                    OR bodies.stellar_mass IS DISTINCT FROM COALESCE(EXCLUDED.stellar_mass, bodies.stellar_mass)
+                                    OR bodies.is_scoopable IS DISTINCT FROM COALESCE(EXCLUDED.is_scoopable, bodies.is_scoopable)
+                                    OR bodies.estimated_mapping_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_mapping_value, bodies.estimated_mapping_value)
+                                    OR bodies.estimated_scan_value IS DISTINCT FROM COALESCE(EXCLUDED.estimated_scan_value, bodies.estimated_scan_value)
+                                )
                         """,
                             body['id'], body['system_id64'], body['name'],
                             body.get('body_type', 'Unknown'),
