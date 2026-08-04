@@ -25,11 +25,14 @@ TEST_SYSTEM_IDS = (
     92_000_000_000_005,
     92_000_000_000_006,
     92_000_000_000_007,
+    92_000_000_000_008,
+    92_000_000_000_009,
 )
 
 TEST_BODY_IDS = (
     920_000_004,
     920_000_005,
+    920_000_006,
 )
 
 
@@ -334,3 +337,114 @@ async def test_fss_with_null_system_name_preserves_existing_real_name(
     assert row is not None
     assert row['name'] == 'Existing Real System Name'
     assert row['population'] == 42
+
+
+@pytest.mark.asyncio
+async def test_scan_with_colliding_body_id_from_other_system_does_not_reparent(
+    pool,
+    isolated_eddn_system_writes,
+):
+    """Journal BodyID is unique only within a system, but bodies.id is the
+    sole PK with no sequence and no system_id64 component. A scan of a
+    colliding BodyID from a different system must be a no-op, not a steal —
+    see the 2026-08-04 body_rings association_status drift incident."""
+    owner_system_id = TEST_SYSTEM_IDS[7]
+    intruder_system_id = TEST_SYSTEM_IDS[8]
+    body_id = TEST_BODY_IDS[2]
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO systems (id64, name) VALUES ($1, 'EDDN Guard Owner System')",
+            owner_system_id,
+        )
+        await conn.execute(
+            "INSERT INTO systems (id64, name) VALUES ($1, 'EDDN Guard Intruder System')",
+            intruder_system_id,
+        )
+
+    await eddn_listener.handle_scan(
+        pool,
+        {},
+        {
+            'SystemAddress': owner_system_id,
+            'BodyID': body_id,
+            'BodyName': 'Owner System Body 1 a',
+            'PlanetClass': 'Rocky body',
+        },
+    )
+    await eddn_listener.flush_pending(pool)
+
+    await eddn_listener.handle_scan(
+        pool,
+        {},
+        {
+            'SystemAddress': intruder_system_id,
+            'BodyID': body_id,
+            'BodyName': 'Intruder System Body 1 a',
+            'PlanetClass': 'Icy body',
+        },
+    )
+    await eddn_listener.flush_pending(pool)
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT system_id64, name, subtype FROM bodies WHERE id = $1',
+            body_id,
+        )
+
+    assert row is not None
+    assert row['system_id64'] == owner_system_id
+    assert row['name'] == 'Owner System Body 1 a'
+    assert row['subtype'] == 'Rocky body'
+
+
+@pytest.mark.asyncio
+async def test_scan_from_owning_system_still_updates_after_guard(
+    pool,
+    isolated_eddn_system_writes,
+):
+    """Companion to the collision-guard test: a same-system rescan must
+    still update normally, proving the guard scopes to cross-system writes
+    only rather than freezing the row."""
+    owner_system_id = TEST_SYSTEM_IDS[7]
+    body_id = TEST_BODY_IDS[2]
+
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO systems (id64, name) VALUES ($1, 'EDDN Guard Owner System')",
+            owner_system_id,
+        )
+
+    await eddn_listener.handle_scan(
+        pool,
+        {},
+        {
+            'SystemAddress': owner_system_id,
+            'BodyID': body_id,
+            'BodyName': 'Owner System Body 1 a',
+            'PlanetClass': 'Rocky body',
+        },
+    )
+    await eddn_listener.flush_pending(pool)
+
+    await eddn_listener.handle_scan(
+        pool,
+        {},
+        {
+            'SystemAddress': owner_system_id,
+            'BodyID': body_id,
+            'BodyName': 'Owner System Body 1 a',
+            'PlanetClass': 'Icy body',
+        },
+    )
+    await eddn_listener.flush_pending(pool)
+
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            'SELECT system_id64, subtype FROM bodies WHERE id = $1',
+            body_id,
+        )
+
+    assert row is not None
+    assert row['system_id64'] == owner_system_id
+    assert row['subtype'] == 'Icy body'
