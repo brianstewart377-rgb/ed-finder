@@ -152,7 +152,9 @@ def main() -> None:
     args = parser.parse_args()
 
     dsn = os.environ['DATABASE_URL']
-    with psycopg2.connect(dsn) as conn:
+    # These backfill queries scan 188M rows, so the role's 15s timeout is far too low.
+    # Keep this connection-level: SET LOCAL would not survive each 1,000-row commit.
+    with psycopg2.connect(dsn, options='-c statement_timeout=1800000') as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             targets = _load_targets(cur, args)
             for index, system in enumerate(targets, start=1):

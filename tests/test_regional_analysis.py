@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 
 os.environ.setdefault('CORS_ORIGINS', 'http://test')
@@ -13,6 +14,7 @@ os.environ.setdefault('LOG_FILE', str(Path.cwd() / 'test-local.log'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'api' / 'src'))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'apps' / 'importer' / 'src'))
 
+import build_regional_analysis
 from build_regional_analysis import _load_targets
 from edfinder_api.regional.regional_analysis import compute_regional_analysis, distance_ly, response_from_row
 from edfinder_api.regional.regional_roles import classify_regional_role
@@ -33,6 +35,22 @@ class RecordingCursor:
 
     def fetchone(self) -> dict[str, int]:
         return {'excluded_count': 266_000}
+
+
+def test_main_sets_bounded_session_statement_timeout(monkeypatch):
+    cursor = MagicMock()
+    cursor.fetchall.return_value = []
+    cursor.fetchone.return_value = {'excluded_count': 0}
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    connection.cursor.return_value.__enter__.return_value = cursor
+    connect = MagicMock(return_value=connection)
+    monkeypatch.setattr(build_regional_analysis.psycopg2, 'connect', connect)
+    monkeypatch.setattr(sys, 'argv', ['build_regional_analysis.py'])
+
+    build_regional_analysis.main()
+
+    assert 'statement_timeout=1800000' in connect.call_args.kwargs['options']
 
 
 def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):
