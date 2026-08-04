@@ -471,9 +471,23 @@ def test_spansh_importer_missing_coords_stay_null():
 def test_spansh_temp_upsert_skips_noop_updates():
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
-    assert "if c not in {'updated_at', 'rating_dirty', 'cluster_dirty'}" in source
+    assert "excluded_change_cols = {'updated_at', 'rating_dirty', 'cluster_dirty'}" in source
     assert 'IS DISTINCT FROM EXCLUDED' in source
-    assert 'WHERE {comparisons}' in source
+    assert 'WHERE {change_clause}' in source
+
+
+def test_spansh_temp_upsert_guard_col_scopes_to_matching_owner():
+    """guard_col (added alongside the eddn_listener.py system_id64 fix for
+    the 2026-08-04 body_rings association_status drift incident) must make
+    a colliding conflict key from a different owner a no-op, not a silent
+    re-parent — see tests/integration/test_import_spansh_body_upsert.py for
+    the real-Postgres behavioral proof."""
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
+
+    assert "guard_col: Optional[str] = None" in source
+    assert 'WHERE {guard_clause}' in source
+    assert 'AND ({change_clause})' in source
+    assert "guard_col='system_id64'" in source
 
 
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
