@@ -490,6 +490,26 @@ def test_spansh_temp_upsert_guard_col_scopes_to_matching_owner():
     assert "guard_col='system_id64'" in source
 
 
+def test_spansh_flush_rings_drops_rows_for_guard_rejected_bodies():
+    """A collision the system_id64 guard rejects leaves the bodies row
+    under its original owner, but the queued body_rings row for the
+    colliding write must not still be inserted as trusted local_matched
+    data for the wrong owner (GitHub review finding on PR #408 — the
+    guard alone made the bodies write a no-op, but flush_rings() was still
+    writing that body's rings unconditionally). flush_bodies() must record
+    which attempted ids were rejected, and flush_rings() must filter the
+    ring batch against that set before calling upsert_body_rings — see
+    tests/integration/test_import_spansh_body_upsert.py::
+    test_returning_col_excludes_ids_rejected_by_guard for the real-Postgres
+    proof of the underlying returning_col mechanism."""
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
+
+    assert 'attempted_ids = {row[0] for row in body_batch}' in source
+    assert "returning_col='id'" in source
+    assert 'rejected_body_ids.update(attempted_ids - written_ids)' in source
+    assert "keep = [r for r in ring_batch if r.get('body_id') not in rejected_body_ids]" in source
+
+
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
     bodies = (
         [{'subtype': 'Earth-like world', 'is_earth_like': True}] * 3

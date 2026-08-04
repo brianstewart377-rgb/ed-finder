@@ -127,3 +127,32 @@ def test_body_upsert_from_owning_system_still_updates_after_guard(pg_conn):
     assert row is not None
     assert row[0] == owner_id
     assert row[1] == 'Icy body'
+
+
+@pytest.mark.db
+def test_returning_col_excludes_ids_rejected_by_guard(pg_conn):
+    """import_galaxy()'s flush_bodies()/flush_rings() closures use
+    returning_col='id' to compute a rejected-id set and drop those bodies'
+    queued body_rings rows before writing them, rather than let a collision
+    that reparenting-guard blocked still attach body_rings as trusted data
+    to the wrong owning system (GitHub review finding on PR #408). This
+    proves the underlying primitive: a rejected write's id must be absent
+    from written_ids so that filtering step actually catches it."""
+    owner_id, intruder_id = TEST_SYSTEM_IDS
+    _insert_test_systems(pg_conn)
+
+    owner_count, owner_written = import_spansh.upsert_via_temp(
+        pg_conn, 'bodies', BODY_COLS,
+        [(TEST_BODY_ID, owner_id, 'Owner System Body 1 a', 'Planet', 'Rocky body')],
+        'id', guard_col='system_id64', returning_col='id',
+    )
+    assert owner_count == 1
+    assert owner_written == {TEST_BODY_ID}
+
+    intruder_count, intruder_written = import_spansh.upsert_via_temp(
+        pg_conn, 'bodies', BODY_COLS,
+        [(TEST_BODY_ID, intruder_id, 'Intruder System Body 1 a', 'Planet', 'Icy body')],
+        'id', guard_col='system_id64', returning_col='id',
+    )
+    assert intruder_count == 0
+    assert intruder_written == set()

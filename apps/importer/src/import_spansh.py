@@ -380,14 +380,23 @@ def _run_with_deadlock_retry(conn, work, *, label, attempts=4, base_delay=0.5):
 def upsert_via_temp(conn, target_table: str, columns: List[str],
                     rows: List[Tuple], conflict_col: str,
                     update_cols: Optional[List[str]] = None,
-                    guard_col: Optional[str] = None) -> int:
+                    guard_col: Optional[str] = None,
+                    returning_col: Optional[str] = None):
     """guard_col: if set, an update is applied only when this column's
     incoming value matches the existing row's value. Use for tables where
     conflict_col alone doesn't establish ownership (e.g. bodies.id is a
     source-supplied id that can collide across systems) so a colliding row
-    from a different owner is a no-op instead of a silent re-parent."""
+    from a different owner is a no-op instead of a silent re-parent.
+
+    returning_col: if set, also collect this column's value for every row
+    actually inserted or updated (i.e. not rejected by guard_col or skipped
+    as a no-op change), and return (count, written_keys) instead of a bare
+    count. Use this so dependent rows keyed off conflict_col (e.g.
+    body_rings.body_id -> bodies.id) are not written for a row whose owning
+    upsert was rejected by guard_col — otherwise a rejected collision still
+    lets its dependent rows attach as trusted data to the wrong owner."""
     if not rows:
-        return 0
+        return (0, set()) if returning_col else 0
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
     temp = f"_tmp_{target_table}"
@@ -447,15 +456,17 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 buf.write('\t'.join(parts) + '\n')
             buf.seek(0)
             cur.copy_from(buf, temp, columns=columns, null='\\N')
+            returning_clause = f"\n                RETURNING {returning_col}" if returning_col else ''
             cur.execute(f"""
                 INSERT INTO {target_table} ({col_list})
                 SELECT {col_list} FROM {temp}
                 ON CONFLICT ({conflict_col}) DO UPDATE
-                SET {set_clause}{where_clause}
+                SET {set_clause}{where_clause}{returning_clause}
             """)
             count = cur.rowcount
+            written_keys = {row[0] for row in cur.fetchall()} if returning_col else None
         conn.commit()
-        return count
+        return (count, written_keys) if returning_col else count
 
     return _run_with_deadlock_retry(conn, _do, label=f"upsert_via_temp({target_table})")
 
@@ -827,6 +838,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     total_rows  = 0
     skip_count  = 0
     last_save   = time.time()
+    rejected_body_ids: set = set()
+    rings_skipped_rejected_body = 0
 
     def flush_systems():
         if sys_batch:
@@ -836,14 +849,34 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_bodies():
         flush_systems()
         if body_batch:
-            upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id', guard_col='system_id64')
+            attempted_ids = {row[0] for row in body_batch}
+            _count, written_ids = upsert_via_temp(
+                conn, 'bodies', BODY_COLS, body_batch, 'id',
+                guard_col='system_id64', returning_col='id',
+            )
+            rejected_body_ids.update(attempted_ids - written_ids)
             body_batch.clear()
 
     def flush_rings():
+        nonlocal rings_skipped_rejected_body
         flush_bodies()
         if ring_batch:
-            upsert_body_rings(conn, ring_batch)
+            keep = [r for r in ring_batch if r.get('body_id') not in rejected_body_ids]
+            skipped = len(ring_batch) - len(keep)
+            if skipped:
+                rings_skipped_rejected_body += skipped
+                log.info(
+                    f"Skipping {skipped} ring row(s) whose owning body upsert "
+                    "was rejected by the system_id64 ownership guard "
+                    "(colliding Spansh body id already owned by another system)"
+                )
+            if keep:
+                upsert_body_rings(conn, keep)
             ring_batch.clear()
+        # Every currently-queued ring row has now been resolved (kept or
+        # dropped) against the rejections seen so far — safe to reset before
+        # the next span of flush_bodies() calls accumulates new ones.
+        rejected_body_ids.clear()
 
     def flush_stations():
         flush_systems()
@@ -1134,6 +1167,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
     if skip_count:
         log.warning(f"Skipped {skip_count:,} malformed records during galaxy import")
+    if rings_skipped_rejected_body:
+        log.warning(
+            f"Skipped {rings_skipped_rejected_body:,} ring row(s) for bodies "
+            "whose upsert was rejected by the system_id64 ownership guard "
+            "(colliding Spansh body id)"
+        )
     mark_complete(conn, dump_path.name, total_rows)
     log.info(f"galaxy.json.gz complete: {total_rows:,} systems imported")
     return total_rows
