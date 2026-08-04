@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # point at prepublished JSON, usually a warehouse reconciliation report.
     # The API reads and sanitizes it only; it never invokes importer scripts.
     enrichment_warehouse_status_json_path: Optional[str] = None
+    # Read-only receipts produced by run_data_invariants_receipted.sh. The API
+    # only parses these fixed files to publish freshness/status metrics.
+    data_invariants_receipt_paths: str = (
+        '/data/receipts/data-invariants/post-deploy/latest.json,'
+        '/data/receipts/data-invariants/weekly-latest.json'
+    )
     # Per-connection PostgreSQL `statement_timeout` (milliseconds).
     # Applied at pool init by main.py::_init_conn so every query —
     # search, map, status — is bounded server-side. Picked to match the

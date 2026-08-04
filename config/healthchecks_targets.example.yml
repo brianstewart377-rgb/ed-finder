@@ -1,0 +1,7 @@
+# Copy this file to config/healthchecks_targets.local.yml and replace the UUID.
+# The hostname remains the only scrape target; the project UUID becomes the
+# metrics path and is removed from stored labels.
+- targets:
+    - healthchecks.io
+  labels:
+    healthchecks_project_uuid: replace-with-project-uuid

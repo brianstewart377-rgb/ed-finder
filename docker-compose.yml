@@ -201,6 +201,9 @@ services:
       EXPOSE_ERROR_DETAIL:  ${EXPOSE_ERROR_DETAIL:-false}
     volumes:
       - /data/logs:/data/logs
+      # Operator-written invariant receipts; the API reads fixed JSON aliases
+      # for metrics and never writes into the receipts tree.
+      - /data/receipts:/data/receipts:ro
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -411,7 +414,7 @@ services:
 
   # ── Prometheus (metrics collection) ──────────────────────────────────────
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.13.2
     container_name: ed-prometheus
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -427,7 +430,11 @@ services:
       - '--web.console.templates=/etc/prometheus/consoles'
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/prometheus_rules.yml:/etc/prometheus/rules.yml:ro
+      - ${HEALTHCHECKS_PROMETHEUS_TARGETS_FILE:-./config/healthchecks_targets.empty.yml}:/etc/prometheus/healthchecks-targets.yml:ro
       - prometheus_data:/prometheus
+    secrets:
+      - healthchecks_readonly_api_key
     ports:
       - "127.0.0.1:9090:9090"
     depends_on:
@@ -435,7 +442,7 @@ services:
 
   # ── Grafana (dashboards) ──────────────────────────────────────────────────
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.1.1
     container_name: ed-grafana
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -444,14 +451,16 @@ services:
     cpus: 1.0
     environment:
       GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP:     "false"
       GF_SERVER_ROOT_URL:         "%(protocol)s://%(domain)s:%(http_port)s/"
-      GF_INSTALL_PLUGINS:         "grafana-piechart-panel"
+    entrypoint: ["/bin/sh", "/etc/grafana/start-with-secret.sh"]
     volumes:
       - grafana_data:/var/lib/grafana
       - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./config/grafana/start-with-secret.sh:/etc/grafana/start-with-secret.sh:ro
+    secrets:
+      - grafana_admin_password
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -459,7 +468,7 @@ services:
 
   # ── postgres-exporter (Postgres metrics for Prometheus) ──────────────────
   postgres_exporter:
-    image: prometheuscommunity/postgres-exporter:latest
+    image: prometheuscommunity/postgres-exporter:v0.20.1
     container_name: ed-postgres-exporter
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -479,7 +488,7 @@ services:
 
   # ── redis-exporter (Redis metrics for Prometheus) ─────────────────────────
   redis_exporter:
-    image: oliver006/redis_exporter:latest
+    image: oliver006/redis_exporter:v1.88.0
     container_name: ed-redis-exporter
     profiles: ["monitoring"]
     restart: unless-stopped
@@ -498,6 +507,12 @@ volumes:
   redis_data:
   prometheus_data:
   grafana_data:
+
+secrets:
+  grafana_admin_password:
+    file: ${GRAFANA_PASSWORD_FILE:-./config/grafana_admin_password.disabled}
+  healthchecks_readonly_api_key:
+    file: ${HEALTHCHECKS_PROMETHEUS_TOKEN_FILE:-./config/healthchecks_readonly_api_key.disabled}
 
 networks:
   default:
