@@ -191,3 +191,95 @@ def test_unchanged_same_system_body_is_not_reported_as_rejected(pg_conn):
     )
     assert second_count == 0  # no-op: nothing changed
     assert second_rejected == set()  # but NOT a guard rejection
+
+
+@pytest.mark.db
+def test_body_upsert_duplicate_id_in_batch_keeps_last_row(pg_conn):
+    system_ids = (93_000_000_000_011, 93_000_000_000_012)
+    body_id = 930_000_011
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Duplicate Batch First System',
+                 system_ids[1], 'Duplicate Batch Last System'),
+            )
+        pg_conn.commit()
+
+        count = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'First Batch Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Last Batch Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64',
+        )
+
+        assert count == 1
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Last Batch Body', 'Icy body', system_ids[1])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_body_upsert_batch_without_duplicate_ids_is_unchanged(pg_conn):
+    system_ids = (93_000_000_000_021, 93_000_000_000_022)
+    body_ids = (930_000_021, 930_000_022)
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = ANY(%s)', (list(body_ids),))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Unique Batch First System',
+                 system_ids[1], 'Unique Batch Second System'),
+            )
+        pg_conn.commit()
+
+        count = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_ids[0], system_ids[0], 'Unique Batch Body A', 'Planet', 'Rocky body'),
+                (body_ids[1], system_ids[1], 'Unique Batch Body B', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64',
+        )
+
+        assert count == 2
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                '''
+                SELECT id, name, body_type, subtype, system_id64
+                FROM bodies
+                WHERE id = ANY(%s)
+                ORDER BY id
+                ''',
+                (list(body_ids),),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [
+            (body_ids[0], 'Unique Batch Body A', 'Planet', 'Rocky body', system_ids[0]),
+            (body_ids[1], 'Unique Batch Body B', 'Planet', 'Icy body', system_ids[1]),
+        ]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = ANY(%s)', (list(body_ids),))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()

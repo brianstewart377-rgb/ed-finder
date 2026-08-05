@@ -406,6 +406,19 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     to the wrong owner."""
     if not rows:
         return (0, set()) if returning_col else 0
+    conflict_col_index = columns.index(conflict_col)
+    rows_by_conflict_value = {
+        row[conflict_col_index]: row
+        for row in rows
+    }
+    duplicate_rows_dropped = len(rows) - len(rows_by_conflict_value)
+    if duplicate_rows_dropped:
+        rows = list(rows_by_conflict_value.values())
+        log.warning(
+            f"upsert_via_temp({target_table}): dropped "
+            f"{duplicate_rows_dropped:,} duplicate row(s) for conflict_col "
+            f"{conflict_col}"
+        )
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
     temp = f"_tmp_{target_table}"
