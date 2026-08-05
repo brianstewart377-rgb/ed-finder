@@ -161,7 +161,7 @@ def test_returning_col_reports_ids_rejected_by_guard(pg_conn):
         'id', guard_col='system_id64', returning_col='id',
     )
     assert intruder_count == 0
-    assert intruder_rejected == {TEST_BODY_ID}
+    assert intruder_rejected == {(intruder_id, TEST_BODY_ID)}
 
 
 @pytest.mark.db
@@ -191,3 +191,336 @@ def test_unchanged_same_system_body_is_not_reported_as_rejected(pg_conn):
     )
     assert second_count == 0  # no-op: nothing changed
     assert second_rejected == set()  # but NOT a guard rejection
+
+
+@pytest.mark.db
+def test_body_upsert_duplicate_id_in_batch_keeps_last_row(pg_conn):
+    system_ids = (93_000_000_000_011, 93_000_000_000_012)
+    body_id = 930_000_011
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Duplicate Batch First System',
+                 system_ids[1], 'Duplicate Batch Last System'),
+            )
+        pg_conn.commit()
+
+        count = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'First Batch Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Last Batch Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64',
+        )
+
+        assert count == 1
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Last Batch Body', 'Icy body', system_ids[1])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_cross_owner_duplicate_id_in_batch_is_reported_as_rejected(pg_conn):
+    system_ids = (93_000_000_000_031, 93_000_000_000_032)
+    body_id = 930_000_031
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Rejected Duplicate First System',
+                 system_ids[1], 'Rejected Duplicate Last System'),
+            )
+        pg_conn.commit()
+
+        count, rejected_keys = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'Rejected First Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Rejected Last Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64', returning_col='id',
+        )
+
+        assert count == 1
+        assert rejected_keys == {(system_ids[0], body_id)}
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Rejected Last Body', 'Icy body', system_ids[1])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_batch_duplicate_winner_matching_earlier_occurrence_is_not_rejected(pg_conn):
+    """Regression test for a GitHub review finding on PR #413: with 3+
+    occurrences of the same body id in one batch, the surviving
+    (last-occurrence-wins) row's system must not be reported as rejected
+    just because an earlier occurrence of that same system was itself
+    overwritten mid-batch by a different system's row. Only the system
+    whose value differs from the final survivor counts as rejected."""
+    system_ids = (93_000_000_000_051, 93_000_000_000_052)
+    body_id = 930_000_051
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Three Way First System',
+                 system_ids[1], 'Three Way Middle System'),
+            )
+        pg_conn.commit()
+
+        count, rejected_keys = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'First Occurrence Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Middle Occurrence Body', 'Planet', 'Metal-rich body'),
+                (body_id, system_ids[0], 'Final Occurrence Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64', returning_col='id',
+        )
+
+        assert count == 1
+        assert rejected_keys == {(system_ids[1], body_id)}
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Final Occurrence Body', 'Icy body', system_ids[0])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_same_owner_duplicate_id_in_batch_is_not_reported_as_rejected(pg_conn):
+    system_id = 93_000_000_000_041
+    body_id = 930_000_041
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (system_id,))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s)',
+                (system_id, 'Same Owner Duplicate System'),
+            )
+        pg_conn.commit()
+
+        count, rejected_keys = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_id, 'Same Owner First Body', 'Planet', 'Rocky body'),
+                (body_id, system_id, 'Same Owner Last Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64', returning_col='id',
+        )
+
+        assert count == 1
+        assert rejected_keys == set()
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Same Owner Last Body', 'Icy body', system_id)]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (system_id,))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_body_upsert_batch_without_duplicate_ids_is_unchanged(pg_conn):
+    system_ids = (93_000_000_000_021, 93_000_000_000_022)
+    body_ids = (930_000_021, 930_000_022)
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = ANY(%s)', (list(body_ids),))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Unique Batch First System',
+                 system_ids[1], 'Unique Batch Second System'),
+            )
+        pg_conn.commit()
+
+        count = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_ids[0], system_ids[0], 'Unique Batch Body A', 'Planet', 'Rocky body'),
+                (body_ids[1], system_ids[1], 'Unique Batch Body B', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64',
+        )
+
+        assert count == 2
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                '''
+                SELECT id, name, body_type, subtype, system_id64
+                FROM bodies
+                WHERE id = ANY(%s)
+                ORDER BY id
+                ''',
+                (list(body_ids),),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [
+            (body_ids[0], 'Unique Batch Body A', 'Planet', 'Rocky body', system_ids[0]),
+            (body_ids[1], 'Unique Batch Body B', 'Planet', 'Icy body', system_ids[1]),
+        ]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = ANY(%s)', (list(body_ids),))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_batch_duplicate_pre_existing_owner_not_last_in_batch_is_not_rejected(pg_conn):
+    """Regression test for a GitHub review finding on PR #413: if a body id
+    already belongs to one system before this call, and this call's batch
+    has a *later* occurrence of that same id from a *different* system, the
+    later occurrence is the in-batch dedup "winner" attempted against the
+    database - but its write is blocked by the ownership guard, so the
+    pre-existing owner remains the true final owner. The pre-existing
+    owner must not be reported as rejected just because it wasn't the
+    batch's last occurrence for that id."""
+    system_ids = (93_000_000_000_071, 93_000_000_000_072)
+    body_id = 930_000_071
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Pre-Existing Owner System',
+                 system_ids[1], 'Later Batch Intruder System'),
+            )
+        pg_conn.commit()
+
+        import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [(body_id, system_ids[0], 'Existing Owner Body', 'Planet', 'Rocky body')],
+            'id', guard_col='system_id64',
+        )
+
+        count, rejected_keys = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'Existing Owner Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Intruder Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64', returning_col='id',
+        )
+
+        assert count == 0
+        assert rejected_keys == {(system_ids[1], body_id)}
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Existing Owner Body', 'Rocky body', system_ids[0])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_batch_duplicate_id_with_mixed_int_and_str_types_is_deduplicated(pg_conn):
+    """Regression test for a GitHub review finding on PR #413: if the same
+    conflict_col value arrives as different Python types (e.g. an int from
+    one source record and the equivalent numeric string from another), the
+    in-memory dedup dict must still treat them as the same key - the temp
+    table's COPY-based cast to the target column type would otherwise let
+    both rows through to the same underlying INSERT ON CONFLICT statement,
+    reproducing the exact CardinalityViolation this batch dedup exists to
+    prevent."""
+    system_id = 93_000_000_000_061
+    body_id = 930_000_061
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (system_id,))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s)',
+                (system_id, 'Mixed Type Duplicate System'),
+            )
+        pg_conn.commit()
+
+        count = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_id, 'Int Id Body', 'Planet', 'Rocky body'),
+                (str(body_id), system_id, 'String Id Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64',
+        )
+
+        assert count == 1
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('String Id Body', 'Icy body', system_id)]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (system_id,))
+        pg_conn.commit()

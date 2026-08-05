@@ -389,10 +389,26 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     from a different owner is a no-op instead of a silent re-parent.
 
     returning_col: only meaningful together with guard_col. If set, also
-    compute the set of this column's values among the attempted rows whose
-    guard_col was actually rejected (i.e. the row that ends up in
-    target_table has a guard_col value different from what this call
-    attempted), and return (count, rejected_keys) instead of a bare count.
+    compute the set of (guard_col value, this column's value) pairs among
+    the attempted rows whose guard_col was rejected, and return
+    (count, rejected_keys) instead of a bare count. rejected_keys entries
+    are (guard_col_value, conflict_col_value) pairs rather than bare
+    conflict_col values: a bare value can't tell a caller which specific
+    owner's attempt was rejected when the same conflict_col value was
+    attempted by more than one owner.
+
+    Rejection is always determined from the actual post-write state of
+    target_table, never from which row happened to survive in-batch
+    de-duplication: every row originally attempted in this call (before
+    de-duplication) whose guard_col value doesn't match target_table's
+    actual final guard_col value for that conflict_col is rejected. This
+    matters when conflict_col already has a row under an owner that isn't
+    the batch's last occurrence for that value — de-duplication picks the
+    last occurrence to attempt writing, but if guard_col blocks that write
+    the pre-existing owner remains the true final owner and must not be
+    reported as rejected merely because an in-batch heuristic guessed a
+    different "winner".
+
     This is deliberately a direct post-write ownership comparison rather
     than reading back RETURNING from the main statement: RETURNING only
     reports rows the UPDATE actually touched, and the same-owner no-op case
@@ -406,6 +422,36 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     to the wrong owner."""
     if not rows:
         return (0, set()) if returning_col else 0
+    conflict_col_index = columns.index(conflict_col)
+    guard_col_index = columns.index(guard_col) if guard_col and returning_col else None
+    original_rows = rows
+
+    def _normalize_conflict_value(value):
+        # A conflict_col value arriving as a numeric string in some source
+        # records and a native int in others (e.g. inconsistent JSON typing
+        # upstream) must still collide on the same dedup key here - the
+        # temp table's COPY-based cast to the target column type means both
+        # representations resolve to the same row identity at the database
+        # level regardless of what Python type carried it in.
+        if isinstance(value, str):
+            try:
+                return int(value)
+            except ValueError:
+                return value
+        return value
+
+    rows_by_conflict_value = {}
+    for row in rows:
+        conflict_key = _normalize_conflict_value(row[conflict_col_index])
+        rows_by_conflict_value[conflict_key] = row
+    duplicate_rows_dropped = len(rows) - len(rows_by_conflict_value)
+    if duplicate_rows_dropped:
+        rows = list(rows_by_conflict_value.values())
+        log.warning(
+            f"upsert_via_temp({target_table}): dropped "
+            f"{duplicate_rows_dropped:,} duplicate row(s) for conflict_col "
+            f"{conflict_col}"
+        )
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
     temp = f"_tmp_{target_table}"
@@ -474,13 +520,21 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             count = cur.rowcount
             rejected_keys = set() if returning_col else None
             if returning_col and guard_col:
+                distinct_conflict_values = list({
+                    _normalize_conflict_value(row[conflict_col_index])
+                    for row in original_rows
+                })
                 cur.execute(f"""
-                    SELECT t.{returning_col}
-                    FROM {temp} t
-                    JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}
-                    WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}
-                """)
-                rejected_keys = {row[0] for row in cur.fetchall()}
+                    SELECT {conflict_col}, {guard_col}
+                    FROM {target_table}
+                    WHERE {conflict_col} = ANY(%s)
+                """, (distinct_conflict_values,))
+                actual_owner_by_conflict_value = dict(cur.fetchall())
+                for row in original_rows:
+                    conflict_key = _normalize_conflict_value(row[conflict_col_index])
+                    guard_value = row[guard_col_index]
+                    if actual_owner_by_conflict_value.get(conflict_key) != guard_value:
+                        rejected_keys.add((guard_value, row[conflict_col_index]))
         conn.commit()
         return (count, rejected_keys) if returning_col else count
 
@@ -865,14 +919,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_bodies():
         flush_systems()
         if body_batch:
-            _count, rejected_ids = upsert_via_temp(
+            _count, rejected_owner_keys = upsert_via_temp(
                 conn, 'bodies', BODY_COLS, body_batch, 'id',
                 guard_col='system_id64', returning_col='id',
             )
-            if rejected_ids:
-                rejected_body_ids.update(
-                    (row[1], row[0]) for row in body_batch if row[0] in rejected_ids
-                )
+            if rejected_owner_keys:
+                rejected_body_ids.update(rejected_owner_keys)
             body_batch.clear()
 
     def flush_rings():

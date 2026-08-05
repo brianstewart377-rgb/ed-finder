@@ -507,12 +507,18 @@ def test_spansh_flush_rings_drops_rows_for_guard_rejected_bodies():
     Rejection is scoped per (system_id64, body_id) pair, not bare body_id
     (GitHub review finding on PR #409 — a rejection for one system must not
     also drop a different, legitimately-owning system's rings for the same
-    colliding id, since a bare-id set can't distinguish the two)."""
+    colliding id, since a bare-id set can't distinguish the two).
+    upsert_via_temp() reports rejected_keys as (system_id64, id) tuples
+    directly for this reason — flush_bodies() no longer needs to re-derive
+    ownership by re-scanning body_batch against a bare id set (GitHub
+    review finding on PR #413 — a bare id set can't tell a winning owner's
+    row apart from a losing duplicate's row sharing the same id within one
+    batch, so the old re-scan wrongly flagged the winner as rejected too)."""
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert "returning_col='id'" in source
-    assert 'rejected_body_ids.update(' in source
-    assert '(row[1], row[0]) for row in body_batch if row[0] in rejected_ids' in source
+    assert 'rejected_owner_keys = upsert_via_temp(' in source
+    assert 'rejected_body_ids.update(rejected_owner_keys)' in source
     assert "if (r.get('system_id64'), r.get('body_id')) not in rejected_body_ids" in source
 
 
@@ -524,12 +530,19 @@ def test_spansh_upsert_via_temp_rejection_uses_ownership_query_not_returning():
     produce no RETURNING row. Rejection must instead be computed by
     comparing the attempted guard_col value against the row's actual final
     owner directly, so an unchanged same-owner body is never misreported as
-    rejected and does not lose its rings on a plain re-import."""
+    rejected and does not lose its rings on a plain re-import.
+
+    The comparison queries target_table directly rather than joining
+    through the de-duplicated temp table (GitHub review finding on PR #413
+    — a temp-table join only sees the single row that survived in-batch
+    de-duplication, so a pre-existing owner that wasn't the batch's last
+    occurrence for a colliding id was wrongly reported as rejected even
+    though it remained the true final owner)."""
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert 'if returning_col and guard_col:' in source
-    assert 'JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}' in source
-    assert 'WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}' in source
+    assert 'WHERE {conflict_col} = ANY(%s)' in source
+    assert 'actual_owner_by_conflict_value = dict(cur.fetchall())' in source
 
 
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
