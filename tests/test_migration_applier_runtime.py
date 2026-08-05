@@ -37,7 +37,12 @@ def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
         pytest.skip(str(exc))
 
     auto_migrations = _manifest_entries(include_manual=False)
+    all_migrations = _manifest_entries(include_manual=True)
     expected_auto_count = len(auto_migrations)
+    # --include-manual applies every manual-mode entry, not just
+    # MANUAL_MIGRATION specifically - count all of them rather than
+    # assuming exactly one exists in the manifest.
+    manual_count = len(all_migrations) - len(auto_migrations)
     rehearsal_db = f'migration_ledger_{uuid.uuid4().hex[:12]}'
     rehearsal_dsn = _dsn_for_database(db_target.dsn, rehearsal_db)
 
@@ -67,7 +72,7 @@ def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
         manual_run = _run_applier(bash, rehearsal_dsn, '--include-manual')
         assert manual_run.returncode == 0, manual_run.stderr or manual_run.stdout
         assert f'[INFO] applying {MANUAL_MIGRATION}' in manual_run.stdout
-        assert _schema_migration_count(rehearsal_dsn) == expected_auto_count + 1
+        assert _schema_migration_count(rehearsal_dsn) == expected_auto_count + manual_count
         assert _has_migration(rehearsal_dsn, MANUAL_MIGRATION) is True
     finally:
         with admin_conn.cursor() as cur:
