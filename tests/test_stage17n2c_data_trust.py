@@ -490,6 +490,48 @@ def test_spansh_temp_upsert_guard_col_scopes_to_matching_owner():
     assert "guard_col='system_id64'" in source
 
 
+def test_spansh_flush_rings_drops_rows_for_guard_rejected_bodies():
+    """A collision the system_id64 guard rejects leaves the bodies row
+    under its original owner, but the queued body_rings row for the
+    colliding write must not still be inserted as trusted local_matched
+    data for the wrong owner (GitHub review finding on PR #408 — the
+    guard alone made the bodies write a no-op, but flush_rings() was still
+    writing that body's rings unconditionally). flush_bodies() must record
+    which (system_id64, body_id) attempts were rejected, and flush_rings()
+    must filter the ring batch against that set before calling
+    upsert_body_rings — see
+    tests/integration/test_import_spansh_body_upsert.py::
+    test_returning_col_reports_ids_rejected_by_guard for the real-Postgres
+    proof of the underlying returning_col mechanism.
+
+    Rejection is scoped per (system_id64, body_id) pair, not bare body_id
+    (GitHub review finding on PR #409 — a rejection for one system must not
+    also drop a different, legitimately-owning system's rings for the same
+    colliding id, since a bare-id set can't distinguish the two)."""
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
+
+    assert "returning_col='id'" in source
+    assert 'rejected_body_ids.update(' in source
+    assert '(row[1], row[0]) for row in body_batch if row[0] in rejected_ids' in source
+    assert "if (r.get('system_id64'), r.get('body_id')) not in rejected_body_ids" in source
+
+
+def test_spansh_upsert_via_temp_rejection_uses_ownership_query_not_returning():
+    """GitHub review finding on PR #409: RETURNING from the main INSERT ...
+    ON CONFLICT DO UPDATE statement can't distinguish "guard_col rejected
+    this row" from "guard_col matched but nothing else changed, so the
+    no-op change-detection half of the WHERE suppressed the write" — both
+    produce no RETURNING row. Rejection must instead be computed by
+    comparing the attempted guard_col value against the row's actual final
+    owner directly, so an unchanged same-owner body is never misreported as
+    rejected and does not lose its rings on a plain re-import."""
+    source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
+
+    assert 'if returning_col and guard_col:' in source
+    assert 'JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}' in source
+    assert 'WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}' in source
+
+
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
     bodies = (
         [{'subtype': 'Earth-like world', 'is_earth_like': True}] * 3
