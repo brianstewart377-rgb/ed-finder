@@ -530,12 +530,19 @@ def test_spansh_upsert_via_temp_rejection_uses_ownership_query_not_returning():
     produce no RETURNING row. Rejection must instead be computed by
     comparing the attempted guard_col value against the row's actual final
     owner directly, so an unchanged same-owner body is never misreported as
-    rejected and does not lose its rings on a plain re-import."""
+    rejected and does not lose its rings on a plain re-import.
+
+    The comparison queries target_table directly rather than joining
+    through the de-duplicated temp table (GitHub review finding on PR #413
+    — a temp-table join only sees the single row that survived in-batch
+    de-duplication, so a pre-existing owner that wasn't the batch's last
+    occurrence for a colliding id was wrongly reported as rejected even
+    though it remained the true final owner)."""
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert 'if returning_col and guard_col:' in source
-    assert 'JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}' in source
-    assert 'WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}' in source
+    assert 'WHERE {conflict_col} = ANY(%s)' in source
+    assert 'actual_owner_by_conflict_value = dict(cur.fetchall())' in source
 
 
 def test_current_rating_scorer_attenuates_multi_economy_saturation():
