@@ -17,6 +17,8 @@ jobs:
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     outputs:
       needs_frontend_ci: ${{ steps.filter.outputs.needs_frontend_ci }}
     steps:
@@ -34,7 +36,12 @@ jobs:
           filters: |
             needs_frontend_ci:
               - '**'
-              - '!apps/importer/**'
+              # Only the importer's flat .py scripts, not the whole tree -
+              # apps/importer/src/data/region_map.json feeds the frontend
+              # build directly (frontend/vite.authoritative-regions.ts
+              # reads it to emit stage26e/authoritative-regions.json), so
+              # a change there must still run Frontend build/Playwright.
+              - '!apps/importer/src/*.py'
               - '!apps/eddn/**'
               - '!docs/**'
               - '!**/*.md'
