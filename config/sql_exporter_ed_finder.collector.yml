@@ -1,0 +1,91 @@
+---
+collector_name: ed_finder
+
+metrics:
+  - metric_name: ed_finder_dirty_counts_rating_dirty
+    type: gauge
+    help: Number of systems with rating_dirty = true.
+    values: [rating_dirty]
+    query_ref: dirty_counts
+
+  - metric_name: ed_finder_dirty_counts_cluster_dirty
+    type: gauge
+    help: Number of eligible systems with cluster_dirty = true.
+    values: [cluster_dirty]
+    query_ref: dirty_counts
+
+  - metric_name: ed_finder_import_progress_rows_processed
+    type: gauge
+    help: Import rows processed so far.
+    values: [rows_processed]
+    query_ref: import_progress
+
+  - metric_name: ed_finder_import_progress_rows_total
+    type: gauge
+    help: Total import rows expected.
+    values: [rows_total]
+    query_ref: import_progress
+
+  - metric_name: ed_finder_table_sizes_total_bytes
+    type: gauge
+    help: Total bytes used by a table, including indexes and TOAST data.
+    key_labels: [table_name]
+    values: [total_bytes]
+    query_ref: table_sizes
+
+  - metric_name: ed_finder_table_sizes_table_bytes
+    type: gauge
+    help: Bytes used by a table's heap data.
+    key_labels: [table_name]
+    values: [table_bytes]
+    query_ref: table_sizes
+
+  - metric_name: ed_finder_table_sizes_index_bytes
+    type: gauge
+    help: Bytes used by a table's indexes.
+    key_labels: [table_name]
+    values: [index_bytes]
+    query_ref: table_sizes
+
+  - metric_name: ed_finder_slow_queries_slow_query_count
+    type: gauge
+    help: Number of queries running longer than five seconds.
+    values: [slow_query_count]
+    query_ref: slow_queries
+
+queries:
+  - query_name: dirty_counts
+    query: |
+      SELECT
+        (SELECT COUNT(*)
+           FROM systems
+          WHERE rating_dirty = TRUE) AS rating_dirty,
+        (SELECT COUNT(*)
+           FROM systems
+          WHERE cluster_dirty = TRUE
+            AND has_body_data = TRUE
+            AND macro_grid_id IS NOT NULL) AS cluster_dirty
+
+  - query_name: import_progress
+    query: |
+      SELECT
+        (SELECT value::bigint FROM app_meta WHERE key = 'import_rows_processed') AS rows_processed,
+        (SELECT value::bigint FROM app_meta WHERE key = 'import_rows_total') AS rows_total
+
+  - query_name: table_sizes
+    query: |
+      SELECT
+        relname AS table_name,
+        pg_total_relation_size(relid) AS total_bytes,
+        pg_relation_size(relid) AS table_bytes,
+        pg_indexes_size(relid) AS index_bytes
+      FROM pg_catalog.pg_statio_user_tables
+      WHERE relname IN ('systems', 'bodies', 'stations', 'ratings', 'cluster_summary', 'grid_cells')
+
+  - query_name: slow_queries
+    query: |
+      SELECT COUNT(*) AS slow_query_count
+      FROM pg_stat_activity
+      WHERE state = 'active'
+        AND query_start < NOW() - INTERVAL '5 seconds'
+        AND query NOT LIKE '%pg_stat_activity%'

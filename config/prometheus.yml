@@ -32,6 +32,14 @@ scrape_configs:
     static_configs:
       - targets: ['postgres_exporter:9187']
 
+  # ED Finder-specific SQL metrics. Kept separate from the standard PostgreSQL
+  # exporter so custom queries use SQL Exporter's supported collector format.
+  - job_name: 'postgres-custom'
+    scrape_interval: 60s
+    scrape_timeout: 30s
+    static_configs:
+      - targets: ['postgres_custom_exporter:9399']
+
   # ── Redis metrics ─────────────────────────────────────────────────────────
   - job_name: 'redis'
     static_configs:

@@ -475,13 +475,40 @@ services:
     logging: *default-logging
     mem_limit: 256m
     cpus: 0.5
+    command:
+      - '--config.file=/etc/postgres_exporter/postgres_exporter.yml'
     environment:
       DATA_SOURCE_NAME: "postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder?sslmode=disable"
-      PG_EXPORTER_EXTEND_QUERY_PATH: /etc/postgres_exporter/queries.yaml
     volumes:
-      - ./config/postgres_exporter_queries.yaml:/etc/postgres_exporter/queries.yaml:ro
+      - ./config/postgres_exporter.yml:/etc/postgres_exporter/postgres_exporter.yml:ro
     ports:
       - "127.0.0.1:9187:9187"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Custom ED Finder SQL metrics. postgres_exporter's extended-query path is
+  # deprecated; SQL Exporter is the supported home for deployment-specific
+  # queries while postgres_exporter continues to provide standard pg_* metrics.
+  postgres_custom_exporter:
+    image: burningalchemist/sql_exporter:0.24.4
+    container_name: ed-postgres-custom-exporter
+    profiles: ["monitoring"]
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 256m
+    cpus: 0.5
+    entrypoint: ["/bin/sh", "/etc/sql_exporter/start.sh"]
+    command:
+      - '--config.file=/etc/sql_exporter/sql_exporter.yml'
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./config/sql_exporter.yml:/etc/sql_exporter/sql_exporter.yml:ro
+      - ./config/sql_exporter_ed_finder.collector.yml:/etc/sql_exporter/ed_finder.collector.yml:ro
+      - ./config/sql_exporter_start.sh:/etc/sql_exporter/start.sh:ro
+    ports:
+      - "127.0.0.1:9399:9399"
     depends_on:
       postgres:
         condition: service_healthy

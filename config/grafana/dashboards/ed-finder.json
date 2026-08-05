@@ -80,7 +80,7 @@
       "id": 3,
       "options": { "colorMode": "background", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto", "wideLayout": true },
       "targets": [
-        { "editorMode": "code", "expr": "min(up{job=~\"ed-api|eddn|postgres|redis\"})", "legendFormat": "targets", "range": true, "refId": "A" }
+        { "editorMode": "code", "expr": "min(up{job=~\"ed-api|eddn|postgres|postgres-custom|redis\"})", "legendFormat": "targets", "range": true, "refId": "A" }
       ],
       "title": "Core Target Health",
       "type": "stat"
@@ -202,8 +202,8 @@
       "id": 11,
       "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "editorMode": "code", "expr": "ed_finder_dirty_counts_rating_dirty{job=\"postgres\"}", "legendFormat": "rating dirty", "range": true, "refId": "A" },
-        { "editorMode": "code", "expr": "ed_finder_dirty_counts_cluster_dirty{job=\"postgres\"}", "legendFormat": "eligible cluster dirty", "range": true, "refId": "B" }
+        { "editorMode": "code", "expr": "ed_finder_dirty_counts_rating_dirty{job=\"postgres-custom\"}", "legendFormat": "rating dirty", "range": true, "refId": "A" },
+        { "editorMode": "code", "expr": "ed_finder_dirty_counts_cluster_dirty{job=\"postgres-custom\"}", "legendFormat": "eligible cluster dirty", "range": true, "refId": "B" }
       ],
       "title": "Dirty Systems Pending Rebuild",
       "type": "timeseries"
