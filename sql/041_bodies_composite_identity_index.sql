@@ -1,0 +1,33 @@
+-- Part 1 of the bodies composite-identity migration (see
+-- docs/superpowers/plans/2026-08-05-bodies-composite-identity-migration.md).
+-- bodies.id is a source-supplied id (Spansh dump id, or the Elite Dangerous
+-- journal's BodyID) that is unique only within a system, not globally — the
+-- current bare `id BIGINT PRIMARY KEY` cannot represent that. This index is
+-- the non-blocking first step; sql/042 swaps it in as the real primary key
+-- once it's built and verified.
+--
+-- CONCURRENTLY: do not wrap this file in a transaction when applying. On the
+-- ~573M-row bodies table this will take a long time — run it during a
+-- monitored low-traffic window, not as part of a routine deploy. Existing
+-- rows are already globally unique on id (the current PK enforces it), so
+-- this cannot fail on a duplicate — it is purely an index build, no data
+-- changes.
+--
+-- Marked |manual in migration-manifest.txt so a routine deploy's
+-- apply_migrations.sh (no --include-manual) never attempts this
+-- automatically — the ~1h default MIGRATION_STATEMENT_TIMEOUT would almost
+-- certainly cancel a build this size mid-flight. Apply explicitly with
+-- --include-manual and an overridden MIGRATION_STATEMENT_TIMEOUT sized for
+-- the actual table, during the monitored window the plan calls for.
+--
+-- If the build is ever interrupted (cancelled, connection dropped, server
+-- restart) Postgres can leave an INVALID index behind under this same name.
+-- Because of IF NOT EXISTS, simply re-running this file would then silently
+-- no-op — the index exists, just not validly — and the migration ledger
+-- would record 041 as applied. Before trusting a re-run, check:
+--   SELECT indisvalid FROM pg_index
+--   WHERE indexrelid = 'idx_bodies_system_id64_id'::regclass;
+-- If false, DROP INDEX CONCURRENTLY idx_bodies_system_id64_id; first, then
+-- retry this file.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_bodies_system_id64_id
+    ON bodies (system_id64, id);

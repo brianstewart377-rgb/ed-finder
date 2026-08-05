@@ -52,3 +52,4 @@
 038_admin_job_runs.sql
 039_ratings_score_viable_index.sql
 040_cluster_summary_widen_counts.sql
+041_bodies_composite_identity_index.sql|manual
