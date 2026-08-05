@@ -254,9 +254,21 @@ fi
 # ---------------------------------------------------------------------------
 log "--- Step 3.5: Build archetype topology + scores ---"
 
-# Use the same dirty signal as build_topology.py: ratings rows flagged dirty
-# or systems that have no topology row yet.
-pg_count_into TOPO_DIRTY "SELECT COUNT(*) FROM ratings WHERE rating_dirty = TRUE"
+# Use the same dirty signal as build_topology.py's --dirty mode
+# (_fetch_system_ids in apps/importer/src/build_topology.py): ratings rows
+# whose owning system is rating_dirty, or systems with a rating but no
+# topology row yet. rating_dirty lives on systems, not ratings — the prior
+# "FROM ratings WHERE rating_dirty" errored every night (column does not
+# exist on ratings) and silently degraded to 0, which skipped
+# build_topology.py --dirty entirely regardless of the real backlog size.
+pg_count_into TOPO_DIRTY "SELECT COUNT(*) FROM (
+    SELECT r.system_id64
+    FROM ratings r
+    JOIN systems s ON s.id64 = r.system_id64
+    LEFT JOIN system_slot_topology t ON t.system_id64 = r.system_id64
+    WHERE s.rating_dirty = TRUE
+       OR t.system_id64 IS NULL
+) topo_dirty"
 pg_count_into ARCH_SCORE_DIRTY "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
 log "Topology dirty (rating_dirty): $TOPO_DIRTY | Archetype scores dirty: $ARCH_SCORE_DIRTY"
 

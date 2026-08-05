@@ -959,8 +959,9 @@ def _fetch_system_ids(conn, mode: str, limit: Optional[int]) -> list:
             cur.execute("""
                 SELECT DISTINCT r.system_id64
                 FROM ratings r
+                JOIN systems s ON s.id64 = r.system_id64
                 LEFT JOIN system_slot_topology t ON t.system_id64 = r.system_id64
-                WHERE r.rating_dirty = TRUE
+                WHERE s.rating_dirty = TRUE
                    OR t.system_id64 IS NULL
                 ORDER BY r.system_id64
                 LIMIT %s
