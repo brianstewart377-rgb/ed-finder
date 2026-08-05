@@ -59,6 +59,13 @@ absolute_path() {
 grafana_password="$(absolute_path "$(env_path GRAFANA_PASSWORD_FILE ./config/grafana_admin_password.disabled)")"
 healthchecks_token="$(absolute_path "$(env_path HEALTHCHECKS_PROMETHEUS_TOKEN_FILE ./config/healthchecks_readonly_api_key.disabled)")"
 healthchecks_targets="$(absolute_path "$(env_path HEALTHCHECKS_PROMETHEUS_TARGETS_FILE ./config/healthchecks_targets.empty.yml)")"
+healthchecks_disabled_token="$(absolute_path ./config/healthchecks_readonly_api_key.disabled)"
+healthchecks_disabled_targets="$(absolute_path ./config/healthchecks_targets.empty.yml)"
+healthchecks_disabled=false
+if [[ "$healthchecks_token" == "$healthchecks_disabled_token" \
+  && "$healthchecks_targets" == "$healthchecks_disabled_targets" ]]; then
+  healthchecks_disabled=true
+fi
 
 [[ -s "$grafana_password" ]] || die 'Grafana password file is missing or empty'
 [[ -s "$healthchecks_token" ]] || die 'Healthchecks read-only key file is missing or empty'
@@ -78,10 +85,12 @@ single_nonempty_line "$healthchecks_token" 'Healthchecks key file'
 if grep -Eq '^(not-configured|admin|change-me)[[:space:]]*$' "$grafana_password"; then
   die 'Grafana password file still contains a placeholder'
 fi
-grep -Eq '^hcr_[A-Za-z0-9_-]+[[:space:]]*$' "$healthchecks_token" \
-  || die 'Healthchecks key file does not contain a read-only hcr_ key'
-grep -q 'healthchecks.io' "$healthchecks_targets" \
-  || die 'Healthchecks target file does not contain healthchecks.io'
+if [[ "$healthchecks_disabled" == false ]]; then
+  grep -Eq '^hcr_[A-Za-z0-9_-]+[[:space:]]*$' "$healthchecks_token" \
+    || die 'Healthchecks key file does not contain a read-only hcr_ key'
+  grep -q 'healthchecks.io' "$healthchecks_targets" \
+    || die 'Healthchecks target file does not contain healthchecks.io'
+fi
 if grep -q 'replace-with-project-uuid' "$healthchecks_targets"; then
   die 'Healthchecks target file still contains the example project UUID'
 fi
@@ -103,13 +112,17 @@ if [[ "$mode" == apply ]]; then
 
   chown 472:0 "$grafana_password"
   chmod 0400 "$grafana_password"
-  chown 65534:65534 "$healthchecks_token"
-  chmod 0400 "$healthchecks_token"
-  chown 0:0 "$healthchecks_targets"
-  chmod 0644 "$healthchecks_targets"
+  if [[ "$healthchecks_disabled" == false ]]; then
+    chown 65534:65534 "$healthchecks_token"
+    chmod 0400 "$healthchecks_token"
+    chown 0:0 "$healthchecks_targets"
+    chmod 0644 "$healthchecks_targets"
+  fi
 fi
 
 expected_state "$grafana_password" '472:0' '400'
-expected_state "$healthchecks_token" '65534:65534' '400'
-expected_state "$healthchecks_targets" '0:0' '644'
+if [[ "$healthchecks_disabled" == false ]]; then
+  expected_state "$healthchecks_token" '65534:65534' '400'
+  expected_state "$healthchecks_targets" '0:0' '644'
+fi
 ok "monitoring file permissions are ready ($mode mode)"
