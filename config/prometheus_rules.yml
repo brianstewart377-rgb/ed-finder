@@ -2,7 +2,7 @@ groups:
   - name: ed-finder-runtime
     rules:
       - alert: MonitoringTargetDown
-        expr: up{job=~"ed-api|eddn|postgres|redis"} == 0
+        expr: up{job=~"ed-api|eddn|postgres|postgres-custom|redis"} == 0
         for: 2m
         labels:
           severity: critical

@@ -228,6 +228,88 @@ docker compose restart nginx
 
 This must always end with `docker compose restart nginx` — nginx serves the static dist via a volume mount and requires a restart to pick up the new build. Without it the site 404s.
 
+## Debugging data drift — read before chasing a wrong-value bug
+
+Earned on the body_rings association_status hunt (2026-08-04), which took a
+full day and produced eight wrong hypotheses before the right one. Follow in
+order.
+
+1. **Check the schema before chasing code.** Column defaults, primary keys,
+   foreign keys and triggers explain more wrong-value bugs than application
+   code does, and one query settles what a dozen greps cannot:
+   `SELECT column_default, is_nullable FROM information_schema.columns
+   WHERE table_name='X' AND column_name='Y';`
+
+2. **A negative grep is not an alibi.** "The code never mentions this column"
+   is evidence *for* silent stamping by a DDL default, not against it. An
+   absent column name means the schema writes the value.
+
+3. **Enumerate every write verb, not just INSERT.** "Who writes this column"
+   means INSERT, UPDATE, COPY, and the DDL default. Clearing five INSERT
+   sites is not the same as understanding the write path.
+
+4. **The database is part of the codebase.** Greps over apps/ and scripts/
+   cannot see triggers, rules, or plpgsql functions. When a value changes and
+   no application code explains it, query pg_trigger and pg_proc before
+   forming another application-layer hypothesis.
+
+5. **A constant with the same name in several files may not be one constant.**
+   Check whether it is genuinely shared or copy-pasted. Copies look identical
+   in every grep and every review while diverging silently.
+
+6. **Verify the claim, not the summary.** If a PR asserts "all three sites
+   changed", read all three in the deployed source before reasoning on top of
+   it. An unverified claim compounds into hours of wrong conclusions.
+
+7. **Partial output lies.** A `grep -A14` that truncates a long SQL statement
+   tells you nothing about the part you did not see. Widen the window before
+   concluding.
+
+8. **When a comment asserts two identifiers are the same thing, verify it.**
+   Identifier-space conflation — a global id versus a per-parent ordinal — is
+   invisible in review, survives every type check because both are bigint,
+   and surfaces as data corruption weeks later.
+
+9. **Any writer that changes a key column must recompute the values derived
+   from it, in the same statement.** A status column is a claim *about* a
+   particular foreign key. Move the key and leave the claim behind and the
+   row is silently wrong.
+
+## Known hazards in this codebase
+
+- **bodies.id is application-supplied with no sequence.** The primary key is
+  `id` alone. The EDDN listener binds the journal's BodyID, which is only
+  unique *within* a system, so two systems scanning the same BodyID collide
+  and `ON CONFLICT (id) DO UPDATE SET system_id64 = EXCLUDED.system_id64`
+  re-parents the row. attractions, station_body_links and body_rings all FK
+  to bodies(id), so this corrupts three tables at once. Root cause of the
+  ring association_status drift.
+
+- **body\_rings.association\_status is `NOT NULL DEFAULT 'local\_matched'`.**
+  Any INSERT that omits the column silently asserts a verified local match.
+  Two of the five ring writers omit it.
+
+- **body\_rings has five writers**, three naming association_status with a
+  CASE and two omitting it: eddn_listener.py, ingest/eddn_client.py,
+  journal_import/store.py, importer/import_spansh.py,
+  importer/enrich_system_data.py.
+
+- **BODY\_RING\_ASSOCIATION\_STATUS\_CASE\_SQL is defined three times**, once per
+  file, with no shared module. Changing one does not change the others.
+
+- **The role `edfinder` has `statement\_timeout = 15000` set via ALTER ROLE.**
+  It exists nowhere in the repo. Any shell or psql path that does not
+  override it is capped at 15 seconds.
+
+- **`psql -c "SET ...; <statement>"` runs both in one transaction.** VACUUM
+  and REFRESH MATERIALIZED VIEW CONCURRENTLY cannot run there. Use PGOPTIONS
+  or separate -c flags.
+
+- **The Python tests for the ring and body upserts are mocks.** They cannot
+  catch malformed SQL — PR #403 shipped a broken cast to production with all
+  checks green. Anything touching these statements needs a real Postgres
+  integration test.
+
 ## Operational patterns
 
 ### Cross-app imports in importer scripts

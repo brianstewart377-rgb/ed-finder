@@ -14,6 +14,43 @@ concurrency:
   cancel-in-progress:  true
 
 jobs:
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    permissions:
+      # Declaring job-level permissions resets every unlisted scope to
+      # 'none' - contents: read must be listed explicitly or the
+      # actions/checkout step below has no repo read access.
+      contents: read
+      pull-requests: read
+    outputs:
+      needs_frontend_ci: ${{ steps.filter.outputs.needs_frontend_ci }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          # A filter made only of negated ('!') patterns never matches
+          # anything (see dorny/paths-filter's README) - it needs an
+          # explicit catch-all pattern to exclude *from*, plus
+          # 'some-with-excludes' so the exclusions actually exclude
+          # rather than being ignored under the default quantifier.
+          # some-with-excludes requires v4 - v3 only accepts every/some.
+          predicate-quantifier: 'some-with-excludes'
+          filters: |
+            needs_frontend_ci:
+              - '**'
+              # Only the importer's flat .py scripts, not the whole tree -
+              # apps/importer/src/data/region_map.json feeds the frontend
+              # build directly (frontend/vite.authoritative-regions.ts
+              # reads it to emit stage26e/authoritative-regions.json), so
+              # a change there must still run Frontend build/Playwright.
+              - '!apps/importer/src/*.py'
+              - '!apps/eddn/**'
+              - '!docs/**'
+              - '!**/*.md'
+              - '!scripts/operator/**'
+
   # ─── Backend ────────────────────────────────────────────────────────
   backend:
     name: Backend unit tests + compose validate
@@ -256,6 +293,8 @@ jobs:
   # again, this job fails on PR before it ever reaches production.
   v2:
     name: Frontend build
+    needs: changes
+    if: needs.changes.outputs.needs_frontend_ci == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -463,6 +502,8 @@ jobs:
   # production round-trip without paying for a hosted preview env.
   e2e:
     name: Frontend v2 E2E (Playwright)
+    needs: changes
+    if: needs.changes.outputs.needs_frontend_ci == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:

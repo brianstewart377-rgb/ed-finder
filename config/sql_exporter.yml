@@ -1,0 +1,20 @@
+---
+global:
+  # The custom backlog queries can touch large production tables. Cache their
+  # results for five minutes and allow only one database connection at a time.
+  scrape_timeout: 30s
+  scrape_timeout_offset: 500ms
+  min_interval: 5m
+  max_connections: 1
+  max_idle_connections: 1
+
+target:
+  name: ed-finder
+  # Compose overrides this non-secret placeholder through
+  # SQLEXPORTER_TARGET_DSN at runtime.
+  data_source_name: postgresql://disabled:disabled@localhost/disabled
+  collectors: [ed_finder]
+  enable_ping: true
+
+collector_files:
+  - /etc/sql_exporter/*.collector.yml

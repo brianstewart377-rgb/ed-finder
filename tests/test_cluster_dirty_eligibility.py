@@ -4,7 +4,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REGIONAL_ANALYSIS_PATH = ROOT / 'apps' / 'importer' / 'src' / 'build_regional_analysis.py'
 NIGHTLY_UPDATE_PATH = ROOT / 'scripts' / 'nightly_update.sh'
-EXPORTER_QUERIES_PATH = ROOT / 'config' / 'postgres_exporter_queries.yaml'
+EXPORTER_QUERIES_PATH = (
+    ROOT / 'config' / 'sql_exporter_ed_finder.collector.yml'
+)
 
 
 def test_regional_analysis_scopes_cluster_dirty_to_eligible_systems():
