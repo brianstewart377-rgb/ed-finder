@@ -24,8 +24,15 @@ jobs:
       - uses: dorny/paths-filter@v3
         id: filter
         with:
+          # A filter made only of negated ('!') patterns never matches
+          # anything (see dorny/paths-filter's README) - it needs an
+          # explicit catch-all pattern to exclude *from*, plus
+          # 'some-with-excludes' so the exclusions actually exclude
+          # rather than being ignored under the default quantifier.
+          predicate-quantifier: 'some-with-excludes'
           filters: |
             needs_frontend_ci:
+              - '**'
               - '!apps/importer/**'
               - '!apps/eddn/**'
               - '!docs/**'
