@@ -161,7 +161,7 @@ def test_returning_col_reports_ids_rejected_by_guard(pg_conn):
         'id', guard_col='system_id64', returning_col='id',
     )
     assert intruder_count == 0
-    assert intruder_rejected == {TEST_BODY_ID}
+    assert intruder_rejected == {(intruder_id, TEST_BODY_ID)}
 
 
 @pytest.mark.db
@@ -261,7 +261,7 @@ def test_cross_owner_duplicate_id_in_batch_is_reported_as_rejected(pg_conn):
         )
 
         assert count == 1
-        assert rejected_keys == {body_id}
+        assert rejected_keys == {(system_ids[0], body_id)}
         with pg_conn.cursor() as cur:
             cur.execute(
                 'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
@@ -270,6 +270,56 @@ def test_cross_owner_duplicate_id_in_batch_is_reported_as_rejected(pg_conn):
             rows = cur.fetchall()
 
         assert rows == [('Rejected Last Body', 'Icy body', system_ids[1])]
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+        pg_conn.commit()
+
+
+@pytest.mark.db
+def test_batch_duplicate_winner_matching_earlier_occurrence_is_not_rejected(pg_conn):
+    """Regression test for a GitHub review finding on PR #413: with 3+
+    occurrences of the same body id in one batch, the surviving
+    (last-occurrence-wins) row's system must not be reported as rejected
+    just because an earlier occurrence of that same system was itself
+    overwritten mid-batch by a different system's row. Only the system
+    whose value differs from the final survivor counts as rejected."""
+    system_ids = (93_000_000_000_051, 93_000_000_000_052)
+    body_id = 930_000_051
+
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute('DELETE FROM bodies WHERE id = %s', (body_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (list(system_ids),))
+            cur.execute(
+                'INSERT INTO systems (id64, name) VALUES (%s, %s), (%s, %s)',
+                (system_ids[0], 'Three Way First System',
+                 system_ids[1], 'Three Way Middle System'),
+            )
+        pg_conn.commit()
+
+        count, rejected_keys = import_spansh.upsert_via_temp(
+            pg_conn, 'bodies', BODY_COLS,
+            [
+                (body_id, system_ids[0], 'First Occurrence Body', 'Planet', 'Rocky body'),
+                (body_id, system_ids[1], 'Middle Occurrence Body', 'Planet', 'Metal-rich body'),
+                (body_id, system_ids[0], 'Final Occurrence Body', 'Planet', 'Icy body'),
+            ],
+            'id', guard_col='system_id64', returning_col='id',
+        )
+
+        assert count == 1
+        assert rejected_keys == {(system_ids[1], body_id)}
+        with pg_conn.cursor() as cur:
+            cur.execute(
+                'SELECT name, subtype, system_id64 FROM bodies WHERE id = %s',
+                (body_id,),
+            )
+            rows = cur.fetchall()
+
+        assert rows == [('Final Occurrence Body', 'Icy body', system_ids[0])]
     finally:
         pg_conn.rollback()
         with pg_conn.cursor() as cur:

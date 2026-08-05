@@ -389,14 +389,32 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     from a different owner is a no-op instead of a silent re-parent.
 
     returning_col: only meaningful together with guard_col. If set, also
-    compute the set of this column's values among the attempted rows whose
-    guard_col was actually rejected (i.e. the row that ends up in
-    target_table has a guard_col value different from what this call
-    attempted), and return (count, rejected_keys) instead of a bare count.
-    This is deliberately a direct post-write ownership comparison rather
-    than reading back RETURNING from the main statement: RETURNING only
-    reports rows the UPDATE actually touched, and the same-owner no-op case
-    (nothing changed, so the change-detection half of where_clause is
+    compute the set of (guard_col value, this column's value) pairs among
+    the attempted rows whose guard_col was rejected, and return
+    (count, rejected_keys) instead of a bare count. rejected_keys entries
+    are (guard_col_value, conflict_col_value) pairs rather than bare
+    conflict_col values: a bare value can't tell a caller which specific
+    owner's attempt was rejected when the same conflict_col value was
+    attempted by more than one owner. A pair is rejected for either of two
+    reasons:
+
+    1. A pre-existing different owner already held conflict_col, so this
+       call's write was blocked by guard_col (detected by comparing the
+       final row in target_table against what this call attempted).
+    2. This call's own batch contained rows for the same conflict_col value
+       from more than one distinct guard_col value; every guard_col value
+       among those rows other than the one that survives batch
+       de-duplication (last occurrence wins, same as the plain duplicate
+       case below) is rejected. The survivor itself is never rejected by
+       this path, even if an earlier occurrence in the batch shared its
+       guard_col value and a different-guard_col occurrence came between
+       them — only guard_col values that differ from the final survivor's
+       count as rejected.
+
+    This is deliberately a direct post-write ownership comparison for case
+    1 rather than reading back RETURNING from the main statement: RETURNING
+    only reports rows the UPDATE actually touched, and the same-owner no-op
+    case (nothing changed, so the change-detection half of where_clause is
     false) also produces no RETURNING row even though guard_col was not
     rejected — conflating the two would wrongly treat an unchanged,
     correctly-owned row as rejected. Use this so dependent rows keyed off
@@ -408,18 +426,15 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
         return (0, set()) if returning_col else 0
     conflict_col_index = columns.index(conflict_col)
     guard_col_index = columns.index(guard_col) if guard_col and returning_col else None
-    ambiguous_conflict_values = set()
     rows_by_conflict_value = {}
+    guard_values_by_conflict_value = {}
     for row in rows:
         conflict_value = row[conflict_col_index]
-        previous_row = rows_by_conflict_value.get(conflict_value)
-        if (
-            guard_col_index is not None
-            and previous_row is not None
-            and previous_row[guard_col_index] != row[guard_col_index]
-        ):
-            ambiguous_conflict_values.add(conflict_value)
         rows_by_conflict_value[conflict_value] = row
+        if guard_col_index is not None:
+            guard_values_by_conflict_value.setdefault(conflict_value, set()).add(
+                row[guard_col_index]
+            )
     duplicate_rows_dropped = len(rows) - len(rows_by_conflict_value)
     if duplicate_rows_dropped:
         rows = list(rows_by_conflict_value.values())
@@ -428,6 +443,13 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
             f"{duplicate_rows_dropped:,} duplicate row(s) for conflict_col "
             f"{conflict_col}"
         )
+    rejected_within_batch = set()
+    for conflict_value, guard_values in guard_values_by_conflict_value.items():
+        if len(guard_values) > 1:
+            winner_guard_value = rows_by_conflict_value[conflict_value][guard_col_index]
+            for guard_value in guard_values:
+                if guard_value != winner_guard_value:
+                    rejected_within_batch.add((guard_value, conflict_value))
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
     temp = f"_tmp_{target_table}"
@@ -494,15 +516,15 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 SET {set_clause}{where_clause}
             """)
             count = cur.rowcount
-            rejected_keys = set(ambiguous_conflict_values) if returning_col else None
+            rejected_keys = set(rejected_within_batch) if returning_col else None
             if returning_col and guard_col:
                 cur.execute(f"""
-                    SELECT t.{returning_col}
+                    SELECT t.{guard_col}, t.{returning_col}
                     FROM {temp} t
                     JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}
                     WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}
                 """)
-                rejected_keys.update(row[0] for row in cur.fetchall())
+                rejected_keys.update((row[0], row[1]) for row in cur.fetchall())
         conn.commit()
         return (count, rejected_keys) if returning_col else count
 
@@ -887,14 +909,12 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush_bodies():
         flush_systems()
         if body_batch:
-            _count, rejected_ids = upsert_via_temp(
+            _count, rejected_owner_keys = upsert_via_temp(
                 conn, 'bodies', BODY_COLS, body_batch, 'id',
                 guard_col='system_id64', returning_col='id',
             )
-            if rejected_ids:
-                rejected_body_ids.update(
-                    (row[1], row[0]) for row in body_batch if row[0] in rejected_ids
-                )
+            if rejected_owner_keys:
+                rejected_body_ids.update(rejected_owner_keys)
             body_batch.clear()
 
     def flush_rings():
