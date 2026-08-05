@@ -144,9 +144,60 @@ git commit -m "Add non-blocking composite (system_id64, id) index on bodies"
 
 ---
 
+## Known issues in Tasks 2-5 below, found by GitHub review on PR #411 (2026-08-05)
+
+Not yet fixed in the task bodies below — resolve these before executing
+Task 2, not after writing the migration files:
+
+1. **Task 2 as written cannot run before Task 3.** `body_rings_body_id_fkey`,
+   `attractions_body_id_fkey`, and `station_body_links_body_id_fkey` still
+   reference `bodies(id)` (i.e. `bodies_pkey`) at the point Task 2's
+   `DROP CONSTRAINT bodies_pkey` runs. PostgreSQL refuses to drop a
+   constraint that other tables' foreign keys still depend on without
+   `CASCADE`. Either drop/recreate those three FK constraints as part of
+   Task 2's own migration file (ahead of the `DROP CONSTRAINT bodies_pkey`
+   line), or merge Tasks 2 and 3 into one migration — do not rely on Task 3
+   running as a separate, later step while Task 2 is written as it currently
+   is.
+
+2. **Task 3's `ON DELETE SET NULL` clauses need a column list.** Without one,
+   PostgreSQL nulls *every* column in a multi-column foreign key on delete —
+   both `system_id64` and `body_id` — but `system_id64` is `NOT NULL` on all
+   three dependent tables, so deleting a `bodies` row would start raising a
+   NOT NULL violation instead of just clearing `body_id` (the current,
+   intended, single-column behavior). PostgreSQL 15+ supports naming which
+   column(s) to null: change all three clauses in Task 3's migration file
+   from `ON DELETE SET NULL` to `ON DELETE SET NULL (body_id)`.
+
+3. **Tasks 2/3 (schema) and Tasks 4/5 (writer code) must not go live with a
+   gap between them.** `eddn_listener.py` and `import_spansh.py` still issue
+   `ON CONFLICT (id)` until Task 4/5's code ships. Task 2 removes the bare
+   `id` unique constraint entirely and does not add a replacement
+   `UNIQUE (id)`, so from the moment Task 2's migration is applied until
+   Task 4/5's writer code is deployed, every body upsert fails outright with
+   "no unique or exclusion constraint matching the ON CONFLICT specification"
+   — body ingestion is completely down for that gap. Either deploy the
+   schema and writer changes atomically, or keep a temporary
+   `UNIQUE (id)` constraint alongside the new composite PK until the writer
+   deploy is confirmed, then drop it in a follow-up migration.
+
+4. **Task 3's FK validation is not actually metadata-only if written as a
+   plain `ADD CONSTRAINT`.** A normal `FOREIGN KEY` addition validates every
+   existing row immediately, which on production-sized `body_rings`,
+   `attractions`, and `station_body_links` can mean a long scan under
+   normal migration lock/timeout budgets — contrary to Task 3's current
+   description of this as a safe, ordinary constraint swap. Split it into
+   `ADD CONSTRAINT ... NOT VALID` followed by a separately-run, separately-
+   monitored `VALIDATE CONSTRAINT` step (with the composite indexes the FKs
+   need already in place), the same way Task 1 treats the big index build
+   as its own deliberate, monitored operation rather than routine migration
+   traffic.
+
+---
+
 ## Task 2: Swap `bodies`' primary key to the composite index
 
-**Do not start this task until Task 1's index has been built and verified in production** (see the Production Rollout Runbook at the end of this plan — this is a deploy-sequencing dependency, not just a code dependency).
+**Do not start this task until Task 1's index has been built and verified in production** (see the Production Rollout Runbook at the end of this plan — this is a deploy-sequencing dependency, not just a code dependency). **Also read "Known issues in Tasks 2-5" immediately above — Task 2 as drafted below has not yet been corrected for issue 1.**
 
 **Files:**
 - Create: `sql/042_bodies_composite_primary_key.sql`

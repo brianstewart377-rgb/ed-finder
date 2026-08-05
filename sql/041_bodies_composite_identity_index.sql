@@ -12,5 +12,22 @@
 -- rows are already globally unique on id (the current PK enforces it), so
 -- this cannot fail on a duplicate — it is purely an index build, no data
 -- changes.
+--
+-- Marked |manual in migration-manifest.txt so a routine deploy's
+-- apply_migrations.sh (no --include-manual) never attempts this
+-- automatically — the ~1h default MIGRATION_STATEMENT_TIMEOUT would almost
+-- certainly cancel a build this size mid-flight. Apply explicitly with
+-- --include-manual and an overridden MIGRATION_STATEMENT_TIMEOUT sized for
+-- the actual table, during the monitored window the plan calls for.
+--
+-- If the build is ever interrupted (cancelled, connection dropped, server
+-- restart) Postgres can leave an INVALID index behind under this same name.
+-- Because of IF NOT EXISTS, simply re-running this file would then silently
+-- no-op — the index exists, just not validly — and the migration ledger
+-- would record 041 as applied. Before trusting a re-run, check:
+--   SELECT indisvalid FROM pg_index
+--   WHERE indexrelid = 'idx_bodies_system_id64_id'::regclass;
+-- If false, DROP INDEX CONCURRENTLY idx_bodies_system_id64_id; first, then
+-- retry this file.
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_bodies_system_id64_id
     ON bodies (system_id64, id);
