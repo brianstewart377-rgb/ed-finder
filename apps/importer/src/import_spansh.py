@@ -407,10 +407,19 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     if not rows:
         return (0, set()) if returning_col else 0
     conflict_col_index = columns.index(conflict_col)
-    rows_by_conflict_value = {
-        row[conflict_col_index]: row
-        for row in rows
-    }
+    guard_col_index = columns.index(guard_col) if guard_col and returning_col else None
+    ambiguous_conflict_values = set()
+    rows_by_conflict_value = {}
+    for row in rows:
+        conflict_value = row[conflict_col_index]
+        previous_row = rows_by_conflict_value.get(conflict_value)
+        if (
+            guard_col_index is not None
+            and previous_row is not None
+            and previous_row[guard_col_index] != row[guard_col_index]
+        ):
+            ambiguous_conflict_values.add(conflict_value)
+        rows_by_conflict_value[conflict_value] = row
     duplicate_rows_dropped = len(rows) - len(rows_by_conflict_value)
     if duplicate_rows_dropped:
         rows = list(rows_by_conflict_value.values())
@@ -485,7 +494,7 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 SET {set_clause}{where_clause}
             """)
             count = cur.rowcount
-            rejected_keys = set() if returning_col else None
+            rejected_keys = set(ambiguous_conflict_values) if returning_col else None
             if returning_col and guard_col:
                 cur.execute(f"""
                     SELECT t.{returning_col}
@@ -493,7 +502,7 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                     JOIN {target_table} b ON b.{conflict_col} = t.{conflict_col}
                     WHERE b.{guard_col} IS DISTINCT FROM t.{guard_col}
                 """)
-                rejected_keys = {row[0] for row in cur.fetchall()}
+                rejected_keys.update(row[0] for row in cur.fetchall())
         conn.commit()
         return (count, rejected_keys) if returning_col else count
 
