@@ -18,6 +18,10 @@ jobs:
     name: Detect changed paths
     runs-on: ubuntu-latest
     permissions:
+      # Declaring job-level permissions resets every unlisted scope to
+      # 'none' - contents: read must be listed explicitly or the
+      # actions/checkout step below has no repo read access.
+      contents: read
       pull-requests: read
     outputs:
       needs_frontend_ci: ${{ steps.filter.outputs.needs_frontend_ci }}
