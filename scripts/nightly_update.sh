@@ -52,6 +52,24 @@ if [[ ! -f "$COMPOSE/docker-compose.yml" ]]; then
     exit 1
 fi
 
+# Overlap guard. 2026-08-06 incident: a backlog-clearing regional-analysis
+# backfill (Step 3.6, --limit 5000000) ran past 24h, cron fired the next
+# night's run on top of it with nothing to stop it, and the two ran
+# concurrently for two more days — contending on the same upserts, each
+# roughly halving the other's throughput, and neither ever reaching the
+# heartbeat ping at the bottom of this script (hence the "still down"
+# dead-man's-switch alert: it wasn't broken, the run it was waiting on
+# genuinely never finished). This is deliberately non-blocking (-n): if
+# last night's run is still going, skip tonight's entirely rather than
+# queue up a pileup, and let the still-running instance finish undisturbed.
+NIGHTLY_LOCK_FILE="${NIGHTLY_LOCK_FILE:-/run/lock/ed-finder-nightly-update.lock}"
+mkdir -p "$(dirname "$NIGHTLY_LOCK_FILE")"
+exec 200>"$NIGHTLY_LOCK_FILE"
+if ! flock -n 200; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]  Previous nightly_update.sh run is still active ($NIGHTLY_LOCK_FILE held) — skipping tonight's run rather than stacking a duplicate" | tee -a "$LOG"
+    exit 0
+fi
+
 # Host cron does not load the compose environment. Read only the heartbeat key
 # rather than sourcing .env, because other values may contain shell syntax.
 if [[ -z "${NIGHTLY_UPDATE_HEARTBEAT_URL+x}" ]] && [[ -r "$COMPOSE/.env" ]]; then

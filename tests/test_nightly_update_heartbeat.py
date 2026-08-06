@@ -2,6 +2,9 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import time
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +38,7 @@ def _run_nightly_update(
     fatal: bool = False,
     pg_count_failure: bool = False,
     curl_result: str = 'success',
+    use_real_flock: bool = False,
 ) -> dict[str, object]:
     bash = _find_bash()
     assert bash is not None, 'bash is required for nightly update behavior tests'
@@ -120,6 +124,17 @@ if [[ "${FAKE_CURL_RESULT:-success}" == 'fail' ]]; then
     exit 28
 fi
 ''')
+    if not use_real_flock:
+        # Default: always "acquire" the lock. These tests exercise a single
+        # run at a time and assert on heartbeat/docker/vacuum behavior
+        # further downstream in the script — not the lock itself — and this
+        # repo's tests run on Windows dev machines too, where Git Bash does
+        # not ship flock. test_concurrent_run_skips_instead_of_stacking below
+        # uses the real system flock instead (skipping if unavailable) to
+        # actually exercise contention.
+        _write_executable(fake_bin / 'flock', '#!/bin/bash\nexit 0\n')
+
+    lock_file = tmp_path / 'nightly-update.lock'
 
     env = {
         **os.environ,
@@ -129,6 +144,7 @@ fi
         'FAKE_FATAL': '1' if fatal else '0',
         'FAKE_PG_COUNT_FAILURE': '1' if pg_count_failure else '0',
         'FAKE_CURL_RESULT': curl_result,
+        'NIGHTLY_LOCK_FILE': lock_file.as_posix(),
     }
     for key in list(env):
         if key.lower() == 'path':
@@ -306,3 +322,37 @@ def test_env_example_documents_nightly_update_heartbeat_clean_fail_split():
     assert 'NIGHTLY_UPDATE_HEARTBEAT_URL=' in env_example.splitlines()
     assert 'clean' in env_example.lower()
     assert '/fail' in env_example
+
+
+def test_concurrent_run_skips_instead_of_stacking(tmp_path: Path):
+    """2026-08-06 incident regression: nightly_update.sh had no overlap
+    guard, so a backlog-clearing regional-analysis backfill that ran past
+    24h didn't stop cron from starting a second full run on top of it —
+    the two then ran concurrently for two more days, contending on the same
+    upserts, neither ever reaching the heartbeat ping. A still-running
+    instance must now make the next invocation skip immediately instead."""
+    if shutil.which('flock') is None:
+        pytest.skip('flock is not available on this host (e.g. Windows Git Bash)')
+
+    lock_file = tmp_path / 'nightly-update.lock'
+    holder = subprocess.Popen(['flock', '-n', str(lock_file), 'sleep', '10'])
+    try:
+        for _ in range(50):
+            probe = subprocess.run(['flock', '-n', str(lock_file), '-c', 'true'])
+            if probe.returncode != 0:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail('background holder never acquired the lock')
+
+        observation = _run_nightly_update(tmp_path, use_real_flock=True)
+    finally:
+        holder.terminate()
+        holder.wait(timeout=5)
+
+    completed = observation['completed']
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert 'still active' in observation['output']
+    assert observation['docker_calls'] == []
+    assert observation['curl_calls'] == []
