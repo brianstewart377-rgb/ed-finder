@@ -17,6 +17,7 @@ import logging
 import sys
 from typing import Optional
 
+import sentry_sdk
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from slowapi import Limiter
@@ -65,6 +66,9 @@ class Settings(BaseSettings):
     # Set CORS_ORIGINS=https://ed-finder.app,https://www.ed-finder.app in .env
     cors_origins:       str  = '__unset__'
     expose_error_detail: bool = False
+    # Optional error tracking (GlitchTip, Sentry-API-compatible). Blank
+    # disables it entirely — sentry_sdk.init() below is only called when set.
+    sentry_dsn:         Optional[str] = None
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 
@@ -72,6 +76,7 @@ class Settings(BaseSettings):
         'database_readonly_url',
         'enrichment_status_json_path',
         'enrichment_warehouse_status_json_path',
+        'sentry_dsn',
         mode='before',
     )
     @classmethod
@@ -113,6 +118,21 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger('ed_finder')
+
+
+# ---------------------------------------------------------------------------
+# Error tracking (GlitchTip, Sentry-API-compatible) — opt-in via SENTRY_DSN.
+# generic_error_handler in main.py calls sentry_sdk.capture_exception()
+# explicitly, since it swallows every unhandled exception into a JSON
+# response before it can reach sentry_sdk's automatic ASGI-level capture.
+# ---------------------------------------------------------------------------
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        release=settings.build_sha,
+        send_default_pii=False,
+        traces_sample_rate=0,
+    )
 
 
 # ---------------------------------------------------------------------------

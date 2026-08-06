@@ -199,6 +199,12 @@ services:
       CORS_ORIGINS:         ${CORS_ORIGINS:-https://ed-finder.app,https://www.ed-finder.app}
       # Keep internal error details out of HTTP responses by default.
       EXPOSE_ERROR_DETAIL:  ${EXPOSE_ERROR_DETAIL:-false}
+      # Optional error tracking (GlitchTip, Sentry-API-compatible). Blank
+      # disables it entirely — sentry_sdk.init() is only called when set.
+      # Can point at the internal glitchtip_web service (this container
+      # never leaves the docker network for its own DSN), e.g.:
+      #   http://<key>@glitchtip_web:8000/<project_id>
+      SENTRY_DSN:           ${SENTRY_DSN:-}
     volumes:
       - /data/logs:/data/logs
       # Operator-written invariant receipts; the API reads fixed JSON aliases
@@ -453,6 +459,18 @@ services:
       GF_SECURITY_ADMIN_USER:     ${GRAFANA_USER:-admin}
       GF_USERS_ALLOW_SIGN_UP:     "false"
       GF_SERVER_ROOT_URL:         "%(protocol)s://%(domain)s:%(http_port)s/"
+      # Community plugin required for config/grafana/provisioning/datasources/
+      # glitchtip.yml (type: grafana-sentry-datasource) — not bundled by default.
+      GF_INSTALL_PLUGINS: grafana-sentry-datasource
+      # Read by start-with-secret.sh and exported as GLITCHTIP_GRAFANA_AUTH_TOKEN
+      # (empty/placeholder by default — GlitchTip integration is opt-in). The
+      # Sentry datasource provisioning YAML then consumes that env var directly:
+      # Grafana provisioning only supports ${ENV_VAR} substitution, not
+      # file-content substitution, so the token can't stay a bare secret file.
+      GLITCHTIP_GRAFANA_AUTH_TOKEN_SECRET_FILE: /run/secrets/glitchtip_grafana_auth_token
+      # Set once you've created the GlitchTip org in its UI — see
+      # docs/operations/glitchtip-error-tracking.md.
+      GLITCHTIP_GRAFANA_ORG_SLUG: ${GLITCHTIP_GRAFANA_ORG_SLUG:-not-configured}
     entrypoint: ["/bin/sh", "/etc/grafana/start-with-secret.sh"]
     volumes:
       - grafana_data:/var/lib/grafana
@@ -461,6 +479,7 @@ services:
       - ./config/grafana/start-with-secret.sh:/etc/grafana/start-with-secret.sh:ro
     secrets:
       - grafana_admin_password
+      - glitchtip_grafana_auth_token
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
@@ -529,17 +548,129 @@ services:
     depends_on:
       - redis
 
+  # ── GlitchTip (self-hosted, Sentry-API-compatible error tracking) ────────
+  # OPT-IN, own Postgres + Redis (never the app's) so a GlitchTip migration,
+  # restart, or Renovate-driven version bump can never touch app data or
+  # the app's migration-ledger discipline (see CLAUDE.md's "Debugging data
+  # drift" section on why that separation matters here). Enable with:
+  #   docker compose --profile errortracking up -d
+  #
+  # First-run bootstrap is manual (not achievable from compose alone):
+  # create an org + project in the GlitchTip UI to get SENTRY_DSN /
+  # VITE_SENTRY_DSN, and an internal integration auth token (Read access to
+  # Project/Issue&Event/Organization) for the Grafana datasource secret.
+  # See docs/operations/glitchtip-error-tracking.md.
+  glitchtip_postgres:
+    image: postgres:16-alpine
+    container_name: ed-glitchtip-postgres
+    profiles: ["errortracking"]
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
+    environment:
+      POSTGRES_USER:     glitchtip
+      POSTGRES_PASSWORD: ${GLITCHTIP_POSTGRES_PASSWORD}
+      POSTGRES_DB:       glitchtip
+    volumes:
+      - glitchtip_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U glitchtip -d glitchtip"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  glitchtip_redis:
+    image: redis:7-alpine
+    container_name: ed-glitchtip-redis
+    profiles: ["errortracking"]
+    restart: unless-stopped
+    logging: *default-logging
+    # Pure cache + Celery broker for GlitchTip — no persistence needed,
+    # matching the main redis service's --save ""/--appendonly no pattern.
+    mem_limit: 512m
+    cpus: 0.5
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # One-shot: applies GlitchTip's own Django migrations (unrelated to
+  # sql/NNN_*.sql / scripts/apply_migrations.sh) and exits. web/worker
+  # wait for it via `service_completed_successfully`.
+  glitchtip_migrate:
+    image: glitchtip/glitchtip:6.2.3
+    container_name: ed-glitchtip-migrate
+    profiles: ["errortracking"]
+    logging: *default-logging
+    mem_limit: 512m
+    cpus: 1.0
+    command: ./manage.py migrate
+    environment: &glitchtip-environment
+      SECRET_KEY:       ${GLITCHTIP_SECRET_KEY}
+      # generate both with: openssl rand -hex 24 / 32 — see env.example.
+      DATABASE_URL:     postgresql://glitchtip:${GLITCHTIP_POSTGRES_PASSWORD}@glitchtip_postgres:5432/glitchtip
+      REDIS_URL:        redis://glitchtip_redis:6379/0
+      GLITCHTIP_DOMAIN: ${GLITCHTIP_DOMAIN:-http://localhost:8080}
+      ENABLE_USER_REGISTRATION: "false"
+      DEFAULT_FROM_EMAIL: ${GLITCHTIP_DEFAULT_FROM_EMAIL:-glitchtip@ed-finder.app}
+    depends_on:
+      glitchtip_postgres:
+        condition: service_healthy
+
+  glitchtip_web:
+    image: glitchtip/glitchtip:6.2.3
+    container_name: ed-glitchtip-web
+    profiles: ["errortracking"]
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 1.0
+    environment: *glitchtip-environment
+    ports:
+      - "127.0.0.1:8080:8000"
+    depends_on:
+      glitchtip_postgres:
+        condition: service_healthy
+      glitchtip_redis:
+        condition: service_healthy
+      glitchtip_migrate:
+        condition: service_completed_successfully
+
+  glitchtip_worker:
+    image: glitchtip/glitchtip:6.2.3
+    container_name: ed-glitchtip-worker
+    profiles: ["errortracking"]
+    restart: unless-stopped
+    logging: *default-logging
+    mem_limit: 1g
+    cpus: 1.0
+    command: ./bin/run-celery-with-beat.sh
+    environment: *glitchtip-environment
+    depends_on:
+      glitchtip_postgres:
+        condition: service_healthy
+      glitchtip_redis:
+        condition: service_healthy
+      glitchtip_migrate:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
   redis_data:
   prometheus_data:
   grafana_data:
+  glitchtip_postgres_data:
 
 secrets:
   grafana_admin_password:
     file: ${GRAFANA_PASSWORD_FILE:-./config/grafana_admin_password.disabled}
   healthchecks_readonly_api_key:
     file: ${HEALTHCHECKS_PROMETHEUS_TOKEN_FILE:-./config/healthchecks_readonly_api_key.disabled}
+  glitchtip_grafana_auth_token:
+    file: ${GLITCHTIP_GRAFANA_AUTH_TOKEN_FILE:-./config/glitchtip_grafana_auth_token.disabled}
 
 networks:
   default:

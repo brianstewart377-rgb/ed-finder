@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import * as Sentry from '@sentry/react';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -17,6 +18,8 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('[ED:Finder] Critical UI error caught by boundary:', error, errorInfo);
+    // No-ops when VITE_SENTRY_DSN isn't set (main.tsx never calls Sentry.init).
+    Sentry.captureException(error, { extra: { componentStack: errorInfo.componentStack } });
   }
 
   render() {

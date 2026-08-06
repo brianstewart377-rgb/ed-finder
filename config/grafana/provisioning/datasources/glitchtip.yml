@@ -1,0 +1,24 @@
+apiVersion: 1
+
+# GlitchTip (self-hosted, Sentry-API-compatible error tracking) surfaced as a
+# Grafana data source, so error-rate trends sit next to the existing infra
+# metrics dashboard. Opt-in — see docker-compose.yml's glitchtip_* services
+# and docs/operations/glitchtip-error-tracking.md.
+#
+# Uses the community-maintained "Sentry" data source plugin
+# (grafana-sentry-datasource), which documents itself as Sentry-API-compatible
+# and therefore usable against GlitchTip directly.
+#
+# The `url` below is the internal Docker network address — Grafana's backend
+# makes this request server-side (access: proxy), so it never needs the
+# public GLITCHTIP_DOMAIN.
+datasources:
+  - name: GlitchTip
+    type: grafana-sentry-datasource
+    access: proxy
+    jsonData:
+      url: http://glitchtip_web:8000
+      orgSlug: ${GLITCHTIP_GRAFANA_ORG_SLUG}
+    secureJsonData:
+      authToken: ${GLITCHTIP_GRAFANA_AUTH_TOKEN}
+    editable: false
