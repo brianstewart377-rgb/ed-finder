@@ -552,20 +552,22 @@ def upsert_body_rings(conn, rows: list[dict]) -> int:
                 cur,
                 """
                 INSERT INTO body_rings (
-                    system_id64, body_id, body_name,
+                    system_id64, body_id, source_body_id, body_name,
                     ring_name, ring_type, ring_class,
                     mass_mt, inner_radius, outer_radius,
-                    source, confidence, updated_at
+                    source, confidence, association_status
                 ) VALUES %s
                 ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
-                    body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
-                    ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
-                    ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
-                    mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
-                    inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
-                    outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
-                    confidence   = EXCLUDED.confidence,
-                    updated_at   = NOW()
+                    source_body_id      = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
+                    body_name           = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                    ring_type           = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                    ring_class          = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                    mass_mt             = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                    inner_radius        = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                    outer_radius        = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                    confidence          = EXCLUDED.confidence,
+                    association_status  = EXCLUDED.association_status,
+                    updated_at          = NOW()
                 """,
                 values,
             )
@@ -591,6 +593,7 @@ def _ring_row_tuple(row: dict) -> tuple:
     return (
         row.get('system_id64'),
         row.get('body_id'),
+        row.get('source_body_id'),
         row.get('body_name'),
         row.get('ring_name'),
         row.get('ring_type'),
@@ -600,6 +603,7 @@ def _ring_row_tuple(row: dict) -> tuple:
         row.get('outer_radius'),
         row.get('source'),
         row.get('confidence'),
+        row.get('association_status'),
     )
 
 
@@ -610,8 +614,22 @@ def body_ring_rows_from_spansh_body(system_id64: int, body_id: int, body_name: s
         body_id=body_id,
         body_name=body_name,
         source='spansh_dump',
+        source_body_id=body_id,
         trusted_empty_means_no_rings=False,
     )
+    for row in rows:
+        # Every row returned here only ever reaches upsert_body_rings() via
+        # flush_rings(), which filters ring_batch against rejected_body_ids
+        # first - a ring survives that filter only when its owning body's
+        # upsert was NOT rejected by the system_id64 ownership guard. The
+        # body linkage is therefore already verified locally by the time
+        # this runs, the same guarantee eddn_listener.py's
+        # BODY_RING_ASSOCIATION_STATUS_CASE_SQL computes via a live query
+        # for its own 'local_matched' case - set explicitly here instead of
+        # left to fall through to body_rings.association_status's schema
+        # default, which silently asserts the same claim with no code
+        # anyone can audit.
+        row['association_status'] = 'local_matched'
     return rows
 
 
@@ -843,6 +861,19 @@ def _parse_system_population(sys_obj: dict) -> int | None:
         return None
 
 
+def _require_name(obj: dict, entity_id) -> Optional[str]:
+    """systems.name, bodies.name, and stations.name are all NOT NULL with
+    no default. A source record missing entity_id or name is malformed,
+    not a legitimate "no name" entity - upsert_via_temp's SET clause has
+    no NULL/empty guard, so writing '' here would blank out an existing
+    real name on the next conflict (F-014, docs/audits/round6-report.md).
+    Callers should skip the record entirely when this returns None."""
+    if not entity_id:
+        return None
+    name = obj.get('name')
+    return name if name else None
+
+
 # ---------------------------------------------------------------------------
 # IMPORTER 1 — galaxy.json.gz  (systems + bodies + stations, all-in-one)
 def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
@@ -981,7 +1012,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         try:
             for sys_obj in items_iter:
                 id64 = sys_obj.get('id64')
-                if not id64:
+                name = _require_name(sys_obj, id64)
+                if name is None:
                     continue
 
                 now_iso = datetime.now(timezone.utc).isoformat()
@@ -1027,7 +1059,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     )
                     sys_batch.append((
                         id64,
-                        sys_obj.get('name', ''),
+                        name,
                         sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
@@ -1060,7 +1092,8 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 # ── Bodies rows ────────────────────────────────────────────
                 for b in bodies_raw:
                     bid = b.get('id64') or b.get('id') or b.get('bodyId')
-                    if not bid:
+                    body_name = _require_name(b, bid)
+                    if body_name is None:
                         continue
                     try:
                         btype_raw = b.get('type', 'Unknown')
@@ -1086,7 +1119,6 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                         )
                         mass = b.get('earthMasses') or b.get('mass')
                         stellar_mass = b.get('solarMasses') or b.get('stellar_mass')
-                        body_name = b.get('name', '')
 
                         body_batch.append((
                             bid, id64,
@@ -1133,9 +1165,10 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 stations_raw = sys_obj.get('stations', []) or []
                 for s in stations_raw:
                     sid = s.get('id') or s.get('marketId') or s.get('market_id')
-                    if not sid:
+                    sta_name = _require_name(s, sid)
+                    if sta_name is None:
                         skip_count += 1
-                        log.debug(f"Skipping station with no id in system {id64}")
+                        log.debug(f"Skipping station with no id/name in system {id64}")
                         continue
                     try:
                         svcs = (s.get('services') or
@@ -1159,7 +1192,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                                          bool(s.get('hasOutfitting') or s.get('has_outfitting', False)))
                         sta_batch.append((
                             sid, id64,
-                            s.get('name', ''),
+                            sta_name,
                             station_type_from_record(s),
                             station_distance_from_record(s),
                             station_body_name_from_record(s),
@@ -1353,7 +1386,8 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
         try:
             for sys_obj in items_iter:
                 id64 = sys_obj.get('id64')
-                if not id64:
+                name = _require_name(sys_obj, id64)
+                if name is None:
                     continue
 
                 now_iso = datetime.now(timezone.utc).isoformat()
@@ -1383,7 +1417,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     sx, sy, sz = _extract_system_coords(sys_obj)
                     sys_batch.append((
                         id64,
-                        sys_obj.get('name', ''),
+                        name,
                         sx, sy, sz,
                         norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                         norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),
@@ -1506,7 +1540,8 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
             for s in items_iter:
                 sid      = s.get('id') or s.get('marketId') or s.get('market_id')
                 sys_id64 = s.get('systemId64') or s.get('system_id64')
-                if not sid or not sys_id64:
+                sta_name = _require_name(s, sid and sys_id64)
+                if sta_name is None:
                     continue
 
                 now_iso  = datetime.now(timezone.utc).isoformat()
@@ -1524,7 +1559,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                     sta_batch.append((
                         sid, sys_id64,
-                        s.get('name', ''),
+                        sta_name,
                         station_type_from_record(s),
                         station_distance_from_record(s),
                         station_body_name_from_record(s),
@@ -1634,7 +1669,8 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     continue
 
                 id64 = sys_obj.get('id64')
-                if not id64:
+                name = _require_name(sys_obj, id64)
+                if name is None:
                     continue
 
                 now_iso = datetime.now(timezone.utc).isoformat()
@@ -1655,7 +1691,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 sys_batch.append((
                     id64,
-                    sys_obj.get('name', ''),
+                    name,
                     sx, sy, sz,
                     norm_economy(sys_obj.get('primaryEconomy') or sys_obj.get('primary_economy')),
                     norm_economy(sys_obj.get('secondaryEconomy') or sys_obj.get('secondary_economy')),

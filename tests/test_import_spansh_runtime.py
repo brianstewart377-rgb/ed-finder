@@ -16,6 +16,28 @@ sys.path.insert(0, str(IMPORTER_SRC))
 import import_spansh  # noqa: E402
 
 
+def test_require_name_returns_name_when_id_and_name_present():
+    assert import_spansh._require_name({'name': 'Sol'}, 12345) == 'Sol'
+
+
+def test_require_name_returns_none_when_name_missing():
+    """Regression test for F-014 (docs/audits/round6-report.md): a source
+    record missing its name field must be rejected outright, not passed
+    through as '' - upsert_via_temp's SET clause writes EXCLUDED.col
+    unconditionally with no NULL/empty guard, so a blank name here would
+    silently blank out an existing system/body/station's real name on the
+    very next conflict."""
+    assert import_spansh._require_name({}, 12345) is None
+    assert import_spansh._require_name({'name': None}, 12345) is None
+    assert import_spansh._require_name({'name': ''}, 12345) is None
+
+
+def test_require_name_returns_none_when_id_missing():
+    assert import_spansh._require_name({'name': 'Sol'}, None) is None
+    assert import_spansh._require_name({'name': 'Sol'}, 0) is None
+    assert import_spansh._require_name({'name': 'Sol'}, '') is None
+
+
 class _FakeCursor:
     def __init__(self) -> None:
         self.last_sql = ''
