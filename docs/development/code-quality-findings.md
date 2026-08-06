@@ -19,6 +19,16 @@ Resolved with date and closing commit. New audits append.
   per-schema handlers); local_search.py 1,314 (candidate for edfinder_api/
   packaging). nightly_update.sh: collapse six VACUUM ANALYZE stanzas to a loop.
 CQ-012 ruling (2026-07-18, recorded 2026-07-20): accepted as a sequenced split lane, not declined. S1 nightly_update.sh VACUUM loop, S2 MyWorkWorkspace ExpansionPlansSection extraction, S3 PlannerCanvasPreview plannerCanvasUtils continuation, and S4 local_search.py edfinder_api/ packaging are scheduled as individual mechanical-extraction PRs. NavBar sub-item closes as overtaken: the be7b381 redesign already reduced it 722 -> 379 lines. evidence_store/store.py and eddn_listener.py are deferred with rationale, not declined: both sit on the evidence layer / live ingest and will be split at their next feature contact (the CRE confidence-vocabulary integration opens store.py naturally), where real work validates the refactor. Original "6 VACUUM stanzas" count re-verified accurate at 51fe2d8.
+S3 closes 2026-08-06 (PR #419, commit 3203f9b3) as overtaken, same pattern
+as the NavBar sub-item: a 2026-08-05 Codex code-splitting review flagged
+PlannerCanvasPreview.tsx as having zero production consumers, not merely
+being oversized. Verified before acting: grep across all of frontend/src
+found only the component's own definition and its own test file - no
+production import, no dynamic import(), no route registration. The
+originally-scheduled plannerCanvasUtils extraction is moot with no
+consumer left to benefit from it, so the file was deleted outright instead
+of split (docs/superpowers/specs/2026-08-06-remove-unused-planner-canvas-preview-design.md
+has the full verification). S1, S2, and S4 remain open.
 - Close when: each split lands, or is declined with rationale recorded here.
 
 ### CQ-013 â€” dependency refresh lane (deferred until CQ-005 closes)
