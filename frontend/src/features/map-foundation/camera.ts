@@ -136,3 +136,15 @@ export function zoomCamera(
     center: clampCameraCenter(camera.center, zoom, viewport, bounds),
   };
 }
+
+export function cameraDistanceForView(camera: CameraState, size: ViewportSize): number {
+  const visibleHeight = Math.max(
+    20,
+    camera.zoom * size.height * CAMERA_VIEWPORT_HEIGHT_RATIO,
+  );
+  return visibleHeight / (2 * Math.tan((42 * Math.PI / 180) / 2));
+}
+
+export function attenuatedPointSize(zoom: number, pixels: number): number {
+  return Math.max(0.12, zoom * pixels * 0.78);
+}
