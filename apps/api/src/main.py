@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 import asyncpg
 import redis.asyncio as aioredis
+import sentry_sdk
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -308,6 +309,10 @@ async def problem_details_handler(request: Request, exc: HTTPException):
 async def generic_error_handler(request: Request, exc: Exception):
     _metrics['errors_total'] += 1
     log.exception('Unhandled error on %s %s', request.method, request.url)
+    # This handler is what stops the exception from ever reaching an ASGI
+    # middleware, so sentry_sdk's automatic capture never fires — report
+    # explicitly instead. No-ops when SENTRY_DSN isn't set (config.py).
+    sentry_sdk.capture_exception(exc)
     detail = str(exc) if settings.expose_error_detail else 'Internal server error'
     return JSONResponse(
         status_code=500,

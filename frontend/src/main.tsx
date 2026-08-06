@@ -1,6 +1,19 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import * as Sentry from '@sentry/react';
 import { ErrorBoundary } from './components/ErrorBoundary';
+
+// Optional error tracking (GlitchTip, Sentry-API-compatible). Blank disables
+// it entirely — see docs/operations/glitchtip-error-tracking.md.
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: import.meta.env.PROD ? 'production' : 'development',
+    tracesSampleRate: 0,
+    sendDefaultPii: false,
+  });
+}
 
 const rootEl = document.getElementById('root');
 if (!rootEl) {

@@ -11,3 +11,7 @@ slowapi==0.1.9
 
 # OpenGraph share-card rendering (/api/share/og/{id64}).
 Pillow==12.2.0
+
+# Optional error tracking (GlitchTip/Sentry-API-compatible). Only active
+# when SENTRY_DSN is set — see config.py and docs/operations/glitchtip-error-tracking.md.
+sentry-sdk==2.66.1
