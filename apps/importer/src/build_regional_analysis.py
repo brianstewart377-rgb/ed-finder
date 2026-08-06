@@ -2,6 +2,17 @@
 """Build system_regional_analysis from system coordinates.
 
 Uses normal x/y/z Euclidean distance.  No PostGIS dependency is required.
+
+Candidate lookup is a one-time load, not a per-target query. The candidate
+pool (systems that are colonised, being colonised, or populated — ~144K rows
+in production, versus ~188M in `systems`) is loaded once into memory and
+sorted by x; each target system then does a binary-search slice plus a
+vectorized y/z filter instead of a fresh SQL round trip. The original
+per-target query (one `systems` index-range scan + `stations` join per row)
+measured ~100ms-1s each on production, which made a 5,000,000-row nightly
+`--limit` a genuine multi-day job — see the 2026-08-06 incident where two
+nights' runs were still both mid-flight, contending with each other, when a
+third was about to start on top of them.
 """
 from __future__ import annotations
 
@@ -9,9 +20,11 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import psycopg2
 import psycopg2.extras
 
@@ -157,9 +170,10 @@ def main() -> None:
     with psycopg2.connect(dsn, options='-c statement_timeout=1800000') as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             targets = _load_targets(cur, args)
+            pool = _load_candidate_pool(cur)
             for index, system in enumerate(targets, start=1):
-                candidates = _load_candidates(cur, system)
-                analysis = compute_regional_analysis(dict(system), [dict(row) for row in candidates])
+                candidates = _candidates_for(pool, system)
+                analysis = compute_regional_analysis(system, candidates)
                 _write(cur, analysis)
                 if index % 1000 == 0:
                     conn.commit()
@@ -219,22 +233,87 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
     return targets
 
 
-def _load_candidates(cur: Any, system: dict[str, Any]) -> list[dict[str, Any]]:
-    x, y, z = float(system['x']), float(system['y']), float(system['z'])
-    radius = max(REGIONAL_DISTANCE_BUCKETS)
+@dataclass(frozen=True)
+class CandidatePool:
+    """The full colonised/being-colonised/populated candidate set, loaded
+    once and sorted by x so _candidates_for can binary-search a target's
+    x-range instead of re-querying Postgres per target system."""
+    id64: np.ndarray
+    name: list[str]
+    x: np.ndarray
+    y: np.ndarray
+    z: np.ndarray
+    population: np.ndarray
+    is_colonised: np.ndarray
+    is_being_colonised: np.ndarray
+    station_count: np.ndarray
+
+
+def _load_candidate_pool(cur: Any) -> CandidatePool:
+    """Same WHERE/JOIN as the old per-target query, run once instead of once
+    per target. Rows with any NULL coordinate are dropped here rather than
+    filtered in SQL — the old `x BETWEEN ...` would never have matched a
+    NULL coordinate either (BETWEEN on NULL is NULL, never true), so this
+    preserves the same exclusion with no SQL WHERE-clause change needed."""
     cur.execute("""
         SELECT s.id64, s.name, s.x, s.y, s.z, s.population, s.is_colonised, s.is_being_colonised,
                COUNT(st.id) AS station_count
         FROM systems s
         LEFT JOIN stations st ON st.system_id64 = s.id64
-        WHERE s.id64 != %s
-          AND s.x BETWEEN %s AND %s
-          AND s.y BETWEEN %s AND %s
-          AND s.z BETWEEN %s AND %s
-          AND (s.is_colonised = TRUE OR s.is_being_colonised = TRUE OR s.population > 0)
+        WHERE s.is_colonised = TRUE OR s.is_being_colonised = TRUE OR s.population > 0
         GROUP BY s.id64
-    """, (system['id64'], x - radius, x + radius, y - radius, y + radius, z - radius, z + radius))
-    return [dict(row) for row in cur.fetchall()]
+    """)
+    rows = [
+        row for row in cur.fetchall()
+        if row['x'] is not None and row['y'] is not None and row['z'] is not None
+    ]
+    rows.sort(key=lambda row: row['x'])
+    return CandidatePool(
+        id64=np.array([row['id64'] for row in rows], dtype=np.int64),
+        name=[row['name'] for row in rows],
+        x=np.array([row['x'] for row in rows], dtype=np.float64),
+        y=np.array([row['y'] for row in rows], dtype=np.float64),
+        z=np.array([row['z'] for row in rows], dtype=np.float64),
+        population=np.array([row['population'] or 0 for row in rows], dtype=np.int64),
+        is_colonised=np.array([bool(row['is_colonised']) for row in rows], dtype=bool),
+        is_being_colonised=np.array([bool(row['is_being_colonised']) for row in rows], dtype=bool),
+        station_count=np.array([row['station_count'] for row in rows], dtype=np.int64),
+    )
+
+
+def _candidates_for(pool: CandidatePool, system: dict[str, Any]) -> list[dict[str, Any]]:
+    """In-memory equivalent of the old per-target SQL box filter
+    (`x/y/z BETWEEN target±radius AND id64 != target`). x is pre-sorted, so
+    the x-range is a binary search (np.searchsorted); y/z/self-exclusion are
+    a vectorized filter over just that x-slice. Both stages use float64
+    throughout — the same precision Postgres evaluates `real BETWEEN
+    double precision` at — so boundary systems land on the same side as the
+    original SQL would have put them."""
+    x, y, z = float(system['x']), float(system['y']), float(system['z'])
+    radius = max(REGIONAL_DISTANCE_BUCKETS)
+    lo = int(np.searchsorted(pool.x, x - radius, side='left'))
+    hi = int(np.searchsorted(pool.x, x + radius, side='right'))
+    if lo >= hi:
+        return []
+    mask = (
+        (pool.y[lo:hi] >= y - radius) & (pool.y[lo:hi] <= y + radius)
+        & (pool.z[lo:hi] >= z - radius) & (pool.z[lo:hi] <= z + radius)
+        & (pool.id64[lo:hi] != system['id64'])
+    )
+    return [
+        {
+            'id64': int(pool.id64[lo + i]),
+            'name': pool.name[lo + i],
+            'x': float(pool.x[lo + i]),
+            'y': float(pool.y[lo + i]),
+            'z': float(pool.z[lo + i]),
+            'population': int(pool.population[lo + i]),
+            'is_colonised': bool(pool.is_colonised[lo + i]),
+            'is_being_colonised': bool(pool.is_being_colonised[lo + i]),
+            'station_count': int(pool.station_count[lo + i]),
+        }
+        for i in np.nonzero(mask)[0]
+    ]
 
 
 def _write(cur: Any, analysis: dict[str, Any]) -> None:
