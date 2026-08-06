@@ -289,7 +289,7 @@ jobs:
 
   # ─── Frontend ───────────────────────────────────────────────────────
   # Catches the exact class of "file got swallowed by .gitignore" bug we
-  # hit on Hetzner. If `frontend/src/lib/api.ts` ever gets ignored
+  # hit on Hetzner. If `frontend/src/lib/api/index.ts` ever gets ignored
   # again, this job fails on PR before it ever reaches production.
   v2:
     name: Frontend build
@@ -318,7 +318,8 @@ jobs:
         run: |
           set -e
           for f in \
-            src/lib/api.ts \
+            src/lib/api/index.ts \
+            src/lib/api/core.ts \
             src/lib/format.ts \
             src/types/api.ts \
             src/components/NavBar.tsx \

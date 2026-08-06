@@ -20,7 +20,13 @@ TARGET_FILES = [
     ROOT / 'apps' / 'importer' / 'src' / 'edsm_station_import.py',
     ROOT / 'apps' / 'importer' / 'src' / 'source_run_compatibility.py',
     ROOT / 'scripts' / 'operator' / 'stage19anr_warehouse_derived_staging_rehearsal.py',
-    ROOT / 'frontend' / 'src' / 'lib' / 'api.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'core.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'search.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'planner.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'observations.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'operator.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'map.ts',
+    ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'index.ts',
     ROOT / 'frontend' / 'src' / 'lib' / 'api.operator.test.ts',
     ROOT / 'frontend' / 'src' / 'features' / 'operator' / 'OperatorCockpitTab.tsx',
 ]
@@ -111,7 +117,7 @@ def check_operator_routes_are_get_only(failures: list[str]) -> None:
 
 
 def check_frontend_operator_helpers_are_get_only(failures: list[str]) -> None:
-    api_text = _read(ROOT / 'frontend' / 'src' / 'lib' / 'api.ts')
+    api_text = _read(ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'operator.ts')
     lines = api_text.splitlines()
     for index, line in enumerate(lines):
         if '/api/operator' not in line:
@@ -119,7 +125,7 @@ def check_frontend_operator_helpers_are_get_only(failures: list[str]) -> None:
         window = '\n'.join(lines[index:index + 5])
         if re.search(r"method\s*:\s*['\"](?:POST|PUT|PATCH|DELETE)['\"]", window, re.IGNORECASE):
             failures.append(
-                'frontend/src/lib/api.ts:'
+                'frontend/src/lib/api/operator.ts:'
                 f'{index + 1}: operator API helper must remain GET/read-only'
             )
 
