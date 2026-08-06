@@ -1644,6 +1644,28 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
         'updated_at', 'rating_dirty', 'cluster_dirty',
     ]
 
+    # Confirmed by direct inspection of real systems_1day.json.gz (84,118
+    # records) and systems_1week.json.gz (978,213 records) on 2026-08-06:
+    # every record in both files has exactly {coords, id64, mainStar,
+    # name, updateTime} - these seven fields are never present, 0 of
+    # over 1M records checked across both files. Without this exclusion,
+    # norm_economy/norm_security/norm_allegiance/norm_government's
+    # missing-input fallback to 'Unknown' and _parse_system_population's
+    # fallback to None meant every conflict on this import path was
+    # unconditionally overwriting an existing system's real economy,
+    # population, security, government, allegiance, and controlling
+    # faction - confirmed as the active, ongoing worst case of F-014
+    # (docs/audits/round6-report.md), not just a latent risk: this
+    # import runs nightly (1-day) and weekly (1-week) per
+    # scripts/nightly_update.sh. Still included in SYS_COLS/the INSERT
+    # so a brand-new system seen for the first time still gets a
+    # baseline value - only excluded from update_cols so an existing
+    # system's already-known values are never touched by this source.
+    DELTA_NEVER_PROVIDES = {
+        'primary_economy', 'secondary_economy', 'population',
+        'security', 'allegiance', 'government', 'controlling_faction',
+    }
+
     sys_batch  = []
     total_rows = 0
     last_save  = time.time()
@@ -1651,7 +1673,10 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
     def flush():
         if sys_batch:
             upsert_via_temp(conn, 'systems', SYS_COLS, sys_batch, 'id64',
-                            update_cols=[c for c in SYS_COLS if c != 'id64'])
+                            update_cols=[
+                                c for c in SYS_COLS
+                                if c != 'id64' and c not in DELTA_NEVER_PROVIDES
+                            ])
             sys_batch.clear()
 
     with open(dump_path, 'rb') as f_raw, gzip.open(f_raw, 'rb') as f:
