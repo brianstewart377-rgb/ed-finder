@@ -147,7 +147,14 @@ queries:
       SELECT
         CASE
           WHEN started_at IS NULL THEN NULL
-          WHEN completed_at IS NULL OR completed_at < started_at
+          -- <=, not <: a retry that starts within the same second the
+          -- previous run completed would otherwise have completed_at ==
+          -- started_at, which the ELSE branch would read as "already
+          -- finished, 0s" for a run that could still be going. No real
+          -- nightly run finishes in under a second, so treating an equal
+          -- timestamp as "not yet completed relative to this start" has
+          -- no legitimate false-positive case.
+          WHEN completed_at IS NULL OR completed_at <= started_at
             THEN EXTRACT(EPOCH FROM NOW())::bigint - started_at
           ELSE completed_at - started_at
         END AS duration_seconds

@@ -37,6 +37,7 @@ def _run_nightly_update(
     degraded: bool = False,
     fatal: bool = False,
     pg_count_failure: bool = False,
+    started_at_write_failure: bool = False,
     curl_result: str = 'success',
     use_real_flock: bool = False,
 ) -> dict[str, object]:
@@ -104,6 +105,9 @@ fi
 if [[ "${FAKE_DEGRADED:-0}" == '1' && "$*" == *'galaxy_stations.json.gz'* ]]; then
     exit 17
 fi
+if [[ "${FAKE_STARTED_AT_WRITE_FAILURE:-0}" == '1' && "$*" == *"nightly_update_started_at_epoch"* ]]; then
+    exit 55
+fi
 if [[ "$*" == *'-tAc'* ]]; then
     if [[ "${FAKE_PG_COUNT_FAILURE:-0}" == '1' ]]; then
         exit 42
@@ -143,6 +147,7 @@ fi
         'FAKE_DEGRADED': '1' if degraded else '0',
         'FAKE_FATAL': '1' if fatal else '0',
         'FAKE_PG_COUNT_FAILURE': '1' if pg_count_failure else '0',
+        'FAKE_STARTED_AT_WRITE_FAILURE': '1' if started_at_write_failure else '0',
         'FAKE_CURL_RESULT': curl_result,
         'NIGHTLY_LOCK_FILE': lock_file.as_posix(),
     }
@@ -322,6 +327,29 @@ def test_env_example_documents_nightly_update_heartbeat_clean_fail_split():
     assert 'NIGHTLY_UPDATE_HEARTBEAT_URL=' in env_example.splitlines()
     assert 'clean' in env_example.lower()
     assert '/fail' in env_example
+
+
+def test_started_at_write_failure_degrades_the_run(tmp_path: Path):
+    """Codex Review finding: if the started_at write fails but the run
+    otherwise proceeds, the exporter would keep reading the PREVIOUS run's
+    start/completion for this run's entire duration — a real regression
+    would look identical to a healthy run the whole time. Escalating the
+    failure to warn() makes it degrade the run (heartbeat /fail path)
+    instead of silently continuing untracked."""
+    heartbeat_url = 'https://heartbeat.invalid/nightly-started-at-failure'
+    observation = _run_nightly_update(
+        tmp_path,
+        heartbeat_url=heartbeat_url,
+        started_at_write_failure=True,
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert observation['curl_calls'] == [f'{heartbeat_url}/fail|<unset>']
+    assert 'nightly_update_started_at_epoch recording failed' in observation['output']
+    assert 'this run\'s duration will not be reliably trackable' in observation['output']
+    assert 'Nightly update completed WITH WARNINGS' in observation['output']
 
 
 def test_clean_run_records_start_and_completion_epochs(tmp_path: Path):

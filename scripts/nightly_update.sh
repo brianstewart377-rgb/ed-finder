@@ -193,6 +193,21 @@ pg_count_into() {
 # completed_at in the EXIT trap below) — installed only after the lock is
 # held, so a run skipped by the overlap guard above doesn't touch either
 # key and leave the truly-active instance's start time.
+# Known accepted limitation (Codex Review, PR #434): if this process
+# receives SIGTERM/SIGHUP while blocked on a long-running foreground child
+# (e.g. a `docker compose ... run` importer step) and that signal reaches
+# only this shell's PID — not the child's process group — bash's default
+# handling still runs the EXIT trap below on its own termination, which
+# records completion at that moment even though the child (and, since it
+# inherits fd 200, potentially the overlap-guard lock) can keep running
+# independently afterward. Properly fixing this means process-group signal
+# forwarding and waiting on children across every docker/psql call in this
+# script, not just the two added here — a separate, larger hardening pass,
+# not part of this duration-observability feature. Accepted for now: this
+# requires an operator explicitly killing the bash PID specifically (not
+# `docker compose down`, not a normal SIGKILL of the whole process tree),
+# which is rare, and the dead-man's-switch heartbeat still catches a
+# genuinely stuck run this scenario could produce.
 NIGHTLY_START_EPOCH=$(date +%s)
 if run_psql -c \
     "INSERT INTO app_meta(key,value,updated_at)
@@ -202,7 +217,15 @@ if run_psql -c \
 then
     log "nightly_update_started_at_epoch recorded: $NIGHTLY_START_EPOCH"
 else
-    log "nightly_update_started_at_epoch recording failed (psql exit $?)"
+    # Codex Review finding: if this write fails but the run otherwise
+    # proceeds normally, the exporter keeps reading the PREVIOUS run's
+    # started_at/completed_at pair for this run's entire duration — a
+    # 24h regression would look identical to a healthy run the whole time
+    # it's happening. Escalate to warn() (not just log()) so a failure to
+    # make the run observable is itself treated as a degraded run — it
+    # flips the heartbeat to the /fail path, consistent with how a failed
+    # pg_count_into measurement already does the same above.
+    warn "nightly_update_started_at_epoch recording failed (psql exit $?) — this run's duration will not be reliably trackable"
 fi
 
 record_nightly_completion() {

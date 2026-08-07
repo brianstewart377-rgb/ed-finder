@@ -165,7 +165,10 @@ def test_nightly_update_duration_is_tracked_and_alertable():
     assert "key = 'nightly_update_completed_at_epoch'" in collector
     # The live-elapsed-time branch: still-running (or crashed-without-exit)
     # is detected by completed_at being NULL or older than started_at.
-    assert 'WHEN completed_at IS NULL OR completed_at < started_at' in collector
+    # <=, not <: Codex Review finding — a retry starting in the same
+    # second the previous run completed would have completed_at ==
+    # started_at, which a strict < would misread as "already finished."
+    assert 'WHEN completed_at IS NULL OR completed_at <= started_at' in collector
     assert "EXTRACT(EPOCH FROM NOW())::bigint - started_at" in collector
     assert 'alert: NightlyUpdateDurationAnomaly' in rules
     assert 'ed_finder_nightly_update_duration_seconds > 21600' in rules
