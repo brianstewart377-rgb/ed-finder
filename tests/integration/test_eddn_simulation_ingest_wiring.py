@@ -81,3 +81,23 @@ async def test_ingest_task_not_started_when_disabled(monkeypatch):
         await asyncio.sleep(0)  # let any startup tasks get a chance to run
         assert not started.is_set()
         assert main._eddn_simulation_ingest_task is None
+
+
+@pytest.mark.asyncio
+async def test_metrics_endpoint_exposes_freshness_gauge(client):
+    """The gauge must be readable via the real HTTP endpoint regardless of
+    whether the task is currently running in this test process (conftest.py
+    disables it for the shared `client` fixture) — the metric reflects
+    module-level state set at import time, not the task's live status."""
+    response = await client.get('/api/metrics')
+
+    assert response.status_code == 200
+    body = response.text
+    assert '# TYPE ed_finder_eddn_simulation_ingest_seconds_since_flush gauge' in body
+    sample_lines = [
+        line for line in body.splitlines()
+        if line.startswith('ed_finder_eddn_simulation_ingest_seconds_since_flush ')
+    ]
+    assert len(sample_lines) == 1
+    value = float(sample_lines[0].split(' ', 1)[1])
+    assert value >= 0

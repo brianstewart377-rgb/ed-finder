@@ -52,6 +52,24 @@ EDDN_RELAY       = 'tcp://eddn.edcd.io:9500'
 FLUSH_INTERVAL   = 15    # seconds between DB batch flushes
 MAX_BATCH_SIZE   = 200   # flush early if batch exceeds this
 RECONNECT_DELAY  = 5     # seconds between reconnect attempts
+
+# Freshness tracking, mirroring apps/eddn/src/eddn_listener.py's
+# eddn_seconds_since_flush / EddnFlushStalled pattern rather than
+# introducing a second monitoring mechanism for what's architecturally the
+# same kind of thing (a long-lived EDDN consumer). Set at import time
+# (process start), not left unset, so a freshly-started process doesn't
+# immediately read as stalled before its first flush cycle completes.
+# Updated after every flush attempt regardless of whether the write inside
+# it actually succeeded — _flush_batch() catches its own exceptions and
+# never raises, so this is a "the flush loop is still cycling" liveness
+# signal, the same semantic the eddn_listener.py original already uses
+# (it resets _last_flush even on a failed flush, explicitly to avoid
+# misreading a transient write error as a dead task).
+_last_flush_at: float = time.time()
+
+
+def seconds_since_last_flush() -> float:
+    return time.time() - _last_flush_at
 DIRTY_MARK_BATCH_SIZE = 500
 DIRTY_MARK_STATEMENT_TIMEOUT_MS = 5000
 
@@ -137,6 +155,7 @@ async def run_eddn_simulation_ingest(pool: 'asyncpg.Pool') -> None:
 
 async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
     """Single connection lifetime. Reconnects on exception."""
+    global _last_flush_at
     try:
         import zmq
         import zmq.asyncio as azmq
@@ -212,6 +231,7 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
                 pending_journal.clear()
                 pending_facts.clear()
                 last_flush = now
+                _last_flush_at = time.time()
 
     finally:
         # Final flush before reconnect
@@ -220,6 +240,8 @@ async def _run_ingest_loop(pool: 'asyncpg.Pool') -> None:
                 await _flush_batch(pool, pending_journal, pending_facts)
             except Exception as e:
                 log.warning(f'EDDN final flush error: {e}')
+            finally:
+                _last_flush_at = time.time()
         socket.close()
         ctx.term()
 

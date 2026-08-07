@@ -42,6 +42,15 @@ groups:
         annotations:
           summary: "EDDN has not completed a database flush recently"
 
+      - alert: EddnSimulationIngestFlushStalled
+        expr: ed_finder_eddn_simulation_ingest_seconds_since_flush > 300
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EDDN simulation ingest has not completed a flush cycle recently"
+          description: "Same failure mode and threshold as EddnFlushStalled, for the second, independent EDDN consumer (apps/api/src/ingest/eddn_client.py, journal_events/body_scan_facts) — a long-lived task that's silently stopped cycling (ZMQ disconnect, crash loop, upstream relay outage) looks identical to a healthy one without this."
+
       - alert: HealthchecksReportedDown
         expr: hc_checks_down_total > 0
         for: 2m
