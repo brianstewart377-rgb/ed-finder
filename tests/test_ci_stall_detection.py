@@ -16,9 +16,14 @@ the contract: a `timeout-minutes` substring anywhere in a job block (even a
 step's command or a comment) satisfied it; underscore-prefixed job IDs
 (valid in GitHub Actions) weren't recognized as job starts; a top-level key
 after `jobs:` (e.g. `defaults:`) wasn't detected as the end of the jobs
-section, so its children were misread as job blocks; and `.yaml` (as
-opposed to `.yml`) workflow files were never enumerated. Real YAML parsing
-avoids all four by construction.
+section, so its children were misread as job blocks; `.yaml` (as opposed to
+`.yml`) workflow files were never enumerated; and (a second-round finding,
+on this file's own PyYAML-based rewrite) YAML 1.1's boolean coercion turns
+bare mapping keys like `on` or `yes` into Python `True`, so two distinctly-
+named jobs (both legal GitHub Actions job IDs) would collide into one dict
+key and silently overwrite each other. Real YAML parsing avoids the first
+four by construction; the fifth needs an explicit loader that disables that
+coercion, since it's a PyYAML default, not a text-scanning artifact.
 """
 from pathlib import Path
 
@@ -39,8 +44,43 @@ CHECKED_WORKFLOWS = (
 )
 
 
+class _NoBoolCoercionLoader(yaml.SafeLoader):
+    """SafeLoader with YAML 1.1 boolean coercion disabled.
+
+    By default PyYAML resolves bare `on`/`off`/`yes`/`no`/`true`/`false`
+    (any case) to Python bool, for BOTH mapping keys and values. A GitHub
+    Actions job literally named `on` or `yes` — both legal job IDs — would
+    collide with any other job of the opposite boolean-ish name into a
+    single `True`/`False` dict key, and the later one silently overwrites
+    the earlier one before this test ever sees it. This repo's real
+    workflows don't currently use such a job ID, but the contract itself
+    must not depend on that staying true by luck. No code here inspects
+    value types (only key presence), so disabling coercion for values too
+    is safe.
+    """
+
+
+_NoBoolCoercionLoader.yaml_implicit_resolvers = {
+    first_char: [
+        (tag, regexp) for tag, regexp in resolvers
+        if tag != 'tag:yaml.org,2002:bool'
+    ]
+    for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _yaml_load(text: str):
+    # yaml.load() with an explicit Loader, not yaml.safe_load() — but this
+    # IS still the safe path: _NoBoolCoercionLoader subclasses SafeLoader
+    # and only removes an implicit resolver, registering no constructors
+    # for !!python/object or other unsafe tags. Using safe_load() directly
+    # here isn't possible; it hardcodes SafeLoader and offers no way to
+    # override just one resolver.
+    return yaml.load(text, Loader=_NoBoolCoercionLoader)
+
+
 def _load_workflow(filename: str) -> dict:
-    return yaml.safe_load((WORKFLOWS_DIR / filename).read_text(encoding='utf-8'))
+    return _yaml_load((WORKFLOWS_DIR / filename).read_text(encoding='utf-8'))
 
 
 def test_every_workflow_job_declares_a_timeout():
@@ -79,7 +119,7 @@ def test_reusable_workflow_call_jobs_are_exempt_not_silently_ignored():
         '  direct_unbounded:\n'
         '    runs-on: ubuntu-latest\n'
     )
-    workflow = yaml.safe_load(workflow_yaml)
+    workflow = _yaml_load(workflow_yaml)
     jobs = workflow['jobs']
 
     assert 'uses' in jobs['caller']
@@ -97,10 +137,44 @@ def test_underscore_prefixed_job_ids_are_recognized():
         '  _internal:\n'
         '    runs-on: ubuntu-latest\n'
     )
-    workflow = yaml.safe_load(workflow_yaml)
+    workflow = _yaml_load(workflow_yaml)
 
     assert '_internal' in workflow['jobs']
     assert 'timeout-minutes' not in workflow['jobs']['_internal']
+
+
+def test_boolean_like_job_ids_do_not_collide():
+    """Codex Review finding: 'on' and 'yes' are both legal GitHub Actions
+    job IDs, but PyYAML's default (YAML 1.1) boolean coercion resolves
+    bare `on`/`yes` mapping keys to Python True, so two such jobs would
+    collide into a single dict key and the later one would silently
+    overwrite the earlier — the overwritten job's timeout requirement
+    would then vanish along with it, unseen by this contract."""
+    workflow_yaml = (
+        'jobs:\n'
+        '  on:\n'
+        '    runs-on: ubuntu-latest\n'
+        '  yes:\n'
+        '    runs-on: ubuntu-latest\n'
+        '    timeout-minutes: 10\n'
+    )
+    # First prove the vulnerable default loader actually collides them —
+    # otherwise this test could pass for the wrong reason (PyYAML having
+    # changed its default) without proving the custom loader is needed.
+    default_loaded = yaml.safe_load(workflow_yaml)
+    assert len(default_loaded['jobs']) == 1, (
+        'expected PyYAML default coercion to collide these two keys; if '
+        'this fails, the custom loader below may no longer be necessary'
+    )
+
+    workflow = _yaml_load(workflow_yaml)
+    jobs = workflow['jobs']
+
+    assert len(jobs) == 2
+    assert 'on' in jobs
+    assert 'yes' in jobs
+    assert 'timeout-minutes' not in jobs['on']
+    assert 'timeout-minutes' in jobs['yes']
 
 
 def test_all_checked_workflow_files_exist():
