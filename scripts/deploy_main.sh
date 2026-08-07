@@ -62,9 +62,10 @@ done
 
 PRE_DEPLOY_FILE="/tmp/ed-finder-pre-deploy-commit.txt"
 
-say() { printf "\n[INFO] %s\n" "$*"; }
-ok()  { printf "[OK]   %s\n" "$*"; }
-die() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
+say()  { printf "\n[INFO] %s\n" "$*"; }
+ok()   { printf "[OK]   %s\n" "$*"; }
+warn() { printf "[WARN] %s\n" "$*" >&2; }
+die()  { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
 
 on_error() {
   local line="$1"
@@ -130,6 +131,46 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   [[ -f scripts/apply_migrations.sh ]] || die "migration applier not found: scripts/apply_migrations.sh"
   bash scripts/apply_migrations.sh
   ok "migrations applied"
+
+  # Emergent adversarial-review recurrence check (2026-08-07), item A4:
+  # the call above never passes --include-manual, so every migration
+  # marked |manual in sql/migration-manifest.txt is silently skipped —
+  # apply_migrations.sh only prints an [INFO] line for each one, and this
+  # script still reports "migrations applied" right after. That's
+  # intentional (manual migrations are meant to be deployed in their own
+  # separate, monitored window per their runbooks, not bundled into every
+  # normal deploy) but the silence made it easy to forget one is pending
+  # indefinitely. This makes a pending manual migration loud instead.
+  if [[ -f sql/migration-manifest.txt ]]; then
+    # Checked in bash, not left to the SQL, so a manifest with zero
+    # |manual entries skips the query entirely instead of building
+    # `ARRAY[]` — Postgres cannot infer an empty array literal's element
+    # type and errors on it, which the previous version of this check
+    # masked with `2>/dev/null || true` rather than actually handling.
+    manual_filenames_sql="$(
+      grep '|manual' sql/migration-manifest.txt \
+        | cut -d'|' -f1 \
+        | sed "s/.*/'&'/" \
+        | paste -sd, -
+    )"
+    pending_manual=""
+    if [[ -n "$manual_filenames_sql" ]]; then
+      pending_manual="$(
+        docker compose exec -T postgres psql -U edfinder -d edfinder -At \
+          -c "
+            WITH manual_files AS (
+              SELECT unnest(ARRAY[${manual_filenames_sql}]::text[]) AS filename
+            )
+            SELECT filename FROM manual_files
+            WHERE filename NOT IN (SELECT filename FROM schema_migrations)
+            ORDER BY filename;
+          " 2>/dev/null || true
+      )"
+    fi
+    if [[ -n "$pending_manual" ]]; then
+      warn "Manual migration(s) pending — NOT applied by this deploy (see their runbooks for the separate apply procedure): $(printf '%s' "$pending_manual" | tr '\n' ' ')"
+    fi
+  fi
 else
   say "Skipping SQL migrations"
 fi
