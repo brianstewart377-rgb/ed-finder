@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 from dataclasses import dataclass
@@ -222,13 +223,23 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
         ORDER BY id64
         {limit}
     """)
-    targets = [dict(row) for row in cur.fetchall()]
+    fetched = [dict(row) for row in cur.fetchall()]
+    # x/y/z IS NOT NULL above doesn't catch NaN/Infinity (`real` allows both).
+    # Filtered here, once, rather than per-target inside the main loop's
+    # _candidates_for call — a target that fails this check would only ever
+    # get a degenerate `_unknown()` analysis anyway (see _candidates_for's
+    # own NaN short-circuit), so there's no reason to pay for a full
+    # compute_regional_analysis + DB write for it 5,000,000 times over.
+    targets = [
+        row for row in fetched
+        if math.isfinite(row['x']) and math.isfinite(row['y']) and math.isfinite(row['z'])
+    ]
     cur.execute(f"""
         SELECT COUNT(*) AS excluded_count
         FROM systems
         {excluded_where}
     """)
-    excluded_count = int(cur.fetchone()['excluded_count'])
+    excluded_count = int(cur.fetchone()['excluded_count']) + (len(fetched) - len(targets))
     print(f'Excluded {excluded_count:,} coordinate-less systems from regional analysis this run')
     return targets
 
@@ -251,10 +262,14 @@ class CandidatePool:
 
 def _load_candidate_pool(cur: Any) -> CandidatePool:
     """Same WHERE/JOIN as the old per-target query, run once instead of once
-    per target. Rows with any NULL coordinate are dropped here rather than
-    filtered in SQL — the old `x BETWEEN ...` would never have matched a
-    NULL coordinate either (BETWEEN on NULL is NULL, never true), so this
-    preserves the same exclusion with no SQL WHERE-clause change needed."""
+    per target. Rows with a NULL or non-finite (NaN/Infinity — `real` allows
+    both) coordinate are dropped here rather than filtered in SQL: the old
+    `x BETWEEN lo AND hi` would never have matched any of those either
+    (comparisons against NULL or NaN are never true under IEEE 754), so this
+    preserves the same exclusion with no SQL WHERE-clause change needed. A
+    NaN slipping through would also violate the sorted-array precondition
+    np.searchsorted relies on below, silently corrupting lookups for
+    unrelated targets — not just this one candidate."""
     cur.execute("""
         SELECT s.id64, s.name, s.x, s.y, s.z, s.population, s.is_colonised, s.is_being_colonised,
                COUNT(st.id) AS station_count
@@ -263,10 +278,14 @@ def _load_candidate_pool(cur: Any) -> CandidatePool:
         WHERE s.is_colonised = TRUE OR s.is_being_colonised = TRUE OR s.population > 0
         GROUP BY s.id64
     """)
-    rows = [
-        row for row in cur.fetchall()
-        if row['x'] is not None and row['y'] is not None and row['z'] is not None
-    ]
+
+    def _has_finite_coords(row: dict[str, Any]) -> bool:
+        return (
+            row['x'] is not None and row['y'] is not None and row['z'] is not None
+            and math.isfinite(row['x']) and math.isfinite(row['y']) and math.isfinite(row['z'])
+        )
+
+    rows = [row for row in cur.fetchall() if _has_finite_coords(row)]
     rows.sort(key=lambda row: row['x'])
     return CandidatePool(
         id64=np.array([row['id64'] for row in rows], dtype=np.int64),
@@ -290,6 +309,14 @@ def _candidates_for(pool: CandidatePool, system: dict[str, Any]) -> list[dict[st
     double precision` at — so boundary systems land on the same side as the
     original SQL would have put them."""
     x, y, z = float(system['x']), float(system['y']), float(system['z'])
+    if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z)):
+        # A NaN/Infinity target coordinate: the old SQL's `x BETWEEN
+        # (x-r) AND (x+r)` would never be true for a NaN/Infinity bound
+        # either, so this always returned zero candidates. Short-circuit
+        # explicitly rather than trust np.searchsorted with a NaN key,
+        # which (unlike a real comparison) doesn't reliably return an
+        # empty slice.
+        return []
     radius = max(REGIONAL_DISTANCE_BUCKETS)
     lo = int(np.searchsorted(pool.x, x - radius, side='left'))
     hi = int(np.searchsorted(pool.x, x + radius, side='right'))
