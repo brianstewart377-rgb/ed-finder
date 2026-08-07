@@ -20,9 +20,9 @@ import routers.archetypes as archetypes  # noqa: E402
 @pytest.fixture(autouse=True)
 def _reset_throttle():
     """Each test starts with a cold throttle, matching a fresh process."""
-    archetypes._last_cache_error_logged_at = 0.0
+    archetypes._last_cache_error_logged_at = None
     yield
-    archetypes._last_cache_error_logged_at = 0.0
+    archetypes._last_cache_error_logged_at = None
 
 
 def _broken_redis() -> AsyncMock:
@@ -81,5 +81,22 @@ async def test_repeated_failures_within_interval_log_once():
     with patch.object(archetypes, 'log') as mock_log:
         for _ in range(5):
             await archetypes._cache_get(redis, 'arch:v1:sys:1')
+
+    mock_log.warning.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_first_failure_logs_even_when_monotonic_clock_is_young():
+    """Codex Review finding: time.monotonic()'s reference point is
+    platform-defined and commonly host-boot-relative, not guaranteed far
+    from zero. A 0.0 sentinel would make `now - 0.0 >= 60` false whenever
+    `now` itself is under 60 (e.g. shortly after a host reboot), silently
+    swallowing the first failure — and everything else for up to a minute
+    — instead of logging it. Simulates that by patching time.monotonic()
+    to return a small value, proving the None sentinel doesn't have the
+    same blind spot."""
+    with patch.object(archetypes.time, 'monotonic', return_value=5.0):
+        with patch.object(archetypes, 'log') as mock_log:
+            await archetypes._cache_get(_broken_redis(), 'arch:v1:sys:1')
 
     mock_log.warning.assert_called_once()

@@ -147,13 +147,19 @@ _PROFILES = [
 # from a mysterious latency regression. Throttled so a sustained outage
 # logs once per interval, not once per request.
 _CACHE_ERROR_LOG_INTERVAL_SECONDS = 60
-_last_cache_error_logged_at = 0.0
+# None, not 0.0: time.monotonic()'s reference point is platform-defined and
+# commonly host-boot-relative, not guaranteed far from zero — a literal 0.0
+# sentinel would suppress the first failure (and everything for up to 60s
+# after it) whenever `now` itself is under 60, e.g. shortly after a host
+# reboot. None always compares as "never logged yet" regardless of what
+# time.monotonic() actually returns.
+_last_cache_error_logged_at: float | None = None
 
 
 def _log_cache_error_throttled(where: str, exc: Exception) -> None:
     global _last_cache_error_logged_at
     now = time.monotonic()
-    if now - _last_cache_error_logged_at >= _CACHE_ERROR_LOG_INTERVAL_SECONDS:
+    if _last_cache_error_logged_at is None or now - _last_cache_error_logged_at >= _CACHE_ERROR_LOG_INTERVAL_SECONDS:
         _last_cache_error_logged_at = now
         log.warning('Archetype cache %s failed, degrading to DB: %s', where, exc)
 
