@@ -183,16 +183,27 @@ pg_count_into() {
 # per Codex Review) doesn't actually catch that case: while a run is still
 # executing hour 20 of a 24h regression, the exit trap hasn't fired yet, so
 # the exported metric still reads the previous night's ~3h and the anomaly
-# alert stays quiet — visible only after the run finally exits, no earlier
-# than the dead-man's-switch already was. Recording separate start/complete
-# epochs instead lets the exporter query (config/sql_exporter_ed_finder.
-# collector.yml) compute LIVE elapsed time for a run that's still going,
-# not just the final duration of one that already finished.
+# alert stays quiet. Recording separate start/complete epochs and comparing
+# their timestamps (the second version, also per Codex Review) turned out to
+# be ambiguous at 1-second resolution in BOTH directions: a same-second
+# retry-after-completion looked like "already finished, 0s" (too eager to
+# call it done), and the opposite fix for that then made a same-second
+# fatal-abort look like "still running forever" (too eager to call it live).
 #
-# Both keys are written unconditionally on every real run (started_at here,
-# completed_at in the EXIT trap below) — installed only after the lock is
-# held, so a run skipped by the overlap guard above doesn't touch either
-# key and leave the truly-active instance's start time.
+# The actual fix: don't infer state by comparing two independently-written
+# timestamps at all. Every successful start atomically writes started_at
+# AND deletes any prior completed_at in the SAME transaction, so
+# completed_at's mere PRESENCE (not its value relative to started_at) is
+# the state signal — NULL always means "this run hasn't recorded a
+# completion yet" (live or write-failed), any value always belongs to the
+# CURRENT run (a stale value from a prior run cannot survive a successful
+# start). This has no 1-second-resolution edge case because it never
+# compares two clocks reads against each other.
+#
+# Both writes happen only after the lock is held, so a run skipped by the
+# overlap guard above doesn't touch either key and leave the truly-active
+# instance's tracking untouched.
+#
 # Known accepted limitation (Codex Review, PR #434): if this process
 # receives SIGTERM/SIGHUP while blocked on a long-running foreground child
 # (e.g. a `docker compose ... run` importer step) and that signal reaches
@@ -209,12 +220,17 @@ pg_count_into() {
 # which is rare, and the dead-man's-switch heartbeat still catches a
 # genuinely stuck run this scenario could produce.
 NIGHTLY_START_EPOCH=$(date +%s)
+NIGHTLY_START_RECORDED=0
 if run_psql -c \
-    "INSERT INTO app_meta(key,value,updated_at)
+    "BEGIN;
+     INSERT INTO app_meta(key,value,updated_at)
      VALUES('nightly_update_started_at_epoch','$NIGHTLY_START_EPOCH',NOW())
-     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
+     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW();
+     DELETE FROM app_meta WHERE key = 'nightly_update_completed_at_epoch';
+     COMMIT;" \
     >> "$LOG" 2>&1
 then
+    NIGHTLY_START_RECORDED=1
     log "nightly_update_started_at_epoch recorded: $NIGHTLY_START_EPOCH"
 else
     # Codex Review finding: if this write fails but the run otherwise
@@ -229,18 +245,41 @@ else
 fi
 
 record_nightly_completion() {
-    local completed_at
-    completed_at=$(date +%s)
-    if run_psql -c \
-        "INSERT INTO app_meta(key,value,updated_at)
-         VALUES('nightly_update_completed_at_epoch','$completed_at',NOW())
-         ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
-        >> "$LOG" 2>&1
-    then
-        log "nightly_update_completed_at_epoch recorded: $completed_at ($(( completed_at - NIGHTLY_START_EPOCH ))s elapsed)"
-    else
-        log "nightly_update_completed_at_epoch recording failed (psql exit $?)"
+    # Codex Review finding: if THIS run's start was never successfully
+    # recorded (NIGHTLY_START_RECORDED=0), the previous run's started_at
+    # is still in place — unconditionally writing completed_at now would
+    # pair a stale old start with a fresh completion and report a bogus
+    # multi-day "duration" for a run that never actually ran that long.
+    # Leave the previous run's already-consistent pair untouched instead.
+    if [[ "$NIGHTLY_START_RECORDED" -ne 1 ]]; then
+        log "Skipping nightly_update_completed_at_epoch write — this run's start was never recorded, so a completion write now would misattribute duration to the previous run's stale start"
+        return
     fi
+
+    # Codex Review finding: a single failed write here left completed_at
+    # NULL indefinitely, so the exporter would keep reporting this run as
+    # "live" (and eventually alert) forever, well after the process has
+    # actually exited. A short retry meaningfully reduces the odds of a
+    # transient blip causing that — a truly persistent outage still leaves
+    # the metric live until the NEXT run's start succeeds and clears it,
+    # which is a bounded, self-healing worst case (at most one extra
+    # night's false alert), not an indefinite stuck state.
+    local completed_at attempt
+    for attempt in 1 2 3; do
+        completed_at=$(date +%s)
+        if run_psql -c \
+            "INSERT INTO app_meta(key,value,updated_at)
+             VALUES('nightly_update_completed_at_epoch','$completed_at',NOW())
+             ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
+            >> "$LOG" 2>&1
+        then
+            log "nightly_update_completed_at_epoch recorded: $completed_at ($(( completed_at - NIGHTLY_START_EPOCH ))s elapsed)"
+            return
+        fi
+        log "nightly_update_completed_at_epoch recording attempt ${attempt}/3 failed (psql exit $?)"
+        [[ "$attempt" -lt 3 ]] && sleep 2
+    done
+    log "nightly_update_completed_at_epoch recording failed after 3 attempts — metric will continue showing this run as live until the next successful start"
 }
 trap record_nightly_completion EXIT
 

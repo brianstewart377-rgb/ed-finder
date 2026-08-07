@@ -38,6 +38,7 @@ def _run_nightly_update(
     fatal: bool = False,
     pg_count_failure: bool = False,
     started_at_write_failure: bool = False,
+    completion_write_fail_count: int = 0,
     curl_result: str = 'success',
     use_real_flock: bool = False,
 ) -> dict[str, object]:
@@ -49,6 +50,7 @@ def _run_nightly_update(
     log_dir = tmp_path / 'logs'
     dump_dir = tmp_path / 'dumps'
     fake_bin = tmp_path / 'bin'
+    completion_attempt_counter = tmp_path / 'completion-attempts.count'
     scripts_dir.mkdir(parents=True)
     log_dir.mkdir()
     dump_dir.mkdir()
@@ -108,6 +110,18 @@ fi
 if [[ "${FAKE_STARTED_AT_WRITE_FAILURE:-0}" == '1' && "$*" == *"nightly_update_started_at_epoch"* ]]; then
     exit 55
 fi
+if [[ "$*" == *"VALUES('nightly_update_completed_at_epoch'"* ]]; then
+    fail_count="${FAKE_COMPLETION_WRITE_FAIL_COUNT:-0}"
+    if [[ "$fail_count" -gt 0 ]]; then
+        attempt=0
+        [[ -f "${COMPLETION_ATTEMPT_COUNTER}" ]] && attempt="$(cat "${COMPLETION_ATTEMPT_COUNTER}")"
+        attempt=$(( attempt + 1 ))
+        printf '%s' "$attempt" > "${COMPLETION_ATTEMPT_COUNTER}"
+        if [[ "$attempt" -le "$fail_count" ]]; then
+            exit 66
+        fi
+    fi
+fi
 if [[ "$*" == *'-tAc'* ]]; then
     if [[ "${FAKE_PG_COUNT_FAILURE:-0}" == '1' ]]; then
         exit 42
@@ -148,6 +162,8 @@ fi
         'FAKE_FATAL': '1' if fatal else '0',
         'FAKE_PG_COUNT_FAILURE': '1' if pg_count_failure else '0',
         'FAKE_STARTED_AT_WRITE_FAILURE': '1' if started_at_write_failure else '0',
+        'FAKE_COMPLETION_WRITE_FAIL_COUNT': str(completion_write_fail_count),
+        'COMPLETION_ATTEMPT_COUNTER': completion_attempt_counter.as_posix(),
         'FAKE_CURL_RESULT': curl_result,
         'NIGHTLY_LOCK_FILE': lock_file.as_posix(),
     }
@@ -350,6 +366,54 @@ def test_started_at_write_failure_degrades_the_run(tmp_path: Path):
     assert 'nightly_update_started_at_epoch recording failed' in observation['output']
     assert 'this run\'s duration will not be reliably trackable' in observation['output']
     assert 'Nightly update completed WITH WARNINGS' in observation['output']
+    # Codex Review finding: writing completed_at anyway would pair this
+    # run's fresh completion with the PREVIOUS run's stale started_at
+    # (since this run's own start was never recorded) and report a bogus
+    # multi-day duration. The completion trap must skip the write outright.
+    completion_calls = [
+        call for call in observation['docker_calls']
+        if "VALUES('nightly_update_completed_at_epoch'" in call
+    ]
+    assert completion_calls == []
+    assert 'Skipping nightly_update_completed_at_epoch write' in observation['output']
+
+
+def test_completion_write_retries_and_eventually_succeeds(tmp_path: Path):
+    """The first two completion-write attempts fail transiently; the third
+    succeeds. Proves the retry loop doesn't give up too early on a
+    recoverable blip."""
+    observation = _run_nightly_update(tmp_path, completion_write_fail_count=2)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    completion_calls = [
+        call for call in observation['docker_calls']
+        if "VALUES('nightly_update_completed_at_epoch'" in call
+    ]
+    assert len(completion_calls) == 3
+    assert observation['output'].count('nightly_update_completed_at_epoch recording attempt') == 2
+    assert 'nightly_update_completed_at_epoch recorded:' in observation['output']
+
+
+def test_completion_write_exhausts_retries_and_logs_failure(tmp_path: Path):
+    """All 3 completion-write attempts fail. The run must still exit
+    cleanly (a monitoring-write failure isn't itself a run failure at this
+    late point — nothing downstream reads it) but log loudly that the
+    metric will show this run as live until the next successful start."""
+    observation = _run_nightly_update(tmp_path, completion_write_fail_count=3)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    completion_calls = [
+        call for call in observation['docker_calls']
+        if "VALUES('nightly_update_completed_at_epoch'" in call
+    ]
+    assert len(completion_calls) == 3
+    assert observation['output'].count('nightly_update_completed_at_epoch recording attempt') == 3
+    assert 'recording failed after 3 attempts' in observation['output']
+    assert 'nightly_update_completed_at_epoch recorded:' not in observation['output']
 
 
 def test_clean_run_records_start_and_completion_epochs(tmp_path: Path):
@@ -364,7 +428,7 @@ def test_clean_run_records_start_and_completion_epochs(tmp_path: Path):
     ]
     completed_calls = [
         call for call in observation['docker_calls']
-        if "'nightly_update_completed_at_epoch'" in call
+        if "VALUES('nightly_update_completed_at_epoch'" in call
     ]
     assert len(started_calls) == 1
     assert len(completed_calls) == 1
@@ -388,7 +452,7 @@ def test_degraded_run_still_records_completion_epoch(tmp_path: Path):
     ]
     completed_calls = [
         call for call in observation['docker_calls']
-        if "'nightly_update_completed_at_epoch'" in call
+        if "VALUES('nightly_update_completed_at_epoch'" in call
     ]
     assert len(started_calls) == 1
     assert len(completed_calls) == 1
@@ -410,7 +474,7 @@ def test_fatal_abort_still_records_completion_epoch(tmp_path: Path):
     ]
     completed_calls = [
         call for call in observation['docker_calls']
-        if "'nightly_update_completed_at_epoch'" in call
+        if "VALUES('nightly_update_completed_at_epoch'" in call
     ]
     assert len(started_calls) == 1
     assert len(completed_calls) == 1

@@ -147,14 +147,18 @@ queries:
       SELECT
         CASE
           WHEN started_at IS NULL THEN NULL
-          -- <=, not <: a retry that starts within the same second the
-          -- previous run completed would otherwise have completed_at ==
-          -- started_at, which the ELSE branch would read as "already
-          -- finished, 0s" for a run that could still be going. No real
-          -- nightly run finishes in under a second, so treating an equal
-          -- timestamp as "not yet completed relative to this start" has
-          -- no legitimate false-positive case.
-          WHEN completed_at IS NULL OR completed_at <= started_at
+          -- completed_at's mere presence is the state signal, not a
+          -- timestamp comparison against started_at. nightly_update.sh
+          -- atomically clears completed_at in the same transaction that
+          -- writes a new started_at, so any non-NULL completed_at here
+          -- necessarily belongs to the CURRENT run — it cannot be a stale
+          -- value from a previous run. Comparing raw timestamps instead
+          -- (two earlier versions of this query, per Codex Review) was
+          -- ambiguous at 1-second resolution in both directions: a
+          -- same-second retry-after-completion misread as "already
+          -- finished, 0s", and the fix for that then misread a
+          -- same-second fatal-abort as "still running forever."
+          WHEN completed_at IS NULL
             THEN EXTRACT(EPOCH FROM NOW())::bigint - started_at
           ELSE completed_at - started_at
         END AS duration_seconds
