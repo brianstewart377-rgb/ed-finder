@@ -881,6 +881,12 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     assert '--allow-stale-colonisation-status) ALLOW_STALE_COLONISATION_STATUS=1; shift ;;' in wrapper
     assert '"status": "$status"' in wrapper
     assert '"allow_stale_colonisation_status":' in wrapper
+    # 2026-08-07 Codex Review finding: the wrapper's --allow-stale-noneligible
+    # flag (see test_deploy_main_invariants_gate.py) suppresses a real
+    # invariant failure, but the durable receipt only recorded
+    # allow_stale_colonisation_status — a receipt could report "passed" with
+    # no way to tell it only passed because this waiver was active.
+    assert '"allow_stale_noneligible":' in wrapper
     assert 'data-invariants-${durable_stamp}.json' in wrapper
     assert 'latest.json' in wrapper
     assert '45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh' in runbook

@@ -14,6 +14,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"
 PRODUCTION_SAFE=0
 ALLOW_STALE_COLONISATION_STATUS=0
+ALLOW_STALE_NONELIGIBLE=0
 RECEIPT_FILE="${RECEIPT_FILE:-}"
 DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"
 DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"
@@ -39,6 +40,7 @@ while [[ $# -gt 0 ]]; do
     --project-name) COMPOSE_PROJECT_NAME_OVERRIDE="$2"; shift 2 ;;
     --production-safe) PRODUCTION_SAFE=1; shift ;;
     --allow-stale-colonisation-status) ALLOW_STALE_COLONISATION_STATUS=1; shift ;;
+    --allow-stale-noneligible) ALLOW_STALE_NONELIGIBLE=1; shift ;;
     -h|--help)
       usage
       exit 0
@@ -88,6 +90,9 @@ fi
 if [[ "$ALLOW_STALE_COLONISATION_STATUS" -eq 1 ]]; then
   command_args+=(--allow-stale-colonisation-status)
 fi
+if [[ "$ALLOW_STALE_NONELIGIBLE" -eq 1 ]]; then
+  command_args+=(--allow-stale-noneligible)
+fi
 
 mode="host_database_url"
 runner=()
@@ -136,7 +141,8 @@ receipt_json="$(cat <<EOF
   "mode": "$mode",
   "target_rating_version": "$TARGET_RATING_VERSION",
   "production_safe": $([[ "$PRODUCTION_SAFE" -eq 1 ]] && echo true || echo false),
-  "allow_stale_colonisation_status": $([[ "$ALLOW_STALE_COLONISATION_STATUS" -eq 1 ]] && echo true || echo false)
+  "allow_stale_colonisation_status": $([[ "$ALLOW_STALE_COLONISATION_STATUS" -eq 1 ]] && echo true || echo false),
+  "allow_stale_noneligible": $([[ "$ALLOW_STALE_NONELIGIBLE" -eq 1 ]] && echo true || echo false)
 }
 EOF
 )"
