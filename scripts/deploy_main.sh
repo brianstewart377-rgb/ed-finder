@@ -141,35 +141,20 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   # separate, monitored window per their runbooks, not bundled into every
   # normal deploy) but the silence made it easy to forget one is pending
   # indefinitely. This makes a pending manual migration loud instead.
-  if [[ -f sql/migration-manifest.txt ]]; then
-    # Checked in bash, not left to the SQL, so a manifest with zero
-    # |manual entries skips the query entirely instead of building
-    # `ARRAY[]` — Postgres cannot infer an empty array literal's element
-    # type and errors on it, which the previous version of this check
-    # masked with `2>/dev/null || true` rather than actually handling.
-    manual_filenames_sql="$(
-      grep '|manual' sql/migration-manifest.txt \
-        | cut -d'|' -f1 \
-        | sed "s/.*/'&'/" \
-        | paste -sd, -
-    )"
-    pending_manual=""
-    if [[ -n "$manual_filenames_sql" ]]; then
-      pending_manual="$(
-        docker compose exec -T postgres psql -U edfinder -d edfinder -At \
-          -c "
-            WITH manual_files AS (
-              SELECT unnest(ARRAY[${manual_filenames_sql}]::text[]) AS filename
-            )
-            SELECT filename FROM manual_files
-            WHERE filename NOT IN (SELECT filename FROM schema_migrations)
-            ORDER BY filename;
-          " 2>/dev/null || true
-      )"
-    fi
-    if [[ -n "$pending_manual" ]]; then
-      warn "Manual migration(s) pending — NOT applied by this deploy (see their runbooks for the separate apply procedure): $(printf '%s' "$pending_manual" | tr '\n' ' ')"
-    fi
+  #
+  # Delegates to apply_migrations.sh --list-pending-manual (Codex Review
+  # finding on the first version of this check) rather than querying the
+  # DB directly here: that applier already resolves DATABASE_MIGRATION_URL/
+  # MIGRATION_LEDGER_TABLE overrides and the docker-vs-direct-psql
+  # connection mode, and duplicating that logic here risked silently
+  # inspecting the wrong database/ledger if either is ever configured —
+  # doubly dangerous since the query result was previously wrapped in
+  # `2>/dev/null || true`, which would have shown "nothing pending" for a
+  # query that actually errored, not just one that legitimately found
+  # nothing.
+  pending_manual="$(bash scripts/apply_migrations.sh --list-pending-manual)"
+  if [[ -n "$pending_manual" ]]; then
+    warn "Manual migration(s) pending — NOT applied by this deploy (see their runbooks for the separate apply procedure): $(printf '%s' "$pending_manual" | tr '\n' ' ')"
   fi
 else
   say "Skipping SQL migrations"
