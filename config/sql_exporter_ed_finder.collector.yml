@@ -14,6 +14,20 @@ metrics:
     values: [cluster_dirty]
     query_ref: dirty_counts
 
+  - metric_name: ed_finder_dirty_counts_rating_dirty_no_bodies
+    type: gauge
+    help: >-
+      Number of systems with rating_dirty = true and has_body_data = false —
+      the "truthful no-bodies" backlog scripts/run_dirty_ratings_if_needed.sh
+      clears on its own 30-minute cycle (see CLAUDE.md's "Dirty ratings
+      maintenance"). Expected to be transiently nonzero; only worth alerting
+      on if it trends upward across cycles rather than draining, which would
+      mean that reconciliation job has stopped working (2026-08-07 incident:
+      this exact count, previously visible only via one-off manual SQL, was
+      the source of a false-positive deploy failure).
+    values: [rating_dirty_no_bodies]
+    query_ref: dirty_counts
+
   - metric_name: ed_finder_import_progress_rows_processed
     type: gauge
     help: Import rows processed so far.
@@ -64,7 +78,11 @@ queries:
            FROM systems
           WHERE cluster_dirty = TRUE
             AND has_body_data = TRUE
-            AND macro_grid_id IS NOT NULL) AS cluster_dirty
+            AND macro_grid_id IS NOT NULL) AS cluster_dirty,
+        (SELECT COUNT(*)
+           FROM systems
+          WHERE rating_dirty = TRUE
+            AND has_body_data = FALSE) AS rating_dirty_no_bodies
 
   - query_name: import_progress
     query: |

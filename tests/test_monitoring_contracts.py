@@ -114,11 +114,18 @@ def test_dirty_backlog_export_uses_partial_index_predicates_and_cache():
     exporter = _read('config', 'sql_exporter.yml')
 
     assert 'COUNT(*) FILTER' not in queries
-    assert queries.count('FROM systems') == 2
+    # 2026-08-07: a third scalar subquery (rating_dirty_no_bodies) was added
+    # to the same query_ref, same pattern as the other two — see
+    # ed_finder_dirty_counts_rating_dirty_no_bodies below. Bumped from 2 to
+    # 3 deliberately, not loosened to an inequality: this assertion exists
+    # to catch an *unexpected* new full-table scan sneaking in, and a fixed
+    # count still does that as long as it's kept in sync with real changes.
+    assert queries.count('FROM systems') == 3
     assert 'WHERE rating_dirty = TRUE' in queries
     assert 'WHERE cluster_dirty = TRUE' in queries
     assert 'AND has_body_data = TRUE' in queries
     assert 'AND macro_grid_id IS NOT NULL' in queries
+    assert 'AND has_body_data = FALSE' in queries
     assert 'min_interval: 5m' in exporter
 
 
@@ -144,6 +151,7 @@ def test_custom_queries_use_supported_sql_exporter_contract():
     assert 'disabled:disabled' in sql_config
     assert 'ed_finder_dirty_counts_rating_dirty' in collector
     assert 'ed_finder_dirty_counts_cluster_dirty' in collector
+    assert 'ed_finder_dirty_counts_rating_dirty_no_bodies' in collector
 
 
 def test_healthchecks_is_optional_and_uses_a_read_only_secret_file():
