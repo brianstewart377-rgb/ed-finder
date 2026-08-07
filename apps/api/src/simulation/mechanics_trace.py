@@ -4,8 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from mechanics.confidence import ConfidenceLevel, ConfidenceSignal
-from mechanics.versions import SOURCE_FRONTIER_LINKS, SOURCE_MEGA_GUIDE
+from edfinder_api.mechanics.confidence import ConfidenceLevel, ConfidenceSignal
+from edfinder_api.mechanics.versions import SOURCE_FRONTIER_LINKS, SOURCE_MEGA_GUIDE
 
 
 @dataclass(frozen=True)

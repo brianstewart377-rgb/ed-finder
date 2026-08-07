@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 
@@ -6,6 +7,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
+
+
+def _find_forbidden_flat_imports(source: str, forbidden_modules: set[str], filename: str = '<test>') -> list[str]:
+    """Shared by the real full-tree scan and its own unit test below.
+    Parsed with ast, not substring matching, so `import config`,
+    `import state as api_state`, and `from config import x` are all
+    caught, and an unrelated module whose name merely contains a forbidden
+    one (e.g. `configuration`) is not a false positive."""
+    violations = []
+    tree = ast.parse(source, filename=filename)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split('.')[0] in forbidden_modules:
+                    violations.append(f'{filename}:{node.lineno} uses flat import: import {alias.name}')
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 0 and node.module and node.module.split('.')[0] in forbidden_modules:
+                violations.append(f'{filename}:{node.lineno} uses flat import: from {node.module} import ...')
+    return violations
 
 
 def test_api_runtime_uses_package_entrypoint_not_server_shim():
@@ -221,3 +241,100 @@ def test_test_files_using_api_path_must_use_package_imports():
         'edfinder_api.* package imports, not flat imports:\n'
         + '\n'.join(violations)
     )
+
+
+def test_api_source_files_do_not_use_forbidden_flat_imports():
+    """2026-08-07 Codex Review finding: the closed 2026-07-15 dual-import
+    incident (docs/operations/known-issues.md) was hardened for test files
+    via test_test_files_using_api_path_must_use_package_imports above, but
+    that scan only covers tests/ — nothing symmetrically guards apps/api/src
+    itself against the same drift. No file currently uses the flat form
+    (verified directly), but the __path__ shim in edfinder_api/__init__.py
+    still makes it possible for a future edit to silently create a second
+    settings/limiter/pool/redis singleton instead of erroring.
+
+    Parsed with ast rather than substring matching (a second Codex Review
+    finding on the first version of this test): `import config`,
+    `import state as api_state`, etc. are equally dangerous and a substring
+    check for 'from state import ' doesn't see any of them. ast also avoids
+    the opposite risk — a substring check would false-positive on an
+    unrelated module that merely contains 'from state import ' inside a
+    string or comment, or a real module that happens to be named
+    e.g. 'configuration' if the forbidden string lacked a trailing space.
+
+    forbidden_modules is the same module-root set the older, narrower
+    substring check in test_newly_touched_api_modules_use_package_imports_
+    instead_of_new_flat_debt (above) already treats as forbidden — a third
+    Codex Review finding noted the first version of this list only had 5 of
+    those ~30 modules, so e.g. `from observations.models import X` (a real,
+    previously-incident-causing dual-import) went undetected here."""
+    forbidden_modules = {
+        'state', 'config', 'deps', 'models', 'helpers',
+        'body_sorting', 'evidence_store', 'ring_facts', 'models_economy',
+        'operator_visibility', 'operator_visibility_models',
+        'optimiser', 'recommendations',
+        'provenance_cockpit', 'provenance_cockpit_models',
+        'warehouse_planner_evidence', 'warehouse_planner_evidence_models',
+        'observations', 'colony_planner',
+        'review_contract_store', 'review_environment_fixtures', 'review_runtime_guard',
+        'journal_import', 'ingest',
+        'search_economies', 'station_body_resolver', 'station_body_resolver_utils',
+        'domain', 'mechanics', 'regional', 'simulation',
+        'local_search',
+    }
+
+    api_src = ROOT / 'apps' / 'api' / 'src'
+    violations = []
+
+    for path in api_src.rglob('*.py'):
+        # Only the shim's own __init__.py is exempt (it's what defines the
+        # dual-path namespace, not a consumer of it) — a fourth Codex Review
+        # finding noted the original check skipped every direct child of
+        # edfinder_api/, not just __init__.py, so a real consumer module
+        # dropped straight into that directory went unscanned.
+        if path == api_src / 'edfinder_api' / '__init__.py':
+            continue
+        rel = path.relative_to(ROOT).as_posix()
+        # utf-8-sig, not utf-8: at least one file in this tree
+        # (observations/comparison_models.py) starts with a UTF-8 BOM,
+        # which ast.parse() rejects as an invalid character if it's still
+        # present in the decoded string. -sig strips it if present and is
+        # a no-op otherwise.
+        source = path.read_text(encoding='utf-8-sig')
+        violations.extend(_find_forbidden_flat_imports(source, forbidden_modules, rel))
+
+    assert not violations, (
+        'apps/api/src files must use edfinder_api.* package imports for '
+        'these stateful-singleton modules, not flat imports — a flat '
+        'import creates a second module identity under the __path__ shim '
+        'in edfinder_api/__init__.py, silently duplicating settings/'
+        'limiter/pool/redis instead of erroring:\n' + '\n'.join(violations)
+    )
+
+
+def test_forbidden_flat_import_detection_catches_plain_and_aliased_forms():
+    """Direct unit test of the detection logic itself, isolated from the
+    real source tree — proves the specific gap Codex Review found in the
+    substring-based first version is actually closed, and that the fix
+    doesn't introduce a new false-positive on an innocently-similar name."""
+    forbidden_modules = {'state', 'config'}
+
+    caught = _find_forbidden_flat_imports('import config\n', forbidden_modules)
+    assert len(caught) == 1 and 'import config' in caught[0]
+
+    caught = _find_forbidden_flat_imports('import state as api_state\n', forbidden_modules)
+    assert len(caught) == 1 and 'import state' in caught[0]
+
+    caught = _find_forbidden_flat_imports('from config import settings\n', forbidden_modules)
+    assert len(caught) == 1 and 'from config import' in caught[0]
+
+    caught = _find_forbidden_flat_imports(
+        'from state.substate import x\n', {'state'},
+    )
+    assert len(caught) == 1 and 'from state.substate import' in caught[0]
+
+    # Must not flag the package-qualified form, or an unrelated module that
+    # merely starts with a forbidden name.
+    assert _find_forbidden_flat_imports('from edfinder_api.config import settings\n', forbidden_modules) == []
+    assert _find_forbidden_flat_imports('import configuration\n', forbidden_modules) == []
+    assert _find_forbidden_flat_imports('from configuration import x\n', forbidden_modules) == []

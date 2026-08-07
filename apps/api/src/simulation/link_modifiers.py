@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mechanics.link_rules import LINK_MODIFIER_DELTAS, MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER
+from edfinder_api.mechanics.link_rules import LINK_MODIFIER_DELTAS, MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER
 
 
 @dataclass(frozen=True)

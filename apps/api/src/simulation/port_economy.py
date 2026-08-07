@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from mechanics.economy_rules import FACILITY_ECONOMY_WEIGHTS
+from edfinder_api.mechanics.economy_rules import FACILITY_ECONOMY_WEIGHTS
 
 
 INFLUENCE_DIRECT_FACILITY = 'direct_facility'

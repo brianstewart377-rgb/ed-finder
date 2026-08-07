@@ -5,6 +5,6 @@ domain/simulation imports do not break while the mechanics layer is hardened.
 """
 from __future__ import annotations
 
-from mechanics.link_rules import MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
+from edfinder_api.mechanics.link_rules import MIN_STRONG_LINK_MODIFIER, STRONG_LINK_BY_TIER, WEAK_LINK_STRENGTH
 
 __all__ = ['MIN_STRONG_LINK_MODIFIER', 'STRONG_LINK_BY_TIER', 'WEAK_LINK_STRENGTH']

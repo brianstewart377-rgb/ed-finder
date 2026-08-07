@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mechanics.service_rules import (
+from edfinder_api.mechanics.service_rules import (
     MODELLED_SERVICES,
     SERVICE_STATUS_ACTIVE,
     SERVICE_STATUS_LOCKED,
