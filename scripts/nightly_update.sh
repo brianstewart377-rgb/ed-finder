@@ -177,28 +177,49 @@ pg_count_into() {
 # far longer than normal (an N+1-query regression turned a ~3h run into
 # ~24h) without ever failing or triggering a WARN — it just eventually
 # completes, or in the worst case never does and only the dead-man's-switch
-# heartbeat notices, a full day later. Recording wall-clock duration on
-# every exit (trap, not just the clean-completion path) means a run that's
-# merely gotten much slower — the early symptom, not just the eventual
-# timeout — shows up as a Prometheus metric the next scrape after it
-# finishes, success or failure. Installed only after the lock is held, so a
-# run skipped by the overlap guard above doesn't record a near-zero
-# duration that would look like a health signal.
+# heartbeat notices, a full day later.
+#
+# Recording only a final duration at exit (the first version of this fix,
+# per Codex Review) doesn't actually catch that case: while a run is still
+# executing hour 20 of a 24h regression, the exit trap hasn't fired yet, so
+# the exported metric still reads the previous night's ~3h and the anomaly
+# alert stays quiet — visible only after the run finally exits, no earlier
+# than the dead-man's-switch already was. Recording separate start/complete
+# epochs instead lets the exporter query (config/sql_exporter_ed_finder.
+# collector.yml) compute LIVE elapsed time for a run that's still going,
+# not just the final duration of one that already finished.
+#
+# Both keys are written unconditionally on every real run (started_at here,
+# completed_at in the EXIT trap below) — installed only after the lock is
+# held, so a run skipped by the overlap guard above doesn't touch either
+# key and leave the truly-active instance's start time.
 NIGHTLY_START_EPOCH=$(date +%s)
-record_nightly_duration() {
-    local duration=$(( $(date +%s) - NIGHTLY_START_EPOCH ))
+if run_psql -c \
+    "INSERT INTO app_meta(key,value,updated_at)
+     VALUES('nightly_update_started_at_epoch','$NIGHTLY_START_EPOCH',NOW())
+     ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
+    >> "$LOG" 2>&1
+then
+    log "nightly_update_started_at_epoch recorded: $NIGHTLY_START_EPOCH"
+else
+    log "nightly_update_started_at_epoch recording failed (psql exit $?)"
+fi
+
+record_nightly_completion() {
+    local completed_at
+    completed_at=$(date +%s)
     if run_psql -c \
         "INSERT INTO app_meta(key,value,updated_at)
-         VALUES('last_nightly_update_duration_seconds','$duration',NOW())
+         VALUES('nightly_update_completed_at_epoch','$completed_at',NOW())
          ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
         >> "$LOG" 2>&1
     then
-        log "last_nightly_update_duration_seconds recorded: ${duration}s"
+        log "nightly_update_completed_at_epoch recorded: $completed_at ($(( completed_at - NIGHTLY_START_EPOCH ))s elapsed)"
     else
-        log "last_nightly_update_duration_seconds recording failed (psql exit $?)"
+        log "nightly_update_completed_at_epoch recording failed (psql exit $?)"
     fi
 }
-trap record_nightly_duration EXIT
+trap record_nightly_completion EXIT
 
 # ---------------------------------------------------------------------------
 # 1. Download Spansh delta files

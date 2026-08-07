@@ -141,10 +141,16 @@ def test_nightly_update_duration_is_tracked_and_alertable():
     """2026-08-06 incident: an N+1-query regression turned a normal ~3h
     nightly_update.sh run into ~24h without the job ever failing or
     warning — nothing surfaced until the healthchecks.io dead-man's-switch
-    fired a full day later. This metric/alert pair is the earlier signal:
-    a run that's gotten much slower shows up the scrape after it exits,
-    success or failure, well before it would ever trip the dead-man's
-    switch. See scripts/nightly_update.sh's record_nightly_duration trap."""
+    fired a full day later. This metric/alert pair is the earlier signal.
+
+    Codex Review finding on the first version of this fix: recording only
+    a final duration at exit doesn't catch a run that's STILL stuck — the
+    exit trap hasn't fired yet, so the metric would keep reading the
+    previous night's ~3h for the entire time the regression was silently
+    running. The query must compute LIVE elapsed time from a start epoch
+    while no (newer) completion epoch exists yet, not just a frozen
+    post-exit value. See scripts/nightly_update.sh's started_at_epoch
+    write and record_nightly_completion trap."""
     collector = _read('config', 'sql_exporter_ed_finder.collector.yml')
     rules = _read('config', 'prometheus_rules.yml')
     dashboard = json.loads(_read('config', 'grafana', 'dashboards', 'ed-finder.json'))
@@ -155,7 +161,12 @@ def test_nightly_update_duration_is_tracked_and_alertable():
     )
 
     assert 'ed_finder_nightly_update_duration_seconds' in collector
-    assert "key = 'last_nightly_update_duration_seconds'" in collector
+    assert "key = 'nightly_update_started_at_epoch'" in collector
+    assert "key = 'nightly_update_completed_at_epoch'" in collector
+    # The live-elapsed-time branch: still-running (or crashed-without-exit)
+    # is detected by completed_at being NULL or older than started_at.
+    assert 'WHEN completed_at IS NULL OR completed_at < started_at' in collector
+    assert "EXTRACT(EPOCH FROM NOW())::bigint - started_at" in collector
     assert 'alert: NightlyUpdateDurationAnomaly' in rules
     assert 'ed_finder_nightly_update_duration_seconds > 21600' in rules
     # Not just alertable — visible on the dashboard so a slow-but-passing

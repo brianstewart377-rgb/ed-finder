@@ -76,14 +76,18 @@ metrics:
   - metric_name: ed_finder_nightly_update_duration_seconds
     type: gauge
     help: >-
-      Wall-clock duration of the most recent scripts/nightly_update.sh run,
-      recorded on every exit (success, warning, or fatal abort) via a trap,
-      not just clean completions. 2026-08-06 incident: an N+1-query
-      regression turned a normal ~3h run into ~24h without the job ever
-      failing or warning — nothing surfaced until the healthchecks.io
-      dead-man's-switch fired a full day later. This metric is the earlier
-      signal: a run that's gotten much slower shows up the next scrape
-      after it exits, whether or not it ultimately succeeded.
+      Elapsed wall-clock time for scripts/nightly_update.sh: LIVE elapsed
+      time (NOW() minus start) while a run is still in progress, frozen to
+      the final duration once it exits (success, warning, or fatal abort —
+      the exit trap covers all three, not just clean completions).
+      2026-08-06 incident: an N+1-query regression turned a normal ~3h run
+      into ~24h without the job ever failing or warning — nothing surfaced
+      until the healthchecks.io dead-man's-switch fired a full day later.
+      Codex Review correctly flagged that recording only a post-exit
+      duration doesn't actually catch that case early: the metric would
+      still read the previous night's ~3h for the entire 20+ hours the
+      regression was silently running. Live elapsed time closes that gap —
+      a run stuck in hour 7 is visible the next scrape, not the next exit.
     values: [duration_seconds]
     query_ref: nightly_update_duration
 
@@ -135,5 +139,16 @@ queries:
 
   - query_name: nightly_update_duration
     query: |
+      WITH nightly_run AS (
+        SELECT
+          (SELECT value::bigint FROM app_meta WHERE key = 'nightly_update_started_at_epoch') AS started_at,
+          (SELECT value::bigint FROM app_meta WHERE key = 'nightly_update_completed_at_epoch') AS completed_at
+      )
       SELECT
-        (SELECT value::bigint FROM app_meta WHERE key = 'last_nightly_update_duration_seconds') AS duration_seconds
+        CASE
+          WHEN started_at IS NULL THEN NULL
+          WHEN completed_at IS NULL OR completed_at < started_at
+            THEN EXTRACT(EPOCH FROM NOW())::bigint - started_at
+          ELSE completed_at - started_at
+        END AS duration_seconds
+      FROM nightly_run

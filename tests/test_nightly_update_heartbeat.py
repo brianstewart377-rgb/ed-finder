@@ -248,11 +248,7 @@ def test_degraded_run_pings_fail_url_exactly_once(tmp_path: Path):
     assert f'{heartbeat_url}|<unset>' not in observation['curl_calls']
     assert 'Nightly update completed WITH WARNINGS' in observation['output']
     assert 'heartbeat: sent-fail' in observation['output']
-    # Quoted with trailing comma to distinguish the timestamp key from
-    # 'last_nightly_update_duration_seconds', which is a substring match on
-    # the bare 'last_nightly_update' and is recorded unconditionally by the
-    # separate duration-tracking trap regardless of degraded/failure state.
-    assert all("'last_nightly_update'," not in call for call in observation['docker_calls'])
+    assert all("'last_nightly_update'" not in call for call in observation['docker_calls'])
 
 
 def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat(tmp_path: Path):
@@ -268,11 +264,7 @@ def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat
     assert completed.returncode == 0, observation['output']
     assert observation['curl_calls'] == [f'{heartbeat_url}/fail|<unset>']
     assert 'Database measurement failed' in observation['output']
-    # Quoted with trailing comma to distinguish the timestamp key from
-    # 'last_nightly_update_duration_seconds', which is a substring match on
-    # the bare 'last_nightly_update' and is recorded unconditionally by the
-    # separate duration-tracking trap regardless of degraded/failure state.
-    assert all("'last_nightly_update'," not in call for call in observation['docker_calls'])
+    assert all("'last_nightly_update'" not in call for call in observation['docker_calls'])
 
 
 def test_nightly_psql_calls_bound_the_role_statement_timeout(tmp_path: Path):
@@ -332,58 +324,75 @@ def test_env_example_documents_nightly_update_heartbeat_clean_fail_split():
     assert '/fail' in env_example
 
 
-def test_clean_run_records_duration(tmp_path: Path):
+def test_clean_run_records_start_and_completion_epochs(tmp_path: Path):
     observation = _run_nightly_update(tmp_path)
     completed = observation['completed']
 
     assert isinstance(completed, subprocess.CompletedProcess)
     assert completed.returncode == 0, observation['output']
-    duration_calls = [
+    started_calls = [
         call for call in observation['docker_calls']
-        if "'last_nightly_update_duration_seconds'" in call
+        if "'nightly_update_started_at_epoch'" in call
     ]
-    assert len(duration_calls) == 1
-    assert 'last_nightly_update_duration_seconds recorded' in observation['output']
+    completed_calls = [
+        call for call in observation['docker_calls']
+        if "'nightly_update_completed_at_epoch'" in call
+    ]
+    assert len(started_calls) == 1
+    assert len(completed_calls) == 1
+    assert 'nightly_update_started_at_epoch recorded' in observation['output']
+    assert 'nightly_update_completed_at_epoch recorded' in observation['output']
 
 
-def test_degraded_run_still_records_duration(tmp_path: Path):
+def test_degraded_run_still_records_completion_epoch(tmp_path: Path):
     """Unlike the last_nightly_update timestamp (only written on a clean
-    run), duration must be recorded regardless of outcome — a run that
-    degrades after taking far too long is exactly the case this metric
-    exists to catch, not one to exclude."""
+    run), start/completion must be recorded regardless of outcome — a run
+    that degrades after taking far too long is exactly the case this
+    metric exists to catch, not one to exclude."""
     observation = _run_nightly_update(tmp_path, degraded=True)
     completed = observation['completed']
 
     assert isinstance(completed, subprocess.CompletedProcess)
     assert completed.returncode == 0, observation['output']
-    duration_calls = [
+    started_calls = [
         call for call in observation['docker_calls']
-        if "'last_nightly_update_duration_seconds'" in call
+        if "'nightly_update_started_at_epoch'" in call
     ]
-    assert len(duration_calls) == 1
+    completed_calls = [
+        call for call in observation['docker_calls']
+        if "'nightly_update_completed_at_epoch'" in call
+    ]
+    assert len(started_calls) == 1
+    assert len(completed_calls) == 1
 
 
-def test_fatal_abort_still_records_duration(tmp_path: Path):
-    """The duration trap is installed via `trap ... EXIT`, which must fire
-    even on fatal()'s early `exit 1` — a run that fails after running for
-    hours is the highest-value case to have visibility into, not one where
-    the trap should be skipped."""
+def test_fatal_abort_still_records_completion_epoch(tmp_path: Path):
+    """The completion trap is installed via `trap ... EXIT`, which must
+    fire even on fatal()'s early `exit 1` — a run that fails after running
+    for hours is the highest-value case to have visibility into, not one
+    where the trap should be skipped."""
     observation = _run_nightly_update(tmp_path, fatal=True)
     completed = observation['completed']
 
     assert isinstance(completed, subprocess.CompletedProcess)
     assert completed.returncode == 1, observation['output']
-    duration_calls = [
+    started_calls = [
         call for call in observation['docker_calls']
-        if "'last_nightly_update_duration_seconds'" in call
+        if "'nightly_update_started_at_epoch'" in call
     ]
-    assert len(duration_calls) == 1
+    completed_calls = [
+        call for call in observation['docker_calls']
+        if "'nightly_update_completed_at_epoch'" in call
+    ]
+    assert len(started_calls) == 1
+    assert len(completed_calls) == 1
 
 
-def test_skipped_run_due_to_overlap_records_no_duration(tmp_path: Path):
-    """The duration trap is installed after the overlap-guard lock check —
-    a run skipped because a previous run is still active must not record a
-    near-zero duration that would look like a healthy signal."""
+def test_skipped_run_due_to_overlap_records_no_start_or_completion(tmp_path: Path):
+    """Both writes are installed after the overlap-guard lock check — a run
+    skipped because a previous run is still active must not overwrite the
+    truly-active instance's start time with its own, or record a spurious
+    completion for a run it never actually performed."""
     if shutil.which('flock') is None:
         pytest.skip('flock is not available on this host (e.g. Windows Git Bash)')
 
