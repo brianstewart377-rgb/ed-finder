@@ -2,6 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+## Status as of 2026-08-07 (verified, not assumed — re-ran Task 0's own checks)
+
+- **Task 1: merged but NOT applied to production.** `sql/041_bodies_composite_identity_index.sql` exists, is registered in `sql/migration-manifest.txt` (`|manual`), and shipped in PR #411 (commit `59bf8ac0`). Directly queried production tonight: `idx_bodies_system_id64_id` does not exist yet (`SELECT indexname FROM pg_indexes WHERE tablename='bodies' AND indexname='idx_bodies_system_id64_id'` → 0 rows). This is the next concrete action — a monitored `CREATE INDEX CONCURRENTLY` run against the live ~573M-row table, per the Production Rollout Runbook below. Nothing else in this plan can proceed before this is confirmed built and valid.
+- **Tasks 2-6: not started.** `sql/001_schema.sql` still shows bare `id BIGINT PRIMARY KEY` on `bodies`. `apps/eddn/src/eddn_listener.py` still writes `ON CONFLICT (id)`. `apps/importer/src/import_spansh.py:954` still calls `upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id', ...)` — bare string conflict target, not yet `['id', 'system_id64']`.
+- **The "Known issues in Tasks 2-5" section below is still unresolved** — Task 2/3 as currently drafted have not been corrected for any of the 4 issues listed. Do not execute Task 2 or Task 3 as literally written without applying those corrections first; this was deliberately left as a to-do rather than silently patched into the task bodies during this status check, since resolving FK-cascade SQL on a 573M-row table's dependent tables deserves focused attention in the session that actually executes it, not a tail-end edit. One piece of groundwork *is* done: the Postgres 16 column-list syntax issue 2 depends on (`ON DELETE SET NULL (body_id)`) was verified directly against a real Postgres 16 instance tonight and confirmed to work as expected (parent-row delete nulled only the named column, left the sibling `NOT NULL` column untouched).
+- Recommend whoever picks this up next also re-decide the resolution to issue 3 (schema/writer deploy gap) explicitly before writing Task 2's SQL — the plan currently doesn't commit to either of its own two offered options (temporary `UNIQUE (id)` constraint vs. atomic schema+writer deploy).
+
 **Goal:** Replace `bodies.id BIGINT PRIMARY KEY` (a source-supplied id with no sequence, currently guarded but not truly fixed against cross-system collisions) with a composite `(system_id64, id)` identity, so that two different systems whose bodies coincidentally share the same numeric id — which happens routinely because the Elite Dangerous journal's `BodyID` field is only unique *within* a system — can both be stored correctly instead of one silently colliding with the other.
 
 **Architecture:** `bodies.id` stops being globally unique and starts being unique only within a system, matching the pattern this codebase already uses successfully for `body_scan_facts` and `body_slot_predictions` (`PRIMARY KEY (system_address, body_id)`), and matching how every existing consumer of `bodies.id` already reads it (every join site found in this repo already scopes by `system_id64` alongside `body_id`/`bodies.id` — see Task 0 for the full audit). The three FK-dependent tables (`body_rings`, `attractions`, `station_body_links`) already carry their own `system_id64` column, so their foreign keys become composite too, with no new columns needed. Because the *existing* 573M rows in `bodies` are already globally unique (the current PK enforces it), this migration needs **no data backfill** — it is purely a constraint-shape change, built non-blocking via `CREATE INDEX CONCURRENTLY` (this codebase already has 8 precedents for that pattern, including on a comparably large table: `sql/039_ratings_score_viable_index.sql` against the ~189M-row `ratings` table).
@@ -24,17 +31,17 @@ This task is a verification checkpoint, not an implementation step — it exists
 
 **Files:** none modified. Read-only.
 
-- [ ] **Step 1: Confirm current `bodies` PK shape**
+- [x] **Step 1: Confirm current `bodies` PK shape** — re-verified 2026-08-07: still bare `id BIGINT PRIMARY KEY`, no sequence, no composite key.
 
 Run: `grep -n "CREATE TABLE IF NOT EXISTS bodies" -A 3 sql/001_schema.sql`
 Expected: `id BIGINT PRIMARY KEY` on its own, no sequence, no composite key. If this has already changed, stop and re-plan — this document assumes the pre-migration state.
 
-- [ ] **Step 2: Confirm the three FK-dependent tables still carry their own `system_id64`**
+- [ ] **Step 2: Confirm the three FK-dependent tables still carry their own `system_id64`** — not re-verified 2026-08-07, still needs a fresh check.
 
 Run: `grep -n "system_id64.*NOT NULL REFERENCES systems" sql/001_schema.sql sql/021_station_body_links.sql`
 Expected: three matches — `body_rings`, `attractions` (both in `sql/001_schema.sql`), `station_body_links` (`sql/021_station_body_links.sql`). If `sql/024_body_rings.sql` exists and is the live definition of `body_rings` (it re-declares the table as `CREATE TABLE IF NOT EXISTS`), check it too — it has the same `system_id64 NOT NULL` shape as of this writing.
 
-- [ ] **Step 3: Confirm the two writers are still the only writers of `bodies`**
+- [x] **Step 3: Confirm the two writers are still the only writers of `bodies`** — re-verified 2026-08-07: `eddn_listener.py` still does `ON CONFLICT (id)` (composite conflict target not yet applied — matches "Tasks 2-6 not started" above), `import_spansh.py:954` still calls `upsert_via_temp(conn, 'bodies', BODY_COLS, body_batch, 'id', ...)` with the bare-string conflict_col form, no third writer found. (The second grep below needs `-A2`/multi-line matching to actually find the import_spansh.py call — its argument list wraps onto the next line — a single-line grep on this exact string silently returns nothing even though the call exists; don't take a no-match on the literal pattern as "writer removed.")
 
 Run: `grep -rln "INSERT INTO bodies" apps/` and separately `grep -rln "upsert_via_temp(conn, 'bodies'" apps/`
 Expected: `apps/eddn/src/eddn_listener.py` for the first, `apps/importer/src/import_spansh.py` for the second, and nothing else. If a third writer has appeared, this plan does not cover it — stop and extend the plan before proceeding.
