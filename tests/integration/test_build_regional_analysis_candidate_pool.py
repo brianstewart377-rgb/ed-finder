@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import math
 import os
 import sys
@@ -195,6 +196,57 @@ def test_nan_coordinates_are_excluded_like_null():
 
             nan_target = {'id64': nan_target_id, 'x': float('nan'), 'y': 0.0, 'z': 0.0}
             assert build_regional_analysis._candidates_for(pool, nan_target) == []
+    finally:
+        _cleanup()
+        conn.close()
+
+
+@pytest.mark.db
+def test_load_targets_persists_exclusion_for_non_finite_coords_across_runs():
+    """Codex Review finding on #426: without a persisted row, a non-finite
+    target would keep matching default mode's `NOT EXISTS` check and get
+    re-fetched by every future run, permanently eating into --limit. Proves
+    it end to end against real Postgres: selected and written on the first
+    call, gone from the second call's result."""
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn.autocommit = False
+    nan_id = 97_000_000_000_020
+
+    def _cleanup():
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM system_regional_analysis WHERE system_id64 = %s', (nan_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (nan_id,))
+        conn.commit()
+
+    _cleanup()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO systems (id64, name, x, y, z, population, is_colonised, is_being_colonised) '
+                'VALUES (%s, %s, %s, 0.0, 0.0, 0, FALSE, FALSE)',
+                (nan_id, 'Persist Exclusion Test', float('nan')),
+            )
+        conn.commit()
+
+        args = argparse.Namespace(dirty=False, all=False, limit=None)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            first_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
+        conn.commit()
+        assert nan_id not in first_run_ids  # excluded from targets...
+
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT regional_role, data_source FROM system_regional_analysis WHERE system_id64 = %s',
+                (nan_id,),
+            )
+            row = cur.fetchone()
+        assert row is not None, 'non-finite target should have gotten a persisted degenerate row'
+        assert row == ('unknown', 'computed')
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            second_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
+        conn.commit()
+        assert nan_id not in second_run_ids  # ...and never selected again, not just skipped this once
     finally:
         _cleanup()
         conn.close()

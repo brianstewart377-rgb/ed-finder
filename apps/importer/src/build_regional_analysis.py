@@ -230,16 +230,29 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
     # get a degenerate `_unknown()` analysis anyway (see _candidates_for's
     # own NaN short-circuit), so there's no reason to pay for a full
     # compute_regional_analysis + DB write for it 5,000,000 times over.
-    targets = [
-        row for row in fetched
-        if math.isfinite(row['x']) and math.isfinite(row['y']) and math.isfinite(row['z'])
-    ]
+    targets = []
+    non_finite = []
+    for row in fetched:
+        if math.isfinite(row['x']) and math.isfinite(row['y']) and math.isfinite(row['z']):
+            targets.append(row)
+        else:
+            non_finite.append(row)
+    # Codex Review finding on #426: filtering these out here without writing
+    # anything for them means they never get a system_regional_analysis row,
+    # so the NOT EXISTS above keeps re-selecting the same non-finite systems
+    # on every future run, permanently eating into the --limit batch. Write
+    # the same degenerate row a zero-candidate finite target would get
+    # (compute_regional_analysis returns _unknown() whenever candidates is
+    # empty, regardless of the target's own coordinates) so they're marked
+    # done and drop out of NOT EXISTS for good, like everything else here.
+    for row in non_finite:
+        _write(cur, compute_regional_analysis(row, []))
     cur.execute(f"""
         SELECT COUNT(*) AS excluded_count
         FROM systems
         {excluded_where}
     """)
-    excluded_count = int(cur.fetchone()['excluded_count']) + (len(fetched) - len(targets))
+    excluded_count = int(cur.fetchone()['excluded_count']) + len(non_finite)
     print(f'Excluded {excluded_count:,} coordinate-less systems from regional analysis this run')
     return targets
 
