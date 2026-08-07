@@ -54,6 +54,7 @@ from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_
 from edfinder_api.routers.archetypes import router as archetypes_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
 from edfinder_api.routers.evidence import router as evidence_router
+from edfinder_api.ingest.eddn_client import run_eddn_simulation_ingest
 from edfinder_api.routers.events import router as events_router, eddn_pubsub_bridge
 from edfinder_api.routers.journal_import import router as journal_import_router
 from edfinder_api.routers.map import router as map_router
@@ -77,11 +78,12 @@ from edfinder_api.share_router import router as share_router
 # Startup / shutdown
 # ---------------------------------------------------------------------------
 _sse_pubsub_task: Optional[asyncio.Task] = None
+_eddn_simulation_ingest_task: Optional[asyncio.Task] = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _sse_pubsub_task
+    global _sse_pubsub_task, _eddn_simulation_ingest_task
     log.info(f"ED Finder Hetzner backend v{settings.app_version} starting ...")
 
     async def _init_conn(conn: asyncpg.Connection) -> None:
@@ -200,6 +202,10 @@ async def lifespan(app: FastAPI):
         _sse_pubsub_task = asyncio.create_task(eddn_pubsub_bridge())
         log.info("EDDN→SSE pub/sub bridge started ✓")
 
+    if settings.eddn_simulation_ingest_enabled:
+        _eddn_simulation_ingest_task = asyncio.create_task(run_eddn_simulation_ingest(pool))
+        log.info("EDDN simulation ingest started ✓")
+
     # Load facility catalogue into memory (simulation engine domain layer)
     try:
         async with pool.acquire() as _conn:
@@ -232,6 +238,12 @@ async def lifespan(app: FastAPI):
         _sse_pubsub_task.cancel()
         try:
             await _sse_pubsub_task
+        except (asyncio.CancelledError, Exception):
+            pass
+    if _eddn_simulation_ingest_task:
+        _eddn_simulation_ingest_task.cancel()
+        try:
+            await _eddn_simulation_ingest_task
         except (asyncio.CancelledError, Exception):
             pass
     if readonly_pool and readonly_pool is not pool:

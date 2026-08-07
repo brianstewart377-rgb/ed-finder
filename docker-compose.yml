@@ -205,6 +205,9 @@ services:
       # never leaves the docker network for its own DSN), e.g.:
       #   http://<key>@glitchtip_web:8000/<project_id>
       SENTRY_DSN:           ${SENTRY_DSN:-}
+      # Opt-in EDDN simulation ingest background task — see env.example
+      # and apps/api/src/ingest/eddn_client.py. Defaults off.
+      EDDN_SIMULATION_INGEST_ENABLED: ${EDDN_SIMULATION_INGEST_ENABLED:-false}
     volumes:
       - /data/logs:/data/logs
       # Operator-written invariant receipts; the API reads fixed JSON aliases

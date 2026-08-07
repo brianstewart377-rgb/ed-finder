@@ -6,7 +6,11 @@ the simulation engine (Scan, FSSBodySignals, SAASignalsFound) and writes
 them into journal_events + body_scan_facts.
 
 Design rules:
-  • Runs as a background asyncio.Task inside the FastAPI lifespan.
+  • Runs as a background asyncio.Task inside the FastAPI lifespan, gated
+    behind the opt-in EDDN_SIMULATION_INGEST_ENABLED setting (default
+    off — see config.py). Wired up 2026-08-07 after sitting unreferenced
+    since its original commit; until then this docstring's claims were
+    aspirational, not actual.
   • Does NOT block any request handler.
   • Uses the existing asyncpg pool — no separate connection.
   • Reconnects automatically on ZMQ disconnect.
@@ -18,6 +22,12 @@ spectrum (systems, bodies, stations, dirty flags). This client handles
 ONLY the simulation-relevant event types for body_scan_facts ingestion.
 They can run side-by-side without conflict — this client writes to
 different tables (journal_events, body_scan_facts).
+
+NOTE: journal_events/body_scan_facts also have an independent, already-
+live write path — the client-side journal-import lane
+(apps/api/src/journal_import/store.py). Enabling this task adds a
+second, separate feed into the same tables; it does not replace or
+depend on that one.
 """
 from __future__ import annotations
 
