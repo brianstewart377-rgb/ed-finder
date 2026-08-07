@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import logging
 import os
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -33,45 +32,54 @@ def _broken_redis() -> AsyncMock:
     return redis
 
 
+# Mocking archetypes.log directly, rather than using pytest's caplog fixture,
+# so this test's outcome depends only on this module's own code — not on
+# root-logger handler/propagation state, which (unlike a fresh process) can
+# be left in an unknown configuration by whichever of the other ~1600 tests
+# in the full suite happened to run first in the same pytest session.
+
+
 @pytest.mark.asyncio
-async def test_cache_get_degrades_and_logs_on_redis_error(caplog):
+async def test_cache_get_degrades_and_logs_on_redis_error():
     """2026-08-07 Codex Review finding: a Redis outage silently bypassed the
     cache with zero log line — correct degrade-to-DB behavior, invisible
     failure. Confirms both halves: still returns None (degrades), and now
     logs a warning (visible)."""
-    with caplog.at_level(logging.WARNING, logger='ed_finder'):
+    with patch.object(archetypes, 'log') as mock_log:
         result = await archetypes._cache_get(_broken_redis(), 'arch:v1:sys:1')
 
     assert result is None
-    assert any('cache get failed' in record.message for record in caplog.records)
+    mock_log.warning.assert_called_once()
+    assert 'get' in mock_log.warning.call_args.args[1]
 
 
 @pytest.mark.asyncio
-async def test_cache_set_degrades_and_logs_on_redis_error(caplog):
-    with caplog.at_level(logging.WARNING, logger='ed_finder'):
+async def test_cache_set_degrades_and_logs_on_redis_error():
+    with patch.object(archetypes, 'log') as mock_log:
         await archetypes._cache_set(_broken_redis(), 'arch:v1:sys:1', {'x': 1})
 
-    assert any('cache set failed' in record.message for record in caplog.records)
+    mock_log.warning.assert_called_once()
+    assert 'set' in mock_log.warning.call_args.args[1]
 
 
 @pytest.mark.asyncio
-async def test_cache_version_degrades_and_logs_on_redis_error(caplog):
-    with caplog.at_level(logging.WARNING, logger='ed_finder'):
+async def test_cache_version_degrades_and_logs_on_redis_error():
+    with patch.object(archetypes, 'log') as mock_log:
         result = await archetypes._cache_version(_broken_redis())
 
     assert result == 1
-    assert any('cache version failed' in record.message for record in caplog.records)
+    mock_log.warning.assert_called_once()
+    assert 'version' in mock_log.warning.call_args.args[1]
 
 
 @pytest.mark.asyncio
-async def test_repeated_failures_within_interval_log_once(caplog):
+async def test_repeated_failures_within_interval_log_once():
     """A sustained outage must not log once per request — that's log spam
     under exactly the condition (many requests, all failing) most likely to
     flood the log right when an operator needs a clean signal."""
     redis = _broken_redis()
-    with caplog.at_level(logging.WARNING, logger='ed_finder'):
+    with patch.object(archetypes, 'log') as mock_log:
         for _ in range(5):
             await archetypes._cache_get(redis, 'arch:v1:sys:1')
 
-    warnings = [r for r in caplog.records if 'cache get failed' in r.message]
-    assert len(warnings) == 1
+    mock_log.warning.assert_called_once()
