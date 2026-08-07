@@ -80,6 +80,16 @@ def test_only_local_matched_body_ring_rows_confirm_ringed_state():
     }
 
 
+def test_row_missing_association_status_key_is_not_trusted():
+    """A row with no association_status key at all — a narrower SELECT, a
+    hand-built dict from a caller that hasn't been updated — must be
+    treated as untrusted, not silently promoted to trusted by a default
+    fallback. This is the trust gate this function exists to enforce."""
+    missing_key = {'system_id64': 42, 'body_id': 7, 'ring_name': 'Test 5 A Ring'}
+
+    assert is_trusted_ring_row(missing_key) is False
+
+
 def test_body_ring_dry_run_report_shape_counts_safety_rules():
     report = build_body_ring_dry_run_report(
         source='spansh_dump',
