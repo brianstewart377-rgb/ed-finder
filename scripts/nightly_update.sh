@@ -47,8 +47,15 @@ DUMP_DIR=/data/dumps
 # before doing anything else, and tee can't create a missing parent
 # directory — on a host where /data/logs doesn't exist yet, a failure this
 # early would silently not reach nightly.log at all, undermining the point
-# of logging it.
-mkdir -p "$LOG_DIR"
+# of logging it. Checked explicitly rather than left to fail silently
+# further down: without `set -e`, an unchecked mkdir failure (read-only
+# /data, permissions) would let the script carry on with every later
+# `tee -a "$LOG"` failing the same way, right past the checks this exists
+# to make loud.
+if ! mkdir -p "$LOG_DIR"; then
+    echo "[FATAL] Could not create log directory $LOG_DIR — cannot proceed" >&2
+    exit 1
+fi
 
 # Auto-detect the compose directory as the parent of this script's directory.
 # This works whether the repo is at /opt/ed-finder or anywhere else.

@@ -99,6 +99,12 @@ sys.path.insert(0, str(_find_api_src()))
 from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
 from regional.regional_analysis import compute_regional_analysis
 
+# Distinguishes a placeholder row written for a NaN/Infinity-coordinate
+# target (see _load_targets) from a real `computed` analysis, so default
+# mode's target query can tell the two apart and re-check the former
+# instead of treating it as permanently done.
+NON_FINITE_COORDS_SOURCE = 'non_finite_coords'
+
 
 UPSERT = """
 INSERT INTO system_regional_analysis (
@@ -202,10 +208,25 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
             ')'
         )
     elif not args.all:
+        # A system stays eligible if it has no row yet, OR its only row is
+        # the NON_FINITE_COORDS_SOURCE placeholder written below for a
+        # target that failed the isfinite check at write time. Without the
+        # second half, a system whose bad coordinates later get corrected
+        # by a later import would never be reprocessed: default mode has no
+        # other trigger to revisit it (coordinate updates only ever mark
+        # cluster_dirty, and there's no scheduled --dirty regional-analysis
+        # run to catch that). Since a system only reaches `targets` in the
+        # first place when its current coordinates pass the isfinite check
+        # below, re-selecting a NON_FINITE_COORDS_SOURCE row here can only
+        # mean the coordinates are now good — the isfinite filter itself is
+        # what decides that, this clause just stops the stale placeholder
+        # from permanently blocking the re-check.
         where = (
-            f'WHERE ({coord_filter}) AND NOT EXISTS '
-            '(SELECT 1 FROM system_regional_analysis r '
-            'WHERE r.system_id64 = systems.id64)'
+            f'WHERE ({coord_filter}) AND ('
+            'NOT EXISTS (SELECT 1 FROM system_regional_analysis r WHERE r.system_id64 = systems.id64) '
+            'OR EXISTS (SELECT 1 FROM system_regional_analysis r WHERE r.system_id64 = systems.id64 '
+            f"AND r.data_source = '{NON_FINITE_COORDS_SOURCE}')"
+            ')'
         )
         excluded_where = (
             f'WHERE ({missing_coord_filter}) AND NOT EXISTS '
@@ -243,10 +264,14 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
     # on every future run, permanently eating into the --limit batch. Write
     # the same degenerate row a zero-candidate finite target would get
     # (compute_regional_analysis returns _unknown() whenever candidates is
-    # empty, regardless of the target's own coordinates) so they're marked
-    # done and drop out of NOT EXISTS for good, like everything else here.
+    # empty, regardless of the target's own coordinates), but tagged with
+    # NON_FINITE_COORDS_SOURCE instead of the usual 'computed' — see the
+    # `where` clause above for why: that tag is what lets this row be
+    # revisited later instead of permanently blocking reprocessing.
     for row in non_finite:
-        _write(cur, compute_regional_analysis(row, []))
+        analysis = compute_regional_analysis(row, [])
+        analysis['data_source'] = NON_FINITE_COORDS_SOURCE
+        _write(cur, analysis)
     cur.execute(f"""
         SELECT COUNT(*) AS excluded_count
         FROM systems

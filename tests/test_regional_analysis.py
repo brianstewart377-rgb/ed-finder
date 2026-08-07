@@ -113,12 +113,13 @@ def test_load_targets_excludes_nan_and_infinity_and_folds_into_excluded_count(ca
     # Codex Review finding on #426: without a persisted row, NOT EXISTS
     # would keep re-selecting these same non-finite systems every run,
     # permanently eating into the --limit batch. Confirm they get the same
-    # degenerate row a zero-candidate finite target would.
+    # degenerate row a zero-candidate finite target would, tagged so a
+    # later repair can still trigger a real reprocess (see the next test).
     upserted_ids = {row['system_id64'] for row in cursor.upserted_rows}
     assert upserted_ids == {2, 3}
     for row in cursor.upserted_rows:
         assert row['regional_role'] == 'unknown'
-        assert row['data_source'] == 'computed'
+        assert row['data_source'] == build_regional_analysis.NON_FINITE_COORDS_SOURCE
 
 
 def system(id64: int, x: float, y: float, z: float, *, colonised: bool = False, population: int = 0):
