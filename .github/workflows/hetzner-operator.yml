@@ -24,6 +24,7 @@ jobs:
     name: Run safe Hetzner operator stage
     runs-on: ubuntu-latest
     environment: hetzner-operator
+    timeout-minutes: 10
 
     steps:
       - name: Validate inputs
