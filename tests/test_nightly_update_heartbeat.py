@@ -248,7 +248,11 @@ def test_degraded_run_pings_fail_url_exactly_once(tmp_path: Path):
     assert f'{heartbeat_url}|<unset>' not in observation['curl_calls']
     assert 'Nightly update completed WITH WARNINGS' in observation['output']
     assert 'heartbeat: sent-fail' in observation['output']
-    assert all('last_nightly_update' not in call for call in observation['docker_calls'])
+    # Quoted with trailing comma to distinguish the timestamp key from
+    # 'last_nightly_update_duration_seconds', which is a substring match on
+    # the bare 'last_nightly_update' and is recorded unconditionally by the
+    # separate duration-tracking trap regardless of degraded/failure state.
+    assert all("'last_nightly_update'," not in call for call in observation['docker_calls'])
 
 
 def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat(tmp_path: Path):
@@ -264,7 +268,11 @@ def test_failed_database_measurement_is_degraded_and_cannot_send_clean_heartbeat
     assert completed.returncode == 0, observation['output']
     assert observation['curl_calls'] == [f'{heartbeat_url}/fail|<unset>']
     assert 'Database measurement failed' in observation['output']
-    assert all('last_nightly_update' not in call for call in observation['docker_calls'])
+    # Quoted with trailing comma to distinguish the timestamp key from
+    # 'last_nightly_update_duration_seconds', which is a substring match on
+    # the bare 'last_nightly_update' and is recorded unconditionally by the
+    # separate duration-tracking trap regardless of degraded/failure state.
+    assert all("'last_nightly_update'," not in call for call in observation['docker_calls'])
 
 
 def test_nightly_psql_calls_bound_the_role_statement_timeout(tmp_path: Path):
@@ -322,6 +330,83 @@ def test_env_example_documents_nightly_update_heartbeat_clean_fail_split():
     assert 'NIGHTLY_UPDATE_HEARTBEAT_URL=' in env_example.splitlines()
     assert 'clean' in env_example.lower()
     assert '/fail' in env_example
+
+
+def test_clean_run_records_duration(tmp_path: Path):
+    observation = _run_nightly_update(tmp_path)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    duration_calls = [
+        call for call in observation['docker_calls']
+        if "'last_nightly_update_duration_seconds'" in call
+    ]
+    assert len(duration_calls) == 1
+    assert 'last_nightly_update_duration_seconds recorded' in observation['output']
+
+
+def test_degraded_run_still_records_duration(tmp_path: Path):
+    """Unlike the last_nightly_update timestamp (only written on a clean
+    run), duration must be recorded regardless of outcome — a run that
+    degrades after taking far too long is exactly the case this metric
+    exists to catch, not one to exclude."""
+    observation = _run_nightly_update(tmp_path, degraded=True)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    duration_calls = [
+        call for call in observation['docker_calls']
+        if "'last_nightly_update_duration_seconds'" in call
+    ]
+    assert len(duration_calls) == 1
+
+
+def test_fatal_abort_still_records_duration(tmp_path: Path):
+    """The duration trap is installed via `trap ... EXIT`, which must fire
+    even on fatal()'s early `exit 1` — a run that fails after running for
+    hours is the highest-value case to have visibility into, not one where
+    the trap should be skipped."""
+    observation = _run_nightly_update(tmp_path, fatal=True)
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 1, observation['output']
+    duration_calls = [
+        call for call in observation['docker_calls']
+        if "'last_nightly_update_duration_seconds'" in call
+    ]
+    assert len(duration_calls) == 1
+
+
+def test_skipped_run_due_to_overlap_records_no_duration(tmp_path: Path):
+    """The duration trap is installed after the overlap-guard lock check —
+    a run skipped because a previous run is still active must not record a
+    near-zero duration that would look like a healthy signal."""
+    if shutil.which('flock') is None:
+        pytest.skip('flock is not available on this host (e.g. Windows Git Bash)')
+
+    lock_file = tmp_path / 'nightly-update.lock'
+    holder = subprocess.Popen(['flock', '-n', str(lock_file), 'sleep', '10'])
+    try:
+        for _ in range(50):
+            probe = subprocess.run(['flock', '-n', str(lock_file), '-c', 'true'])
+            if probe.returncode != 0:
+                break
+            time.sleep(0.1)
+        else:
+            pytest.fail('background holder never acquired the lock')
+
+        observation = _run_nightly_update(tmp_path, use_real_flock=True)
+    finally:
+        holder.terminate()
+        holder.wait(timeout=5)
+
+    completed = observation['completed']
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode == 0, observation['output']
+    assert observation['docker_calls'] == []
 
 
 def test_concurrent_run_skips_instead_of_stacking(tmp_path: Path):

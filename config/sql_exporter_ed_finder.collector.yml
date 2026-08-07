@@ -73,6 +73,20 @@ metrics:
     values: [slow_query_count]
     query_ref: slow_queries
 
+  - metric_name: ed_finder_nightly_update_duration_seconds
+    type: gauge
+    help: >-
+      Wall-clock duration of the most recent scripts/nightly_update.sh run,
+      recorded on every exit (success, warning, or fatal abort) via a trap,
+      not just clean completions. 2026-08-06 incident: an N+1-query
+      regression turned a normal ~3h run into ~24h without the job ever
+      failing or warning — nothing surfaced until the healthchecks.io
+      dead-man's-switch fired a full day later. This metric is the earlier
+      signal: a run that's gotten much slower shows up the next scrape
+      after it exits, whether or not it ultimately succeeded.
+    values: [duration_seconds]
+    query_ref: nightly_update_duration
+
 queries:
   - query_name: dirty_counts
     query: |
@@ -118,3 +132,8 @@ queries:
       WHERE state = 'active'
         AND query_start < NOW() - INTERVAL '5 seconds'
         AND query NOT LIKE '%pg_stat_activity%'
+
+  - query_name: nightly_update_duration
+    query: |
+      SELECT
+        (SELECT value::bigint FROM app_meta WHERE key = 'last_nightly_update_duration_seconds') AS duration_seconds

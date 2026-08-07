@@ -173,6 +173,33 @@ pg_count_into() {
     fi
 }
 
+# Duration-anomaly tracking. 2026-08-06 incident: a run can silently take
+# far longer than normal (an N+1-query regression turned a ~3h run into
+# ~24h) without ever failing or triggering a WARN — it just eventually
+# completes, or in the worst case never does and only the dead-man's-switch
+# heartbeat notices, a full day later. Recording wall-clock duration on
+# every exit (trap, not just the clean-completion path) means a run that's
+# merely gotten much slower — the early symptom, not just the eventual
+# timeout — shows up as a Prometheus metric the next scrape after it
+# finishes, success or failure. Installed only after the lock is held, so a
+# run skipped by the overlap guard above doesn't record a near-zero
+# duration that would look like a health signal.
+NIGHTLY_START_EPOCH=$(date +%s)
+record_nightly_duration() {
+    local duration=$(( $(date +%s) - NIGHTLY_START_EPOCH ))
+    if run_psql -c \
+        "INSERT INTO app_meta(key,value,updated_at)
+         VALUES('last_nightly_update_duration_seconds','$duration',NOW())
+         ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()" \
+        >> "$LOG" 2>&1
+    then
+        log "last_nightly_update_duration_seconds recorded: ${duration}s"
+    else
+        log "last_nightly_update_duration_seconds recording failed (psql exit $?)"
+    fi
+}
+trap record_nightly_duration EXIT
+
 # ---------------------------------------------------------------------------
 # 1. Download Spansh delta files
 # ---------------------------------------------------------------------------
