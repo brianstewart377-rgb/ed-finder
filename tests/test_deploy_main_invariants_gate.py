@@ -6,6 +6,7 @@ job — not a real regression. The app was healthy and serving the new code
 both times; only this verification step was miscalibrated. Regression
 test for the fix, not a broader test of the whole (very large) script.
 """
+import json
 import os
 import shutil
 import subprocess
@@ -83,9 +84,11 @@ def test_wrapper_script_actually_accepts_the_new_flag(tmp_path: Path):
         shim.chmod(0o755)
         path = f"{shim_dir}{os.pathsep}{path}"
 
+    receipt_file = tmp_path / 'receipt.json'
     result = subprocess.run(
         [bash, str(ROOT / 'scripts' / 'run_data_invariants_receipted.sh'),
-         '--production-safe', '--allow-stale-colonisation-status', '--allow-stale-noneligible'],
+         '--production-safe', '--allow-stale-colonisation-status', '--allow-stale-noneligible',
+         '--receipt-file', str(receipt_file)],
         cwd=ROOT,
         env={'DATABASE_URL': 'postgresql://bogus:bogus@127.0.0.1:1/bogus', 'PATH': path},
         capture_output=True,
@@ -102,3 +105,14 @@ def test_wrapper_script_actually_accepts_the_new_flag(tmp_path: Path):
         or 'connection' in (result.stdout + result.stderr).lower(), (
         f'expected a connection-stage failure, got:\n{result.stdout}\n{result.stderr}'
     )
+
+    # Codex Review finding on the first version of this fix: the receipt
+    # JSON recorded allow_stale_colonisation_status but not the new
+    # allow_stale_noneligible waiver, so a receipt could report "passed"
+    # with no record of which invariant it waived. The wrapper writes the
+    # receipt regardless of exit code (connection failure included), so
+    # this is reachable even against the bogus DATABASE_URL above.
+    assert receipt_file.is_file(), 'wrapper should write a receipt even on a failed run'
+    receipt = json.loads(receipt_file.read_text(encoding='utf-8'))
+    assert receipt['allow_stale_noneligible'] is True
+    assert receipt['allow_stale_colonisation_status'] is True

@@ -141,7 +141,8 @@ receipt_json="$(cat <<EOF
   "mode": "$mode",
   "target_rating_version": "$TARGET_RATING_VERSION",
   "production_safe": $([[ "$PRODUCTION_SAFE" -eq 1 ]] && echo true || echo false),
-  "allow_stale_colonisation_status": $([[ "$ALLOW_STALE_COLONISATION_STATUS" -eq 1 ]] && echo true || echo false)
+  "allow_stale_colonisation_status": $([[ "$ALLOW_STALE_COLONISATION_STATUS" -eq 1 ]] && echo true || echo false),
+  "allow_stale_noneligible": $([[ "$ALLOW_STALE_NONELIGIBLE" -eq 1 ]] && echo true || echo false)
 }
 EOF
 )"
