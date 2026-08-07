@@ -141,6 +141,23 @@ _PROFILES = [
 # Cache helpers
 # ---------------------------------------------------------------------------
 
+# A Redis outage degrades every request to a DB read, which is correct
+# behavior — but with a bare `except Exception: pass`, that outage was
+# previously invisible: no log line, no metric, nothing to distinguish it
+# from a mysterious latency regression. Throttled so a sustained outage
+# logs once per interval, not once per request.
+_CACHE_ERROR_LOG_INTERVAL_SECONDS = 60
+_last_cache_error_logged_at = 0.0
+
+
+def _log_cache_error_throttled(where: str, exc: Exception) -> None:
+    global _last_cache_error_logged_at
+    now = time.monotonic()
+    if now - _last_cache_error_logged_at >= _CACHE_ERROR_LOG_INTERVAL_SECONDS:
+        _last_cache_error_logged_at = now
+        log.warning('Archetype cache %s failed, degrading to DB: %s', where, exc)
+
+
 async def _cache_version(redis) -> int:
     """Return the current cache version counter (default 1)."""
     if redis is None:
@@ -148,7 +165,8 @@ async def _cache_version(redis) -> int:
     try:
         v = await redis.get('arch:version')
         return int(v) if v else 1
-    except Exception:
+    except Exception as exc:
+        _log_cache_error_throttled('version', exc)
         return 1
 
 
@@ -158,7 +176,8 @@ async def _cache_get(redis, key: str) -> Optional[Any]:
     try:
         raw = await redis.get(key)
         return json.loads(raw) if raw else None
-    except Exception:
+    except Exception as exc:
+        _log_cache_error_throttled('get', exc)
         return None
 
 
@@ -167,8 +186,8 @@ async def _cache_set(redis, key: str, value: Any, ttl: int = 300):
         return
     try:
         await redis.set(key, json.dumps(value), ex=ttl)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log_cache_error_throttled('set', exc)
 
 
 def _json_object(value: Any) -> dict[str, Any]:

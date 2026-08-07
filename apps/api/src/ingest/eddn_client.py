@@ -30,6 +30,7 @@ from typing import Optional, TYPE_CHECKING
 
 from edfinder_api.evidence_store.store import promote_canonical_evidence_for_systems
 from edfinder_api.ring_facts import ring_rows_for_body
+from shared_contracts.body_ring_association_status import BODY_RING_ASSOCIATION_STATUS_CASE_SQL
 
 if TYPE_CHECKING:
     import asyncpg
@@ -42,39 +43,6 @@ MAX_BATCH_SIZE   = 200   # flush early if batch exceeds this
 RECONNECT_DELAY  = 5     # seconds between reconnect attempts
 DIRTY_MARK_BATCH_SIZE = 500
 DIRTY_MARK_STATEMENT_TIMEOUT_MS = 5000
-
-# These casts are load-bearing: without them Postgres can infer the same bind
-# parameter as both integer and bigint across the CASE and INSERT target.
-BODY_RING_ASSOCIATION_STATUS_CASE_SQL = """
-CASE
-    WHEN $11 = 'eddn_scan'
-         AND NOT EXISTS (
-             SELECT 1
-             FROM bodies b
-             WHERE b.id = $2::bigint
-               AND b.system_id64 = $1::bigint
-         )
-         AND (
-             $3::bigint = 0
-             OR $2::bigint = 0
-             OR $4 ILIKE '%% belt%%'
-             OR $5 ILIKE '%% belt%%'
-         )
-        THEN 'belt_source_evidence'
-    WHEN EXISTS (
-             SELECT 1
-             FROM bodies b
-             WHERE b.id = $2::bigint
-               AND b.system_id64 = $1::bigint
-               AND (
-                   $4 IS NULL
-                   OR b.name = $4
-               )
-         )
-        THEN 'local_matched'
-    ELSE 'unresolved_body_identity'
-END
-""".strip()
 
 BODY_RING_UPSERT_SQL = f"""
     INSERT INTO body_rings (

@@ -26,11 +26,17 @@ SAFETY_RULES = (
 
 
 def is_trusted_ring_row(row: Mapping[str, Any]) -> bool:
-    """Return whether a planned/existing ring row confirms local ring state."""
+    """Return whether a planned/existing ring row confirms local ring state.
+
+    A row with no association_status key at all is untrusted, not trusted —
+    silently defaulting a missing trust signal to "trusted" would promote
+    any caller that omits the column (a narrower SELECT, a hand-built dict)
+    into the trusted set with no error. Requires the key be explicitly
+    present and equal to TRUSTED_RING_ASSOCIATION_STATUS.
+    """
     return (
         row.get('body_id') is not None
-        and row.get('association_status', TRUSTED_RING_ASSOCIATION_STATUS)
-        == TRUSTED_RING_ASSOCIATION_STATUS
+        and row.get('association_status') == TRUSTED_RING_ASSOCIATION_STATUS
     )
 
 
