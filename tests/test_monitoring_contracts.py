@@ -125,7 +125,15 @@ def test_dirty_backlog_export_uses_partial_index_predicates_and_cache():
     assert 'WHERE cluster_dirty = TRUE' in queries
     assert 'AND has_body_data = TRUE' in queries
     assert 'AND macro_grid_id IS NOT NULL' in queries
-    assert 'AND has_body_data = FALSE' in queries
+    # Must match reconcile_no_body_ratings.py's cleanup predicate exactly
+    # (COALESCE + NOT EXISTS on bodies), not just has_body_data = FALSE —
+    # Codex Review finding on PR #433: a looser predicate would count
+    # legacy body-contract drift systems the cleanup job never touches,
+    # making the metric permanently nonzero regardless of job health.
+    assert 'COALESCE(s.has_body_data, FALSE) = FALSE' in queries
+    assert 'NOT EXISTS' in queries
+    assert 'FROM bodies b' in queries
+    assert 'WHERE b.system_id64 = s.id64' in queries
     assert 'min_interval: 5m' in exporter
 
 
