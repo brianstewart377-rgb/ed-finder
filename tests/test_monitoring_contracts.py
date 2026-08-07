@@ -137,6 +137,48 @@ def test_dirty_backlog_export_uses_partial_index_predicates_and_cache():
     assert 'min_interval: 5m' in exporter
 
 
+def test_nightly_update_duration_is_tracked_and_alertable():
+    """2026-08-06 incident: an N+1-query regression turned a normal ~3h
+    nightly_update.sh run into ~24h without the job ever failing or
+    warning — nothing surfaced until the healthchecks.io dead-man's-switch
+    fired a full day later. This metric/alert pair is the earlier signal.
+
+    Two earlier versions of this query compared started_at/completed_at
+    timestamps directly and Codex Review found real 1-second-resolution
+    ambiguities in both: a same-second retry-after-completion read as
+    "already finished, 0s", and the fix for that then misread a
+    same-second fatal-abort as "still running forever." The current
+    design tracks state by completed_at's mere PRESENCE, not a timestamp
+    comparison — nightly_update.sh atomically clears completed_at in the
+    same transaction that records a new started_at, so any non-NULL
+    completed_at here necessarily belongs to the current run. See
+    scripts/nightly_update.sh's started_at write (BEGIN/DELETE/COMMIT)
+    and record_nightly_completion trap."""
+    collector = _read('config', 'sql_exporter_ed_finder.collector.yml')
+    rules = _read('config', 'prometheus_rules.yml')
+    dashboard = json.loads(_read('config', 'grafana', 'dashboards', 'ed-finder.json'))
+    dashboard_expressions = '\n'.join(
+        target['expr']
+        for panel in dashboard['panels']
+        for target in panel.get('targets', [])
+    )
+
+    assert 'ed_finder_nightly_update_duration_seconds' in collector
+    assert "key = 'nightly_update_started_at_epoch'" in collector
+    assert "key = 'nightly_update_completed_at_epoch'" in collector
+    # The live-elapsed-time branch is keyed on presence alone, not on
+    # comparing completed_at against started_at.
+    assert 'WHEN completed_at IS NULL' in collector
+    assert 'completed_at <' not in collector
+    assert 'completed_at <=' not in collector
+    assert "EXTRACT(EPOCH FROM NOW())::bigint - started_at" in collector
+    assert 'alert: NightlyUpdateDurationAnomaly' in rules
+    assert 'ed_finder_nightly_update_duration_seconds > 21600' in rules
+    # Not just alertable — visible on the dashboard so a slow-but-passing
+    # trend is spottable before it crosses the alert threshold.
+    assert 'ed_finder_nightly_update_duration_seconds' in dashboard_expressions
+
+
 def test_custom_queries_use_supported_sql_exporter_contract():
     compose = _read('docker-compose.yml')
     prometheus = _read('config', 'prometheus.yml')

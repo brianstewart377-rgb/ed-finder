@@ -73,6 +73,24 @@ metrics:
     values: [slow_query_count]
     query_ref: slow_queries
 
+  - metric_name: ed_finder_nightly_update_duration_seconds
+    type: gauge
+    help: >-
+      Elapsed wall-clock time for scripts/nightly_update.sh: LIVE elapsed
+      time (NOW() minus start) while a run is still in progress, frozen to
+      the final duration once it exits (success, warning, or fatal abort —
+      the exit trap covers all three, not just clean completions).
+      2026-08-06 incident: an N+1-query regression turned a normal ~3h run
+      into ~24h without the job ever failing or warning — nothing surfaced
+      until the healthchecks.io dead-man's-switch fired a full day later.
+      Codex Review correctly flagged that recording only a post-exit
+      duration doesn't actually catch that case early: the metric would
+      still read the previous night's ~3h for the entire 20+ hours the
+      regression was silently running. Live elapsed time closes that gap —
+      a run stuck in hour 7 is visible the next scrape, not the next exit.
+    values: [duration_seconds]
+    query_ref: nightly_update_duration
+
 queries:
   - query_name: dirty_counts
     query: |
@@ -118,3 +136,30 @@ queries:
       WHERE state = 'active'
         AND query_start < NOW() - INTERVAL '5 seconds'
         AND query NOT LIKE '%pg_stat_activity%'
+
+  - query_name: nightly_update_duration
+    query: |
+      WITH nightly_run AS (
+        SELECT
+          (SELECT value::bigint FROM app_meta WHERE key = 'nightly_update_started_at_epoch') AS started_at,
+          (SELECT value::bigint FROM app_meta WHERE key = 'nightly_update_completed_at_epoch') AS completed_at
+      )
+      SELECT
+        CASE
+          WHEN started_at IS NULL THEN NULL
+          -- completed_at's mere presence is the state signal, not a
+          -- timestamp comparison against started_at. nightly_update.sh
+          -- atomically clears completed_at in the same transaction that
+          -- writes a new started_at, so any non-NULL completed_at here
+          -- necessarily belongs to the CURRENT run — it cannot be a stale
+          -- value from a previous run. Comparing raw timestamps instead
+          -- (two earlier versions of this query, per Codex Review) was
+          -- ambiguous at 1-second resolution in both directions: a
+          -- same-second retry-after-completion misread as "already
+          -- finished, 0s", and the fix for that then misread a
+          -- same-second fatal-abort as "still running forever."
+          WHEN completed_at IS NULL
+            THEN EXTRACT(EPOCH FROM NOW())::bigint - started_at
+          ELSE completed_at - started_at
+        END AS duration_seconds
+      FROM nightly_run

@@ -49,3 +49,12 @@ groups:
           severity: critical
         annotations:
           summary: "Healthchecks.io reports one or more checks down"
+
+      - alert: NightlyUpdateDurationAnomaly
+        expr: ed_finder_nightly_update_duration_seconds > 21600
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Nightly update ran far longer than its normal ~3h baseline"
+          description: "Most recent scripts/nightly_update.sh run took {{ $value }}s (over 6h). This fires on completion, success or failure — a slow-but-still-completing run is the early symptom of the same class of regression that once took 24h (2026-08-06)."

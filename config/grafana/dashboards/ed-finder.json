@@ -282,6 +282,18 @@
       ],
       "title": "Data-Invariants Receipt Age",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "custom": { "axisCenteredZero": false, "axisColorMode": "text", "axisPlacement": "auto", "drawStyle": "line", "fillOpacity": 16, "lineWidth": 2, "pointSize": 5, "showPoints": "never", "spanNulls": false, "stacking": { "group": "A", "mode": "none" }, "thresholdsStyle": { "mode": "line" } }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 10800 }, { "color": "red", "value": 21600 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 37 },
+      "id": 18,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "single", "sort": "none" } },
+      "targets": [
+        { "editorMode": "code", "expr": "ed_finder_nightly_update_duration_seconds{job=\"postgres-custom\"}", "legendFormat": "nightly_update.sh duration", "range": true, "refId": "A" }
+      ],
+      "title": "Nightly Update Duration",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
