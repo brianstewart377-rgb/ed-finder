@@ -221,3 +221,42 @@ def test_test_files_using_api_path_must_use_package_imports():
         'edfinder_api.* package imports, not flat imports:\n'
         + '\n'.join(violations)
     )
+
+
+def test_api_source_files_do_not_use_forbidden_flat_imports():
+    """2026-08-07 Codex Review finding: the closed 2026-07-15 dual-import
+    incident (docs/operations/known-issues.md) was hardened for test files
+    via test_test_files_using_api_path_must_use_package_imports above, but
+    that scan only covers tests/ — nothing symmetrically guards apps/api/src
+    itself against the same drift. No file currently uses the flat form
+    (verified directly), but the __path__ shim in edfinder_api/__init__.py
+    still makes it possible for a future edit to silently create a second
+    settings/limiter/pool/redis singleton instead of erroring. Same
+    forbidden-import list as the test-file guard, applied to source."""
+    forbidden_flat_imports = (
+        'from state import ',
+        'from config import ',
+        'from deps import ',
+        'from models import ',
+        'from helpers import ',
+    )
+
+    api_src = ROOT / 'apps' / 'api' / 'src'
+    violations = []
+
+    for path in api_src.rglob('*.py'):
+        if path.parent.name == 'edfinder_api' and path.parent.parent == api_src:
+            continue  # the shim package itself, not a consumer
+        source = path.read_text(encoding='utf-8')
+        rel = path.relative_to(ROOT).as_posix()
+        for forbidden in forbidden_flat_imports:
+            if forbidden in source:
+                violations.append(f'{rel} uses flat import: {forbidden.strip()}')
+
+    assert not violations, (
+        'apps/api/src files must use edfinder_api.* package imports for '
+        'these stateful-singleton modules, not flat imports — a flat '
+        'import creates a second module identity under the __path__ shim '
+        'in edfinder_api/__init__.py, silently duplicating settings/'
+        'limiter/pool/redis instead of erroring:\n' + '\n'.join(violations)
+    )

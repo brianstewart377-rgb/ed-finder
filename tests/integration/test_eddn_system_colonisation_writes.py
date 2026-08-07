@@ -448,3 +448,87 @@ async def test_scan_from_owning_system_still_updates_after_guard(
     assert row is not None
     assert row['system_id64'] == owner_system_id
     assert row['subtype'] == 'Icy body'
+
+
+@pytest.mark.asyncio
+async def test_scan_with_rings_writes_locally_matched_body_rings_row(
+    pool,
+    isolated_eddn_system_writes,
+):
+    """2026-08-07 Codex Review finding: eddn_listener.py's own body_rings
+    write (BODY_RING_UPSERT_SQL, via flush_pending) had no real-Postgres
+    test asserting on body_rings content — bodies writes and import_spansh's
+    ring writes were both covered, but this specific path wasn't. Two
+    flushes are required, not one: resolve_ring_rows_to_local_bodies runs
+    before the bodies upsert loop within the same flush_pending call, so a
+    ring scanned in the same message as its owning body's first scan can't
+    resolve yet (the body doesn't exist in `bodies` until after that
+    ordering point) — only a body already committed from a prior flush is
+    visible for the (system_id64, body_name) match this test depends on."""
+    owner_system_id = TEST_SYSTEM_IDS[6]
+    body_id = TEST_BODY_IDS[1]
+
+    async def clear_rings():
+        async with pool.acquire() as conn:
+            await conn.execute('DELETE FROM body_rings WHERE system_id64 = $1', owner_system_id)
+
+    await clear_rings()
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO systems (id64, name) VALUES ($1, 'EDDN Ring Test System')",
+                owner_system_id,
+            )
+
+        # First flush: body only, no ring data yet — establishes the local
+        # body row that ring resolution needs to already exist.
+        await eddn_listener.handle_scan(
+            pool,
+            {},
+            {
+                'SystemAddress': owner_system_id,
+                'BodyID': body_id,
+                'BodyName': 'Ring Test Body 1 a',
+                'PlanetClass': 'Rocky body',
+            },
+        )
+        await eddn_listener.flush_pending(pool)
+
+        # Second flush: same body, now with Rings — resolve_ring_rows_to_
+        # local_bodies can find the body committed above by (system_id64,
+        # body_name), so this ring should resolve and get written.
+        await eddn_listener.handle_scan(
+            pool,
+            {},
+            {
+                'SystemAddress': owner_system_id,
+                'BodyID': body_id,
+                'BodyName': 'Ring Test Body 1 a',
+                'PlanetClass': 'Rocky body',
+                'Rings': [
+                    {
+                        'Name': 'Ring Test Body 1 a A Ring',
+                        'RingClass': 'eRingClass_Rocky',
+                        'MassMT': 123.0,
+                        'InnerRad': 1000.0,
+                        'OuterRad': 2000.0,
+                    },
+                ],
+            },
+        )
+        await eddn_listener.flush_pending(pool)
+
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                'SELECT body_id, ring_name, ring_class, association_status '
+                'FROM body_rings WHERE system_id64 = $1',
+                owner_system_id,
+            )
+
+        assert row is not None, 'ring should have been written by eddn_listener.flush_pending'
+        assert row['body_id'] == body_id
+        assert row['ring_name'] == 'Ring Test Body 1 a A Ring'
+        assert row['ring_class'] == 'eRingClass_Rocky'
+        assert row['association_status'] == 'local_matched'
+    finally:
+        await clear_rings()
