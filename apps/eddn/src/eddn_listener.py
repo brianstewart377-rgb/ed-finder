@@ -918,23 +918,15 @@ async def flush_pending(pool: asyncpg.Pool):
                 # ── Upsert bodies (inside same transaction) ───────────────
                 # 'id' (BodyID) is required as PK; bodies without it are already
                 # filtered out in handle_scan() before reaching this point.
-                resolved_rings_snapshot = []
-                unresolved_rings_snapshot = []
-                if rings_snapshot:
-                    (
-                        resolved_rings_snapshot,
-                        unresolved_rings_snapshot,
-                    ) = await resolve_ring_rows_to_local_bodies(conn, rings_snapshot)
-                    if unresolved_rings_snapshot:
-                        for row in unresolved_rings_snapshot:
-                            reason = row.get('reason')
-                            if reason == 'local_body_name_not_unique':
-                                ring_skip_counts['rings_skipped_ambiguous_body'] += 1
-                            elif reason == 'belt_source_evidence':
-                                ring_skip_counts['rings_skipped_belt_source'] += 1
-                            else:
-                                ring_skip_counts['rings_skipped_unmatched_body'] += 1
-
+                # Ring resolution runs AFTER this loop, not before: a Scan
+                # message that reports both a body and its rings for the
+                # body's first-ever sighting has no local `bodies` row yet
+                # when the flush starts, so resolving rings first always
+                # missed same-batch bodies and permanently discarded their
+                # rings once _pending_rings was cleared (2026-08-07 Codex
+                # Review finding). Resolving after the insert, in the same
+                # transaction, lets the ring lookup see the row this flush
+                # just wrote.
                 for body in bodies_snapshot:
                     try:
                         status = await conn.execute("""
@@ -1028,7 +1020,25 @@ async def flush_pending(pool: asyncpg.Pool):
                         _stats['errors'] += 1
                         log.warning(f"Body upsert error (id={body.get('id')}): {e}")
 
-                # ── Upsert ring facts ───────────────────────────────────
+                # ── Resolve rings against bodies (now including this flush's
+                # own inserts above) then upsert ring facts ───────────────
+                resolved_rings_snapshot = []
+                unresolved_rings_snapshot = []
+                if rings_snapshot:
+                    (
+                        resolved_rings_snapshot,
+                        unresolved_rings_snapshot,
+                    ) = await resolve_ring_rows_to_local_bodies(conn, rings_snapshot)
+                    if unresolved_rings_snapshot:
+                        for row in unresolved_rings_snapshot:
+                            reason = row.get('reason')
+                            if reason == 'local_body_name_not_unique':
+                                ring_skip_counts['rings_skipped_ambiguous_body'] += 1
+                            elif reason == 'belt_source_evidence':
+                                ring_skip_counts['rings_skipped_belt_source'] += 1
+                            else:
+                                ring_skip_counts['rings_skipped_unmatched_body'] += 1
+
                 for ring in resolved_rings_snapshot:
                     try:
                         status = await conn.execute(

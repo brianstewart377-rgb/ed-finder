@@ -458,13 +458,19 @@ async def test_scan_with_rings_writes_locally_matched_body_rings_row(
     """2026-08-07 Codex Review finding: eddn_listener.py's own body_rings
     write (BODY_RING_UPSERT_SQL, via flush_pending) had no real-Postgres
     test asserting on body_rings content — bodies writes and import_spansh's
-    ring writes were both covered, but this specific path wasn't. Two
-    flushes are required, not one: resolve_ring_rows_to_local_bodies runs
-    before the bodies upsert loop within the same flush_pending call, so a
-    ring scanned in the same message as its owning body's first scan can't
-    resolve yet (the body doesn't exist in `bodies` until after that
-    ordering point) — only a body already committed from a prior flush is
-    visible for the (system_id64, body_name) match this test depends on."""
+    ring writes were both covered, but this specific path wasn't.
+
+    A second Codex Review finding on the first version of this test: the
+    original two-flush version only proved rings resolve once a body is
+    already committed from a *prior* flush — it didn't cover (and in fact
+    sidestepped) the real production case, a single Scan message reporting
+    a body and its Rings together for that body's first-ever sighting. That
+    case used to lose the ring permanently: resolve_ring_rows_to_local_
+    bodies ran before the bodies upsert loop within the same flush_pending
+    call, so the ring's lookup missed the body this same flush was about to
+    insert, and _pending_rings was cleared regardless. Ring resolution now
+    runs after the bodies upsert loop in the same transaction, so this test
+    exercises the real single-scan, single-flush path directly."""
     owner_system_id = TEST_SYSTEM_IDS[6]
     body_id = TEST_BODY_IDS[1]
 
@@ -480,23 +486,9 @@ async def test_scan_with_rings_writes_locally_matched_body_rings_row(
                 owner_system_id,
             )
 
-        # First flush: body only, no ring data yet — establishes the local
-        # body row that ring resolution needs to already exist.
-        await eddn_listener.handle_scan(
-            pool,
-            {},
-            {
-                'SystemAddress': owner_system_id,
-                'BodyID': body_id,
-                'BodyName': 'Ring Test Body 1 a',
-                'PlanetClass': 'Rocky body',
-            },
-        )
-        await eddn_listener.flush_pending(pool)
-
-        # Second flush: same body, now with Rings — resolve_ring_rows_to_
-        # local_bodies can find the body committed above by (system_id64,
-        # body_name), so this ring should resolve and get written.
+        # One scan, one flush: the body and its Rings arrive together, as a
+        # real Scan journal event reports them — this is the case that used
+        # to lose the ring permanently.
         await eddn_listener.handle_scan(
             pool,
             {},
