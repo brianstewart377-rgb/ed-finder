@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from mechanics.regional_rules import REGIONAL_ROLE_THRESHOLDS
+from edfinder_api.mechanics.regional_rules import REGIONAL_ROLE_THRESHOLDS
 
 
 def classify_regional_role(

@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from mechanics.confidence import ConfidenceSignal
+from edfinder_api.mechanics.confidence import ConfidenceSignal
 
 
 @dataclass

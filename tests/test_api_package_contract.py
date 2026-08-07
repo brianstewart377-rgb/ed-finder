@@ -20,10 +20,10 @@ def _find_forbidden_flat_imports(source: str, forbidden_modules: set[str], filen
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name in forbidden_modules:
+                if alias.name.split('.')[0] in forbidden_modules:
                     violations.append(f'{filename}:{node.lineno} uses flat import: import {alias.name}')
         elif isinstance(node, ast.ImportFrom):
-            if node.level == 0 and node.module in forbidden_modules:
+            if node.level == 0 and node.module and node.module.split('.')[0] in forbidden_modules:
                 violations.append(f'{filename}:{node.lineno} uses flat import: from {node.module} import ...')
     return violations
 
@@ -260,15 +260,40 @@ def test_api_source_files_do_not_use_forbidden_flat_imports():
     the opposite risk — a substring check would false-positive on an
     unrelated module that merely contains 'from state import ' inside a
     string or comment, or a real module that happens to be named
-    e.g. 'configuration' if the forbidden string lacked a trailing space."""
-    forbidden_modules = {'state', 'config', 'deps', 'models', 'helpers'}
+    e.g. 'configuration' if the forbidden string lacked a trailing space.
+
+    forbidden_modules is the same module-root set the older, narrower
+    substring check in test_newly_touched_api_modules_use_package_imports_
+    instead_of_new_flat_debt (above) already treats as forbidden — a third
+    Codex Review finding noted the first version of this list only had 5 of
+    those ~30 modules, so e.g. `from observations.models import X` (a real,
+    previously-incident-causing dual-import) went undetected here."""
+    forbidden_modules = {
+        'state', 'config', 'deps', 'models', 'helpers',
+        'body_sorting', 'evidence_store', 'ring_facts', 'models_economy',
+        'operator_visibility', 'operator_visibility_models',
+        'optimiser', 'recommendations',
+        'provenance_cockpit', 'provenance_cockpit_models',
+        'warehouse_planner_evidence', 'warehouse_planner_evidence_models',
+        'observations', 'colony_planner',
+        'review_contract_store', 'review_environment_fixtures', 'review_runtime_guard',
+        'journal_import', 'ingest',
+        'search_economies', 'station_body_resolver', 'station_body_resolver_utils',
+        'domain', 'mechanics', 'regional', 'simulation',
+        'local_search',
+    }
 
     api_src = ROOT / 'apps' / 'api' / 'src'
     violations = []
 
     for path in api_src.rglob('*.py'):
-        if path.parent.name == 'edfinder_api' and path.parent.parent == api_src:
-            continue  # the shim package itself, not a consumer
+        # Only the shim's own __init__.py is exempt (it's what defines the
+        # dual-path namespace, not a consumer of it) — a fourth Codex Review
+        # finding noted the original check skipped every direct child of
+        # edfinder_api/, not just __init__.py, so a real consumer module
+        # dropped straight into that directory went unscanned.
+        if path == api_src / 'edfinder_api' / '__init__.py':
+            continue
         rel = path.relative_to(ROOT).as_posix()
         # utf-8-sig, not utf-8: at least one file in this tree
         # (observations/comparison_models.py) starts with a UTF-8 BOM,
@@ -302,6 +327,11 @@ def test_forbidden_flat_import_detection_catches_plain_and_aliased_forms():
 
     caught = _find_forbidden_flat_imports('from config import settings\n', forbidden_modules)
     assert len(caught) == 1 and 'from config import' in caught[0]
+
+    caught = _find_forbidden_flat_imports(
+        'from state.substate import x\n', {'state'},
+    )
+    assert len(caught) == 1 and 'from state.substate import' in caught[0]
 
     # Must not flag the package-qualified form, or an unrelated module that
     # merely starts with a forbidden name.

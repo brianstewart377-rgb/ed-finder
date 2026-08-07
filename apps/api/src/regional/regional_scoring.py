@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from mechanics.regional_rules import (
+from edfinder_api.mechanics.regional_rules import (
     REGIONAL_ARCHETYPE_FORMULAS,
     REGIONAL_ARCHETYPE_ROLE_BONUSES,
     REGIONAL_FIT_LABEL_THRESHOLDS,
