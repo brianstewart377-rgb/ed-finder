@@ -7,10 +7,11 @@ them into journal_events + body_scan_facts.
 
 Design rules:
   • Runs as a background asyncio.Task inside the FastAPI lifespan, gated
-    behind the opt-in EDDN_SIMULATION_INGEST_ENABLED setting (default
-    off — see config.py). Wired up 2026-08-07 after sitting unreferenced
-    since its original commit; until then this docstring's claims were
-    aspirational, not actual.
+    behind EDDN_SIMULATION_INGEST_ENABLED (default ON as of 2026-08-07 —
+    see config.py). Wired up 2026-08-07 after sitting unreferenced since
+    its original commit; until then this docstring's claims were
+    aspirational, not actual. Kept as a flag (not unconditional) so it
+    can be switched off via env var without a redeploy if ever needed.
   • Does NOT block any request handler.
   • Uses the existing asyncpg pool — no separate connection.
   • Reconnects automatically on ZMQ disconnect.

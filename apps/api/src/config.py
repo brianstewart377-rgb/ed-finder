@@ -69,15 +69,21 @@ class Settings(BaseSettings):
     # Optional error tracking (GlitchTip, Sentry-API-compatible). Blank
     # disables it entirely — sentry_sdk.init() below is only called when set.
     sentry_dsn:         Optional[str] = None
-    # Opt-in EDDN simulation ingest (apps/api/src/ingest/eddn_client.py):
-    # a background task feeding journal_events/body_scan_facts from the
-    # live EDDN relay, for the simulation/buildability engine. Defaults
-    # off — roadmap boundary (docs/ROADMAP.md): "No scheduler/service/
-    # timer activation for import automation by default." Those tables
-    # are also populated today by the client-side journal-import lane
-    # (journal_import/store.py); enabling this adds a second, independent
-    # feed into the same tables, not a replacement for that one.
-    eddn_simulation_ingest_enabled: bool = False
+    # EDDN simulation ingest (apps/api/src/ingest/eddn_client.py): a
+    # background task feeding journal_events/body_scan_facts from the
+    # live public EDDN relay, for the simulation/buildability engine —
+    # the same relay apps/eddn/eddn_listener.py already consumes
+    # continuously for systems/bodies/stations, just a narrower slice of
+    # events (Scan/FSSBodySignals/SAASignalsFound) into different tables.
+    # Defaults ON (decided 2026-08-07) as a deliberate, always-fresh
+    # complement to the client-side journal-import lane
+    # (journal_import/store.py), which only covers systems a user has
+    # actually uploaded a journal for. Kept as a flag, not unconditional,
+    # so it can be switched off via env var without a redeploy if it
+    # ever needs to be. See CLAUDE.md's roadmap boundaries section for
+    # why this is NOT the same thing as the still-deferred "journal-import
+    # canonical promotion" work.
+    eddn_simulation_ingest_enabled: bool = True
 
     model_config = SettingsConfigDict(env_file='.env', extra='ignore')
 

@@ -32,14 +32,14 @@ For mechanics-affecting work specifically, also read `docs/reference/colonisatio
 - No automatic Suggested Build generation/loading or Preview execution.
 - No hidden scoring/CP/economy/service/optimiser changes.
 - No canonical database write lane unless a stage explicitly authorizes it.
-- No scheduler/service/timer activation for import automation by default.
+- No scheduler/service/timer activation for import automation by default — one deliberate, named exception: the EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, `EDDN_SIMULATION_INGEST_ENABLED`, defaults **on** as of 2026-08-07). It feeds `journal_events`/`body_scan_facts` from the live public EDDN relay for the simulation/buildability engine — the same relay `apps/eddn/eddn_listener.py` already consumes continuously for `systems`/`bodies`/`stations`, just a narrower slice of events into different tables — as an always-fresh complement to the client-side journal-import lane, which only covers systems a user has actually uploaded a journal for. This is a live network feed, not the deferred journal-import work below; see that bullet for the distinction. Any *other* new scheduler/service/timer still needs an explicit roadmap update.
 - Map redesign is authorized only through
   `docs/colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`:
   Stage 26A is docs-only, Stage 26B is isolated artifact-backed research and a
   three-renderer bake-off, and no production renderer or cutover is authorized
   before those gates. Planner-map fusion remains prohibited.
 - No visual cloning, asset copying, or code copying from external planner references (RavenColonial).
-- Accounts/OAuth/collaboration/plan-sync, journal-import canonical promotion, and score-weighted colonisation-corridor routing are all explicitly **deferred** pending the foundation work below — don't start them opportunistically.
+- Accounts/OAuth/collaboration/plan-sync, journal-import canonical promotion, and score-weighted colonisation-corridor routing are all explicitly **deferred** pending the foundation work below — don't start them opportunistically. "journal-import canonical promotion" here means promoting *client-uploaded* journal-import staging data (`journal_import/store.py`, the bounded A-1 staging lane) to canonical/trusted status — a decision about trusting user-submitted evidence. That is a different question from the EDDN simulation ingest exception above, which is a live network feed with no user-upload trust decision involved.
 
 The repo is mid-response to an external adversarial audit (`docs/development/full-stack-adversarial-audit-2026-07-10.md`, tracked in `docs/operations/audit-remediation-plan.md`). Roadmap's stated foundation-safety order: (1) ratings rebaseline / body-data contract drift, (2) migration-ledger discipline, (3) backup/restore rehearsal, (4) CI/build reproducibility, (5) a bounded hygiene pass, (6) *then* re-evaluate accounts/auth. Treat the audit as a prioritization checkpoint, not a competing roadmap.
 
@@ -145,6 +145,7 @@ If `yarn` isn't on `PATH` (e.g. a fresh shell before running the bootstrap scrip
 - **`colony_planner/`** — in-game colony layout import helper.
 - **`evidence_store/`** — newer: backs the Stage 20+ evidence/provenance surfaces (readonly evidence adoption, per-system warehouse joins) referenced throughout `docs/colonisation-redesign/stage-2{0,3,4}-*`.
 - **`journal_import/`** — newer: backs the bounded `A-1` journal-import staging/evidence lane (client-side parsed, no canonical writes yet — see ROADMAP boundaries above).
+- **`ingest/`** (`eddn_client.py`) — background asyncio task (wired into the FastAPI lifespan, `EDDN_SIMULATION_INGEST_ENABLED`, defaults on) feeding `journal_events`/`body_scan_facts` from the live public EDDN relay. Independent of `journal_import/`'s client-upload lane above — see the roadmap-boundaries section's named exception for why this isn't the deferred "journal-import canonical promotion" work.
 - **`edfinder_api/`** — a newer, more conventionally-packaged module; check whether new code should land here vs. the flat `apps/api/src/*.py` style before adding files.
 
 **CP** = Construction Points (Elite Dangerous's colony-building currency), not "Colony Planner" — same acronym, unrelated. Mechanics in `mechanics/cp_rules.py` + `simulation/cp_simulator.py`/`cp_repair.py`.
