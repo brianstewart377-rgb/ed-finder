@@ -42,6 +42,21 @@ LOG_DIR=/data/logs
 LOG=${LOG_DIR}/nightly.log
 DUMP_DIR=/data/dumps
 
+# Created up front, not further down: both the docker-compose.yml check below
+# and the overlap-guard check after it log a FATAL line via `tee -a "$LOG"`
+# before doing anything else, and tee can't create a missing parent
+# directory — on a host where /data/logs doesn't exist yet, a failure this
+# early would silently not reach nightly.log at all, undermining the point
+# of logging it. Checked explicitly rather than left to fail silently
+# further down: without `set -e`, an unchecked mkdir failure (read-only
+# /data, permissions) would let the script carry on with every later
+# `tee -a "$LOG"` failing the same way, right past the checks this exists
+# to make loud.
+if ! mkdir -p "$LOG_DIR"; then
+    echo "[FATAL] Could not create log directory $LOG_DIR — cannot proceed" >&2
+    exit 1
+fi
+
 # Auto-detect the compose directory as the parent of this script's directory.
 # This works whether the repo is at /opt/ed-finder or anywhere else.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -62,6 +77,16 @@ fi
 # genuinely never finished). This is deliberately non-blocking (-n): if
 # last night's run is still going, skip tonight's entirely rather than
 # queue up a pileup, and let the still-running instance finish undisturbed.
+#
+# `flock -n 200` returning nonzero means "lock held" ONLY once we know
+# flock itself ran; a missing binary would also return nonzero and get
+# misread as contention, silently disabling every future nightly run with
+# nothing but a misleading "still active" line in the log. Check for the
+# binary explicitly first so that failure is loud instead.
+command -v flock >/dev/null 2>&1 || {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [FATAL] flock is not available — cannot safely guard against overlapping nightly runs" | tee -a "$LOG"
+    exit 1
+}
 NIGHTLY_LOCK_FILE="${NIGHTLY_LOCK_FILE:-/run/lock/ed-finder-nightly-update.lock}"
 mkdir -p "$(dirname "$NIGHTLY_LOCK_FILE")"
 exec 200>"$NIGHTLY_LOCK_FILE"
@@ -84,8 +109,6 @@ if [[ -z "${NIGHTLY_UPDATE_HEARTBEAT_URL+x}" ]] && [[ -r "$COMPOSE/.env" ]]; the
     done < "$COMPOSE/.env"
 fi
 NIGHTLY_UPDATE_HEARTBEAT_URL="${NIGHTLY_UPDATE_HEARTBEAT_URL-}"
-
-mkdir -p "$LOG_DIR"
 
 log()     { echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO]  $*" | tee -a "$LOG"; }
 warn()    { echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN]  $*" | tee -a "$LOG"; ERRORS="${ERRORS} | $*"; }

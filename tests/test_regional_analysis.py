@@ -73,6 +73,55 @@ def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):
     assert capsys.readouterr().out.count('Excluded 266,000 coordinate-less systems') == 3
 
 
+class _FixedRowsCursor:
+    """Unlike RecordingCursor above (always empty), returns real rows from
+    the first fetchall() call and a fixed count from the second fetchone()
+    call, matching _load_targets' two-query shape. Also records every
+    UPSERT issued via _write, so a test can confirm non-finite targets get
+    a persisted row (not just that they're excluded from the return value)."""
+    def __init__(self, rows, excluded_count):
+        self._rows = rows
+        self._excluded_count = excluded_count
+        self.upserted_rows = []
+
+    def execute(self, query, params=None):
+        if params is not None and 'INSERT INTO system_regional_analysis' in query:
+            self.upserted_rows.append(params)
+
+    def fetchall(self):
+        return self._rows
+
+    def fetchone(self):
+        return {'excluded_count': self._excluded_count}
+
+
+def test_load_targets_excludes_nan_and_infinity_and_folds_into_excluded_count(capsys):
+    rows = [
+        system(1, 0.0, 0.0, 0.0),
+        system(2, float('nan'), 0.0, 0.0),
+        system(3, 0.0, float('inf'), 0.0),
+        system(4, 10.0, 10.0, 10.0),
+    ]
+    cursor = _FixedRowsCursor(rows, excluded_count=5)
+    args = argparse.Namespace(dirty=False, all=False, limit=None)
+
+    targets = _load_targets(cursor, args)
+
+    assert [t['id64'] for t in targets] == [1, 4]
+    assert 'Excluded 7 coordinate-less systems' in capsys.readouterr().out
+
+    # Codex Review finding on #426: without a persisted row, NOT EXISTS
+    # would keep re-selecting these same non-finite systems every run,
+    # permanently eating into the --limit batch. Confirm they get the same
+    # degenerate row a zero-candidate finite target would, tagged so a
+    # later repair can still trigger a real reprocess (see the next test).
+    upserted_ids = {row['system_id64'] for row in cursor.upserted_rows}
+    assert upserted_ids == {2, 3}
+    for row in cursor.upserted_rows:
+        assert row['regional_role'] == 'unknown'
+        assert row['data_source'] == build_regional_analysis.NON_FINITE_COORDS_SOURCE
+
+
 def system(id64: int, x: float, y: float, z: float, *, colonised: bool = False, population: int = 0):
     return {
         'id64': id64,

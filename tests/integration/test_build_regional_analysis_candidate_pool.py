@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -134,3 +136,172 @@ def test_candidate_pool_matches_old_per_target_query(pg_conn):
         new_row = new_result[id64]
         for field in ('name', 'x', 'y', 'z', 'population', 'is_colonised', 'is_being_colonised', 'station_count'):
             assert old_row[field] == new_row[field], f'{field} mismatch for {id64}'
+
+
+@pytest.mark.db
+def test_nan_coordinates_are_excluded_like_null():
+    """Codex Review finding on PR #426: `real` allows NaN/Infinity, not just
+    NULL. The old SQL's `x BETWEEN lo AND hi` was never true for a NaN/
+    Infinity bound either (IEEE 754), so a NaN candidate must be excluded
+    the same way a NULL-coordinate one already was — and a NaN *target*
+    must always see zero candidates, matching what the old per-target query
+    would have returned for it, rather than trusting np.searchsorted with a
+    NaN search key (which doesn't reliably behave like a real comparison)."""
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn.autocommit = False
+    target_id = 97_000_000_000_010
+    nan_candidate_id = 97_000_000_000_011
+    inf_candidate_id = 97_000_000_000_012
+    ordinary_candidate_id = 97_000_000_000_013
+    nan_target_id = 97_000_000_000_014
+    all_ids = [target_id, nan_candidate_id, inf_candidate_id, ordinary_candidate_id, nan_target_id]
+
+    def _cleanup():
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM systems WHERE id64 = ANY(%s)', (all_ids,))
+        conn.commit()
+
+    _cleanup()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO systems (id64, name, x, y, z, population, is_colonised, is_being_colonised) VALUES '
+                '(%s, %s, 0.0, 0.0, 0.0, 0, FALSE, FALSE), '
+                '(%s, %s, %s, 0.0, 0.0, 0, TRUE, FALSE), '
+                '(%s, %s, 0.0, %s, 0.0, 0, TRUE, FALSE), '
+                '(%s, %s, 10.0, 10.0, 10.0, 0, TRUE, FALSE), '
+                '(%s, %s, %s, 0.0, 0.0, 0, FALSE, FALSE)',
+                (
+                    target_id, 'NaN Test Target',
+                    nan_candidate_id, 'NaN Test nan_candidate', float('nan'),
+                    inf_candidate_id, 'NaN Test inf_candidate', float('inf'),
+                    ordinary_candidate_id, 'NaN Test ordinary_candidate',
+                    nan_target_id, 'NaN Test nan_target', float('nan'),
+                ),
+            )
+        conn.commit()
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            pool = build_regional_analysis._load_candidate_pool(cur)
+
+            assert nan_candidate_id not in set(pool.id64.tolist())
+            assert inf_candidate_id not in set(pool.id64.tolist())
+            assert ordinary_candidate_id in set(pool.id64.tolist())
+            assert all(math.isfinite(v) for v in pool.x)
+
+            ordinary_target = {'id64': target_id, 'x': 0.0, 'y': 0.0, 'z': 0.0}
+            found = {row['id64'] for row in build_regional_analysis._candidates_for(pool, ordinary_target)}
+            synthetic_ids = {nan_candidate_id, inf_candidate_id, ordinary_candidate_id}
+            assert found & synthetic_ids == {ordinary_candidate_id}
+
+            nan_target = {'id64': nan_target_id, 'x': float('nan'), 'y': 0.0, 'z': 0.0}
+            assert build_regional_analysis._candidates_for(pool, nan_target) == []
+    finally:
+        _cleanup()
+        conn.close()
+
+
+@pytest.mark.db
+def test_load_targets_persists_exclusion_for_non_finite_coords_across_runs():
+    """Codex Review finding on #426: without a persisted row, a non-finite
+    target would keep matching default mode's `NOT EXISTS` check and get
+    re-fetched by every future run, permanently eating into --limit. Proves
+    it end to end against real Postgres: selected and written on the first
+    call, gone from the second call's result."""
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn.autocommit = False
+    nan_id = 97_000_000_000_020
+
+    def _cleanup():
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM system_regional_analysis WHERE system_id64 = %s', (nan_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (nan_id,))
+        conn.commit()
+
+    _cleanup()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO systems (id64, name, x, y, z, population, is_colonised, is_being_colonised) '
+                'VALUES (%s, %s, %s, 0.0, 0.0, 0, FALSE, FALSE)',
+                (nan_id, 'Persist Exclusion Test', float('nan')),
+            )
+        conn.commit()
+
+        args = argparse.Namespace(dirty=False, all=False, limit=None)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            first_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
+        conn.commit()
+        assert nan_id not in first_run_ids  # excluded from targets...
+
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT regional_role, data_source FROM system_regional_analysis WHERE system_id64 = %s',
+                (nan_id,),
+            )
+            row = cur.fetchone()
+        assert row is not None, 'non-finite target should have gotten a persisted degenerate row'
+        assert row == ('unknown', build_regional_analysis.NON_FINITE_COORDS_SOURCE)
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            second_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
+        conn.commit()
+        assert nan_id not in second_run_ids  # ...and never selected again, not just skipped this once
+    finally:
+        _cleanup()
+        conn.close()
+
+
+@pytest.mark.db
+def test_load_targets_reprocesses_after_coordinates_are_repaired():
+    """Codex Review finding on the persist-exclusion fix above: tagging the
+    placeholder row with NON_FINITE_COORDS_SOURCE (rather than reusing
+    'computed') is what lets this system be picked up again after a later
+    import corrects its coordinates — plain NOT EXISTS would leave it
+    permanently excluded once any row exists, repaired or not. Proves it
+    against real Postgres: written as the placeholder on the first run,
+    still finds it (now via the NON_FINITE_COORDS_SOURCE OR EXISTS branch)
+    once its coordinates are fixed, and the UPSERT then overwrites the
+    placeholder with a real computed result."""
+    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn.autocommit = False
+    system_id = 97_000_000_000_021
+
+    def _cleanup():
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM system_regional_analysis WHERE system_id64 = %s', (system_id,))
+            cur.execute('DELETE FROM systems WHERE id64 = %s', (system_id,))
+        conn.commit()
+
+    _cleanup()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO systems (id64, name, x, y, z, population, is_colonised, is_being_colonised) '
+                'VALUES (%s, %s, %s, 0.0, 0.0, 0, FALSE, FALSE)',
+                (system_id, 'Repair Reprocess Test', float('nan')),
+            )
+        conn.commit()
+
+        args = argparse.Namespace(dirty=False, all=False, limit=None)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            build_regional_analysis._load_targets(cur, args)
+        conn.commit()
+
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT data_source FROM system_regional_analysis WHERE system_id64 = %s', (system_id,),
+            )
+            assert cur.fetchone() == (build_regional_analysis.NON_FINITE_COORDS_SOURCE,)
+
+            # Simulate a later import correcting the coordinates.
+            cur.execute('UPDATE systems SET x = 5.0 WHERE id64 = %s', (system_id,))
+        conn.commit()
+
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            repaired_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
+        conn.commit()
+        assert system_id in repaired_run_ids, 'repaired system should be eligible for reprocessing'
+    finally:
+        _cleanup()
+        conn.close()
