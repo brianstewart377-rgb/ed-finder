@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+API_SRC = ROOT / 'apps' / 'api' / 'src'
+if str(API_SRC) not in sys.path:
+    sys.path.insert(0, str(API_SRC))
+
+from exploration.api_models import ExplorationImportRequest  # noqa: E402
+from exploration import store  # noqa: E402
+
+pytestmark = pytest.mark.db
+
+
+def _sync_key() -> str:
+    return f'synckey_{uuid4().hex[:24]}'
+
+
+async def test_import_stages_rows_and_dedupes_on_replay(pool):
+    sync_key = _sync_key()
+    observation_key = uuid4().hex
+    request = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'source': 'journal',
+        'observations': [{
+            'observation_key': observation_key,
+            'event_type': 'Scan',
+            'observed_at': '2026-08-08T09:00:00Z',
+            'system_id64': 12345,
+            'system_name': 'Store Test System',
+            'body_id': 1,
+            'body_name': 'Store Test System 1',
+            'payload': {'PlanetClass': 'Rocky body'},
+        }],
+    })
+
+    receipt = await store.import_exploration_batch(pool, request)
+    assert receipt.status == 'succeeded'
+    assert receipt.summary.observations_staged == 1
+    assert receipt.summary.duplicates_skipped == 0
+
+    replay_receipt = await store.import_exploration_batch(pool, request)
+    assert replay_receipt.summary.observations_staged == 0
+    assert replay_receipt.summary.duplicates_skipped == 1
+
+
+async def test_get_exploration_facts_returns_only_matching_sync_key(pool):
+    sync_key_a = _sync_key()
+    sync_key_b = _sync_key()
+    for sync_key in (sync_key_a, sync_key_b):
+        await store.import_exploration_batch(pool, ExplorationImportRequest.model_validate({
+            'sync_key': sync_key,
+            'observations': [{
+                'observation_key': uuid4().hex,
+                'event_type': 'FSDJump',
+                'observed_at': '2026-08-08T09:00:00Z',
+                'system_id64': 54321,
+                'system_name': 'Visited System',
+                'payload': {},
+            }],
+        }))
+
+    facts = await store.get_exploration_facts(pool, sync_key_a)
+    assert facts.sync_key == sync_key_a
+    assert len(facts.facts) == 1
+    assert facts.facts[0].system_id64 == 54321
+
+
+async def test_import_raises_rate_limit_error_over_daily_budget(pool, monkeypatch):
+    monkeypatch.setattr(store, 'MAX_DAILY_ROWS_PER_SYNC_KEY', 1)
+    sync_key = _sync_key()
+    first = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': [{
+            'observation_key': uuid4().hex,
+            'event_type': 'Scan',
+            'observed_at': '2026-08-08T09:00:00Z',
+            'system_id64': 11111,
+            'payload': {},
+        }],
+    })
+    await store.import_exploration_batch(pool, first)
+
+    second = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': [{
+            'observation_key': uuid4().hex,
+            'event_type': 'Scan',
+            'observed_at': '2026-08-08T09:05:00Z',
+            'system_id64': 22222,
+            'payload': {},
+        }],
+    })
+    with pytest.raises(store.ExplorationImportRateLimitError):
+        await store.import_exploration_batch(pool, second)
