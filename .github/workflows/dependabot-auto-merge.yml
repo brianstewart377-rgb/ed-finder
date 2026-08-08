@@ -7,7 +7,20 @@ name: Dependabot auto-merge
 # GitHub's native auto-merge (requires the repo's "Allow auto-merge" setting,
 # enabled 2026-08-08); it does not merge immediately — GitHub merges it once
 # every required status check in branch protection passes.
-on: pull_request
+#
+# pull_request_target, not pull_request (Codex Review catch on #448):
+# GitHub always issues a read-only GITHUB_TOKEN to Dependabot-triggered
+# pull_request runs, regardless of what this file's own `permissions:`
+# block declares — https://docs.github.com/en/code-security/dependabot/
+# troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions
+# #restrictions-when-dependabot-triggers-events. pull_request_target runs
+# with the base repo's real token permissions instead. This is safe here
+# specifically because this workflow has no checkout step and never
+# executes anything from the PR branch — it only reads event metadata
+# (dependabot/fetch-metadata) and calls the GitHub API to merge. Do not
+# add a checkout step to this job without re-deriving that safety
+# argument from scratch.
+on: pull_request_target
 
 permissions:
   contents: write
