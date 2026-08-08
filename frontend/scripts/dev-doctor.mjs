@@ -15,6 +15,7 @@ const failures = [];
 
 function runGit(argsText, allowFailure = false) {
   try {
+    // nosemgrep: javascript.lang.security.detect-child-process.detect-child-process -- every runGit() call site below passes a hardcoded literal, never external input
     return execSync(`git ${argsText}`, {
       cwd: REPO_ROOT,
       encoding: 'utf8',

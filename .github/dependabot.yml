@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # Keeps the commit-SHA pins in .github/workflows/*.yml current. Actions
+  # are pinned to a SHA (not a mutable tag like @v4) per the Semgrep
+  # github-actions-mutable-action-tag rule (2026-08-08) — Dependabot opens
+  # a PR bumping the SHA (and the trailing "# vN" comment) whenever the
+  # pinned action publishes a new release, so the pin doesn't just go stale.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Wait 7 days after a release before proposing it, so a bad release
+    # has time to get caught/yanked upstream before we pull it in.
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

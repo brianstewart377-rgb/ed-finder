@@ -16,7 +16,7 @@ from html.parser import HTMLParser
 from typing import Optional
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
-from xml.etree import ElementTree
+from defusedxml import ElementTree
 
 import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends
@@ -162,7 +162,7 @@ def _fetch_galnet_rss(limit: int) -> dict:
             'Accept': 'application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.1',
         },
     )
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=10) as response:  # nosemgrep: dynamic-urllib-use-detected -- ELITE_GALNET_RSS_URL is a hardcoded constant, not user input
         xml_text = response.read().decode('utf-8', errors='replace')
 
     items = extract_galnet_rss_items(xml_text, limit=limit)
@@ -185,7 +185,7 @@ def _fetch_official_news(limit: int) -> dict:
             'Accept': 'text/html,application/xhtml+xml',
         },
     )
-    with urlopen(request, timeout=10) as response:
+    with urlopen(request, timeout=10) as response:  # nosemgrep: dynamic-urllib-use-detected -- ELITE_NEWS_URL is a hardcoded constant, not user input
         html = response.read().decode('utf-8', errors='replace')
 
     items = extract_elite_news_items(html, limit=limit)

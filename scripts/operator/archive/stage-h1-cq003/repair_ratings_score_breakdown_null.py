@@ -153,7 +153,7 @@ def update_batch(conn, id64s: list[int]) -> list[int]:
 
 def api_is_serving(url: str = API_HEALTH_URL, timeout: float = API_HEALTH_CHECK_TIMEOUT) -> bool:
     try:
-        with urllib.request.urlopen(url, timeout=timeout):
+        with urllib.request.urlopen(url, timeout=timeout):  # nosemgrep: dynamic-urllib-use-detected -- archived, CLI-invoked-only operator script; url defaults to a hardcoded constant
             return True
     except Exception:
         return False

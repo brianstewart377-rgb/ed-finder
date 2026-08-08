@@ -355,7 +355,7 @@ def _fetch_edsm_endpoint(
     label = _edsm_system_label(system_name, system_id64)
     for attempt in range(1, attempts + 1):
         try:
-            with urlopen(request, timeout=timeout) as response:
+            with urlopen(request, timeout=timeout) as response:  # nosemgrep: dynamic-urllib-use-detected -- host is EDSM_SYSTEM_API_BASE (hardcoded), only the urlencoded query is dynamic
                 status_code = _http_status_code(response)
                 if status_code is not None and status_code >= 400:
                     raise _EdsmHttpStatusError(

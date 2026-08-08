@@ -237,7 +237,7 @@ def healthcheck_url() -> str:
 
 def api_health_ok() -> bool:
     try:
-        with urlopen(healthcheck_url(), timeout=2) as response:
+        with urlopen(healthcheck_url(), timeout=2) as response:  # nosemgrep: dynamic-urllib-use-detected -- local review-lab container origin, dev tooling only
             return response.status == 200
     except (OSError, URLError):
         return False
@@ -490,7 +490,7 @@ def probe_event_stream(route: str, *, timeout_seconds: int = TIMEOUTS.sse_probe,
         method='GET',
     )
     try:
-        with urlopen(request, timeout=timeout_seconds) as response:
+        with urlopen(request, timeout=timeout_seconds) as response:  # nosemgrep: dynamic-urllib-use-detected -- local review-lab container origin, dev tooling only
             content_type = response.headers.get('Content-Type', '')
             return {
                 'status': response.status,
@@ -561,7 +561,7 @@ def fetch_json(method: str, route: str, payload: Mapping[str, Any] | None = None
         headers['Content-Type'] = 'application/json'
     request = Request(f'{review_api_origin()}{route}', data=body_bytes, headers=headers, method=method)
     try:
-        with urlopen(request, timeout=5) as response:
+        with urlopen(request, timeout=5) as response:  # nosemgrep: dynamic-urllib-use-detected -- local review-lab container origin, dev tooling only
             raw_body = response.read().decode('utf-8')
             parsed = json.loads(raw_body) if raw_body else None
             return {'status': response.status, 'body': parsed}

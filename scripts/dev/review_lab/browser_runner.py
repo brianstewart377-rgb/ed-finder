@@ -186,7 +186,7 @@ def _wait_for_preview_ready(timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            with urlopen(review_preview_origin(), timeout=2) as response:
+            with urlopen(review_preview_origin(), timeout=2) as response:  # nosemgrep: dynamic-urllib-use-detected -- local review-lab container origin, dev tooling only
                 if response.status == 200:
                     return
         except URLError:

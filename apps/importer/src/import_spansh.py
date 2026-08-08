@@ -1857,7 +1857,7 @@ def download_dumps(files: list):
                     if total > 0:
                         print(f"\r  {fname}: {bc*bs/total*100:.1f}% ({bc*bs/1e9:.1f}/{total/1e9:.1f} GB)",
                               end='', flush=True)
-                urllib.request.urlretrieve(url, tmp, reporthook=_progress)
+                urllib.request.urlretrieve(url, tmp, reporthook=_progress)  # nosemgrep: dynamic-urllib-use-detected -- url is built from the hardcoded SPANSH_BASE for a fixed set of known dump filenames
                 print()
                 tmp.rename(dest)
                 log.info(f"✅ {fname}: {dest.stat().st_size / 1e9:.1f} GB")
