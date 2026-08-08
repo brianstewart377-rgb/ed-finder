@@ -238,9 +238,15 @@ ed-finder/
 │       ├── test_phase3_sync_key_scoping.py     # §H1 contract — watchlist scope
 │       └── test_phase5_map_materialised_views.py
 ├── .github/
-│   └── workflows/ci.yml     # 6-job CI: backend smoke, integration (PG+Redis),
-│                            # frontend build, nginx config syntax, OpenAPI types drift
-│                            # check, frontend E2E (Playwright)
+│   ├── workflows/ci.yml     # 9-job CI: changed-paths detection, backend unit tests,
+│   │                        # script/migration contracts, backend integration
+│   │                        # (PG+Redis), canonical safety, frontend build, nginx
+│   │                        # config syntax, OpenAPI types drift check, frontend
+│   │                        # E2E (Playwright). Plus container-image-parity.yml,
+│   │                        # review-lab.yml, and semgrep.yml as separate required
+│   │                        # workflows — see CLAUDE.md's "CI" section for the
+│   │                        # full, current list.
+│   └── dependabot.yml       # github-actions (SHA-pinned) + pip (per-service) + npm
 ├── docker-compose.yml       # Full service stack
 ├── pyproject.toml           # Project metadata (real deps live in apps/*/requirements.txt)
 ├── setup.sh                 # First-time server setup script
@@ -269,20 +275,36 @@ See `docs/development/cross-repo-workspace.md` for the recommended local layout 
 
 ---
 
-## CI / quality gates (`.github/workflows/ci.yml`)
+## CI / quality gates
 
-Every push and PR runs **6 parallel jobs** on GitHub-hosted runners:
+Every push and PR runs 9 jobs from `.github/workflows/ci.yml`, plus three separate
+required workflows (`container-image-parity.yml`, `review-lab.yml`, `semgrep.yml`) —
+11 required checks total, all gating merge via branch protection. `CLAUDE.md`'s "CI"
+section is the canonical, kept-current list of every job and what it checks; this
+table is a quick-reference summary, not the source of truth (test counts and exact
+job names drift — check the workflow files or `CLAUDE.md` for anything precise).
 
-| Job | What it checks | Typical wall-time |
-|---|---|---|
-| **Backend smoke tests + compose validate** | `python -m unittest tests/test_smoke.py` (56 pure-Python tests) and `docker compose config` | ~25 s |
-| **Backend integration (PG+Redis)** | Spawns `postgres:16-alpine` + `redis:7-alpine` service containers, applies `sql/001…010` + `seed_preview.sql`, runs `pytest tests/integration/` (44 tests covering Phase-2/3/5/6 contracts) | ~50 s |
-| **Frontend build** | `yarn install` + `yarn typecheck` + `yarn test --run` (28 vitest) + `yarn build` | ~45 s |
-| **Nginx config syntax** | `nginx -t` against `config/nginx.conf` | ~20 s |
-| **OpenAPI types drift check** | Boots the API, regenerates `frontend/src/types/api.gen.ts`, fails if it drifts from the checked-in baseline | ~55 s |
-| **Frontend E2E (Playwright)** | Spawns PG+Redis services, boots uvicorn on :8002, runs `yarn build` then `yarn e2e` (vite preview on :4173 proxying `/api → :8002`, Playwright drives Chromium against the production bundle — 6 tests) | ~2–3 min |
+| Job | What it checks |
+|---|---|
+| **Detect changed paths** | Gates the frontend build/E2E jobs on whether the diff actually touches frontend-relevant paths |
+| **Backend unit tests + compose validate** | Python syntax check, Ruff lint, the no-DB-required unit suite, and `docker compose config` |
+| **Script contracts + migration paths** | Shell syntax checks for guarded scripts, migration/script contract tests |
+| **Backend integration (PG+Redis)** | Spawns `postgres:16-alpine` + `redis:7-alpine`, applies schema + seed, runs `pytest tests/integration/` |
+| **Canonical safety tests** | The canonical safety suite plus a disposable-Postgres rehearsal |
+| **Frontend build** | `yarn install` + typecheck + `knip` + vitest + `yarn build` |
+| **Nginx config syntax** | `nginx -t` against `config/nginx.conf` |
+| **OpenAPI types drift check** | Boots the API, regenerates `frontend/src/types/api.gen.ts`, fails on drift from the checked-in file |
+| **Frontend v2 E2E (Playwright)** | Boots the API against a seeded DB, builds the frontend, runs Playwright against the production bundle |
+| **Built image parity** (separate workflow) | Build-reproducibility parity check across the `api`/`eddn`/`importer` images |
+| **Review Lab** (separate workflow) | The isolated full-browser review journey against the hosted review-lab stack |
+| **Semgrep** (separate workflow, added 2026-08-08) | `p/ci` + `p/security-audit` + `p/secrets`, `--error` so any finding fails the job |
 
-**Adding a new test**: pure-Python unit → `tests/test_smoke.py`; needs DB → `tests/integration/test_phase*.py`; frontend logic → `frontend/src/**/*.test.ts(x)` (vitest); user-flow → `frontend/e2e/*.spec.ts` (Playwright).
+`.github/dependabot.yml` (also added 2026-08-08) keeps `github-actions` (SHA-pinned,
+not `@v4`-style mutable tags), `pip` (per service), and `npm` dependencies current —
+weekly, grouped per ecosystem, with a 7-day cooldown. Every Dependabot PR goes
+through the same 11 required checks as any other PR.
+
+**Adding a new test**: pure-Python unit → `tests/test_smoke.py` or a new `tests/test_*.py`; needs DB → `tests/integration/test_phase*.py` or another `db`/`integration`-marked test; frontend logic → `frontend/src/**/*.test.ts(x)` (vitest); user-flow → `frontend/e2e/*.spec.ts` (Playwright).
 
 ---
 

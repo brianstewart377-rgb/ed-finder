@@ -12,8 +12,10 @@ Close when: tomorrow's nightly log shows step 4 completing without
 errors, dirty count is small (delta-only, not millions), no smallint
 overflow errors, and the orphan cleanup line reports a count.
 
-Sunday full rebuild remains disabled (lines 324-327 of
-nightly_update.sh) pending separate evaluation at scale.
+Sunday full rebuild remains disabled (see the "Sunday full rebuild
+remains" comment in nightly_update.sh's cluster-rebuild section — exact
+line number drifts with every edit, search the comment text instead)
+pending separate evaluation at scale.
 
 ## Resolved
 
@@ -33,3 +35,15 @@ dirty rows and skipped the block. Fixed in 54fc1e6 with a catch-up
 refresh that fires whenever any archetype build ran, regardless of
 post-build dirty count. One-off manual refresh completed (~6m30s,
 10M rows, within 10min budget).
+
+**2026-08-08 follow-up — the whole mechanism this entry describes has
+moved.** The view kept growing (52m33s at 20M rows, worse than linear),
+so `nightly_update.sh` no longer refreshes `mv_archetype_rankings` at
+all — it only rebuilds `system_archetype_scores` now. The refresh moved
+to `apps/maintenance/scripts/run_maintenance.sh`'s `nightly` task (03:15
+UTC via the maintenance container's own internal cron), which already
+had a genuinely unbounded `statement_timeout=0` budget for exactly this
+kind of long-running step, instead of `nightly_update.sh` picking a
+bigger fixed timeout a second time. See PR #439 and
+`scripts/nightly_update.sh`'s comment above `NIGHTLY_PGOPTIONS` for the
+full incident.
