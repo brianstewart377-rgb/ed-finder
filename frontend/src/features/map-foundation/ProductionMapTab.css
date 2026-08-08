@@ -496,6 +496,27 @@
   text-transform: uppercase;
 }
 
+.map-foundation-keyboard-shortcuts-toggle {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.9rem;
+  z-index: 12;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid rgba(225, 146, 66, 0.32);
+  border-radius: 8px;
+  background: rgba(8, 12, 17, 0.84);
+  color: #aeb8c1;
+  font: 10px ui-monospace, monospace;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+}
+
+.map-foundation-keyboard-shortcuts-toggle:hover,
+.map-foundation-keyboard-shortcuts-toggle:focus-visible {
+  border-color: rgba(255, 174, 98, 0.6);
+  color: #f4d4b6;
+}
+
 .stage26e-production-map-viewport .map-foundation-render-stats {
   position: absolute;
   bottom: 0.65rem;

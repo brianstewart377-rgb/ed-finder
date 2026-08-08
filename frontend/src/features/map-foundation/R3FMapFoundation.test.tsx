@@ -133,6 +133,7 @@ describe('R3F document-scoped keyboard controls', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   function advanceFrame(milliseconds: number) {
@@ -400,6 +401,61 @@ describe('R3F document-scoped keyboard controls', () => {
     expect((preservedInput as HTMLInputElement).value).toBe('wasdzx');
     expect(onInteraction).not.toHaveBeenCalled();
     expect(onZoomIntent).not.toHaveBeenCalled();
+  });
+
+  it('suspends WASD/Z/X while a modal dialog is open, even without editable focus', () => {
+    const onInteraction = vi.fn();
+    const view = render(
+      <>
+        <div role="dialog" aria-modal="true">
+          <button type="button">Close</button>
+        </div>
+        <R3FMapFoundation
+          scene={scene}
+          regions={{ labels: [], boundaries: [] }}
+          viewport={{ width: 1_280, height: 720 }}
+          onInteraction={onInteraction}
+        />
+      </>,
+    );
+    const dialogCloseButton = view.getByRole('button', { name: 'Close' });
+    dialogCloseButton.focus();
+    expect(document.activeElement).toBe(dialogCloseButton);
+
+    fireEvent.keyDown(document, { key: 'w' });
+    advanceFrame(50);
+    fireEvent.keyUp(document, { key: 'w' });
+
+    expect(onInteraction).not.toHaveBeenCalled();
+  });
+
+  it('lets the keyboard-shortcuts toggle turn WASD/Z/X off and back on (WCAG 2.1.4)', () => {
+    const onInteraction = vi.fn();
+    const view = render(
+      <R3FMapFoundation
+        scene={scene}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={onInteraction}
+      />,
+    );
+    const toggle = view.getByRole('button', { name: /disable map keyboard shortcuts/i });
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(view.getByRole('button', { name: /enable map keyboard shortcuts/i })).toBe(toggle);
+
+    fireEvent.keyDown(document, { key: 'w' });
+    expect(onInteraction).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.keyDown(document, { key: 'w' });
+    advanceFrame(50);
+    fireEvent.keyUp(document, { key: 'w' });
+    expect(onInteraction).toHaveBeenCalled();
   });
 
   it('does not steal focus when a view preset changes', () => {

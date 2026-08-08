@@ -64,6 +64,11 @@ const KEYBOARD_PAN_VELOCITY_EPSILON = 0.5;
 const KEYBOARD_CAMERA_COMMIT_EPSILON = 1e-6;
 const MAX_PENDING_KEYBOARD_CAMERAS = 128;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+// WCAG 2.1.4: single-character shortcuts (W/A/S/D/Z/X) must be switchable,
+// remappable, or active only while the affected component has focus. This
+// listener is document-level by design (see the keyboard-focus fix above),
+// so it satisfies 2.1.4 via an explicit off switch instead.
+const MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY = 'ed-finder:map-keyboard-shortcuts-enabled';
 const GALACTIC_CORE_GLOW_CLOSE_RADIUS_LY = 18_000;
 const GALACTIC_CORE_GLOW_WIDE_RADIUS_LY = 10_000;
 const GALACTIC_CORE_GLOW_CLOSE_ZOOM = 70;
@@ -90,6 +95,23 @@ function protectsFocusFromMap(element: Element | null): boolean {
   return element.isContentEditable || element.matches(
     'input, textarea, select, [role="textbox"], [role="searchbox"], [role="combobox"]',
   );
+}
+
+// A modal (e.g. the System Detail dialog) can be mounted above the map
+// without moving focus onto an editable control inside it — focus may sit on
+// the dialog itself or a plain button. protectsFocusFromMap alone would let
+// W/A/S/D/Z/X leak through to the hidden map camera in that case.
+function mapShortcutsSuspendedByOpenModal(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
+
+function readStoredMapKeyboardShortcutsEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
 }
 
 function keyboardPanTarget(keys: ReadonlySet<MapControlKey>): KeyboardPanVelocity {
@@ -999,6 +1021,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   const pointer = useRef<{ x: number; y: number; camera: CameraState } | null>(null);
   const rendererRef = useRef<HTMLDivElement>(null);
   const pressedMapKeys = useRef(new Set<MapControlKey>());
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(readStoredMapKeyboardShortcutsEnabled);
   const keyboardFrame = useRef<number | null>(null);
   const keyboardPreviousTime = useRef<number | null>(null);
   const keyboardPanVelocity = useRef<KeyboardPanVelocity>({ x: 0, z: 0 });
@@ -1389,10 +1412,12 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
       const key = mapControlKey(event.key);
       if (
         !key
+        || !shortcutsEnabled
         || event.altKey
         || event.ctrlKey
         || event.metaKey
         || protectsFocusFromMap(document.activeElement)
+        || mapShortcutsSuspendedByOpenModal()
       ) return;
       event.preventDefault();
       if (pressedMapKeys.current.has(key)) return;
@@ -1435,8 +1460,23 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     ensureKeyboardFrame,
     keyboardMotionActive,
     retargetKeyboardPan,
+    shortcutsEnabled,
     stopKeyboardInput,
   ]);
+
+  const toggleMapKeyboardShortcuts = useCallback(() => {
+    setShortcutsEnabled((current) => {
+      const next = !current;
+      if (!next) stopKeyboardInput();
+      try {
+        window.localStorage.setItem(MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY, String(next));
+      } catch {
+        // Storage unavailable (private browsing, quota) -- preference just
+        // won't persist across reloads; the in-memory toggle still works.
+      }
+      return next;
+    });
+  }, [stopKeyboardInput]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -1613,6 +1653,17 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
         {' · Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out'}
       </span>
     </div>
+    {/* Not aria-hidden: WCAG 2.1.4 requires a way to turn off single-character
+        keyboard shortcuts (W/A/S/D/Z/X) since they are active document-wide,
+        not only while the renderer has focus. */}
+    <button
+      type="button"
+      className="map-foundation-keyboard-shortcuts-toggle"
+      aria-pressed={shortcutsEnabled}
+      onClick={toggleMapKeyboardShortcuts}
+    >
+      {shortcutsEnabled ? 'Disable map keyboard shortcuts' : 'Enable map keyboard shortcuts'}
+    </button>
     <div className="map-foundation-labels" aria-hidden="true">
       {labels.filter((label) => label.visible).map((label) => <span key={label.id}
         className={label.id === currentRegion?.id ? 'is-current-region' : undefined}
