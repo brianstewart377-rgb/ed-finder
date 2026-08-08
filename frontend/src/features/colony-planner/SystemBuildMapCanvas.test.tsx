@@ -36,8 +36,7 @@ const system = {
 const templates: FacilityTemplate[] = [
   {
     id: 'dodec_starport',
-    display_name: 'Dodec Starport',
-    name: 'Fallback Dodec',
+    name: 'Dodec Starport',
     category: 'port',
     tier: 3,
     economy: 'Industrial',
@@ -60,7 +59,7 @@ const templates: FacilityTemplate[] = [
       standard_of_living: 30.4,
       development_level: 27.6,
     },
-  } as FacilityTemplate & { display_name: string },
+  },
   {
     id: 'surface_refinery',
     name: 'Surface Refinery Hub',

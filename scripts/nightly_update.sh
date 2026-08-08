@@ -149,6 +149,24 @@ run_importer() {
 # night. Anything longer belongs in the maintenance container's weekly path.
 # Passing PGOPTIONS through docker compose exec also works for VACUUM, which
 # cannot share a transaction with an inline SET statement.
+#
+# 2026-08-08: the three `REFRESH MATERIALIZED VIEW CONCURRENTLY
+# mv_archetype_rankings` call sites used to add their own inline
+# `SET statement_timeout = '10min';` ahead of the REFRESH, which overrode
+# this 30-minute budget down to a third of it on every single call —
+# confirmed as the cause of "MV refresh failed" firing nightly since at
+# least 2026-07-14 (mv_archetype_rankings is ~9.6GB / 20M rows). A manual
+# untimed refresh on production measured 52m33s — already past this budget
+# and, per known-issues.md's 2026-07-15 entry, growing worse than linearly
+# with row count (6m30s at 10M rows -> 52m33s at 20M rows). Rather than
+# picking a second, bigger fixed nightly timeout (the same bug class with a
+# bigger constant), the refresh itself moved to
+# apps/maintenance/scripts/run_maintenance.sh's nightly task, which already
+# has a genuinely unbounded statement_timeout=0 budget for exactly this
+# kind of long-running, independent, best-effort step — see
+# MAINTENANCE_PGOPTIONS there. This script's own comment above already said
+# "anything longer belongs in the maintenance container['s]... path"; this
+# is that.
 NIGHTLY_PGOPTIONS="-c statement_timeout=1800000"
 
 run_psql() {
@@ -423,8 +441,6 @@ pg_count_into TOPO_DIRTY "SELECT COUNT(*) FROM (
 pg_count_into ARCH_SCORE_DIRTY "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
 log "Topology dirty (rating_dirty): $TOPO_DIRTY | Archetype scores dirty: $ARCH_SCORE_DIRTY"
 
-ARCH_BUILD_RAN=0
-
 if (( TOPO_DIRTY > 0 )); then
     log "Running build_topology.py --dirty ..."
     run_importer "build_topology" build_topology.py --dirty \
@@ -440,15 +456,8 @@ log "Archetype scores dirty after topology pass: $ARCH_SCORE_DIRTY"
 if (( ARCH_SCORE_DIRTY > 0 )); then
     log "Running build_archetype_scores.py --dirty ..."
     run_importer "build_archetype_scores" build_archetype_scores.py --dirty \
-        && { success "Archetype scores rebuilt"; ARCH_BUILD_RAN=1; } \
+        && success "Archetype scores rebuilt" \
         || warn "Archetype score rebuild had errors (check ${LOG_DIR}/build_archetype_scores.log)"
-
-    log "Refreshing mv_archetype_rankings ..."
-    run_psql \
-        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
-        >> "$LOG" 2>&1 \
-        && success "mv_archetype_rankings refreshed" \
-        || warn "MV refresh failed"
 
     # Post-rebuild verification
     pg_count_into STILL_DIRTY_A "SELECT COUNT(*) FROM system_archetype_scores WHERE dirty = TRUE"
@@ -477,30 +486,15 @@ if (( ARCH_SCORE_MISSING > 0 )); then
     # Remove the cap once the backlog is cleared and replace with
     # a smaller maintenance cap (e.g. --limit 500000).
     run_importer "build_archetype_scores_new" build_archetype_scores.py --limit 5000000 \
-        && { success "New archetype scores backfilled"; ARCH_BUILD_RAN=1; } \
+        && success "New archetype scores backfilled" \
         || warn "New archetype score backfill had errors (check ${LOG_DIR}/build_archetype_scores_new.log)"
-
-    log "Refreshing mv_archetype_rankings ..."
-    run_psql \
-        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
-        >> "$LOG" 2>&1 \
-        && success "mv_archetype_rankings refreshed" \
-        || warn "MV refresh failed"
 fi
 
-# Catch-up: if any archetype build ran in this invocation, ensure the
-# MV reflects the new data. The inline refreshes inside each block may
-# have failed or been skipped (the build clears dirty flags, so the
-# post-build count can be zero even though data changed).
-if (( ARCH_BUILD_RAN == 1 )); then
-    pg_count_into MV_ROWS "SELECT COUNT(*) FROM mv_archetype_rankings"
-    log "Archetype build ran this cycle — verifying MV is current ($MV_ROWS rows) ..."
-    run_psql \
-        -c "SET statement_timeout = '10min'; REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;" \
-        >> "$LOG" 2>&1 \
-        && success "mv_archetype_rankings refreshed (catch-up)" \
-        || warn "MV catch-up refresh failed"
-fi
+# mv_archetype_rankings itself is refreshed by
+# apps/maintenance/scripts/run_maintenance.sh's nightly task (2026-08-08),
+# not here — see the incident note above NIGHTLY_PGOPTIONS. It runs on its
+# own schedule (03:15 UTC) against the archetype scores this step just
+# rebuilt.
 
 # Re-check for systems with body data but no regional analysis row at all —
 # build_regional_analysis.py's default mode only covers systems missing a

@@ -1120,13 +1120,20 @@ class FacilityTemplateResponse(BaseModel):
     pad_size:            Optional[str] = None
     confidence:          Optional[str] = None
     notes:               Optional[str] = None
-    prerequisites:       list[dict[str, Any]] = Field(default_factory=list)
-    economy_effects:     dict[str, Any] = Field(default_factory=dict)
+    # list[dict[str, Any]] / dict[str, Any] still emit as
+    # Record<string, never> via openapi-typescript (its handling of Pydantic's
+    # `additionalProperties: {}` schema for a bare Any value type) — the exact
+    # unusable-generated-type trap this file's own module docstring warns
+    # about. These three catalogue fields are genuinely free-form (frontend
+    # code defensively probes several possible keys), so `Any` is the
+    # documented remedy rather than inventing a fixed sub-model shape.
+    prerequisites:       list[Any] = Field(default_factory=list)
+    economy_effects:     Any = Field(default_factory=dict)
     yellow_cp_generated: int = 0
     green_cp_generated:  int = 0
     yellow_cp_cost:      int = 0
     green_cp_cost:       int = 0
-    stat_effects:        dict[str, Any] = Field(default_factory=dict)
+    stat_effects:        Any = Field(default_factory=dict)
 
 
 SimulationSource = Literal['precomputed', 'computed', 'insufficient_data']

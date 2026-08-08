@@ -289,15 +289,22 @@ order.
 
 - **body\_rings.association\_status is `NOT NULL DEFAULT 'local\_matched'`.**
   Any INSERT that omits the column silently asserts a verified local match.
-  Two of the five ring writers omit it.
+  As of 2026-08-08 (Emergent recurrence report B1) all five ring writers set
+  it explicitly — `importer/enrich_system_data.py` was the last one relying
+  on the schema default; watch for this regressing on any new writer.
 
-- **body\_rings has five writers**, three naming association_status with a
-  CASE and two omitting it: eddn_listener.py, ingest/eddn_client.py,
-  journal_import/store.py, importer/import_spansh.py,
-  importer/enrich_system_data.py.
+- **body\_rings has five writers**: eddn_listener.py, ingest/eddn_client.py,
+  and journal_import/store.py compute it via the shared
+  `BODY_RING_ASSOCIATION_STATUS_CASE_SQL` (see below); importer/import_spansh.py
+  and importer/enrich_system_data.py each set it explicitly in Python instead,
+  justified by their own local-match guarantee (a rejection-filter and a
+  system-scoped body lookup, respectively — see the comment at each call site).
 
-- **BODY\_RING\_ASSOCIATION\_STATUS\_CASE\_SQL is defined three times**, once per
-  file, with no shared module. Changing one does not change the others.
+- **BODY\_RING\_ASSOCIATION\_STATUS\_CASE\_SQL lives in
+  `shared_contracts/body_ring_association_status.py`**, imported by the three
+  asyncpg-based writers above. It used to be defined three times independently
+  with no shared module (the exact kind of copy CLAUDE.md warns about
+  elsewhere) — already consolidated, so don't reintroduce a fourth copy.
 
 - **The role `edfinder` has `statement\_timeout = 15000` set via ALTER ROLE.**
   It exists nowhere in the repo. Any shell or psql path that does not

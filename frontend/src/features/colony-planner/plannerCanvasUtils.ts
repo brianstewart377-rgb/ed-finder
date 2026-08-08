@@ -376,7 +376,9 @@ function readTemplateStat(template: FacilityTemplate | undefined, field: string)
   if (!template) return 0;
   const direct = numericValue((template as unknown as Record<string, unknown>)[field]);
   if (direct != null) return direct;
-  const effects = template.stat_effects ?? (template as unknown as { statEffects?: Record<string, unknown> }).statEffects;
+  const effects = (template.stat_effects ?? (template as unknown as { statEffects?: Record<string, unknown> }).statEffects) as
+    | Record<string, unknown>
+    | undefined;
   return numericValue(effects?.[field]) ?? 0;
 }
 

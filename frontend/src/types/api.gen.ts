@@ -2721,9 +2721,9 @@ export interface components {
             /** Notes */
             notes?: string | null;
             /** Prerequisites */
-            prerequisites?: Record<string, never>[];
+            prerequisites?: unknown[];
             /** Economy Effects */
-            economy_effects?: Record<string, never>;
+            economy_effects?: unknown;
             /**
              * Yellow Cp Generated
              * @default 0
@@ -2745,7 +2745,7 @@ export interface components {
              */
             green_cp_cost: number;
             /** Stat Effects */
-            stat_effects?: Record<string, never>;
+            stat_effects?: unknown;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
