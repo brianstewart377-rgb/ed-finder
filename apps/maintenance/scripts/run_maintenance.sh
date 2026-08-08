@@ -198,7 +198,13 @@ SQL
         # long-running, independent, best-effort step is meant to have.
         # nightly_update.sh (02:00 UTC) rebuilds the underlying
         # system_archetype_scores rows on its own schedule before this
-        # task runs (03:15 UTC).
+        # task runs (03:15 UTC) — a 75-minute assumption, not a guarantee.
+        # If that rebuild (e.g. the --limit 5000000 new-system backfill)
+        # is still running past 03:15, this refresh reflects the
+        # scores as of 03:15, not that night's finished rebuild. Low
+        # impact and self-healing (this step is unconditional and runs
+        # again every night regardless), but a real gap: there is
+        # currently no explicit ordering/wait between the two schedules.
         run_step "refresh mv_archetype_rankings" \
             "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;"
         finish_task "Nightly"
