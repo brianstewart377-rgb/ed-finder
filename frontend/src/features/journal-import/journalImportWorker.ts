@@ -194,17 +194,32 @@ async function sha256Hex(value: string): Promise<string> {
   return `fallback-${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
-type SystemContext = { systemId64: number; systemName: string | null };
+type SystemContext = { systemId64: number; systemName: string | null; lastSeenAtMs: number | null };
 
 // ColonisationConstructionDepot, ColonisationContribution,
 // ColonisationBeaconDeployed, and CompleteConstruction carry no
 // StarSystem/SystemAddress of their own (verified against Frontier's
-// journal schema) -- only MarketID, or nothing at all. Elite Dangerous
-// journals are a strictly sequential per-session event stream, so these
-// events always follow an earlier event in the same file (or an earlier
-// file from the same session) that did carry system context. Track the
-// most recently seen one and fall back to it.
-function extractSystemContext(raw: Record<string, unknown>): SystemContext | null {
+// journal schema) -- only MarketID, or nothing at all. Every other
+// allowlisted event type (including ColonisationSystemClaim/Release) does
+// carry its own SystemAddress and must keep using it directly -- the
+// carried-context fallback below is deliberately scoped to only these four,
+// so a malformed/older event of a normally-self-contained type is still
+// dropped rather than silently misattributed to a stale system.
+const CONTEXT_LESS_EVENT_TYPES = new Set<JournalImportObservationInput['event_type']>([
+  'ColonisationBeaconDeployed',
+  'ColonisationConstructionDepot',
+  'ColonisationContribution',
+  'CompleteConstruction',
+]);
+
+// A gap this large between the last tracked system-bearing event and the
+// current one means the selected files most likely span more than one play
+// session (a different day, a different commander, files picked out of
+// order) -- carrying context across that boundary risks silently attributing
+// a context-less event to the wrong system entirely.
+const SESSION_GAP_RESET_MS = 30 * 60 * 1000;
+
+function extractSystemContext(raw: Record<string, unknown>): { systemId64: number; systemName: string | null } | null {
   const systemId64 = asPositiveInt(raw.SystemAddress);
   if (systemId64 == null) return null;
   return {
@@ -213,19 +228,41 @@ function extractSystemContext(raw: Record<string, unknown>): SystemContext | nul
   };
 }
 
+function eventTimestampMs(raw: Record<string, unknown>): number | null {
+  if (typeof raw.timestamp !== 'string') return null;
+  const ms = Date.parse(raw.timestamp);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 async function normaliseObservation(
   raw: Record<string, unknown>,
   sourceFile: string,
   systemContext: { current: SystemContext | null },
 ): Promise<JournalImportObservationInput | null> {
+  const eventTimeMs = eventTimestampMs(raw);
+
+  if (
+    systemContext.current?.lastSeenAtMs != null
+    && eventTimeMs != null
+    && eventTimeMs - systemContext.current.lastSeenAtMs > SESSION_GAP_RESET_MS
+  ) {
+    systemContext.current = null;
+  }
+
+  // Extracted from *every* parsed event, not only allowlisted/staged ones --
+  // an intermediate event type this worker never stages (e.g.
+  // SupercruiseExit) can still be the most recent true system context for a
+  // later context-less Colonisation event.
+  const ownContext = extractSystemContext(raw);
+  if (ownContext) systemContext.current = { ...ownContext, lastSeenAtMs: eventTimeMs };
+
   const eventType = typeof raw.event === 'string' ? raw.event : null;
   if (!eventType || !ALLOWED_EVENT_TYPES.has(eventType as JournalImportObservationInput['event_type'])) {
     return null;
   }
 
-  const ownContext = extractSystemContext(raw);
-  if (ownContext) systemContext.current = ownContext;
-  const resolvedContext = ownContext ?? systemContext.current;
+  const isContextLess = CONTEXT_LESS_EVENT_TYPES.has(eventType as JournalImportObservationInput['event_type']);
+  const resolvedContext = isContextLess ? (ownContext ?? systemContext.current) : ownContext;
   if (!resolvedContext) return null;
   const systemId64 = resolvedContext.systemId64;
 
@@ -268,12 +305,19 @@ export async function parseFiles(files: File[]): Promise<JournalImportParseResul
   const manifestFiles: Array<{ name: string; event_count: number }> = [];
   let linesRead = 0;
   let skippedLines = 0;
-  // Carried across files, not reset per file: a session can span multiple
-  // rotated journal files without a fresh Location event at the start of
-  // the next one.
+  // System context is carried across files, not reset per file: a session
+  // can span multiple rotated journal files without a fresh Location event
+  // at the start of the next one. That carry-over is only safe if files are
+  // processed in chronological order -- Elite Dangerous journal filenames
+  // (Journal.<timestamp>.NN.log) sort lexicographically in timestamp order,
+  // so sort explicitly rather than trust the order the UI happened to hand
+  // over (e.g. a browser file picker's multi-select order is unspecified).
+  // SESSION_GAP_RESET_MS above still resets context on a large timestamp
+  // gap even within this sorted order, covering a genuinely missing file.
+  const sortedFiles = [...files].sort((a, b) => a.name.localeCompare(b.name));
   const systemContext: { current: SystemContext | null } = { current: null };
 
-  for (const file of files) {
+  for (const file of sortedFiles) {
     const text = await file.text();
     const lines = text.split(/\r?\n/);
     let fileEventCount = 0;
