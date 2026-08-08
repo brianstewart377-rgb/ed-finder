@@ -17,3 +17,52 @@ updates:
       github-actions:
         patterns:
           - "*"
+
+  # 2026-08-08: extended from github-actions-only to pip/npm — real
+  # production dependencies (fastapi, pydantic, psycopg2, etc.) for a
+  # service handling live user data, and every Dependabot PR already goes
+  # through the full required-checks CI gauntlet before it can merge, so
+  # the safety net for a bad bump already exists.
+  - package-ecosystem: "pip"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      api-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/apps/eddn"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      eddn-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "pip"
+    directory: "/apps/importer"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      importer-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      frontend-dependencies:
+        patterns:
+          - "*"
