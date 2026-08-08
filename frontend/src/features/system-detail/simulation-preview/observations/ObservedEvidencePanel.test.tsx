@@ -376,6 +376,32 @@ describe('ObservedEvidencePanel — Stage 6B manual observed evidence UI', () =>
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['observation-review', 123] });
   });
 
+  it('invalidates every observed-facts read model, not just the Evidence panel and Validation panel', async () => {
+    // Regression test for the adversarial-frontend-review-2026-06 F5.1
+    // finding: Provenance Cockpit, Export Readiness, and the role-review
+    // panel each read observed facts under their own query-key root
+    // (provenance-cockpit-observed-facts / observed-facts-export /
+    // role-review-observed-facts), and none of the three were being
+    // invalidated after a create/update/delete — they'd show stale
+    // evidence for up to their staleTime after a write.
+    mockedList.mockResolvedValue(emptyResponse());
+    mockedCreate.mockResolvedValue(fact());
+    const { client } = renderPanel();
+    const invalidateSpy = vi.spyOn(client, 'invalidateQueries');
+
+    await screen.findByRole('region', { name: 'Observed Evidence' });
+    fireEvent.change(screen.getByLabelText(/^Notes$/), {
+      target: { value: 'Evidence that should refresh every reader.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Record observed evidence/i }));
+
+    await waitFor(() => expect(mockedCreate).toHaveBeenCalledTimes(1));
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['observed-facts', 123] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['provenance-cockpit-observed-facts', 123] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['observed-facts-export', 123] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['role-review-observed-facts', 123] });
+  });
+
   it('shows backend validation errors clearly when create fails with 422', async () => {
     mockedList.mockResolvedValue(emptyResponse());
     mockedCreate.mockRejectedValue(

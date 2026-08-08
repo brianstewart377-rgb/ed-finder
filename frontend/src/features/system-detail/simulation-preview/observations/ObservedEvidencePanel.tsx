@@ -29,6 +29,7 @@ import {
   statusLabel,
 } from './observationLabels';
 import { describeApiError } from './observationUtils';
+import { invalidateObservedFactQueries } from './observedFactsQueryKeys';
 
 interface ObservedEvidencePanelProps {
   systemId64: number;
@@ -110,7 +111,10 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
       setCreateError(null);
       // Force form remount to reset state on success.
       setCreateFormKey((value) => value + 1);
-      void queryClient.invalidateQueries({ queryKey: ['observed-facts', systemId64] });
+      // Invalidates every observed-facts read model (Evidence panel,
+      // Provenance Cockpit, Export Readiness, role-review) in one call —
+      // see observedFactsQueryKeys.ts for why this must be centralised.
+      invalidateObservedFactQueries(queryClient, systemId64);
       // Stage 6D: the Validation panel reads from the same persisted
       // evidence pool. Invalidate its compare query so the user can see
       // the new evidence reflected after recording it. The Validation
@@ -132,7 +136,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         delete next[variables.observationId];
         return next;
       });
-      void queryClient.invalidateQueries({ queryKey: ['observed-facts', systemId64] });
+      invalidateObservedFactQueries(queryClient, systemId64);
       void queryClient.invalidateQueries({ queryKey: ['observation-compare', systemId64] });
       void queryClient.invalidateQueries({ queryKey: ['observation-review', systemId64] });
     },
@@ -149,7 +153,7 @@ export function ObservedEvidencePanel({ systemId64, suggestedArchetype }: Observ
         delete next[observationId];
         return next;
       });
-      void queryClient.invalidateQueries({ queryKey: ['observed-facts', systemId64] });
+      invalidateObservedFactQueries(queryClient, systemId64);
       void queryClient.invalidateQueries({ queryKey: ['observation-compare', systemId64] });
       void queryClient.invalidateQueries({ queryKey: ['observation-review', systemId64] });
     },
