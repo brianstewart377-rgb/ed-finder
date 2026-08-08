@@ -6,8 +6,8 @@
 psycopg2-binary==2.9.10
 ijson==3.3.0
 tqdm==4.66.5
-asyncpg==0.29.0
-pydantic==2.9.2
+asyncpg==0.31.0
+pydantic==2.13.4
 numpy==2.5.1
 
 # XXE-safe XML parsing for import_facility_templates_from_daftmav.py's
