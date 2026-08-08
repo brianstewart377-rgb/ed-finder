@@ -111,6 +111,23 @@ risk."
 > `typescript` stays pinned at `^5.7.2` and the `tsconfig.json` baseUrl/paths
 > fix below is **not applied** (it's only needed for TS7). Revisit TS7 in a
 > future task once `typescript-eslint` ships support.
+>
+> **Second deviation (same session):** `eslint-plugin-react-hooks` v7's
+> `recommended` preset expanded from 2 rules (`rules-of-hooks`,
+> `exhaustive-deps`) to 16, absorbing a new React Compiler readiness rule
+> family (`set-state-in-effect`, `purity`, `immutability`, `use-memo`,
+> `refs`, `static-components`, `error-boundaries`, `gating`, etc.).
+> `frontend/eslint.config.js` currently spreads the whole preset
+> (`...reactHooks.configs.recommended.rules`), so the bump alone surfaced 36
+> new findings (27 `set-state-in-effect`) across 23 files — real pattern
+> findings, not a config error, but unplanned scope for a dependency bump.
+> Fix: replace the preset spread with the two explicit rules the repo's own
+> comments say were originally intended (`'react-hooks/rules-of-hooks':
+> 'error'`, `'react-hooks/exhaustive-deps': 'warn'` — same severities the
+> preset used). The bump still lands; the other 14 rules are not adopted.
+> Also note: v5.1.0's published peer range is `eslint ^3-^9` (no `^10`
+> support), so simply deferring this package like Tailwind/TS7 was not a
+> clean option here — v7.1.1 explicitly supports `eslint ^10.0.0`.
 
 **Files:**
 - Modify: `frontend/package.json`
