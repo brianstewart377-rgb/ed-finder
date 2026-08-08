@@ -1,0 +1,36 @@
+name: Dependabot auto-merge
+
+# Only patch/minor Dependabot bumps auto-merge once the full required-checks
+# gauntlet is green — major-version bumps still need a human to merge, since
+# they're the ones most likely to carry an actual breaking change the test
+# suite doesn't happen to cover. `gh pr merge --auto` marks the PR for
+# GitHub's native auto-merge (requires the repo's "Allow auto-merge" setting,
+# enabled 2026-08-08); it does not merge immediately — GitHub merges it once
+# every required status check in branch protection passes.
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    name: Dependabot auto-merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@21025c705c08248db411dc16f3619e6b5f9ea21a # v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge (patch/minor only)
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

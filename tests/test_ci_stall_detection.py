@@ -39,6 +39,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 CHECKED_WORKFLOWS = (
     'ci.yml',
     'container-image-parity.yml',
+    'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
     'review-lab.yml',
     'semgrep.yml',
