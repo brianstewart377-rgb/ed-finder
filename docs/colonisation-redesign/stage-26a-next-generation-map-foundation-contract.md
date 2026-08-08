@@ -64,6 +64,15 @@ and other independently useful assets may be reused after review.
     preserve camera and selection (extending requirement 8) and must not
     produce visible frame hitching.
 
+    **Amendment scope (2026-08-08):** requirements 13 and its dependent
+    scenario 8 below were added after Stage 26B's research run and bake-off
+    already completed and were accepted as closed
+    (`stage-26b-renderer-bakeoff-decision.md`). They govern future
+    implementation/evaluation work only. They do not retroactively apply to,
+    invalidate, or require reopening the already-accepted Stage 26B artifact
+    bundle or the recorded renderer selection — see the "Stage 26B Artifact
+    Acceptance" section below, which remains accurate as originally recorded.
+
 ## Scene Boundary
 
 The artifact-backed research run must produce a compilable TypeScript boundary
@@ -88,14 +97,23 @@ equivalent in responsibility to:
 Names may change during the research run, but these responsibilities and their
 separation may not disappear.
 
-As recorded owner priority for the first Stage 26D wiring wave (not
-authorized by this contract, and binding only on boundary design):
-search-from-here contextual actions, a live radius indicator
-bidirectionally synced with the Finder radius input including pre-query
-scope tinting, hover synchronization between result surfaces and map
-systems, and region-scoped search. The Finder retains sole ownership of
-query semantics; the map acts as parameter input and result display
-through this boundary.
+**Amendment scope (2026-08-08):** the contextual-action addition to
+`MapInteractionResult` above, and the priority list below, were added after
+Stage 26B's artifact bundle (`artifacts/map-foundation/stage-26b/`) was
+already produced and accepted; that accepted `map-scene-contract.ts` does not
+contain this addition, and this amendment does not require it to be revised
+retroactively. This is a requirement for whichever future implementation
+stage actually wires these workflows.
+
+As a recorded owner priority for a future map-initiated-workflow
+implementation pass (not yet scheduled under any stage number, not
+authorized by this contract, and binding only on boundary design, not on
+`docs/ROADMAP.md`'s current stage status): search-from-here contextual
+actions, a live radius indicator bidirectionally synced with the Finder
+radius input including pre-query scope tinting, hover synchronization
+between result surfaces and map systems, and region-scoped search. The
+Finder retains sole ownership of query semantics; the map acts as
+parameter input and result display through this boundary.
 
 ## Required Integration Scenarios
 
@@ -118,7 +136,12 @@ renderer candidate:
 8. Live-update stream: a deterministic fixture applies successive scene
    update batches while the activity-pulse layer animates; camera,
    selection, and layer toggles survive every batch, and frame cost
-   during the stream is measured and recorded.
+   during the stream is measured and recorded. **Added 2026-08-08, after
+   Stage 26B's bake-off already ran and completed on scenarios 1-7 only**
+   (`map-research-closure.md` records "All seven Stage 26 scenarios
+   covered"). This scenario governs any future renderer
+   evaluation/re-evaluation; it is not retroactively required of the
+   closed Stage 26B decision.
 
 ## Region Data And Legal Gate
 
@@ -151,8 +174,11 @@ Required retained artifacts are:
 
 1. `map-scene-contract.ts`, validated by the strict in-memory TypeScript gate;
 2. `map-renderer-adapter.ts`, validated by the same gate;
-3. `map-bakeoff-scenarios.ts`, containing deterministic fixtures for all eight
-   integration scenarios and validated by the same gate;
+3. `map-bakeoff-scenarios.ts`, containing deterministic fixtures for all seven
+   integration scenarios required at the time of Stage 26B's run and
+   validated by the same gate. (Scenario 8 above was added after Stage 26B
+   closed and is not part of this historical requirement — see that
+   scenario's own note.)
 4. `map-region-verification.json`, validated as JSON and covering the 42 named
    regions plus the unmapped sentinel; and
 5. `map-research-closure.md`, linking each requirement to primary evidence,
@@ -192,6 +218,15 @@ the final selection among gate-passing candidates weighs this review as
 a first-class criterion. As informational context only, the recorded
 decision also notes each candidate's WebXR support path; this selects
 nothing and authorizes nothing.
+
+**Amendment scope (2026-08-08):** this visual-quality-review process and the
+WebXR informational note were added after Stage 26B's bake-off decision
+(`stage-26b-renderer-bakeoff-decision.md`) was already recorded and closed.
+That decision contains no side-by-side visual scores, comparison
+screenshots, or WebXR notes, and this amendment does not reopen it or
+require it to be redone. This process governs any future renderer
+evaluation or re-evaluation, should one be authorized; the existing R3F
+selection for Stage 26C stands as originally recorded.
 
 ## Delivery Sequence
 
