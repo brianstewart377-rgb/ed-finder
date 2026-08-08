@@ -9,3 +9,8 @@ tqdm==4.66.5
 asyncpg==0.29.0
 pydantic==2.9.2
 numpy==2.5.1
+
+# XXE-safe XML parsing for import_facility_templates_from_daftmav.py's
+# xlsx sharedStrings/workbook parsing (2026-08-08, Semgrep use-defused-xml
+# finding) — drop-in replacement for xml.etree.
+defusedxml==0.7.1

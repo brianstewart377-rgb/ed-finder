@@ -41,6 +41,7 @@ CHECKED_WORKFLOWS = (
     'container-image-parity.yml',
     'hetzner-operator.yml',
     'review-lab.yml',
+    'semgrep.yml',
 )
 
 
