@@ -1,12 +1,9 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  BODY_SLIDERS,
-  PRESETS,
   applyPreset,
+  BODY_SLIDERS,
   type SearchFilters,
-  type BodySliderKey,
   type BodyRange,
-  type PresetId,
 } from './useSearch';
 import { DualSlider } from '@/components/DualSlider';
 import {
@@ -24,64 +21,26 @@ import {
   RotateCcw,
   Search,
   Star,
-  X,
 } from 'lucide-react';
 import { RefSystemPicker } from './RefSystemPicker';
 import { hasKnownCoords } from '@/lib/format';
 import { Select } from '@/components/ui/Select';
-
-const SLIDER_GROUPS = [
-  {
-    id: 'high-value',
-    label: 'Valuable worlds',
-    shortLabel: 'Valuable worlds',
-    description: 'Look for systems containing Earth-like, water or ammonia worlds.',
-    summary: 'Earth-like, water and ammonia worlds',
-    keys: ['elw', 'ww', 'ammonia'],
-  },
-  {
-    id: 'stars',
-    label: 'Stellar objects',
-    shortLabel: 'Stellar objects',
-    description: 'Look for systems containing black holes, neutron stars, white dwarfs or other stars.',
-    summary: 'Black holes, neutron stars and more',
-    keys: ['blackHole', 'neutron', 'whiteDwarf', 'otherStar'],
-  },
-  {
-    id: 'landable',
-    label: 'Accessible surfaces',
-    shortLabel: 'Accessible surfaces',
-    description: 'Look for systems with landable bodies or bodies that can be explored on foot.',
-    summary: 'Landable and walkable bodies',
-    keys: ['landable', 'walkable'],
-  },
-  {
-    id: 'planetary',
-    label: 'Planet classes',
-    shortLabel: 'Planet classes',
-    description: 'Look for specific planet types, from gas giants to rocky, icy and metal-rich worlds.',
-    summary: 'Rocky, icy, metal-rich and gas worlds',
-    keys: ['gasGiant', 'hmc', 'metalRich', 'rockyIce', 'rocky', 'icy'],
-  },
-  {
-    id: 'signals',
-    label: 'Rings & signals',
-    shortLabel: 'Rings & signals',
-    description: 'Look for systems with rings, geological activity or biological signals.',
-    summary: 'Rings, geological and biological signals',
-    keys: ['rings', 'geoSignals', 'bioSignals'],
-  },
-] as const satisfies readonly {
-  id: string;
-  label: string;
-  shortLabel: string;
-  description: string;
-  summary: string;
-  keys: readonly BodySliderKey[];
-}[];
-
-type SliderGroupId = (typeof SLIDER_GROUPS)[number]['id'];
-type FilterSectionId = 'reference' | 'presets' | 'distance' | 'system' | SliderGroupId | 'sort';
+import {
+  distanceSummary,
+  ECONOMY_OPTIONS,
+  rangeGroupSummary,
+  SLIDER_GROUPS,
+  sortLabel,
+  systemProfileSummary,
+  type FilterSectionId,
+} from './searchFormConfig';
+import {
+  CheckboxRow,
+  FilterWorkspaceHeader,
+  QuickPresets,
+  RangeRow,
+  WorkspaceSection,
+} from './SearchFormControls';
 
 export interface SearchFormProps {
   filters: SearchFilters;
@@ -471,217 +430,3 @@ export function SearchForm({
     </form>
   );
 }
-
-function FilterWorkspaceHeader({
-  section,
-  items,
-  onClose,
-}: {
-  section: FilterSectionId;
-  items: { id: FilterSectionId; label: string }[];
-  onClose: () => void;
-}) {
-  const item = items.find((candidate) => candidate.id === section);
-  return (
-    <header className="finder-filter-workspace__header">
-      <h2 id="finder-filter-workspace-title">{item?.label ?? section}</h2>
-      <button type="button" onClick={onClose} aria-label="Close filter workspace">
-        <X size={19} aria-hidden />
-      </button>
-    </header>
-  );
-}
-
-function WorkspaceSection({
-  eyebrow,
-  title,
-  description,
-  children,
-}: {
-  eyebrow?: string;
-  title: string;
-  description: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="finder-workspace-section">
-      <div className="finder-workspace-section__intro">
-        {eyebrow ? <span>{eyebrow}</span> : null}
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function QuickPresets({ onPick }: { onPick: (id: PresetId) => void }) {
-  return (
-    <div className="finder-preset-grid" data-testid="quick-presets">
-      {PRESETS.map((preset, index) => (
-        <button
-          key={preset.id}
-          type="button"
-          data-testid={`preset-${preset.id}`}
-          onClick={() => onPick(preset.id)}
-          className="finder-preset"
-        >
-          <span className="finder-preset__number">{String(index + 1).padStart(2, '0')}</span>
-          <span className="finder-preset__icon" aria-hidden>{preset.icon}</span>
-          <strong>{preset.label}</strong>
-          <small>{preset.hint}</small>
-          <ChevronRight size={15} aria-hidden />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function RangeRow({
-  label,
-  description,
-  unit,
-  min,
-  max,
-  step = 1,
-  value,
-  onChange,
-}: {
-  label: string;
-  description?: string;
-  unit?: string;
-  min: number;
-  max: number;
-  step?: number;
-  value: number;
-  onChange: (value: number) => void;
-}) {
-  const id = useId();
-  const descriptionId = description ? `${id}-description` : undefined;
-  return (
-    <div className="finder-range-control">
-      <label htmlFor={id}>{label}</label>
-      <div className="finder-range-control__value">
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => {
-            const next = Number(event.target.value);
-            if (!Number.isNaN(next)) onChange(Math.max(min, Math.min(max, next)));
-          }}
-          aria-label={`${label} value`}
-          aria-describedby={descriptionId}
-        />
-        {unit && <span>{unit}</span>}
-      </div>
-      {description ? (
-        <p id={descriptionId} className="finder-range-control__description">
-          {description}
-        </p>
-      ) : null}
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        aria-describedby={descriptionId}
-      />
-      <div className="finder-range-control__limits" aria-hidden>
-        <span>{min}</span>
-        <span>{max}</span>
-      </div>
-    </div>
-  );
-}
-
-function CheckboxRow({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  const id = useId();
-  return (
-    <label htmlFor={id} className="finder-checkbox-control">
-      <input
-        id={id}
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      <span aria-hidden>{checked ? <Check size={15} /> : null}</span>
-      <strong>{label}</strong>
-    </label>
-  );
-}
-
-function distanceSummary(filters: SearchFilters) {
-  if (filters.galaxyWide) return `Across the galaxy · show up to ${filters.size}`;
-  const range = filters.minDistance > 0
-    ? `${filters.minDistance}–${filters.maxDistance} LY from origin`
-    : `Within ${filters.maxDistance} LY`;
-  return `${range} · show up to ${filters.size}`;
-}
-
-function rangeGroupSummary(
-  filters: SearchFilters,
-  keys: readonly BodySliderKey[],
-  defaultSummary: string,
-) {
-  const constraints: string[] = [];
-  for (const key of keys) {
-    const definition = BODY_SLIDERS.find((slider) => slider.key === key);
-    const range = filters.bodyRanges[key];
-    if (!definition || !range || (range.min === 0 && range.max === definition.max)) continue;
-    if (range.min > 0 && range.max < definition.max) {
-      constraints.push(`${definition.label} ${range.min}–${range.max}`);
-    } else if (range.min > 0) {
-      constraints.push(`${definition.label} ≥ ${range.min}`);
-    } else {
-      constraints.push(`${definition.label} ≤ ${range.max}`);
-    }
-  }
-  if (constraints.length === 0) return defaultSummary;
-  const visible = constraints.slice(0, 2).join(' · ');
-  return constraints.length > 2 ? `${visible} · +${constraints.length - 2} more` : visible;
-}
-
-function systemProfileSummary(filters: SearchFilters) {
-  const status = filters.populated === 'uninhabited'
-    ? 'Non-colonised'
-    : filters.populated === 'populated'
-      ? 'Inhabited'
-      : 'Any status';
-  const economy = filters.economy === 'any' ? 'any economy' : economyLabel(filters.economy);
-  return `${status} · ${economy}`;
-}
-
-function economyLabel(economy: string) {
-  return ECONOMY_OPTIONS.find((option) => option.value === economy)?.label ?? economy;
-}
-
-function sortLabel(sortBy: SearchFilters['sortBy']) {
-  if (sortBy === 'distance') return 'Nearest first';
-  if (sortBy === 'population') return 'Highest population';
-  return 'Best development potential first';
-}
-
-const ECONOMY_OPTIONS: { value: string; label: string }[] = [
-  { value: 'any', label: 'Any' },
-  { value: 'Agriculture', label: 'Agriculture' },
-  { value: 'Refinery', label: 'Refinery' },
-  { value: 'Industrial', label: 'Industrial' },
-  { value: 'HighTech', label: 'High Tech' },
-  { value: 'Military', label: 'Military' },
-  { value: 'Tourism', label: 'Tourism' },
-  { value: 'Extraction', label: 'Extraction' },
-];
