@@ -288,6 +288,46 @@ def test_journal_import_request_normalizes_observed_at_to_utc_datetime():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize('event_type', [
+    'ColonisationBeaconDeployed',
+    'ColonisationConstructionDepot',
+    'ColonisationContribution',
+    'ColonisationSystemClaim',
+    'ColonisationSystemClaimRelease',
+    'CompleteConstruction',
+])
+def test_journal_import_request_accepts_colonisation_event_types(event_type: str):
+    """The client-side worker's ALLOWED_EVENT_TYPES
+    (frontend/src/features/journal-import/journalImportWorker.ts) and this
+    backend validator are two independent allowlists for the same set of
+    event types -- staging a journal containing one of these events only
+    actually works end-to-end if both agree. Regression for the frontend-only
+    half of this fix silently 422'ing every Colonisation event it staged."""
+    request = JournalImportRequest.model_validate({
+        'sync_key': 'sync-key-1234567890',
+        'client_manifest': {
+            'parser_version': 'journal-import-worker-v1',
+            'files': [],
+        },
+        'observations': [
+            {
+                'observation_key': '0123456789abcdef0123456789abcdef',
+                'source_file': 'Journal.demo.log',
+                'event_type': event_type,
+                'observed_at': '2026-07-08T18:00:00Z',
+                'system_id64': 123,
+                'subject_type': 'system',
+                'subject_id': None,
+                'payload': {},
+                'privacy_boundary': {},
+            },
+        ],
+    })
+
+    assert request.observations[0].event_type == event_type
+
+
+@pytest.mark.unit
 def test_journal_import_migration_is_manifested_and_bounded():
     sql = SQL_PATH.read_text(encoding='utf-8')
     manifest = MANIFEST_PATH.read_text(encoding='utf-8')
