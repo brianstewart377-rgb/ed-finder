@@ -115,6 +115,12 @@ between result surfaces and map systems, and region-scoped search. The
 Finder retains sole ownership of query semantics; the map acts as
 parameter input and result display through this boundary.
 
+This priority list is not tracked work: per `CLAUDE.md`, `docs/ROADMAP.md`
+is the sole document that answers "what next," and this historical Stage
+26A document is archive, not a roadmap source. Recording a priority here
+does not schedule it. Anyone who wants this pass actually planned must
+add it to `docs/ROADMAP.md` first.
+
 ## Required Integration Scenarios
 
 The shared bake-off harness must execute the same scenarios against every
@@ -203,9 +209,11 @@ journey. A candidate cannot be skipped because another looks promising.
 
 The recorded decision must cover frame-time percentiles, initial load,
 click-selection latency, memory, compressed bundle contribution, context-loss
-recovery, region correctness, overlap handling, keyboard workflow, and all seven
-integration scenarios. Unknown measurements remain unknown; they are not
-converted into passes.
+recovery, region correctness, overlap handling, keyboard workflow, and all
+integration scenarios required at the time the evaluation runs: seven for the
+closed Stage 26B decision, eight (including the live-update stream added
+2026-08-08) for any evaluation conducted after that date. Unknown
+measurements remain unknown; they are not converted into passes.
 
 The dimensions above are correctness and performance gates: a candidate
 failing them is eliminated regardless of appearance. Candidates passing
