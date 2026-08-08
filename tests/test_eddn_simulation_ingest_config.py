@@ -33,6 +33,27 @@ def test_pyzmq_is_a_declared_api_dependency():
     assert 'pyzmq==' in requirements
 
 
+def test_tornado_is_a_declared_api_dependency():
+    """Root-caused 2026-08-08: on Windows, asyncio's default ProactorEventLoop
+    doesn't implement add_reader, which pyzmq needs. Without tornado, the
+    first zmq socket recv() raises RuntimeError, and because zmq's own
+    Socket._get_loop() marks the loop as registered *before* attempting that
+    registration, the subsequent close() cleanup hits the identical
+    RuntimeError before it can call the real native close — leaking the
+    socket. A later Context.term() on that leaked socket then blocks the
+    entire asyncio event loop indefinitely (verified directly: a concurrent
+    heartbeat coroutine stops being scheduled and never resumes), taking
+    down request handling for the whole API process, not just this task.
+    pyzmq detects tornado automatically at runtime and uses its
+    AddThreadSelectorEventLoop shim instead of raising — no application code
+    changes needed. A no-op on Linux (production): this path only runs when
+    the event loop is an instance of asyncio.ProactorEventLoop, which is
+    Windows-only."""
+    requirements = (ROOT / 'apps' / 'api' / 'requirements.txt').read_text(encoding='utf-8')
+
+    assert 'tornado==' in requirements
+
+
 def test_config_defaults_the_flag_on():
     config = (ROOT / 'apps' / 'api' / 'src' / 'config.py').read_text(encoding='utf-8')
 
