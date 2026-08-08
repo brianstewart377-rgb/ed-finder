@@ -106,6 +106,24 @@ class _FakePool:
         return _FakeAcquire(self._conn)
 
 
+def _flatten_routes(routes):
+    """Yield individual APIRoute-like objects with a real `.path`.
+
+    FastAPI 0.141 (bumped from 0.115 in #445) no longer flattens
+    `include_router()`'d routes into `app.routes` directly - each
+    `include_router()` call now leaves a private `_IncludedRouter` wrapper
+    in `app.routes` instead, and the actual routes only exist one level
+    deeper via `.original_router.routes`. `_IncludedRouter` has no `.path`
+    itself (AttributeError), which is what broke the two tests below.
+    Recurses defensively so this also still works against the old,
+    already-flat representation (`.path` present -> yield directly)."""
+    for route in routes:
+        if hasattr(route, 'path'):
+            yield route
+        elif hasattr(route, 'original_router'):
+            yield from _flatten_routes(route.original_router.routes)
+
+
 def _review_runtime_env() -> dict[str, str]:
     return {
         'ED_FINDER_REVIEW_STACK_MARKER': EXPECTED_REVIEW_STACK_MARKER,
@@ -823,7 +841,7 @@ def test_review_system_detail_support_routes_delegate_only_to_read_only_handlers
 
 def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatch):
     module = _import_review_main_with_env(monkeypatch, _review_runtime_env())
-    routes = list(module.app.routes)
+    routes = list(_flatten_routes(module.app.routes))
 
     assert any(
         route.path == '/api/v2/watchlist/{sync_key}'
@@ -849,7 +867,7 @@ def test_review_main_mounts_real_watchlist_router(monkeypatch: pytest.MonkeyPatc
 def test_review_main_unscoped_watchlist_returns_production_gone(monkeypatch: pytest.MonkeyPatch):
     module = _import_review_main_with_env(monkeypatch, _review_runtime_env())
     legacy_routes = [
-        route for route in module.app.routes
+        route for route in _flatten_routes(module.app.routes)
         if route.path == '/api/watchlist' and 'GET' in getattr(route, 'methods', set())
     ]
 

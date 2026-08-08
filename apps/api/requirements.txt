@@ -1,13 +1,13 @@
 # apps/api — runtime dependencies for the FastAPI service only.
 # Importer-only libraries (ijson, psycopg2, tqdm) live in
 # apps/importer/requirements.txt and are NOT installed into this image.
-asyncpg==0.29.0
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-redis[asyncio]==5.0.8
-pydantic==2.9.2
-pydantic-settings==2.5.2
-slowapi==0.1.9
+asyncpg==0.31.0
+fastapi==0.141.1
+uvicorn[standard]==0.52.0
+redis[asyncio]==8.1.0
+pydantic==2.13.4
+pydantic-settings==2.14.2
+slowapi==0.1.10
 
 # XXE-safe XML parsing for routers/news.py's Galnet RSS feed (2026-08-08,
 # Semgrep use-defused-xml finding) — drop-in replacement for xml.etree.
@@ -17,10 +17,10 @@ defusedxml==0.7.1
 # EDDN_SIMULATION_INGEST_ENABLED, see config.py. Needed to actually connect
 # to the EDDN ZMQ relay; without it the ingest task degrades to a no-op
 # (logs a warning, sleeps) even when enabled.
-pyzmq==26.2.0
+pyzmq==27.1.0
 
 # OpenGraph share-card rendering (/api/share/og/{id64}).
-Pillow==12.2.0
+Pillow==12.3.0
 
 # Optional error tracking (GlitchTip/Sentry-API-compatible). Only active
 # when SENTRY_DSN is set — see config.py and docs/operations/glitchtip-error-tracking.md.
