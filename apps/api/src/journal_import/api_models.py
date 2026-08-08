@@ -11,6 +11,12 @@ _SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
 
 _ALLOWED_EVENT_TYPES = {
     'CarrierJump',
+    'ColonisationBeaconDeployed',
+    'ColonisationConstructionDepot',
+    'ColonisationContribution',
+    'ColonisationSystemClaim',
+    'ColonisationSystemClaimRelease',
+    'CompleteConstruction',
     'Docked',
     'FSDJump',
     'FSSAllBodiesFound',
