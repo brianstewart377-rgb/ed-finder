@@ -48,6 +48,14 @@ os.environ.setdefault('CORS_ORIGINS', 'http://test')
 os.environ.setdefault('ADMIN_TOKEN', 'test-admin-token')
 os.environ.setdefault('LOG_LEVEL', 'WARNING')
 os.environ.setdefault('EXPOSE_ERROR_DETAIL', 'true')
+# Defaults ON in production (config.py), but the general `app` fixture below
+# is shared by every test in this directory — without this override, each
+# of those would also try to start a real EDDN ZMQ connection to
+# tcp://eddn.edcd.io:9500 on every test run. Tests that specifically need
+# to exercise the real wiring (tests/integration/
+# test_eddn_simulation_ingest_wiring.py) monkeypatch this back on and stub
+# the connection function themselves.
+os.environ.setdefault('EDDN_SIMULATION_INGEST_ENABLED', 'false')
 
 import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402

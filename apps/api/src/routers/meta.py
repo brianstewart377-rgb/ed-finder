@@ -18,6 +18,7 @@ from fastapi.responses import PlainTextResponse
 
 from edfinder_api.config import settings
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.ingest.eddn_client import seconds_since_last_flush as eddn_simulation_ingest_seconds_since_flush
 from edfinder_api.models import HealthResponse, StatusResponse
 from edfinder_api.monitoring import data_invariants_receipt_metrics
 from edfinder_api.state import metrics
@@ -200,5 +201,8 @@ async def metrics_endpoint():
         '# HELP ed_finder_uptime_seconds Seconds since startup',
         '# TYPE ed_finder_uptime_seconds gauge',
         f'ed_finder_uptime_seconds {uptime:.0f}',
+        '# HELP ed_finder_eddn_simulation_ingest_seconds_since_flush Seconds since the EDDN simulation ingest task last completed a flush cycle',
+        '# TYPE ed_finder_eddn_simulation_ingest_seconds_since_flush gauge',
+        f'ed_finder_eddn_simulation_ingest_seconds_since_flush {eddn_simulation_ingest_seconds_since_flush():.1f}',
     ])
     return '\n'.join(lines) + '\n'
