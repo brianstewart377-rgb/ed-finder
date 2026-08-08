@@ -999,13 +999,13 @@ export interface FacilityTemplate {
   pad_size?: string | null;
   confidence?: string | null;
   notes?: string | null;
-  prerequisites?: Array<Record<string, unknown>> | null;
-  economy_effects?: Record<string, unknown> | null;
+  prerequisites?: unknown[] | null;
+  economy_effects?: unknown;
   yellow_cp_generated: number;
   green_cp_generated: number;
   yellow_cp_cost: number;
   green_cp_cost: number;
-  stat_effects?: Record<string, unknown>;
+  stat_effects?: unknown;
   population?: number | null;
   max_population?: number | null;
   security?: number | null;

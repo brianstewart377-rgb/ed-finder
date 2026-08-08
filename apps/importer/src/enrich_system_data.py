@@ -24,6 +24,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 import edsm_station_enrichment_probe as edsm_probe
+from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS
 from dirty_flags import mark_systems_rating_dirty
 from ring_facts import normalise_ring_payload, ring_rows_for_body
 
@@ -534,6 +535,17 @@ def build_ring_plan(
                     'reason': 'missing_ring_identity',
                 })
                 continue
+            # match_local_body() (above) only ever returns a match drawn from
+            # local_bodies, which fetch_local_bodies() scoped to this exact
+            # system_id64 — body_id here is therefore already a verified
+            # local match, same guarantee import_spansh.py's
+            # body_ring_rows_from_spansh_body() establishes via its own
+            # rejected_body_ids filter. Set explicitly (2026-08-08, Emergent
+            # recurrence report B1) instead of leaving it to
+            # body_rings.association_status's NOT NULL DEFAULT
+            # 'local_matched' to silently assert the same claim with no
+            # code anyone can audit — see CLAUDE.md's Known Hazards section.
+            row['association_status'] = TRUSTED_RING_ASSOCIATION_STATUS
             rows.append(row)
 
     counts['ring_rows_planned'] = len(rows)
@@ -570,19 +582,20 @@ def apply_ring_rows(
                     system_id64, body_id, body_name,
                     ring_name, ring_type, ring_class,
                     mass_mt, inner_radius, outer_radius,
-                    source, confidence, updated_at
+                    source, confidence, association_status, updated_at
                 ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()
+                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW()
                 )
                 ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
-                    body_name    = COALESCE(EXCLUDED.body_name, body_rings.body_name),
-                    ring_type    = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
-                    ring_class   = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
-                    mass_mt      = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
-                    inner_radius = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
-                    outer_radius = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
-                    confidence   = EXCLUDED.confidence,
-                    updated_at   = NOW()
+                    body_name          = COALESCE(EXCLUDED.body_name, body_rings.body_name),
+                    ring_type          = COALESCE(EXCLUDED.ring_type, body_rings.ring_type),
+                    ring_class         = COALESCE(EXCLUDED.ring_class, body_rings.ring_class),
+                    mass_mt            = COALESCE(EXCLUDED.mass_mt, body_rings.mass_mt),
+                    inner_radius       = COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius),
+                    outer_radius       = COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius),
+                    confidence         = EXCLUDED.confidence,
+                    association_status = EXCLUDED.association_status,
+                    updated_at         = NOW()
                 WHERE body_rings.body_name IS DISTINCT FROM COALESCE(EXCLUDED.body_name, body_rings.body_name)
                    OR body_rings.ring_type IS DISTINCT FROM COALESCE(EXCLUDED.ring_type, body_rings.ring_type)
                    OR body_rings.ring_class IS DISTINCT FROM COALESCE(EXCLUDED.ring_class, body_rings.ring_class)
@@ -590,6 +603,7 @@ def apply_ring_rows(
                    OR body_rings.inner_radius IS DISTINCT FROM COALESCE(EXCLUDED.inner_radius, body_rings.inner_radius)
                    OR body_rings.outer_radius IS DISTINCT FROM COALESCE(EXCLUDED.outer_radius, body_rings.outer_radius)
                    OR body_rings.confidence IS DISTINCT FROM EXCLUDED.confidence
+                   OR body_rings.association_status IS DISTINCT FROM EXCLUDED.association_status
                 RETURNING system_id64, body_id, body_name, ring_name, source, confidence
             """, _ring_row_tuple(row))
             returned = cur.fetchone()
@@ -607,6 +621,14 @@ def apply_ringed_scan_facts(_conn, rows: Sequence[Mapping[str, Any]]) -> tuple[l
     stores the journal/source BodyID (INTEGER). The coordinated ring backfill
     only plans ED-Finder body IDs, so writing them to body_scan_facts would either
     overflow the current schema or corrupt that identity.
+
+    _scan_fact_skip_reason() has exactly two outcomes and both are skips —
+    there is currently no code path in this function that can populate
+    `applied`; it always returns []. That's by design, not a bug or a
+    forgotten TODO (see Emergent recurrence report B4, 2026-08-08): this
+    function keeps the tuple[applied, skipped] shape so a real write path
+    can be added later (e.g. if body_scan_facts.body_id is ever widened to
+    BIGINT) without changing every caller's unpacking again.
     """
     applied: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
@@ -1166,6 +1188,7 @@ def _ring_row_tuple(row: Mapping[str, Any]) -> tuple[Any, ...]:
         row.get('outer_radius'),
         row.get('source'),
         row.get('confidence'),
+        row.get('association_status'),
     )
 
 

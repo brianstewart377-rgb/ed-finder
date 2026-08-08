@@ -169,6 +169,7 @@ class RingApplyConnection:
                 outer_radius,
                 source,
                 confidence,
+                association_status,
             ) = params
             key = (system_id64, body_id, ring_name, source)
             next_row = {
@@ -183,6 +184,7 @@ class RingApplyConnection:
                 'outer_radius': outer_radius,
                 'source': source,
                 'confidence': confidence,
+                'association_status': association_status,
             }
             if self.rings.get(key) == next_row:
                 self.last_row = None
@@ -1084,6 +1086,7 @@ def test_spansh_ring_payload_plans_trusted_body_ring_rows():
         'outer_radius': 25.0,
         'source': 'spansh_dump',
         'confidence': 'source_ring_payload',
+        'association_status': 'local_matched',
     }]
 
 
@@ -1098,6 +1101,29 @@ def test_missing_ring_payload_remains_unknown_not_false():
     assert plan['rows'] == []
     assert plan['skipped'][0]['reason'] == 'missing_ring_array_unknown'
     assert plan['counts']['missing_ring_array_unknown'] == 1
+
+
+def test_apply_ringed_scan_facts_never_populates_applied():
+    """Emergent recurrence report B4 (2026-08-08): apply_ringed_scan_facts
+    returns tuple[applied, skipped] but no code path in it can currently
+    populate `applied` — body_scan_facts.body_id is INTEGER while
+    body_rings.body_id (ED-Finder bodies.id) is BIGINT, so every row is
+    always skipped for one of exactly two reasons. This is by design, not
+    a bug, but nothing previously proved that invariant — a future edit
+    that accidentally started appending to `applied` without actually
+    fixing the id-width mismatch would corrupt data silently."""
+    rows = [
+        {'system_id64': SYSTEM['id64'], 'body_id': 11, 'body_name': 'Exioce 1'},
+        {'system_id64': SYSTEM['id64'], 'body_id': BIG_BODY_ID, 'body_name': 'Exioce 3'},
+    ]
+
+    applied, skipped = enrich.apply_ringed_scan_facts(None, rows)
+
+    assert applied == []
+    assert {row['reason'] for row in skipped} == {
+        'body_scan_facts_source_body_id_unavailable',
+        'body_scan_facts_body_id_schema_mismatch',
+    }
 
 
 def test_explicit_no_rings_full_scan_sets_false():

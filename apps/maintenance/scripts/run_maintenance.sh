@@ -186,6 +186,21 @@ SQL
         # remain available throughout the maintenance run.
         run_step "refresh_map_mviews()"  \
             "SET statement_timeout = '60min'; SELECT * FROM refresh_map_mviews(TRUE);"
+        # mv_archetype_rankings refresh (moved here 2026-08-08 from
+        # scripts/nightly_update.sh — see that script's comment above
+        # NIGHTLY_PGOPTIONS). It used to need its own fixed nightly
+        # statement_timeout, and kept outgrowing it as the view grew
+        # (6m30s at 10M rows on 2026-07-15, per known-issues.md, up to
+        # 52m33s at 20M rows by this move) — worse than linear growth, so
+        # picking a bigger fixed number here would just repeat the same
+        # bug. No inline SET: this inherits MAINTENANCE_PGOPTIONS'
+        # genuinely unbounded statement_timeout=0, the budget this kind of
+        # long-running, independent, best-effort step is meant to have.
+        # nightly_update.sh (02:00 UTC) rebuilds the underlying
+        # system_archetype_scores rows on its own schedule before this
+        # task runs (03:15 UTC).
+        run_step "refresh mv_archetype_rankings" \
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY mv_archetype_rankings;"
         finish_task "Nightly"
         ;;
     weekly)

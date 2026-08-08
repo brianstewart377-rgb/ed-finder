@@ -103,8 +103,7 @@ export function placementLaneForTemplate(
 }
 
 export function templateDisplayName(template: FacilityTemplate): string {
-  const displayName = (template as unknown as { display_name?: unknown }).display_name;
-  return typeof displayName === 'string' && displayName.trim() ? displayName.trim() : template.name;
+  return template.name;
 }
 
 export function structureFamilyLabel(template: FacilityTemplate): string {
@@ -146,7 +145,7 @@ export function contextualRoleLabel(template: FacilityTemplate | undefined, plac
 }
 
 export function templatePrerequisiteDescriptions(template: FacilityTemplate | undefined): string[] {
-  const raw = (template as unknown as { prerequisites?: unknown } | undefined)?.prerequisites;
+  const raw = template?.prerequisites;
   if (!Array.isArray(raw)) return [];
   return raw
     .map((item) => prerequisiteDescription(item))

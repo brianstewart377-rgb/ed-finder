@@ -62,6 +62,7 @@ import psycopg2.extensions
 import psycopg2.errors
 from tqdm import tqdm
 from ring_facts import ring_rows_for_body
+from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS
 
 # ---------------------------------------------------------------------------
 # Galaxy Region Lookup (klightspeed/EliteDangerousRegionMap)
@@ -613,6 +614,25 @@ def upsert_body_rings(conn, rows: list[dict]) -> int:
     return _run_with_deadlock_retry(conn, _do, label="upsert_body_rings")
 
 
+def _filter_rings_by_rejected_bodies(
+    ring_batch: list[dict], rejected_body_ids: set,
+) -> tuple[list[dict], int]:
+    """Drop ring rows whose owning body upsert was rejected by the
+    system_id64 ownership guard (a colliding Spansh body id already owned
+    by another system — see the bodies.id hazard in CLAUDE.md). This is
+    the filter body_ring_rows_from_spansh_body's 'local_matched' comment
+    depends on: association_status is only a true claim for a ring whose
+    body survived this check. Extracted from flush_rings()'s closure into
+    a standalone function (2026-08-08, Emergent recurrence report A2) so
+    the invariant is independently testable instead of living only in an
+    inline list comprehension nothing else could exercise."""
+    keep = [
+        r for r in ring_batch
+        if (r.get('system_id64'), r.get('body_id')) not in rejected_body_ids
+    ]
+    return keep, len(ring_batch) - len(keep)
+
+
 def _ring_row_tuple(row: dict) -> tuple:
     return (
         row.get('system_id64'),
@@ -653,7 +673,7 @@ def body_ring_rows_from_spansh_body(system_id64: int, body_id: int, body_name: s
         # left to fall through to body_rings.association_status's schema
         # default, which silently asserts the same claim with no code
         # anyone can audit.
-        row['association_status'] = 'local_matched'
+        row['association_status'] = TRUSTED_RING_ASSOCIATION_STATUS
     return rows
 
 
@@ -986,11 +1006,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
         nonlocal rings_skipped_rejected_body
         flush_bodies()
         if ring_batch:
-            keep = [
-                r for r in ring_batch
-                if (r.get('system_id64'), r.get('body_id')) not in rejected_body_ids
-            ]
-            skipped = len(ring_batch) - len(keep)
+            keep, skipped = _filter_rings_by_rejected_bodies(ring_batch, rejected_body_ids)
             if skipped:
                 rings_skipped_rejected_body += skipped
                 log.info(
