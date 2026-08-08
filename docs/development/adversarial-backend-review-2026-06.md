@@ -154,6 +154,7 @@ Both live writers now guard the `ON CONFLICT (id) DO UPDATE` with an owner check
   ```
   This is now the **only** live writer that omits the column (the importer `import_spansh.py`, the EDDN listener, and `journal_import/store.py` all name it explicitly), so `CLAUDE.md`'s "two of five writers omit it" has become one of five.
 - **Verdict:** CONFIRMED omission; PLAUSIBLE data risk (safe today, brittle).
+- **RESOLVED 2026-08-08 (Emergent recurrence report B1, PR #439):** `enrich_system_data.py` now sets `association_status` explicitly in `build_ring_plan()`, immediately after `match_local_body()` establishes the local-match guarantee — matching `import_spansh.py`'s pattern. All five writers now set it explicitly; none rely on the schema default. See `CLAUDE.md`'s "Known hazards" section, which is the kept-current source on this.
 
 ---
 
@@ -171,6 +172,7 @@ Both live writers now guard the `ON CONFLICT (id) DO UPDATE` with an owner check
   ```
   Diff of the three blocks: identical CASE bodies (verified). `CLAUDE.md` already lists this as a known hazard; it persists on this ref.
 - **Verdict:** CONFIRMED DRY / silent-divergence hazard.
+- **RESOLVED 2026-08-07 (#429):** the constant now lives in `shared_contracts/body_ring_association_status.py`, a single shared module imported by all three asyncpg-based writers (`eddn_listener.py`, `apps/api/src/ingest/eddn_client.py`, `apps/api/src/journal_import/store.py`). No longer three independent copies. See `CLAUDE.md`'s "Known hazards" section.
 
 ---
 
@@ -220,7 +222,7 @@ Both live writers now guard the `ON CONFLICT (id) DO UPDATE` with an owner check
   1253:  """, (limit or 10_000_000,))
   1262:  """, (limit or 10_000_000,))
   ```
-  Mitigation in the scheduled path: `scripts/nightly_update.sh:369` passes `--limit 5000000` explicitly and its comment (lines 354-355) calls out this exact trap — so the nightly job is safe; the hazard is for ad-hoc/manual invocation.
+  Mitigation in the scheduled path: `scripts/nightly_update.sh`'s `build_archetype_scores_new` call passes `--limit 5000000` explicitly (line number drifts with edits — search for `build_archetype_scores_new` in the new-system-mode block) and its comment calls out this exact trap — so the nightly job is safe; the hazard is for ad-hoc/manual invocation.
 - **Verdict:** CONFIRMED latent footgun (documented but not defended in-code).
 
 ---
@@ -230,15 +232,15 @@ Both live writers now guard the `ON CONFLICT (id) DO UPDATE` with an owner check
 | # | Category | Location | Verdict |
 |---|----------|----------|---------|
 | A1 | UPSERT uniqueness / re-parenting | `eddn_listener.py:980`, `import_spansh.py:461-481` | REMEDIATED (silent-drop residual: PLAUSIBLE) |
-| A2 | association_status drift (Spansh) | `import_spansh.py:632` | PLAUSIBLE (by-design, fragile) |
+| A2 | association_status drift (Spansh) | `import_spansh.py:632` | HARDENED 2026-08-08 (#439) — the rejection-filter guarantee this value depends on was extracted into `_filter_rings_by_rejected_bodies()` with direct unit tests; the fragility (untestable) is closed, the by-design value itself was already correct |
 | A3 | Dead code (ingest loop) | `ingest/eddn_client.py:139` | CONFIRMED |
 | A4 | Deploy skips manual migrations | `deploy_main.sh:131` | CONFIRMED behaviour / PLAUSIBLE defect |
-| A5 | Undocumented env vars | `env.example` | CONFIRMED (narrowed list) |
+| A5 | Undocumented env vars | `env.example` | REMEDIATED 2026-08-08 (#439) — all 9 vars documented |
 | A6 | Silent exception swallowing | `import_spansh.py:1247,246`; `eddn_client.py:188` | CONFIRMED |
-| B1 | Ring writer omits association_status | `enrich_system_data.py:569` | CONFIRMED fact / PLAUSIBLE impact |
-| B2 | CASE SQL copy-pasted x3 | `eddn_listener.py:81`, `journal_import/store.py:34`, `eddn_client.py:48` | CONFIRMED |
+| B1 | Ring writer omits association_status | `enrich_system_data.py:569` | REMEDIATED 2026-08-08 (#439) — set explicitly now, see erratum above |
+| B2 | CASE SQL copy-pasted x3 | `eddn_listener.py:81`, `journal_import/store.py:34`, `eddn_client.py:48` | REMEDIATED 2026-08-07 (#429) — see erratum above |
 | B3 | Catch-all-as-timeout | `eddn_client.py:188` | CONFIRMED (dead module) |
-| B4 | Inert `apply_ringed_scan_facts` | `enrich_system_data.py:603` | CONFIRMED |
+| B4 | Inert `apply_ringed_scan_facts` | `enrich_system_data.py:603` | CLARIFIED 2026-08-08 (#439) — always-empty `applied` is by design (INTEGER/BIGINT id-width mismatch), now documented with a docstring and a test locking in the invariant, not a live path that silently does nothing |
 | B5 | Hidden `limit or 10_000_000` | `build_archetype_scores.py:1249` | CONFIRMED (mitigated in nightly) |
 
 **Method note:** all evidence gathered by `grep`/file read against a detached worktree at `origin/main@0472f86`. No code was modified. `CLAUDE.md`'s "Known hazards" and "Debugging data drift" sections corroborate A1/A2/B1/B2; where this ref has since remediated a hazard (A1), that is stated explicitly rather than re-reported as open.
