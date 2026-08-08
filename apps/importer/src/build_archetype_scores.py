@@ -1238,7 +1238,16 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
 # Main
 # ---------------------------------------------------------------------------
 
+def _resolve_fetch_limit(limit: Optional[int]) -> int:
+    """None means "no --limit given" -> apply the safety cap. 0 is a
+    legitimate explicit request (e.g. a dry-run/smoke-test invocation) and
+    must be honored as zero, not treated as falsy and silently replaced
+    with the 10M cap — `limit or 10_000_000` did exactly that."""
+    return 10_000_000 if limit is None else limit
+
+
 def _fetch_system_ids(conn, mode: str, limit: Optional[int]) -> list:
+    resolved_limit = _resolve_fetch_limit(limit)
     with conn.cursor() as cur:
         if mode == 'dirty':
             cur.execute("""
@@ -1246,11 +1255,11 @@ def _fetch_system_ids(conn, mode: str, limit: Optional[int]) -> list:
                 WHERE dirty = TRUE
                 ORDER BY system_id64
                 LIMIT %s
-            """, (limit or 10_000_000,))
+            """, (resolved_limit,))
         elif mode == 'rebuild':
             cur.execute("""
                 SELECT id64 FROM systems ORDER BY id64 LIMIT %s
-            """, (limit or 10_000_000,))
+            """, (resolved_limit,))
         else:
             cur.execute("""
                 SELECT r.system_id64
@@ -1259,7 +1268,7 @@ def _fetch_system_ids(conn, mode: str, limit: Optional[int]) -> list:
                 WHERE a.system_id64 IS NULL
                 ORDER BY r.system_id64
                 LIMIT %s
-            """, (limit or 10_000_000,))
+            """, (resolved_limit,))
         return [row[0] for row in cur.fetchall()]
 
 

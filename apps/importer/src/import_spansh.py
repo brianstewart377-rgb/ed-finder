@@ -243,8 +243,16 @@ def increment_error_count(conn, dump_file: str, count: int = 1):
                 WHERE dump_file = %s
             """, (count, dump_file))
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        # A failed statement leaves the connection's transaction aborted
+        # until rolled back — conn is reused for every later flush in the
+        # same import run, so skipping this would turn one lost counter
+        # update into every subsequent operation on conn also failing.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.warning(f"Failed to increment error count for {dump_file}: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +289,22 @@ def save_checkpoint(conn, dump_file: str, offset: int, rows: int, bytes_pos: int
                 WHERE dump_file = %s
             """, (rows, rows, dump_file))
     conn.commit()
+
+
+def save_checkpoint_safely(conn, dump_file: str, offset: int, rows: int, bytes_pos: int = 0) -> None:
+    """save_checkpoint(), but a failure is logged and rolled back instead
+    of silently swallowed. Used by every periodic (non-interrupt) call
+    site — a lost checkpoint update during a multi-hour import used to be
+    invisible, and worse, left conn's transaction aborted for every later
+    flush in the same run since the failed UPDATE was never rolled back."""
+    try:
+        save_checkpoint(conn, dump_file, offset, rows, bytes_pos)
+    except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        log.warning(f"Failed to save checkpoint for {dump_file}: {e}")
 
 
 def mark_running(conn, dump_file: str, total_bytes: int):
@@ -1242,10 +1266,7 @@ def import_galaxy(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     if skip_count > 0:
                         increment_error_count(conn, dump_path.name, skip_count)
                         skip_count = 0
-                    try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
-                    except Exception:
-                        pass
+                    save_checkpoint_safely(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     last_save = time.time()
                     pbar.n = f_raw.tell()
                     pbar.refresh()
@@ -1453,10 +1474,7 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
                     flush_factions()
                     flush_system_factions()
                     flush_error_batch(conn, dump_path.name)
-                    try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
-                    except Exception:
-                        pass
+                    save_checkpoint_safely(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     last_save = time.time()
                     pbar.n = f_raw.tell()
                     pbar.refresh()
@@ -1597,10 +1615,7 @@ def import_stations(conn, dump_path: Path, resume_offset: int = 0) -> int:
                 if time.time() - last_save > 60:
                     flush()
                     flush_error_batch(conn, dump_path.name)
-                    try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
-                    except Exception:
-                        pass
+                    save_checkpoint_safely(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     last_save = time.time()
                     pbar.n = f_raw.tell()
                     pbar.refresh()
@@ -1738,10 +1753,7 @@ def import_systems_delta(conn, dump_path: Path, resume_offset: int = 0) -> int:
 
                 if time.time() - last_save > 60:
                     flush()
-                    try:
-                        save_checkpoint(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
-                    except Exception:
-                        pass
+                    save_checkpoint_safely(conn, dump_path.name, 0, total_rows + resume_offset, f_raw.tell())
                     last_save = time.time()
                     pbar.n = f_raw.tell()
                     pbar.refresh()

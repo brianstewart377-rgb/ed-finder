@@ -6,6 +6,7 @@
 # Usage:
 #   bash scripts/apply_migrations.sh
 #   bash scripts/apply_migrations.sh --include-manual
+#   bash scripts/apply_migrations.sh --list-pending-manual   # read-only, prints & exits
 #
 # Connection modes:
 #   1. DATABASE_URL set            -> use local/direct psql
@@ -55,10 +56,16 @@ validate_timeout() {
     die "$name must be a non-negative PostgreSQL duration using ms, s, min, or h"
 }
 
+LIST_PENDING_MANUAL_ONLY=0
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --include-manual)
       INCLUDE_MANUAL=1
+      shift
+      ;;
+    --list-pending-manual)
+      LIST_PENDING_MANUAL_ONLY=1
       shift
       ;;
     --compose-file)
@@ -223,6 +230,26 @@ fi
 say "Ensure migration ledger exists"
 ensure_ledger_table
 ok "ledger table ready: ${LEDGER_TABLE}"
+
+if [[ "$LIST_PENDING_MANUAL_ONLY" -eq 1 ]]; then
+  # Read-only: prints one filename per line for each |manual manifest
+  # entry not yet recorded in the ledger, then exits — does not apply
+  # anything. Reuses fetch_recorded_checksum so this always queries the
+  # exact same DATABASE_URL/docker-target/LEDGER_TABLE the normal apply
+  # path would, rather than a caller (e.g. deploy_main.sh) guessing at
+  # connection details that could silently diverge from a configured
+  # DATABASE_MIGRATION_URL or MIGRATION_LEDGER_TABLE override.
+  while IFS='|' read -r raw_filename raw_mode; do
+    filename="$(printf '%s' "${raw_filename:-}" | xargs)"
+    mode="$(printf '%s' "${raw_mode:-auto}" | xargs)"
+    [[ -n "$filename" ]] || continue
+    [[ "${filename:0:1}" == "#" ]] && continue
+    [[ "$mode" == "manual" ]] || continue
+    recorded_checksum="$(fetch_recorded_checksum "$filename")"
+    [[ -n "$recorded_checksum" ]] || printf '%s\n' "$filename"
+  done < "$MANIFEST_FILE"
+  exit 0
+fi
 
 applied_count=0
 skipped_count=0

@@ -62,9 +62,10 @@ done
 
 PRE_DEPLOY_FILE="/tmp/ed-finder-pre-deploy-commit.txt"
 
-say() { printf "\n[INFO] %s\n" "$*"; }
-ok()  { printf "[OK]   %s\n" "$*"; }
-die() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
+say()  { printf "\n[INFO] %s\n" "$*"; }
+ok()   { printf "[OK]   %s\n" "$*"; }
+warn() { printf "[WARN] %s\n" "$*" >&2; }
+die()  { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
 
 on_error() {
   local line="$1"
@@ -130,6 +131,31 @@ if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   [[ -f scripts/apply_migrations.sh ]] || die "migration applier not found: scripts/apply_migrations.sh"
   bash scripts/apply_migrations.sh
   ok "migrations applied"
+
+  # Emergent adversarial-review recurrence check (2026-08-07), item A4:
+  # the call above never passes --include-manual, so every migration
+  # marked |manual in sql/migration-manifest.txt is silently skipped —
+  # apply_migrations.sh only prints an [INFO] line for each one, and this
+  # script still reports "migrations applied" right after. That's
+  # intentional (manual migrations are meant to be deployed in their own
+  # separate, monitored window per their runbooks, not bundled into every
+  # normal deploy) but the silence made it easy to forget one is pending
+  # indefinitely. This makes a pending manual migration loud instead.
+  #
+  # Delegates to apply_migrations.sh --list-pending-manual (Codex Review
+  # finding on the first version of this check) rather than querying the
+  # DB directly here: that applier already resolves DATABASE_MIGRATION_URL/
+  # MIGRATION_LEDGER_TABLE overrides and the docker-vs-direct-psql
+  # connection mode, and duplicating that logic here risked silently
+  # inspecting the wrong database/ledger if either is ever configured —
+  # doubly dangerous since the query result was previously wrapped in
+  # `2>/dev/null || true`, which would have shown "nothing pending" for a
+  # query that actually errored, not just one that legitimately found
+  # nothing.
+  pending_manual="$(bash scripts/apply_migrations.sh --list-pending-manual)"
+  if [[ -n "$pending_manual" ]]; then
+    warn "Manual migration(s) pending — NOT applied by this deploy (see their runbooks for the separate apply procedure): $(printf '%s' "$pending_manual" | tr '\n' ' ')"
+  fi
 else
   say "Skipping SQL migrations"
 fi
