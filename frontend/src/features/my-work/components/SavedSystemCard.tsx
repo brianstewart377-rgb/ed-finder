@@ -126,7 +126,8 @@ function LabelToggle({ active, label, onClick }: { active: boolean; label: strin
       ].join(' ')}
     >
       {label}
-      <span className="sr-only">{active ? ' enabled' : ' disabled'}</span>
+      {' '}
+      <span className="sr-only">{active ? 'enabled' : 'disabled'}</span>
     </button>
   );
 }

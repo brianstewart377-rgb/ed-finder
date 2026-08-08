@@ -63,8 +63,12 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      // React-hooks rules — non-negotiable correctness.
-      ...reactHooks.configs.recommended.rules,
+      // React-hooks rules — non-negotiable correctness. Scoped to the two
+      // rules this repo originally adopted (not the full v7 "recommended"
+      // preset, which added a 14-rule React Compiler readiness family this
+      // codebase hasn't opted into).
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
 
       // Vite HMR boundary check — only export components from a
       // component file. Catches a class of HMR-breakage bugs early.

@@ -140,7 +140,7 @@ export function buildCreateRequest(
   systemId64: number,
 ): ObservedFactCreateRequest {
   const subject_type = subjectTypeForFactType(state.fact_type);
-  let subject_id: string | null = null;
+  let subject_id: string | null;
   switch (state.fact_type) {
     case 'service_presence':
       subject_id = state.service_id.trim() || null;

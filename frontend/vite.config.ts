@@ -93,8 +93,15 @@ export default defineConfig(({ mode }) => {
       sourcemap: true,
       rollupOptions: {
         output: {
-          manualChunks: {
-            react: ['react', 'react-dom'],
+          // Vite 8 bundles via Rolldown, which only accepts the function form
+          // of manualChunks (the Rollup-era object-map shorthand throws
+          // "manualChunks is not a function" at build time). Keep the same
+          // intent: react/react-dom get their own chunk.
+          manualChunks(moduleId) {
+            if (/[\\/]node_modules[\\/](react|react-dom)[\\/]/.test(moduleId)) {
+              return 'react';
+            }
+            return null;
           },
         },
       },
