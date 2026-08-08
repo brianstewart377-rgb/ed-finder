@@ -1557,7 +1557,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     role="region"
     tabIndex={0}
     aria-label="Interactive galaxy map. Use W A S D to pan, Z to zoom in, and X to zoom out."
-    aria-keyshortcuts="W A S D Z X"
+    aria-keyshortcuts={shortcutsEnabled ? 'W A S D Z X' : undefined}
     data-keyboard-controls="WASD pan; Z zoom in; X zoom out"
     data-keyboard-pan-acceleration-ms={KEYBOARD_PAN_ACCELERATION_MS}
     data-keyboard-pan-deceleration-ms={KEYBOARD_PAN_DECELERATION_MS}
@@ -1581,6 +1581,13 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-galactic-core-screen-depth={galacticCoreProjection.depth}
     data-galaxy-point-count={GALAXY_POINT_COUNT}
     onPointerDownCapture={(event) => {
+      // Let the keyboard-shortcuts toggle (and any other interactive
+      // descendant added later) receive its own click normally instead of
+      // having pointer capture redirected to the renderer.
+      if (
+        event.target instanceof Element
+        && event.target.closest('.map-foundation-keyboard-shortcuts-toggle')
+      ) return;
       event.currentTarget.focus({ preventScroll: true });
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
       event.currentTarget.setPointerCapture(event.pointerId);

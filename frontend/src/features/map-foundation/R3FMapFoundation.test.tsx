@@ -458,6 +458,24 @@ describe('R3F document-scoped keyboard controls', () => {
     expect(onInteraction).toHaveBeenCalled();
   });
 
+  it('removes aria-keyshortcuts from the renderer once shortcuts are disabled', () => {
+    const { container } = render(
+      <R3FMapFoundation
+        scene={scene}
+        regions={{ labels: [], boundaries: [] }}
+        viewport={{ width: 1_280, height: 720 }}
+        onInteraction={vi.fn()}
+      />,
+    );
+    const renderer = container.querySelector('.map-foundation-renderer')!;
+    const toggle = container.querySelector<HTMLElement>('.map-foundation-keyboard-shortcuts-toggle')!;
+    expect(renderer.getAttribute('aria-keyshortcuts')).toBe('W A S D Z X');
+
+    fireEvent.click(toggle);
+
+    expect(renderer.getAttribute('aria-keyshortcuts')).toBeNull();
+  });
+
   it('does not steal focus when a view preset changes', () => {
     const renderView = (viewPreset: 'results' | 'galaxy') => (
       <>

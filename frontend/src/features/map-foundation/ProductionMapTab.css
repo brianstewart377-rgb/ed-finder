@@ -517,6 +517,11 @@
   color: #f4d4b6;
 }
 
+.map-workspace--immersive .stage26e-production-map-viewport .map-foundation-keyboard-shortcuts-toggle {
+  top: 10.75rem;
+  right: 1rem;
+}
+
 .stage26e-production-map-viewport .map-foundation-render-stats {
   position: absolute;
   bottom: 0.65rem;
