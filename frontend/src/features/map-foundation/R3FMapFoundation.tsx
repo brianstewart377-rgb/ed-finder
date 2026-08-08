@@ -64,6 +64,11 @@ const KEYBOARD_PAN_VELOCITY_EPSILON = 0.5;
 const KEYBOARD_CAMERA_COMMIT_EPSILON = 1e-6;
 const MAX_PENDING_KEYBOARD_CAMERAS = 128;
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+// WCAG 2.1.4: single-character shortcuts (W/A/S/D/Z/X) must be switchable,
+// remappable, or active only while the affected component has focus. This
+// listener is document-level by design (see the keyboard-focus fix above),
+// so it satisfies 2.1.4 via an explicit off switch instead.
+const MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY = 'ed-finder:map-keyboard-shortcuts-enabled';
 const GALACTIC_CORE_GLOW_CLOSE_RADIUS_LY = 18_000;
 const GALACTIC_CORE_GLOW_WIDE_RADIUS_LY = 10_000;
 const GALACTIC_CORE_GLOW_CLOSE_ZOOM = 70;
@@ -90,6 +95,23 @@ function protectsFocusFromMap(element: Element | null): boolean {
   return element.isContentEditable || element.matches(
     'input, textarea, select, [role="textbox"], [role="searchbox"], [role="combobox"]',
   );
+}
+
+// A modal (e.g. the System Detail dialog) can be mounted above the map
+// without moving focus onto an editable control inside it — focus may sit on
+// the dialog itself or a plain button. protectsFocusFromMap alone would let
+// W/A/S/D/Z/X leak through to the hidden map camera in that case.
+function mapShortcutsSuspendedByOpenModal(): boolean {
+  return document.querySelector('[aria-modal="true"]') !== null;
+}
+
+function readStoredMapKeyboardShortcutsEnabled(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY) !== 'false';
+  } catch {
+    return true;
+  }
 }
 
 function keyboardPanTarget(keys: ReadonlySet<MapControlKey>): KeyboardPanVelocity {
@@ -999,6 +1021,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
   const pointer = useRef<{ x: number; y: number; camera: CameraState } | null>(null);
   const rendererRef = useRef<HTMLDivElement>(null);
   const pressedMapKeys = useRef(new Set<MapControlKey>());
+  const [shortcutsEnabled, setShortcutsEnabled] = useState(readStoredMapKeyboardShortcutsEnabled);
   const keyboardFrame = useRef<number | null>(null);
   const keyboardPreviousTime = useRef<number | null>(null);
   const keyboardPanVelocity = useRef<KeyboardPanVelocity>({ x: 0, z: 0 });
@@ -1129,13 +1152,6 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     pendingKeyboardCameras.current = [];
     cameraRef.current = camera;
   }, [props.scene.camera]);
-
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer || renderer === document.activeElement) return;
-    if (protectsFocusFromMap(document.activeElement)) return;
-    renderer.focus({ preventScroll: true });
-  }, [viewPreset]);
 
   const emitCamera = useCallback((camera: CameraState) => {
     cameraRef.current = camera;
@@ -1391,7 +1407,76 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     return () => preference.removeEventListener?.('change', onPreferenceChange);
   }, [ensureKeyboardFrame, retargetKeyboardPan]);
 
-  useEffect(() => stopKeyboardInput, [stopKeyboardInput]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const key = mapControlKey(event.key);
+      if (
+        !key
+        || !shortcutsEnabled
+        || event.altKey
+        || event.ctrlKey
+        || event.metaKey
+        || protectsFocusFromMap(document.activeElement)
+        || mapShortcutsSuspendedByOpenModal()
+      ) return;
+      event.preventDefault();
+      if (pressedMapKeys.current.has(key)) return;
+      pressedMapKeys.current.add(key);
+      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        retargetKeyboardPan(performance.now());
+      } else {
+        applyKeyboardZoom(KEYBOARD_TAP_DURATION_SECONDS);
+      }
+      ensureKeyboardFrame();
+    };
+    const handleKeyUp = (event: KeyboardEvent) => {
+      const key = mapControlKey(event.key);
+      // Release a key that this map claimed even if focus moved into a field
+      // while it was held, otherwise the camera could keep moving indefinitely.
+      if (!key || !pressedMapKeys.current.has(key)) return;
+      event.preventDefault();
+      pressedMapKeys.current.delete(key);
+      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
+        retargetKeyboardPan(performance.now());
+      }
+      if (keyboardMotionActive()) {
+        ensureKeyboardFrame();
+      } else {
+        cancelKeyboardFrame();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', stopKeyboardInput);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', stopKeyboardInput);
+      stopKeyboardInput();
+    };
+  }, [
+    applyKeyboardZoom,
+    cancelKeyboardFrame,
+    ensureKeyboardFrame,
+    keyboardMotionActive,
+    retargetKeyboardPan,
+    shortcutsEnabled,
+    stopKeyboardInput,
+  ]);
+
+  const toggleMapKeyboardShortcuts = useCallback(() => {
+    setShortcutsEnabled((current) => {
+      const next = !current;
+      if (!next) stopKeyboardInput();
+      try {
+        window.localStorage.setItem(MAP_KEYBOARD_SHORTCUTS_ENABLED_STORAGE_KEY, String(next));
+      } catch {
+        // Storage unavailable (private browsing, quota) -- preference just
+        // won't persist across reloads; the in-memory toggle still works.
+      }
+      return next;
+    });
+  }, [stopKeyboardInput]);
 
   const handleWheel = useCallback((event: WheelEvent) => {
     event.preventDefault();
@@ -1472,7 +1557,7 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     role="region"
     tabIndex={0}
     aria-label="Interactive galaxy map. Use W A S D to pan, Z to zoom in, and X to zoom out."
-    aria-keyshortcuts="W A S D Z X"
+    aria-keyshortcuts={shortcutsEnabled ? 'W A S D Z X' : undefined}
     data-keyboard-controls="WASD pan; Z zoom in; X zoom out"
     data-keyboard-pan-acceleration-ms={KEYBOARD_PAN_ACCELERATION_MS}
     data-keyboard-pan-deceleration-ms={KEYBOARD_PAN_DECELERATION_MS}
@@ -1495,42 +1580,14 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
     data-galactic-core-screen-radius={galacticCoreProjection.radius}
     data-galactic-core-screen-depth={galacticCoreProjection.depth}
     data-galaxy-point-count={GALAXY_POINT_COUNT}
-    onKeyDown={(event) => {
-      const key = mapControlKey(event.key);
-      if (
-        !key
-        || event.altKey
-        || event.ctrlKey
-        || event.metaKey
-        || event.target !== event.currentTarget
-        || document.activeElement !== event.currentTarget
-      ) return;
-      event.preventDefault();
-      if (pressedMapKeys.current.has(key)) return;
-      pressedMapKeys.current.add(key);
-      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-        retargetKeyboardPan(performance.now());
-      } else {
-        applyKeyboardZoom(KEYBOARD_TAP_DURATION_SECONDS);
-      }
-      ensureKeyboardFrame();
-    }}
-    onKeyUp={(event) => {
-      const key = mapControlKey(event.key);
-      if (!key || !pressedMapKeys.current.has(key)) return;
-      event.preventDefault();
-      pressedMapKeys.current.delete(key);
-      if (key === 'w' || key === 'a' || key === 's' || key === 'd') {
-        retargetKeyboardPan(performance.now());
-      }
-      if (keyboardMotionActive()) {
-        ensureKeyboardFrame();
-      } else {
-        cancelKeyboardFrame();
-      }
-    }}
-    onBlur={stopKeyboardInput}
     onPointerDownCapture={(event) => {
+      // Let the keyboard-shortcuts toggle (and any other interactive
+      // descendant added later) receive its own click normally instead of
+      // having pointer capture redirected to the renderer.
+      if (
+        event.target instanceof Element
+        && event.target.closest('.map-foundation-keyboard-shortcuts-toggle')
+      ) return;
       event.currentTarget.focus({ preventScroll: true });
       pointer.current = { x: event.clientX, y: event.clientY, camera: props.scene.camera };
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -1598,10 +1655,22 @@ export function R3FMapFoundation(props: FoundationRendererProps) {
           ? `${props.regions.labels.length} named regions · galactic plane`
           : `${rangeStep.toLocaleString()} LY rings · ${reference.name} at centre`}
       </span>
-      <span>
-        Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out
+      <span className="map-foundation-control-hint">
+        <b>Controls</b>
+        {' · Drag or W/A/S/D to pan · Shift-drag to tilt · Scroll, pinch, +/−, or Z in / X out'}
       </span>
     </div>
+    {/* Not aria-hidden: WCAG 2.1.4 requires a way to turn off single-character
+        keyboard shortcuts (W/A/S/D/Z/X) since they are active document-wide,
+        not only while the renderer has focus. */}
+    <button
+      type="button"
+      className="map-foundation-keyboard-shortcuts-toggle"
+      aria-pressed={shortcutsEnabled}
+      onClick={toggleMapKeyboardShortcuts}
+    >
+      {shortcutsEnabled ? 'Disable map keyboard shortcuts' : 'Enable map keyboard shortcuts'}
+    </button>
     <div className="map-foundation-labels" aria-hidden="true">
       {labels.filter((label) => label.visible).map((label) => <span key={label.id}
         className={label.id === currentRegion?.id ? 'is-current-region' : undefined}

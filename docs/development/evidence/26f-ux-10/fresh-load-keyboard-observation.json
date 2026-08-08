@@ -1,0 +1,55 @@
+{
+  "captured_at": "2026-07-30",
+  "environment": {
+    "browser": "Codex in-app browser",
+    "url": "http://127.0.0.1:4330/#map",
+    "build_flag": "VITE_STAGE26E_PRODUCTION_MAP=enabled",
+    "input_method": "tab-level browser keypress; no locator focus and no pointer interaction"
+  },
+  "runs": [
+    {
+      "run": 1,
+      "active_element_before": "BODY",
+      "prior_click": false,
+      "camera_center_z_before": 0,
+      "camera_center_z_after": 0.0029625197234194427,
+      "keyboard_trace_samples": 9,
+      "result": "passed"
+    },
+    {
+      "run": 2,
+      "active_element_before": "BODY",
+      "prior_click": false,
+      "camera_center_z_before": 0,
+      "camera_center_z_after": 0.0275561830382507,
+      "keyboard_trace_samples": 7,
+      "result": "passed"
+    },
+    {
+      "run": 3,
+      "active_element_before": "BODY",
+      "prior_click": false,
+      "camera_center_z_before": 0,
+      "camera_center_z_after": 0.04123722334179079,
+      "keyboard_trace_samples": 6,
+      "result": "passed"
+    }
+  ],
+  "control_hint": {
+    "viewport_px": {
+      "width": 1280,
+      "height": 720
+    },
+    "readout_rect_px": {
+      "x": 16,
+      "y": 240,
+      "width": 440,
+      "height": 103.76042175292969
+    },
+    "global_nav_bottom_px": 93.33333587646484,
+    "text_color": "rgb(244, 212, 182)",
+    "font_size": "11px",
+    "font_weight": "600",
+    "result": "visible below the floating HUD, with no nav overlap"
+  }
+}
