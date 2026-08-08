@@ -3,9 +3,9 @@
 # tqdm for progress bars; asyncpg only if any builder ever needs async.
 # numpy backs build_regional_analysis.py's in-memory candidate-pool distance
 # search (see its module docstring) — the only vectorized-math consumer here.
-psycopg2-binary==2.9.10
-ijson==3.3.0
-tqdm==4.66.5
+psycopg2-binary==2.9.12
+ijson==3.5.1
+tqdm==4.70.0
 asyncpg==0.31.0
 pydantic==2.13.4
 numpy==2.5.1
