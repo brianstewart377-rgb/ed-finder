@@ -18,6 +18,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
+      # Declaring job-level permissions resets every unlisted scope to
+      # 'none' - contents: read must be listed explicitly or the
+      # actions/checkout step below has no repo read access (see
+      # ci.yml's `changes` job for the same documented requirement).
+      contents: read
       security-events: write
     strategy:
       fail-fast: false
