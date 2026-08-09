@@ -5,11 +5,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 JsonObject = dict[str, Any]
 _SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
 MAX_PAYLOAD_BYTES = 32_768
+EDSM_VISIT_EVENT_TYPES = {'FSDJump', 'Location'}
 
 ALLOWED_EXPLORATION_EVENT_TYPES = {
     'FSDJump',
@@ -39,6 +40,22 @@ def _reject_nul_byte(value: str) -> None:
     # batch instead of a clean 422 for the one bad row.
     if '\x00' in value:
         raise ValueError('value must not contain a NUL character')
+
+
+def _contains_nul_byte(value: object) -> bool:
+    # payload is arbitrary client-supplied JSON; a NUL nested anywhere inside
+    # it (a string value, a list item, or a dict key) hits the same PostgreSQL
+    # jsonb rejection as a NUL in a plain TEXT field - json.dumps escapes it
+    # as a valid JSON unicode escape sequence, but Postgres's jsonb parser then rejects
+    # that escape ("unsupported Unicode escape sequence") when the value is
+    # bound and cast, so it must be caught here instead.
+    if isinstance(value, str):
+        return '\x00' in value
+    if isinstance(value, dict):
+        return any(_contains_nul_byte(key) or _contains_nul_byte(item) for key, item in value.items())
+    if isinstance(value, list):
+        return any(_contains_nul_byte(item) for item in value)
+    return False
 
 
 class ExplorationObservationInput(BaseModel):
@@ -107,6 +124,8 @@ class ExplorationObservationInput(BaseModel):
             raise ValueError(f'payload contains a value PostgreSQL JSON cannot store: {exc}') from exc
         if serialized_size > MAX_PAYLOAD_BYTES:
             raise ValueError(f'payload exceeds the {MAX_PAYLOAD_BYTES}-byte limit ({serialized_size} bytes)')
+        if _contains_nul_byte(value):
+            raise ValueError('payload must not contain a NUL character')
         return value
 
 
@@ -126,6 +145,25 @@ class ExplorationImportRequest(BaseModel):
         if not _SYNC_KEY_RE.match(stripped):
             raise ValueError('sync_key must be 16-128 chars, alphanumeric + "_" or "-" only.')
         return stripped
+
+    @model_validator(mode='after')
+    def validate_edsm_batches_are_visit_only(self) -> ExplorationImportRequest:
+        # The design doc's source contract: EDSM only ever supplies timestamped
+        # system visits, never scan/mapping/exobiology/Codex detail. Without this
+        # check, a mislabeled or malformed batch could fabricate those facets
+        # under source="edsm" even though EDSM structurally cannot provide them.
+        if self.source == 'edsm':
+            invalid_types = {
+                observation.event_type
+                for observation in self.observations
+                if observation.event_type not in EDSM_VISIT_EVENT_TYPES
+            }
+            if invalid_types:
+                raise ValueError(
+                    f'source="edsm" batches may only contain visit events '
+                    f'{sorted(EDSM_VISIT_EVENT_TYPES)}, got: {sorted(invalid_types)}'
+                )
+        return self
 
 
 class ExplorationImportSummary(BaseModel):

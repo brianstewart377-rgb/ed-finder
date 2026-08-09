@@ -148,3 +148,45 @@ def test_observation_rejects_nul_character_in_system_name():
 def test_observation_rejects_nul_character_in_body_name():
     with pytest.raises(ValidationError):
         ExplorationObservationInput.model_validate(_valid_observation(body_name='Sol\x00 1'))
+
+
+def test_observation_rejects_nul_character_nested_in_payload():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(payload={'notes': 'a\x00b'})
+        )
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(payload={'signals': [{'name': 'a\x00b'}]})
+        )
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(payload={'a\x00b': 'value'})
+        )
+
+
+def test_request_rejects_non_visit_event_types_in_edsm_batches():
+    with pytest.raises(ValidationError):
+        ExplorationImportRequest.model_validate({
+            'sync_key': 'a' * 32,
+            'source': 'edsm',
+            'observations': [_valid_observation(event_type='Scan')],
+        })
+
+
+def test_request_accepts_visit_event_types_in_edsm_batches():
+    request = ExplorationImportRequest.model_validate({
+        'sync_key': 'a' * 32,
+        'source': 'edsm',
+        'observations': [_valid_observation(event_type='FSDJump')],
+    })
+    assert request.source == 'edsm'
+
+
+def test_request_accepts_non_visit_event_types_in_journal_batches():
+    request = ExplorationImportRequest.model_validate({
+        'sync_key': 'a' * 32,
+        'source': 'journal',
+        'observations': [_valid_observation(event_type='Scan')],
+    })
+    assert request.source == 'journal'
