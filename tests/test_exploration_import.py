@@ -38,7 +38,7 @@ def _valid_observation(**overrides: object) -> dict[str, object]:
 def test_allowed_event_types_cover_all_six_facets():
     assert ALLOWED_EXPLORATION_EVENT_TYPES == {
         'FSDJump', 'Location', 'Scan', 'FSSDiscoveryScan',
-        'SAASignalsFound', 'FSSBodySignals', 'CodexEntry',
+        'SAASignalsFound', 'FSSBodySignals', 'CodexEntry', 'SAAScanComplete',
     }
 
 
@@ -78,3 +78,8 @@ def test_request_accepts_valid_sync_key_and_defaults_source_to_journal():
     })
     assert request.source == 'journal'
     assert len(request.observations) == 1
+
+
+def test_observation_key_is_not_stripped_and_whitespace_only_is_rejected():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(observation_key=' ' * 16))

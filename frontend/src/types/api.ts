@@ -122,7 +122,8 @@ export interface ExplorationObservationInput {
     | 'FSSDiscoveryScan'
     | 'SAASignalsFound'
     | 'FSSBodySignals'
-    | 'CodexEntry';
+    | 'CodexEntry'
+    | 'SAAScanComplete';
   observed_at: string;
   system_id64: number;
   system_name?: string | null;

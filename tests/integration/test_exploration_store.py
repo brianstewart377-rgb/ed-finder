@@ -55,6 +55,7 @@ async def test_get_exploration_facts_returns_only_matching_sync_key(pool):
     for sync_key in (sync_key_a, sync_key_b):
         await store.import_exploration_batch(pool, ExplorationImportRequest.model_validate({
             'sync_key': sync_key,
+            'source': 'journal',
             'observations': [{
                 'observation_key': uuid4().hex,
                 'event_type': 'FSDJump',
@@ -69,6 +70,54 @@ async def test_get_exploration_facts_returns_only_matching_sync_key(pool):
     assert facts.sync_key == sync_key_a
     assert len(facts.facts) == 1
     assert facts.facts[0].system_id64 == 54321
+    assert facts.facts[0].source == 'journal'
+    assert facts.count == 1
+    assert facts.truncated is False
+
+
+async def test_get_exploration_facts_sets_truncated_when_more_rows_exist(pool):
+    sync_key = _sync_key()
+    total_rows = 5
+    page_limit = 3
+    observations = [
+        {
+            'observation_key': uuid4().hex,
+            'event_type': 'FSDJump',
+            'observed_at': f'2026-08-08T09:{i:02d}:00Z',
+            'system_id64': 60000 + i,
+            'system_name': f'Truncation Test System {i}',
+            'payload': {},
+        }
+        for i in range(total_rows)
+    ]
+    await store.import_exploration_batch(pool, ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': observations,
+    }))
+
+    facts = await store.get_exploration_facts(pool, sync_key, limit=page_limit)
+    assert facts.count == page_limit
+    assert len(facts.facts) == page_limit
+    assert facts.truncated is True
+
+
+async def test_get_exploration_facts_not_truncated_when_fewer_rows_than_limit(pool):
+    sync_key = _sync_key()
+    await store.import_exploration_batch(pool, ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': [{
+            'observation_key': uuid4().hex,
+            'event_type': 'FSDJump',
+            'observed_at': '2026-08-08T09:00:00Z',
+            'system_id64': 70000,
+            'system_name': 'Not Truncated System',
+            'payload': {},
+        }],
+    }))
+
+    facts = await store.get_exploration_facts(pool, sync_key, limit=50)
+    assert facts.count == 1
+    assert facts.truncated is False
 
 
 async def test_import_raises_rate_limit_error_over_daily_budget(pool, monkeypatch):

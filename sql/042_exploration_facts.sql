@@ -34,6 +34,9 @@ CREATE INDEX IF NOT EXISTS idx_exploration_facts_sync_key_observed
 CREATE INDEX IF NOT EXISTS idx_exploration_facts_sync_key_event_type
     ON exploration_facts (sync_key, event_type);
 
+CREATE INDEX IF NOT EXISTS idx_exploration_facts_sync_key_created
+    ON exploration_facts (sync_key, created_at DESC);
+
 COMMENT ON TABLE exploration_facts
     IS 'Personal exploration data (visits, scans, mapping, discoveries, exobiology, Codex), scoped by sync_key. Never promoted to canonical/shared tables.';
 

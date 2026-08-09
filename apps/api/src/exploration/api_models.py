@@ -17,6 +17,7 @@ ALLOWED_EXPLORATION_EVENT_TYPES = {
     'SAASignalsFound',
     'FSSBodySignals',
     'CodexEntry',
+    'SAAScanComplete',
 }
 
 
@@ -39,10 +40,22 @@ class ExplorationObservationInput(BaseModel):
     body_name: str | None = Field(default=None, max_length=128)
     payload: JsonObject = Field(default_factory=dict)
 
-    @field_validator('observation_key', 'system_name', 'body_name')
+    @field_validator('system_name', 'body_name')
     @classmethod
     def strip_optional_text(cls, value: str | None) -> str | None:
         return _strip_text(value)
+
+    @field_validator('observation_key')
+    @classmethod
+    def reject_blank_observation_key(cls, value: str) -> str:
+        # observation_key is a client-computed dedupe hash, not free-text, so it is
+        # validated as-is (unstripped) against Field(min_length=16, max_length=128).
+        # Field alone only checks length, not content, so a whitespace-only value of
+        # valid length would otherwise pass; reject it explicitly without normalizing
+        # the stored value (no stripping/truncation here).
+        if not value.strip():
+            raise ValueError('observation_key must not be blank or whitespace-only')
+        return value
 
     @field_validator('event_type')
     @classmethod
@@ -117,6 +130,7 @@ class ExplorationFactRow(BaseModel):
     body_name: str | None = None
     observed_at: str
     payload: JsonObject = Field(default_factory=dict)
+    source: str
 
 
 class ExplorationFactsResponse(BaseModel):
@@ -124,3 +138,5 @@ class ExplorationFactsResponse(BaseModel):
 
     sync_key: str
     facts: list[ExplorationFactRow] = Field(default_factory=list)
+    count: int
+    truncated: bool

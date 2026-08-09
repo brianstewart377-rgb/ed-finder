@@ -2754,6 +2754,8 @@ export interface components {
             payload?: {
                 [key: string]: unknown;
             };
+            /** Source */
+            source: string;
         };
         /** ExplorationFactsResponse */
         ExplorationFactsResponse: {
@@ -2761,6 +2763,10 @@ export interface components {
             sync_key: string;
             /** Facts */
             facts?: components["schemas"]["ExplorationFactRow"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
         };
         /** ExplorationImportReceipt */
         ExplorationImportReceipt: {

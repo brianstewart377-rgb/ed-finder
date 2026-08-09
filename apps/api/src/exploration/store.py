@@ -126,15 +126,19 @@ async def get_exploration_facts(
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             '''
-            SELECT event_type, system_id64, system_name, body_id, body_name, observed_at, payload_json
+            SELECT event_type, system_id64, system_name, body_id, body_name, observed_at,
+                   payload_json, source
             FROM exploration_facts
             WHERE sync_key = $1
             ORDER BY observed_at DESC
             LIMIT $2
             ''',
             sync_key,
-            limit,
+            limit + 1,
         )
+
+    truncated = len(rows) > limit
+    rows = rows[:limit]
 
     facts = [
         ExplorationFactRow(
@@ -145,7 +149,13 @@ async def get_exploration_facts(
             body_name=row['body_name'],
             observed_at=_dt_to_str(row['observed_at']) or '',
             payload=_json_object(row['payload_json']),
+            source=str(row['source']),
         )
         for row in rows
     ]
-    return ExplorationFactsResponse(sync_key=sync_key, facts=facts)
+    return ExplorationFactsResponse(
+        sync_key=sync_key,
+        facts=facts,
+        count=len(facts),
+        truncated=truncated,
+    )
