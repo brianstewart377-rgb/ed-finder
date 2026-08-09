@@ -7,6 +7,7 @@ from dataclasses import dataclass
 class ReviewLabTimeouts:
     static: int = 60
     stack_readiness: int = 60
+    image_build: int = 240
     api_contracts: int = 30
     sse_probe: int = 3
     frontend_build: int = 90
