@@ -1,0 +1,19 @@
+# Rotation for /data/logs/*.log on the production host. Nothing rotated
+# these before (import.log reached 4.7G, nightly.log 673M, unbounded) and
+# contributed to disk staying pinned near the 80% disk-watchdog threshold.
+# copytruncate is required, not optional: several of these logs are held
+# open continuously by long-running containers (eddn.log) or written by
+# cron-invoked scripts with no signal-based reopen support, so a plain
+# rename-and-recreate rotation would leave those writers appending to a
+# file no longer visible under its original name.
+#
+# Install: symlink or copy to /etc/logrotate.d/ed-finder on the host.
+/data/logs/*.log {
+    daily
+    rotate 3
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
