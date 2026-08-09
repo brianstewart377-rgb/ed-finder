@@ -45,3 +45,44 @@ async def test_exploration_import_rejects_invalid_sync_key(client):
         json={'sync_key': 'legacy', 'observations': []},
     )
     assert response.status_code == 422
+
+
+async def test_exploration_import_returns_429_when_daily_budget_exceeded(client, monkeypatch):
+    from edfinder_api.exploration import store
+
+    monkeypatch.setattr(store, 'MAX_DAILY_ROWS_PER_SYNC_KEY', 1)
+    sync_key = f'synckey_{uuid4().hex[:24]}'
+
+    first = await client.post(
+        '/api/exploration/import',
+        json={
+            'sync_key': sync_key,
+            'observations': [
+                {
+                    'observation_key': uuid4().hex,
+                    'event_type': 'Scan',
+                    'observed_at': '2026-08-08T09:00:00Z',
+                    'system_id64': 55555,
+                    'payload': {},
+                },
+            ],
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = await client.post(
+        '/api/exploration/import',
+        json={
+            'sync_key': sync_key,
+            'observations': [
+                {
+                    'observation_key': uuid4().hex,
+                    'event_type': 'Scan',
+                    'observed_at': '2026-08-08T09:05:00Z',
+                    'system_id64': 66666,
+                    'payload': {},
+                },
+            ],
+        },
+    )
+    assert second.status_code == 429, second.text

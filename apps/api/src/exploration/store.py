@@ -86,7 +86,7 @@ async def import_exploration_batch(
                     ) VALUES (
                         $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::jsonb
                     )
-                    ON CONFLICT (source_record_hash) DO NOTHING
+                    ON CONFLICT (sync_key, source_record_hash) DO NOTHING
                     RETURNING source_record_hash
                     ''',
                     request.sync_key,

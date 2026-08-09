@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS exploration_facts (
     id                  BIGSERIAL       PRIMARY KEY,
     sync_key            TEXT            NOT NULL,
     source              TEXT            NOT NULL DEFAULT 'journal',
-    source_record_hash  TEXT            NOT NULL UNIQUE,
+    source_record_hash  TEXT            NOT NULL,
     event_type          TEXT            NOT NULL,
     system_id64         BIGINT          NOT NULL,
     system_name         TEXT            DEFAULT NULL,
@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS exploration_facts (
     created_at          TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT chk_exploration_facts_source
-        CHECK (source IN ('journal', 'edsm'))
+        CHECK (source IN ('journal', 'edsm')),
+
+    CONSTRAINT uq_exploration_facts_sync_key_hash
+        UNIQUE (sync_key, source_record_hash)
 );
 
 CREATE INDEX IF NOT EXISTS idx_exploration_facts_sync_key_observed
@@ -35,7 +38,7 @@ COMMENT ON TABLE exploration_facts
     IS 'Personal exploration data (visits, scans, mapping, discoveries, exobiology, Codex), scoped by sync_key. Never promoted to canonical/shared tables.';
 
 COMMENT ON COLUMN exploration_facts.source_record_hash
-    IS 'Stable client-computed dedupe key for one observation. Re-importing the same journal/EDSM data is a no-op at this layer.';
+    IS 'Stable client-computed dedupe key for one observation. Uniqueness is scoped per sync_key (see uq_exploration_facts_sync_key_hash), not global, since this is per-player data. Re-importing the same journal/EDSM data is a no-op at this layer.';
 
 COMMENT ON COLUMN exploration_facts.source
     IS 'journal = parsed from the player''s own Elite Dangerous journal files. edsm = backfilled from the player''s own EDSM flight log via their personal API key.';
