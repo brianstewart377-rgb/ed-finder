@@ -16,10 +16,18 @@ if [[ ! "$MIN_FREE_GB" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "$MIN_FREE_GB" =~ ^0+([.
   exit 1
 fi
 
-if [[ ! "$MAX_PERCENT_USED" =~ ^[0-9]+$ ]] || (( MAX_PERCENT_USED < 1 || MAX_PERCENT_USED > 100 )); then
+if [[ ! "$MAX_PERCENT_USED" =~ ^[0-9]+$ ]] || (( 10#$MAX_PERCENT_USED < 1 || 10#$MAX_PERCENT_USED > 100 )); then
   echo "ERROR: disk watchdog cannot measure usage: DISK_WATCHDOG_MAX_PERCENT_USED must be an integer 1-100; heartbeat not sent" >&2
   exit 1
 fi
+# Normalize away any leading zeros now that the value is validated: bash's
+# (( )) arithmetic context treats a leading-zero operand as octal, so an
+# unnormalized zero-padded value (e.g. "0999", which contains the invalid
+# octal digit '9') would make the guard above error out silently inside the
+# `if` condition and skip validation entirely, while the later awk
+# comparison - which has no such octal rule - would parse it as decimal 999,
+# disabling the percentage check for any real disk.
+MAX_PERCENT_USED=$((10#$MAX_PERCENT_USED))
 
 if ! df_output="$(df -B1 -P "$WATCHDOG_PATH" 2>&1)"; then
   echo "ERROR: disk watchdog measurement failed for ${WATCHDOG_PATH}; heartbeat not sent: ${df_output}" >&2
