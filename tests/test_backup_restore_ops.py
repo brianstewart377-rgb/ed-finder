@@ -858,6 +858,24 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
 
 
+def test_local_backup_retention_default_shrunk_now_offsite_mirror_is_verified():
+    """Local retention dropped 14 -> 3 days (2026-08-09) once the storage-box
+    offsite mirror was directly verified (real ~70GB archives confirmed on
+    the remote going back multiple days). 14 daily ~70GB local archives had
+    grown to ~830GB, roughly 44% of the production disk. The 3-archive
+    minimum floor (BACKUP_RETENTION_MIN_ARCHIVES) is unchanged - only the
+    days-based ceiling shrank."""
+    compose = _read('docker-compose.yml')
+    env_example = _read('env.example')
+    runbook = _read('docs', 'operations', 'postgres-backup-and-restore.md')
+
+    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-3}' in compose
+    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}' not in compose
+    assert 'BACKUP_RETENTION_DAYS=3' in env_example
+    assert 'BACKUP_RETENTION_DAYS=14' not in env_example
+    assert 'retention: `3` days locally' in runbook
+
+
 def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenance_schedule():
     compose = _read('docker-compose.yml')
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')

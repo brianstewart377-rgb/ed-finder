@@ -27,7 +27,10 @@ Current defaults:
 - destination: `/data/backups/postgres`
 - format: `pg_dump --format=custom --compress=6`
 - schedule: daily at `02:10 UTC`
-- retention: `14` days
+- retention: `3` days locally (the offsite storage-box mirror keeps 30 days;
+  reduced from 14 once the offsite mirror was confirmed genuinely working -
+  local archives are ~70GB each, and 14 days of them was ~830GB, roughly 44%
+  of the production disk)
 - logs: `/data/logs/backup.log`
 - offsite: optional `BACKUP_OFFSITE_REMOTE` mirror when configured
 
