@@ -38,6 +38,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 # defeat the point of the contract.
 CHECKED_WORKFLOWS = (
     'ci.yml',
+    'codeql.yml',
     'container-image-parity.yml',
     'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
