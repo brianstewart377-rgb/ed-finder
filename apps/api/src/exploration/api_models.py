@@ -31,6 +31,16 @@ def _strip_text(value: str | None) -> str | None:
     return stripped or None
 
 
+def _reject_nul_byte(value: str) -> None:
+    # PostgreSQL TEXT columns cannot store a NUL (0x00) byte, but it is a
+    # perfectly valid JSON string character - without this check, a NUL
+    # anywhere in these fields reaches the INSERT and PostgreSQL rejects it,
+    # turning one malformed observation into a 500 that rolls back the whole
+    # batch instead of a clean 422 for the one bad row.
+    if '\x00' in value:
+        raise ValueError('value must not contain a NUL character')
+
+
 class ExplorationObservationInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -46,6 +56,8 @@ class ExplorationObservationInput(BaseModel):
     @field_validator('system_name', 'body_name')
     @classmethod
     def strip_optional_text(cls, value: str | None) -> str | None:
+        if value is not None:
+            _reject_nul_byte(value)
         return _strip_text(value)
 
     @field_validator('observation_key')
@@ -56,6 +68,7 @@ class ExplorationObservationInput(BaseModel):
         # Field alone only checks length, not content, so a whitespace-only value of
         # valid length would otherwise pass; reject it explicitly without normalizing
         # the stored value (no stripping/truncation here).
+        _reject_nul_byte(value)
         if not value.strip():
             raise ValueError('observation_key must not be blank or whitespace-only')
         return value

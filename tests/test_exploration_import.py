@@ -131,3 +131,20 @@ def test_observation_rejects_boundary_timestamp_that_overflows_on_utc_conversion
         ExplorationObservationInput.model_validate(
             _valid_observation(observed_at='0001-01-01T00:00:00+14:00')
         )
+
+
+def test_observation_rejects_nul_character_in_observation_key():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(observation_key='a' * 15 + '\x00')
+        )
+
+
+def test_observation_rejects_nul_character_in_system_name():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(system_name='Sol\x00'))
+
+
+def test_observation_rejects_nul_character_in_body_name():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(body_name='Sol\x00 1'))
