@@ -27,7 +27,14 @@ Current defaults:
 - destination: `/data/backups/postgres`
 - format: `pg_dump --format=custom --compress=6`
 - schedule: daily at `02:10 UTC`
-- retention: `14` days
+- retention: `14` days locally by repo default (`BACKUP_RETENTION_DAYS` in
+  `env.example`/`docker-compose.yml`) - this stays safe for any deployment
+  that leaves `BACKUP_OFFSITE_REMOTE` unset, since local archives are its
+  only recovery point. Production overrides this to `3` days in its own
+  untracked `.env`, not in the repo default, because its offsite
+  storage-box mirror (`BACKUP_OFFSITE_RETENTION_DAYS`, 30 days) was directly
+  verified genuinely working - local archives are ~70GB each, and 14 days of
+  them was ~830GB, roughly 44% of the production disk
 - logs: `/data/logs/backup.log`
 - offsite: optional `BACKUP_OFFSITE_REMOTE` mirror when configured
 
