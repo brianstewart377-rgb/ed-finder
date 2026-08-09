@@ -113,6 +113,33 @@ export interface JournalImportRequest {
   observations: JournalImportObservationInput[];
 }
 
+export interface ExplorationObservationInput {
+  observation_key: string;
+  event_type:
+    | 'FSDJump'
+    | 'Location'
+    | 'Scan'
+    | 'FSSDiscoveryScan'
+    | 'SAASignalsFound'
+    | 'FSSBodySignals'
+    | 'CodexEntry';
+  observed_at: string;
+  system_id64: number;
+  system_name?: string | null;
+  body_id?: number | null;
+  body_name?: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface ExplorationImportRequest {
+  sync_key: string;
+  source?: 'journal' | 'edsm';
+  observations: ExplorationObservationInput[];
+}
+
+export type ExplorationImportReceipt = Schemas['ExplorationImportReceipt'];
+export type ExplorationFactsResponse = Schemas['ExplorationFactsResponse'];
+
 export interface JournalImportSummary {
   observations_received: number;
   observations_staged: number;

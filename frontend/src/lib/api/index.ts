@@ -1,5 +1,8 @@
 import type {
   EvidenceSystemSummaryResponse,
+  ExplorationFactsResponse,
+  ExplorationImportReceipt,
+  ExplorationImportRequest,
   FacilityTemplate,
   JournalImportReceipt,
   JournalImportRequest,
@@ -31,6 +34,7 @@ import type {
 } from '@/types/api';
 import * as search from './search';
 import * as planner from './planner';
+import * as exploration from './exploration';
 import * as observations from './observations';
 import * as operator from './operator';
 import * as map from './map';
@@ -58,6 +62,8 @@ export const api = {
   warehousePlannerEvidence: planner.warehousePlannerEvidence,
   evidenceSystemSummary: planner.evidenceSystemSummary,
   importJournal: planner.importJournal,
+  importExploration: exploration.importExploration,
+  getExplorationFacts: exploration.getExplorationFacts,
   journalImportReceipt: planner.journalImportReceipt,
   journalTelemetry: planner.journalTelemetry,
   regionalAnalysis: planner.regionalAnalysis,
@@ -139,6 +145,14 @@ export function importJournal(request: JournalImportRequest): Promise<JournalImp
 
 export function getJournalImportReceipt(runKey: string): Promise<JournalImportReceipt> {
   return api.journalImportReceipt(runKey);
+}
+
+export function importExploration(request: ExplorationImportRequest): Promise<ExplorationImportReceipt> {
+  return api.importExploration(request);
+}
+
+export function getExplorationFacts(syncKey: string): Promise<ExplorationFactsResponse> {
+  return api.getExplorationFacts(syncKey);
 }
 
 export function getJournalTelemetry(syncKey: string): Promise<JournalTelemetrySummaryResponse> {

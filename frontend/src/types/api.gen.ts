@@ -810,6 +810,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/exploration/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Exploration */
+        post: operations["import_exploration_api_exploration_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/facts/{sync_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Facts For Sync Key */
+        get: operations["get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/local/autocomplete": {
         parameters: {
             query?: never;
@@ -2322,9 +2356,7 @@ export interface components {
             /** Cluster Radius Ly */
             cluster_radius_ly: number;
             /** Slots */
-            slots?: {
-                [key: string]: unknown;
-            }[] | null;
+            slots?: Record<string, never>[] | null;
         } & {
             [key: string]: unknown;
         };
@@ -2359,13 +2391,9 @@ export interface components {
             /** Query Ms */
             query_ms?: number | null;
             /** Slots */
-            slots?: {
-                [key: string]: unknown;
-            }[] | null;
+            slots?: Record<string, never>[] | null;
             /** Requirements */
-            requirements?: {
-                [key: string]: unknown;
-            }[] | null;
+            requirements?: Record<string, never>[] | null;
             /** Error */
             error?: string | null;
         } & {
@@ -2410,15 +2438,11 @@ export interface components {
             /** Expires At */
             expires_at?: string | null;
             /** Value */
-            value?: {
-                [key: string]: unknown;
-            };
+            value?: Record<string, never>;
             /** Evidence Refs */
             evidence_refs?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /** DerivedFeatureListResponse */
         DerivedFeatureListResponse: {
@@ -2461,15 +2485,11 @@ export interface components {
             /** Expires At */
             expires_at?: string | null;
             /** Value */
-            value?: {
-                [key: string]: unknown;
-            };
+            value?: Record<string, never>;
             /** Evidence Refs */
             evidence_refs?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
             /** Feature Key */
             feature_key: string;
             /** Created At */
@@ -2540,19 +2560,13 @@ export interface components {
             /** Expires At */
             expires_at?: string | null;
             /** Value */
-            value?: {
-                [key: string]: unknown;
-            };
+            value?: Record<string, never>;
             /** Provenance */
-            provenance?: {
-                [key: string]: unknown;
-            };
+            provenance?: Record<string, never>;
             /** Tags */
             tags?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /** EvidenceRecordListResponse */
         EvidenceRecordListResponse: {
@@ -2610,19 +2624,13 @@ export interface components {
             /** Expires At */
             expires_at?: string | null;
             /** Value */
-            value?: {
-                [key: string]: unknown;
-            };
+            value?: Record<string, never>;
             /** Provenance */
-            provenance?: {
-                [key: string]: unknown;
-            };
+            provenance?: Record<string, never>;
             /** Tags */
             tags?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
             /** Evidence Key */
             evidence_key: string;
             /** Created At */
@@ -2701,6 +2709,86 @@ export interface components {
             derived_features: components["schemas"]["DerivedFeatureResponse"][];
             /** Open Rule Proposals */
             open_rule_proposals: components["schemas"]["RuleProposalResponse"][];
+        };
+        /** ExplorationFactRow */
+        ExplorationFactRow: {
+            /** Event Type */
+            event_type: string;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Body Id */
+            body_id?: number | null;
+            /** Body Name */
+            body_name?: string | null;
+            /** Observed At */
+            observed_at: string;
+            /** Payload */
+            payload?: Record<string, never>;
+        };
+        /** ExplorationFactsResponse */
+        ExplorationFactsResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /** Facts */
+            facts?: components["schemas"]["ExplorationFactRow"][];
+        };
+        /** ExplorationImportReceipt */
+        ExplorationImportReceipt: {
+            /** Sync Key */
+            sync_key: string;
+            /** Status */
+            status: string;
+            summary: components["schemas"]["ExplorationImportSummary"];
+        };
+        /** ExplorationImportRequest */
+        ExplorationImportRequest: {
+            /** Sync Key */
+            sync_key: string;
+            /**
+             * Source
+             * @default journal
+             * @enum {string}
+             */
+            source: "journal" | "edsm";
+            /** Observations */
+            observations?: components["schemas"]["ExplorationObservationInput"][];
+        };
+        /** ExplorationImportSummary */
+        ExplorationImportSummary: {
+            /** Observations Received */
+            observations_received: number;
+            /** Observations Staged */
+            observations_staged: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+        };
+        /** ExplorationObservationInput */
+        ExplorationObservationInput: {
+            /** Observation Key */
+            observation_key: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Body Id */
+            body_id?: number | null;
+            /** Body Name */
+            body_name?: string | null;
+            /** Payload */
+            payload?: Record<string, never>;
         };
         /** ExplorationValueModel */
         ExplorationValueModel: {
@@ -2851,6 +2939,7 @@ export interface components {
              * Evidence Mode
              * @default staging_only
              * @constant
+             * @enum {string}
              */
             evidence_mode: "staging_only";
             /** Observations */
@@ -2900,13 +2989,9 @@ export interface components {
             /** Summary */
             summary?: string | null;
             /** Payload */
-            payload?: {
-                [key: string]: unknown;
-            };
+            payload?: Record<string, never>;
             /** Privacy Boundary */
-            privacy_boundary?: {
-                [key: string]: unknown;
-            };
+            privacy_boundary?: Record<string, never>;
         };
         /** JournalPromotionReceipt */
         JournalPromotionReceipt: {
@@ -3050,6 +3135,7 @@ export interface components {
              * Source
              * @default spansh
              * @constant
+             * @enum {string}
              */
             source: "spansh";
         };
@@ -3060,6 +3146,7 @@ export interface components {
             /**
              * Source
              * @constant
+             * @enum {string}
              */
             source: "spansh";
             /**
@@ -3147,13 +3234,9 @@ export interface components {
             /** Confidence */
             confidence: string;
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Expected Value */
-            expected_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Notes */
             notes?: string | null;
         };
@@ -3196,13 +3279,9 @@ export interface components {
             subject_id?: string | null;
             status: components["schemas"]["ObservedStatus"];
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Expected Value */
-            expected_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** @default medium */
             confidence: components["schemas"]["ObservedConfidence"];
             /** Notes */
@@ -3224,9 +3303,7 @@ export interface components {
             /** Tags */
             tags?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
             /** System Id64 */
             system_id64: number;
         };
@@ -3258,13 +3335,9 @@ export interface components {
             subject_id?: string | null;
             status: components["schemas"]["ObservedStatus"];
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Expected Value */
-            expected_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** @default medium */
             confidence: components["schemas"]["ObservedConfidence"];
             /** Notes */
@@ -3286,9 +3359,7 @@ export interface components {
             /** Tags */
             tags?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /** ObservedFactListResponse */
         ObservedFactListResponse: {
@@ -3323,13 +3394,9 @@ export interface components {
             /** Status */
             status: string;
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Expected Value */
-            expected_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Confidence */
             confidence: string;
             /** Notes */
@@ -3351,9 +3418,7 @@ export interface components {
             /** Tags */
             tags?: string[];
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /**
          * ObservedFactType
@@ -3369,13 +3434,9 @@ export interface components {
             subject_id?: string | null;
             status?: components["schemas"]["ObservedStatus"] | null;
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Expected Value */
-            expected_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            expected_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             confidence?: components["schemas"]["ObservedConfidence"] | null;
             /** Notes */
             notes?: string | null;
@@ -3396,9 +3457,7 @@ export interface components {
             /** Tags */
             tags?: string[] | null;
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            } | null;
+            metadata?: Record<string, never> | null;
         };
         /**
          * ObservedStatus
@@ -3648,9 +3707,7 @@ export interface components {
             /** Target Archetype */
             target_archetype?: string | null;
             /** Prediction */
-            prediction: {
-                [key: string]: unknown;
-            };
+            prediction: Record<string, never>;
             /** Observed Facts */
             observed_facts?: components["schemas"]["ObservedFactInput"][] | null;
             /**
@@ -3686,13 +3743,9 @@ export interface components {
             /** Subject Id */
             subject_id: string | null;
             /** Predicted Value */
-            predicted_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            predicted_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Observed Value */
-            observed_value?: string | number | boolean | {
-                [key: string]: unknown;
-            } | unknown[] | null;
+            observed_value?: string | number | boolean | Record<string, never> | unknown[] | null;
             /** Status */
             status: string;
             /** Severity */
@@ -3823,13 +3876,9 @@ export interface components {
             /** Archetype Regional Fit */
             archetype_regional_fit?: number | null;
             /** Regional Rationale */
-            regional_rationale?: {
-                [key: string]: unknown;
-            };
+            regional_rationale?: Record<string, never>;
             /** Decision Explanation */
-            decision_explanation?: {
-                [key: string]: unknown;
-            };
+            decision_explanation?: Record<string, never>;
             /** Rank Breakdown */
             rank_breakdown?: {
                 [key: string]: number;
@@ -3900,9 +3949,7 @@ export interface components {
              */
             analysis_radius_ly: number;
             /** Nearest Colonised System */
-            nearest_colonised_system?: {
-                [key: string]: unknown;
-            } | null;
+            nearest_colonised_system?: Record<string, never> | null;
             /** Counts */
             counts?: {
                 [key: string]: number;
@@ -3921,17 +3968,13 @@ export interface components {
                 [key: string]: number;
             };
             /** Rationale */
-            rationale?: {
-                [key: string]: unknown;
-            };
+            rationale?: Record<string, never>;
             /** Data Quality */
             data_quality?: {
                 [key: string]: string;
             };
             /** Confidence Signals */
-            confidence_signals?: {
-                [key: string]: unknown;
-            }[];
+            confidence_signals?: Record<string, never>[];
             /** Computed At */
             computed_at?: unknown | null;
         };
@@ -3944,9 +3987,7 @@ export interface components {
             /** Reason */
             reason?: string | null;
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /** RuleDecisionResponse */
         RuleDecisionResponse: {
@@ -3961,9 +4002,7 @@ export interface components {
             /** Reason */
             reason?: string | null;
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
             /** Created At */
             created_at?: string | null;
         };
@@ -4004,19 +4043,13 @@ export interface components {
             /** Decision Notes */
             decision_notes?: string | null;
             /** Proposed Change */
-            proposed_change?: {
-                [key: string]: unknown;
-            };
+            proposed_change?: Record<string, never>;
             /** Evidence Refs */
             evidence_refs?: string[];
             /** Impact Summary */
-            impact_summary?: {
-                [key: string]: unknown;
-            };
+            impact_summary?: Record<string, never>;
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
         };
         /** RuleProposalListResponse */
         RuleProposalListResponse: {
@@ -4066,19 +4099,13 @@ export interface components {
             /** Decision Notes */
             decision_notes?: string | null;
             /** Proposed Change */
-            proposed_change?: {
-                [key: string]: unknown;
-            };
+            proposed_change?: Record<string, never>;
             /** Evidence Refs */
             evidence_refs?: string[];
             /** Impact Summary */
-            impact_summary?: {
-                [key: string]: unknown;
-            };
+            impact_summary?: Record<string, never>;
             /** Metadata */
-            metadata?: {
-                [key: string]: unknown;
-            };
+            metadata?: Record<string, never>;
             /** Proposal Key */
             proposal_key: string;
             /** Decided By */
@@ -4180,21 +4207,13 @@ export interface components {
             confidence: number;
             cp: components["schemas"]["SimulationCPResult"];
             /** Cp Timeline */
-            cp_timeline?: {
-                [key: string]: unknown;
-            }[];
+            cp_timeline?: Record<string, never>[];
             /** Cp Repair Suggestions */
-            cp_repair_suggestions?: {
-                [key: string]: unknown;
-            }[];
+            cp_repair_suggestions?: Record<string, never>[];
             /** Observation Summary */
-            observation_summary?: {
-                [key: string]: unknown;
-            };
+            observation_summary?: Record<string, never>;
             /** Prediction Observation Diffs */
-            prediction_observation_diffs?: {
-                [key: string]: unknown;
-            }[];
+            prediction_observation_diffs?: Record<string, never>[];
             /** Economy Composition */
             economy_composition?: {
                 [key: string]: number;
@@ -4202,48 +4221,30 @@ export interface components {
             /** Economy Order */
             economy_order?: string[];
             /** Economy Stack */
-            economy_stack?: {
-                [key: string]: unknown;
-            };
+            economy_stack?: Record<string, never>;
             /** Port Economy States */
-            port_economy_states?: {
-                [key: string]: unknown;
-            }[];
+            port_economy_states?: Record<string, never>[];
             /** Influence Ledger */
-            influence_ledger?: {
-                [key: string]: unknown;
-            }[];
+            influence_ledger?: Record<string, never>[];
             /** Inherited Economies */
             inherited_economies?: components["schemas"]["SimulationInheritedEconomy"][];
             /** Topology */
-            topology?: {
-                [key: string]: unknown;
-            };
+            topology?: Record<string, never>;
             /** Services */
-            services?: {
-                [key: string]: unknown;
-            };
+            services?: Record<string, never>;
             /** Port Service States */
-            port_service_states?: {
-                [key: string]: unknown;
-            }[];
+            port_service_states?: Record<string, never>[];
             /** Service Unlock Ledger */
-            service_unlock_ledger?: {
-                [key: string]: unknown;
-            }[];
+            service_unlock_ledger?: Record<string, never>[];
             /** Data Quality */
             data_quality?: {
                 [key: string]: string;
             };
             /** Confidence Signals */
-            confidence_signals?: {
-                [key: string]: unknown;
-            }[];
+            confidence_signals?: Record<string, never>[];
             /** Mechanics Trace */
             mechanics_trace?: {
-                [key: string]: {
-                    [key: string]: unknown;
-                }[];
+                [key: string]: Record<string, never>[];
             };
             /** Top Two Alignment */
             top_two_alignment: string;
@@ -5065,10 +5066,6 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /**
          * ValidationReviewRequest
@@ -5086,9 +5083,7 @@ export interface components {
             /** Target Archetype */
             target_archetype?: string | null;
             /** Prediction */
-            prediction: {
-                [key: string]: unknown;
-            };
+            prediction: Record<string, never>;
             /** Observed Facts */
             observed_facts?: components["schemas"]["ObservedFactInput"][] | null;
             /**
@@ -6675,6 +6670,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JournalPromotionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_exploration_api_exploration_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExplorationImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationFactsResponse"];
                 };
             };
             /** @description Validation Error */
