@@ -153,7 +153,9 @@ async def recent_events(
     limit: int = 50,
     pool:  asyncpg.Pool = Depends(get_pool),
 ):
-    limit = min(limit, 200)
+    # LIMIT 0 is valid (returns no rows); the lower clamp only guards against a
+    # negative LIMIT, which Postgres rejects outright (would 500 this handler).
+    limit = max(0, min(limit, 200))
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
             SELECT system_name, system_id64, event_type, received_at
