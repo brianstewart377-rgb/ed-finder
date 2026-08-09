@@ -858,22 +858,26 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
 
 
-def test_local_backup_retention_default_shrunk_now_offsite_mirror_is_verified():
-    """Local retention dropped 14 -> 3 days (2026-08-09) once the storage-box
-    offsite mirror was directly verified (real ~70GB archives confirmed on
-    the remote going back multiple days). 14 daily ~70GB local archives had
-    grown to ~830GB, roughly 44% of the production disk. The 3-archive
-    minimum floor (BACKUP_RETENTION_MIN_ARCHIVES) is unchanged - only the
-    days-based ceiling shrank."""
+def test_local_backup_retention_repo_default_stays_safe_without_offsite_mirror():
+    """The repo-committed BACKUP_RETENTION_DAYS default must stay 14, not 3
+    (2026-08-09 Codex Review finding on the original 14 -> 3 shrink): any
+    deployment that leaves BACKUP_OFFSITE_REMOTE unset (the supported
+    default) has no offsite mirror, so local archives are its only recovery
+    point, and run_backup.sh prunes local archives regardless of whether an
+    offsite copy exists. Production's real offsite storage-box mirror was
+    directly verified working, so production overrides BACKUP_RETENTION_DAYS
+    to 3 in its own untracked .env - not in this repo default."""
     compose = _read('docker-compose.yml')
     env_example = _read('env.example')
     runbook = _read('docs', 'operations', 'postgres-backup-and-restore.md')
 
-    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-3}' in compose
-    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}' not in compose
-    assert 'BACKUP_RETENTION_DAYS=3' in env_example
-    assert 'BACKUP_RETENTION_DAYS=14' not in env_example
-    assert 'retention: `3` days locally' in runbook
+    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}' in compose
+    assert 'BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-3}' not in compose
+    env_example_lines = env_example.splitlines()
+    assert 'BACKUP_RETENTION_DAYS=14' in env_example_lines
+    assert 'BACKUP_RETENTION_DAYS=3' not in env_example_lines
+    assert 'retention: `14` days locally by repo default' in runbook
+    assert 'untracked `.env`' in runbook
 
 
 def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenance_schedule():
