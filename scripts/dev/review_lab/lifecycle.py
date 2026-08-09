@@ -381,7 +381,7 @@ def up_review_stack() -> dict[str, Any]:
     wait_for_postgres()
     wait_for_redis()
     bootstrap_schema()
-    run_compose('build', 'review-api', timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
+    run_compose('build', 'review-api', timeout_seconds=TIMEOUTS.image_build, failure_code='REVIEW_STACK_START_FAILED')
     seed_review_database()
     run_compose('up', '-d', 'review-api', timeout_seconds=TIMEOUTS.stack_readiness, failure_code='REVIEW_STACK_START_FAILED')
     wait_for_api_health()

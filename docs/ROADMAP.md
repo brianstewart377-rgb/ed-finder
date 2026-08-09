@@ -29,6 +29,14 @@ document that should answer "what next?".
 - Map posture: Map remains a secondary Explore surface, not the primary
   planning workspace. Stage 26 authorizes a measured desktop replacement of
   its low-value frontend implementation while preserving that product role.
+- Map layer posture (2026-08-08): the map's typed `MapSceneDescriptor` layer/adapter
+  boundary (Stage 26D) is the standing, documented pattern for any Explore-journey
+  feature that wants map presence — not a closed list limited to Finder, Compare,
+  System Detail, Cluster Search, and Planner hand-off. The first new consumer of
+  this pattern is a personal exploration data layer (own design doc:
+  `docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md`). This does
+  not change "Map remains a secondary Explore surface" or Colony Cockpit's role as
+  the sole canonical planning workspace, and does not authorize planner-map fusion.
 - Scoring posture: player-facing UI continues to speak in **Development
   Score**, API rerank helpers stay under **archetypes**, and the current DB
   implementation still runs on the **Ratings v3.4** scorer/tables. The full

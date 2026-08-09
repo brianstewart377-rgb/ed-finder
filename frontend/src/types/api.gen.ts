@@ -810,6 +810,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/exploration/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Exploration */
+        post: operations["import_exploration_api_exploration_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/facts/{sync_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Facts For Sync Key */
+        get: operations["get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/local/autocomplete": {
         parameters: {
             query?: never;
@@ -2701,6 +2735,96 @@ export interface components {
             derived_features: components["schemas"]["DerivedFeatureResponse"][];
             /** Open Rule Proposals */
             open_rule_proposals: components["schemas"]["RuleProposalResponse"][];
+        };
+        /** ExplorationFactRow */
+        ExplorationFactRow: {
+            /** Event Type */
+            event_type: string;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Body Id */
+            body_id?: number | null;
+            /** Body Name */
+            body_name?: string | null;
+            /** Observed At */
+            observed_at: string;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
+            /** Source */
+            source: string;
+        };
+        /** ExplorationFactsResponse */
+        ExplorationFactsResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /** Facts */
+            facts?: components["schemas"]["ExplorationFactRow"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** ExplorationImportReceipt */
+        ExplorationImportReceipt: {
+            /** Sync Key */
+            sync_key: string;
+            /** Status */
+            status: string;
+            summary: components["schemas"]["ExplorationImportSummary"];
+        };
+        /** ExplorationImportRequest */
+        ExplorationImportRequest: {
+            /** Sync Key */
+            sync_key: string;
+            /**
+             * Source
+             * @default journal
+             * @enum {string}
+             */
+            source: "journal" | "edsm";
+            /** Observations */
+            observations?: components["schemas"]["ExplorationObservationInput"][];
+        };
+        /** ExplorationImportSummary */
+        ExplorationImportSummary: {
+            /** Observations Received */
+            observations_received: number;
+            /** Observations Staged */
+            observations_staged: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
+        };
+        /** ExplorationObservationInput */
+        ExplorationObservationInput: {
+            /** Observation Key */
+            observation_key: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Body Id */
+            body_id?: number | null;
+            /** Body Name */
+            body_name?: string | null;
+            /** Payload */
+            payload?: {
+                [key: string]: unknown;
+            };
         };
         /** ExplorationValueModel */
         ExplorationValueModel: {
@@ -6675,6 +6799,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JournalPromotionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_exploration_api_exploration_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExplorationImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sync_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationFactsResponse"];
                 };
             };
             /** @description Validation Error */

@@ -168,6 +168,7 @@ artifacts/restore-rehearsals/latest.dump
 # Tool and session artifacts
 .mcp.json
 .playwright-mcp/
+.superpowers/
 ed-finder-deployed.png
 ed-finder-finder-page.png
 tools/
