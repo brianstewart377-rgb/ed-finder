@@ -16,7 +16,11 @@ if [[ ! "$MIN_FREE_GB" =~ ^[0-9]+([.][0-9]+)?$ ]] || [[ "$MIN_FREE_GB" =~ ^0+([.
   exit 1
 fi
 
-if [[ ! "$MAX_PERCENT_USED" =~ ^[0-9]+$ ]] || (( 10#$MAX_PERCENT_USED < 1 || 10#$MAX_PERCENT_USED > 100 )); then
+# Bounded to at most 3 digits before any arithmetic runs, so a value like
+# 18446744073709551716 (2^64 + 100) can never reach bash's (( )) context and
+# wrap around to something in range - it is rejected as malformed input by
+# the regex alone, before overflow could occur.
+if [[ ! "$MAX_PERCENT_USED" =~ ^[0-9]{1,3}$ ]] || (( 10#$MAX_PERCENT_USED < 1 || 10#$MAX_PERCENT_USED > 100 )); then
   echo "ERROR: disk watchdog cannot measure usage: DISK_WATCHDOG_MAX_PERCENT_USED must be an integer 1-100; heartbeat not sent" >&2
   exit 1
 fi

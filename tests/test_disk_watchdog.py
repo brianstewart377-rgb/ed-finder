@@ -338,6 +338,26 @@ def test_zero_padded_percent_threshold_is_rejected_not_silently_widened(tmp_path
     assert 'ERROR: disk watchdog cannot measure usage' in observation['output']
 
 
+def test_overflowing_percent_threshold_is_rejected_not_wrapped(tmp_path: Path):
+    """A digit-only value outside Bash's 64-bit signed arithmetic range
+    wraps instead of erroring inside `(( ))` - e.g. 18446744073709551716
+    (2^64 + 100) wraps to 100, which then passes the 1-100 range check and
+    is accepted as a valid, permissive threshold rather than rejected as
+    the malformed input it is. Codex Review finding, 2026-08-09."""
+    observation = _run_disk_watchdog(
+        tmp_path, max_percent_used='18446744073709551716'
+    )
+    completed = observation['completed']
+
+    assert isinstance(completed, subprocess.CompletedProcess)
+    assert completed.returncode != 0, (
+        f'an overflowing value must still be rejected: {observation["output"]}'
+    )
+    assert observation['df_calls'] == []
+    assert observation['curl_calls'] == []
+    assert 'ERROR: disk watchdog cannot measure usage' in observation['output']
+
+
 def test_zero_padded_valid_percent_threshold_is_still_accepted(tmp_path: Path):
     """The base-10 fix must not reject legitimately zero-padded in-range
     values (e.g. '080' meaning 80) - only widen validation, not narrow it."""
