@@ -7,12 +7,29 @@ the right path, and it uses copytruncate (required because several of
 these logs are held open continuously by long-running containers or
 written by cron-invoked scripts with no signal-based reopen support - a
 plain rename-based rotation would silently orphan those writers).
+
+Directive checks run against _active_directive_lines(), not the raw file
+text: the file's own explanatory comments mention "copytruncate" and
+other directive words too, so a plain substring search over the whole
+file would still pass even if the real directive line were deleted or
+misspelled (Codex Review finding, 2026-08-09).
 """
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 LOGROTATE_CONFIG_PATH = ROOT / 'config' / 'ed-finder.logrotate'
+
+
+def _active_directive_lines() -> list[str]:
+    source = LOGROTATE_CONFIG_PATH.read_text(encoding='utf-8')
+    lines = []
+    for raw_line in source.splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith('#'):
+            continue
+        lines.append(stripped)
+    return lines
 
 
 def test_logrotate_config_exists():
@@ -22,20 +39,18 @@ def test_logrotate_config_exists():
 
 
 def test_logrotate_config_targets_the_right_path():
-    source = LOGROTATE_CONFIG_PATH.read_text(encoding='utf-8')
-    assert '/data/logs/*.log {' in source
+    assert '/data/logs/*.log {' in _active_directive_lines()
 
 
 def test_logrotate_config_uses_copytruncate():
-    source = LOGROTATE_CONFIG_PATH.read_text(encoding='utf-8')
     # Required, not optional - see module docstring. A plain rotation
     # (rename + recreate) would leave continuously-open writers (e.g. the
     # EDDN listener container) appending to a file no longer visible
     # under its original name.
-    assert 'copytruncate' in source
+    assert 'copytruncate' in _active_directive_lines()
 
 
 def test_logrotate_config_keeps_only_a_few_days():
-    source = LOGROTATE_CONFIG_PATH.read_text(encoding='utf-8')
-    assert 'daily' in source
-    assert 'rotate 3' in source
+    active_lines = _active_directive_lines()
+    assert 'daily' in active_lines
+    assert 'rotate 3' in active_lines
