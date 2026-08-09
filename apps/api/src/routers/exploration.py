@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from edfinder_api.config import limiter
 from edfinder_api.deps import get_pool
 from edfinder_api.exploration.api_models import (
+    _SYNC_KEY_RE,
     ExplorationFactsResponse,
     ExplorationImportReceipt,
     ExplorationImportRequest,
@@ -11,6 +12,15 @@ from edfinder_api.exploration.api_models import (
 from edfinder_api.exploration import store
 
 router = APIRouter(tags=['exploration'])
+
+
+def _validate_sync_key(sync_key: str) -> str:
+    stripped = sync_key.strip()
+    if stripped == 'legacy':
+        raise HTTPException(400, 'sync_key="legacy" is reserved for migration')
+    if not _SYNC_KEY_RE.match(stripped):
+        raise HTTPException(400, 'sync_key must be 16-128 chars, alphanumeric + "_" or "-" only.')
+    return stripped
 
 
 @router.post('/api/exploration/import', response_model=ExplorationImportReceipt)
@@ -34,4 +44,5 @@ async def get_exploration_facts_for_sync_key(
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> ExplorationFactsResponse:
     del request
-    return await store.get_exploration_facts(pool, sync_key)
+    validated_sync_key = _validate_sync_key(sync_key)
+    return await store.get_exploration_facts(pool, validated_sync_key)

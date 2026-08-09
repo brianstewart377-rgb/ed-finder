@@ -147,3 +147,60 @@ async def test_import_raises_rate_limit_error_over_daily_budget(pool, monkeypatc
     })
     with pytest.raises(store.ExplorationImportRateLimitError):
         await store.import_exploration_batch(pool, second)
+
+
+async def test_import_budget_charges_only_novel_keys_not_overlap(pool, monkeypatch):
+    # Budget is 15: first batch of 10 rows fits under budget. A later batch that
+    # re-submits all 10 of those same observation_keys plus 5 genuinely new ones
+    # should succeed, because only the 5 novel rows count toward the budget
+    # (10 + 10 + 5 = 25 > 15 would wrongly reject under the old raw-batch-size
+    # check, but 10 + 5 = 15 is exactly at budget under the corrected check).
+    monkeypatch.setattr(store, 'MAX_DAILY_ROWS_PER_SYNC_KEY', 15)
+    sync_key = _sync_key()
+
+    first_keys = [uuid4().hex for _ in range(10)]
+    first_request = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': [
+            {
+                'observation_key': key,
+                'event_type': 'Scan',
+                'observed_at': f'2026-08-08T09:{i:02d}:00Z',
+                'system_id64': 30000 + i,
+                'payload': {},
+            }
+            for i, key in enumerate(first_keys)
+        ],
+    })
+    first_receipt = await store.import_exploration_batch(pool, first_request)
+    assert first_receipt.summary.observations_staged == 10
+
+    new_keys = [uuid4().hex for _ in range(5)]
+    overlap_observations = [
+        {
+            'observation_key': key,
+            'event_type': 'Scan',
+            'observed_at': f'2026-08-08T10:{i:02d}:00Z',
+            'system_id64': 30000 + i,
+            'payload': {},
+        }
+        for i, key in enumerate(first_keys)
+    ]
+    new_observations = [
+        {
+            'observation_key': key,
+            'event_type': 'Scan',
+            'observed_at': f'2026-08-08T11:{i:02d}:00Z',
+            'system_id64': 40000 + i,
+            'payload': {},
+        }
+        for i, key in enumerate(new_keys)
+    ]
+    second_request = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': overlap_observations + new_observations,
+    })
+
+    second_receipt = await store.import_exploration_batch(pool, second_request)
+    assert second_receipt.summary.observations_staged == 5
+    assert second_receipt.summary.duplicates_skipped == 10

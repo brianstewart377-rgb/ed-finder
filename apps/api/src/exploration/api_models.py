@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Literal
@@ -8,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 JsonObject = dict[str, Any]
 _SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
+MAX_PAYLOAD_BYTES = 32_768
 
 ALLOWED_EXPLORATION_EVENT_TYPES = {
     'FSDJump',
@@ -18,6 +20,7 @@ ALLOWED_EXPLORATION_EVENT_TYPES = {
     'FSSBodySignals',
     'CodexEntry',
     'SAAScanComplete',
+    'ScanOrganic',
 }
 
 
@@ -34,9 +37,9 @@ class ExplorationObservationInput(BaseModel):
     observation_key: str = Field(min_length=16, max_length=128)
     event_type: str = Field(min_length=1, max_length=64)
     observed_at: datetime
-    system_id64: int = Field(gt=0)
+    system_id64: int = Field(gt=0, le=9_223_372_036_854_775_807)
     system_name: str | None = Field(default=None, max_length=128)
-    body_id: int | None = Field(default=None)
+    body_id: int | None = Field(default=None, ge=0, le=2_147_483_647)
     body_name: str | None = Field(default=None, max_length=128)
     payload: JsonObject = Field(default_factory=dict)
 
@@ -82,6 +85,9 @@ class ExplorationObservationInput(BaseModel):
     def validate_payload(cls, value: JsonObject) -> JsonObject:
         if not isinstance(value, dict):
             raise ValueError('payload must be an object')
+        serialized_size = len(json.dumps(value))
+        if serialized_size > MAX_PAYLOAD_BYTES:
+            raise ValueError(f'payload exceeds the {MAX_PAYLOAD_BYTES}-byte limit ({serialized_size} bytes)')
         return value
 
 

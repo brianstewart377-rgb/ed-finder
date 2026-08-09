@@ -69,10 +69,26 @@ async def import_exploration_batch(
     async with pool.acquire() as conn:
         async with conn.transaction():
             daily_rows_before = await _daily_rows_for_sync_key(conn, request.sync_key)
-            if daily_rows_before + rows_read > MAX_DAILY_ROWS_PER_SYNC_KEY:
+
+            incoming_keys = [observation.observation_key for observation in request.observations]
+            existing_rows = await conn.fetch(
+                '''
+                SELECT source_record_hash
+                FROM exploration_facts
+                WHERE sync_key = $1
+                  AND source_record_hash = ANY($2::text[])
+                ''',
+                request.sync_key,
+                incoming_keys,
+            )
+            existing_key_set = {row['source_record_hash'] for row in existing_rows}
+            novel_key_set = set(incoming_keys) - existing_key_set
+            novel_count = len(novel_key_set)
+
+            if daily_rows_before + novel_count > MAX_DAILY_ROWS_PER_SYNC_KEY:
                 raise ExplorationImportRateLimitError(
                     f'Exploration import row budget exceeded for this sync key: '
-                    f'{daily_rows_before + rows_read:,} rows in the last 24h '
+                    f'{daily_rows_before + novel_count:,} rows in the last 24h '
                     f'(limit {MAX_DAILY_ROWS_PER_SYNC_KEY:,}).'
                 )
 

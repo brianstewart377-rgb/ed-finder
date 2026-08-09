@@ -123,7 +123,8 @@ export interface ExplorationObservationInput {
     | 'SAASignalsFound'
     | 'FSSBodySignals'
     | 'CodexEntry'
-    | 'SAAScanComplete';
+    | 'SAAScanComplete'
+    | 'ScanOrganic';
   observed_at: string;
   system_id64: number;
   system_name?: string | null;

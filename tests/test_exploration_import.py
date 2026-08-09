@@ -39,6 +39,7 @@ def test_allowed_event_types_cover_all_six_facets():
     assert ALLOWED_EXPLORATION_EVENT_TYPES == {
         'FSDJump', 'Location', 'Scan', 'FSSDiscoveryScan',
         'SAASignalsFound', 'FSSBodySignals', 'CodexEntry', 'SAAScanComplete',
+        'ScanOrganic',
     }
 
 
@@ -83,3 +84,29 @@ def test_request_accepts_valid_sync_key_and_defaults_source_to_journal():
 def test_observation_key_is_not_stripped_and_whitespace_only_is_rejected():
     with pytest.raises(ValidationError):
         ExplorationObservationInput.model_validate(_valid_observation(observation_key=' ' * 16))
+
+
+def test_observation_rejects_payload_over_size_bound():
+    oversized_payload = {'blob': 'x' * 40_000}
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(payload=oversized_payload))
+
+
+def test_observation_accepts_payload_under_size_bound():
+    normal_payload = {'BodyName': 'Test System 1', 'PlanetClass': 'Rocky body'}
+    observation = ExplorationObservationInput.model_validate(
+        _valid_observation(payload=normal_payload)
+    )
+    assert observation.payload == normal_payload
+
+
+def test_observation_rejects_system_id64_above_bigint_max():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(system_id64=9_223_372_036_854_775_808)
+        )
+
+
+def test_observation_rejects_negative_body_id():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(body_id=-1))
