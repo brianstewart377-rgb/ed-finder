@@ -76,16 +76,22 @@ class ExplorationObservationInput(BaseModel):
             value = datetime.fromisoformat(stripped.replace('Z', '+00:00'))
         if not isinstance(value, datetime):
             raise ValueError('observed_at must be an ISO-8601 timestamp')
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc)
+        try:
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        except OverflowError as exc:
+            raise ValueError(f'observed_at is outside the representable timestamp range: {exc}') from exc
 
     @field_validator('payload')
     @classmethod
     def validate_payload(cls, value: JsonObject) -> JsonObject:
         if not isinstance(value, dict):
             raise ValueError('payload must be an object')
-        serialized_size = len(json.dumps(value))
+        try:
+            serialized_size = len(json.dumps(value, allow_nan=False))
+        except ValueError as exc:
+            raise ValueError(f'payload contains a value PostgreSQL JSON cannot store: {exc}') from exc
         if serialized_size > MAX_PAYLOAD_BYTES:
             raise ValueError(f'payload exceeds the {MAX_PAYLOAD_BYTES}-byte limit ({serialized_size} bytes)')
         return value

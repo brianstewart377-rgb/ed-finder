@@ -110,3 +110,24 @@ def test_observation_rejects_system_id64_above_bigint_max():
 def test_observation_rejects_negative_body_id():
     with pytest.raises(ValidationError):
         ExplorationObservationInput.model_validate(_valid_observation(body_id=-1))
+
+
+def test_observation_rejects_non_finite_floats_in_payload():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(payload={'value': float('nan')}))
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(_valid_observation(payload={'value': float('inf')}))
+
+
+def test_observation_accepts_finite_floats_in_payload():
+    observation = ExplorationObservationInput.model_validate(
+        _valid_observation(payload={'value': 1.5})
+    )
+    assert observation.payload == {'value': 1.5}
+
+
+def test_observation_rejects_boundary_timestamp_that_overflows_on_utc_conversion():
+    with pytest.raises(ValidationError):
+        ExplorationObservationInput.model_validate(
+            _valid_observation(observed_at='0001-01-01T00:00:00+14:00')
+        )
