@@ -57,6 +57,7 @@ from edfinder_api.routers.evidence import router as evidence_router
 from edfinder_api.ingest.eddn_client import run_eddn_simulation_ingest
 from edfinder_api.routers.events import router as events_router, eddn_pubsub_bridge
 from edfinder_api.routers.journal_import import router as journal_import_router
+from edfinder_api.routers.exploration import router as exploration_router
 from edfinder_api.routers.map import router as map_router
 from edfinder_api.routers.meta import router as meta_router
 from edfinder_api.routers.news import router as news_router
@@ -354,6 +355,7 @@ app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(evidence_router)
 app.include_router(journal_import_router)
+app.include_router(exploration_router)
 app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)
