@@ -394,9 +394,27 @@ run_importer "import_stations" import_spansh.py --file galaxy_stations.json.gz \
 
 # ---------------------------------------------------------------------------
 # 3. Re-rate dirty systems
+#
+# rating_dirty=TRUE systems split into two populations that need different
+# handling: has_body_data=TRUE systems get a real rating from
+# build_ratings.py --dirty, but has_body_data=FALSE systems have nothing to
+# rate and build_ratings.py --dirty never touches them — they only clear
+# truthfully via reconcile_no_body_ratings.py (see
+# run_dirty_ratings_if_needed.sh, which already does both steps in this
+# order). Without the no-body cleanup, and with the dirty-count check
+# unfiltered by has_body_data, this step reported "incomplete" every single
+# night regardless of whether the actual rateable backlog was cleared,
+# because a normal, continuously-regenerating no-body population can never
+# satisfy a bare `rating_dirty = TRUE` count going to zero.
 # ---------------------------------------------------------------------------
 log "--- Step 3: Re-rate dirty systems ---"
-pg_count_into DIRTY_COUNT "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE"
+log "Running truthful no-body cleanup ..."
+run_importer "reconcile_no_body_ratings" /opt/ed-finder/scripts/reconcile_no_body_ratings.py \
+    --apply --batch-size 5000 --limit 50000 --skip-summary --json \
+    && success "No-body ratings reconciled" \
+    || warn "No-body reconciliation had errors (check ${LOG_DIR}/reconcile_no_body_ratings.log)"
+
+pg_count_into DIRTY_COUNT "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE AND has_body_data = TRUE"
 log "Dirty systems to re-rate: $DIRTY_COUNT"
 
 if (( DIRTY_COUNT > 0 )); then
@@ -406,11 +424,11 @@ if (( DIRTY_COUNT > 0 )); then
         || warn "Rating rebuild had errors (check ${LOG_DIR}/build_ratings.log)"
 
     # Post-rebuild verification: how many are still dirty?
-    pg_count_into STILL_DIRTY "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE"
+    pg_count_into STILL_DIRTY "SELECT COUNT(*) FROM systems WHERE rating_dirty = TRUE AND has_body_data = TRUE"
     if (( STILL_DIRTY > 0 )); then
-        warn "Rating rebuild incomplete: $STILL_DIRTY systems still have rating_dirty=TRUE"
+        warn "Rating rebuild incomplete: $STILL_DIRTY systems still have rating_dirty=TRUE AND has_body_data=TRUE"
     else
-        success "All rating_dirty flags cleared"
+        success "All body-backed rating_dirty flags cleared"
     fi
 fi
 
