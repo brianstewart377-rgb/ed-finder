@@ -503,7 +503,7 @@ class LocalSearchRequest(BaseModel):
     reference_coords: Optional[CoordsModel]   = None
     sort_by:          Optional[str]            = 'development'
     size:             int                      = Field(default=50, le=500)
-    from_:            int                      = Field(default=0, alias='from')
+    from_:            int                      = Field(default=0, ge=0, alias='from')
     body_filters:     Optional[BodyFilters]    = None
     require_bio:      Optional[bool]           = None
     require_geo:      Optional[bool]           = None
@@ -532,7 +532,7 @@ class GalaxySearchRequest(BaseModel):
     economy:   EconomyFilterField = 'any'
     min_score: int = Field(default=0, ge=0, le=100)
     limit:     int = Field(default=100, le=500)
-    offset:    int = 0
+    offset:    int = Field(default=0, ge=0)
 
 
 class ClusterRequirement(BaseModel):
@@ -587,7 +587,7 @@ class ClusterSearchRequest(BaseModel):
     # New slot-based format
     slots:            list[SlotRequirement] = Field(default_factory=list)
     limit:            int = Field(default=50, le=200)
-    offset:           int = 0
+    offset:           int = Field(default=0, ge=0)
     reference_coords: Optional[CoordsModel] = None
     galaxy_region_id: Optional[int] = Field(default=None, ge=1, le=42)
 
