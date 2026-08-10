@@ -393,7 +393,6 @@ async def _upsert_ratings(conn: asyncpg.Connection) -> None:
                 rating['signal_quality'],
                 rating['orbital_safety'],
                 rating['star_bonus'],
-                json.dumps(rating['score_breakdown'], sort_keys=True),
                 rating['rating_version'],
                 _rating_confidence(rating.get('confidence')),
                 rating['rationale'],
@@ -434,12 +433,11 @@ async def _upsert_ratings(conn: asyncpg.Connection) -> None:
           signal_quality,
           orbital_safety,
           star_bonus,
-          score_breakdown,
           rating_version,
           confidence,
           rationale
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33::jsonb, $34, $35, $36)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35)
         ON CONFLICT (system_id64) DO UPDATE
         SET score = EXCLUDED.score,
             score_agriculture = EXCLUDED.score_agriculture,
@@ -472,7 +470,6 @@ async def _upsert_ratings(conn: asyncpg.Connection) -> None:
             signal_quality = EXCLUDED.signal_quality,
             orbital_safety = EXCLUDED.orbital_safety,
             star_bonus = EXCLUDED.star_bonus,
-            score_breakdown = EXCLUDED.score_breakdown,
             rating_version = EXCLUDED.rating_version,
             confidence = EXCLUDED.confidence,
             rationale = EXCLUDED.rationale,
