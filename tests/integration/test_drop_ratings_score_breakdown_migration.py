@@ -78,3 +78,23 @@ def test_orphaned_search_functions_removed():
             assert cur.fetchall() == []
     finally:
         conn.close()
+
+
+def test_reconstruction_unaffected_by_column_drop():
+    # The API's score_breakdown response field is rebuilt from the
+    # score_<economy> columns (which Phase 1 keeps), not read from the dropped
+    # column. Prove reconstruction still runs and yields a JSON-serialisable
+    # result from a rating row with no rocky bodies (the common path — the
+    # function only touches `bodies` when rating_row['rocky_count'] is truthy).
+    import json
+    sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
+    from ratings_breakdown import reconstruct_score_breakdown  # noqa: E402
+
+    row = {
+        'score_agriculture': 10, 'score_refinery': 20, 'score_industrial': 30,
+        'score_hightech': 40, 'score_military': 50, 'score_tourism': 60,
+        'score_extraction': 15, 'rocky_count': 0,
+    }
+    out = reconstruct_score_breakdown(row, ())
+    assert isinstance(out, dict) and out   # non-empty reconstruction
+    json.dumps(out)                        # matches the JSONB API contract
