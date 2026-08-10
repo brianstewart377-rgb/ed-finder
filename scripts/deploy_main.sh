@@ -175,7 +175,13 @@ else
 say "Build $FRONTEND_DIR"
 (
   cd "$FRONTEND_DIR"
-  yarn install --frozen-lockfile --no-progress --non-interactive
+  # --ignore-engines: production Node is currently 20.x, but the test-only jsdom
+  # devDependency declares "engines: node >=22". jsdom is not used by the vite
+  # build (only by vitest), so the build itself runs fine on Node 20 — without
+  # this flag `yarn install` aborts with "engine incompatible" and blocks the
+  # whole deploy. Remove this flag once production Node is upgraded to >= 22
+  # (or once jsdom is pinned back to a Node-20-compatible major in the frontend).
+  yarn install --frozen-lockfile --no-progress --non-interactive --ignore-engines
   yarn build
 )
 ok "frontend built"
