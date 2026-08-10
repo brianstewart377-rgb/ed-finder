@@ -338,6 +338,7 @@ services:
       - ./frontend/dist:/var/www/app:ro  # current frontend build output, served at /
       - /opt/ed-finder-review/frontend/dist:/var/www/review:ro
       - /opt/ed-finder-review/.secrets/review.htpasswd:/etc/nginx/review.htpasswd:ro
+      - /opt/octopus/ui.htpasswd:/etc/nginx/octopus.htpasswd:ro  # basic-auth for octopus.ed-finder.app (see nginx.conf octopus block)
       - /opt/ed-finder-review/.review/nginx-logs:/var/log/nginx-review
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/lib/letsencrypt:/var/lib/letsencrypt:ro
