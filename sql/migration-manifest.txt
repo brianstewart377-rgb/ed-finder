@@ -54,3 +54,4 @@
 040_cluster_summary_widen_counts.sql
 041_bodies_composite_identity_index.sql|manual
 042_exploration_facts.sql
+043_drop_ratings_score_breakdown.sql
