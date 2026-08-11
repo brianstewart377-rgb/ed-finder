@@ -3,6 +3,7 @@ import type { SystemBody, SystemStation } from '@/types/api';
 import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
 import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
 import { Section } from './SystemDetailSectionShell';
+import { BodyThumbnail } from './body-thumbnail/BodyThumbnail';
 
 export function BodiesSection({ bodies, systemName }: { bodies?: SystemBody[]; systemName?: string | null }) {
   if (!bodies || bodies.length === 0) return null;
@@ -23,6 +24,7 @@ export function BodiesSection({ bodies, systemName }: { bodies?: SystemBody[]; s
         <table className="w-full text-xs font-mono">
           <thead className="text-silver-dk uppercase tracking-[0.16em] text-[10px]" style={tableHeadStyle}>
             <tr>
+              <th className="px-3 py-2.5 w-9" aria-hidden></th>
               <th className="px-3 py-2.5 text-left">Name</th>
               <th className="px-3 py-2.5 text-left">Type</th>
               <th className="px-3 py-2.5 text-left">Tags</th>
@@ -32,6 +34,7 @@ export function BodiesSection({ bodies, systemName }: { bodies?: SystemBody[]; s
           <tbody>
             {sorted.map((body) => (
               <tr key={body.id} className="border-t border-border/50 hover:bg-orange/5 transition-colors">
+                <td className="px-3 py-1.5 align-middle"><BodyThumbnail body={body} /></td>
                 <td className="px-3 py-2 text-orange-lt font-semibold">{body.name}</td>
                 <td className="px-3 py-2 text-silver">{body.subtype || body.body_type || '—'}</td>
                 <td className="px-3 py-2 text-silver-dk text-[10px]">
