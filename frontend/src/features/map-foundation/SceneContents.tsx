@@ -275,10 +275,10 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
 
   // ── Real-star fade logic (Phase 3) ──────────────────────────────────
   // Compute target opacities based on zoom state (box) and cap state (truncated)
-  const hasRealStars = realStars && realStars.length > 0;
+  const box = realStars ?? null;
   const truncated = heatmap?.sourceTruncated ?? false;
-  const targetHeatmapOpacity = (!hasRealStars || truncated) ? 1 : 0;
-  const targetStarsOpacity = (!hasRealStars || truncated) ? 0 : 1;
+  const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
+  const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
 
   // Track current opacities and animation state for smooth interpolation
   const currentHeatmapOpacityRef = useRef(targetHeatmapOpacity);
@@ -286,7 +286,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   const startHeatmapOpacityRef = useRef(targetHeatmapOpacity);
   const startStarsOpacityRef = useRef(targetStarsOpacity);
   const fadeTimeRef = useRef(0);
-  const heatmapMaterialRef = useRef<THREE.Material | null>(null);
+  const heatmapMaterialRef = useRef<THREE.PointsMaterial>(null);
   const starsGroupRef = useRef<THREE.Group | null>(null);
 
   // Reset animation state when targets change
@@ -301,17 +301,24 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     }
   }, [targetHeatmapOpacity, targetStarsOpacity]);
 
-  // Smooth interpolation: 500ms fade using linear time-based progress
+  // Smooth interpolation: 500ms fade with ease-in-out easing
   // Fade duration: 500ms
   const FADE_DURATION_MS = 500;
   const FADE_DURATION_S = FADE_DURATION_MS / 1000;
+
+  // Ease-in-out cubic easing function
+  const easeInOutCubic = (t: number): number => {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  };
+
   useFrame(({ clock }) => {
     // Update fade time each frame
     const deltaTime = Math.min(clock.getDelta(), 0.1); // Cap deltaTime to prevent large jumps
     fadeTimeRef.current = Math.min(fadeTimeRef.current + deltaTime, FADE_DURATION_S);
 
-    // Linear interpolation based on elapsed time
-    const progress = fadeTimeRef.current / FADE_DURATION_S;
+    // Time-based progress with ease-in-out cubic easing
+    const linearProgress = fadeTimeRef.current / FADE_DURATION_S;
+    const progress = easeInOutCubic(linearProgress);
 
     // Update heatmap opacity
     currentHeatmapOpacityRef.current =
@@ -390,7 +397,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <bufferAttribute attach="attributes-color" args={[heatmap.colors, 3]} />
       </bufferGeometry>
       <pointsMaterial
-        ref={heatmapMaterialRef as any}
+        ref={heatmapMaterialRef}
         vertexColors
         size={Math.min(
           heatmap.voxelSize * 0.72,
