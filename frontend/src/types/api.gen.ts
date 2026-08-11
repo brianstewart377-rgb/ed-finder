@@ -1081,6 +1081,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/map/systems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Map Systems
+         * @description Individual star systems within a viewport bounding box — the zoom-in
+         *     real-star detail lane (the heatmap is the zoomed-out aggregate lane).
+         *
+         *     Read-only. Returns up to `limit` systems ordered notable-first (populated,
+         *     then by star-brightness proxy from spectral class), so the important stars
+         *     appear first at partial zoom and fill in as you zoom deeper. An over-wide
+         *     box is rejected with `too_wide=True` (the client should stay on the heatmap)
+         *     rather than forcing a whole-galaxy scan.
+         */
+        get: operations["map_systems_api_map_systems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/archetypes/rankings": {
         parameters: {
             query?: never;
@@ -7216,6 +7243,50 @@ export interface operations {
         parameters: {
             query?: {
                 bucket?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    map_systems_api_map_systems_get: {
+        parameters: {
+            query: {
+                /** @description Viewport bounding-box min X (LY) */
+                min_x: number;
+                /** @description Viewport bounding-box max X (LY) */
+                max_x: number;
+                /** @description Viewport bounding-box min Y (LY) */
+                min_y: number;
+                /** @description Viewport bounding-box max Y (LY) */
+                max_y: number;
+                /** @description Viewport bounding-box min Z (LY) */
+                min_z: number;
+                /** @description Viewport bounding-box max Z (LY) */
+                max_z: number;
+                /** @description Maximum individual systems returned */
+                limit?: number;
             };
             header?: never;
             path?: never;
