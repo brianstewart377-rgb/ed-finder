@@ -336,7 +336,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       />
     </points>}
     {realStars && realStars.length > 0 && (
-      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} />
+      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} opacity={0.95} />
     )}
     {aggregateHulls && <lineSegments>
       <bufferGeometry>
