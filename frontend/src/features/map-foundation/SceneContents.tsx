@@ -19,6 +19,7 @@ import type {
 } from './types';
 import { measureRendererGpuTiming } from './performance';
 import { declutterRegionLabels } from './map-presentation';
+import { GlowPointsMaterial } from './glowPoints';
 import {
   buildClusterGeometry,
   clusterAnchorIdForSystem,
@@ -347,13 +348,10 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       renderOrder={8}
     >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
-      <pointsMaterial
+      <GlowPointsMaterial
         color="#ff9a3d"
         size={attenuatedPointSize(props.scene.camera.zoom, 8)}
         sizeAttenuation
-        transparent
-        opacity={1}
-        depthTest={false}
       />
     </points>
     <points
@@ -363,20 +361,18 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       renderOrder={9}
     >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[guaranteedPositions, 3]} /></bufferGeometry>
-      <pointsMaterial
+      <GlowPointsMaterial
         color="#ff9a3d"
         size={attenuatedPointSize(props.scene.camera.zoom, 7)}
         sizeAttenuation
-        depthTest={false}
       />
     </points>
     <points onPointerDown={(event) => select(selected, event)} renderOrder={10}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[selectedPositions, 3]} /></bufferGeometry>
-      <pointsMaterial
+      <GlowPointsMaterial
         color="#ffffff"
         size={attenuatedPointSize(props.scene.camera.zoom, 7)}
         sizeAttenuation
-        depthTest={false}
       />
     </points>
     {emphasizedSystems.map((system) => <mesh
