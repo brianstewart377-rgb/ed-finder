@@ -214,6 +214,14 @@ competing roadmap source.
   coverage, and related trust signals.
 - Harden the `systems.has_body_data` / `systems.body_count` contract so rating
   eligibility cannot drift away from actual `bodies` rows under live ingest.
+- Real-star viewport streaming on the Explore map is authorized as a bounded,
+  **read-only** capability: a capped `/api/map/systems` bounding-box endpoint
+  plus a client LOD switch that renders individual systems (colored by spectral
+  class) on zoom-in, complementing — not replacing — the aggregate heatmap. It
+  writes nothing, adds no planner-map fusion, and rides the existing `systems`
+  spatial indexes (`idx_sys_coords`); a precomputed tile pyramid stays out of
+  scope unless measured performance requires it. See
+  `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
 
 ### Deferred Product Expansion
 

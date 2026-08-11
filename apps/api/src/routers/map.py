@@ -14,6 +14,10 @@ router = APIRouter(tags=['map'])
 
 MAX_MAP_HEATMAP_CELLS = 50_000
 
+# Real-star viewport lane (the zoom-in detail lane; heatmap is the aggregate lane).
+MAX_MAP_VIEWPORT_SYSTEMS = 40_000   # hard cap on individual systems per viewport
+MAX_MAP_VIEWPORT_LY = 15_000        # per-axis box guard; wider -> stay on the heatmap
+
 
 
 
@@ -341,4 +345,86 @@ async def map_timeline(
         'total': sum(r['systems_discovered'] for r in rows),
     }
     await cache_set(cache_key, result, settings.ttl_cluster, redis)
+    return result
+
+
+@router.get('/api/map/systems')
+@limiter.limit('60/minute')
+async def map_systems(
+    request: Request,
+    min_x: float = Query(..., description='Viewport bounding-box min X (LY)'),
+    max_x: float = Query(..., description='Viewport bounding-box max X (LY)'),
+    min_y: float = Query(..., description='Viewport bounding-box min Y (LY)'),
+    max_y: float = Query(..., description='Viewport bounding-box max Y (LY)'),
+    min_z: float = Query(..., description='Viewport bounding-box min Z (LY)'),
+    max_z: float = Query(..., description='Viewport bounding-box max Z (LY)'),
+    limit: int = Query(
+        20_000, ge=1, le=MAX_MAP_VIEWPORT_SYSTEMS,
+        description='Maximum individual systems returned',
+    ),
+    pool: asyncpg.Pool = Depends(get_pool),
+    redis: Optional[aioredis.Redis] = Depends(get_redis),
+):
+    """Individual star systems within a viewport bounding box — the zoom-in
+    real-star detail lane (the heatmap is the zoomed-out aggregate lane).
+
+    Read-only. Returns up to `limit` systems ordered notable-first (populated,
+    then by star-brightness proxy from spectral class), so the important stars
+    appear first at partial zoom and fill in as you zoom deeper. An over-wide
+    box is rejected with `too_wide=True` (the client should stay on the heatmap)
+    rather than forcing a whole-galaxy scan.
+    """
+    # Tolerate min/max sent in either order.
+    lo_x, hi_x = sorted((min_x, max_x))
+    lo_y, hi_y = sorted((min_y, max_y))
+    lo_z, hi_z = sorted((min_z, max_z))
+
+    if ((hi_x - lo_x) > MAX_MAP_VIEWPORT_LY
+            or (hi_y - lo_y) > MAX_MAP_VIEWPORT_LY
+            or (hi_z - lo_z) > MAX_MAP_VIEWPORT_LY):
+        return {'systems': [], 'count': 0, 'truncated': False, 'too_wide': True, 'cached': False}
+
+    cache_key = (
+        f'map:systems:v1:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
+        f'{lo_z:.0f}:{hi_z:.0f}:{limit}'
+    )
+    cached = await cache_get(cache_key, redis)
+    if cached is not None:
+        return JSONResponse(content=cached)
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT id64, name, x, y, z, main_star_type,
+                   (population IS NOT NULL AND population > 0) AS populated
+            FROM   systems
+            WHERE  x BETWEEN $1 AND $2
+              AND  y BETWEEN $3 AND $4
+              AND  z BETWEEN $5 AND $6
+            ORDER BY (population IS NOT NULL AND population > 0) DESC,
+                     CASE left(main_star_type, 1)
+                        WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
+                        WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
+                        WHEN 'M' THEN 6 ELSE 7 END,
+                     id64
+            LIMIT  $7
+        """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
+
+    truncated = len(rows) > limit
+    if truncated:
+        rows = rows[:limit]
+    result = {
+        'systems': [
+            {
+                'id64': r['id64'], 'name': r['name'],
+                'x': r['x'], 'y': r['y'], 'z': r['z'],
+                'star': r['main_star_type'], 'populated': r['populated'],
+            }
+            for r in rows
+        ],
+        'count': len(rows),
+        'truncated': truncated,
+        'too_wide': False,
+        'cached': False,
+    }
+    await cache_set(cache_key, result, settings.ttl_search, redis)
     return result
