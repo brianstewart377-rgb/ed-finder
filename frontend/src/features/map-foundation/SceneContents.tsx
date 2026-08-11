@@ -1,9 +1,10 @@
-import { type ThreeEvent, useThree } from '@react-three/fiber';
+import { type ThreeEvent, useThree, useFrame } from '@react-three/fiber';
 import {
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import * as THREE from 'three';
@@ -272,6 +273,70 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   const realStars = props.productionOverlays?.realStars ?? null;
   const cameraDistance = cameraDistanceForView(props.scene.camera, props.viewport);
 
+  // ── Real-star fade logic (Phase 3) ──────────────────────────────────
+  // Compute target opacities based on zoom state (box) and cap state (truncated)
+  const hasRealStars = realStars && realStars.length > 0;
+  const truncated = heatmap?.sourceTruncated ?? false;
+  const targetHeatmapOpacity = (!hasRealStars || truncated) ? 1 : 0;
+  const targetStarsOpacity = (!hasRealStars || truncated) ? 0 : 1;
+
+  // Track current opacities and animation state for smooth interpolation
+  const currentHeatmapOpacityRef = useRef(targetHeatmapOpacity);
+  const currentStarsOpacityRef = useRef(targetStarsOpacity);
+  const startHeatmapOpacityRef = useRef(targetHeatmapOpacity);
+  const startStarsOpacityRef = useRef(targetStarsOpacity);
+  const fadeTimeRef = useRef(0);
+  const heatmapMaterialRef = useRef<THREE.Material | null>(null);
+  const starsGroupRef = useRef<THREE.Group | null>(null);
+
+  // Reset animation state when targets change
+  useEffect(() => {
+    if (currentHeatmapOpacityRef.current !== targetHeatmapOpacity) {
+      startHeatmapOpacityRef.current = currentHeatmapOpacityRef.current;
+      fadeTimeRef.current = 0;
+    }
+    if (currentStarsOpacityRef.current !== targetStarsOpacity) {
+      startStarsOpacityRef.current = currentStarsOpacityRef.current;
+      fadeTimeRef.current = 0;
+    }
+  }, [targetHeatmapOpacity, targetStarsOpacity]);
+
+  // Smooth interpolation: 500ms fade using linear time-based progress
+  // Fade duration: 500ms
+  const FADE_DURATION_MS = 500;
+  const FADE_DURATION_S = FADE_DURATION_MS / 1000;
+  useFrame(({ clock }) => {
+    // Update fade time each frame
+    const deltaTime = Math.min(clock.getDelta(), 0.1); // Cap deltaTime to prevent large jumps
+    fadeTimeRef.current = Math.min(fadeTimeRef.current + deltaTime, FADE_DURATION_S);
+
+    // Linear interpolation based on elapsed time
+    const progress = fadeTimeRef.current / FADE_DURATION_S;
+
+    // Update heatmap opacity
+    currentHeatmapOpacityRef.current =
+      startHeatmapOpacityRef.current +
+      (targetHeatmapOpacity - startHeatmapOpacityRef.current) * progress;
+
+    // Update stars opacity
+    currentStarsOpacityRef.current =
+      startStarsOpacityRef.current +
+      (targetStarsOpacity - startStarsOpacityRef.current) * progress;
+
+    // Apply to materials
+    if (heatmapMaterialRef.current) {
+      heatmapMaterialRef.current.opacity = currentHeatmapOpacityRef.current;
+    }
+    if (starsGroupRef.current) {
+      // Apply opacity to all materials in the stars group
+      starsGroupRef.current.traverse((child) => {
+        if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
+          child.material.opacity = currentStarsOpacityRef.current;
+        }
+      });
+    }
+  });
+
   const select = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
     if (event.index == null) return;
     event.stopPropagation();
@@ -325,6 +390,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <bufferAttribute attach="attributes-color" args={[heatmap.colors, 3]} />
       </bufferGeometry>
       <pointsMaterial
+        ref={heatmapMaterialRef as any}
         vertexColors
         size={Math.min(
           heatmap.voxelSize * 0.72,
@@ -332,11 +398,13 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         )}
         sizeAttenuation
         transparent
-        opacity={0.34}
+        opacity={currentHeatmapOpacityRef.current}
       />
     </points>}
     {realStars && realStars.length > 0 && (
-      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} opacity={0.95} />
+      <group ref={starsGroupRef}>
+        <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} opacity={currentStarsOpacityRef.current} />
+      </group>
     )}
     {aggregateHulls && <lineSegments>
       <bufferGeometry>
