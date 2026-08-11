@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import * as THREE from 'three';
+import { GlowPointsMaterial } from './glowPoints';
 
 export const GALAXY_CENTER = { x: 25.2, z: 25_899.9 } as const;
 export const GALAXY_RADIUS_LY = 50_000;
@@ -203,13 +204,11 @@ export function GalaxyBackdrop({ spatial, zoom }: { spatial: boolean; zoom: numb
         <bufferAttribute attach="attributes-position" args={[galaxy.positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[galaxy.colors, 3]} />
       </bufferGeometry>
-      <pointsMaterial
+      <GlowPointsMaterial
         vertexColors
         size={Math.max(18, zoom * (spatial ? 1.4 : 1.1))}
         sizeAttenuation
-        transparent
         opacity={spatial ? 0.44 : 0.34}
-        depthWrite={false}
       />
     </points>
   </group>;
