@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { SystemBody } from '../../../types/api';
-import { bodyThumbnailParams, spectralStarColor } from './bodyThumbnailParams';
+import { bodyThumbnailParams } from './bodyThumbnailParams';
+import { spectralStarColor } from '../../../lib/starColor';
 
 const body = (overrides: Partial<SystemBody>): SystemBody => overrides as SystemBody;
 

@@ -1,4 +1,5 @@
 import type { SystemBody } from '../../../types/api';
+import { spectralStarColor } from '../../../lib/starColor';
 
 // Maps an Elite-Dangerous body to the parameters used to render its procedural
 // thumbnail. `body_type` is coarse (Star/Planet/Moon/Barycentre/Unknown); the
@@ -22,21 +23,6 @@ export interface BodyThumbnailParams {
   atmosphereColor: string;
   /** Surface noise contrast, 0 (smooth) .. 1 (rough). */
   contrast: number;
-}
-
-// First letter of a spectral class -> representative color (a small blackbody
-// approximation; the full-fidelity table is deferred to feature #1).
-const STAR_COLORS: Record<string, string> = {
-  O: '#9bb0ff', B: '#aabfff', A: '#e6ecff', F: '#fbf8ff',
-  G: '#fff4e8', K: '#ffd6a0', M: '#ffb37a', L: '#ff8a5c',
-  T: '#d1663f', Y: '#a04a3a', W: '#a6c0ff', // Wolf-Rayet -> blue
-  N: '#ffcf9c', S: '#ffb37a', C: '#ff7a5c', // carbon stars -> reddish
-  D: '#dfe8ff',                              // white dwarf
-};
-
-export function spectralStarColor(spectralClass?: string | null): string {
-  const first = (spectralClass ?? '').trim().charAt(0).toUpperCase();
-  return STAR_COLORS[first] ?? '#ffe0b0';
 }
 
 const has = (s: string | null | undefined, needle: string): boolean =>

@@ -2,10 +2,12 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductionMapTab } from './ProductionMapTab';
 import { useMapLayers } from '@/features/map/useMapLayers';
+import { useViewportSystems } from '@/features/map/viewportSystems';
 import { useAuthoritativeRegionLayer } from './production-regions';
 import type { SystemResult } from '@/types/api';
 
 vi.mock('@/features/map/useMapLayers');
+vi.mock('@/features/map/viewportSystems');
 vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
   R3FMapFoundation: ({ scene, regions, productionOverlays, viewPreset, onInteraction, onZoomIntent }: {
@@ -115,6 +117,7 @@ function system(index: number): SystemResult {
 beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(layers);
   vi.mocked(useAuthoritativeRegionLayer).mockReturnValue(regionLayer);
+  vi.mocked(useViewportSystems).mockReturnValue({ systems: null, truncated: false });
 });
 
 afterEach(() => {

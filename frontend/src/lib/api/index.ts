@@ -105,6 +105,7 @@ export const api = {
   mapClusterHulls: map.mapClusterHulls,
   mapHeatmap: map.mapHeatmap,
   mapTimeline: map.mapTimeline,
+  mapSystems: map.mapSystems,
 };
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
@@ -287,4 +288,7 @@ export type {
   MapRegionsResponse,
   MapTimelinePoint,
   MapTimelineResponse,
+  MapViewportSystem,
+  MapSystemsResponse,
+  MapViewportBox,
 } from './map';

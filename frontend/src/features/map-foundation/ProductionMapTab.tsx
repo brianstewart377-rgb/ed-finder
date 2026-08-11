@@ -22,6 +22,7 @@ import {
   VIEW_MODES,
 } from '@/features/map/mapTabPanels';
 import { useMapLayers } from '@/features/map/useMapLayers';
+import { useViewportSystems } from '@/features/map/viewportSystems';
 import { applyFeatureHandoff, resolveMapInteraction } from './feature-handoffs';
 import {
   LIVE_ROUTE_HEAP_BUDGET_BYTES,
@@ -149,6 +150,9 @@ export function ProductionMapTab({
     timeline: { enabled: showTimeline, bucket: timelineBucket },
   });
   const regionLayer = useAuthoritativeRegionLayer();
+  // Feature #6 detail lane: fetch individual systems for the viewport when
+  // zoomed in (null when zoomed out -> the aggregate heatmap carries the view).
+  const viewportSystems = useViewportSystems({ camera: scene.camera, viewport });
   const regionLabelSafeArea = useMemo(() => ({
     // The map canvas fills the viewport, while the production navigation,
     // mode controls, and legal footer float above it. Keep labels inside the
@@ -460,7 +464,7 @@ export function ProductionMapTab({
               <R3FMapFoundation
                 scene={scene}
                 regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
-                productionOverlays={composition.overlays}
+                productionOverlays={{ ...composition.overlays, realStars: viewportSystems.systems }}
                 viewport={viewport}
                 viewPreset={viewPreset}
                 reference={reference}

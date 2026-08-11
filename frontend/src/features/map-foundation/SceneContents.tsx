@@ -20,6 +20,7 @@ import type {
 import { measureRendererGpuTiming } from './performance';
 import { declutterRegionLabels } from './map-presentation';
 import { GlowPointsMaterial } from './glowPoints';
+import { RealStarLayer } from './RealStarLayer';
 import {
   buildClusterGeometry,
   clusterAnchorIdForSystem,
@@ -268,6 +269,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   );
   const heatmap = props.productionOverlays?.heatmap ?? null;
   const aggregateHulls = props.productionOverlays?.aggregateHulls ?? null;
+  const realStars = props.productionOverlays?.realStars ?? null;
   const cameraDistance = cameraDistanceForView(props.scene.camera, props.viewport);
 
   const select = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
@@ -333,6 +335,9 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         opacity={0.34}
       />
     </points>}
+    {realStars && realStars.length > 0 && (
+      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} />
+    )}
     {aggregateHulls && <lineSegments>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[aggregateHulls.linePositions, 3]} />

@@ -1,3 +1,4 @@
+import type { MapViewportSystem } from '@/lib/api';
 import type {
   CameraState,
   ClusterRepresentation,
@@ -57,6 +58,8 @@ export type ProductionAggregateHullGeometry = {
 export type ProductionMapOverlays = {
   heatmap: ProductionHeatmapGeometry | null;
   aggregateHulls: ProductionAggregateHullGeometry | null;
+  /** Zoom-in real-star detail lane (feature #6); null/absent when zoomed out. */
+  realStars?: MapViewportSystem[] | null;
 };
 
 export type VisibilityMetadata = {

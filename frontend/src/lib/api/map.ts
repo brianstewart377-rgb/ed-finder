@@ -88,3 +88,37 @@ export function mapTimeline(opts?: { bucket?: 'day' | 'week' | 'month' | 'quarte
   const qs = params.toString();
   return jsonFetch(`/map/timeline${qs ? `?${qs}` : ''}`);
 }
+
+// ── Real-star viewport lane (zoom-in detail) ────────────────────────────
+export interface MapViewportSystem {
+  id64: number;
+  name: string;
+  x: number;
+  y: number;
+  z: number;
+  /** main_star_type — the spectral letter (O/B/A/…) or null. */
+  star: string | null;
+  populated: boolean;
+}
+export interface MapSystemsResponse {
+  systems: MapViewportSystem[];
+  count: number;
+  truncated: boolean;
+  too_wide: boolean;
+  cached: boolean;
+}
+export interface MapViewportBox {
+  min_x: number; max_x: number;
+  min_y: number; max_y: number;
+  min_z: number; max_z: number;
+}
+
+export function mapSystems(box: MapViewportBox, limit?: number): Promise<MapSystemsResponse> {
+  const params = new URLSearchParams({
+    min_x: String(box.min_x), max_x: String(box.max_x),
+    min_y: String(box.min_y), max_y: String(box.max_y),
+    min_z: String(box.min_z), max_z: String(box.max_z),
+  });
+  if (limit !== undefined) params.set('limit', String(limit));
+  return jsonFetch(`/map/systems?${params.toString()}`);
+}
