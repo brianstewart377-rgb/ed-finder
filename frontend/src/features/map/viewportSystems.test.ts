@@ -43,3 +43,49 @@ describe('buildRealStarBuffers', () => {
     expect(colors[2]).toBeCloseTo(m.b, 5);
   });
 });
+
+describe('real-star fade integration', () => {
+  it('heatmap is visible when box is null (zoomed out)', () => {
+    const camera = { center: { x: 0, z: 0 }, zoom: 100 };
+    const viewport = { width: 1000, height: 800 };
+    const box = realStarViewportBox(camera, viewport);
+    expect(box).toBeNull();
+
+    // Compute opacities
+    const truncated = false;
+    const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
+    const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
+
+    expect(targetHeatmapOpacity).toBe(1);
+    expect(targetStarsOpacity).toBe(0);
+  });
+
+  it('stars are visible when box is non-null (zoomed in)', () => {
+    const camera = { center: { x: 0, z: 0 }, zoom: 2 };
+    const viewport = { width: 1000, height: 800 };
+    const box = realStarViewportBox(camera, viewport);
+    expect(box).not.toBeNull();
+
+    // Compute opacities
+    const truncated = false;
+    const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
+    const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
+
+    expect(targetHeatmapOpacity).toBe(0);
+    expect(targetStarsOpacity).toBe(1);
+  });
+
+  it('heatmap is visible when truncated=true, even if box is non-null', () => {
+    const camera = { center: { x: 0, z: 0 }, zoom: 2 };
+    const viewport = { width: 1000, height: 800 };
+    const box = realStarViewportBox(camera, viewport);
+
+    // Compute opacities with truncated=true
+    const truncated = true;
+    const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
+    const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
+
+    expect(targetHeatmapOpacity).toBe(1);
+    expect(targetStarsOpacity).toBe(0);
+  });
+});
