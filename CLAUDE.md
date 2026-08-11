@@ -2,6 +2,24 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Quick Start for New Contributors
+
+**Before making ANY change, read these in order:**
+1. `docs/ROADMAP.md` — the single source of truth for what ships next
+2. The "Current lane" section below
+3. The "Operational safety gate" before running data commands
+
+**Common commands** (from Windows terminal):
+- `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/start_local_dev.ps1 -EnsureServices` — start dev server + API
+- `cd frontend && yarn test:map` — test map feature
+- `cd frontend && yarn dev` — frontend dev server (port 5173)
+- `make test-unit` — run backend tests
+
+**Key files for navigation:**
+- Backend entry: `apps/api/src/main.py`
+- Frontend root: `frontend/src/`
+- Simulations/planning logic: `apps/api/src/simulation/`
+
 ## What this is
 
 ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync and update it after any major roadmap change such as a stage completion, cutover, or lane shift):** Stages 25A–25H and **26A–26E are complete**. The next-generation R3F/Three.js desktop map has been **cut over to production (commit `3b53477`) and is in observation**, with bounded post-cutover polish slices shipped (e.g. PR #367); the prior renderer remains an explicit build-time rollback (`VITE_STAGE26E_PRODUCTION_MAP=disabled`). The current lane is **foundation-finishing** (archetype-scoring cleanup, CRE confidence-vocabulary reconciliation, dependency-aware doc triage, bounded hygiene) rather than new product; accounts/auth, journal `A-2`/`A-3`, and score-weighted corridor routing remain deferred/gated. Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace.
@@ -13,17 +31,23 @@ ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is
 
 If a change is "what does the app do with existing mechanics," it belongs here. If it's "what *is* true about colonisation mechanics," it belongs in `colonisation-research-engine`, not here — don't invent or silently revise mechanics rules in this repo.
 
-## Three-repo architecture (decided 2026-07-12)
+## ROADMAP — Read Before Any Change
+
+**`docs/ROADMAP.md` is the single canonical roadmap.** It is the authority on what ships next, what's deferred, and what's currently active. Read it first before any non-trivial change. Its own rule: *"If another document disagrees with this file about what happens next, this file wins."*
+
+Historical context: `docs/colonisation-redesign/stage-N-*.md` files contain rationale and implementation records but are **not** roadmap sources — treat them as archive. (`docs/colonisation-redesign/engine-roadmap.md` is now superseded by `docs/ROADMAP.md`.)
+
+## Current Lane
+
+See memory: [[current_work_lane]] for the active development lane, deferred work, and audit-response priorities.
+
+## Three-repo architecture (as of 2026-07-12)
 
 Option 2: CRE produces research truth, ed-finder consumes it. CPE owns plan construction (implementation pending). CRE is actively developed but NOT yet wired into ed-finder at runtime. Integration work is queued — do not treat CRE/CPE as dormant.
 
 Do not extend ed-finder's evidence/confidence model without checking CRE's model first. CRE's SA-register and confidence vocabulary are more rigorous and should become canonical.
 
-Current integration gap: confidence vocabularies are incompatible. Resolve this before any evidence-layer integration work begins.
-
-## Read this first
-
-**`docs/ROADMAP.md` is the single canonical roadmap.** Read it before any non-trivial change. Its own stated rule: *"If another document disagrees with this file about what happens next, this file wins."* Historical `docs/colonisation-redesign/stage-N-*.md` files remain useful as rationale/implementation records but are **not** roadmap sources — treat them as archive, not instructions. (`docs/colonisation-redesign/engine-roadmap.md`, which an older version of this file pointed to, is now superseded by `docs/ROADMAP.md`.)
+**Current integration gap:** confidence vocabularies are incompatible. Resolve this before any evidence-layer integration work begins.
 
 For mechanics-affecting work specifically, also read `docs/reference/colonisation/source-priority.md` first — it defines the source-authority hierarchy (Mega Guide > user empirical findings > DaftMav spreadsheet > OASIS Guide > forum/PDF sources > "reference planner" [RavenColonial] screenshots as UI inspiration only, never mechanics authority > future external data feeds as evidence, not automatic truth). Conflicts must be recorded explicitly, never silently merged/averaged.
 
@@ -203,83 +227,11 @@ Stage 19 warehouse/enrichment operator scripts live here, split into active (top
 
 ## Frontend deployment
 
-### Deliberate release sequence
+See memory: [[frontend_deploy_sequence]] for the manual deployment procedure, pre-deployment verification, and drift detection.
 
-Production promotion is manual and explicit:
+## Debugging data drift
 
-1. The PR merges to `main`.
-2. The reviewer or owner checks the **local preview**, from `frontend/`, with
-   `VITE_STAGE26E_PRODUCTION_MAP=enabled` and `yarn dev`, and confirms the
-   change looks right.
-3. The owner explicitly requests a production deploy. A merge by itself is not
-   deploy authorization.
-4. Run `scripts/release-main-to-prod.ps1`, which delegates to the canonical
-   server-side `scripts/deploy_main.sh`.
-5. Only after that wrapper succeeds, check `https://ed-finder.app` and verify
-   the change on the real live site.
-
-Failure mode: checking the live site for a change that is merged but not yet
-deployed looks identical to a broken fix. First run
-`scripts/check-production-drift.ps1`; it compares the SHA reported by live
-`/api/health` with `origin/main`, prints how many commits production is behind,
-and exits non-zero on drift. This is visibility only: it never deploys.
-
-After any frontend code change is pushed to origin/main, the production deploy sequence is:
-
-```sh
-cd /opt/ed-finder && git pull origin main
-cd frontend && yarn install --immutable && yarn build
-docker compose restart nginx
-```
-
-This must always end with `docker compose restart nginx` — nginx serves the static dist via a volume mount and requires a restart to pick up the new build. Without it the site 404s.
-
-## Debugging data drift — read before chasing a wrong-value bug
-
-Earned on the body_rings association_status hunt (2026-08-04), which took a
-full day and produced eight wrong hypotheses before the right one. Follow in
-order.
-
-1. **Check the schema before chasing code.** Column defaults, primary keys,
-   foreign keys and triggers explain more wrong-value bugs than application
-   code does, and one query settles what a dozen greps cannot:
-   `SELECT column_default, is_nullable FROM information_schema.columns
-   WHERE table_name='X' AND column_name='Y';`
-
-2. **A negative grep is not an alibi.** "The code never mentions this column"
-   is evidence *for* silent stamping by a DDL default, not against it. An
-   absent column name means the schema writes the value.
-
-3. **Enumerate every write verb, not just INSERT.** "Who writes this column"
-   means INSERT, UPDATE, COPY, and the DDL default. Clearing five INSERT
-   sites is not the same as understanding the write path.
-
-4. **The database is part of the codebase.** Greps over apps/ and scripts/
-   cannot see triggers, rules, or plpgsql functions. When a value changes and
-   no application code explains it, query pg_trigger and pg_proc before
-   forming another application-layer hypothesis.
-
-5. **A constant with the same name in several files may not be one constant.**
-   Check whether it is genuinely shared or copy-pasted. Copies look identical
-   in every grep and every review while diverging silently.
-
-6. **Verify the claim, not the summary.** If a PR asserts "all three sites
-   changed", read all three in the deployed source before reasoning on top of
-   it. An unverified claim compounds into hours of wrong conclusions.
-
-7. **Partial output lies.** A `grep -A14` that truncates a long SQL statement
-   tells you nothing about the part you did not see. Widen the window before
-   concluding.
-
-8. **When a comment asserts two identifiers are the same thing, verify it.**
-   Identifier-space conflation — a global id versus a per-parent ordinal — is
-   invisible in review, survives every type check because both are bigint,
-   and surfaces as data corruption weeks later.
-
-9. **Any writer that changes a key column must recompute the values derived
-   from it, in the same statement.** A status column is a claim *about* a
-   particular foreign key. Move the key and leave the claim behind and the
-   row is silently wrong.
+See memory: [[debugging_data_drift]] for the methodology earned from the body_rings association_status hunt — check schema before code, every write verb, and verify claims before reasoning on top of them.
 
 ## Known hazards in this codebase
 
@@ -347,53 +299,8 @@ and stale ratings survive indefinitely.
 `build_archetype_scores.py`'s new-system mode has a hidden `limit or 10_000_000` fallback that silently caps at 10M rows if `--limit` isn't passed explicitly — always pass `--limit`. `scripts/nightly_update.sh` caps new-system archetype scoring and regional-analysis backfills at 5,000,000 rows/night to avoid unattended multi-day runs; lower this once each backlog clears (e.g. to `--limit 500000` for steady-state maintenance).
 
 ### SSH MCP setup on Windows
-ssh-mcp / npx path resolution can trip on case sensitivity in Windows system paths — encountered case where the tool looked for "SYSTEM32" (uppercase) instead of "System32". If `claude mcp list` shows connected but `/mcp` shows no servers, run `claude doctor` to diagnose config validation errors.
+See memory: [[ssh_mcp_windows_case_sensitivity]] for Windows path resolution quirks and troubleshooting.
 
 ### Model routing (DeepSeek vs Sonnet)
 
-Use DeepSeek for:
-- Running structured diagnostic queries and reporting factually
-- Executing well-specified fixes where the diagnosis is settled
-- Reading files and reporting contents verbatim
-- Applying already-validated patterns to new instances
-- Any task that fits the "tight prompt" template below
-
-Use Sonnet for:
-- Diagnosis of unknown-cause issues
-- Cross-file reasoning about consequences
-- Code review of DeepSeek's diffs on production-touching code
-- Interpreting ambiguous data
-- Deciding severity or priority when facts alone don't decide
-- Final sanity check before deploying anything
-
-Split principle: DeepSeek gathers, Sonnet reasons.
-
-#### Tight prompt template for DeepSeek
-
-DeepSeek performs well with tight, self-contained prompts. Loose prompts let it fill gaps with confident but wrong inferences. Every DeepSeek prompt should include:
-
-1. Explicit scope — exact files, tables, or commands. No open-ended "investigate."
-2. Required output shape — table format with defined columns, or bulleted list with defined structure.
-3. Explicit "do not" list:
-   - Do not assign severity, priority, or urgency
-   - Do not recommend actions
-   - Do not interpret "empty" or "0" as any specific cause
-   - Do not substitute alternative commands if given ones fail
-   - Do not fix, commit, or deploy anything
-4. Verification requirement — every finding must cite the file/line, query output, or command return code.
-5. Instruction to report errors verbatim rather than working around them.
-
-Example format:
-```
-Task: [narrow, specific]
-Required output: table with columns X, Y, Z
-Commands to run (exact, do not substitute):
-  1. [command]
-  2. [command]
-Rules:
-- Do not [list]
-- Report [format]
-Output the table only. No preamble or summary.
-```
-
-Never tell the user to just run yarn build without the nginx restart. Always give the full three-step sequence.
+See memory: [[model_routing]] for when to route tasks to each model, tight prompt requirements for DeepSeek, and the split principle (DeepSeek gathers, Sonnet reasons).
