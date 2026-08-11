@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import * as THREE from 'three';
 import { api } from '@/lib/api';
@@ -18,9 +18,15 @@ const GRID_LY = 250;
 // thin, so this covers virtually all systems while staying under the guard.
 export const REAL_STAR_Y_HALF_LY = 6_000;
 // The fetched (margined) box must stay under the server's MAX_MAP_VIEWPORT_LY
-// (15_000). Above that we return null and the map stays on the heatmap.
-const SERVER_MAX_LY = 14_500;
+// (15_000). We check the raw span against 14_000 (not 15_000) so the grid
+// rounding below — which can widen each axis by up to one GRID_LY per side —
+// still cannot push the final box over the server's too_wide guard.
+const SERVER_MAX_LY = 14_000;
 const REAL_STAR_LIMIT = 40_000;
+// Wait for the camera to settle before issuing a viewport query, so smooth
+// zoom / continuous panning (which change the box every animation frame) can't
+// spawn a request per frame and exhaust the endpoint's per-minute rate limit.
+const SETTLE_MS = 250;
 
 interface ViewportCamera {
   center: { x: number; z: number };
@@ -31,7 +37,14 @@ interface ViewportSize {
   height: number;
 }
 
-const roundTo = (value: number, step: number) => Math.round(value / step) * step;
+// Snap the lower bound down and the upper bound up to the grid. Rounding both
+// with Math.round would collapse the box to zero width at deep zoom (when the
+// whole raw span sits inside a single grid cell), so the server would match
+// only systems on the exact coordinate plane and the layer would go empty
+// precisely when zoomed in most. floor/ceil guarantees at least one full grid
+// cell per axis while still snapping to the grid (so small pans reuse the box).
+const floorTo = (value: number, step: number) => Math.floor(value / step) * step;
+const ceilTo = (value: number, step: number) => Math.ceil(value / step) * step;
 
 /**
  * The bounding box to fetch real stars for, or `null` when the view is too wide
@@ -43,10 +56,10 @@ export function realStarViewportBox(camera: ViewportCamera, viewport: ViewportSi
   if (!Number.isFinite(halfX) || !Number.isFinite(halfZ)) return null;
   if (halfX * 2 > SERVER_MAX_LY || halfZ * 2 > SERVER_MAX_LY) return null;
   return {
-    min_x: roundTo(camera.center.x - halfX, GRID_LY),
-    max_x: roundTo(camera.center.x + halfX, GRID_LY),
-    min_z: roundTo(camera.center.z - halfZ, GRID_LY),
-    max_z: roundTo(camera.center.z + halfZ, GRID_LY),
+    min_x: floorTo(camera.center.x - halfX, GRID_LY),
+    max_x: ceilTo(camera.center.x + halfX, GRID_LY),
+    min_z: floorTo(camera.center.z - halfZ, GRID_LY),
+    max_z: ceilTo(camera.center.z + halfZ, GRID_LY),
     min_y: -REAL_STAR_Y_HALF_LY,
     max_y: REAL_STAR_Y_HALF_LY,
   };
@@ -83,11 +96,19 @@ export function useViewportSystems(opts: {
     [opts.camera, opts.viewport],
   );
 
+  // Debounce: wait for camera to settle before issuing a query. Smooth zoom/pan
+  // changes the box every frame; without this the endpoint's rate limit gets exhausted.
+  const [settledBox, setSettledBox] = useState<MapViewportBox | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledBox(box), SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [box]);
+
   const query = useQuery<MapSystemsResponse, Error>({
-    // Key on the rounded box values so small camera moves reuse the request.
-    queryKey: ['map', 'systems', box?.min_x, box?.max_x, box?.min_z, box?.max_z],
-    queryFn: () => api.mapSystems(box as MapViewportBox, REAL_STAR_LIMIT),
-    enabled: (opts.enabled ?? true) && box != null,
+    // Key on the settled box so the request is stable once camera settles.
+    queryKey: ['map', 'systems', settledBox?.min_x, settledBox?.max_x, settledBox?.min_z, settledBox?.max_z],
+    queryFn: () => api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT),
+    enabled: (opts.enabled ?? true) && settledBox != null,
     staleTime: 60_000,
     gcTime: 300_000,
     placeholderData: keepPreviousData,

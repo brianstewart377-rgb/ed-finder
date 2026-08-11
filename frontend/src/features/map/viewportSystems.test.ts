@@ -13,9 +13,9 @@ describe('realStarViewportBox', () => {
   it('returns a grid-rounded, margined, camera-centered box when zoomed in', () => {
     const box = realStarViewportBox({ center: { x: 1000, z: 2000 }, zoom: 2 }, { width: 1000, height: 800 });
     expect(box).not.toBeNull();
-    // Fetched box stays under the server's 15k too_wide guard.
-    expect(box!.max_x - box!.min_x).toBeLessThanOrEqual(14_500);
-    expect(box!.max_z - box!.min_z).toBeLessThanOrEqual(14_500);
+    // Fetched box stays under the server's 15k too_wide guard (we use 14k so grid rounding can add up to 1 GRID_LY per side).
+    expect(box!.max_x - box!.min_x).toBeLessThanOrEqual(14_000);
+    expect(box!.max_z - box!.min_z).toBeLessThanOrEqual(14_000);
     // Rounded to the 250 LY grid.
     expect(box!.min_x % 250).toBe(0);
     expect(box!.max_z % 250).toBe(0);
