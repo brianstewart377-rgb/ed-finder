@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -204,3 +205,43 @@ async def test_import_budget_charges_only_novel_keys_not_overlap(pool, monkeypat
     second_receipt = await store.import_exploration_batch(pool, second_request)
     assert second_receipt.summary.observations_staged == 5
     assert second_receipt.summary.duplicates_skipped == 10
+
+
+@pytest.mark.slow
+async def test_streams_more_than_10k_events_and_rebuilds_projections_idempotently(pool):
+    sync_key = _sync_key()
+    event_count = 10_001
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    request = ExplorationImportRequest.model_validate({
+        'sync_key': sync_key,
+        'observations': [
+            {
+                'observation_key': f'bulk-{index:020d}',
+                'event_type': 'FSDJump',
+                'observed_at': (start + timedelta(seconds=index)).isoformat(),
+                'system_id64': 9_300_000 + index % 100,
+                'system_name': f'Bulk System {index % 100}',
+                'payload': {'StarPos': [index % 100, 0, index % 50]},
+            }
+            for index in range(event_count)
+        ],
+    })
+
+    receipt = await store.import_exploration_batch(pool, request)
+    assert receipt.summary.observations_staged == event_count
+    assert receipt.summary.projections_rebuilt['visits'] == event_count
+    assert receipt.summary.projections_rebuilt['route_legs'] == event_count
+
+    async with pool.acquire() as conn:
+        first = await conn.fetchrow('SELECT * FROM rebuild_exploration_projections($1)', sync_key)
+        second = await conn.fetchrow('SELECT * FROM rebuild_exploration_projections($1)', sync_key)
+        raw_count = await conn.fetchval(
+            'SELECT COUNT(*) FROM exploration_facts WHERE sync_key = $1', sync_key
+        )
+        visit_count = await conn.fetchval(
+            'SELECT COUNT(*) FROM exploration_visits WHERE sync_key = $1', sync_key
+        )
+
+    assert dict(first) == dict(second)
+    assert int(raw_count) == event_count
+    assert int(visit_count) == event_count

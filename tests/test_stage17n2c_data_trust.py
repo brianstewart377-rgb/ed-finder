@@ -711,12 +711,47 @@ class _FakeConn:
     def __init__(self):
         self.commits = 0
         self.rollbacks = 0
+        self.role = 'origin'
+        self.pending_role = None
+
+    @property
+    def current_role(self):
+        return self.pending_role or self.role
+
+    def cursor(self):
+        return _ReplicationRoleCursor(self)
 
     def commit(self):
         self.commits += 1
+        if self.pending_role is not None:
+            self.role = self.pending_role
+            self.pending_role = None
 
     def rollback(self):
         self.rollbacks += 1
+        self.pending_role = None
+
+
+class _ReplicationRoleCursor:
+    def __init__(self, connection):
+        self.connection = connection
+        self.result = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def execute(self, sql, _params=None):
+        normalized = ' '.join(sql.split())
+        if normalized == 'SHOW session_replication_role':
+            self.result = (self.connection.current_role,)
+        elif normalized.startswith('SET session_replication_role = '):
+            self.connection.pending_role = normalized.rsplit(' ', 1)[-1].lower()
+
+    def fetchone(self):
+        return self.result
 
 
 class _FakeCursor:
@@ -765,11 +800,13 @@ def test_dirty_cleanup_retries_transient_statement_timeout():
 
 
 class _DirtyHelperCursor:
-    def __init__(self, rowcount_by_chunk=None):
+    def __init__(self, connection, rowcount_by_chunk=None):
+        self.connection = connection
         self.rowcount = 0
         self.statements = []
         self.chunks = []
         self.rowcount_by_chunk = list(rowcount_by_chunk or [])
+        self.result = None
 
     def __enter__(self):
         return self
@@ -779,6 +816,13 @@ class _DirtyHelperCursor:
 
     def execute(self, sql, params=None):
         self.statements.append(sql)
+        normalized = ' '.join(sql.split())
+        if normalized == 'SHOW session_replication_role':
+            self.result = (self.connection.current_role,)
+            return
+        if normalized.startswith('SET session_replication_role = '):
+            self.connection.pending_role = normalized.rsplit(' ', 1)[-1].lower()
+            return
         chunk = list(params[0])
         self.chunks.append(chunk)
         if self.rowcount_by_chunk:
@@ -786,17 +830,32 @@ class _DirtyHelperCursor:
         else:
             self.rowcount = len(chunk)
 
+    def fetchone(self):
+        return self.result
+
 
 class _DirtyHelperConn:
     def __init__(self, rowcount_by_chunk=None):
-        self.cursor_obj = _DirtyHelperCursor(rowcount_by_chunk)
+        self.role = 'origin'
+        self.pending_role = None
+        self.cursor_obj = _DirtyHelperCursor(self, rowcount_by_chunk)
         self.commits = 0
+
+    @property
+    def current_role(self):
+        return self.pending_role or self.role
 
     def cursor(self):
         return self.cursor_obj
 
     def commit(self):
         self.commits += 1
+        if self.pending_role is not None:
+            self.role = self.pending_role
+            self.pending_role = None
+
+    def rollback(self):
+        self.pending_role = None
 
 
 def test_mark_systems_rating_dirty_ignores_empty_list():
@@ -817,7 +876,10 @@ def test_mark_systems_rating_dirty_marks_one_and_is_idempotent_by_predicate():
 
     assert marked_first == 1
     assert marked_second == 0
-    assert 's.rating_dirty IS DISTINCT FROM TRUE' in conn.cursor_obj.statements[0]
+    assert any(
+        's.rating_dirty IS DISTINCT FROM TRUE' in statement
+        for statement in conn.cursor_obj.statements
+    )
 
 
 def test_mark_systems_rating_dirty_marks_many_in_chunks_and_dedupes():
@@ -827,7 +889,8 @@ def test_mark_systems_rating_dirty_marks_many_in_chunks_and_dedupes():
 
     assert marked == 5
     assert conn.cursor_obj.chunks == [[1, 2], [3, 4], [5]]
-    assert conn.commits == 1
+    assert conn.commits == 2
+    assert conn.role == 'origin'
 
 
 class _CaptureLog:

@@ -1,6 +1,9 @@
+import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query';
+import type { ReactElement, ReactNode } from 'react';
 import { vi, describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BuildPlanSection } from './BuildPlanSection';
+import { layoutImportInvalidationKeys } from './layoutImportQueryKeys';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, SystemBody, SimulateBuildResponse, LayoutImportResponse } from '@/types/api';
 import type { StartMode } from './types';
@@ -90,8 +93,34 @@ const previewResult: SimulateBuildResponse = {
   links: { strong_links: [], weak_links: [] },
 };
 
+function layoutImportResponse(): LayoutImportResponse {
+  return {
+    system_id64: 123,
+    source: 'spansh',
+    status: 'success',
+    fetched_at: '2026-05-16T00:00:00Z',
+    summary: {
+      bodies_found: 4,
+      stations_found: 2,
+      bodies_upserted: 4,
+      stations_upserted: 2,
+      warnings_count: 0,
+    },
+    warnings: [],
+    errors: [],
+  };
+}
+
+function renderWithQueryClient(ui: ReactElement) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return { ...render(ui, { wrapper: Wrapper }), client };
+}
+
 function renderPlan(systemId64: number) {
-  return render(
+  return renderWithQueryClient(
     <BuildPlanSection
       systemId64={systemId64}
       systemName="Test System"
@@ -137,7 +166,9 @@ describe('BuildPlanSection layout import state', () => {
     const { rerender } = renderPlan(123);
 
     fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
-    expect(mockedImportSystemLayout).toHaveBeenCalledWith(123, { source: 'spansh' });
+    await waitFor(() => {
+      expect(mockedImportSystemLayout).toHaveBeenCalledWith(123, { source: 'spansh' });
+    });
     expect(await screen.findByText(/Layout import failed: network unavailable/)).toBeTruthy();
 
     rerender(
@@ -176,22 +207,7 @@ describe('BuildPlanSection layout import state', () => {
   });
 
   it('renders layout import success status after successful import', async () => {
-    const importResult: LayoutImportResponse = {
-      system_id64: 123,
-      source: 'spansh',
-      status: 'success',
-      fetched_at: '2026-05-16T00:00:00Z',
-      summary: {
-        bodies_found: 4,
-        stations_found: 2,
-        bodies_upserted: 4,
-        stations_upserted: 2,
-        warnings_count: 0,
-      },
-      warnings: [],
-      errors: [],
-    };
-    mockedImportSystemLayout.mockResolvedValue(importResult);
+    mockedImportSystemLayout.mockResolvedValue(layoutImportResponse());
 
     renderPlan(123);
 
@@ -200,10 +216,47 @@ describe('BuildPlanSection layout import state', () => {
     expect(await screen.findByText('success')).toBeTruthy();
   });
 
+  it('invalidates and refetches every layout-dependent cache after import', async () => {
+    mockedImportSystemLayout.mockResolvedValue(layoutImportResponse());
+    const { client } = renderPlan(123);
+    const keys = layoutImportInvalidationKeys(123);
+    const fetchCounts = new Map(keys.map((key) => [JSON.stringify(key), 0]));
+    const observers = keys.map((queryKey) => new QueryObserver(client, {
+      queryKey,
+      queryFn: async () => {
+        const cacheKey = JSON.stringify(queryKey);
+        fetchCounts.set(cacheKey, (fetchCounts.get(cacheKey) ?? 0) + 1);
+        return cacheKey;
+      },
+      staleTime: Number.POSITIVE_INFINITY,
+    }));
+    const unsubscribes = observers.map((observer) => observer.subscribe(() => {}));
+
+    await waitFor(() => {
+      expect([...fetchCounts.values()].every((count) => count === 1)).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
+    expect(await screen.findByText('success')).toBeTruthy();
+
+    await waitFor(() => {
+      expect([...fetchCounts.values()].every((count) => count === 2)).toBe(true);
+    });
+    expect(keys).toEqual([
+      ['system', 123],
+      ['slot-predictions-preview', 123],
+      ['sim-summary-preview', 123],
+      ['buildability', 123],
+      ['recommended-builds', 123],
+    ]);
+
+    unsubscribes.forEach((unsubscribe) => unsubscribe());
+  });
+
   it('shows selected topology body context and adds placement only through explicit action', () => {
     const onAddPlacement = vi.fn();
 
-    render(
+    renderWithQueryClient(
       <BuildPlanSection
         systemId64={123}
         systemName="Test System"
@@ -250,7 +303,7 @@ describe('BuildPlanSection layout import state', () => {
     const onAddPlacement = vi.fn();
     const onWorkspaceCommandHandled = vi.fn();
 
-    render(
+    renderWithQueryClient(
       <BuildPlanSection
         systemId64={123}
         systemName="Test System"
@@ -296,7 +349,7 @@ describe('BuildPlanSection layout import state', () => {
     const onAddPlacement = vi.fn();
     const onWorkspaceCommandHandled = vi.fn();
 
-    const { rerender } = render(
+    const { rerender } = renderWithQueryClient(
       <BuildPlanSection
         systemId64={123}
         systemName="Test System"

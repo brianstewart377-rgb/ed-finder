@@ -420,15 +420,36 @@ class PredictionObservationCompareResponse(BaseModel):
 # mechanics/scoring/ranking.
 
 
-class ValidationReviewRequest(PredictionObservationCompareRequest):
+class ValidationReviewRequest(BaseModel):
     """Request payload for ``POST /api/observations/review``.
 
-    Shape intentionally matches ``PredictionObservationCompareRequest``:
-    callers supply a system, optional target archetype, and current
-    prediction object. ``observed_facts`` remains an optional Mode B
-    override for tests/offline tools; when omitted the router loads
-    persisted facts with the same semantics as Stage 6C compare.
+    Callers may supply either the Stage 6C compare inputs (legacy/direct
+    mode) or a pre-computed Stage 6C response. The frontend uses the
+    pre-computed form so Validation does not load observations and run
+    the comparison engine twice.
     """
+
+    model_config = ConfigDict(extra='forbid')
+
+    system_id64: int = Field(gt=0)
+    target_archetype: str | None = None
+    prediction: dict[str, Any] | None = None
+    observed_facts: list[ObservedFactInput] | None = None
+    fact_load_limit: int = Field(default=500, ge=1, le=2000)
+    comparison_result: PredictionObservationCompareResponse | None = None
+
+    @model_validator(mode='after')
+    def _exactly_one_review_input(self) -> ValidationReviewRequest:
+        if (self.prediction is None) == (self.comparison_result is None):
+            raise ValueError('supply exactly one of prediction or comparison_result')
+        if self.comparison_result is not None:
+            if self.observed_facts is not None:
+                raise ValueError('observed_facts cannot be combined with comparison_result')
+            if self.comparison_result.system_id64 != self.system_id64:
+                raise ValueError('comparison_result system_id64 must match request system_id64')
+            if self.comparison_result.target_archetype != self.target_archetype:
+                raise ValueError('comparison_result target_archetype must match request target_archetype')
+        return self
 
 
 class ValidationReviewSignalResponse(BaseModel):

@@ -52,6 +52,22 @@ jobs:
               - '!**/*.md'
               - '!scripts/operator/**'
 
+  # ─── Asset provenance ───────────────────────────────────────────────
+  asset-provenance:
+    name: Asset provenance guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Require provenance for every public asset
+        run: python scripts/checks/asset_provenance.py
+
   # ─── Backend ────────────────────────────────────────────────────────
   backend:
     name: Backend unit tests + compose validate
@@ -114,14 +130,29 @@ jobs:
 
       - name: Shell syntax check for guarded script paths
         run: |
+          bash -n setup.sh
           bash -n scripts/apply_migrations.sh
           bash -n scripts/baseline_migration_ledger.sh
+          bash -n scripts/migrate_postgis.sh
           bash -n scripts/sync_password.sh
           bash -n scripts/run_import.sh
           bash -n scripts/package_frontend_bundle.sh
           bash -n scripts/seed_check.sh
           bash -n scripts/checks/local-ci-parity.sh
           bash -n scripts/run_canonical_safety_tests.sh
+
+      - name: Reject inline shell password SQL
+        run: |
+          password_sql_hits="$(
+            grep -r 'ALTER USER.*PASSWORD' --include='*.sh' \
+              --exclude-dir=.git --exclude-dir=.venv --exclude-dir=node_modules . \
+              | grep -v '^\./scripts/sync_password\.sh:' || true
+          )"
+          if [[ -n "$password_sql_hits" ]]; then
+            echo "Password-changing SQL is only allowed in scripts/sync_password.sh:" >&2
+            echo "$password_sql_hits" >&2
+            exit 1
+          fi
 
       - name: Run migration and script contract tests
         run: |

@@ -34,6 +34,9 @@ export function MapLegend({
         <LegendItem label="Heatmap" value="Rated-system density grouped into 3D voxels; colour reflects each voxel's average development score." />
         <LegendItem label="Clusters" value="500 LY bubbles around top anchors, counting unpopulated systems scoring 65+ for six core economies." />
         <LegendItem label="Timeline" value="Systems bucketed by first-discovery date, using their latest update when no discovery date is known." />
+        <LegendItem label="Visited Systems" value="Your personal visits; zoomed-out views become visit-density cells automatically." />
+        <LegendItem label="Travel Trail" value="Your latest chronological route, colour-graded with directional chevrons from old to new." />
+        <LegendItem label="Scanned/Mapped" value="Visited markers are green when every observed body is scanned and mapped, yellow when partial." />
       </div>
     </details>
   );

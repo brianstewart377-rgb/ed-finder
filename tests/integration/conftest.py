@@ -132,7 +132,9 @@ async def clean_db():
                 'TRUNCATE TABLE watchlist, system_notes, profile_sync, '
                 'watchlist_changelog, api_cache, evidence_records, '
                 'derived_features, rule_decisions, rule_proposals, '
-                'observed_facts CASCADE'
+                'observed_facts, exploration_facts, powerplay_cycles, '
+                'commander_powerplay_state, commander_powerplay_events, '
+                'powerplay_observations CASCADE'
             )
     finally:
         await pool.close()

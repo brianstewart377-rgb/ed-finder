@@ -17,19 +17,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-
-def _station_resolver_import_paths(script_path: Path) -> list[Path]:
-    """Return import paths for repo checkouts and flat importer container mounts."""
-    resolved = script_path.resolve()
-    candidates = [resolved.parent]
-    if len(resolved.parents) > 2:
-        candidates.insert(0, resolved.parents[2] / 'api' / 'src')
-    return candidates
+from api_source_resolver import add_api_source_to_path
 
 
-for import_path in _station_resolver_import_paths(Path(__file__)):
-    if import_path.exists() and str(import_path) not in sys.path:
-        sys.path.insert(0, str(import_path))
+API_SRC = add_api_source_to_path(__file__, required_paths=('station_body_resolver.py',))
 
 from station_body_resolver import (  # noqa: E402
     is_permanent_colony_slot_station_type,

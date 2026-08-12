@@ -67,21 +67,62 @@ def test_full_rebuild_cleanup_sets_production_scale_timeout_before_update(
 ):
     build_clusters = _load_build_clusters(monkeypatch, tmp_path)
 
+    class RecordingConnection:
+        def __init__(self):
+            self.role = 'origin'
+            self.pending_role = None
+            self.statements = []
+            self.cursor_obj = RecordingCursor(self)
+
+        @property
+        def current_role(self):
+            return self.pending_role or self.role
+
+        def cursor(self):
+            return self.cursor_obj
+
+        def commit(self):
+            if self.pending_role is not None:
+                self.role = self.pending_role
+                self.pending_role = None
+
+        def rollback(self):
+            self.pending_role = None
+
     class RecordingCursor:
         rowcount = 17
 
-        def __init__(self):
-            self.statements = []
+        def __init__(self, connection):
+            self.connection = connection
+            self.result = None
 
-        def execute(self, statement):
-            self.statements.append(' '.join(statement.split()))
+        def __enter__(self):
+            return self
 
-    cursor = RecordingCursor()
+        def __exit__(self, *_args):
+            return False
 
-    cleared = build_clusters._clear_full_rebuild_dirty_flags(cursor)
+        def execute(self, statement, _params=None):
+            normalized = ' '.join(statement.split())
+            self.connection.statements.append(normalized)
+            if normalized == 'SHOW session_replication_role':
+                self.result = (self.connection.current_role,)
+            elif normalized.startswith('SET session_replication_role = '):
+                self.connection.pending_role = normalized.rsplit(' ', 1)[-1].lower()
+
+        def fetchone(self):
+            return self.result
+
+    connection = RecordingConnection()
+    cursor = connection.cursor_obj
+
+    cleared = build_clusters._clear_full_rebuild_dirty_flags(connection, cursor)
 
     assert build_clusters.FULL_CLEANUP_STATEMENT_TIMEOUT == '4h'
-    assert cursor.statements == [
+    assert connection.statements == [
+        'SHOW session_replication_role',
+        'SET session_replication_role = replica',
+        'SHOW session_replication_role',
         "SET statement_timeout = '4h'",
         (
             'UPDATE systems SET cluster_dirty = FALSE '
@@ -89,8 +130,11 @@ def test_full_rebuild_cleanup_sets_production_scale_timeout_before_update(
             'AND macro_grid_id IS NOT NULL '
             'AND cluster_dirty = TRUE'
         ),
+        'SET session_replication_role = origin',
+        'SHOW session_replication_role',
     ]
     assert cleared == 17
+    assert connection.role == 'origin'
 
 
 def test_full_rebuild_finalization_uses_timeout_aware_cleanup_helper(
@@ -100,4 +144,14 @@ def test_full_rebuild_finalization_uses_timeout_aware_cleanup_helper(
     build_clusters = _load_build_clusters(monkeypatch, tmp_path)
     main_source = inspect.getsource(build_clusters.main)
 
-    assert '_clear_full_rebuild_dirty_flags(cur2)' in main_source
+    assert '_clear_full_rebuild_dirty_flags(conn2, cur2)' in main_source
+
+
+def test_per_cell_cleanup_only_clears_still_dirty_systems(monkeypatch, tmp_path):
+    build_clusters = _load_build_clusters(monkeypatch, tmp_path)
+    source = inspect.getsource(build_clusters._clear_cell_dirty_flags)
+
+    assert 'WHERE macro_grid_id = %s' in source
+    assert 'AND has_body_data = TRUE' in source
+    assert 'AND cluster_dirty = TRUE' in source
+    assert 'bulk_update_replica_mode(conn)' in source

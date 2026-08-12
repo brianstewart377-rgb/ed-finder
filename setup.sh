@@ -51,6 +51,13 @@ warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 step()    { echo -e "\n${BOLD}${BLUE}══ $* ══${NC}"; }
 
+validate_migration_timeout() {
+    local name="$1"
+    local value="$2"
+    [[ "$value" =~ ^[0-9]+(ms|s|min|h)?$ ]] ||
+        error "$name must be a non-negative PostgreSQL duration using ms, s, min, or h"
+}
+
 # ---------------------------------------------------------------------------
 # Parse arguments
 # ---------------------------------------------------------------------------
@@ -209,11 +216,11 @@ if [[ ! -f "$ENV_FILE" ]] || [[ "$MODE" == "nuke" ]]; then
     if [[ -n "${POSTGRES_PASSWORD:-}" ]]; then
         PG_PASS="$POSTGRES_PASSWORD"
     else
-        read -r -p "PostgreSQL password (leave blank to generate): " PG_PASS
+        read -r -s -p "PostgreSQL password (leave blank to generate): " PG_PASS
+        echo ""
         if [[ -z "$PG_PASS" ]]; then
             PG_PASS=$(openssl rand -base64 32 | tr -d '/+=\n' | cut -c1-32)
-            info "Generated password: $PG_PASS"
-            info "Save this — it won't be shown again."
+            info "Generated a PostgreSQL password; it will be stored only in $ENV_FILE."
         fi
     fi
     cat > "$ENV_FILE" <<EOF
@@ -280,21 +287,11 @@ for i in $(seq 1 30); do
 done
 
 # ---------------------------------------------------------------------------
-# Step 12 — Fix PostgreSQL auth for pgBouncer (md5)
+# Step 12 — Synchronise the PostgreSQL password
 # ---------------------------------------------------------------------------
-step "12. PostgreSQL auth fix"
-# pgBouncer uses md5, PostgreSQL 16 defaults to scram-sha-256.
-# We need to store the password as md5 and set hba to md5.
-docker compose exec -T postgres psql -U edfinder -d edfinder -c "
-    SET password_encryption = md5;
-    ALTER USER edfinder WITH PASSWORD '$(grep POSTGRES_PASSWORD $ENV_FILE | cut -d= -f2)';
-" || warn "md5 password set may have failed — check manually"
-
-# Patch pg_hba.conf inside the container
-PGDATA=$(docker compose exec -T postgres psql -U edfinder -d edfinder -tAc "SHOW data_directory;" | tr -d '[:space:]')
-docker compose exec -T postgres sed -i 's/scram-sha-256/md5/g' "${PGDATA}/pg_hba.conf" 2>/dev/null || true
-docker compose exec -T postgres psql -U edfinder -d edfinder -c "SELECT pg_reload_conf();" &>/dev/null || true
-success "PostgreSQL auth set to md5"
+step "12. PostgreSQL password sync"
+ENV_FILE="$ENV_FILE" bash "$INSTALL_DIR/scripts/sync_password.sh"
+success "PostgreSQL password is in sync"
 
 # ---------------------------------------------------------------------------
 # Step 13 — Automated Index Rebuild
@@ -304,7 +301,21 @@ info "Checking if indexes need to be rebuilt ..."
 INDEX_COUNT=$(docker compose exec -T postgres psql -U edfinder -d edfinder -tAc "SELECT count(*) FROM pg_indexes WHERE tablename = 'systems' AND indexname NOT LIKE '%pkey%';")
 if [[ "$INDEX_COUNT" -lt 5 ]]; then
     info "Found only $INDEX_COUNT indexes on 'systems'. Rebuilding all indexes from 002_indexes.sql ..."
-    docker compose exec -T postgres psql -U edfinder -d edfinder -f /docker-entrypoint-initdb.d/002_indexes.sql
+    MIGRATION_STATEMENT_TIMEOUT="${MIGRATION_STATEMENT_TIMEOUT:-3h}"
+    MIGRATION_LOCK_TIMEOUT="${MIGRATION_LOCK_TIMEOUT:-30s}"
+    ALLOW_UNBOUNDED_TIMEOUTS="${EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS:-no}"
+    validate_migration_timeout MIGRATION_STATEMENT_TIMEOUT "$MIGRATION_STATEMENT_TIMEOUT"
+    validate_migration_timeout MIGRATION_LOCK_TIMEOUT "$MIGRATION_LOCK_TIMEOUT"
+    if [[ "$MIGRATION_STATEMENT_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ||
+          "$MIGRATION_LOCK_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ]]; then
+        [[ "$ALLOW_UNBOUNDED_TIMEOUTS" == "yes" ]] ||
+            error "zero migration timeouts require EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes"
+        warn "Unbounded migration timeout explicitly enabled for this reviewed run"
+    fi
+    MIGRATION_PGOPTIONS="-c statement_timeout=${MIGRATION_STATEMENT_TIMEOUT} -c lock_timeout=${MIGRATION_LOCK_TIMEOUT}"
+    docker compose exec -T -e "PGOPTIONS=$MIGRATION_PGOPTIONS" postgres \
+        psql -v ON_ERROR_STOP=1 -U edfinder -d edfinder \
+        -f /docker-entrypoint-initdb.d/002_indexes.sql
     success "Indexes rebuilt successfully"
 else
     success "Indexes already exist ($INDEX_COUNT found) — skipping rebuild"
@@ -388,7 +399,9 @@ echo "║       import_spansh.py --all                                     ║"
 echo "║     # Ctrl+A D to detach                                         ║"
 echo "║                                                                   ║"
 echo "║  4. REBUILD INDEXES (after import):                              ║"
-echo "║     docker compose exec postgres psql -U edfinder -d edfinder \\ ║"
+echo "║     docker compose exec -e \\                                    ║"
+echo "║       'PGOPTIONS=-c statement_timeout=3h -c lock_timeout=30s' \\ ║"
+echo "║       postgres psql -U edfinder -d edfinder \\                   ║"
 echo "║       -f /docker-entrypoint-initdb.d/002_indexes.sql            ║"
 echo "║                                                                   ║"
 echo "║  5. BUILD RATINGS + GRID + CLUSTERS:                             ║"

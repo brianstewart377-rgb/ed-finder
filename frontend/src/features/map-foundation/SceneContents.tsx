@@ -22,6 +22,7 @@ import { measureRendererGpuTiming } from './performance';
 import { declutterRegionLabels } from './map-presentation';
 import { GlowPointsMaterial } from './glowPoints';
 import { RealStarLayer } from './RealStarLayer';
+import { PowerplayPointLayer } from './PowerplayPointLayer';
 import {
   buildClusterGeometry,
   clusterAnchorIdForSystem,
@@ -36,6 +37,11 @@ import {
   MIN_CAMERA_PITCH_DEG,
 } from './camera';
 import { GalaxyBackdrop } from './GalaxyBackdrop';
+import { RouteLayer } from './RouteLayer';
+import {
+  buildExplorationTrailBuffers,
+  buildExplorationVisitBuffers,
+} from './explorationGeometry';
 import {
   CameraCenterGuide,
   RangeGrid,
@@ -271,6 +277,20 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   const heatmap = props.productionOverlays?.heatmap ?? null;
   const aggregateHulls = props.productionOverlays?.aggregateHulls ?? null;
   const realStars = props.productionOverlays?.realStars ?? null;
+  const powerplay = props.productionOverlays?.powerplay ?? null;
+  const explorationVisits = props.productionOverlays?.explorationVisits ?? null;
+  const explorationTrail = props.productionOverlays?.explorationTrail ?? null;
+  const explorationVisitBuffers = useMemo(
+    () => buildExplorationVisitBuffers(
+      explorationVisits ?? [],
+      props.productionOverlays?.showExplorationCompleteness ?? false,
+    ),
+    [explorationVisits, props.productionOverlays?.showExplorationCompleteness],
+  );
+  const explorationTrailBuffers = useMemo(
+    () => buildExplorationTrailBuffers(explorationTrail ?? []),
+    [explorationTrail],
+  );
   const cameraDistance = cameraDistanceForView(props.scene.camera, props.viewport);
 
   // ── Real-star fade logic (Phase 3) ──────────────────────────────────
@@ -410,9 +430,44 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     </points>}
     {realStars && realStars.length > 0 && (
       <group ref={starsGroupRef}>
-        <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} opacity={currentStarsOpacityRef.current} />
+        <RealStarLayer
+          systems={realStars}
+          zoom={props.scene.camera.zoom}
+          opacity={currentStarsOpacityRef.current}
+          onSelect={targetStarsOpacity > 0 ? props.onViewportSystemSelect : undefined}
+        />
       </group>
     )}
+    {powerplay && powerplay.length > 0 && (
+      <PowerplayPointLayer systems={powerplay} zoom={props.scene.camera.zoom} />
+    )}
+    {explorationVisits && explorationVisits.length > 0 && <points renderOrder={12}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[explorationVisitBuffers.positions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[explorationVisitBuffers.colors, 3]} />
+      </bufferGeometry>
+      <GlowPointsMaterial
+        vertexColors
+        size={explorationVisits[0]?.kind === 'density'
+          ? Math.min(explorationVisits[0].cell_size ?? 100, attenuatedPointSize(props.scene.camera.zoom, 16))
+          : attenuatedPointSize(props.scene.camera.zoom, 10)}
+        sizeAttenuation
+        opacity={0.9}
+      />
+    </points>}
+    {explorationTrailBuffers.positions.length > 0 && <lineSegments renderOrder={10}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[explorationTrailBuffers.positions, 3]} />
+        <bufferAttribute attach="attributes-color" args={[explorationTrailBuffers.colors, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial vertexColors transparent opacity={0.82} depthWrite={false} />
+    </lineSegments>}
+    {explorationTrailBuffers.arrowPositions.length > 0 && <lineSegments renderOrder={11}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[explorationTrailBuffers.arrowPositions, 3]} />
+      </bufferGeometry>
+      <lineBasicMaterial color="#83f3ff" transparent opacity={0.9} depthWrite={false} />
+    </lineSegments>}
     {aggregateHulls && <lineSegments>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[aggregateHulls.linePositions, 3]} />
@@ -421,6 +476,9 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       <lineBasicMaterial vertexColors transparent opacity={0.42} />
     </lineSegments>}
     <RegionBoundaryLines boundaries={props.regions.boundaries} viewport={props.viewport} spatial={spatial} />
+    {props.scene.layers.some((layer) => layer.type === 'routes' && layer.visible) && (
+      <RouteLayer scene={props.scene} />
+    )}
     <points
       onPointerDown={(event) => select(visible.background, event)}
       onPointerOver={(event) => hover(visible.background, event)}

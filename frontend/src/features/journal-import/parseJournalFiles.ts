@@ -1,4 +1,4 @@
-import type { JournalImportParseResult } from './types';
+import type { JournalFileSource, JournalImportParseResult } from './types';
 
 type ParseSuccess = {
   type: 'parsed';
@@ -10,7 +10,7 @@ type ParseFailure = {
   message: string;
 };
 
-export async function parseJournalFiles(files: File[]): Promise<JournalImportParseResult> {
+export async function parseJournalFiles(files: JournalFileSource[]): Promise<JournalImportParseResult> {
   if (files.length === 0) {
     throw new Error('Select at least one journal file first.');
   }

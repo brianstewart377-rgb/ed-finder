@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-import os
-import psycopg2
 import logging
+import os
+import re
 import sys
+
+import psycopg2
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -10,16 +12,53 @@ log = logging.getLogger('fix_index')
 
 # Database connection
 _raw_url = os.getenv('DATABASE_URL', 'postgresql://edfinder:edfinder@postgres:5432/edfinder')
+TIMEOUT_PATTERN = re.compile(r'^[0-9]+(?:ms|s|min|h)?$')
+ZERO_TIMEOUT_PATTERN = re.compile(r'^0+(?:ms|s|min|h)?$')
+
+
+def migration_timeouts():
+    statement_timeout = os.getenv('MIGRATION_STATEMENT_TIMEOUT', '3h')
+    lock_timeout = os.getenv('MIGRATION_LOCK_TIMEOUT', '30s')
+
+    for name, value in (
+        ('MIGRATION_STATEMENT_TIMEOUT', statement_timeout),
+        ('MIGRATION_LOCK_TIMEOUT', lock_timeout),
+    ):
+        if not TIMEOUT_PATTERN.fullmatch(value):
+            raise ValueError(
+                f'{name} must be a non-negative PostgreSQL duration using ms, s, min, or h'
+            )
+
+    has_zero_timeout = any(
+        ZERO_TIMEOUT_PATTERN.fullmatch(value)
+        for value in (statement_timeout, lock_timeout)
+    )
+    if has_zero_timeout:
+        if os.getenv('EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS', 'no') != 'yes':
+            raise ValueError(
+                'zero migration timeouts require '
+                'EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes'
+            )
+        log.warning('Unbounded migration timeout explicitly enabled for this reviewed run')
+
+    return statement_timeout, lock_timeout
+
 
 def fix_index():
     log.info("Starting automated index fix...")
-    
+
     try:
+        statement_timeout, lock_timeout = migration_timeouts()
+        connection_options = (
+            f'-c statement_timeout={statement_timeout} '
+            f'-c lock_timeout={lock_timeout}'
+        )
+
         # Connect to the database
-        conn = psycopg2.connect(_raw_url)
+        conn = psycopg2.connect(_raw_url, options=connection_options)
         conn.autocommit = True
         cur = conn.cursor()
-        
+
         # Check if index exists
         cur.execute("""
             SELECT COUNT(*) FROM pg_indexes 
@@ -43,13 +82,14 @@ def fix_index():
         
         log.info("✓ Index created successfully!")
         return True
-        
+
     except Exception as e:
         log.error(f"Failed to create index: {e}")
         return False
     finally:
         if 'conn' in locals() and conn:
             conn.close()
+
 
 if __name__ == "__main__":
     if fix_index():

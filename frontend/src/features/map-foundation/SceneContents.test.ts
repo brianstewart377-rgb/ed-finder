@@ -96,8 +96,8 @@ describe('SceneContents truncated affordance (logic verification)', () => {
       const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
       const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
 
-      expect(targetHeatmapOpacity).toBe(1, `${description}: heatmap opacity should be 1`);
-      expect(targetStarsOpacity).toBe(0, `${description}: stars opacity should be 0`);
+      expect({ description, targetHeatmapOpacity }).toMatchObject({ targetHeatmapOpacity: 1 });
+      expect({ description, targetStarsOpacity }).toMatchObject({ targetStarsOpacity: 0 });
     });
   });
 });

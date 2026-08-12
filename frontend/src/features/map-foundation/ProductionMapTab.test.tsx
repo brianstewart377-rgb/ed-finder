@@ -3,14 +3,30 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProductionMapTab } from './ProductionMapTab';
 import { useMapLayers } from '@/features/map/useMapLayers';
 import { useViewportSystems } from '@/features/map/viewportSystems';
+import { useExplorationLayers } from '@/features/map/useExplorationLayers';
+import { usePowerplayLayer } from '@/features/map/usePowerplayLayer';
 import { useAuthoritativeRegionLayer } from './production-regions';
 import type { SystemResult } from '@/types/api';
 
+vi.mock('@/lib/api', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/lib/api')>();
+  return {
+    ...original,
+    api: {
+      ...original.api,
+      listRoutes: vi.fn(async () => ({ routes: [], count: 0 })),
+      getRoute: vi.fn(),
+    },
+  };
+});
+
 vi.mock('@/features/map/useMapLayers');
 vi.mock('@/features/map/viewportSystems');
+vi.mock('@/features/map/useExplorationLayers');
+vi.mock('@/features/map/usePowerplayLayer');
 vi.mock('./production-regions');
 vi.mock('./R3FMapFoundation', () => ({
-  R3FMapFoundation: ({ scene, regions, productionOverlays, viewPreset, onInteraction, onZoomIntent }: {
+  R3FMapFoundation: ({ scene, regions, productionOverlays, viewPreset, onInteraction, onZoomIntent, onViewportSystemSelect }: {
     scene: {
       systems: Array<{ id64: number }>;
       camera: { bearingDeg: number; pitchDeg: number; zoom: number };
@@ -20,6 +36,10 @@ vi.mock('./R3FMapFoundation', () => ({
     viewPreset: string;
     onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
     onZoomIntent?: (deltaY: number) => void;
+    onViewportSystemSelect?: (system: {
+      id64: number; name: string; x: number; y: number; z: number;
+      star: string | null; populated: boolean; galaxy_region_id: number | null;
+    }) => void;
   }) => (
     <div
       data-testid="r3f-production-renderer"
@@ -38,6 +58,12 @@ vi.mock('./R3FMapFoundation', () => ({
       </button>
       <button type="button" onClick={() => onZoomIntent?.(-120)}>
         Simulate wheel zoom
+      </button>
+      <button type="button" onClick={() => onViewportSystemSelect?.({
+        id64: 777, name: 'Viewport Star', x: 7, y: 8, z: 9,
+        star: 'G', populated: false, galaxy_region_id: 12,
+      })}>
+        Pick viewport star
       </button>
     </div>
   ),
@@ -118,6 +144,16 @@ beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(layers);
   vi.mocked(useAuthoritativeRegionLayer).mockReturnValue(regionLayer);
   vi.mocked(useViewportSystems).mockReturnValue({ systems: null, truncated: false });
+  vi.mocked(useExplorationLayers).mockReturnValue({
+    facts: { data: undefined, isLoading: false, isError: false, error: null },
+    viewportVisits: { data: undefined, isLoading: false, isError: false, error: null },
+    trail: { data: undefined, isLoading: false, isError: false, error: null },
+    summary: { data: undefined, isLoading: false, isError: false, error: null },
+  } as ReturnType<typeof useExplorationLayers>);
+  vi.mocked(usePowerplayLayer).mockReturnValue({
+    systems: { data: undefined, isLoading: false, isError: false, error: null },
+    commander: { data: undefined, isLoading: false, isError: false, error: null },
+  } as ReturnType<typeof usePowerplayLayer>);
 });
 
 afterEach(() => {
@@ -155,6 +191,9 @@ describe('Stage 26E production route composition', () => {
     expect((screen.getByTestId('stage26e-map-heatmap-toggle') as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId('stage26e-map-clusters-toggle') as HTMLInputElement).checked).toBe(false);
     expect((screen.getByTestId('stage26e-map-timeline-toggle') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('map-visited-systems-toggle') as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByTestId('map-travel-trail-toggle') as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByTestId('map-completeness-toggle') as HTMLInputElement).checked).toBe(false);
     expect(vi.mocked(useMapLayers)).toHaveBeenCalledWith(expect.objectContaining({
       heatmap: { enabled: true, max_cells: 50_000 },
     }));
@@ -211,6 +250,22 @@ describe('Stage 26E production route composition', () => {
     expect(screen.getByTestId('map-selection-panel').textContent).toContain('System 1');
     fireEvent.click(screen.getByTestId('map-open-selected-system'));
     expect(onOpenSelectedSystem).toHaveBeenCalledWith(1);
+  });
+
+  it('promotes GPU-picked viewport stars into selectable inspect context', () => {
+    const onOpenSelectedSystem = vi.fn();
+    render(
+      <ProductionMapTab
+        systems={[]}
+        reference={{ name: 'Sol', x: 0, z: 0 }}
+        onOpenSelectedSystem={onOpenSelectedSystem}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pick viewport star' }));
+    expect(screen.getByTestId('map-selection-panel').textContent).toContain('Viewport Star');
+    fireEvent.click(screen.getByTestId('map-open-selected-system'));
+    expect(onOpenSelectedSystem).toHaveBeenCalledWith(777);
   });
 
   it('uses one continuous camera and offers a top-down snap without replacing the renderer', () => {

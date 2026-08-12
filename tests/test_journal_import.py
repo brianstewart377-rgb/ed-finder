@@ -11,6 +11,7 @@ from starlette.requests import Request
 ROOT = Path(__file__).resolve().parents[1]
 API_SRC = ROOT / 'apps' / 'api' / 'src'
 SQL_PATH = ROOT / 'sql' / '032_journal_import_staging.sql'
+STREAMING_SQL_PATH = ROOT / 'sql' / '045_journal_streaming_provenance.sql'
 MANIFEST_PATH = ROOT / 'sql' / 'migration-manifest.txt'
 
 if str(API_SRC) not in sys.path:
@@ -288,6 +289,60 @@ def test_journal_import_request_normalizes_observed_at_to_utc_datetime():
 
 
 @pytest.mark.unit
+def test_journal_import_preserves_signed_64_bit_id_as_decimal_string_and_source_offset():
+    request = JournalImportRequest.model_validate({
+        'sync_key': 'sync-key-1234567890',
+        'client_manifest': {'parser_version': 'journal-import-worker-v2', 'files': []},
+        'observations': [{
+            'observation_key': 'f' * 64,
+            'source_file': 'Journal.precision.log',
+            'source_offset': 987654321,
+            'event_type': 'Scan',
+            'observed_at': '2026-08-12T20:00:00Z',
+            'system_id64': '9007199254740993',
+            'subject_type': 'body',
+            'subject_id': '0',
+            'payload': {'SystemAddress': '9007199254740993', 'BodyID': '0'},
+            'privacy_boundary': {},
+        }],
+    })
+
+    observation = request.observations[0]
+    assert observation.system_id64 == '9007199254740993'
+    assert observation.source_offset == 987654321
+    assert observation.subject_id == '0'
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize('event_type', [
+    'ScanOrganic', 'CodexEntry', 'SAAScanComplete', 'SellOrganicData',
+    'SellExplorationData', 'MultiSellExplorationData', 'FSDTarget', 'Fileheader',
+    'Commander', 'LoadGame', 'Died', 'Resurrect', 'Touchdown', 'Liftoff',
+    'ApproachBody', 'LeaveBody', 'Disembark', 'Embark', 'Screenshot',
+])
+def test_journal_import_accepts_complete_exploration_event_set(event_type: str):
+    request = JournalImportRequest.model_validate({
+        'sync_key': 'sync-key-1234567890',
+        'client_manifest': {'parser_version': 'journal-import-worker-v2', 'files': []},
+        'observations': [{
+            'observation_key': ('a' * 63) + str(len(event_type) % 10),
+            'source_file': 'Journal.coverage.log',
+            'event_type': event_type,
+            'observed_at': '2026-08-12T20:00:00Z',
+            'system_id64': '9007199254740993',
+            'subject_type': 'body' if event_type in {
+                'ScanOrganic', 'CodexEntry', 'SAAScanComplete', 'Touchdown', 'Liftoff',
+                'ApproachBody', 'LeaveBody', 'Disembark', 'Embark', 'Screenshot',
+            } else 'system',
+            'subject_id': '0',
+            'payload': {},
+            'privacy_boundary': {},
+        }],
+    })
+    assert request.observations[0].event_type == event_type
+
+
+@pytest.mark.unit
 def test_journal_import_migration_is_manifested_and_bounded():
     sql = SQL_PATH.read_text(encoding='utf-8')
     manifest = MANIFEST_PATH.read_text(encoding='utf-8')
@@ -295,3 +350,8 @@ def test_journal_import_migration_is_manifested_and_bounded():
     assert 'CREATE TABLE IF NOT EXISTS journal_import_staging' in sql
     assert 'source_record_hash  TEXT            NOT NULL UNIQUE' in sql
     assert '032_journal_import_staging.sql' in manifest
+
+    streaming_sql = STREAMING_SQL_PATH.read_text(encoding='utf-8')
+    assert 'source_offset BIGINT NOT NULL DEFAULT 0' in streaming_sql
+    assert 'ON journal_import_staging (sync_key, source_record_hash)' in streaming_sql
+    assert '045_journal_streaming_provenance.sql' in manifest

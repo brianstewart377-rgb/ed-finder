@@ -199,9 +199,9 @@ Renamed from `frontend-v2/` upstream — it now serves at `/`, not `/v2/`. Vite 
 
 PostgreSQL 16, 186M+ `systems` rows. Migrations are numbered `sql/NNN_*.sql`, applied in manifest order, and protected by the active `schema_migrations` checksum ledger through `scripts/apply_migrations.sh`; production's ledger state and manual migration 019 bookkeeping have been verified. Migration sessions default to `MIGRATION_STATEMENT_TIMEOUT=1h` and `MIGRATION_LOCK_TIMEOUT=30s`; finite overrides are allowed for reviewed migrations, but setting either to zero requires `EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes`. Backup/restore automation exists and has been rehearsed locally (`scripts/rehearse_postgres_restore.sh`, `scripts/restore_postgres_backup.sh`, `docs/operations/postgres-backup-and-restore.md`, receipts under `artifacts/restore-rehearsals/`) — both were previously known gaps, so do not report them as pending.
 
-Current production data-integrity receipts report zero persisted body, no-body-rating, ring, station-link, and evidence-lifecycle drift. Preserve that baseline through receipted invariant checks and bounded reconciliation; freshness age is telemetry, not itself a persisted-integrity failure. `apps/importer/src/` still holds the Spansh-dump import + post-import builders — invoke via `scripts/run_import.sh`, never raw `docker run` (bulk `UPDATE systems` needs `SET session_replication_role = replica` to avoid RI-trigger storms — apply that pattern to any new bulk-update script).
+Current production data-integrity receipts report zero persisted body, no-body-rating, ring, station-link, and evidence-lifecycle drift. Preserve that baseline through receipted invariant checks and bounded reconciliation; freshness age is telemetry, not itself a persisted-integrity failure. `apps/importer/src/` still holds the Spansh-dump import + post-import builders — invoke via `scripts/run_import.sh`, never raw `docker run`. Every bulk write that updates `systems`, `bodies`, clusters, or `ratings` must follow `docs/development/bulk-database-write-safety.md`: use the shared fail-closed replica-mode helper where safe, or document the explicit trigger-preserving exception next to the write.
 
-`scripts/sync_password.sh` is the single password verification/update path used by `scripts/run_import.sh`. Keep credentials off argv and SQL text: verification uses an stdin-fed, short-lived in-container passfile against the SCRAM-authenticated container address, and updates use psql `\password`. Never restore a password-bearing libpq URI or `ALTER USER ... PASSWORD '<shell value>'` command.
+`scripts/sync_password.sh` is the single password verification/update path used by `setup.sh` and `scripts/run_import.sh`. The former setup-time plaintext interpolation and password-printing hazard is resolved, and CI rejects inline shell password SQL outside the synchronizer. Keep credentials off argv and SQL text: verification uses an stdin-fed, short-lived in-container passfile against the SCRAM-authenticated container address, and updates use psql `\password`. Never restore a password-bearing libpq URI or `ALTER USER ... PASSWORD '<shell value>'` command.
 
 `pgbouncer` is defined in `docker-compose.yml` but not in the live request path — `api`/`eddn` connect directly to Postgres (a prior incident traced to pgbouncer's transaction-pool mode dropping session-level `SET`s).
 
@@ -237,11 +237,20 @@ See memory: [[debugging_data_drift]] for the methodology earned from the body_ri
 
 - **bodies.id is application-supplied with no sequence.** The primary key is
   `id` alone. The EDDN listener binds the journal's BodyID, which is only
-  unique *within* a system, so two systems scanning the same BodyID collide
-  and `ON CONFLICT (id) DO UPDATE SET system_id64 = EXCLUDED.system_id64`
-  re-parents the row. attractions, station_body_links and body_rings all FK
-  to bodies(id), so this corrupts three tables at once. Root cause of the
-  ring association_status drift.
+  unique *within* a system, so two systems scanning the same BodyID collide.
+  This structural hazard remains: migration 041 adds the composite unique
+  index but does not remove the global `id` primary key, and attractions,
+  station_body_links and body_rings still FK to `bodies(id)`. Guarded writers
+  prevent re-parenting today: EDDN uses
+  `WHERE bodies.system_id64 = EXCLUDED.system_id64`, Spansh passes
+  `guard_col='system_id64'`, and the review seed validates existing ownership
+  before writing (with the same SQL predicate as a race-safe backstop). The
+  preview SQL seed uses `ON CONFLICT (id) DO NOTHING`. Every future bodies
+  writer must perform the same pre-write ownership check and retain a
+  same-system conflict guard; an unguarded upsert can corrupt all three FK
+  consumers. The bounded schema follow-up is to add/attach a real
+  `UNIQUE(system_id64, id)` constraint once every live writer is guarded,
+  then separately convert the PK and dependent FKs to composite identity.
 
 - **body\_rings.association\_status is `NOT NULL DEFAULT 'local\_matched'`.**
   Any INSERT that omits the column silently asserts a verified local match.
@@ -297,6 +306,48 @@ and stale ratings survive indefinitely.
 
 ### Nightly job caps
 `build_archetype_scores.py`'s new-system mode has a hidden `limit or 10_000_000` fallback that silently caps at 10M rows if `--limit` isn't passed explicitly — always pass `--limit`. `scripts/nightly_update.sh` caps new-system archetype scoring and regional-analysis backfills at 5,000,000 rows/night to avoid unattended multi-day runs; lower this once each backlog clears (e.g. to `--limit 500000` for steady-state maintenance).
+
+## Delegating to Codex
+
+When you ask me to delegate work to Codex CLI:
+
+1. **Run Codex synchronously:**
+   ```bash
+   codex exec -C "$PWD" --sandbox workspace-write "<self-contained task>"
+   ```
+
+2. **Task requirements:** Include repo context, relevant paths, validation commands, and always end with "do not commit" — Codex will make changes but not git commit.
+
+3. **Wait for completion** — Codex will run in the foreground and report status.
+
+4. **Review the work:**
+   ```bash
+   git diff
+   # Run relevant tests to verify the changes
+   ```
+
+5. **Important constraints:**
+   - Never edit the same files concurrently with Codex
+   - Never ask Codex to delegate work back to Claude
+   - For multiple concurrent delegates, use separate Git worktrees
+
+6. **Follow-up in the same session:**
+   ```bash
+   codex exec resume --last "Address the review issues and rerun the tests."
+   ```
+
+**To allow automatic execution** (add to `.claude/settings.local.json`):
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(codex exec *)"
+    ]
+  }
+}
+```
+
+**Note:** This launches a separate Codex CLI task. It does not inject a message into this desktop session — Codex runs independently, makes changes to the working tree, and reports results. Review all changes before accepting them.
 
 ### SSH MCP setup on Windows
 See memory: [[ssh_mcp_windows_case_sensitivity]] for Windows path resolution quirks and troubleshooting.

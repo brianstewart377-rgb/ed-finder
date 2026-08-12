@@ -1,10 +1,109 @@
 # Third-Party Notices
 
+The machine-readable per-file rights chain is maintained in
+[`assets/PROVENANCE.json`](assets/PROVENANCE.json). This notice does not apply a
+repository or software license to third-party media beyond the grant stated by
+that media's source.
+
+## Coalsack background images
+
+The following bundled files are resized and/or recompressed derivatives of
+ESO image `eso1539c`, **Wide-field view of part of the Coalsack Nebula**:
+
+- `frontend/public/bg/coalsack-1600.jpg`
+- `frontend/public/bg/coalsack-2560.jpg`
+
+Source: <https://www.eso.org/public/images/eso1539c/>
+
+License: [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/)
+
+Required credit (retained unaltered from the source):
+
+> ESO/Digitized Sky Survey 2. Acknowledgment: Davide De Martin
+
+The source page, the JPEGs' retained EXIF description, and
+[ESO's reuse terms](https://www.eso.org/public/outreach/copyright/) were
+verified on 2026-08-12. ESO permits adaptation and commercial reuse under CC
+BY 4.0 when the full credit remains clear, visible, and associated with the
+image. The material must not be presented as an ESO endorsement. These are
+real astronomical survey images and are not derived from Frontier game media.
+
+## Web fonts
+
+No font binary is stored in this repository. `frontend/src/index.css` requests
+these families from Google Fonts at runtime. All three families are licensed
+under the **SIL Open Font License, Version 1.1 (OFL-1.1)**:
+
+- **Orbitron** — Copyright 2018 The Orbitron Project Authors
+  (<https://github.com/theleagueof/orbitron>), with Reserved Font Name:
+  "Orbitron". Designer: Matt McInerney.
+  [OFL text](https://github.com/google/fonts/blob/main/ofl/orbitron/OFL.txt)
+- **Manrope** — Copyright 2018 The Manrope Project Authors
+  (<https://github.com/sharanda/manrope>). Designer: Mikhail Sharanda.
+  [OFL text](https://github.com/google/fonts/blob/main/ofl/manrope/OFL.txt)
+- **JetBrains Mono** — Copyright 2020 The JetBrains Mono Project Authors
+  (<https://github.com/JetBrains/JetBrainsMono>). Designer credits: JetBrains,
+  Philipp Nurullin, and Konstantin Bulenkov.
+  [OFL text](https://github.com/google/fonts/blob/main/ofl/jetbrainsmono/OFL.txt)
+
+The OFL permits use, study, modification, embedding, redistribution, and sale
+with software subject to its conditions; font software may not be sold by
+itself. If ED-Finder later self-hosts font files, the applicable copyright and
+OFL text must travel with those copies and the Orbitron reserved-name rule must
+be preserved.
+
+## EDAssets
+
+No EDAssets media file is currently bundled or copied into ED-Finder. EDAssets
+has been inspected only as a discovery and provenance catalogue:
+
+- Site: <https://edassets.org/#/about>
+- Repository: <https://github.com/Venefilyn/EDAssets>
+
+The EDAssets repository's MIT license applies to its licensed repository code;
+it is not a blanket license for all catalogued media. EDAssets' statement that
+its own project was created with Frontier permission is site-specific and is
+not transferable permission for ED-Finder. Any future EDAssets-sourced file
+requires its own source URL, named creator credit, media license or written
+grant, Frontier-derived flag, and approval record before it is added.
+
+## Frontier Developments fan-media boundary
+
+Frontier's [official Elite Dangerous media guidance](https://customersupport.frontier.co.uk/hc/en-us/articles/4404292442642-How-can-I-use-Elite-Dangerous-media)
+covers specified fan and community uses for noncommercial purposes, requires
+clear attribution to Frontier Developments plc, prohibits misleading use or
+implied endorsement, and requires advance permission for promotional or
+commercial use.
+
+ED-Finder uses Frontier-derived region names and geometry only under that
+noncommercial fan-media posture and displays Frontier's preferred long-form
+community-site attribution. This permission does not replace the rights or
+credit of any other per-file creator. Every Frontier-derived file must retain a
+separate rights chain, and no such file is approved for commercial use without
+a recorded written commercial grant from Frontier and every other rights
+holder.
+
+## Community-researched exploration formula
+
+`apps/importer/src/exploration_value.py` is an original ED-Finder Python
+implementation of mathematical formulae and factual game constants documented
+by Elite Dangerous community researchers in the Frontier Forums thread
+[Exploration value formulae](https://forums.frontier.co.uk/threads/exploration-value-formulae.232000/).
+No third-party source code is copied and the thread is not represented as
+granting a source-code license. The implementation remains conservatively
+within ED-Finder's Frontier noncommercial fan-project posture because it
+reproduces Elite Dangerous game mechanics.
+
 ## EliteDangerousRegionMap
 
 ED-Finder's galactic-region lookup algorithm and the region grid in
-`apps/importer/src/data/region_map.json` derive from
+`apps/importer/src/region_map.py` and
+`apps/importer/src/data/region_map.json`, together with the generated public
+files `frontend/public/assets/elite-dangerous-region-map.svg` and
+`frontend/public/assets/elite-dangerous-region-map.LICENSE.txt`, derive from
 [`klightspeed/EliteDangerousRegionMap`](https://github.com/klightspeed/EliteDangerousRegionMap).
+The audited upstream revision is commit
+[`6c1191a`](https://github.com/klightspeed/EliteDangerousRegionMap/tree/6c1191a58e1e593966f44f16235ab39d1ad24d84).
 
 MIT License
 

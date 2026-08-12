@@ -50,6 +50,7 @@ import time
 import logging
 import argparse
 import io
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Tuple
@@ -63,6 +64,7 @@ import psycopg2.errors
 from tqdm import tqdm
 from ring_facts import ring_rows_for_body
 from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS
+from shared_contracts.bulk_update_helper import bulk_update_replica_mode
 
 # ---------------------------------------------------------------------------
 # Galaxy Region Lookup (klightspeed/EliteDangerousRegionMap)
@@ -393,7 +395,16 @@ def _run_with_deadlock_retry(conn, work, *, label, attempts=4, base_delay=0.5):
         try:
             return work()
         except psycopg2.errors.DeadlockDetected:
-            conn.rollback()
+            # bulk_update_replica_mode already rolls back failed work and
+            # commits its role restoration.  Other callers can still arrive
+            # here with an aborted transaction and require the rollback.
+            get_status = getattr(conn, 'get_transaction_status', None)
+            is_idle = (
+                callable(get_status)
+                and get_status() == psycopg2.extensions.TRANSACTION_STATUS_IDLE
+            )
+            if not is_idle:
+                conn.rollback()
             if attempt == attempts:
                 log.error(f"{label}: deadlock persisted after {attempts} attempts — giving up")
                 raise
@@ -536,31 +547,40 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 buf.write('\t'.join(parts) + '\n')
             buf.seek(0)
             cur.copy_from(buf, temp, columns=columns, null='\\N')
-            cur.execute(f"""
-                INSERT INTO {target_table} ({col_list})
-                SELECT {col_list} FROM {temp}
-                ON CONFLICT ({conflict_col}) DO UPDATE
-                SET {set_clause}{where_clause}
-            """)
-            count = cur.rowcount
-            rejected_keys = set() if returning_col else None
-            if returning_col and guard_col:
-                distinct_conflict_values = list({
-                    _normalize_conflict_value(row[conflict_col_index])
-                    for row in original_rows
-                })
+            # System conflicts are high-volume parent-table updates.  Apply
+            # replica mode only around that target statement: body/station
+            # upserts intentionally retain FK and custom-trigger enforcement.
+            mode = (
+                bulk_update_replica_mode(conn)
+                if target_table == 'systems'
+                else nullcontext(conn)
+            )
+            with mode:
                 cur.execute(f"""
-                    SELECT {conflict_col}, {guard_col}
-                    FROM {target_table}
-                    WHERE {conflict_col} = ANY(%s)
-                """, (distinct_conflict_values,))
-                actual_owner_by_conflict_value = dict(cur.fetchall())
-                for row in original_rows:
-                    conflict_key = _normalize_conflict_value(row[conflict_col_index])
-                    guard_value = row[guard_col_index]
-                    if actual_owner_by_conflict_value.get(conflict_key) != guard_value:
-                        rejected_keys.add((guard_value, row[conflict_col_index]))
-        conn.commit()
+                    INSERT INTO {target_table} ({col_list})
+                    SELECT {col_list} FROM {temp}
+                    ON CONFLICT ({conflict_col}) DO UPDATE
+                    SET {set_clause}{where_clause}
+                """)
+                count = cur.rowcount
+                rejected_keys = set() if returning_col else None
+                if returning_col and guard_col:
+                    distinct_conflict_values = list({
+                        _normalize_conflict_value(row[conflict_col_index])
+                        for row in original_rows
+                    })
+                    cur.execute(f"""
+                        SELECT {conflict_col}, {guard_col}
+                        FROM {target_table}
+                        WHERE {conflict_col} = ANY(%s)
+                    """, (distinct_conflict_values,))
+                    actual_owner_by_conflict_value = dict(cur.fetchall())
+                    for row in original_rows:
+                        conflict_key = _normalize_conflict_value(row[conflict_col_index])
+                        guard_value = row[guard_col_index]
+                        if actual_owner_by_conflict_value.get(conflict_key) != guard_value:
+                            rejected_keys.add((guard_value, row[conflict_col_index]))
+                conn.commit()
         return (count, rejected_keys) if returning_col else count
 
     return _run_with_deadlock_retry(conn, _do, label=f"upsert_via_temp({target_table})")
@@ -597,18 +617,21 @@ def upsert_body_rings(conn, rows: list[dict]) -> int:
                 values,
             )
             system_ids = sorted({row['system_id64'] for row in rows})
-            cur.execute(
-                """
-                UPDATE systems
-                   SET rating_dirty = TRUE,
-                       cluster_dirty = TRUE,
-                       updated_at = NOW()
-                 WHERE id64 = ANY(%s)
-                """,
-                (system_ids,),
-            )
-            count = len(rows)
-        conn.commit()
+            # Keep body_rings INSERT triggers active.  Replica mode starts
+            # only after that statement and before the parent systems update.
+            with bulk_update_replica_mode(conn):
+                cur.execute(
+                    """
+                    UPDATE systems
+                       SET rating_dirty = TRUE,
+                           cluster_dirty = TRUE,
+                           updated_at = NOW()
+                     WHERE id64 = ANY(%s)
+                    """,
+                    (system_ids,),
+                )
+                count = len(rows)
+                conn.commit()
         return count
 
     return _run_with_deadlock_retry(conn, _do, label="upsert_body_rings")

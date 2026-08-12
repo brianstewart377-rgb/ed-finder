@@ -1,0 +1,510 @@
+{
+  "sha": "c14aefb4482d9ce6408c6b3f45d97b7e7681a4cb",
+  "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/c14aefb4482d9ce6408c6b3f45d97b7e7681a4cb",
+  "tree": [
+    {
+      "path": ".gitmodules",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "f5061a1be1d168e67e9cb7731167b785317d215e",
+      "size": 108,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/f5061a1be1d168e67e9cb7731167b785317d215e"
+    },
+    {
+      "path": "README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8ef76a4846652f4b190c366e8069e007310c19d6",
+      "size": 6515,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/8ef76a4846652f4b190c366e8069e007310c19d6"
+    },
+    {
+      "path": "build",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "2bb8dabc01ac01371fb25c159410251351d41c22",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/2bb8dabc01ac01371fb25c159410251351d41c22"
+    },
+    {
+      "path": "build/thrastro.shaders.dev.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "7ba274db988566ee3a68e5b30520ec138532d0ec",
+      "size": 1515,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/7ba274db988566ee3a68e5b30520ec138532d0ec"
+    },
+    {
+      "path": "build/thrastro.shaders.min.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d81c1a23e445d602707a301d73a5fe84bdf6e23d",
+      "size": 52825,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/d81c1a23e445d602707a301d73a5fe84bdf6e23d"
+    },
+    {
+      "path": "build/thrastro.shaders.src.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2ef67fdca8d80baa2cddd5f332d9c9274a80be4d",
+      "size": 95725,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/2ef67fdca8d80baa2cddd5f332d9c9274a80be4d"
+    },
+    {
+      "path": "compile.bat",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4f1218ae372be9697b51e5bd2cce4a4b00352f7e",
+      "size": 8,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/4f1218ae372be9697b51e5bd2cce4a4b00352f7e"
+    },
+    {
+      "path": "conf",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "7d74b7d9bdfb9fc09ceee7ea277282cb3874fb16",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/7d74b7d9bdfb9fc09ceee7ea277282cb3874fb16"
+    },
+    {
+      "path": "conf/include.conf.xml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "c0a5c0ee57b1190d4e13e84d8cfa1bb060a6d0be",
+      "size": 906,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/c0a5c0ee57b1190d4e13e84d8cfa1bb060a6d0be"
+    },
+    {
+      "path": "conf/license.header.txt",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "31e16606fea79b958ef48cbf5bcdc0ceedcc28f2",
+      "size": 138,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/31e16606fea79b958ef48cbf5bcdc0ceedcc28f2"
+    },
+    {
+      "path": "conf/webmerge.conf.xml",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e9d196da0fd016fe527742c12b5f5116b9d27e9e",
+      "size": 1447,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/e9d196da0fd016fe527742c12b5f5116b9d27e9e"
+    },
+    {
+      "path": "demo",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "41f0236c04776522b157f400bdf32dd8600c0bb3",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/41f0236c04776522b157f400bdf32dd8600c0bb3"
+    },
+    {
+      "path": "demo/00-consts.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9995feb69c4967e41070029ffb1ce4840271d09f",
+      "size": 336,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/9995feb69c4967e41070029ffb1ce4840271d09f"
+    },
+    {
+      "path": "demo/00-dat-gui.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4cfb3ad76b40a6ad5c000ec288bcac75f0924dc5",
+      "size": 336,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/4cfb3ad76b40a6ad5c000ec288bcac75f0924dc5"
+    },
+    {
+      "path": "demo/01-demo.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc8d1b007a1b54d240ae61624e3ac451a78e41c6",
+      "size": 2581,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/bc8d1b007a1b54d240ae61624e3ac451a78e41c6"
+    },
+    {
+      "path": "demo/10-firmament.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dbb824b00cd73e692da8053b6d455122f581d793",
+      "size": 2997,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/dbb824b00cd73e692da8053b6d455122f581d793"
+    },
+    {
+      "path": "demo/11-sun.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "8c7bb53ec8a30061d66f7337c99f16d9097e9ae4",
+      "size": 557,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/8c7bb53ec8a30061d66f7337c99f16d9097e9ae4"
+    },
+    {
+      "path": "demo/12-orbitals.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "278eeaeb8e429724a66c08cdbf1dd4b7d78e8e5a",
+      "size": 3700,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/278eeaeb8e429724a66c08cdbf1dd4b7d78e8e5a"
+    },
+    {
+      "path": "demo/13-constellations.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "da714c2f7c12ca571bd74a58929db5c4d4fa69df",
+      "size": 3744,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/da714c2f7c12ca571bd74a58929db5c4d4fa69df"
+    },
+    {
+      "path": "demo/20-sphere.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "e8609baded65f8b756543089473f4b0826f442e1",
+      "size": 222,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/e8609baded65f8b756543089473f4b0826f442e1"
+    },
+    {
+      "path": "demo/21-eclipser.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "d5e02ea28aee03eb372e0d182fcb5f2505c16b63",
+      "size": 1471,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/d5e02ea28aee03eb372e0d182fcb5f2505c16b63"
+    },
+    {
+      "path": "demo/22-planet.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2ee9eae08d440db12b0e26b0b59bdf40aae30dce",
+      "size": 3456,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/2ee9eae08d440db12b0e26b0b59bdf40aae30dce"
+    },
+    {
+      "path": "demo/24-ground.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "05cd38e89024a89dabc9ab61f755092dcd2c25f7",
+      "size": 2045,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/05cd38e89024a89dabc9ab61f755092dcd2c25f7"
+    },
+    {
+      "path": "demo/25-atmosphere.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "dd7afb255f367d8ab94f72fd4229bd54c67373ea",
+      "size": 767,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/dd7afb255f367d8ab94f72fd4229bd54c67373ea"
+    },
+    {
+      "path": "demo/50-grid-helper.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3acdd2d6cea6b1dc9f3e75cef42c4b387a2d5aaa",
+      "size": 419,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/3acdd2d6cea6b1dc9f3e75cef42c4b387a2d5aaa"
+    },
+    {
+      "path": "demo/81-orb-mech.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2c2275049a61836e1b7eb5ee0bcbbaf28798ca78",
+      "size": 4415,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/2c2275049a61836e1b7eb5ee0bcbbaf28798ca78"
+    },
+    {
+      "path": "demo/demo-atmosphere.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6a1e67f003a0534041271498e116b4c60cfc8e50",
+      "size": 862,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/6a1e67f003a0534041271498e116b4c60cfc8e50"
+    },
+    {
+      "path": "demo/demo-constellations.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5c4982d301705a867b88946e573263415f2dc288",
+      "size": 1049,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/5c4982d301705a867b88946e573263415f2dc288"
+    },
+    {
+      "path": "demo/demo-eclipser.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "81de7a071bd7815b7c4e1c59d1363b24becd6112",
+      "size": 860,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/81de7a071bd7815b7c4e1c59d1363b24becd6112"
+    },
+    {
+      "path": "demo/demo-firmament.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "bc308d43878bb01aa68b41a1a7681a56df4cbcf0",
+      "size": 863,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/bc308d43878bb01aa68b41a1a7681a56df4cbcf0"
+    },
+    {
+      "path": "demo/demo-ground.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4e1d2c9c0356183ecf07d9f53379e1d533a2a495",
+      "size": 816,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/4e1d2c9c0356183ecf07d9f53379e1d533a2a495"
+    },
+    {
+      "path": "demo/demo-orb-mech.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "64f544094f32761a310b965dee33831f918d58a6",
+      "size": 860,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/64f544094f32761a310b965dee33831f918d58a6"
+    },
+    {
+      "path": "demo/demo-orbitals.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9e56c5c6cbb1e7aa1e06ce3805dbed09e608e0bd",
+      "size": 790,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/9e56c5c6cbb1e7aa1e06ce3805dbed09e608e0bd"
+    },
+    {
+      "path": "demo/demo-planet.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a4d47999ee773ff0616fbe4259c4b78e2585bad0",
+      "size": 858,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/a4d47999ee773ff0616fbe4259c4b78e2585bad0"
+    },
+    {
+      "path": "demo/demo-sphere.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6705bb690ed91b8888214d9afa2137286adb0729",
+      "size": 846,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/6705bb690ed91b8888214d9afa2137286adb0729"
+    },
+    {
+      "path": "demo/earth",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "4932b2227ae54757d6c77b05579e13643f146f68",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/4932b2227ae54757d6c77b05579e13643f146f68"
+    },
+    {
+      "path": "demo/earth/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "542ee6247685669ba095e677d4d49f64870eda51",
+      "size": 193,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/542ee6247685669ba095e677d4d49f64870eda51"
+    },
+    {
+      "path": "demo/earth/day.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6574ebaaa8b3fcccbc71f6e1268bf978585d7ea8",
+      "size": 687700,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/6574ebaaa8b3fcccbc71f6e1268bf978585d7ea8"
+    },
+    {
+      "path": "demo/earth/night.jpg",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "6f2915a44371b5492780f2b54d076742674e516d",
+      "size": 383579,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/6f2915a44371b5492780f2b54d076742674e516d"
+    },
+    {
+      "path": "demo/firmament",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "b00c54e095dddaea6ac4b8e1552046c4b3f16a57",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/b00c54e095dddaea6ac4b8e1552046c4b3f16a57"
+    },
+    {
+      "path": "demo/firmament/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "80bdc174c503c1d12ae8cf9d476565cb3b09f786",
+      "size": 209,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/80bdc174c503c1d12ae8cf9d476565cb3b09f786"
+    },
+    {
+      "path": "demo/firmament/cstel.western.col.db",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "ee98f6474a6797aab6610c39e9e473203f2adaf3",
+      "size": 11056,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/ee98f6474a6797aab6610c39e9e473203f2adaf3"
+    },
+    {
+      "path": "demo/firmament/cstel.western.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "87e855e21c7ad7b27f297526cf749a3a8356a83c",
+      "size": 5892,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/87e855e21c7ad7b27f297526cf749a3a8356a83c"
+    },
+    {
+      "path": "demo/firmament/cstel.western.names.json",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "4aa3cafb2aeea939800572f39aca06aa4981b88a",
+      "size": 8107,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/4aa3cafb2aeea939800572f39aca06aa4981b88a"
+    },
+    {
+      "path": "demo/firmament/cstel.western.pos.db",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a73ba8841b3c3fff51378f4dde23b648fa9b7842",
+      "size": 11056,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/a73ba8841b3c3fff51378f4dde23b648fa9b7842"
+    },
+    {
+      "path": "demo/firmament/stars.col.db",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "fe165538a8d310fbb0f6f5981e8057057ca223b6",
+      "size": 792896,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/fe165538a8d310fbb0f6f5981e8057057ca223b6"
+    },
+    {
+      "path": "demo/firmament/stars.pos.db",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "a8bed452c592d7a41f8c969720ad45ad55bdeae3",
+      "size": 792896,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/a8bed452c592d7a41f8c969720ad45ad55bdeae3"
+    },
+    {
+      "path": "demo/index.html",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "1553c45947cea1c76f95e3c6161316005d4a31f7",
+      "size": 902,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/1553c45947cea1c76f95e3c6161316005d4a31f7"
+    },
+    {
+      "path": "demo/saturn",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "42a285a972b7361553f9a5e2500cd008981cfbcd",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/42a285a972b7361553f9a5e2500cd008981cfbcd"
+    },
+    {
+      "path": "demo/saturn/README.md",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "69c5b5e281e60a35c855296ce0e7d2d94dfb4164",
+      "size": 284,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/69c5b5e281e60a35c855296ce0e7d2d94dfb4164"
+    },
+    {
+      "path": "demo/saturn/ring-shadow.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "12c7cf8aea98f6b726cb49dfe1e53b320b438bae",
+      "size": 3201,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/12c7cf8aea98f6b726cb49dfe1e53b320b438bae"
+    },
+    {
+      "path": "demo/saturn/ring-surface.png",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "937124304f34e7b783f686e7ab4899c74a4e363f",
+      "size": 13477,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/937124304f34e7b783f686e7ab4899c74a4e363f"
+    },
+    {
+      "path": "src",
+      "mode": "040000",
+      "type": "tree",
+      "sha": "885c50693a8650cf3846d221e3ef79f83aeb2101",
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/trees/885c50693a8650cf3846d221e3ef79f83aeb2101"
+    },
+    {
+      "path": "src/ConstellationsShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "63fae650d041ddbc7f37678f1e0623466ba15448",
+      "size": 5517,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/63fae650d041ddbc7f37678f1e0623466ba15448"
+    },
+    {
+      "path": "src/CustomShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "9b1b71e2c17b1127a7eb441cc6a291de340f4ebf",
+      "size": 9778,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/9b1b71e2c17b1127a7eb441cc6a291de340f4ebf"
+    },
+    {
+      "path": "src/EclipseShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "2f139661f691f7f146df471dd488283da6d62689",
+      "size": 13285,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/2f139661f691f7f146df471dd488283da6d62689"
+    },
+    {
+      "path": "src/FirmamentShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "94b9c46c49101c285a0d904f3a433b4f0f541709",
+      "size": 13386,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/94b9c46c49101c285a0d904f3a433b4f0f541709"
+    },
+    {
+      "path": "src/GroundShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "982205c0c27f3de12e4541ccd77be872e69414b3",
+      "size": 11304,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/982205c0c27f3de12e4541ccd77be872e69414b3"
+    },
+    {
+      "path": "src/OrbitalsShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "3c7e0cf3a8b726b7a7908ae326a26b68e1af675a",
+      "size": 16814,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/3c7e0cf3a8b726b7a7908ae326a26b68e1af675a"
+    },
+    {
+      "path": "src/PlanetShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "60f11cad778bdbf0e1ca3d2a3f1549f3bd4562b3",
+      "size": 6851,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/60f11cad778bdbf0e1ca3d2a3f1549f3bd4562b3"
+    },
+    {
+      "path": "src/RingShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "47e3feb2aa275fd2489496015109051b6b42649a",
+      "size": 5951,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/47e3feb2aa275fd2489496015109051b6b42649a"
+    },
+    {
+      "path": "src/SkyShader.js",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "5cd5ab1c9c7b4ae943f5f873b476e7016d6d85f1",
+      "size": 12729,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/5cd5ab1c9c7b4ae943f5f873b476e7016d6d85f1"
+    },
+    {
+      "path": "thrastro-vendors",
+      "mode": "160000",
+      "type": "commit",
+      "sha": "7b5497c53d6b0b7f818ad64ae33d7f5119209e2f"
+    },
+    {
+      "path": "webserver.bat",
+      "mode": "100644",
+      "type": "blob",
+      "sha": "794c39a343fb3412a4f0ebe9f66203a9317e0888",
+      "size": 20,
+      "url": "https://api.github.com/repos/THRASTRO/thrastro-shaders/git/blobs/794c39a343fb3412a4f0ebe9f66203a9317e0888"
+    }
+  ],
+  "truncated": false
+}

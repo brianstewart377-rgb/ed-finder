@@ -23,10 +23,15 @@ from typing import Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-import edsm_station_enrichment_probe as edsm_probe
-from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS
-from dirty_flags import mark_systems_rating_dirty
-from ring_facts import normalise_ring_payload, ring_rows_for_body
+from api_source_resolver import add_api_source_to_path
+
+
+API_SRC = add_api_source_to_path(__file__, required_paths=('station_body_resolver.py',))
+
+import edsm_station_enrichment_probe as edsm_probe  # noqa: E402
+from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS  # noqa: E402
+from dirty_flags import mark_systems_rating_dirty  # noqa: E402
+from ring_facts import normalise_ring_payload, ring_rows_for_body  # noqa: E402
 
 
 DEFAULT_EDSM_RATE_LIMIT_SECONDS = edsm_probe.DEFAULT_HTTP_REQUEST_DELAY_SECONDS

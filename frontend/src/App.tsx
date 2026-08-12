@@ -433,6 +433,11 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
               <p data-testid="frontier-ip-attribution">
                 <em>Elite Dangerous</em> is a registered trademark of Frontier Developments plc. This application is an unofficial fan-made tool and is not affiliated with, endorsed by, or reflective of the views or opinions of Frontier Developments.
               </p>
+              <p data-testid="coalsack-image-attribution">
+                Coalsack background credit: ESO/Digitized Sky Survey 2. Acknowledgment: Davide De Martin.
+                {' '}<a href="https://www.eso.org/public/images/eso1539c/">Source image</a>
+                {' '}(<a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>).
+              </p>
             </section>
             <p data-testid="frontier-fan-disclaimer">
               ED-Finder was created using assets and imagery from Elite Dangerous, with the permission of Frontier Developments plc, for non-commercial purposes. It is not endorsed by nor reflects the views or opinions of Frontier Developments and no employee of Frontier Developments was involved in the making of it.

@@ -95,11 +95,12 @@ export interface JournalImportClientManifest {
 export interface JournalImportObservationInput {
   observation_key: string;
   source_file: string;
-  event_type: 'CarrierJump' | 'Docked' | 'FSDJump' | 'FSSAllBodiesFound' | 'FSSBodySignals' | 'FSSDiscoveryScan' | 'Location' | 'SAASignalsFound' | 'Scan';
+  source_offset?: number;
+  event_type: 'ApproachBody' | 'CarrierJump' | 'CodexEntry' | 'Commander' | 'Died' | 'Disembark' | 'Docked' | 'Embark' | 'Fileheader' | 'FSDJump' | 'FSDTarget' | 'FSSAllBodiesFound' | 'FSSBodySignals' | 'FSSDiscoveryScan' | 'LeaveBody' | 'Liftoff' | 'LoadGame' | 'Location' | 'MultiSellExplorationData' | 'NavRoute' | 'NavRouteClear' | 'Resurrect' | 'SAAScanComplete' | 'SAASignalsFound' | 'Scan' | 'ScanOrganic' | 'Screenshot' | 'SellExplorationData' | 'SellOrganicData' | 'Touchdown';
   observed_at?: string | null;
-  system_id64: number;
+  system_id64?: string | null;
   system_name?: string | null;
-  subject_type: 'system' | 'body';
+  subject_type: 'system' | 'body' | 'route';
   subject_id?: string | null;
   summary?: string | null;
   payload: Record<string, unknown>;
@@ -116,19 +117,25 @@ export interface JournalImportRequest {
 export interface ExplorationObservationInput {
   observation_key: string;
   event_type:
+    | 'CarrierJump'
     | 'FSDJump'
     | 'Location'
     | 'Scan'
     | 'FSSDiscoveryScan'
+    | 'FSSAllBodiesFound'
     | 'SAASignalsFound'
     | 'FSSBodySignals'
     | 'CodexEntry'
     | 'SAAScanComplete'
-    | 'ScanOrganic';
+    | 'ScanOrganic'
+    | 'SellOrganicData'
+    | 'SellExplorationData'
+    | 'MultiSellExplorationData'
+    | 'RedeemVoucher';
   observed_at: string;
-  system_id64: number;
+  system_id64: string;
   system_name?: string | null;
-  body_id?: number | null;
+  body_id?: string | null;
   body_name?: string | null;
   payload: Record<string, unknown>;
 }
@@ -1719,9 +1726,9 @@ export interface PredictionObservationCompareRequest {
   system_id64: number;
   target_archetype: string | null;
   /**
-   * Current Simulation Preview prediction. Stage 6D passes the full
-   * `SimulateBuildResponse` verbatim — the backend treats `prediction`
-   * as an opaque JSON object and only requires it to be object-shaped.
+   * Current validation prediction. Stage 6D sends the shared projection
+   * of `SimulateBuildResponse` fields consumed by the comparison engine.
+   * The backend treats `prediction` as an object-shaped JSON value.
    */
   prediction: Record<string, unknown>;
   /**
@@ -1797,7 +1804,101 @@ export interface ValidationReviewSummary {
   summary: string;
 }
 
-export interface ValidationReviewRequest extends PredictionObservationCompareRequest {}
+export interface ValidationReviewRequest {
+  system_id64: number;
+  target_archetype: string | null;
+  /**
+   * Direct/legacy mode. Prefer `comparison_result` when the caller has
+   * already called the compare endpoint.
+   */
+  prediction?: Record<string, unknown>;
+  observed_facts?: ObservedFactCreateRequest[];
+  fact_load_limit?: number;
+  /** Reuses Stage 6C output without rerunning the comparison engine. */
+  comparison_result?: PredictionObservationCompareResponse;
+}
+
+export type RouteType = 'personal' | 'journal' | 'spansh' | 'expedition';
+
+export interface RouteWaypoint {
+  order: number;
+  system_id64?: number | string | null;
+  system_name: string;
+  x?: number | null;
+  y?: number | null;
+  z?: number | null;
+  distance_from_previous?: number | null;
+  bookmarked: boolean;
+  notes?: string | null;
+}
+
+export interface RouteEvent {
+  system_id64?: number | string | null;
+  system_name: string;
+  x?: number | null;
+  y?: number | null;
+  z?: number | null;
+  visited_at: string;
+  distance_from_planned?: number | null;
+  order: number;
+  context: Record<string, unknown>;
+}
+
+export interface RouteAlignment {
+  planned_order: number;
+  waypoint: RouteWaypoint;
+  visited: boolean;
+  actual_event_order?: number | null;
+  visited_at?: string | null;
+  distance_from_planned?: number | null;
+}
+
+export interface RouteSummary {
+  route_id: string;
+  name: string;
+  source: string;
+  type: RouteType;
+  created_at: string;
+  updated_at: string;
+  waypoint_count: number;
+  visited_count: number;
+  completion_percent: number;
+  remaining_distance: number;
+  current_waypoint_index?: number | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface RouteDetail extends RouteSummary {
+  waypoints: RouteWaypoint[];
+  events: RouteEvent[];
+  planned_actual_alignment: RouteAlignment[];
+}
+
+export interface RouteListResponse {
+  routes: RouteSummary[];
+  count: number;
+}
+
+export interface SpanshRouteImportRequest {
+  commander_id: string;
+  name: string;
+  external_id?: string | null;
+  route_mode: 'exact' | 'neutron' | 'carrier';
+  waypoints: RouteWaypoint[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExpeditionImportRequest {
+  commander_id: string;
+  name: string;
+  external_id?: string | null;
+  waypoints: RouteWaypoint[];
+  description?: string | null;
+  organizer?: string | null;
+  departure_at?: string | null;
+  return_at?: string | null;
+  metadata?: Record<string, unknown>;
+}
 
 export interface ValidationReviewResponse {
   system_id64: number;

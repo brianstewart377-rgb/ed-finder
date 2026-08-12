@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { comparePredictionToObservations, reviewPredictionValidation } from '@/lib/api';
 import type {
   PredictionObservationCompareResponse,
@@ -16,7 +16,7 @@ import {
   STALE_PREVIEW_COPY,
   VALIDATION_REVIEW_REMINDERS,
 } from './validationLabels';
-import { previewResultFingerprint } from './validationUtils';
+import { previewResultFingerprint, validationInputProjection } from './validationUtils';
 
 interface ValidationPanelProps {
   systemId64: number;
@@ -45,7 +45,9 @@ interface ValidationPanelProps {
  *   * Stale preview -> render a warning. The compare query still uses
  *     the *current* preview result; the user is informed to re-run
  *     Preview themselves. We never auto-run Simulation Preview here.
- *   * Refresh button -> manual refetch of the compare and review queries.
+ *   * Review waits for compare and receives its pre-computed result, so
+ *     the backend does not run the comparison engine twice.
+ *   * Refresh button -> refetch compare, then review that fresh result.
  */
 export function ValidationPanel({
   systemId64,
@@ -53,6 +55,11 @@ export function ValidationPanel({
   previewResult,
   isPreviewResultStale = false,
 }: ValidationPanelProps) {
+  const queryClient = useQueryClient();
+  const validationPrediction = useMemo(
+    () => previewResult ? validationInputProjection(previewResult) : null,
+    [previewResult],
+  );
   const predictionFingerprint = useMemo(
     () => previewResultFingerprint(previewResult),
     [previewResult],
@@ -76,18 +83,21 @@ export function ValidationPanel({
   const compareQuery = useQuery<PredictionObservationCompareResponse, Error>({
     queryKey,
     enabled,
-    // Cast through `unknown` because `SimulateBuildResponse` is a known
-    // backend response shape but the compare endpoint accepts any JSON
-    // object as `prediction`.
+    // Cache identity and request input deliberately share this projection.
     queryFn: () =>
       comparePredictionToObservations({
         system_id64: systemId64,
         target_archetype: targetArchetype ?? null,
-        prediction: previewResult as unknown as Record<string, unknown>,
+        prediction: validationPrediction!,
       }),
     staleTime: 30 * 1000,
     retry: 1,
   });
+
+  const comparisonFingerprint = useMemo(
+    () => compareQuery.data ? JSON.stringify(compareQuery.data) : null,
+    [compareQuery.data],
+  );
 
   const reviewQueryKey = useMemo(
     () => [
@@ -95,37 +105,46 @@ export function ValidationPanel({
       systemId64,
       targetArchetype ?? null,
       predictionFingerprint,
+      comparisonFingerprint,
     ],
-    [systemId64, targetArchetype, predictionFingerprint],
+    [systemId64, targetArchetype, predictionFingerprint, comparisonFingerprint],
   );
 
   const reviewQuery = useQuery<ValidationReviewResponse, Error>({
     queryKey: reviewQueryKey,
-    enabled,
-    queryFn: () =>
-      reviewPredictionValidation({
+    enabled: enabled && compareQuery.isSuccess && compareQuery.data !== undefined,
+    queryFn: () => {
+      const comparisonResult = queryClient.getQueryData<PredictionObservationCompareResponse>(queryKey);
+      if (!comparisonResult) {
+        throw new Error('Comparison result is unavailable for validation review.');
+      }
+      return reviewPredictionValidation({
         system_id64: systemId64,
         target_archetype: targetArchetype ?? null,
-        prediction: previewResult as unknown as Record<string, unknown>,
-      }),
+        comparison_result: comparisonResult,
+      });
+    },
     staleTime: 30 * 1000,
     retry: 1,
   });
 
   const isRefreshingValidation = compareQuery.isFetching || reviewQuery.isFetching;
 
-  function refreshValidation() {
+  async function refreshValidation() {
     if (!previewResult) return;
-    // Force a fresh comparison fetch for the current preview
-    // fingerprint. `refetch()` is sufficient; invalidating across
-    // (system, *, *) keys would also force every cached comparison to
-    // refetch, which is wasteful when only the active one matters here.
-    // The Observed Evidence panel separately invalidates the
-    // `observation-compare` and `observation-review` namespaces on
-    // create/update/delete so
-    // evidence-driven changes still propagate.
-    void compareQuery.refetch();
-    void reviewQuery.refetch();
+    // Review is deliberately sequenced after compare. Its queryFn reads
+    // the newly cached comparison result, avoiding a second comparison
+    // pass on the review endpoint and avoiding review of stale evidence.
+    const refreshedComparison = await compareQuery.refetch();
+    if (
+      refreshedComparison.data
+      && JSON.stringify(refreshedComparison.data) === comparisonFingerprint
+    ) {
+      // A byte-identical comparison keeps the same review cache key, so
+      // explicitly refresh that existing entry. Changed comparisons get
+      // a new key and automatically start their own review query.
+      await reviewQuery.refetch();
+    }
   }
 
   return (
@@ -141,7 +160,7 @@ export function ValidationPanel({
           </h3>
           <button
             type="button"
-            onClick={refreshValidation}
+            onClick={() => void refreshValidation()}
             disabled={!previewResult || isRefreshingValidation}
             className="rounded-chunk-sm border border-cyan/40 bg-cyan/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.14em] text-cyan hover:bg-cyan/20 disabled:cursor-not-allowed disabled:opacity-40"
             data-testid="validation-refresh-button"

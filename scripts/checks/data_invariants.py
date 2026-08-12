@@ -6,6 +6,7 @@ Current focus:
   - ratings coverage for systems with body data
   - rating_version uniformity for rebuild-eligible rows
   - coherence of the stored body-data contract on systems rows
+  - uniqueness of each (system_id64, body id) identity pair
   - coherence of trusted body_rings identity/status rows
   - stale clean ratings whose inputs are newer than the stored rating row
   - evidence-store lifecycle coherence for active/superseded records
@@ -122,6 +123,16 @@ WHERE COALESCE(s.body_count, 0)
       IS DISTINCT FROM COALESCE(actual.actual_body_count, 0);
 """
 
+DUPLICATE_BODY_IDENTITY_PAIRS_SQL = """
+SELECT COUNT(*)
+FROM (
+    SELECT system_id64, id
+    FROM bodies
+    GROUP BY system_id64, id
+    HAVING COUNT(*) > 1
+) AS duplicate_body_identity_pairs;
+"""
+
 STALE_CLEAN_RATINGS_SQL = """
 WITH body_freshness AS (
     SELECT b.system_id64,
@@ -158,6 +169,7 @@ SCRIPT_DATA_INVARIANT_CHECK_KEYS = (
     'noneligible_with_rating',
     'noneligible_null',
     'stored_body_flag_without_rows',
+    'duplicate_body_identity_pairs',
     *ADMIN_DATA_INVARIANT_CHECK_KEYS,
     'stored_body_count_mismatch',
     'stale_clean_ratings',
@@ -282,9 +294,14 @@ def main() -> int:
             if args.production_safe:
                 stored_body_flag_without_rows = shared_counts['stored_zero_body_count']
                 stored_body_count_mismatch = SKIPPED
+                duplicate_body_identity_pairs = SKIPPED
             else:
                 stored_body_flag_without_rows = fetch_count(cur, STORED_BODY_FLAG_WITHOUT_ROWS_SQL)
                 stored_body_count_mismatch = fetch_count(cur, STORED_BODY_COUNT_MISMATCH_SQL)
+                duplicate_body_identity_pairs = fetch_count(
+                    cur,
+                    DUPLICATE_BODY_IDENTITY_PAIRS_SQL,
+                )
             dirty_truthful_no_bodies = shared_counts['dirty_truthful_no_bodies']
             stale_clean_ratings = (
                 SKIPPED if args.production_safe else fetch_count(cur, STALE_CLEAN_RATINGS_SQL)
@@ -304,6 +321,7 @@ def main() -> int:
         print(f"  Missing body flag rows    : {fmt_num(shared_counts['stored_missing_body_flag'])}")
         print(f"  Zero body_count drift     : {fmt_num(shared_counts['stored_zero_body_count'])}")
         print(f"  Body count mismatches     : {fmt_metric(stored_body_count_mismatch)}")
+        print(f"  Duplicate body identities : {fmt_metric(duplicate_body_identity_pairs)}")
         print(f"  Dirty truthful no-bodies  : {fmt_num(dirty_truthful_no_bodies)}")
         print(f"  Stale clean ratings       : {fmt_metric(stale_clean_ratings)}")
         print(f"  Evidence active dupes     : {fmt_num(shared_counts['evidence_active_duplicate_subjects'])}")
@@ -355,6 +373,12 @@ def main() -> int:
         ):
             print(
                 "FAIL: stored systems body-data flags/counts drift from actual bodies rows",
+                file=sys.stderr,
+            )
+            failed = True
+        if (duplicate_body_identity_pairs or 0):
+            print(
+                "FAIL: duplicate (system_id64, body id) identity pairs found",
                 file=sys.stderr,
             )
             failed = True

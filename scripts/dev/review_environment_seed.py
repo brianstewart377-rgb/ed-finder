@@ -227,6 +227,10 @@ async def _upsert_bodies(conn: asyncpg.Connection) -> None:
                     body['estimated_scan_value'],
                 )
             )
+    await _validate_body_ownership(
+        conn,
+        [(int(row[0]), int(row[1])) for row in rows],
+    )
     await conn.executemany(
         """
         INSERT INTO bodies (
@@ -277,9 +281,48 @@ async def _upsert_bodies(conn: asyncpg.Connection) -> None:
             estimated_mapping_value = EXCLUDED.estimated_mapping_value,
             estimated_scan_value = EXCLUDED.estimated_scan_value,
             updated_at = NOW()
+        WHERE bodies.system_id64 = EXCLUDED.system_id64
         """,
         rows,
     )
+
+
+async def _validate_body_ownership(
+    conn: asyncpg.Connection,
+    body_owners: list[tuple[int, int]],
+) -> None:
+    """Reject body ids that are already associated with another system."""
+    incoming_owner_by_id: dict[int, int] = {}
+    for body_id, system_id64 in body_owners:
+        previous_owner = incoming_owner_by_id.setdefault(body_id, system_id64)
+        if previous_owner != system_id64:
+            raise ReviewSeedError(
+                f'body id {body_id} appears under multiple review systems: '
+                f'{previous_owner} and {system_id64}'
+            )
+
+    if not incoming_owner_by_id:
+        return
+
+    existing_rows = await conn.fetch(
+        """
+        SELECT id, system_id64
+        FROM bodies
+        WHERE id = ANY($1::bigint[])
+        """,
+        sorted(incoming_owner_by_id),
+    )
+    collisions = [
+        (int(row['id']), int(row['system_id64']), incoming_owner_by_id[int(row['id'])])
+        for row in existing_rows
+        if int(row['system_id64']) != incoming_owner_by_id[int(row['id'])]
+    ]
+    if collisions:
+        body_id, existing_system_id64, incoming_system_id64 = collisions[0]
+        raise ReviewSeedError(
+            f'body id {body_id} already belongs to system {existing_system_id64}; '
+            f'refusing to re-parent it to review system {incoming_system_id64}'
+        )
 
 
 async def _upsert_stations(conn: asyncpg.Connection) -> None:

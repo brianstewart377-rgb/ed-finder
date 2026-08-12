@@ -16,6 +16,15 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
+
+
+for _import_root in (Path(__file__).resolve().parents[1], Path.cwd()):
+    if (_import_root / "shared_contracts").is_dir():
+        sys.path.insert(0, str(_import_root))
+        break
+
+from shared_contracts.bulk_update_helper import bulk_update_replica_mode  # noqa: E402
 
 
 DEFAULT_BATCH_SIZE = 1000
@@ -218,32 +227,33 @@ def apply_batches(
     cleared_dirty = 0
     batches = 0
 
-    while limit is None or reconciled < limit:
-        remaining = batch_size if limit is None else min(batch_size, limit - reconciled)
-        if remaining <= 0:
-            break
-        try:
-            rows = fetch_batch(conn, remaining)
-            if not rows:
-                conn.rollback()
+    with bulk_update_replica_mode(conn):
+        while limit is None or reconciled < limit:
+            remaining = batch_size if limit is None else min(batch_size, limit - reconciled)
+            if remaining <= 0:
                 break
-            id64s = [int(row["id64"]) for row in rows]
-            deleted_ratings += delete_ratings(conn, id64s)
-            cleared_dirty += clear_dirty(conn, id64s)
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        reconciled += len(rows)
-        batches += 1
-        emit_batch_progress(
-            batch_number=batches,
-            batch_reconciled=len(rows),
-            total_reconciled=reconciled,
-            deleted_ratings=deleted_ratings,
-            cleared_dirty=cleared_dirty,
-            target_total=target_total,
-        )
+            try:
+                rows = fetch_batch(conn, remaining)
+                if not rows:
+                    conn.rollback()
+                    break
+                id64s = [int(row["id64"]) for row in rows]
+                deleted_ratings += delete_ratings(conn, id64s)
+                cleared_dirty += clear_dirty(conn, id64s)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            reconciled += len(rows)
+            batches += 1
+            emit_batch_progress(
+                batch_number=batches,
+                batch_reconciled=len(rows),
+                total_reconciled=reconciled,
+                deleted_ratings=deleted_ratings,
+                cleared_dirty=cleared_dirty,
+                target_total=target_total,
+            )
 
     return reconciled, deleted_ratings, cleared_dirty, batches
 

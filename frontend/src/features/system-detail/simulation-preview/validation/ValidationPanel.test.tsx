@@ -24,6 +24,7 @@ import type {
   ValidationReviewResponse,
 } from '@/types/api';
 import { ValidationPanel } from './ValidationPanel';
+import { validationInputProjection } from './validationUtils';
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
@@ -391,27 +392,40 @@ describe('ValidationPanel - Stage 6D validation display', () => {
 
   it('calls the compare API with system_id64, target_archetype, and the prediction when a preview is present', async () => {
     mockedCompare.mockResolvedValue(compareResponse());
-    renderPanel();
+    const preview = previewResult();
+    renderPanel({ preview });
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(1));
     const sent = mockedCompare.mock.calls[0][0];
     expect(sent.system_id64).toBe(123);
     expect(sent.target_archetype).toBe('trade_logistics');
-    // The prediction passed to the compare API is the SimulateBuildResponse verbatim.
-    expect((sent.prediction as { mechanics_version?: string }).mechanics_version).toBe(
-      'colonisation-engine-v2.1',
-    );
+    expect(sent.prediction).toEqual(validationInputProjection(preview));
+    expect(sent.prediction).not.toHaveProperty('mechanics_version');
   });
 
-  it('calls the review endpoint with the same prediction when a preview is present', async () => {
-    mockedCompare.mockResolvedValue(compareResponse());
+  it('calls review with the pre-computed comparison instead of rerunning prediction comparison', async () => {
+    const comparison = compareResponse();
+    mockedCompare.mockResolvedValue(comparison);
     renderPanel();
     await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(1));
     const sent = mockedReview.mock.calls[0][0];
     expect(sent.system_id64).toBe(123);
     expect(sent.target_archetype).toBe('trade_logistics');
-    expect((sent.prediction as { mechanics_version?: string }).mechanics_version).toBe(
-      'colonisation-engine-v2.1',
-    );
+    expect(sent.comparison_result).toEqual(comparison);
+    expect(sent.prediction).toBeUndefined();
+  });
+
+  it('does not start review while comparison is still pending', async () => {
+    let resolveCompare: (value: PredictionObservationCompareResponse) => void = () => {};
+    mockedCompare.mockReturnValue(new Promise((resolve) => {
+      resolveCompare = resolve;
+    }));
+    renderPanel();
+
+    expect(await screen.findByTestId('validation-loading')).toBeTruthy();
+    expect(mockedReview).not.toHaveBeenCalled();
+
+    resolveCompare(compareResponse());
+    await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(1));
   });
 
   it('renders the summary block with overall status, confidence impact, and per-bucket counts', async () => {
@@ -677,7 +691,9 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     await screen.findByTestId('validation-summary');
     expect(mockedCompare).toHaveBeenCalledTimes(1);
     expect(mockedReview).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByTestId('validation-refresh-button'));
+    const refreshButton = screen.getByTestId('validation-refresh-button') as HTMLButtonElement;
+    await waitFor(() => expect(refreshButton.disabled).toBe(false));
+    fireEvent.click(refreshButton);
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
   });
@@ -686,7 +702,9 @@ describe('ValidationPanel - Stage 6D validation display', () => {
     mockedCompare.mockResolvedValue(compareResponse());
     renderPanel();
     await screen.findByTestId('validation-summary');
-    fireEvent.click(screen.getByTestId('validation-refresh-button'));
+    const refreshButton = screen.getByTestId('validation-refresh-button') as HTMLButtonElement;
+    await waitFor(() => expect(refreshButton.disabled).toBe(false));
+    fireEvent.click(refreshButton);
     await waitFor(() => expect(mockedCompare).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(mockedReview).toHaveBeenCalledTimes(2));
     expect(mockedSimulateBuild).not.toHaveBeenCalled();

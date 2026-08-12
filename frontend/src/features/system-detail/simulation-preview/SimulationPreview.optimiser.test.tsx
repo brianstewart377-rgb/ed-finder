@@ -17,6 +17,7 @@ import {
 } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildRequest, SimulateBuildResponse, SimulationSummary, SystemDetail, ValidationReviewResponse } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
+import { validationInputProjection } from './validation/validationUtils';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),
@@ -652,8 +653,10 @@ describe('SimulationPreview optimiser candidate loading', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Import \/ refresh system layout/i }));
 
-    expect(mockedImportSystemLayout).toHaveBeenCalledTimes(1);
-    expect(mockedImportSystemLayout).toHaveBeenCalledWith(123, { source: 'spansh' });
+    await waitFor(() => {
+      expect(mockedImportSystemLayout).toHaveBeenCalledTimes(1);
+      expect(mockedImportSystemLayout).toHaveBeenCalledWith(123, { source: 'spansh' });
+    });
     expect(screen.getByText(/Import request is running/)).toBeTruthy();
 
     resolveImport(layoutImportSuccess);
@@ -974,7 +977,7 @@ describe('SimulationPreview optimiser candidate loading', () => {
     expect(mockedCompare).not.toHaveBeenCalled();
   });
 
-  it('calls compare API once a preview result exists, with system, target_archetype, and the SimulateBuildResponse as prediction', async () => {
+  it('calls compare once a preview exists with the shared validation-input projection', async () => {
     mockNoRecommendedBuild();
     mockedSimulateBuild.mockResolvedValue(simulationResult());
     mockedCompare.mockResolvedValue({
@@ -1014,8 +1017,6 @@ describe('SimulationPreview optimiser candidate loading', () => {
     const sent = mockedCompare.mock.calls[0][0];
     expect(sent.system_id64).toBe(123);
     expect(sent.target_archetype).toBe('agriculture_terraforming');
-    expect((sent.prediction as { target_archetype?: string }).target_archetype).toBe(
-      'agriculture_terraforming',
-    );
+    expect(sent.prediction).toEqual(validationInputProjection(simulationResult()));
   });
 });

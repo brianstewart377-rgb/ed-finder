@@ -47,6 +47,8 @@ import ctypes
 import psycopg2
 import psycopg2.extras
 
+from shared_contracts.bulk_update_helper import bulk_update_replica_mode
+
 from progress import (
     ProgressReporter,
     startup_banner, done_banner,
@@ -149,6 +151,10 @@ SELECT
 FROM pairs
 """
 
+# Intentionally keep replica mode off for this mixed INSERT/UPDATE upsert:
+# new cluster_summary child rows must retain their FK check against systems.
+# The costly parent-table RI-trigger storm applies to UPDATE systems, not this
+# bounded derived-table write.
 INSERT_SQL = """
     INSERT INTO cluster_summary (
         system_id64,
@@ -259,18 +265,36 @@ def _connect_with_retry(worker_id: int, db_url: str, cell_timeout: int = 120,
     raise RuntimeError(f"[W{worker_id}] Could not connect to DB after {max_attempts} attempts")
 
 
-def _clear_full_rebuild_dirty_flags(cur) -> int:
+def _clear_full_rebuild_dirty_flags(conn, cur) -> int:
     """Clear eligible dirty flags with a timeout sized for production scale."""
-    cur.execute(
-        f"SET statement_timeout = '{FULL_CLEANUP_STATEMENT_TIMEOUT}'"
-    )
-    cur.execute(
-        "UPDATE systems SET cluster_dirty = FALSE "
-        "WHERE has_body_data = TRUE "
-        "AND macro_grid_id IS NOT NULL "
-        "AND cluster_dirty = TRUE"
-    )
-    return cur.rowcount
+    with bulk_update_replica_mode(conn):
+        cur.execute(
+            f"SET statement_timeout = '{FULL_CLEANUP_STATEMENT_TIMEOUT}'"
+        )
+        cur.execute(
+            "UPDATE systems SET cluster_dirty = FALSE "
+            "WHERE has_body_data = TRUE "
+            "AND macro_grid_id IS NOT NULL "
+            "AND cluster_dirty = TRUE"
+        )
+        cleared = cur.rowcount
+        conn.commit()
+    return cleared
+
+
+def _clear_cell_dirty_flags(conn, cur, macro_cell_id: int) -> int:
+    """Clear only still-dirty, body-backed systems in one completed cell."""
+    with bulk_update_replica_mode(conn):
+        cur.execute(
+            "UPDATE systems SET cluster_dirty = FALSE "
+            "WHERE macro_grid_id = %s "
+            "AND has_body_data = TRUE "
+            "AND cluster_dirty = TRUE",
+            (macro_cell_id,),
+        )
+        cleared = cur.rowcount
+        conn.commit()
+    return cleared
 
 
 # ---------------------------------------------------------------------------
@@ -426,13 +450,12 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
         # Clear dirty flags for systems in this macro-cell if dirty-only mode
         if dirty_only:
             try:
-                cur.execute(
-                    "UPDATE systems SET cluster_dirty = FALSE "
-                    "WHERE macro_grid_id = %s AND has_body_data = TRUE",
-                    (macro_cell_id,)
+                _clear_cell_dirty_flags(conn, cur, macro_cell_id)
+            except Exception as e:
+                print(
+                    f"[W{worker_id}] Macro-cell {macro_cell_id} dirty cleanup failed: {e}",
+                    flush=True,
                 )
-                conn.commit()
-            except Exception:
                 try:
                     conn.rollback()
                 except Exception:
@@ -588,7 +611,7 @@ def main():
     if not args.dirty_only:
         log.info("Clearing cluster_dirty flags after full rebuild ...")
         full_cleanup_started = time.monotonic()
-        full_cleanup_cleared = _clear_full_rebuild_dirty_flags(cur2)
+        full_cleanup_cleared = _clear_full_rebuild_dirty_flags(conn2, cur2)
         full_cleanup_elapsed = time.monotonic() - full_cleanup_started
         log.info(
             "Cleared %s cluster_dirty flags after full rebuild in %s.",

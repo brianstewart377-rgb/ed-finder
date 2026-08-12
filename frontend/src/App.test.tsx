@@ -392,6 +392,9 @@ describe('App Development Tuning route', () => {
     expect(screen.getByTestId('frontier-ip-attribution').textContent).toBe(
       'Elite Dangerous is a registered trademark of Frontier Developments plc. This application is an unofficial fan-made tool and is not affiliated with, endorsed by, or reflective of the views or opinions of Frontier Developments.',
     );
+    expect(screen.getByTestId('coalsack-image-attribution').textContent).toContain(
+      'ESO/Digitized Sky Survey 2. Acknowledgment: Davide De Martin.',
+    );
   });
 
   it('scopes the fixed immersive shell and floating legal HUD to the Map route', async () => {

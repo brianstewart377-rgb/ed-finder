@@ -23,6 +23,8 @@ import {
 } from '@/features/map/mapTabPanels';
 import { useMapLayers } from '@/features/map/useMapLayers';
 import { useViewportSystems } from '@/features/map/viewportSystems';
+import { useExplorationLayers } from '@/features/map/useExplorationLayers';
+import { usePowerplayLayer } from '@/features/map/usePowerplayLayer';
 import { applyFeatureHandoff, resolveMapInteraction } from './feature-handoffs';
 import {
   LIVE_ROUTE_HEAP_BUDGET_BYTES,
@@ -43,6 +45,12 @@ import {
   snapCameraTopDown,
 } from './camera';
 import { useSmoothMapZoom } from './useSmoothMapZoom';
+import { api } from '@/lib/api';
+import type { CommanderPowerplayResponse, ExplorationSystemSummaryResponse, MapViewportSystem } from '@/lib/api';
+import type { RouteDetail, RouteSummary, SystemResult } from '@/types/api';
+import { useSyncKeyStore } from '@/store/syncKeyStore';
+import { useSelectedRouteStore } from '@/store/selectedRouteStore';
+import { RouteDetailPanel } from './RouteDetailPanel';
 import './ProductionMapTab.css';
 
 const EMPTY_REGIONS: RegionLayerData = { labels: [], boundaries: [] };
@@ -103,8 +111,20 @@ export function ProductionMapTab({
   const [showHeatmap, setShowHeatmap] = useState(true);
   const [showClusters, setShowClusters] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showVisitedSystems, setShowVisitedSystems] = useState(true);
+  const [showTravelTrail, setShowTravelTrail] = useState(false);
+  const [showCompleteness, setShowCompleteness] = useState(false);
+  const [showPowerplay, setShowPowerplay] = useState(false);
   const [timelineBucket, setTimelineBucket] = useState<'month' | 'quarter' | 'year'>('month');
   const [overlapCandidateIds, setOverlapCandidateIds] = useState<number[]>([]);
+  const [routes, setRoutes] = useState<RouteSummary[]>([]);
+  const [routeDetail, setRouteDetail] = useState<RouteDetail | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeError, setRouteError] = useState<string | null>(null);
+  const [viewportSelection, setViewportSelection] = useState<SystemResult | null>(null);
+  const syncKey = useSyncKeyStore((state) => state.syncKey);
+  const selectedRouteId = useSelectedRouteStore((state) => state.selectedRouteId);
+  const selectRoute = useSelectedRouteStore((state) => state.selectRoute);
   const viewportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -122,6 +142,96 @@ export function ProductionMapTab({
     setScene(applyViewPreset(handoff.scene, preset, referenceCoords, DEFAULT_VIEWPORT));
     setViewPreset(preset);
   }, [boundedSystems, initialSelectedSystemId, referenceCoords, systems.length]);
+
+  useEffect(() => {
+    let active = true;
+    void api.listRoutes(syncKey)
+      .then((response) => {
+        if (!active) return;
+        setRoutes(response.routes);
+        const persisted = useSelectedRouteStore.getState().selectedRouteId;
+        if (persisted && !response.routes.some((route) => route.route_id === persisted)) {
+          selectRoute(response.routes[0]?.route_id ?? null);
+        } else if (!persisted && response.routes.length > 0) {
+          selectRoute(response.routes[0]!.route_id);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) setRouteError(error instanceof Error ? error.message : 'Route list could not be loaded.');
+      });
+    return () => { active = false; };
+  }, [selectRoute, syncKey]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedRouteId) {
+      setRouteDetail(null);
+      setRouteError(null);
+      setRouteLoading(false);
+      return () => { active = false; };
+    }
+    setRouteLoading(true);
+    setRouteError(null);
+    void api.getRoute(selectedRouteId, syncKey)
+      .then((detail) => {
+        if (active) setRouteDetail(detail);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setRouteDetail(null);
+          setRouteError(error instanceof Error ? error.message : 'Route detail could not be loaded.');
+        }
+      })
+      .finally(() => {
+        if (active) setRouteLoading(false);
+      });
+    return () => { active = false; };
+  }, [selectedRouteId, syncKey]);
+
+  useEffect(() => {
+    const finderIds = new Set(boundedSystems.map((system) => system.id64));
+    const routeRecords = (routeDetail?.waypoints ?? [])
+      .filter((waypoint) => waypoint.x != null && waypoint.y != null && waypoint.z != null)
+      .map((waypoint, index) => ({
+        id64: Number(waypoint.system_id64 ?? -(index + 1)),
+        name: waypoint.system_name,
+        coords: { x: waypoint.x!, y: waypoint.y!, z: waypoint.z! },
+        developmentScore: null,
+        primaryEconomy: null,
+        population: null,
+      }));
+    const uniqueRouteRecords = [...new Map(routeRecords.map((record) => [record.id64, record])).values()];
+    const routeIds = uniqueRouteRecords.map((record) => record.id64);
+    const routeColor = routeDetail?.type === 'personal'
+      ? '#74d8ff'
+      : routeDetail?.type === 'expedition'
+        ? '#d8a5ff'
+        : routeDetail?.type === 'spansh'
+          ? '#8ff0a4'
+          : '#ffae62';
+    setScene((current) => {
+      const finderRecords = current.systems.filter((system) => finderIds.has(system.id64));
+      const existingIds = new Set(finderRecords.map((system) => system.id64));
+      const combined = [...finderRecords, ...uniqueRouteRecords.filter((record) => !existingIds.has(record.id64))];
+      return {
+        ...current,
+        systems: combined,
+        routes: routeDetail ? [{
+          id: routeDetail.route_id,
+          waypoints: uniqueRouteRecords.map((record) => ({ systemId64: record.id64, label: record.name })),
+          color: routeColor,
+          currentWaypointIndex: routeDetail.current_waypoint_index,
+        }] : [],
+        guaranteedSystemIds: [...new Set([
+          ...current.guaranteedSystemIds.filter((id64) => finderIds.has(id64)),
+          ...routeIds,
+        ])],
+        layers: current.layers.map((layer) => layer.type === 'routes'
+          ? { ...layer, visible: routeDetail != null }
+          : layer),
+      };
+    });
+  }, [boundedSystems, routeDetail]);
 
   useLayoutEffect(() => {
     const element = viewportRef.current;
@@ -153,6 +263,15 @@ export function ProductionMapTab({
   // Feature #6 detail lane: fetch individual systems for the viewport when
   // zoomed in (null when zoomed out -> the aggregate heatmap carries the view).
   const viewportSystems = useViewportSystems({ camera: scene.camera, viewport });
+  const exploration = useExplorationLayers({
+    syncKey,
+    camera: scene.camera,
+    viewport,
+    visitsEnabled: showVisitedSystems || showCompleteness,
+    trailEnabled: showTravelTrail,
+    summarySystemId64: scene.selectedSystemId64,
+  });
+  const powerplay = usePowerplayLayer(syncKey, showPowerplay);
   const regionLabelSafeArea = useMemo(() => ({
     // The map canvas fills the viewport, while the production navigation,
     // mode controls, and legal footer float above it. Keep labels inside the
@@ -272,7 +391,34 @@ export function ProductionMapTab({
     requestZoomDelta(deltaY);
   }, [requestZoomDelta]);
 
-  const selected = systems.find((system) => system.id64 === scene.selectedSystemId64) ?? null;
+  const selectViewportSystem = useCallback((system: MapViewportSystem) => {
+    const result = {
+      id64: system.id64,
+      name: system.name,
+      coords: { x: system.x, y: system.y, z: system.z },
+      population: system.populated ? 1 : 0,
+      galaxy_region_id: system.galaxy_region_id,
+      distance: null,
+    } as unknown as SystemResult;
+    setViewportSelection(result);
+    setScene((current) => ({
+      ...reduceScene(current, { type: 'selectSystem', systemId64: system.id64 }),
+      systems: current.systems.some((candidate) => candidate.id64 === system.id64)
+        ? current.systems
+        : [...current.systems, {
+            id64: system.id64,
+            name: system.name,
+            coords: { x: system.x, y: system.y, z: system.z },
+            developmentScore: null,
+            primaryEconomy: null,
+            population: system.populated ? 1 : 0,
+          }],
+    }));
+    setOverlapCandidateIds([]);
+  }, []);
+
+  const selected = systems.find((system) => system.id64 === scene.selectedSystemId64)
+    ?? (viewportSelection?.id64 === scene.selectedSystemId64 ? viewportSelection : null);
   const currentViewMode = VIEW_MODES.find((mode) => mode.id === viewPreset) ?? VIEW_MODES[0];
   const activeLayerSummary = [
     'Finder dots',
@@ -280,6 +426,11 @@ export function ProductionMapTab({
     showHeatmap ? 'Heatmap' : null,
     showClusters ? 'Clusters' : null,
     showTimeline ? `Timeline (${timelineBucket})` : null,
+    showVisitedSystems ? 'Visited Systems' : null,
+    showTravelTrail ? 'Travel Trail' : null,
+    showCompleteness ? 'Scanned/Mapped Completeness' : null,
+    showPowerplay ? 'Powerplay strategy' : null,
+    routeDetail ? `Route (${routeDetail.name})` : null,
   ].filter(Boolean).join(' + ');
   const sourceLabel = [
     `Finder results (${scene.systems.length})`,
@@ -287,6 +438,13 @@ export function ProductionMapTab({
     showHeatmap && layers.heatmap.data ? 'Heatmap' : null,
     showClusters && layers.clusters.data ? 'Clusters' : null,
     showTimeline && layers.timeline.data ? 'Timeline' : null,
+    (showVisitedSystems || showCompleteness) && exploration.viewportVisits.data
+      ? `Personal visits (${exploration.viewportVisits.data.count})`
+      : null,
+    exploration.facts.data ? `Exploration facts (${exploration.facts.data.total_count})` : null,
+    showTravelTrail && exploration.trail.data ? `Travel trail (${exploration.trail.data.count})` : null,
+    showPowerplay && powerplay.systems.data ? `Personal PP2 observations (${powerplay.systems.data.count})` : null,
+    routeDetail ? `${routeDetail.source} route` : null,
   ].filter(Boolean).join(' + ');
 
   useEffect(() => {
@@ -403,6 +561,10 @@ export function ProductionMapTab({
               <LayerToggle testId="stage26e-map-heatmap-toggle" label="Heatmap" checked={showHeatmap} onChange={setShowHeatmap} />
               <LayerToggle testId="stage26e-map-clusters-toggle" label="Clusters" checked={showClusters} onChange={setShowClusters} />
               <LayerToggle testId="stage26e-map-timeline-toggle" label="Timeline" checked={showTimeline} onChange={setShowTimeline} />
+              <LayerToggle testId="map-visited-systems-toggle" label="Visited Systems" checked={showVisitedSystems} onChange={setShowVisitedSystems} />
+              <LayerToggle testId="map-travel-trail-toggle" label="Travel Trail" checked={showTravelTrail} onChange={setShowTravelTrail} />
+              <LayerToggle testId="map-completeness-toggle" label="Scanned/Mapped Completeness" checked={showCompleteness} onChange={setShowCompleteness} />
+              <LayerToggle testId="map-powerplay-toggle" label="Powerplay strategy" checked={showPowerplay} onChange={setShowPowerplay} />
               {showTimeline && (
                 <label className="flex items-center gap-2 font-mono text-[10px] text-silver-dk">
                   Time range
@@ -457,6 +619,16 @@ export function ProductionMapTab({
       {composition.surface.kind === 'error' && (
         <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">{composition.surface.message}</p>
       )}
+      {(exploration.viewportVisits.isError || exploration.trail.isError) && (
+        <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">
+          Personal exploration layers could not be loaded.
+        </p>
+      )}
+      {showPowerplay && (powerplay.systems.isError || powerplay.commander.isError) && (
+        <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">
+          Personal Powerplay observations could not be loaded.
+        </p>
+      )}
       </div>
       <div className="map-workspace__map-frame">
           <MapErrorBoundary>
@@ -464,7 +636,19 @@ export function ProductionMapTab({
               <R3FMapFoundation
                 scene={scene}
                 regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
-                productionOverlays={{ ...composition.overlays, realStars: viewportSystems.systems, realStarsTruncated: viewportSystems.truncated }}
+                productionOverlays={{
+                  ...composition.overlays,
+                  realStars: viewportSystems.systems,
+                  realStarsTruncated: viewportSystems.truncated,
+                  explorationVisits: showVisitedSystems || showCompleteness
+                    ? exploration.viewportVisits.data?.visits ?? null
+                    : null,
+                  explorationTrail: showTravelTrail
+                    ? exploration.trail.data?.points ?? null
+                    : null,
+                  showExplorationCompleteness: showCompleteness,
+                  powerplay: showPowerplay ? powerplay.systems.data?.systems ?? null : null,
+                }}
                 viewport={viewport}
                 viewPreset={viewPreset}
                 reference={reference}
@@ -473,6 +657,7 @@ export function ProductionMapTab({
                 maxBackgroundPoints={PRODUCTION_PARITY_LIMITS.finderSystems}
                 onInteraction={onInteraction}
                 onZoomIntent={requestZoomDelta}
+                onViewportSystemSelect={selectViewportSystem}
               />
             </div>
           </MapErrorBoundary>
@@ -485,6 +670,9 @@ export function ProductionMapTab({
           {(selected || overlapCandidateIds.length > 0) && (
             <div className="map-workspace__selection">
               {selected && <SelectionPanel system={selected} />}
+              {selected && exploration.summary.data && (
+                <ExplorationSummaryPanel summary={exploration.summary.data} />
+              )}
               {overlapCandidateIds.length > 0 && (
               <aside aria-label="Overlapping systems" className="panel-thin space-y-2 p-3">
                 <h3 className="font-display text-xs text-orange">Choose overlapping system</h3>
@@ -497,8 +685,69 @@ export function ProductionMapTab({
               )}
             </div>
           )}
+          <RouteDetailPanel
+            routes={routes}
+            selectedRouteId={selectedRouteId}
+            detail={routeDetail}
+            loading={routeLoading}
+            error={routeError}
+            onSelect={selectRoute}
+          />
+          {showPowerplay && (
+            <PowerplayCommanderPanel
+              commander={powerplay.commander.data ?? null}
+              systemCount={powerplay.systems.data?.count ?? 0}
+              loading={powerplay.commander.isLoading || powerplay.systems.isLoading}
+            />
+          )}
       </div>
     </section>
+  );
+}
+
+function PowerplayCommanderPanel({
+  commander,
+  systemCount,
+  loading,
+}: {
+  commander: CommanderPowerplayResponse | null;
+  systemCount: number;
+  loading: boolean;
+}) {
+  return (
+    <aside data-testid="map-powerplay-sidebar" className="map-workspace__powerplay-sidebar panel-thin">
+      <h3>Powerplay 2.0</h3>
+      {loading ? <p>Loading personal observations...</p> : <>
+        <dl>
+          <div><dt>Pledge</dt><dd>{String(commander?.pledge ?? 'Unpledged')}</dd></div>
+          <div><dt>Rank</dt><dd>{String(commander?.rank ?? 'Unknown')}</dd></div>
+          <div><dt>Total merits</dt><dd>{String(commander?.merits ?? 'Unknown')}</dd></div>
+          <div><dt>This cycle</dt><dd>{String(commander?.cycle_merits_earned ?? 0)} earned</dd></div>
+          <div><dt>Observed control</dt><dd>{systemCount} systems</dd></div>
+        </dl>
+        <p className="map-workspace__powerplay-note">
+          Journal observations only. Colour is power, marker size is control tier, and dimming indicates age or uncertainty.
+        </p>
+      </>}
+    </aside>
+  );
+}
+
+function ExplorationSummaryPanel({ summary }: { summary: ExplorationSystemSummaryResponse }) {
+  return (
+    <aside data-testid="map-exploration-summary" className="panel-thin space-y-2 p-3 font-mono text-[11px] text-silver">
+      <h3 className="font-display text-xs tracking-wider text-cyan">Personal exploration</h3>
+      <div>{summary.visits.visit_count} visit{summary.visits.visit_count === 1 ? '' : 's'}</div>
+      <div>
+        FSS {summary.bodies.scanned}/{summary.bodies.expected ?? summary.bodies.observed}
+        {' · '}DSS {summary.bodies.mapped}/{summary.bodies.observed}
+      </div>
+      <div>
+        Organics {summary.organics.analysed}/{summary.organics.organisms} analysed
+        {' · '}{summary.organics.sold} sold
+      </div>
+      <div>Codex {summary.codex.observed} observed · {summary.codex.sold} sold</div>
+    </aside>
   );
 }
 

@@ -25,7 +25,10 @@ from httpx import ASGITransport, AsyncClient
 
 from edfinder_api.deps import get_pool
 from edfinder_api.observations.comparison_engine import compare_prediction_to_observations
-from edfinder_api.observations.comparison_models import ComparisonSeverity
+from edfinder_api.observations.comparison_models import (
+    ComparisonSeverity,
+    comparison_result_to_dict,
+)
 from edfinder_api.observations.models import (
     ObservationSource,
     ObservedConfidence,
@@ -449,6 +452,44 @@ def app(fake_store: _FakeStore) -> FastAPI:
     test_app.include_router(observations_router.router)
     test_app.dependency_overrides[get_pool] = lambda: object()
     return test_app
+
+
+@pytest.mark.asyncio
+async def test_review_endpoint_accepts_precomputed_comparison_without_rerunning_stage6c(
+    app: FastAPI,
+    fake_store: _FakeStore,
+    monkeypatch,
+):
+    comparison = _comparison(
+        {'services': {'market': {'status': 'active'}}},
+        [_fact(
+            fact_type=ObservedFactType.SERVICE_PRESENCE,
+            subject_type=ObservedSubjectType.SERVICE,
+            subject_id='market',
+            service_id='market',
+            status=ObservedStatus.OBSERVED_ABSENT,
+        )],
+    )
+
+    def fail_if_comparison_reruns(**_kwargs):
+        raise AssertionError('review must reuse the supplied comparison result')
+
+    monkeypatch.setattr(
+        observations_router,
+        'compare_prediction_to_observations_stage6c',
+        fail_if_comparison_reruns,
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url='http://test') as client:
+        response = await client.post('/api/observations/review', json={
+            'system_id64': 100,
+            'comparison_result': comparison_result_to_dict(comparison),
+        })
+
+    assert response.status_code == 200, response.text
+    assert response.json()['summary']['overall_review_status'] == ReviewStatus.REVIEW_HIGH_PRIORITY.value
+    assert fake_store.comparison_calls == []
 
 
 @pytest.mark.asyncio

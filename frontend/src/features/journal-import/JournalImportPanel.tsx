@@ -1,16 +1,26 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { importJournal } from '@/lib/api';
-import type { JournalImportReceipt } from '@/types/api';
+import { importExploration, importJournal, api } from '@/lib/api';
+import type { PowerplayJournalEventInput } from '@/lib/api';
+import type {
+  JournalImportReceipt,
+  JournalImportRequest,
+} from '@/types/api';
 import { useJournalTelemetrySummary } from '@/features/my-work/useJournalTelemetrySummary';
 import { useSyncKeyStore } from '@/store/syncKeyStore';
 import { parseJournalFiles } from './parseJournalFiles';
 import type { JournalImportParseResult } from './types';
+import { toExplorationObservations } from './explorationObservations';
 
 function formatEventCounts(eventCounts: Record<string, number>): string {
   const entries = Object.entries(eventCounts).sort((a, b) => b[1] - a[1]);
   if (entries.length === 0) return 'No supported journal events found yet.';
   return entries.map(([eventType, count]) => `${eventType} ${count}`).join(' | ');
+}
+
+interface CombinedJournalImport {
+  request: JournalImportRequest;
+  powerplayEvents: PowerplayJournalEventInput[];
 }
 
 export function JournalImportPanel() {
@@ -23,9 +33,30 @@ export function JournalImportPanel() {
   const [parseBusy, setParseBusy] = useState(false);
 
   const importMutation = useMutation({
-    mutationFn: importJournal,
+    mutationFn: async ({ request, powerplayEvents }: CombinedJournalImport) => {
+      const receipt = request.observations.length > 0 ? await importJournal(request) : null;
+      const explorationObservations = toExplorationObservations(request.observations);
+      if (explorationObservations.length > 0) {
+        await importExploration({
+          sync_key: request.sync_key,
+          source: 'journal',
+          observations: explorationObservations,
+        });
+      }
+      if (powerplayEvents.length > 0) {
+        await api.importPowerplay({
+          commander_key: request.sync_key,
+          source: 'journal',
+          source_version: request.client_manifest.parser_version,
+          events: powerplayEvents,
+        });
+      }
+      return receipt;
+    },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['journal-telemetry', syncKey] });
+      void queryClient.invalidateQueries({ queryKey: ['exploration', syncKey] });
+      void queryClient.invalidateQueries({ queryKey: ['powerplay', syncKey] });
     },
   });
 
@@ -58,12 +89,15 @@ export function JournalImportPanel() {
   };
 
   const handleImport = async () => {
-    if (!parseResult || parseResult.observations.length === 0) return;
+    if (!parseResult || (parseResult.observations.length === 0 && parseResult.powerplay_events.length === 0)) return;
     await importMutation.mutateAsync({
-      sync_key: syncKey,
-      client_manifest: parseResult.client_manifest,
-      evidence_mode: 'staging_only',
-      observations: parseResult.observations,
+      request: {
+        sync_key: syncKey,
+        client_manifest: parseResult.client_manifest,
+        evidence_mode: 'staging_only',
+        observations: parseResult.observations,
+      },
+      powerplayEvents: parseResult.powerplay_events,
     });
   };
 
@@ -142,7 +176,7 @@ export function JournalImportPanel() {
         <button
           type="button"
           onClick={() => void handleImport()}
-          disabled={!parseResult || parseResult.observations.length === 0 || importMutation.isPending}
+          disabled={!parseResult || (parseResult.observations.length === 0 && parseResult.powerplay_events.length === 0) || importMutation.isPending}
           className="btn-primary text-[11px] py-1.5 px-3 disabled:opacity-40 disabled:cursor-not-allowed"
           data-testid="journal-import-submit"
         >
@@ -187,6 +221,7 @@ function PreviewPanel({ result }: { result: JournalImportParseResult }) {
           <Metric label="Files" value={result.preview.files_processed} />
           <Metric label="Lines read" value={result.preview.lines_read} />
           <Metric label="Ready to stage" value={result.preview.observations_ready} />
+          <Metric label="Powerplay events" value={result.preview.powerplay_events_ready} />
           <Metric label="Skipped lines" value={result.preview.skipped_lines} />
         </div>
         <p className="mt-3 text-sm leading-relaxed text-silver">

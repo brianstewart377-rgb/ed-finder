@@ -4,21 +4,44 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 JsonObject = dict[str, Any]
 _SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
+_DECIMAL_ID_RE = re.compile(r'^\d+$')
+_MAX_BIGINT = 9_223_372_036_854_775_807
 
 _ALLOWED_EVENT_TYPES = {
+    'ApproachBody',
     'CarrierJump',
+    'CodexEntry',
+    'Commander',
+    'Died',
+    'Disembark',
     'Docked',
+    'Embark',
+    'Fileheader',
     'FSDJump',
+    'FSDTarget',
     'FSSAllBodiesFound',
     'FSSBodySignals',
     'FSSDiscoveryScan',
     'Location',
+    'Liftoff',
+    'LeaveBody',
+    'LoadGame',
+    'MultiSellExplorationData',
+    'NavRoute',
+    'NavRouteClear',
+    'Resurrect',
+    'SAAScanComplete',
     'SAASignalsFound',
     'Scan',
+    'ScanOrganic',
+    'Screenshot',
+    'SellExplorationData',
+    'SellOrganicData',
+    'Touchdown',
 }
 
 
@@ -58,11 +81,12 @@ class JournalObservationInput(BaseModel):
 
     observation_key: str = Field(min_length=16, max_length=128)
     source_file: str = Field(min_length=1, max_length=255)
+    source_offset: int = Field(default=0, ge=0, le=_MAX_BIGINT)
     event_type: str = Field(min_length=1, max_length=64)
     observed_at: datetime | None = None
-    system_id64: int = Field(gt=0)
+    system_id64: str | None = Field(default=None, min_length=1, max_length=19)
     system_name: str | None = Field(default=None, max_length=128)
-    subject_type: Literal['system', 'body']
+    subject_type: Literal['system', 'body', 'route']
     subject_id: str | None = Field(default=None, max_length=128)
     summary: str | None = Field(default=None, max_length=300)
     payload: JsonObject = Field(default_factory=dict)
@@ -80,6 +104,18 @@ class JournalObservationInput(BaseModel):
         if stripped not in _ALLOWED_EVENT_TYPES:
             raise ValueError(f'event_type must be one of {sorted(_ALLOWED_EVENT_TYPES)}')
         return stripped
+
+    @field_validator('system_id64', mode='before')
+    @classmethod
+    def validate_system_id64(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError('system_id64 must be a positive decimal string')
+        text = str(value).strip()
+        if not _DECIMAL_ID_RE.fullmatch(text) or int(text) <= 0 or int(text) > _MAX_BIGINT:
+            raise ValueError('system_id64 must be a positive signed-64-bit decimal string')
+        return text
 
     @field_validator('observed_at', mode='before')
     @classmethod
@@ -103,6 +139,12 @@ class JournalObservationInput(BaseModel):
         if not isinstance(value, dict):
             raise ValueError('payload and privacy_boundary must be objects')
         return value
+
+    @model_validator(mode='after')
+    def route_events_use_the_route_subject(self) -> 'JournalObservationInput':
+        if self.event_type in {'NavRoute', 'NavRouteClear'} and self.subject_type != 'route':
+            raise ValueError('NavRoute events must use subject_type="route"')
+        return self
 
 
 class JournalImportRequest(BaseModel):
@@ -188,11 +230,16 @@ class JournalTelemetryRecentRun(BaseModel):
 class JournalTelemetryRecentSystem(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
-    system_id64: int = Field(gt=0)
+    system_id64: str = Field(min_length=1, max_length=19)
     system_name: str
     last_observed_at: str | None = None
     event_count: int = 0
     event_types: list[str] = Field(default_factory=list)
+
+    @field_validator('system_id64', mode='before')
+    @classmethod
+    def stringify_system_id64(cls, value: object) -> str:
+        return str(value)
 
 
 class JournalTelemetrySummaryResponse(BaseModel):

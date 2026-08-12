@@ -385,7 +385,7 @@ async def map_systems(
         return {'systems': [], 'count': 0, 'truncated': False, 'too_wide': True, 'cached': False}
 
     cache_key = (
-        f'map:systems:v1:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
+        f'map:systems:v2:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
         f'{lo_z:.0f}:{hi_z:.0f}:{limit}'
     )
     cached = await cache_get(cache_key, redis)
@@ -394,7 +394,7 @@ async def map_systems(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id64, name, x, y, z, main_star_type,
+            SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
                    (population IS NOT NULL AND population > 0) AS populated
             FROM   systems
             WHERE  x BETWEEN $1 AND $2
@@ -418,6 +418,7 @@ async def map_systems(
                 'id64': r['id64'], 'name': r['name'],
                 'x': r['x'], 'y': r['y'], 'z': r['z'],
                 'star': r['main_star_type'], 'populated': r['populated'],
+                'galaxy_region_id': r['galaxy_region_id'],
             }
             for r in rows
         ],

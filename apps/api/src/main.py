@@ -66,6 +66,8 @@ from edfinder_api.routers.observations import router as observations_router
 from edfinder_api.routers.operator import router as operator_router
 from edfinder_api.routers.optimiser import router as optimiser_router
 from edfinder_api.routers.profile import router as profile_router
+from edfinder_api.routers.powerplay import router as powerplay_router
+from edfinder_api.routers.routes import router as routes_router
 from edfinder_api.routers.provenance_cockpit import router as provenance_cockpit_router
 from edfinder_api.routers.search import router as search_router
 from edfinder_api.routers.simulate import router as simulate_router
@@ -351,11 +353,13 @@ app.include_router(news_router)
 app.include_router(watchlist_router)
 app.include_router(notes_router)
 app.include_router(profile_router)
+app.include_router(powerplay_router)
 app.include_router(admin_router)
 app.include_router(events_router)
 app.include_router(evidence_router)
 app.include_router(journal_import_router)
 app.include_router(exploration_router)
+app.include_router(routes_router)
 app.include_router(search_router)
 app.include_router(systems_router)
 app.include_router(map_router)

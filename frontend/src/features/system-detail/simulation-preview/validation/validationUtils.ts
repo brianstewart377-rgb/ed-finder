@@ -11,6 +11,56 @@ import type {
   SimulateBuildResponse,
 } from '@/types/api';
 
+type ValidationPredictionSource = Pick<
+  SimulateBuildResponse,
+  | 'final_score'
+  | 'confidence'
+  | 'cp'
+  | 'economy_composition'
+  | 'economy_order'
+  | 'services'
+  | 'port_service_states'
+>;
+
+/**
+ * The complete prediction input consumed by the Stage 6C backend.
+ *
+ * Keep this projection aligned with:
+ *   * comparison_engine_pkg/prediction_extractors.py
+ *   * comparison_engine_pkg/cp_rules.py
+ *   * comparison_engine_pkg/build_outcome_rules.py
+ *
+ * Validation sends this projection to the compare endpoint and uses the
+ * same value for its cache fingerprint. That makes it impossible for a
+ * backend-relevant prediction change to be hidden behind an unchanged
+ * frontend cache key.
+ */
+export function validationInputProjection(result: ValidationPredictionSource): Record<string, unknown> {
+  return {
+    final_score: result.final_score,
+    confidence: result.confidence,
+    cp: {
+      yellow_cp_final: result.cp.yellow_cp_final,
+      green_cp_final: result.cp.green_cp_final,
+      yellow_cp_generated: result.cp.yellow_cp_generated,
+      green_cp_generated: result.cp.green_cp_generated,
+      yellow_cp_spent: result.cp.yellow_cp_spent,
+      green_cp_spent: result.cp.green_cp_spent,
+      t2_ports: result.cp.t2_ports,
+      t3_ports: result.cp.t3_ports,
+      warnings: [...result.cp.warnings],
+    },
+    economy_composition: sortedRecord(result.economy_composition),
+    economy_order: [...result.economy_order],
+    services: Object.fromEntries(
+      Object.entries(result.services)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([serviceId, service]) => [serviceId, service?.status ?? null]),
+    ),
+    port_service_states: normalisePortServiceStates(result.port_service_states),
+  };
+}
+
 /**
  * Stable fingerprint of a Simulation Preview result.
  *
@@ -21,35 +71,55 @@ import type {
  *   * an unchanged preview result reuses the cached compare response
  *     without a network call.
  *
- * We only include fields the backend comparison engine reads. The
- * fingerprint must be stable across re-renders, so we extract just
- * those fields rather than hashing the whole response object.
+ * The fingerprint serialises the shared, normalised compare-request
+ * projection. Do not add an independently maintained field list here.
  */
 export function previewResultFingerprint(result: SimulateBuildResponse | null): string | null {
   if (!result) return null;
-  return JSON.stringify({
-    system_id64: result.system_id64,
-    target_archetype: result.target_archetype,
-    mechanics_version: result.mechanics_version,
-    final_score: result.final_score,
-    composition_score: result.composition_score,
-    buildability_score: result.buildability_score,
-    confidence: result.confidence,
-    cp: {
-      yellow_cp_final: result.cp?.yellow_cp_final,
-      green_cp_final: result.cp?.green_cp_final,
-      t2_ports: result.cp?.t2_ports,
-      t3_ports: result.cp?.t3_ports,
-    },
-    economy_order: result.economy_order,
-    economy_composition: result.economy_composition,
-    services: result.services
-      ? Object.fromEntries(
-          Object.entries(result.services).map(([key, value]) => [key, value?.status ?? null]),
-        )
-      : null,
-    top_two_alignment: result.top_two_alignment,
+  return JSON.stringify(validationInputProjection(result));
+}
+
+function sortedRecord<T>(record: Record<string, T>): Record<string, T> {
+  return Object.fromEntries(
+    Object.entries(record).sort(([left], [right]) => left.localeCompare(right)),
+  );
+}
+
+function normalisePortServiceStates(
+  states: SimulateBuildResponse['port_service_states'],
+): Array<Record<string, Record<string, true>>> {
+  if (states.length === 0) return [];
+
+  const active = new Set<string>();
+  const locked = new Set<string>();
+  const unknown = new Set<string>();
+
+  for (const state of states) {
+    Object.keys(state.active_services).forEach((serviceId) => active.add(serviceId));
+    Object.keys(state.locked_services).forEach((serviceId) => locked.add(serviceId));
+    Object.keys(state.unknown_services).forEach((serviceId) => unknown.add(serviceId));
+  }
+
+  // Match backend precedence: active > locked > unknown > top-level service.
+  active.forEach((serviceId) => {
+    locked.delete(serviceId);
+    unknown.delete(serviceId);
   });
+  locked.forEach((serviceId) => unknown.delete(serviceId));
+
+  return [{
+    active_services: setRecord(active),
+    locked_services: setRecord(locked),
+    unknown_services: setRecord(unknown),
+  }];
+}
+
+function setRecord(values: Set<string>): Record<string, true> {
+  return Object.fromEntries(
+    [...values]
+      .sort((left, right) => left.localeCompare(right))
+      .map((value) => [value, true]),
+  );
 }
 
 /**

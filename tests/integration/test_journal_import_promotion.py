@@ -7,6 +7,80 @@ from uuid import uuid4
 ADMIN_TOKEN = os.environ.get('ADMIN_TOKEN', 'test-admin-token')
 
 
+async def test_journal_import_preserves_bigint_body_zero_and_dedupes_renamed_copy(client, pool):
+    sync_key = f"synckey_{uuid4().hex[:24]}"
+    observation_key = 'f' * 64
+
+    def request_body(source_file: str, source_offset: int) -> dict:
+        return {
+            'sync_key': sync_key,
+            'client_manifest': {
+                'parser_version': 'journal-import-worker-v2',
+                'files': [{'name': source_file, 'event_count': 1}],
+            },
+            'evidence_mode': 'staging_only',
+            'observations': [{
+                'observation_key': observation_key,
+                'source_file': source_file,
+                'source_offset': source_offset,
+                'event_type': 'Scan',
+                'observed_at': '2026-08-12T20:00:00Z',
+                'system_id64': '9007199254740993',
+                'system_name': 'Precision Reach',
+                'subject_type': 'body',
+                'subject_id': '0',
+                'summary': 'Primary-star scan.',
+                'payload': {
+                    'SystemAddress': '9007199254740993',
+                    'BodyID': '0',
+                    'BodyName': 'Precision Reach',
+                },
+                'privacy_boundary': {'strip_before_network': True},
+            }],
+        }
+
+    first = await client.post(
+        '/api/journal/import',
+        json=request_body('Journal.original.log', 37),
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()['summary']['observations_staged'] == 1
+
+    copied = await client.post(
+        '/api/journal/import',
+        json=request_body('Journal.renamed-copy.log', 901),
+    )
+    assert copied.status_code == 200, copied.text
+    assert copied.json()['summary']['observations_staged'] == 0
+    assert copied.json()['summary']['duplicates_skipped'] == 1
+
+    async with pool.acquire() as conn:
+        stored = await conn.fetchrow(
+            '''
+            SELECT sync_key, source_file_name, source_offset, source_record_hash,
+                   system_id64::text AS system_id64, subject_id,
+                   payload_json->>'SystemAddress' AS payload_system_address,
+                   payload_json->>'BodyID' AS payload_body_id
+              FROM journal_import_staging
+             WHERE sync_key = $1 AND source_record_hash = $2
+            ''',
+            sync_key,
+            observation_key,
+        )
+
+    assert stored is not None
+    assert dict(stored) == {
+        'sync_key': sync_key,
+        'source_file_name': 'Journal.original.log',
+        'source_offset': 37,
+        'source_record_hash': observation_key,
+        'system_id64': '9007199254740993',
+        'subject_id': '0',
+        'payload_system_address': '9007199254740993',
+        'payload_body_id': '0',
+    }
+
+
 async def test_journal_import_promotion_requires_admin_token_and_promotes_simulation_facts(client, pool):
     async with pool.acquire() as conn:
         system_id64 = await conn.fetchval('SELECT id64 FROM systems LIMIT 1')

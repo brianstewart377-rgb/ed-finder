@@ -1,4 +1,9 @@
-import type { MapViewportSystem } from '@/lib/api';
+import type {
+  ExplorationTrailPoint,
+  ExplorationViewportVisit,
+  MapViewportSystem,
+  PowerplaySystemState,
+} from '@/lib/api';
 import type {
   CameraState,
   ClusterRepresentation,
@@ -62,6 +67,11 @@ export type ProductionMapOverlays = {
   realStars?: MapViewportSystem[] | null;
   /** Real-star 40k cap reached (when true, stay on heatmap regardless of zoom). */
   realStarsTruncated?: boolean;
+  explorationVisits?: ExplorationViewportVisit[] | null;
+  explorationTrail?: ExplorationTrailPoint[] | null;
+  showExplorationCompleteness?: boolean;
+  /** Personal, source-labelled PP2 observations; absent when the layer is off. */
+  powerplay?: PowerplaySystemState[] | null;
 };
 
 export type VisibilityMetadata = {
@@ -122,6 +132,7 @@ export type FoundationRendererProps = {
   onVisibilityChange?: (metadata: VisibilityMetadata) => void;
   onReady?: () => void;
   onGpuTimerReady?: (timer: FoundationGpuTimer | null) => void;
+  onViewportSystemSelect?: (system: MapViewportSystem) => void;
 };
 
 export type ClusterGeometry = {

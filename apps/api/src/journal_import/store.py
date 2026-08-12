@@ -22,6 +22,7 @@ from edfinder_api.journal_import.api_models import (
     JournalTelemetryRecentSystem,
     JournalTelemetrySummaryResponse,
 )
+from edfinder_api.routes.store import consume_journal_observations
 from edfinder_api.ring_facts import ring_rows_for_body
 from edfinder_api.source_precedence import BODY_SCAN_FACT_FIELDS, merge_body_scan_fact
 from shared_contracts.body_ring_association_status import BODY_RING_ASSOCIATION_STATUS_CASE_SQL
@@ -155,6 +156,7 @@ async def import_journal_batch(
     rows_read = len(request.observations)
     rows_staged = 0
     rows_skipped = 0
+    inserted_observations = []
 
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -219,7 +221,9 @@ async def import_journal_batch(
                     '''
                     INSERT INTO journal_import_staging (
                         source_run_key,
+                        sync_key,
                         source_file_name,
+                        source_offset,
                         source_record_hash,
                         event_type,
                         system_id64,
@@ -231,16 +235,18 @@ async def import_journal_batch(
                         payload_json,
                         privacy_boundary
                     ) VALUES (
-                        $1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10, $11::jsonb, $12::jsonb
+                        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12, $13::jsonb, $14::jsonb
                     )
-                    ON CONFLICT (source_record_hash) DO NOTHING
+                    ON CONFLICT (sync_key, source_record_hash) DO NOTHING
                     RETURNING source_record_hash
                     ''',
                     run_key,
+                    request.sync_key,
                     observation.source_file,
+                    observation.source_offset,
                     observation.observation_key,
                     observation.event_type,
-                    observation.system_id64,
+                    int(observation.system_id64) if observation.system_id64 is not None else None,
                     observation.system_name,
                     observation.subject_type,
                     observation.subject_id,
@@ -254,6 +260,10 @@ async def import_journal_batch(
                     continue
 
                 rows_staged += 1
+                inserted_observations.append(observation)
+
+            if inserted_observations:
+                await consume_journal_observations(conn, request.sync_key, inserted_observations)
 
             finished_at = _utc_now()
             duration_ms = int((perf_counter() - started_perf) * 1000)
@@ -457,6 +467,7 @@ async def get_journal_telemetry_summary(
                   ON runs.source_run_key = stage.source_run_key
                 WHERE runs.source_name = 'frontier_journal'
                   AND COALESCE(runs.metadata->>'sync_key', runs.safety_boundary->>'sync_key', '') = $1
+                  AND stage.system_id64 IS NOT NULL
                 GROUP BY stage.system_id64
             )
             SELECT *
@@ -487,7 +498,7 @@ async def get_journal_telemetry_summary(
         )
     recent_systems = [
         JournalTelemetryRecentSystem(
-            system_id64=int(row['system_id64']),
+            system_id64=str(row['system_id64']),
             system_name=str(row['system_name']),
             last_observed_at=_dt_to_str(row['last_observed_at']),
             event_count=int(row['event_count'] or 0),
@@ -521,7 +532,8 @@ def _journal_fact_source(event_type: str) -> str:
 
 def _payload_from_stage_row(row: asyncpg.Record) -> dict[str, object]:
     payload = _json_object(row['payload_json'])
-    payload.setdefault('SystemAddress', int(row['system_id64']))
+    if row['system_id64'] is not None:
+        payload.setdefault('SystemAddress', int(row['system_id64']))
     if row['system_name'] and not payload.get('StarSystem'):
         payload['StarSystem'] = str(row['system_name'])
     if str(row['subject_type']) == 'body':

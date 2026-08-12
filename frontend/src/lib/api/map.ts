@@ -99,6 +99,7 @@ export interface MapViewportSystem {
   /** main_star_type — the spectral letter (O/B/A/…) or null. */
   star: string | null;
   populated: boolean;
+  galaxy_region_id: number | null;
 }
 export interface MapSystemsResponse {
   systems: MapViewportSystem[];

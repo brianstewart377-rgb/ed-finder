@@ -114,6 +114,8 @@ def test_ci_workflow_has_focused_script_contracts_job():
     assert 'name: Script contracts + migration paths' in workflow
     assert 'bash -n scripts/apply_migrations.sh' in workflow
     assert 'bash -n scripts/baseline_migration_ledger.sh' in workflow
+    assert 'bash -n setup.sh' in workflow
+    assert 'bash -n scripts/migrate_postgis.sh' in workflow
     assert 'bash -n scripts/sync_password.sh' in workflow
     assert 'bash -n scripts/run_import.sh' in workflow
     assert 'bash -n scripts/seed_check.sh' in workflow

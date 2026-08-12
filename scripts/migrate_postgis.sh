@@ -16,10 +16,30 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$(cd "$SCRIPT_DIR/.." && pwd)/docker-compose.yml"
-LOG_FILE="/data/logs/migrate_postgis_$(date +%Y%m%d_%H%M%S).log"
+LOG_FILE="${LOG_FILE:-/data/logs/migrate_postgis_$(date +%Y%m%d_%H%M%S).log}"
+MIGRATION_STATEMENT_TIMEOUT="${MIGRATION_STATEMENT_TIMEOUT:-3h}"
+MIGRATION_LOCK_TIMEOUT="${MIGRATION_LOCK_TIMEOUT:-30s}"
+ALLOW_UNBOUNDED_TIMEOUTS="${EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS:-no}"
 
 log()  { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"; }
 fatal(){ log "[FATAL] $*"; exit 1; }
+
+validate_timeout() {
+  local name="$1"
+  local value="$2"
+  [[ "$value" =~ ^[0-9]+(ms|s|min|h)?$ ]] ||
+    fatal "$name must be a non-negative PostgreSQL duration using ms, s, min, or h"
+}
+
+validate_timeout MIGRATION_STATEMENT_TIMEOUT "$MIGRATION_STATEMENT_TIMEOUT"
+validate_timeout MIGRATION_LOCK_TIMEOUT "$MIGRATION_LOCK_TIMEOUT"
+if [[ "$MIGRATION_STATEMENT_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ||
+      "$MIGRATION_LOCK_TIMEOUT" =~ ^0+(ms|s|min|h)?$ ]]; then
+  [[ "$ALLOW_UNBOUNDED_TIMEOUTS" == "yes" ]] ||
+    fatal "zero migration timeouts require EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes"
+  log "[WARN] Unbounded migration timeout explicitly enabled for this reviewed run"
+fi
+PGOPTIONS_VALUE="-c statement_timeout=${MIGRATION_STATEMENT_TIMEOUT} -c lock_timeout=${MIGRATION_LOCK_TIMEOUT}"
 
 log "═══════════════════════════════════════════════════════"
 log " PostGIS Migration v1.0"
@@ -32,7 +52,8 @@ docker compose -f "$COMPOSE_FILE" ps postgres | grep -q "running" \
 
 # ── Helper to run SQL ─────────────────────────────────────────────────────────
 run_sql() {
-  docker exec -i ed-postgres psql -U edfinder -d edfinder -v ON_ERROR_STOP=1 "$@"
+  docker exec -e "PGOPTIONS=$PGOPTIONS_VALUE" -i ed-postgres \
+    psql -U edfinder -d edfinder -v ON_ERROR_STOP=1 "$@"
 }
 
 # ── Step 1: Install PostGIS extension ────────────────────────────────────────

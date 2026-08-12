@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 
 os.environ.setdefault('CORS_ORIGINS', 'http://test')
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
@@ -71,6 +73,25 @@ def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):
         assert 'ORDER BY id64 LIMIT 25' in target_query
 
     assert capsys.readouterr().out.count('Excluded 266,000 coordinate-less systems') == 3
+
+
+def test_load_targets_applies_zero_limit(capsys):
+    cursor = RecordingCursor()
+    args = argparse.Namespace(dirty=False, all=False, limit=0)
+
+    assert _load_targets(cursor, args) == []
+    assert 'ORDER BY id64 LIMIT 0' in cursor.queries[0]
+    assert 'Excluded 266,000 coordinate-less systems' in capsys.readouterr().out
+
+
+def test_regional_limit_parser_accepts_zero_and_rejects_negative(capsys):
+    assert build_regional_analysis.parse_args(['--limit', '0']).limit == 0
+
+    with pytest.raises(SystemExit) as exc_info:
+        build_regional_analysis.parse_args(['--limit', '-1'])
+
+    assert exc_info.value.code == 2
+    assert 'must be a non-negative integer' in capsys.readouterr().err
 
 
 class _FixedRowsCursor:

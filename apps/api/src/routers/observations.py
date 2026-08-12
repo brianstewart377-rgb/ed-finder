@@ -23,7 +23,10 @@ from edfinder_api.observations.api_models import (
 from edfinder_api.observations.comparison_engine import (
     compare_prediction_to_observations as compare_prediction_to_observations_stage6c,
 )
-from edfinder_api.observations.comparison_models import comparison_result_to_dict
+from edfinder_api.observations.comparison_models import (
+    comparison_result_from_dict,
+    comparison_result_to_dict,
+)
 from edfinder_api.observations.review_engine import build_validation_review
 from edfinder_api.observations.review_models import review_result_to_dict
 
@@ -34,7 +37,7 @@ _OPERATOR_MUTATION_LIMIT = '20/minute'
 
 async def _load_or_convert_comparison_facts(
     *,
-    body: PredictionObservationCompareRequest,
+    body: PredictionObservationCompareRequest | ValidationReviewRequest,
     pool: asyncpg.Pool,
 ):
     """Shared Stage 6C/6E fact-loading semantics."""
@@ -229,20 +232,25 @@ async def review_prediction_validation(
     body: ValidationReviewRequest,
     pool: asyncpg.Pool = Depends(get_pool),
 ) -> ValidationReviewResponse:
-    """Run Stage 6C comparison and Stage 6E review guidance.
+    """Build Stage 6E review guidance from a Stage 6C comparison.
 
-    The handler mirrors compare-endpoint input semantics for caller
-    convenience, then passes the comparison result into the pure Stage
-    6E review engine. It does not run Simulation Preview, optimiser
-    generation, optimiser ranking, or any mechanics module, and it does
-    not mutate observations or predictions.
+    A caller may pass ``comparison_result`` to reuse work already done by
+    the compare endpoint. Legacy/direct callers may instead pass the
+    compare inputs, in which case this handler retains the same Mode A/B
+    fact-loading semantics. It does not run Simulation Preview, optimiser
+    generation, optimiser ranking, or any mechanics module.
     """
-    observed = await _load_or_convert_comparison_facts(body=body, pool=pool)
-    comparison_result = compare_prediction_to_observations_stage6c(
-        system_id64=body.system_id64,
-        target_archetype=body.target_archetype,
-        prediction=body.prediction,
-        observed_facts=observed,
-    )
+    if body.comparison_result is not None:
+        comparison_result = comparison_result_from_dict(
+            body.comparison_result.model_dump(),
+        )
+    else:
+        observed = await _load_or_convert_comparison_facts(body=body, pool=pool)
+        comparison_result = compare_prediction_to_observations_stage6c(
+            system_id64=body.system_id64,
+            target_archetype=body.target_archetype,
+            prediction=body.prediction or {},
+            observed_facts=observed,
+        )
     review_result = build_validation_review(comparison_result=comparison_result)
     return ValidationReviewResponse.model_validate(review_result_to_dict(review_result))

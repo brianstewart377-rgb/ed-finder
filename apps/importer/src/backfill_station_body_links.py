@@ -14,7 +14,6 @@ import json
 import os
 import sys
 from collections import Counter
-from pathlib import Path
 from typing import Any
 
 import psycopg2
@@ -24,9 +23,10 @@ from shared_contracts.evidence_identity import (
     datetime_to_utc_isoformat as _dt_to_str,
 )
 
-API_SRC = Path(__file__).resolve().parents[2] / 'api' / 'src'
-if str(API_SRC) not in sys.path:
-    sys.path.insert(0, str(API_SRC))
+from api_source_resolver import add_api_source_to_path
+
+
+API_SRC = add_api_source_to_path(__file__, required_paths=('station_body_resolver.py',))
 
 from station_body_resolver import build_station_body_link_rows  # noqa: E402
 

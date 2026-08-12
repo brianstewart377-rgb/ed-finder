@@ -53,6 +53,7 @@ export type Route = {
   id: string;
   waypoints: { systemId64: number; label?: string }[];
   color: string;
+  currentWaypointIndex?: number | null;
 };
 
 export type Annotation = {

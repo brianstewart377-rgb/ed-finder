@@ -53,6 +53,8 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 
+from shared_contracts.bulk_update_helper import bulk_update_replica_mode
+
 from progress import (
     ProgressReporter, WorkerHeartbeat,
     startup_banner, stage_banner, done_banner, crash_hint,
@@ -1336,23 +1338,6 @@ def _is_transient_dirty_cleanup_error(exc: Exception) -> bool:
     ))
 
 
-def _set_session_replication_role(conn, cur, role: str, worker_id: int) -> bool:
-    try:
-        cur.execute(f"SET session_replication_role = {role}")
-        conn.commit()
-        return True
-    except Exception as e:
-        log.warning(
-            f"Worker {worker_id}: could not SET session_replication_role={role}; "
-            f"continuing with default trigger behavior: {e}"
-        )
-        try:
-            conn.rollback()
-        except Exception:
-            pass
-        return False
-
-
 def _mark_ratings_clean(conn, cur, clean_ids: list, worker_id: int,
                         chunk_size: int = DIRTY_CLEANUP_CHUNK_SIZE,
                         retries: int = DIRTY_CLEANUP_RETRIES,
@@ -1365,14 +1350,15 @@ def _mark_ratings_clean(conn, cur, clean_ids: list, worker_id: int,
     if not clean_ids:
         return 0, 0
 
-    role_changed = _set_session_replication_role(conn, cur, 'replica', worker_id)
     marked = 0
     left_dirty = 0
 
-    try:
-        for chunk in _chunks(clean_ids, chunk_size):
-            for attempt in range(1, retries + 1):
-                try:
+    for chunk in _chunks(clean_ids, chunk_size):
+        for attempt in range(1, retries + 1):
+            try:
+                # Re-enter for each retry because a rollback also rolls back
+                # an uncommitted SET from a failed first attempt.
+                with bulk_update_replica_mode(conn):
                     cur.execute("SET LOCAL statement_timeout = 0")
                     cur.execute("SET LOCAL lock_timeout = 0")
                     cur.execute("SET LOCAL idle_in_transaction_session_timeout = 3600000")
@@ -1385,30 +1371,23 @@ def _mark_ratings_clean(conn, cur, clean_ids: list, worker_id: int,
                     """, (chunk,))
                     marked += max(cur.rowcount, 0)
                     conn.commit()
-                    break
-                except Exception as e:
-                    try:
-                        conn.rollback()
-                    except Exception:
-                        pass
-                    if attempt < retries and _is_transient_dirty_cleanup_error(e):
-                        wait = retry_delay * attempt
-                        log.warning(
-                            f"Worker {worker_id}: dirty cleanup chunk "
-                            f"{len(chunk)} failed transiently "
-                            f"(attempt {attempt}/{retries}): {e}; retrying in {wait:.1f}s"
-                        )
-                        time.sleep(wait)
-                        continue
-                    left_dirty += len(chunk)
-                    log.error(
-                        f"Worker {worker_id}: dirty cleanup chunk failed; "
-                        f"{len(chunk)} systems remain dirty: {e}"
+                break
+            except Exception as e:
+                if attempt < retries and _is_transient_dirty_cleanup_error(e):
+                    wait = retry_delay * attempt
+                    log.warning(
+                        f"Worker {worker_id}: dirty cleanup chunk "
+                        f"{len(chunk)} failed transiently "
+                        f"(attempt {attempt}/{retries}): {e}; retrying in {wait:.1f}s"
                     )
-                    break
-    finally:
-        if role_changed:
-            _set_session_replication_role(conn, cur, 'DEFAULT', worker_id)
+                    time.sleep(wait)
+                    continue
+                left_dirty += len(chunk)
+                log.error(
+                    f"Worker {worker_id}: dirty cleanup chunk failed; "
+                    f"{len(chunk)} systems remain dirty: {e}"
+                )
+                break
 
     log.info(
         f"Worker {worker_id}: marked {fmt_num(marked)} systems clean "
@@ -1610,6 +1589,10 @@ def _ratings_insert_sql() -> str:
 
 
 def _write_ratings(conn, cur, batch: list) -> None:
+    # Replica mode is intentionally not used for this mixed INSERT/UPDATE:
+    # new ratings rows must retain their FK check against systems. The costly
+    # parent-table trigger fan-out applies to UPDATE systems, whose cleanup is
+    # separately protected by bulk_update_replica_mode above.
     """Upsert a batch of rating records — single commit per call."""
     now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
     rows = [_rating_row_tuple(r, now_iso) for r in batch]

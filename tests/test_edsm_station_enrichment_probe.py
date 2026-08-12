@@ -394,16 +394,6 @@ class FakeApplyConnection:
         return self.last_row
 
 
-def test_import_path_supports_repo_and_flat_container_layouts():
-    repo_paths = probe._station_resolver_import_paths(
-        ROOT / 'apps' / 'importer' / 'src' / 'edsm_station_enrichment_probe.py'
-    )
-    flat_paths = probe._station_resolver_import_paths(Path('/app/edsm_station_enrichment_probe.py'))
-
-    assert ROOT / 'apps' / 'api' / 'src' in repo_paths
-    assert any(path.as_posix().endswith('/app') for path in flat_paths)
-
-
 def test_exact_name_type_match_proposes_type_enrichment():
     report = report_for(
         local_station(station_type='Unknown'),

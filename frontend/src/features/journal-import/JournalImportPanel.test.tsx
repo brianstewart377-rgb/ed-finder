@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { importJournal } from '@/lib/api';
+import { importExploration, importJournal } from '@/lib/api';
 import { useJournalTelemetrySummary } from '@/features/my-work/useJournalTelemetrySummary';
 import { JournalImportPanel } from './JournalImportPanel';
 import { parseJournalFiles } from './parseJournalFiles';
@@ -10,6 +10,7 @@ vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');
   return {
     ...actual,
+    importExploration: vi.fn(),
     importJournal: vi.fn(),
   };
 });
@@ -27,6 +28,7 @@ vi.mock('@/store/syncKeyStore', () => ({
 }));
 
 const mockedImportJournal = vi.mocked(importJournal);
+const mockedImportExploration = vi.mocked(importExploration);
 const mockedParseJournalFiles = vi.mocked(parseJournalFiles);
 const mockedUseJournalTelemetrySummary = vi.mocked(useJournalTelemetrySummary);
 
@@ -47,6 +49,7 @@ function renderPanel() {
 describe('JournalImportPanel', () => {
   afterEach(() => {
     mockedImportJournal.mockReset();
+    mockedImportExploration.mockReset();
     mockedParseJournalFiles.mockReset();
     mockedUseJournalTelemetrySummary.mockReset();
   });
@@ -68,7 +71,7 @@ describe('JournalImportPanel', () => {
           source_file: 'Journal.demo.log',
           event_type: 'Scan',
           observed_at: '2026-07-08T18:00:00Z',
-          system_id64: 123,
+          system_id64: '123',
           system_name: 'Test System',
           subject_type: 'body',
           subject_id: '7',
@@ -81,7 +84,7 @@ describe('JournalImportPanel', () => {
           source_file: 'Journal.demo.log',
           event_type: 'Location',
           observed_at: '2026-07-08T18:00:10Z',
-          system_id64: 123,
+          system_id64: '123',
           system_name: 'Test System',
           subject_type: 'system',
           subject_id: null,
@@ -90,10 +93,13 @@ describe('JournalImportPanel', () => {
           privacy_boundary: { strip_before_network: true },
         },
       ],
+      powerplay_events: [],
+      checkpoints: [],
       preview: {
         files_processed: 1,
         lines_read: 4,
         observations_ready: 2,
+        powerplay_events_ready: 0,
         skipped_lines: 2,
         event_counts: { Scan: 1, Location: 1 },
       },
@@ -128,7 +134,7 @@ describe('JournalImportPanel', () => {
           source_file: 'Journal.demo.log',
           event_type: 'Scan',
           observed_at: '2026-07-08T18:00:00Z',
-          system_id64: 123,
+          system_id64: '123',
           system_name: 'Test System',
           subject_type: 'body',
           subject_id: '7',
@@ -137,10 +143,13 @@ describe('JournalImportPanel', () => {
           privacy_boundary: { strip_before_network: true },
         },
       ],
+      powerplay_events: [],
+      checkpoints: [],
       preview: {
         files_processed: 1,
         lines_read: 1,
         observations_ready: 1,
+        powerplay_events_ready: 0,
         skipped_lines: 0,
         event_counts: { Scan: 1 },
       },
@@ -161,6 +170,17 @@ describe('JournalImportPanel', () => {
         event_counts: { Scan: 1 },
       },
     });
+    mockedImportExploration.mockResolvedValue({
+      sync_key: 'sync-key-1234567890',
+      status: 'succeeded',
+      summary: {
+        observations_received: 1,
+        observations_staged: 1,
+        duplicates_skipped: 0,
+        event_counts: { Scan: 1 },
+        projections_rebuilt: {},
+      },
+    });
 
     renderPanel();
 
@@ -176,6 +196,11 @@ describe('JournalImportPanel', () => {
     expect(mockedImportJournal.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
       sync_key: 'sync-key-1234567890',
       evidence_mode: 'staging_only',
+    }));
+    expect(mockedImportExploration).toHaveBeenCalledWith(expect.objectContaining({
+      sync_key: 'sync-key-1234567890',
+      source: 'journal',
+      observations: [expect.objectContaining({ event_type: 'Scan', body_id: '7' })],
     }));
     expect(await screen.findByTestId('journal-import-receipt')).toBeTruthy();
     expect(screen.getByTestId('journal-import-receipt-files').textContent).toContain('Journal.demo.log');

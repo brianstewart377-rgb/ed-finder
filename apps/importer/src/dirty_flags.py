@@ -9,6 +9,8 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from shared_contracts.bulk_update_helper import bulk_update_replica_mode
+
 
 RATING_AFFECTING_SYSTEM_FIELDS: tuple[str, ...] = (
     # Current v3.4 scorer reads main_star_type and updated_at directly.
@@ -174,11 +176,12 @@ def _mark_systems_dirty(
     """
 
     marked = 0
-    with conn.cursor() as cur:
-        for chunk in _chunks(ids, chunk_size):
-            cur.execute(sql, (chunk,))
-            marked += max(cur.rowcount, 0)
-    conn.commit()
+    with bulk_update_replica_mode(conn):
+        with conn.cursor() as cur:
+            for chunk in _chunks(ids, chunk_size):
+                cur.execute(sql, (chunk,))
+                marked += max(cur.rowcount, 0)
+        conn.commit()
 
     if logger:
         logger.info(

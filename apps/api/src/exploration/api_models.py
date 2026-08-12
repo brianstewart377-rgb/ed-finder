@@ -9,19 +9,27 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 JsonObject = dict[str, Any]
 _SYNC_KEY_RE = re.compile(r'^[A-Za-z0-9_-]{16,128}$')
+_DECIMAL_ID_RE = re.compile(r'^\d+$')
+_MAX_BIGINT = 9_223_372_036_854_775_807
 MAX_PAYLOAD_BYTES = 32_768
 EDSM_VISIT_EVENT_TYPES = {'FSDJump', 'Location'}
 
 ALLOWED_EXPLORATION_EVENT_TYPES = {
+    'CarrierJump',
     'FSDJump',
     'Location',
     'Scan',
     'FSSDiscoveryScan',
+    'FSSAllBodiesFound',
     'SAASignalsFound',
     'FSSBodySignals',
     'CodexEntry',
     'SAAScanComplete',
     'ScanOrganic',
+    'SellOrganicData',
+    'SellExplorationData',
+    'MultiSellExplorationData',
+    'RedeemVoucher',
 }
 
 
@@ -64,9 +72,9 @@ class ExplorationObservationInput(BaseModel):
     observation_key: str = Field(min_length=16, max_length=128)
     event_type: str = Field(min_length=1, max_length=64)
     observed_at: datetime
-    system_id64: int = Field(gt=0, le=9_223_372_036_854_775_807)
+    system_id64: str = Field(min_length=1, max_length=19)
     system_name: str | None = Field(default=None, max_length=128)
-    body_id: int | None = Field(default=None, ge=0, le=2_147_483_647)
+    body_id: str | None = Field(default=None, min_length=1, max_length=10)
     body_name: str | None = Field(default=None, max_length=128)
     payload: JsonObject = Field(default_factory=dict)
 
@@ -76,6 +84,28 @@ class ExplorationObservationInput(BaseModel):
         if value is not None:
             _reject_nul_byte(value)
         return _strip_text(value)
+
+    @field_validator('system_id64', mode='before')
+    @classmethod
+    def validate_system_id64(cls, value: object) -> str:
+        if isinstance(value, bool):
+            raise ValueError('system_id64 must be a positive decimal string')
+        text = str(value).strip()
+        if not _DECIMAL_ID_RE.fullmatch(text) or int(text) <= 0 or int(text) > _MAX_BIGINT:
+            raise ValueError('system_id64 must be a positive signed-64-bit decimal string')
+        return text
+
+    @field_validator('body_id', mode='before')
+    @classmethod
+    def validate_body_id(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            raise ValueError('body_id must be a non-negative decimal string')
+        text = str(value).strip()
+        if not _DECIMAL_ID_RE.fullmatch(text) or int(text) > 2_147_483_647:
+            raise ValueError('body_id must be a non-negative 32-bit decimal string')
+        return text
 
     @field_validator('observation_key')
     @classmethod
@@ -173,6 +203,7 @@ class ExplorationImportSummary(BaseModel):
     observations_staged: int
     duplicates_skipped: int
     event_counts: dict[str, int] = Field(default_factory=dict)
+    projections_rebuilt: dict[str, int] = Field(default_factory=dict)
 
 
 class ExplorationImportReceipt(BaseModel):
@@ -186,6 +217,7 @@ class ExplorationImportReceipt(BaseModel):
 class ExplorationFactRow(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
+    fact_id: int
     event_type: str
     system_id64: int
     system_name: str | None = None
@@ -203,3 +235,134 @@ class ExplorationFactsResponse(BaseModel):
     facts: list[ExplorationFactRow] = Field(default_factory=list)
     count: int
     truncated: bool
+    next_cursor: str | None = None
+    total_count: int
+    event_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class ExplorationTrailPoint(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sequence: int
+    fact_id: int
+    system_id64: int
+    system_name: str | None = None
+    visited_at: str
+    x: float | None = None
+    y: float | None = None
+    z: float | None = None
+    galaxy_region_id: int | None = None
+    from_system_id64: int | None = None
+    distance_ly: float | None = None
+
+
+class ExplorationTrailResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sync_key: str
+    points: list[ExplorationTrailPoint] = Field(default_factory=list)
+    count: int
+    truncated: bool
+    next_cursor: int | None = None
+
+
+class ExplorationViewportVisit(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    kind: Literal['marker', 'density']
+    system_id64: int | None = None
+    system_name: str | None = None
+    x: float
+    y: float
+    z: float
+    galaxy_region_id: int | None = None
+    visit_count: int
+    first_visited_at: str
+    last_visited_at: str
+    completion_state: Literal['complete', 'partial']
+    cell_size: float | None = None
+
+
+class ExplorationViewportVisitsResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sync_key: str
+    mode: Literal['markers', 'density']
+    visits: list[ExplorationViewportVisit] = Field(default_factory=list)
+    count: int
+    truncated: bool
+    cell_size: float | None = None
+
+
+class ExplorationVisitSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    visit_count: int = 0
+    first_visited_at: str | None = None
+    last_visited_at: str | None = None
+
+
+class ExplorationBodySummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    expected: int | None = None
+    observed: int = 0
+    scanned: int = 0
+    mapped: int = 0
+    fss_complete: bool = False
+    dss_complete: bool = False
+    map_progress: float = 0
+
+
+class ExplorationOrganicSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    organisms: int = 0
+    logged: int = 0
+    sampled: int = 0
+    analysed: int = 0
+    sold: int = 0
+    sale_value: int = 0
+
+
+class ExplorationCodexSummary(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    observed: int = 0
+    pending: int = 0
+    sold: int = 0
+
+
+class ExplorationSystemSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sync_key: str
+    system_id64: int
+    system_name: str | None = None
+    galaxy_region_id: int | None = None
+    visits: ExplorationVisitSummary
+    bodies: ExplorationBodySummary
+    organics: ExplorationOrganicSummary
+    codex: ExplorationCodexSummary
+
+
+class ExplorationCodexRegion(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    region: str
+    region_id: int | None = None
+    global_entries: int
+    personal_entries: int
+    sold_entries: int
+    completion_percent: float | None = None
+    categories: dict[str, int] = Field(default_factory=dict)
+
+
+class ExplorationCodexByRegionResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    sync_key: str
+    regions: list[ExplorationCodexRegion] = Field(default_factory=list)
+    global_entries: int
+    personal_entries: int
+    completion_percent: float | None = None

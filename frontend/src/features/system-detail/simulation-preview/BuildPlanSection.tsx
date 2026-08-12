@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Columns3, DownloadCloud, ListChecks, Plus } from 'lucide-react';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, SimulateBuildPlacement, SimulateBuildResponse, SystemBody } from '@/types/api';
@@ -10,6 +11,7 @@ import { ARCHETYPES, type StartMode } from './types';
 import type { TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
 import type { PlannerWorkspaceCommand } from '@/features/colony-planner/workspaceUtils';
 import { bodyDisplayName } from './buildPlanLayoutUtils';
+import { layoutImportInvalidationKeys } from './layoutImportQueryKeys';
 
 type BuildPlanViewMode = 'list' | 'body';
 
@@ -74,15 +76,26 @@ export function BuildPlanSection({
   lastHandledWorkspaceCommandToken?: number;
   onWorkspaceCommandHandled?: (token: number) => void;
 }) {
+  const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<BuildPlanViewMode>('list');
-  const [layoutImportResult, setLayoutImportResult] = useState<LayoutImportResponse | null>(null);
-  const [layoutImportError, setLayoutImportError] = useState<string | null>(null);
-  const [layoutImportRunning, setLayoutImportRunning] = useState(false);
+  const layoutImportMutation = useMutation<LayoutImportResponse, Error>({
+    mutationKey: ['layout-import', systemId64],
+    mutationFn: () => importSystemLayout(systemId64, { source: 'spansh' }),
+    onSuccess: async () => {
+      // Active consumers refetch immediately; inactive entries are marked
+      // stale so the next planner/system-detail mount cannot reuse layout-
+      // dependent data from before the import.
+      await Promise.all(
+        layoutImportInvalidationKeys(systemId64).map((queryKey) => (
+          queryClient.invalidateQueries({ queryKey })
+        )),
+      );
+    },
+  });
+  const resetLayoutImportMutation = layoutImportMutation.reset;
   useEffect(() => {
-    setLayoutImportResult(null);
-    setLayoutImportError(null);
-    setLayoutImportRunning(false);
-  }, [systemId64]);
+    resetLayoutImportMutation();
+  }, [resetLayoutImportMutation, systemId64]);
   const assignedUnknownBodyIds = getAssignedUnknownBodyIds(placements, bodies);
   const templateCatalogueEmpty = !templatesLoading && !templatesErrorMessage && templates.length === 0;
   const selectedBodyId = topologySelection?.type === 'body' ? topologySelection.bodyId : null;
@@ -121,20 +134,6 @@ export function BuildPlanSection({
     workspaceCommand,
   ]);
 
-  const handleImportLayout = async () => {
-    setLayoutImportRunning(true);
-    setLayoutImportError(null);
-    try {
-      const result = await importSystemLayout(systemId64, { source: 'spansh' });
-      setLayoutImportResult(result);
-    } catch (error) {
-      setLayoutImportResult(null);
-      setLayoutImportError(error instanceof Error ? error.message : 'Layout import failed.');
-    } finally {
-      setLayoutImportRunning(false);
-    }
-  };
-
   return (
     <section aria-label="Build Plan" className="rounded-chunk-lg border border-border/60 bg-bg2/30 p-4">
       <div className="mb-3">
@@ -150,11 +149,11 @@ export function BuildPlanSection({
         runningPreview={runningPreview}
       />
       <LayoutImportControl
-        running={layoutImportRunning}
-        result={layoutImportResult}
-        errorMessage={layoutImportError}
+        running={layoutImportMutation.isPending}
+        result={layoutImportMutation.data ?? null}
+        errorMessage={layoutImportMutation.error?.message ?? null}
         assignedUnknownBodyIds={assignedUnknownBodyIds}
-        onImport={() => void handleImportLayout()}
+        onImport={() => layoutImportMutation.mutate()}
       />
       <StartModes
         mode={startMode}

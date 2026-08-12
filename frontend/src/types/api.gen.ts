@@ -372,6 +372,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/powerplay/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Powerplay Journal */
+        post: operations["import_powerplay_journal_api_powerplay_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/powerplay/systems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Powerplay Systems */
+        get: operations["powerplay_systems_api_powerplay_systems_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/powerplay/commander": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Powerplay Commander */
+        get: operations["powerplay_commander_api_powerplay_commander_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/powerplay/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Powerplay History */
+        get: operations["powerplay_history_api_powerplay_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cache/stats": {
         parameters: {
             query?: never;
@@ -836,6 +904,160 @@ export interface paths {
         };
         /** Get Exploration Facts For Sync Key */
         get: operations["get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/trail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Trail */
+        get: operations["get_exploration_trail_api_exploration_trail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/viewport-visits": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Viewport Visits */
+        get: operations["get_exploration_viewport_visits_api_exploration_viewport_visits_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Summary */
+        get: operations["get_exploration_summary_api_exploration_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/exploration/codex-by-region": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Exploration Codex By Region */
+        get: operations["get_exploration_codex_by_region_api_exploration_codex_by_region_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routes/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Commander Routes */
+        get: operations["list_commander_routes_api_routes_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routes/trail": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Personal Jump Trail */
+        get: operations["get_personal_jump_trail_api_routes_trail_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routes/expeditions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Expeditions */
+        get: operations["list_expeditions_api_routes_expeditions_get"];
+        put?: never;
+        /** Save Expedition */
+        post: operations["save_expedition_api_routes_expeditions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routes/import/spansh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Spansh Route */
+        post: operations["import_spansh_route_api_routes_import_spansh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/routes/{route_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Route Detail */
+        get: operations["get_route_detail_api_routes__route_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1489,13 +1711,13 @@ export interface paths {
         put?: never;
         /**
          * Review Prediction Validation
-         * @description Run Stage 6C comparison and Stage 6E review guidance.
+         * @description Build Stage 6E review guidance from a Stage 6C comparison.
          *
-         *     The handler mirrors compare-endpoint input semantics for caller
-         *     convenience, then passes the comparison result into the pure Stage
-         *     6E review engine. It does not run Simulation Preview, optimiser
-         *     generation, optimiser ranking, or any mechanics module, and it does
-         *     not mutate observations or predictions.
+         *     A caller may pass ``comparison_result`` to reuse work already done by
+         *     the compare endpoint. Legacy/direct callers may instead pass the
+         *     compare inputs, in which case this handler retains the same Mode A/B
+         *     fact-loading semantics. It does not run Simulation Preview, optimiser
+         *     generation, optimiser ranking, or any mechanics module.
          */
         post: operations["review_prediction_validation_api_observations_review_post"];
         delete?: never;
@@ -2432,6 +2654,37 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** CommanderPowerplayResponse */
+        CommanderPowerplayResponse: {
+            /** Commander Key */
+            commander_key: string;
+            /** Pledge */
+            pledge?: unknown;
+            /** Rank */
+            rank?: unknown;
+            /** Merits */
+            merits?: unknown;
+            /** Last Updated */
+            last_updated?: string | null;
+            /** Cycle Start */
+            cycle_start: string;
+            /**
+             * Cycle Merits Earned
+             * @default 0
+             */
+            cycle_merits_earned: unknown;
+            /** Value Provenance */
+            value_provenance?: {
+                [key: string]: components["schemas"]["PowerplayValueEvidence"];
+            };
+            /** Recent Contributions */
+            recent_contributions?: components["schemas"]["PowerplayContribution"][];
+            /**
+             * Snapshot Version
+             * @default commander-powerplay/v1
+             */
+            snapshot_version: string;
+        };
         /** CoordsModel */
         CoordsModel: {
             /** X */
@@ -2763,8 +3016,118 @@ export interface components {
             /** Open Rule Proposals */
             open_rule_proposals: components["schemas"]["RuleProposalResponse"][];
         };
+        /** ExpeditionImport */
+        ExpeditionImport: {
+            /** Commander Id */
+            commander_id: string;
+            /** Name */
+            name: string;
+            /** External Id */
+            external_id?: string | null;
+            /** Waypoints */
+            waypoints: components["schemas"]["RouteWaypoint-Input"][];
+            /** Description */
+            description?: string | null;
+            /** Organizer */
+            organizer?: string | null;
+            /** Departure At */
+            departure_at?: string | null;
+            /** Return At */
+            return_at?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** ExplorationBodySummary */
+        ExplorationBodySummary: {
+            /** Expected */
+            expected?: number | null;
+            /**
+             * Observed
+             * @default 0
+             */
+            observed: number;
+            /**
+             * Scanned
+             * @default 0
+             */
+            scanned: number;
+            /**
+             * Mapped
+             * @default 0
+             */
+            mapped: number;
+            /**
+             * Fss Complete
+             * @default false
+             */
+            fss_complete: boolean;
+            /**
+             * Dss Complete
+             * @default false
+             */
+            dss_complete: boolean;
+            /**
+             * Map Progress
+             * @default 0
+             */
+            map_progress: number;
+        };
+        /** ExplorationCodexByRegionResponse */
+        ExplorationCodexByRegionResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /** Regions */
+            regions?: components["schemas"]["ExplorationCodexRegion"][];
+            /** Global Entries */
+            global_entries: number;
+            /** Personal Entries */
+            personal_entries: number;
+            /** Completion Percent */
+            completion_percent?: number | null;
+        };
+        /** ExplorationCodexRegion */
+        ExplorationCodexRegion: {
+            /** Region */
+            region: string;
+            /** Region Id */
+            region_id?: number | null;
+            /** Global Entries */
+            global_entries: number;
+            /** Personal Entries */
+            personal_entries: number;
+            /** Sold Entries */
+            sold_entries: number;
+            /** Completion Percent */
+            completion_percent?: number | null;
+            /** Categories */
+            categories?: {
+                [key: string]: number;
+            };
+        };
+        /** ExplorationCodexSummary */
+        ExplorationCodexSummary: {
+            /**
+             * Observed
+             * @default 0
+             */
+            observed: number;
+            /**
+             * Pending
+             * @default 0
+             */
+            pending: number;
+            /**
+             * Sold
+             * @default 0
+             */
+            sold: number;
+        };
         /** ExplorationFactRow */
         ExplorationFactRow: {
+            /** Fact Id */
+            fact_id: number;
             /** Event Type */
             event_type: string;
             /** System Id64 */
@@ -2794,6 +3157,14 @@ export interface components {
             count: number;
             /** Truncated */
             truncated: boolean;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Total Count */
+            total_count: number;
+            /** Event Counts */
+            event_counts?: {
+                [key: string]: number;
+            };
         };
         /** ExplorationImportReceipt */
         ExplorationImportReceipt: {
@@ -2828,6 +3199,10 @@ export interface components {
             event_counts?: {
                 [key: string]: number;
             };
+            /** Projections Rebuilt */
+            projections_rebuilt?: {
+                [key: string]: number;
+            };
         };
         /** ExplorationObservationInput */
         ExplorationObservationInput: {
@@ -2841,17 +3216,103 @@ export interface components {
              */
             observed_at: string;
             /** System Id64 */
-            system_id64: number;
+            system_id64: string;
             /** System Name */
             system_name?: string | null;
             /** Body Id */
-            body_id?: number | null;
+            body_id?: string | null;
             /** Body Name */
             body_name?: string | null;
             /** Payload */
             payload?: {
                 [key: string]: unknown;
             };
+        };
+        /** ExplorationOrganicSummary */
+        ExplorationOrganicSummary: {
+            /**
+             * Organisms
+             * @default 0
+             */
+            organisms: number;
+            /**
+             * Logged
+             * @default 0
+             */
+            logged: number;
+            /**
+             * Sampled
+             * @default 0
+             */
+            sampled: number;
+            /**
+             * Analysed
+             * @default 0
+             */
+            analysed: number;
+            /**
+             * Sold
+             * @default 0
+             */
+            sold: number;
+            /**
+             * Sale Value
+             * @default 0
+             */
+            sale_value: number;
+        };
+        /** ExplorationSystemSummaryResponse */
+        ExplorationSystemSummaryResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
+            visits: components["schemas"]["ExplorationVisitSummary"];
+            bodies: components["schemas"]["ExplorationBodySummary"];
+            organics: components["schemas"]["ExplorationOrganicSummary"];
+            codex: components["schemas"]["ExplorationCodexSummary"];
+        };
+        /** ExplorationTrailPoint */
+        ExplorationTrailPoint: {
+            /** Sequence */
+            sequence: number;
+            /** Fact Id */
+            fact_id: number;
+            /** System Id64 */
+            system_id64: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Visited At */
+            visited_at: string;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
+            /** From System Id64 */
+            from_system_id64?: number | null;
+            /** Distance Ly */
+            distance_ly?: number | null;
+        };
+        /** ExplorationTrailResponse */
+        ExplorationTrailResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /** Points */
+            points?: components["schemas"]["ExplorationTrailPoint"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Next Cursor */
+            next_cursor?: number | null;
         };
         /** ExplorationValueModel */
         ExplorationValueModel: {
@@ -2872,6 +3333,69 @@ export interface components {
             combined_value: number;
         } & {
             [key: string]: unknown;
+        };
+        /** ExplorationViewportVisit */
+        ExplorationViewportVisit: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "marker" | "density";
+            /** System Id64 */
+            system_id64?: number | null;
+            /** System Name */
+            system_name?: string | null;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z */
+            z: number;
+            /** Galaxy Region Id */
+            galaxy_region_id?: number | null;
+            /** Visit Count */
+            visit_count: number;
+            /** First Visited At */
+            first_visited_at: string;
+            /** Last Visited At */
+            last_visited_at: string;
+            /**
+             * Completion State
+             * @enum {string}
+             */
+            completion_state: "complete" | "partial";
+            /** Cell Size */
+            cell_size?: number | null;
+        };
+        /** ExplorationViewportVisitsResponse */
+        ExplorationViewportVisitsResponse: {
+            /** Sync Key */
+            sync_key: string;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "markers" | "density";
+            /** Visits */
+            visits?: components["schemas"]["ExplorationViewportVisit"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+            /** Cell Size */
+            cell_size?: number | null;
+        };
+        /** ExplorationVisitSummary */
+        ExplorationVisitSummary: {
+            /**
+             * Visit Count
+             * @default 0
+             */
+            visit_count: number;
+            /** First Visited At */
+            first_visited_at?: string | null;
+            /** Last Visited At */
+            last_visited_at?: string | null;
         };
         /** FacilityTemplateResponse */
         FacilityTemplateResponse: {
@@ -3033,19 +3557,24 @@ export interface components {
             observation_key: string;
             /** Source File */
             source_file: string;
+            /**
+             * Source Offset
+             * @default 0
+             */
+            source_offset: number;
             /** Event Type */
             event_type: string;
             /** Observed At */
             observed_at?: string | null;
             /** System Id64 */
-            system_id64: number;
+            system_id64?: string | null;
             /** System Name */
             system_name?: string | null;
             /**
              * Subject Type
              * @enum {string}
              */
-            subject_type: "system" | "body";
+            subject_type: "system" | "body" | "route";
             /** Subject Id */
             subject_id?: string | null;
             /** Summary */
@@ -3137,7 +3666,7 @@ export interface components {
         /** JournalTelemetryRecentSystem */
         JournalTelemetryRecentSystem: {
             /** System Id64 */
-            system_id64: number;
+            system_id64: string;
             /** System Name */
             system_name: string;
             /** Last Observed At */
@@ -3780,6 +4309,227 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** PlannedRouteImport */
+        PlannedRouteImport: {
+            /** Commander Id */
+            commander_id: string;
+            /** Name */
+            name: string;
+            /** External Id */
+            external_id?: string | null;
+            /**
+             * Route Mode
+             * @default exact
+             * @enum {string}
+             */
+            route_mode: "exact" | "neutron" | "carrier";
+            /** Waypoints */
+            waypoints: components["schemas"]["RouteWaypoint-Input"][];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** PowerplayChangeEvent */
+        PowerplayChangeEvent: {
+            /** System Address */
+            system_address: number;
+            /** System Name */
+            system_name?: string | null;
+            /** Observed At */
+            observed_at: string;
+            /** Cycle Start */
+            cycle_start: string;
+            /** Changes */
+            changes: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** Source */
+            source: string;
+            /** Version */
+            version: string;
+            /** Confidence */
+            confidence: number;
+        };
+        /** PowerplayContribution */
+        PowerplayContribution: {
+            /** Observed At */
+            observed_at: string;
+            /** Power */
+            power?: unknown;
+            /** Merits Gained */
+            merits_gained?: unknown;
+            /** Total Merits */
+            total_merits?: unknown;
+            /** Source */
+            source: string;
+            /** Version */
+            version: string;
+            /** Confidence */
+            confidence: number;
+        };
+        /** PowerplayCycleSnapshot */
+        PowerplayCycleSnapshot: {
+            /** Week */
+            week: string;
+            /** Cycle Start */
+            cycle_start: string;
+            /** Captured At */
+            captured_at: string;
+            /** Control Snapshot */
+            control_snapshot: {
+                [key: string]: unknown;
+            };
+            /** Snapshot Hash */
+            snapshot_hash: string;
+            /** Source */
+            source: string;
+            /** Version */
+            version: string;
+            /** Confidence */
+            confidence: number;
+        };
+        /** PowerplayHistoryResponse */
+        PowerplayHistoryResponse: {
+            /** Commander Key */
+            commander_key: string;
+            /** Cycles */
+            cycles: components["schemas"]["PowerplayCycleSnapshot"][];
+            /** Change Events */
+            change_events: components["schemas"]["PowerplayChangeEvent"][];
+            /**
+             * Snapshot Version
+             * @default powerplay-history/v1
+             */
+            snapshot_version: string;
+        };
+        /** PowerplayImportReceipt */
+        PowerplayImportReceipt: {
+            /** Commander Key */
+            commander_key: string;
+            /** Events Received */
+            events_received: number;
+            /** System Observations Staged */
+            system_observations_staged: number;
+            /** Commander Events Staged */
+            commander_events_staged: number;
+            /** Duplicates Skipped */
+            duplicates_skipped: number;
+            /** Cycles Versioned */
+            cycles_versioned: number;
+        };
+        /** PowerplayImportRequest */
+        PowerplayImportRequest: {
+            /** Commander Key */
+            commander_key: string;
+            /**
+             * Source
+             * @default journal
+             * @constant
+             */
+            source: "journal";
+            /** Source Version */
+            source_version: string;
+            /** Events */
+            events?: components["schemas"]["PowerplayJournalEventInput"][];
+        };
+        /** PowerplayJournalEventInput */
+        PowerplayJournalEventInput: {
+            /** Observation Key */
+            observation_key: string;
+            /** Event Type */
+            event_type: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /** Game Build */
+            game_build?: string | null;
+            /** Source Payload */
+            source_payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** PowerplaySystemState */
+        PowerplaySystemState: {
+            /** System Address */
+            system_address: number;
+            /** System Name */
+            system_name?: string | null;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Controlling Power */
+            controlling_power?: unknown;
+            /** Control State */
+            control_state?: unknown;
+            /** Control Progress */
+            control_progress?: unknown;
+            /** Reinforcement Points */
+            reinforcement_points?: unknown;
+            /** Undermining Points */
+            undermining_points?: unknown;
+            /** Powers */
+            powers?: unknown[];
+            /** Observed At */
+            observed_at: string;
+            /** Cycle Start */
+            cycle_start: string;
+            /** Game Build */
+            game_build?: string | null;
+            /** Source Payload */
+            source_payload: {
+                [key: string]: unknown;
+            };
+            /** Observation Age Seconds */
+            observation_age_seconds: number;
+            /**
+             * Uncertainty
+             * @enum {string}
+             */
+            uncertainty: "low" | "medium" | "high";
+            /** Uncertainty Reasons */
+            uncertainty_reasons?: string[];
+            /** Value Provenance */
+            value_provenance?: {
+                [key: string]: components["schemas"]["PowerplayValueEvidence"];
+            };
+        };
+        /** PowerplaySystemsResponse */
+        PowerplaySystemsResponse: {
+            /** Commander Key */
+            commander_key: string;
+            /** Systems */
+            systems: components["schemas"]["PowerplaySystemState"][];
+            /** Count */
+            count: number;
+            /** Truncated */
+            truncated: boolean;
+            /**
+             * Snapshot Version
+             * @default powerplay-systems/v1
+             */
+            snapshot_version: string;
+        };
+        /** PowerplayValueEvidence */
+        PowerplayValueEvidence: {
+            /** Source */
+            source: string;
+            /** Version */
+            version: string;
+            /** Confidence */
+            confidence: number;
+            /** Observed At */
+            observed_at: string;
+        } & {
+            [key: string]: unknown;
+        };
         /**
          * PredictionObservationCompareRequest
          * @description Request payload for ``POST /api/observations/compare``.
@@ -4085,6 +4835,170 @@ export interface components {
             }[];
             /** Computed At */
             computed_at?: unknown | null;
+        };
+        /** RouteAlignment */
+        RouteAlignment: {
+            /** Planned Order */
+            planned_order: number;
+            waypoint: components["schemas"]["RouteWaypoint-Output"];
+            /** Visited */
+            visited: boolean;
+            /** Actual Event Order */
+            actual_event_order?: number | null;
+            /** Visited At */
+            visited_at?: string | null;
+            /** Distance From Planned */
+            distance_from_planned?: number | null;
+        };
+        /** RouteDetail */
+        RouteDetail: {
+            /** Route Id */
+            route_id: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "personal" | "journal" | "spansh" | "expedition";
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Waypoint Count */
+            waypoint_count: number;
+            /** Visited Count */
+            visited_count: number;
+            /** Completion Percent */
+            completion_percent: number;
+            /** Remaining Distance */
+            remaining_distance: number;
+            /** Current Waypoint Index */
+            current_waypoint_index?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Waypoints */
+            waypoints?: components["schemas"]["RouteWaypoint-Output"][];
+            /** Events */
+            events?: components["schemas"]["RouteEvent"][];
+            /** Planned Actual Alignment */
+            planned_actual_alignment?: components["schemas"]["RouteAlignment"][];
+        };
+        /** RouteEvent */
+        RouteEvent: {
+            /** System Id64 */
+            system_id64?: number | null;
+            /** System Name */
+            system_name: string;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Visited At */
+            visited_at: string;
+            /** Distance From Planned */
+            distance_from_planned?: number | null;
+            /** Order */
+            order: number;
+            /** Context */
+            context?: {
+                [key: string]: unknown;
+            };
+        };
+        /** RouteListResponse */
+        RouteListResponse: {
+            /** Routes */
+            routes?: components["schemas"]["RouteSummary"][];
+            /** Count */
+            count: number;
+        };
+        /** RouteSummary */
+        RouteSummary: {
+            /** Route Id */
+            route_id: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /**
+             * Type
+             * @enum {string}
+             */
+            type: "personal" | "journal" | "spansh" | "expedition";
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+            /** Waypoint Count */
+            waypoint_count: number;
+            /** Visited Count */
+            visited_count: number;
+            /** Completion Percent */
+            completion_percent: number;
+            /** Remaining Distance */
+            remaining_distance: number;
+            /** Current Waypoint Index */
+            current_waypoint_index?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** RouteWaypoint */
+        "RouteWaypoint-Input": {
+            /** Order */
+            order: number;
+            /** System Id64 */
+            system_id64?: number | null;
+            /** System Name */
+            system_name: string;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Distance From Previous */
+            distance_from_previous?: number | null;
+            /**
+             * Bookmarked
+             * @default false
+             */
+            bookmarked: boolean;
+            /** Notes */
+            notes?: string | null;
+            /** Source Event Key */
+            source_event_key?: string | null;
+        };
+        /** RouteWaypoint */
+        "RouteWaypoint-Output": {
+            /** Order */
+            order: number;
+            /** System Id64 */
+            system_id64?: number | null;
+            /** System Name */
+            system_name: string;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
+            /** Distance From Previous */
+            distance_from_previous?: number | null;
+            /**
+             * Bookmarked
+             * @default false
+             */
+            bookmarked: boolean;
+            /** Notes */
+            notes?: string | null;
         };
         /** RuleDecisionRequest */
         RuleDecisionRequest: {
@@ -5225,11 +6139,10 @@ export interface components {
          * ValidationReviewRequest
          * @description Request payload for ``POST /api/observations/review``.
          *
-         *     Shape intentionally matches ``PredictionObservationCompareRequest``:
-         *     callers supply a system, optional target archetype, and current
-         *     prediction object. ``observed_facts`` remains an optional Mode B
-         *     override for tests/offline tools; when omitted the router loads
-         *     persisted facts with the same semantics as Stage 6C compare.
+         *     Callers may supply either the Stage 6C compare inputs (legacy/direct
+         *     mode) or a pre-computed Stage 6C response. The frontend uses the
+         *     pre-computed form so Validation does not load observations and run
+         *     the comparison engine twice.
          */
         ValidationReviewRequest: {
             /** System Id64 */
@@ -5237,9 +6150,9 @@ export interface components {
             /** Target Archetype */
             target_archetype?: string | null;
             /** Prediction */
-            prediction: {
+            prediction?: {
                 [key: string]: unknown;
-            };
+            } | null;
             /** Observed Facts */
             observed_facts?: components["schemas"]["ObservedFactInput"][] | null;
             /**
@@ -5247,6 +6160,7 @@ export interface components {
              * @default 500
              */
             fact_load_limit: number;
+            comparison_result?: components["schemas"]["PredictionObservationCompareResponse"] | null;
         };
         /** ValidationReviewResponse */
         ValidationReviewResponse: {
@@ -6115,6 +7029,135 @@ export interface operations {
             };
         };
     };
+    import_powerplay_journal_api_powerplay_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PowerplayImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PowerplayImportReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    powerplay_systems_api_powerplay_systems_get: {
+        parameters: {
+            query: {
+                commander_key: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PowerplaySystemsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    powerplay_commander_api_powerplay_commander_get: {
+        parameters: {
+            query: {
+                commander_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommanderPowerplayResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    powerplay_history_api_powerplay_history_get: {
+        parameters: {
+            query: {
+                commander_key: string;
+                cycle_limit?: number;
+                change_limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PowerplayHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     cache_stats_api_cache_stats_get: {
         parameters: {
             query?: never;
@@ -6874,7 +7917,14 @@ export interface operations {
     };
     get_exploration_facts_for_sync_key_api_exploration_facts__sync_key__get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                event_type?: string[] | null;
+                system_id64?: number | null;
+                from_at?: string | null;
+                to_at?: string | null;
+            };
             header?: never;
             path: {
                 sync_key: string;
@@ -6890,6 +7940,338 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ExplorationFactsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_trail_api_exploration_trail_get: {
+        parameters: {
+            query: {
+                sync_key: string;
+                limit?: number;
+                cursor?: number | null;
+                from_at?: string | null;
+                to_at?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationTrailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_viewport_visits_api_exploration_viewport_visits_get: {
+        parameters: {
+            query: {
+                sync_key: string;
+                min_x: number;
+                max_x: number;
+                min_y: number;
+                max_y: number;
+                min_z: number;
+                max_z: number;
+                zoom: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationViewportVisitsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_summary_api_exploration_summary_get: {
+        parameters: {
+            query: {
+                sync_key: string;
+                system_id64: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationSystemSummaryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exploration_codex_by_region_api_exploration_codex_by_region_get: {
+        parameters: {
+            query: {
+                sync_key: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExplorationCodexByRegionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_commander_routes_api_routes_list_get: {
+        parameters: {
+            query: {
+                commander_id: string;
+                type?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_personal_jump_trail_api_routes_trail_get: {
+        parameters: {
+            query: {
+                commander_id: string;
+                from_date?: string | null;
+                to_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_expeditions_api_routes_expeditions_get: {
+        parameters: {
+            query: {
+                commander_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_expedition_api_routes_expeditions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExpeditionImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_spansh_route_api_routes_import_spansh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlannedRouteImport"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_route_detail_api_routes__route_id__get: {
+        parameters: {
+            query: {
+                commander_id: string;
+            };
+            header?: never;
+            path: {
+                route_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDetail"];
                 };
             };
             /** @description Validation Error */

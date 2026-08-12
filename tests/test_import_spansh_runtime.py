@@ -77,6 +77,7 @@ class _DeadlockCursor:
     def __init__(self, connection: '_DeadlockConnection') -> None:
         self.connection = connection
         self.rowcount = 0
+        self.result = None
 
     def __enter__(self) -> '_DeadlockCursor':
         return self
@@ -85,11 +86,21 @@ class _DeadlockCursor:
         return None
 
     def execute(self, sql: str, _params: object = None) -> None:
-        if self.connection.deadlock_sql in ' '.join(sql.split()):
+        normalized = ' '.join(sql.split())
+        if normalized == 'SHOW session_replication_role':
+            self.result = (self.connection.current_role,)
+            return
+        if normalized.startswith('SET session_replication_role = '):
+            self.connection.pending_role = normalized.rsplit(' ', 1)[-1].lower()
+            return
+        if self.connection.deadlock_sql in normalized:
             self.connection.attempts += 1
             if self.connection.attempts <= self.connection.deadlocks_before_success:
                 raise import_spansh.psycopg2.errors.DeadlockDetected()
             self.rowcount = self.connection.success_rowcount
+
+    def fetchone(self):
+        return self.result
 
     def copy_from(self, *_args: object, **_kwargs: object) -> None:
         return None
@@ -109,15 +120,28 @@ class _DeadlockConnection:
         self.attempts = 0
         self.commits = 0
         self.rollbacks = 0
+        self.role = 'origin'
+        self.pending_role = None
+
+    @property
+    def current_role(self) -> str:
+        return self.pending_role or self.role
 
     def cursor(self) -> _DeadlockCursor:
         return _DeadlockCursor(self)
 
     def commit(self) -> None:
         self.commits += 1
+        if self.pending_role is not None:
+            self.role = self.pending_role
+            self.pending_role = None
 
     def rollback(self) -> None:
         self.rollbacks += 1
+        self.pending_role = None
+
+    def get_transaction_status(self) -> int:
+        return import_spansh.psycopg2.extensions.TRANSACTION_STATUS_IDLE
 
 
 def test_upsert_via_temp_retries_deadlocks_then_succeeds(monkeypatch: pytest.MonkeyPatch):

@@ -38,6 +38,18 @@ import * as exploration from './exploration';
 import * as observations from './observations';
 import * as operator from './operator';
 import * as map from './map';
+import * as routes from './routes';
+import * as powerplay from './powerplay';
+
+export type {
+  CommanderPowerplayResponse,
+  PowerplayHistoryResponse,
+  PowerplayImportReceipt,
+  PowerplayImportRequest,
+  PowerplayJournalEventInput,
+  PowerplaySystemState,
+  PowerplaySystemsResponse,
+} from './powerplay';
 
 export { ApiError } from './core';
 
@@ -64,6 +76,10 @@ export const api = {
   importJournal: planner.importJournal,
   importExploration: exploration.importExploration,
   getExplorationFacts: exploration.getExplorationFacts,
+  getExplorationTrail: exploration.getExplorationTrail,
+  getExplorationViewportVisits: exploration.getExplorationViewportVisits,
+  getExplorationSummary: exploration.getExplorationSummary,
+  getExplorationCodexByRegion: exploration.getExplorationCodexByRegion,
   journalImportReceipt: planner.journalImportReceipt,
   journalTelemetry: planner.journalTelemetry,
   regionalAnalysis: planner.regionalAnalysis,
@@ -106,7 +122,19 @@ export const api = {
   mapHeatmap: map.mapHeatmap,
   mapTimeline: map.mapTimeline,
   mapSystems: map.mapSystems,
+  importPowerplay: powerplay.importPowerplay,
+  powerplaySystems: powerplay.powerplaySystems,
+  powerplayCommander: powerplay.powerplayCommander,
+  powerplayHistory: powerplay.powerplayHistory,
+  listRoutes: routes.listRoutes,
+  getRoute: routes.getRoute,
+  getPersonalTrail: routes.getPersonalTrail,
+  listExpeditions: routes.listExpeditions,
+  importSpanshRoute: routes.importSpanshRoute,
+  saveExpedition: routes.saveExpedition,
 };
+
+export * from './routes';
 
 export function getSlotPredictions(id64: number): Promise<SlotPredictionResponse> {
   return api.slotPredictions(id64);
@@ -292,3 +320,11 @@ export type {
   MapSystemsResponse,
   MapViewportBox,
 } from './map';
+export type {
+  ExplorationCodexByRegionResponse,
+  ExplorationSystemSummaryResponse,
+  ExplorationTrailPoint,
+  ExplorationTrailResponse,
+  ExplorationViewportVisit,
+  ExplorationViewportVisitsResponse,
+} from './exploration';

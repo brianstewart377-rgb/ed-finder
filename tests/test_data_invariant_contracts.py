@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -58,3 +59,26 @@ def test_shared_colonisation_bucket_normalisation_handles_rows_and_mappings():
         'age_7_14d': 1,
         'age_over_14d': 1,
     }
+
+
+def test_body_identity_invariant_counts_duplicate_composite_pairs_only():
+    conn = sqlite3.connect(':memory:')
+    try:
+        conn.execute('CREATE TABLE bodies (system_id64 INTEGER, id INTEGER)')
+        conn.executemany(
+            'INSERT INTO bodies (system_id64, id) VALUES (?, ?)',
+            [
+                (1001, 7),
+                (1002, 7),  # Same BodyID in another system is a distinct pair.
+                (1001, 8),
+                (1001, 8),  # A repeated composite identity is invalid.
+            ],
+        )
+
+        duplicate_pair_count = conn.execute(
+            script_invariants.DUPLICATE_BODY_IDENTITY_PAIRS_SQL
+        ).fetchone()[0]
+
+        assert duplicate_pair_count == 1
+    finally:
+        conn.close()

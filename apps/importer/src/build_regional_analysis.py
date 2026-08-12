@@ -20,81 +20,19 @@ import argparse
 import json
 import math
 import os
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import numpy as np
 import psycopg2
 import psycopg2.extras
 
+from api_source_resolver import add_api_source_to_path
 
-_REPO_ROOT_MARKERS = ('.git', 'pyproject.toml', 'docker-compose.yml')
-
-
-def _has_api_src(candidate: Path) -> bool:
-    return (candidate / 'mechanics' / 'regional_rules.py').exists()
-
-
-def _find_repo_root_by_marker(start: Path) -> Path | None:
-    current = start
-    while True:
-        if any((current / marker).exists() for marker in _REPO_ROOT_MARKERS):
-            return current
-        parent = current.parent
-        if parent == current:
-            return None
-        current = parent
-
-
-def _find_api_src() -> Path:
-    this_dir = Path(__file__).resolve().parent
-
-    # Importer container (current/flat layout): apps/api/src is vendored
-    # alongside this script at build/run time (see apps/importer/Dockerfile
-    # + docker-compose.yml's importer volumes) because this script (and
-    # regional_analysis.py, transitively) import from
-    # mechanics/regional/edfinder_api.
-    vendored = this_dir / 'apps_api_src'
-    if _has_api_src(vendored):
-        return vendored
-
-    # Host checkout (and any container layout that mirrors it): walk up
-    # from this file looking for a repo-root marker rather than assuming a
-    # fixed parents[N] depth, which silently breaks the moment this script
-    # is copied to a different directory depth (e.g. flattened into a
-    # container image).
-    repo_root = _find_repo_root_by_marker(this_dir)
-    if repo_root is not None:
-        candidate = repo_root / 'apps' / 'api' / 'src'
-        if _has_api_src(candidate):
-            return candidate
-
-    # Last resort: the historical fixed-depth assumption
-    # (apps/importer/src/<this file> -> repo root is 2 parents above this
-    # file's directory). Kept only as a fallback for layouts with no marker
-    # file at all (e.g. a mirrored container image that copies apps/ but
-    # not .git/pyproject.toml/docker-compose.yml).
-    try:
-        legacy_root = this_dir.parents[2]
-    except IndexError:
-        legacy_root = None
-    if legacy_root is not None:
-        candidate = legacy_root / 'apps' / 'api' / 'src'
-        if _has_api_src(candidate):
-            return candidate
-
-    raise RuntimeError(
-        "Could not locate apps/api/src (needed for mechanics/regional imports) "
-        f"starting from {this_dir}. Checked: a vendored 'apps_api_src' sibling "
-        f"directory, a repo-root marker walk-up ({', '.join(_REPO_ROOT_MARKERS)}), "
-        "and the legacy fixed-depth fallback. Run this script from a full repo "
-        "checkout, or ensure apps/api/src is vendored into wherever it's running."
-    )
-
-
-sys.path.insert(0, str(_find_api_src()))
+API_SRC = add_api_source_to_path(
+    __file__,
+    required_paths=('mechanics/regional_rules.py', 'regional/regional_analysis.py'),
+)
 
 from mechanics.regional_rules import REGIONAL_DISTANCE_BUCKETS
 from regional.regional_analysis import compute_regional_analysis
@@ -164,12 +102,23 @@ ON CONFLICT (system_id64) DO UPDATE SET
 """
 
 
-def main() -> None:
+def non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError('must be a non-negative integer')
+    return parsed
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument('--all', action='store_true', help='Process all systems.')
     parser.add_argument('--dirty', action='store_true', help='Process dirty/rating-dirty systems when available.')
-    parser.add_argument('--limit', type=int, default=None)
-    args = parser.parse_args()
+    parser.add_argument('--limit', type=non_negative_int, default=None)
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
 
     dsn = os.environ['DATABASE_URL']
     # These backfill queries scan 188M rows, so the role's 15s timeout is far too low.
@@ -236,7 +185,7 @@ def _load_targets(cur: Any, args: argparse.Namespace) -> list[dict[str, Any]]:
     else:
         where = f'WHERE {coord_filter}'
         excluded_where = f'WHERE {missing_coord_filter}'
-    limit = f' LIMIT {int(args.limit)}' if args.limit else ''
+    limit = f' LIMIT {int(args.limit)}' if args.limit is not None else ''
     cur.execute(f"""
         SELECT id64, name, x, y, z, population, is_colonised, is_being_colonised
         FROM systems

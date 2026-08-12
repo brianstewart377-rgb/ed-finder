@@ -1,0 +1,67 @@
+diff --git a/frontend/src/features/map-foundation/RealStarLayer.tsx b/frontend/src/features/map-foundation/RealStarLayer.tsx
+index 7cf4b8c9..5c93f3fe 100644
+--- a/frontend/src/features/map-foundation/RealStarLayer.tsx
++++ b/frontend/src/features/map-foundation/RealStarLayer.tsx
+@@ -1,27 +1,33 @@
+ import { useMemo } from 'react';
+ import type { MapViewportSystem } from '@/lib/api';
+ import { buildRealStarBuffers } from '@/features/map/viewportSystems';
+ import { GlowPointsMaterial } from './glowPoints';
+ import { attenuatedPointSize } from './camera';
+ 
++export interface RealStarLayerProps {
++  systems: MapViewportSystem[];
++  zoom: number;
++  opacity: number; // 0–1, controls layer visibility during fade
++}
++
+ // The zoom-in detail lane: renders the individual systems fetched for the
+ // current viewport as a glowing, spectral-colored point cloud, over the
+ // aggregate heatmap. Reuses the map's glow point shader.
+-export function RealStarLayer({ systems, zoom }: { systems: MapViewportSystem[]; zoom: number }) {
++export function RealStarLayer({ systems, zoom, opacity }: RealStarLayerProps) {
+   const { positions, colors } = useMemo(() => buildRealStarBuffers(systems), [systems]);
+   if (systems.length === 0) return null;
+   return (
+     <points renderOrder={7}>
+       <bufferGeometry>
+         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
+       </bufferGeometry>
+       <GlowPointsMaterial
+         vertexColors
+         size={attenuatedPointSize(zoom, 5)}
+         sizeAttenuation
+-        opacity={0.95}
++        opacity={opacity}
+       />
+     </points>
+   );
+ }
+diff --git a/frontend/src/features/map-foundation/SceneContents.tsx b/frontend/src/features/map-foundation/SceneContents.tsx
+index be5c1982..28d605ff 100644
+--- a/frontend/src/features/map-foundation/SceneContents.tsx
++++ b/frontend/src/features/map-foundation/SceneContents.tsx
+@@ -329,21 +329,21 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
+         size={Math.min(
+           heatmap.voxelSize * 0.72,
+           attenuatedPointSize(props.scene.camera.zoom, 10),
+         )}
+         sizeAttenuation
+         transparent
+         opacity={0.34}
+       />
+     </points>}
+     {realStars && realStars.length > 0 && (
+-      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} />
++      <RealStarLayer systems={realStars} zoom={props.scene.camera.zoom} opacity={0.95} />
+     )}
+     {aggregateHulls && <lineSegments>
+       <bufferGeometry>
+         <bufferAttribute attach="attributes-position" args={[aggregateHulls.linePositions, 3]} />
+         <bufferAttribute attach="attributes-color" args={[aggregateHulls.lineColors, 3]} />
+       </bufferGeometry>
+       <lineBasicMaterial vertexColors transparent opacity={0.42} />
+     </lineSegments>}
+     <RegionBoundaryLines boundaries={props.regions.boundaries} viewport={props.viewport} spatial={spatial} />
+     <points

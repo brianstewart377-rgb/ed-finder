@@ -16,6 +16,7 @@ from exploration.api_models import (  # noqa: E402
     ExplorationImportRequest,
     ExplorationObservationInput,
 )
+from exploration.store import decode_fact_cursor  # noqa: E402
 
 pytestmark = pytest.mark.unit
 
@@ -37,9 +38,11 @@ def _valid_observation(**overrides: object) -> dict[str, object]:
 
 def test_allowed_event_types_cover_all_six_facets():
     assert ALLOWED_EXPLORATION_EVENT_TYPES == {
-        'FSDJump', 'Location', 'Scan', 'FSSDiscoveryScan',
+        'CarrierJump', 'FSDJump', 'Location', 'Scan', 'FSSDiscoveryScan',
+        'FSSAllBodiesFound',
         'SAASignalsFound', 'FSSBodySignals', 'CodexEntry', 'SAAScanComplete',
-        'ScanOrganic',
+        'ScanOrganic', 'SellOrganicData', 'SellExplorationData',
+        'MultiSellExplorationData', 'RedeemVoucher',
     }
 
 
@@ -190,3 +193,8 @@ def test_request_accepts_non_visit_event_types_in_journal_batches():
         'observations': [_valid_observation(event_type='Scan')],
     })
     assert request.source == 'journal'
+
+
+def test_malformed_fact_cursor_is_rejected_cleanly():
+    with pytest.raises(ValueError, match='valid exploration facts cursor'):
+        decode_fact_cursor('%%%not-base64%%%')

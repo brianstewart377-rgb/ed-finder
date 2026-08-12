@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from collections.abc import Mapping
 from typing import Any
 
 
@@ -190,6 +191,49 @@ def comparison_result_to_dict(result: PredictionObservationComparisonResult) -> 
     return asdict(result)
 
 
+def comparison_result_from_dict(
+    payload: Mapping[str, Any],
+) -> PredictionObservationComparisonResult:
+    """Rehydrate a JSON-safe Stage 6C result for Stage 6E review.
+
+    The review endpoint accepts a pre-computed comparison result so a
+    caller that already rendered Stage 6C rows does not make the backend
+    load evidence and run the comparison engine a second time.
+    """
+    summary_payload = payload.get('summary')
+    if not isinstance(summary_payload, Mapping):
+        raise TypeError('comparison result summary must be a mapping')
+
+    comparison_payloads = payload.get('comparisons', [])
+    if not isinstance(comparison_payloads, list):
+        raise TypeError('comparison result comparisons must be a list')
+
+    comparisons: list[PredictionObservationComparison] = []
+    for comparison_payload in comparison_payloads:
+        if not isinstance(comparison_payload, Mapping):
+            raise TypeError('comparison result row must be a mapping')
+        row = dict(comparison_payload)
+        evidence_payloads = row.pop('evidence', [])
+        if not isinstance(evidence_payloads, list):
+            raise TypeError('comparison result evidence must be a list')
+        row['evidence'] = [
+            ObservationEvidenceMatch(**dict(evidence_payload))
+            for evidence_payload in evidence_payloads
+            if isinstance(evidence_payload, Mapping)
+        ]
+        comparisons.append(PredictionObservationComparison(**row))
+
+    return PredictionObservationComparisonResult(
+        system_id64=int(payload['system_id64']),
+        target_archetype=payload.get('target_archetype'),
+        generated_at=str(payload['generated_at']),
+        summary=PredictionObservationComparisonSummary(**dict(summary_payload)),
+        comparisons=comparisons,
+        warnings=list(payload.get('warnings', [])),
+        assumptions=list(payload.get('assumptions', [])),
+    )
+
+
 __all__ = [
     'ComparisonArea',
     'ComparisonConfidence',
@@ -202,6 +246,7 @@ __all__ = [
     'PredictionObservationComparisonResult',
     'PredictionObservationComparisonSummary',
     'comparison_result_to_dict',
+    'comparison_result_from_dict',
     'comparison_summary_to_dict',
     'comparison_to_dict',
     'evidence_match_to_dict',

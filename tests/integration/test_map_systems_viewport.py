@@ -55,6 +55,7 @@ async def test_viewport_filters_to_box_and_orders_notable_first(client, seeded_v
     assert ids == [9_900_000_001, 9_900_000_002, 9_900_000_003]
     assert body['too_wide'] is False
     assert body['truncated'] is False
+    assert all('galaxy_region_id' in system for system in body['systems'])
 
 
 async def test_viewport_rejects_overwide_box(client):
