@@ -95,7 +95,7 @@ export interface JournalImportClientManifest {
 export interface JournalImportObservationInput {
   observation_key: string;
   source_file: string;
-  event_type: 'CarrierJump' | 'Docked' | 'FSDJump' | 'FSSAllBodiesFound' | 'FSSBodySignals' | 'FSSDiscoveryScan' | 'Location' | 'SAASignalsFound' | 'Scan';
+  event_type: 'CarrierJump' | 'ColonisationBeaconDeployed' | 'ColonisationConstructionDepot' | 'ColonisationContribution' | 'ColonisationSystemClaim' | 'ColonisationSystemClaimRelease' | 'CompleteConstruction' | 'Docked' | 'FSDJump' | 'FSSAllBodiesFound' | 'FSSBodySignals' | 'FSSDiscoveryScan' | 'Location' | 'SAASignalsFound' | 'Scan';
   observed_at?: string | null;
   system_id64: number;
   system_name?: string | null;
