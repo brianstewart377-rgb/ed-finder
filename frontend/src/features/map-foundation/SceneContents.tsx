@@ -276,7 +276,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   // ── Real-star fade logic (Phase 3) ──────────────────────────────────
   // Compute target opacities based on zoom state (box) and cap state (truncated)
   const box = realStars ?? null;
-  const truncated = heatmap?.sourceTruncated ?? false;
+  const truncated = props.productionOverlays?.realStarsTruncated ?? false;
   const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
   const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
 

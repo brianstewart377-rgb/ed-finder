@@ -60,6 +60,8 @@ export type ProductionMapOverlays = {
   aggregateHulls: ProductionAggregateHullGeometry | null;
   /** Zoom-in real-star detail lane (feature #6); null/absent when zoomed out. */
   realStars?: MapViewportSystem[] | null;
+  /** Real-star 40k cap reached (when true, stay on heatmap regardless of zoom). */
+  realStarsTruncated?: boolean;
 };
 
 export type VisibilityMetadata = {

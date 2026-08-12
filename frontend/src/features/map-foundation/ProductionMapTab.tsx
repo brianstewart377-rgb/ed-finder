@@ -464,7 +464,7 @@ export function ProductionMapTab({
               <R3FMapFoundation
                 scene={scene}
                 regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
-                productionOverlays={{ ...composition.overlays, realStars: viewportSystems.systems }}
+                productionOverlays={{ ...composition.overlays, realStars: viewportSystems.systems, realStarsTruncated: viewportSystems.truncated }}
                 viewport={viewport}
                 viewPreset={viewPreset}
                 reference={reference}
