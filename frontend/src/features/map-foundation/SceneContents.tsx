@@ -357,7 +357,11 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     if (starsGroupRef.current) {
       // Apply opacity to all materials in the stars group
       starsGroupRef.current.traverse((child) => {
-        if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
+        if (child instanceof THREE.Points && child.material instanceof THREE.ShaderMaterial) {
+          // GlowPointsMaterial is a ShaderMaterial; update the uOpacity uniform
+          child.material.uniforms.uOpacity.value = currentStarsOpacityRef.current;
+        } else if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
+          // Standard materials have an opacity property
           child.material.opacity = currentStarsOpacityRef.current;
         }
       });
@@ -424,8 +428,9 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
           attenuatedPointSize(props.scene.camera.zoom, 10),
         )}
         sizeAttenuation
-        transparent
+        transparent={true}
         opacity={currentHeatmapOpacityRef.current}
+        depthWrite={false}
       />
     </points>}
     {realStars && realStars.length > 0 && (
@@ -483,7 +488,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       onPointerDown={(event) => select(visible.background, event)}
       onPointerOver={(event) => hover(visible.background, event)}
       onPointerOut={() => setHoveredSystemId(null)}
-      renderOrder={8}
+      renderOrder={targetStarsOpacity === 1 ? 5 : 8}
     >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[backgroundPositions, 3]} /></bufferGeometry>
       <GlowPointsMaterial
@@ -496,7 +501,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       onPointerDown={(event) => select(visible.guaranteed, event)}
       onPointerOver={(event) => hover(visible.guaranteed, event)}
       onPointerOut={() => setHoveredSystemId(null)}
-      renderOrder={9}
+      renderOrder={targetStarsOpacity === 1 ? 6 : 9}
     >
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[guaranteedPositions, 3]} /></bufferGeometry>
       <GlowPointsMaterial
