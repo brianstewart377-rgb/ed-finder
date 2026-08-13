@@ -39,7 +39,23 @@ Historical context: `docs/colonisation-redesign/stage-N-*.md` files contain rati
 
 ## Current Lane
 
-See memory: [[current_work_lane]] for the active development lane, deferred work, and audit-response priorities.
+**Current lane:** Foundation-finishing work (not new product features yet).
+
+**Active focus:** Archetype-scoring cleanup, CRE confidence-vocabulary reconciliation, dependency-aware doc triage, bounded hygiene pass.
+
+**Deferred work:** Accounts/auth, journal A-2/A-3, score-weighted corridor routing remain explicitly deferred.
+
+**Next map project:** Real-star LOD streaming (Phase 2) — already designed and planned.
+
+**Critical context:** Repo is mid-response to external adversarial audit. Foundation-safety prioritization order:
+1. Ratings rebaseline / body-data contract drift
+2. Migration-ledger discipline
+3. Backup/restore rehearsal
+4. CI/build reproducibility
+5. Bounded hygiene pass
+6. *Then* re-evaluate accounts/auth
+
+See `docs/ROADMAP.md` (the authority) and `docs/operations/audit-remediation-plan.md` for full sequencing. Do not start deferred work opportunistically.
 
 ## Three-repo architecture (as of 2026-07-12)
 
@@ -350,8 +366,32 @@ When you ask me to delegate work to Codex CLI:
 **Note:** This launches a separate Codex CLI task. It does not inject a message into this desktop session — Codex runs independently, makes changes to the working tree, and reports results. Review all changes before accepting them.
 
 ### SSH MCP setup on Windows
-See memory: [[ssh_mcp_windows_case_sensitivity]] for Windows path resolution quirks and troubleshooting.
+Windows path resolution can trip on case sensitivity; use `claude doctor` to diagnose MCP connectivity issues.
 
 ### Model routing (DeepSeek vs Sonnet)
 
-See memory: [[model_routing]] for when to route tasks to each model, tight prompt requirements for DeepSeek, and the split principle (DeepSeek gathers, Sonnet reasons).
+**DeepSeek for:** Running structured diagnostic queries and reporting factually, executing well-specified fixes where the diagnosis is settled, reading files and reporting contents verbatim, applying already-validated patterns to new instances, any task that fits a tight self-contained prompt.
+
+**Sonnet for:** Diagnosis of unknown-cause issues, cross-file reasoning about consequences, code review of DeepSeek's diffs on production-touching code, interpreting ambiguous data, deciding severity or priority when facts alone don't decide, final sanity check before deploying anything.
+
+**Split principle:** DeepSeek gathers, Sonnet reasons.
+
+**Why:** DeepSeek performs well with tight, explicit prompts but will confidently fill gaps with wrong inferences if context is loose. Sonnet is better at diagnosis, tradeoff judgment, and high-stakes review. Tight prompts for DeepSeek require: explicit scope (exact files/tables/commands), required output shape, explicit "do not" list (don't assign severity, don't recommend, don't interpret 0 as cause, don't fix/commit/deploy), verification requirement (every finding must cite source), error reporting (verbatim, no workarounds).
+
+## Frontend deployment
+
+**Deployment sequence (manual, explicit authorization required)**
+
+1. PR merges to `main`
+2. Owner checks local preview: `cd frontend && VITE_STAGE26E_PRODUCTION_MAP=enabled yarn dev` — confirm change looks correct
+3. Owner explicitly requests production deploy (merge ≠ deploy authorization)
+4. Run `scripts/release-main-to-prod.ps1 -SkipPrompt` (delegates to server-side `scripts/deploy_main.sh`)
+5. After script succeeds, check `https://ed-finder.app` live and verify change is there
+
+**Critical:** The deploy sequence MUST end with `docker compose restart nginx` — nginx serves static dist via volume mount and requires restart to pick up new build. Without it, the site 404s.
+
+**Checking for deployment drift:**
+```powershell
+scripts/check-production-drift.ps1
+```
+Compares live `/api/health` SHA against `origin/main`, prints how many commits production is behind, exits non-zero on drift. Visibility only — never deploys.
