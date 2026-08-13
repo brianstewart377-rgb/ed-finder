@@ -619,6 +619,11 @@ export function ProductionMapTab({
       {composition.surface.kind === 'error' && (
         <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">{composition.surface.message}</p>
       )}
+      {viewportSystems.isError && (
+        <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">
+          Detailed star layer could not be loaded. The aggregate heatmap remains available.
+        </p>
+      )}
       {(exploration.viewportVisits.isError || exploration.trail.isError) && (
         <p role="alert" className="panel-thin px-4 py-3 font-mono text-xs text-red">
           Personal exploration layers could not be loaded.

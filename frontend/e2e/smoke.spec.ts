@@ -253,6 +253,46 @@ test.describe('ED Finder — smoke', () => {
     expect(graphicsWarnings).toEqual([]);
   });
 
+  test('loads the real-star detail endpoint after crossing the deep-zoom LOD', async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const heatmapResponsePromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/map/heatmap'
+    ));
+
+    await page.getByTestId('nav-map').click();
+    expect((await heatmapResponsePromise).status()).toBe(200);
+    await page.getByTestId('map-view-galaxy').click();
+    await page.getByTestId('map-snap-top-down').click();
+
+    const renderer = page.locator('.map-foundation-renderer');
+    const realStarsResponsePromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/map/systems'
+    ));
+    await renderer.evaluate((element) => {
+      element.dispatchEvent(new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: -3_500,
+      }));
+    });
+    await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+      .toBeLessThan(10);
+
+    const realStarsResponse = await realStarsResponsePromise;
+    expect(realStarsResponse.status()).toBe(200);
+    const realStarsBody = await realStarsResponse.json() as {
+      count: number;
+      truncated: boolean;
+    };
+    expect(realStarsBody).toEqual(expect.objectContaining({
+      count: expect.any(Number),
+      truncated: expect.any(Boolean),
+    }));
+    await expect(renderer.locator('canvas')).toBeVisible();
+    await expect(page.getByText(/detailed star layer could not be loaded/i)).toHaveCount(0);
+  });
+
   test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();

@@ -1,4 +1,4 @@
-import { type ThreeEvent, useThree, useFrame } from '@react-three/fiber';
+import { type ThreeEvent, useThree } from '@react-three/fiber';
 import {
   useCallback,
   useEffect,
@@ -48,6 +48,7 @@ import {
   RegionBoundaryLines,
   ReferenceMarker,
 } from './SceneDecorations';
+import { realStarLayerTargets, useRealStarFade } from './realStarFade';
 
 function positions(
   systems: SystemRecord[],
@@ -295,78 +296,38 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
 
   // ── Real-star fade logic (Phase 3) ──────────────────────────────────
   // Compute target opacities based on zoom state (box) and cap state (truncated)
-  const box = realStars ?? null;
   const truncated = props.productionOverlays?.realStarsTruncated ?? false;
-  const targetHeatmapOpacity = (box === null || truncated) ? 1 : 0;
-  const targetStarsOpacity = (box === null || truncated) ? 0 : 1;
+  const {
+    heatmapOpacity: targetHeatmapOpacity,
+    starsOpacity: targetStarsOpacity,
+  } = realStarLayerTargets(realStars?.length ?? 0, truncated);
 
-  // Track current opacities and animation state for smooth interpolation
-  const currentHeatmapOpacityRef = useRef(targetHeatmapOpacity);
-  const currentStarsOpacityRef = useRef(targetStarsOpacity);
-  const startHeatmapOpacityRef = useRef(targetHeatmapOpacity);
-  const startStarsOpacityRef = useRef(targetStarsOpacity);
-  const fadeTimeRef = useRef(0);
   const heatmapMaterialRef = useRef<THREE.PointsMaterial>(null);
   const starsGroupRef = useRef<THREE.Group | null>(null);
-
-  // Reset animation state when targets change
-  useEffect(() => {
-    if (currentHeatmapOpacityRef.current !== targetHeatmapOpacity) {
-      startHeatmapOpacityRef.current = currentHeatmapOpacityRef.current;
-      fadeTimeRef.current = 0;
-    }
-    if (currentStarsOpacityRef.current !== targetStarsOpacity) {
-      startStarsOpacityRef.current = currentStarsOpacityRef.current;
-      fadeTimeRef.current = 0;
-    }
-  }, [targetHeatmapOpacity, targetStarsOpacity]);
-
-  // Smooth interpolation: 500ms fade with ease-in-out easing
-  // Fade duration: 500ms
-  const FADE_DURATION_MS = 500;
-  const FADE_DURATION_S = FADE_DURATION_MS / 1000;
-
-  // Ease-in-out cubic easing function
-  const easeInOutCubic = (t: number): number => {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  };
-
-  useFrame(({ clock }) => {
-    // Update fade time each frame
-    const deltaTime = Math.min(clock.getDelta(), 0.1); // Cap deltaTime to prevent large jumps
-    fadeTimeRef.current = Math.min(fadeTimeRef.current + deltaTime, FADE_DURATION_S);
-
-    // Time-based progress with ease-in-out cubic easing
-    const linearProgress = fadeTimeRef.current / FADE_DURATION_S;
-    const progress = easeInOutCubic(linearProgress);
-
-    // Update heatmap opacity
-    currentHeatmapOpacityRef.current =
-      startHeatmapOpacityRef.current +
-      (targetHeatmapOpacity - startHeatmapOpacityRef.current) * progress;
-
-    // Update stars opacity
-    currentStarsOpacityRef.current =
-      startStarsOpacityRef.current +
-      (targetStarsOpacity - startStarsOpacityRef.current) * progress;
-
-    // Apply to materials
+  const applyRealStarOpacities = useCallback((opacities: {
+    heatmapOpacity: number;
+    starsOpacity: number;
+  }) => {
     if (heatmapMaterialRef.current) {
-      heatmapMaterialRef.current.opacity = currentHeatmapOpacityRef.current;
+      heatmapMaterialRef.current.opacity = opacities.heatmapOpacity;
     }
     if (starsGroupRef.current) {
-      // Apply opacity to all materials in the stars group
       starsGroupRef.current.traverse((child) => {
         if (child instanceof THREE.Points && child.material instanceof THREE.ShaderMaterial) {
-          // GlowPointsMaterial is a ShaderMaterial; update the uOpacity uniform
-          child.material.uniforms.uOpacity.value = currentStarsOpacityRef.current;
+          child.material.uniforms.uOpacity.value = opacities.starsOpacity;
         } else if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
-          // Standard materials have an opacity property
-          child.material.opacity = currentStarsOpacityRef.current;
+          child.material.opacity = opacities.starsOpacity;
         }
       });
     }
-  });
+  }, []);
+  const {
+    heatmapOpacityRef: currentHeatmapOpacityRef,
+    starsOpacityRef: currentStarsOpacityRef,
+  } = useRealStarFade({
+    heatmapOpacity: targetHeatmapOpacity,
+    starsOpacity: targetStarsOpacity,
+  }, applyRealStarOpacities);
 
   const select = useCallback((systems: SystemRecord[], event: ThreeEvent<PointerEvent>) => {
     if (event.index == null) return;

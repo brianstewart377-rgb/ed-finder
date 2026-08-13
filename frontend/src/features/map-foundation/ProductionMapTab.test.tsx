@@ -143,7 +143,13 @@ function system(index: number): SystemResult {
 beforeEach(() => {
   vi.mocked(useMapLayers).mockReturnValue(layers);
   vi.mocked(useAuthoritativeRegionLayer).mockReturnValue(regionLayer);
-  vi.mocked(useViewportSystems).mockReturnValue({ systems: null, truncated: false });
+  vi.mocked(useViewportSystems).mockReturnValue({
+    systems: null,
+    truncated: false,
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
   vi.mocked(useExplorationLayers).mockReturnValue({
     facts: { data: undefined, isLoading: false, isError: false, error: null },
     viewportVisits: { data: undefined, isLoading: false, isError: false, error: null },
@@ -316,6 +322,21 @@ describe('Stage 26E production route composition', () => {
     });
     expect(renderer.getAttribute('data-camera-bearing')).toBe('0');
     expect(renderer.getAttribute('data-camera-pitch')).toBe('0.5');
+  });
+
+  it('surfaces real-star detail failures while retaining the aggregate map', () => {
+    vi.mocked(useViewportSystems).mockReturnValue({
+      systems: null,
+      truncated: false,
+      isLoading: false,
+      isError: true,
+      error: new Error('detail lane failed'),
+    });
+
+    render(<ProductionMapTab systems={[system(0)]} reference={{ name: 'Sol', x: 0, z: 0 }} />);
+
+    expect(screen.getByRole('alert').textContent).toMatch(/detailed star layer could not be loaded/i);
+    expect(screen.getByTestId('r3f-production-renderer').getAttribute('data-heatmap-count')).toBe('1');
   });
 
   it('explains every optional data layer using its underlying data semantics', () => {
