@@ -161,7 +161,7 @@ async def import_exploration_batch(
                     'payload_json': observation.payload,
                 }
                 for observation in unique_observations.values()
-            ], allow_nan=False)
+            ], allow_nan=False) or '[]'
             inserted_rows = await conn.fetch(
                 '''
                 INSERT INTO exploration_facts (
@@ -172,7 +172,7 @@ async def import_exploration_batch(
                 SELECT $1, $2, row.source_record_hash, row.event_type,
                        row.system_id64, row.system_name, row.body_id, row.body_name,
                        row.observed_at, row.payload_json
-                FROM jsonb_to_recordset(COALESCE($3::jsonb, '[]'::jsonb)) AS row(
+                FROM jsonb_to_recordset(COALESCE($3::text::jsonb, '[]'::jsonb)) AS row(
                     source_record_hash text, event_type text, system_id64 bigint,
                     system_name text, body_id integer, body_name text,
                     observed_at timestamptz, payload_json jsonb
