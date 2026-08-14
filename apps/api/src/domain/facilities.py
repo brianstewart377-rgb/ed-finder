@@ -19,7 +19,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from edfinder_api.mechanics.confidence import CanonicalConfidence
 
 
 # ---------------------------------------------------------------------------
@@ -113,6 +116,18 @@ class FacilityTemplate:
     @property
     def data_confidence(self) -> str:
         return self.stat_effects.get('data_confidence', 'estimated')
+
+    @property
+    def canonical_confidence(self) -> CanonicalConfidence:
+        """Get CRE-aligned canonical confidence for this facility's CP data.
+
+        Converts the string data_confidence ('confirmed', 'observed', 'estimated')
+        to the canonical shape for use in canonical workflows.
+
+        Lazily imported to avoid circular dependencies with mechanics.confidence.
+        """
+        from edfinder_api.mechanics.confidence import facility_data_confidence_to_canonical
+        return facility_data_confidence_to_canonical(self.data_confidence)
 
     @property
     def produces_economy(self) -> bool:
