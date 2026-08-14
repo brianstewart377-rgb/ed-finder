@@ -635,7 +635,7 @@ if [[ -n "$ERRORS" ]]; then
         log "Nightly update heartbeat: skipped (URL unconfigured)"
     else
         HEARTBEAT_CURL_STATUS=0
-        curl -fsS -m 10 --retry 3 "$NIGHTLY_UPDATE_HEARTBEAT_URL/fail" \
+        curl -fsS -m 10 --retry 3 --ipv4 "$NIGHTLY_UPDATE_HEARTBEAT_URL/fail" \
             || HEARTBEAT_CURL_STATUS=$?
         if (( HEARTBEAT_CURL_STATUS == 0 )); then
             log "Nightly update heartbeat: sent-fail"
@@ -649,7 +649,7 @@ else
         log "Nightly update heartbeat: skipped (URL unconfigured)"
     else
         HEARTBEAT_CURL_STATUS=0
-        curl -fsS -m 10 --retry 3 "$NIGHTLY_UPDATE_HEARTBEAT_URL" \
+        curl -fsS -m 10 --retry 3 --ipv4 "$NIGHTLY_UPDATE_HEARTBEAT_URL" \
             || HEARTBEAT_CURL_STATUS=$?
         if (( HEARTBEAT_CURL_STATUS == 0 )); then
             log "Nightly update heartbeat: sent-clean"
