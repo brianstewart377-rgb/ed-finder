@@ -160,6 +160,7 @@ class ObservedFactResponse(BaseModel):
     economy: str | None = None
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    canonical_confidence: dict[str, Any] | None = None  # CRE-aligned canonical shape
 
     @classmethod
     def from_domain(cls, fact: PersistedObservedFact) -> 'ObservedFactResponse':

@@ -29,7 +29,10 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from edfinder_api.mechanics.confidence import CanonicalConfidence
 
 
 STANDARD_CONFIDENCE_LABELS = {
@@ -206,9 +209,39 @@ class ObservedStatus(str, Enum):
 
 
 class ObservedConfidence(str, Enum):
+    """User-submitted observation confidence (3-value scale).
+
+    Maps to CRE confidence bands via from_canonical().
+    Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
+    """
     LOW = 'low'
     MEDIUM = 'medium'
     HIGH = 'high'
+
+    @classmethod
+    def from_canonical(cls, canonical: CanonicalConfidence) -> ObservedConfidence:
+        """Derive 3-value confidence from canonical shape.
+
+        Maps CRE confidence bands to the 3-value display scale:
+        - High (85–100) → HIGH
+        - Usable/Exploratory (50–84) → MEDIUM
+        - Weak/Insufficient (<50) → LOW
+
+        Args:
+            canonical: CanonicalConfidence instance
+
+        Returns:
+            ObservedConfidence value
+        """
+        from edfinder_api.mechanics.confidence import ConfidenceBand
+
+        band = canonical.band
+        if band == ConfidenceBand.HIGH:
+            return cls.HIGH
+        elif band in (ConfidenceBand.USABLE, ConfidenceBand.EXPLORATORY):
+            return cls.MEDIUM
+        else:  # WEAK or INSUFFICIENT
+            return cls.LOW
 
 
 JsonValue = Any
@@ -216,6 +249,11 @@ JsonValue = Any
 
 @dataclass(frozen=True)
 class PersistedObservedFact:
+    """A persisted observed fact with canonical confidence tracking.
+
+    ``confidence`` is the legacy 3-value display field (for API compatibility).
+    ``canonical_confidence`` carries the CRE-aligned canonical shape when available.
+    """
     observation_id: str
     system_id64: int
     created_at: str
@@ -238,9 +276,13 @@ class PersistedObservedFact:
     economy: str | None = None
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    canonical_confidence: CanonicalConfidence | None = None  # Future: always populated
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        if self.canonical_confidence is not None:
+            data['canonical_confidence'] = self.canonical_confidence.to_dict()
+        return data
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from edfinder_api.mechanics.confidence import CanonicalConfidence
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -47,10 +50,43 @@ class ComparisonSeverity(str, Enum):
 
 
 class ComparisonConfidence(str, Enum):
+    """Comparison engine confidence (4-value scale).
+
+    Maps to CRE confidence bands via from_canonical().
+    Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
+    """
     LOW = 'low'
     MEDIUM = 'medium'
     HIGH = 'high'
     UNKNOWN = 'unknown'
+
+    @classmethod
+    def from_canonical(cls, canonical: CanonicalConfidence) -> ComparisonConfidence:
+        """Derive 4-value confidence from canonical shape.
+
+        Maps CRE confidence bands to the comparison-engine display scale:
+        - High (85–100) → HIGH
+        - Usable/Exploratory (50–84) → MEDIUM
+        - Weak (<50) → LOW
+        - Insufficient → UNKNOWN
+
+        Args:
+            canonical: CanonicalConfidence instance
+
+        Returns:
+            ComparisonConfidence value
+        """
+        from edfinder_api.mechanics.confidence import ConfidenceBand
+
+        band = canonical.band
+        if band == ConfidenceBand.HIGH:
+            return cls.HIGH
+        elif band in (ConfidenceBand.USABLE, ConfidenceBand.EXPLORATORY):
+            return cls.MEDIUM
+        elif band == ConfidenceBand.WEAK:
+            return cls.LOW
+        else:  # INSUFFICIENT
+            return cls.UNKNOWN
 
 
 class ComparisonOverallStatus(str, Enum):
@@ -125,6 +161,9 @@ class PredictionObservationComparison:
     ``predicted_value`` and ``observed_value`` are kept loose (``Any``)
     so the same dataclass can describe a service status string, an
     economy list, or a CP numeric/object value.
+
+    ``confidence`` is the legacy 4-value display field (for API compatibility).
+    ``canonical_confidence`` carries the CRE-aligned canonical shape when available.
     """
 
     comparison_id: str
@@ -140,6 +179,14 @@ class PredictionObservationComparison:
     recommended_action: str | None = None
     evidence: list[ObservationEvidenceMatch] = field(default_factory=list)
     prediction_source: str | None = None
+    canonical_confidence: CanonicalConfidence | None = None  # Future: always populated
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to dict, including canonical confidence if present."""
+        data = asdict(self)
+        if self.canonical_confidence is not None:
+            data['canonical_confidence'] = self.canonical_confidence.to_dict()
+        return data
 
 
 @dataclass(frozen=True)
