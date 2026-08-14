@@ -385,7 +385,7 @@ async def map_systems(
         return {'systems': [], 'count': 0, 'truncated': False, 'too_wide': True, 'cached': False}
 
     cache_key = (
-        f'map:systems:v2:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
+        f'map:systems:v3:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
         f'{lo_z:.0f}:{hi_z:.0f}:{limit}'
     )
     cached = await cache_get(cache_key, redis)
@@ -394,19 +394,24 @@ async def map_systems(
 
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
-                   (population IS NOT NULL AND population > 0) AS populated
-            FROM   systems
-            WHERE  x BETWEEN $1 AND $2
-              AND  y BETWEEN $3 AND $4
-              AND  z BETWEEN $5 AND $6
-            ORDER BY (population IS NOT NULL AND population > 0) DESC,
+            WITH candidates AS MATERIALIZED (
+                SELECT id64, name, x, y, z, main_star_type, galaxy_region_id,
+                       (population IS NOT NULL AND population > 0) AS populated
+                FROM   systems
+                WHERE  x BETWEEN $1 AND $2
+                  AND  y BETWEEN $3 AND $4
+                  AND  z BETWEEN $5 AND $6
+                ORDER BY x, y, z
+                LIMIT  $7
+            )
+            SELECT id64, name, x, y, z, main_star_type, galaxy_region_id, populated
+            FROM   candidates
+            ORDER BY populated DESC,
                      CASE left(main_star_type, 1)
                         WHEN 'O' THEN 0 WHEN 'B' THEN 1 WHEN 'A' THEN 2
                         WHEN 'F' THEN 3 WHEN 'G' THEN 4 WHEN 'K' THEN 5
                         WHEN 'M' THEN 6 ELSE 7 END,
                      id64
-            LIMIT  $7
         """, lo_x, hi_x, lo_y, hi_y, lo_z, hi_z, limit + 1)
 
     truncated = len(rows) > limit
