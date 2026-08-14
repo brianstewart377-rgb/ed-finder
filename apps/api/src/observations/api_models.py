@@ -381,6 +381,7 @@ class PredictionObservationComparisonResponse(BaseModel):
     recommended_action: str | None = None
     evidence: list[ObservationEvidenceMatchResponse] = Field(default_factory=list)
     prediction_source: str | None = None
+    canonical_confidence: dict[str, Any] | None = None
 
 
 class PredictionObservationComparisonSummaryResponse(BaseModel):
