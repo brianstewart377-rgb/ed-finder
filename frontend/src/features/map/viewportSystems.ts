@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import * as THREE from 'three';
 import { api } from '@/lib/api';
 import type { MapSystemsResponse, MapViewportBox, MapViewportSystem } from '@/lib/api';
@@ -10,18 +10,18 @@ import { CAMERA_VIEWPORT_HEIGHT_RATIO } from '@/features/map-foundation/camera';
 // individual systems for, but only when zoomed in enough (otherwise the map
 // stays on the aggregate heatmap). The fetched box is expanded by a margin (so
 // panning shows already-loaded stars) and rounded to a grid (so small camera
-// moves reuse the same request), and kept under the server's `too_wide` guard.
+// moves reuse the same request), and kept under the server's too_wide guard.
 
 const MARGIN = 0.25;
 const GRID_LY = 250;
 // Half the galaxy's vertical (y / depth) thickness to include — the disk is
 // thin, so this covers virtually all systems while staying under the guard.
 export const REAL_STAR_Y_HALF_LY = 6_000;
-// The fetched (margined) box must stay under the server's MAX_MAP_VIEWPORT_LY
-// (15_000). We check the raw span against 14_000 (not 15_000) so the grid
-// rounding below — which can widen each axis by up to one GRID_LY per side —
-// still cannot push the final box over the server's too_wide guard.
-const SERVER_MAX_LY = 14_000;
+// Separate enter and exit thresholds prevent repeated heatmap/detail toggles at
+// the LOD boundary. Both remain below the server's 15k too_wide guard after
+// grid rounding expands the requested box.
+export const REAL_STAR_ENTER_MAX_LY = 12_500;
+export const REAL_STAR_EXIT_MAX_LY = 14_000;
 const REAL_STAR_LIMIT = 40_000;
 // Wait for the camera to settle before issuing a viewport query, so smooth
 // zoom / continuous panning (which change the box every animation frame) can't
@@ -31,6 +31,7 @@ const SETTLE_MS = 250;
 interface ViewportCamera {
   center: { x: number; z: number };
   zoom: number; // LY per pixel
+  pitchDeg?: number;
 }
 interface ViewportSize {
   width: number;
@@ -46,15 +47,61 @@ interface ViewportSize {
 const floorTo = (value: number, step: number) => Math.floor(value / step) * step;
 const ceilTo = (value: number, step: number) => Math.ceil(value / step) * step;
 
+function pitchFootprintScale(pitchDeg = 0.5): number {
+  const pitch = Math.max(0.5, Math.min(72, pitchDeg)) * Math.PI / 180;
+  const halfFov = 21 * Math.PI / 180;
+  // Once the upper ray crosses the horizon the ground footprint is unbounded;
+  // remain on the aggregate layer rather than fetching a knowingly partial box.
+  if (pitch + halfFov >= Math.PI / 2) return Number.POSITIVE_INFINITY;
+
+  // Normalise visible height to one. Intersect the upper and lower frustum rays
+  // with the galaxy plane and use the furthest extent as a conservative scale
+  // for both world axes (bearing can rotate that extent onto either axis).
+  const distance = 1 / (2 * Math.tan(halfFov));
+  const cameraHeight = distance * Math.cos(pitch);
+  const cameraOffset = distance * Math.sin(pitch);
+  const farExtent = Math.abs(
+    -cameraOffset + cameraHeight * Math.tan(pitch + halfFov),
+  );
+  const nearExtent = Math.abs(
+    -cameraOffset + cameraHeight * Math.tan(pitch - halfFov),
+  );
+  return Math.max(farExtent, nearExtent) / 0.5;
+}
+
+function realStarViewportSpan(
+  camera: ViewportCamera,
+  viewport: ViewportSize,
+): { halfX: number; halfZ: number; maxSpan: number } {
+  const footprintScale = pitchFootprintScale(camera.pitchDeg);
+  const halfX = (
+    camera.zoom * viewport.width * CAMERA_VIEWPORT_HEIGHT_RATIO / 2
+  ) * (1 + MARGIN) * footprintScale;
+  const halfZ = (
+    camera.zoom * viewport.height * CAMERA_VIEWPORT_HEIGHT_RATIO / 2
+  ) * (1 + MARGIN) * footprintScale;
+  return { halfX, halfZ, maxSpan: Math.max(halfX * 2, halfZ * 2) };
+}
+
+export function shouldEnableRealStarDetail(
+  camera: ViewportCamera,
+  viewport: ViewportSize,
+  wasEnabled: boolean,
+): boolean {
+  const { maxSpan } = realStarViewportSpan(camera, viewport);
+  if (!Number.isFinite(maxSpan)) return false;
+  return maxSpan <= (
+    wasEnabled ? REAL_STAR_EXIT_MAX_LY : REAL_STAR_ENTER_MAX_LY
+  );
+}
+
 /**
- * The bounding box to fetch real stars for, or `null` when the view is too wide
+ * The bounding box to fetch real stars for, or null when the view is too wide
  * (the client should stay on the aggregate heatmap).
  */
 export function realStarViewportBox(camera: ViewportCamera, viewport: ViewportSize): MapViewportBox | null {
-  const halfX = (camera.zoom * viewport.width * CAMERA_VIEWPORT_HEIGHT_RATIO / 2) * (1 + MARGIN);
-  const halfZ = (camera.zoom * viewport.height * CAMERA_VIEWPORT_HEIGHT_RATIO / 2) * (1 + MARGIN);
-  if (!Number.isFinite(halfX) || !Number.isFinite(halfZ)) return null;
-  if (halfX * 2 > SERVER_MAX_LY || halfZ * 2 > SERVER_MAX_LY) return null;
+  const { halfX, halfZ, maxSpan } = realStarViewportSpan(camera, viewport);
+  if (!Number.isFinite(maxSpan) || maxSpan > REAL_STAR_EXIT_MAX_LY) return null;
   return {
     min_x: floorTo(camera.center.x - halfX, GRID_LY),
     max_x: ceilTo(camera.center.x + halfX, GRID_LY),
@@ -80,10 +127,27 @@ export function buildRealStarBuffers(systems: MapViewportSystem[]): { positions:
 }
 
 export interface UseViewportSystemsResult {
-  /** Fetched systems when zoomed in, else null (stay on the heatmap). */
+  /** Fetched systems for the current settled viewport, else null. */
   systems: MapViewportSystem[] | null;
   /** The server capped the result (only the brightest N shown). */
   truncated: boolean;
+  isLoading: boolean;
+  isError: boolean;
+  error: Error | null;
+}
+
+function boxesEqual(
+  left: MapViewportBox | null,
+  right: MapViewportBox | null,
+): boolean {
+  return left != null
+    && right != null
+    && left.min_x === right.min_x
+    && left.max_x === right.max_x
+    && left.min_z === right.min_z
+    && left.max_z === right.max_z
+    && left.min_y === right.min_y
+    && left.max_y === right.max_y;
 }
 
 export function useViewportSystems(opts: {
@@ -91,15 +155,29 @@ export function useViewportSystems(opts: {
   viewport: ViewportSize;
   enabled?: boolean;
 }): UseViewportSystemsResult {
+  const enabled = opts.enabled ?? true;
+  const [detailEnabled, setDetailEnabled] = useState(
+    () => enabled && shouldEnableRealStarDetail(opts.camera, opts.viewport, false),
+  );
+  useEffect(() => {
+    setDetailEnabled((current) => (
+      enabled && shouldEnableRealStarDetail(opts.camera, opts.viewport, current)
+    ));
+  }, [enabled, opts.camera, opts.viewport]);
+
   const box = useMemo(
-    () => realStarViewportBox(opts.camera, opts.viewport),
-    [opts.camera, opts.viewport],
+    () => detailEnabled ? realStarViewportBox(opts.camera, opts.viewport) : null,
+    [detailEnabled, opts.camera, opts.viewport],
   );
 
   // Debounce: wait for camera to settle before issuing a query. Smooth zoom/pan
   // changes the box every frame; without this the endpoint's rate limit gets exhausted.
   const [settledBox, setSettledBox] = useState<MapViewportBox | null>(null);
   useEffect(() => {
+    if (box == null) {
+      setSettledBox(null);
+      return undefined;
+    }
     const timer = setTimeout(() => setSettledBox(box), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [box]);
@@ -108,14 +186,21 @@ export function useViewportSystems(opts: {
     // Key on the settled box so the request is stable once camera settles.
     queryKey: ['map', 'systems', settledBox?.min_x, settledBox?.max_x, settledBox?.min_z, settledBox?.max_z],
     queryFn: () => api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT),
-    enabled: (opts.enabled ?? true) && settledBox != null,
+    enabled: enabled && settledBox != null,
     staleTime: 60_000,
     gcTime: 300_000,
-    placeholderData: keepPreviousData,
   });
 
+  // Never display data, truncation, or an error from the previous viewport
+  // while a new pan/zoom box is settling or loading.
+  const queryMatchesViewport = boxesEqual(box, settledBox);
   return {
-    systems: box ? (query.data?.systems ?? null) : null,
-    truncated: query.data?.truncated ?? false,
+    systems: queryMatchesViewport ? (query.data?.systems ?? null) : null,
+    truncated: queryMatchesViewport ? (query.data?.truncated ?? false) : false,
+    isLoading: detailEnabled && (
+      !queryMatchesViewport || query.isLoading || query.isFetching
+    ),
+    isError: queryMatchesViewport && query.isError,
+    error: queryMatchesViewport ? query.error : null,
   };
 }
