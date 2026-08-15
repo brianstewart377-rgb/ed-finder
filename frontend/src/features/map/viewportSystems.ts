@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as THREE from 'three';
 import { api } from '@/lib/api';
@@ -156,14 +156,35 @@ export function useViewportSystems(opts: {
   enabled?: boolean;
 }): UseViewportSystemsResult {
   const enabled = opts.enabled ?? true;
-  const [detailEnabled, setDetailEnabled] = useState(
-    () => enabled && shouldEnableRealStarDetail(opts.camera, opts.viewport, false),
-  );
+  const [detailEnabled, setDetailEnabled] = useState(false);
+  const lastCameraKeyRef = useRef<string>('');
+  const optsRef = useRef(opts);
+
+  // Keep the ref up to date with latest props so RAF can read them
   useEffect(() => {
-    setDetailEnabled((current) => (
-      enabled && shouldEnableRealStarDetail(opts.camera, opts.viewport, current)
-    ));
-  }, [enabled, opts.camera, opts.viewport]);
+    optsRef.current = opts;
+  }, [opts.camera, opts.viewport, opts.enabled]);
+
+  // Monitor camera changes via requestAnimationFrame (outside Canvas context)
+  useEffect(() => {
+    let animId: number;
+    const checkCameraChange = () => {
+      const current = optsRef.current;
+      const cameraKey = `${current.camera.center.x}|${current.camera.center.z}|${current.camera.zoom}|${current.camera.pitchDeg ?? 0}`;
+      if (cameraKey !== lastCameraKeyRef.current) {
+        lastCameraKeyRef.current = cameraKey;
+        const currentEnabled = current.enabled ?? true;
+        const shouldEnable = currentEnabled && shouldEnableRealStarDetail(current.camera, current.viewport, detailEnabled);
+        if (shouldEnable !== detailEnabled) {
+          console.log('[viewport-systems] camera key:', cameraKey, 'should enable:', shouldEnable);
+          setDetailEnabled(shouldEnable);
+        }
+      }
+      animId = requestAnimationFrame(checkCameraChange);
+    };
+    animId = requestAnimationFrame(checkCameraChange);
+    return () => cancelAnimationFrame(animId);
+  }, []);
 
   const box = useMemo(
     () => detailEnabled ? realStarViewportBox(opts.camera, opts.viewport) : null,
