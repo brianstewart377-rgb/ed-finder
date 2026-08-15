@@ -5,6 +5,7 @@ import os
 import sys
 from pathlib import Path
 
+# Setup sys.path for API imports before importing from edfinder_api
 ROOT = Path(__file__).resolve().parents[1]
 API_SRC = ROOT / 'apps' / 'api' / 'src'
 if str(API_SRC) not in sys.path:
@@ -13,15 +14,14 @@ if str(API_SRC) not in sys.path:
 os.environ.setdefault('CORS_ORIGINS', 'http://localhost:3000')
 os.environ.setdefault('ENVIRONMENT', 'test')
 
-import pytest
-from edfinder_api.mechanics.confidence import (
+from edfinder_api.mechanics.confidence import (  # noqa: E402
     CanonicalConfidence,
     ConfidenceBand,
     ConfidenceLayer,
     SourceAuthority,
 )
-from edfinder_api.observations.models import ObservedConfidence
-from edfinder_api.observations.comparison_models import ComparisonConfidence
+from edfinder_api.observations.models import ObservedConfidence  # noqa: E402
+from edfinder_api.observations.comparison_models import ComparisonConfidence  # noqa: E402
 
 
 class TestObservedConfidenceFromCanonical:
