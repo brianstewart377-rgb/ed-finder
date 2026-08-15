@@ -3863,6 +3863,10 @@ export interface components {
         ObservationSource: "manual" | "imported" | "inferred" | "test_fixture";
         /**
          * ObservedConfidence
+         * @description User-submitted observation confidence (3-value scale).
+         *
+         *     Maps to CRE confidence bands via from_canonical().
+         *     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
          * @enum {string}
          */
         ObservedConfidence: "low" | "medium" | "high";
@@ -4034,6 +4038,10 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
+            /** Canonical Confidence */
+            canonical_confidence?: {
+                [key: string]: unknown;
+            } | null;
         };
         /**
          * ObservedFactType
@@ -4608,6 +4616,10 @@ export interface components {
             evidence?: components["schemas"]["ObservationEvidenceMatchResponse"][];
             /** Prediction Source */
             prediction_source?: string | null;
+            /** Canonical Confidence */
+            canonical_confidence?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** PredictionObservationComparisonSummaryResponse */
         PredictionObservationComparisonSummaryResponse: {
