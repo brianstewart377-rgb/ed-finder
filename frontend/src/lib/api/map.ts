@@ -96,17 +96,13 @@ export interface MapViewportSystem {
   x: number;
   y: number;
   z: number;
-  /** main_star_type — the spectral letter (O/B/A/…) or null. */
-  star: string | null;
+  /** main_star_class — the spectral letter (O/B/A/…) or null. */
+  main_star_class: string | null;
   populated: boolean;
-  galaxy_region_id: number | null;
 }
-export interface MapSystemsResponse {
+export interface MapViewportResponse {
   systems: MapViewportSystem[];
-  count: number;
   truncated: boolean;
-  too_wide: boolean;
-  cached: boolean;
 }
 export interface MapViewportBox {
   min_x: number; max_x: number;
@@ -114,7 +110,7 @@ export interface MapViewportBox {
   min_z: number; max_z: number;
 }
 
-export function mapSystems(box: MapViewportBox, limit?: number): Promise<MapSystemsResponse> {
+export function mapSystems(box: MapViewportBox, limit?: number): Promise<MapViewportResponse> {
   const params = new URLSearchParams({
     min_x: String(box.min_x), max_x: String(box.max_x),
     min_y: String(box.min_y), max_y: String(box.max_y),
