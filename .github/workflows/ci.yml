@@ -504,15 +504,19 @@ jobs:
         working-directory: apps/api/src
         run: |
           nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8000 > /tmp/uvicorn.log 2>&1 &
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
-              echo "API ready after ${i}s"
+              echo "✓ API ready after ${i}s"
               exit 0
+            fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "  Waiting for API... (${i}/60s)"
             fi
             sleep 1
           done
-          echo "::error::API failed to start within 30s"
-          tail -100 /tmp/uvicorn.log
+          echo "::error::API failed to start within 60s"
+          echo "API startup log:"
+          tail -50 /tmp/uvicorn.log
           exit 1
 
       - name: Install frontend deps
@@ -636,15 +640,19 @@ jobs:
         working-directory: apps/api/src
         run: |
           nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
-          for i in $(seq 1 30); do
+          for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
-              echo "API ready after ${i}s"
+              echo "✓ API ready after ${i}s"
               exit 0
+            fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "  Waiting for API... (${i}/60s)"
             fi
             sleep 1
           done
-          echo "::error::API failed to start within 30s"
-          tail -100 /tmp/uvicorn.log
+          echo "::error::API failed to start within 60s"
+          echo "API startup log:"
+          tail -50 /tmp/uvicorn.log
           exit 1
 
       - name: Install frontend deps
