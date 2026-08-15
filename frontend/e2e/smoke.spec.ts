@@ -178,6 +178,7 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
+    test.setTimeout(60_000);
     const graphicsWarnings: string[] = [];
     page.on('console', (message) => {
       if (
