@@ -197,10 +197,10 @@ competing roadmap source.
 - Complete bounded documentation triage using dependency-aware evidence; do
   not mass-archive stage documents that are still consumed by tests or active
   operational contracts.
-- Finish the scoring cleanup: keep `score_breakdown` NULL, remove remaining
-  legacy score dependencies, and retire the column through a reviewed migration.
+- Scoring cleanup: keep `score_breakdown` NULL, remove remaining
+  legacy score dependencies (✓ completed 2026-08-15), and retire the column through a reviewed migration.
 - Reconcile the CRE and ed-finder confidence vocabularies before consuming CRE
-  source-authority or release artifacts at runtime.
+  source-authority or release artifacts at runtime (✓ completed 2026-08-15).
 - Keep CI/build reproducibility honest: preserve all ten protected checks, the
   expanded Ruff/Knip gates, the pinned lockfile, built-image parity, the
   artifact-backed Windows release wrapper, and the isolated Review Lab browser
@@ -214,14 +214,14 @@ competing roadmap source.
   coverage, and related trust signals.
 - Harden the `systems.has_body_data` / `systems.body_count` contract so rating
   eligibility cannot drift away from actual `bodies` rows under live ingest.
-- Real-star viewport streaming on the Explore map is authorized as a bounded,
-  **read-only** capability: a capped `/api/map/systems` bounding-box endpoint
-  plus a client LOD switch that renders individual systems (colored by spectral
-  class) on zoom-in, complementing — not replacing — the aggregate heatmap. It
-  writes nothing, adds no planner-map fusion, and rides the existing `systems`
-  spatial indexes (`idx_sys_coords`); a precomputed tile pyramid stays out of
-  scope unless measured performance requires it. See
-  `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
+- Real-star viewport streaming on the Explore map: a three-phase project to stream
+  individual star systems on zoom-in, replacing the aggregate heatmap with a
+  spectral-colored point cloud. **Read-only, Explore-only, no planner fusion.**
+  Rides existing `systems` spatial indexes; precomputed tiles deferred to Phase 3
+  if measured perf requires it. See `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
+  - Phase 1 (Backend): `/api/map/systems` endpoint with bbox query, importance ranking, 40k cap. (In progress, 2026-08-15)
+  - Phase 2 (Client LOD): Viewport hook + RealStarLayer rendering + LOD switch. (Pending Phase 1)
+  - Phase 3 (Polish): Hysteresis fade + truncated affordance. (Pending Phase 2)
 
 ### Deferred Product Expansion
 
