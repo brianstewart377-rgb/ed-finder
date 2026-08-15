@@ -52,9 +52,10 @@ frontend useful types out of the box.
 """
 from __future__ import annotations
 
+import math
 from typing import Any, Literal, Optional
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from edfinder_api.models_economy import EconomyFilterField, EconomyNameField
 
@@ -1457,3 +1458,80 @@ class OptimiserCandidatesResponse(BaseModel):
 # Backwards-compatible singular names for older imports.
 OptimiserCandidateRequest = OptimiserCandidatesRequest
 OptimiserCandidateResponse = OptimiserCandidatesResponse
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Real-Star LOD Viewport Endpoint (Phase 1)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class MapViewportSystem(BaseModel):
+    """Individual system in a viewport query result."""
+    model_config = ConfigDict(extra='allow')
+
+    id64: int
+    name: str
+    x: float
+    y: float
+    z: float
+    main_star_class: Optional[str] = None
+    populated: bool
+
+
+class MapViewportRequest(BaseModel):
+    """Request for systems within a bounding box."""
+    model_config = ConfigDict(extra='forbid')
+
+    min_x: float
+    max_x: float
+    min_y: float
+    max_y: float
+    min_z: float
+    max_z: float
+    limit: int = Field(default=10000, ge=1, le=40000)
+    min_importance: Optional[int] = None
+
+    @field_validator('min_x', 'min_y', 'min_z')
+    @classmethod
+    def validate_mins(cls, v: float) -> float:
+        if not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise ValueError('must be a finite number')
+        return v
+
+    @field_validator('max_x', 'max_y', 'max_z')
+    @classmethod
+    def validate_maxes(cls, v: float) -> float:
+        if not isinstance(v, (int, float)) or not math.isfinite(v):
+            raise ValueError('must be a finite number')
+        return v
+
+    @field_validator('max_x')
+    @classmethod
+    def validate_max_x_bounds(cls, v: float, info: ValidationInfo) -> float:
+        data = info.data
+        if 'min_x' in data and v < data['min_x']:
+            raise ValueError('max_x must be >= min_x')
+        return v
+
+    @field_validator('max_y')
+    @classmethod
+    def validate_max_y_bounds(cls, v: float, info: ValidationInfo) -> float:
+        data = info.data
+        if 'min_y' in data and v < data['min_y']:
+            raise ValueError('max_y must be >= min_y')
+        return v
+
+    @field_validator('max_z')
+    @classmethod
+    def validate_max_z_bounds(cls, v: float, info: ValidationInfo) -> float:
+        data = info.data
+        if 'min_z' in data and v < data['min_z']:
+            raise ValueError('max_z must be >= min_z')
+        return v
+
+
+class MapViewportResponse(BaseModel):
+    """Response envelope for viewport system query."""
+    model_config = ConfigDict(extra='forbid')
+
+    systems: list[MapViewportSystem]
+    truncated: bool = False
