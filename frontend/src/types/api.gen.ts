@@ -3815,6 +3815,41 @@ export interface components {
              */
             galaxy_wide: boolean;
         };
+        /**
+         * MapViewportResponse
+         * @description Response envelope for viewport system query.
+         */
+        MapViewportResponse: {
+            /** Systems */
+            systems: components["schemas"]["MapViewportSystem"][];
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
+         * MapViewportSystem
+         * @description Individual system in a viewport query result.
+         */
+        MapViewportSystem: {
+            /** Id64 */
+            id64: number;
+            /** Name */
+            name: string;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z */
+            z: number;
+            /** Main Star Class */
+            main_star_class?: string | null;
+            /** Populated */
+            populated: boolean;
+        } & {
+            [key: string]: unknown;
+        };
         /** NoteBody */
         NoteBody: {
             /** Note */
@@ -8702,7 +8737,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["MapViewportResponse"];
                 };
             };
             /** @description Validation Error */
