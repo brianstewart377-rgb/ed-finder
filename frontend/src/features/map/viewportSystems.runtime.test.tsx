@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, type MapSystemsResponse } from '@/lib/api';
+import { api, type MapViewportResponse } from '@/lib/api';
 import {
   realStarViewportBox,
   shouldEnableRealStarDetail,
@@ -11,7 +11,7 @@ import {
 
 const viewport = { width: 1_000, height: 800 };
 
-function response(id64: number, name: string): MapSystemsResponse {
+function response(id64: number, name: string): MapViewportResponse {
   return {
     systems: [{
       id64,
@@ -19,14 +19,10 @@ function response(id64: number, name: string): MapSystemsResponse {
       x: id64,
       y: 0,
       z: 0,
-      star: 'G',
+      main_star_class: 'G',
       populated: false,
-      galaxy_region_id: 1,
     }],
-    count: 1,
     truncated: false,
-    too_wide: false,
-    cached: false,
   };
 }
 
@@ -66,7 +62,7 @@ describe('real-star viewport runtime contract', () => {
   });
 
   it('drops old stars immediately while a panned viewport settles', async () => {
-    let resolveSecond: ((value: MapSystemsResponse) => void) | undefined;
+    let resolveSecond: ((value: MapViewportResponse) => void) | undefined;
     vi.spyOn(api, 'mapSystems')
       .mockResolvedValueOnce(response(1, 'First viewport'))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
