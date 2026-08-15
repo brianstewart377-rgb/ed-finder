@@ -317,7 +317,7 @@ export type {
   MapTimelinePoint,
   MapTimelineResponse,
   MapViewportSystem,
-  MapSystemsResponse,
+  MapViewportResponse,
   MapViewportBox,
 } from './map';
 export type {

@@ -31,8 +31,8 @@ describe('realStarViewportBox', () => {
 describe('buildRealStarBuffers', () => {
   it('maps galaxy coords to three space (x, z, y) and colors by spectral class', () => {
     const systems: MapViewportSystem[] = [
-      { id64: 1, name: 'A', x: 10, y: 20, z: 30, star: 'M', populated: false, galaxy_region_id: 1 },
-      { id64: 2, name: 'B', x: -5, y: 0, z: 7, star: 'O', populated: true, galaxy_region_id: 2 },
+      { id64: 1, name: 'A', x: 10, y: 20, z: 30, main_star_class: 'M', populated: false },
+      { id64: 2, name: 'B', x: -5, y: 0, z: 7, main_star_class: 'O', populated: true },
     ];
     const { positions, colors } = buildRealStarBuffers(systems);
     expect(Array.from(positions.slice(0, 3))).toEqual([10, 30, 20]);

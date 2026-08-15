@@ -397,7 +397,6 @@ export function ProductionMapTab({
       name: system.name,
       coords: { x: system.x, y: system.y, z: system.z },
       population: system.populated ? 1 : 0,
-      galaxy_region_id: system.galaxy_region_id,
       distance: null,
     } as unknown as SystemResult;
     setViewportSelection(result);
