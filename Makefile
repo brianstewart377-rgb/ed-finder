@@ -3,7 +3,7 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help lint typecheck test seed-check data-invariants api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
+.PHONY: help dev lint typecheck test seed-check data-invariants api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
 
 ifeq ($(OS),Windows_NT)
 VENV_PYTHON := .venv/Scripts/python.exe
@@ -21,6 +21,14 @@ export PYTHONDONTWRITEBYTECODE := 1
 
 help:  ## Show this help
 	@awk 'BEGIN{FS=":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+dev:  ## Start full local dev environment (API + frontend + services)
+ifeq ($(OS),Windows_NT)
+	powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/start_local_dev.ps1 -EnsureServices
+else
+	@echo "Starting local dev environment (Docker, API, frontend)..."
+	@echo "Error: Unix startup script not yet implemented. Please use: docker-compose -f docker-compose.local.yml up -d && cd frontend && yarn dev"
+endif
 
 # ── DB / seed ────────────────────────────────────────────────────────────────
 seed-check:  ## Apply manifest-listed SQL migrations with ON_ERROR_STOP=1 + invariants
