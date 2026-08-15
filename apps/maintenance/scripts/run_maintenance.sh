@@ -80,7 +80,7 @@ _maintenance_heartbeat() {
     if [[ "$outcome" == "fail" ]]; then
         url="${url%/}/fail"
     fi
-    if curl -fsS -m 10 --retry 3 "$url" >/dev/null 2>&1; then
+    if curl -fsS -m 10 --retry 3 --ipv4 "$url" >/dev/null 2>&1; then
         echo "maintenance heartbeat: sent ($outcome)"
     else
         echo "maintenance heartbeat: delivery failed (curl); outcome was $outcome" >&2
