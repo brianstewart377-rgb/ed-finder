@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from edfinder_api.config import settings, limiter, log
 from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.models import MapViewportResponse, MapViewportSystem
 from edfinder_api.search_economies import canonical_economy_key, ratings_score_column
 
 router = APIRouter(tags=['map'])
@@ -348,7 +349,7 @@ async def map_timeline(
     return result
 
 
-@router.get('/api/map/systems')
+@router.get('/api/map/systems', response_model=MapViewportResponse)
 @limiter.limit('60/minute')
 async def map_systems(
     request: Request,
@@ -359,12 +360,12 @@ async def map_systems(
     min_z: float = Query(..., description='Viewport bounding-box min Z (LY)'),
     max_z: float = Query(..., description='Viewport bounding-box max Z (LY)'),
     limit: int = Query(
-        20_000, ge=1, le=MAX_MAP_VIEWPORT_SYSTEMS,
+        10_000, ge=1, le=MAX_MAP_VIEWPORT_SYSTEMS,
         description='Maximum individual systems returned',
     ),
     pool: asyncpg.Pool = Depends(get_pool),
     redis: Optional[aioredis.Redis] = Depends(get_redis),
-):
+) -> MapViewportResponse:
     """Individual star systems within a viewport bounding box — the zoom-in
     real-star detail lane (the heatmap is the zoomed-out aggregate lane).
 
@@ -382,7 +383,7 @@ async def map_systems(
     if ((hi_x - lo_x) > MAX_MAP_VIEWPORT_LY
             or (hi_y - lo_y) > MAX_MAP_VIEWPORT_LY
             or (hi_z - lo_z) > MAX_MAP_VIEWPORT_LY):
-        return {'systems': [], 'count': 0, 'truncated': False, 'too_wide': True, 'cached': False}
+        return MapViewportResponse(systems=[], truncated=False)
 
     cache_key = (
         f'map:systems:v3:{lo_x:.0f}:{hi_x:.0f}:{lo_y:.0f}:{hi_y:.0f}:'
@@ -417,20 +418,19 @@ async def map_systems(
     truncated = len(rows) > limit
     if truncated:
         rows = rows[:limit]
-    result = {
-        'systems': [
-            {
-                'id64': r['id64'], 'name': r['name'],
-                'x': r['x'], 'y': r['y'], 'z': r['z'],
-                'star': r['main_star_type'], 'populated': r['populated'],
-                'galaxy_region_id': r['galaxy_region_id'],
-            }
-            for r in rows
-        ],
-        'count': len(rows),
-        'truncated': truncated,
-        'too_wide': False,
-        'cached': False,
-    }
-    await cache_set(cache_key, result, settings.ttl_search, redis)
+
+    systems = [
+        MapViewportSystem(
+            id64=r['id64'],
+            name=r['name'],
+            x=r['x'],
+            y=r['y'],
+            z=r['z'],
+            main_star_class=r['main_star_type'],
+            populated=r['populated'],
+        )
+        for r in rows
+    ]
+    result = MapViewportResponse(systems=systems, truncated=truncated)
+    await cache_set(cache_key, result.model_dump(), settings.ttl_search, redis)
     return result
