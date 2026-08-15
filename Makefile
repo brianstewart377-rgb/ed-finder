@@ -3,7 +3,7 @@
 # Real builds happen via docker compose / yarn / pytest directly; this
 # Makefile just collects the most-used recipes so you don't have to
 # remember the env-var incantations.
-.PHONY: help dev lint typecheck test seed-check data-invariants api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
+.PHONY: help dev dev-test dev-test-video lint typecheck test seed-check data-invariants api-smoke state-check state-check-docs test-env-check test-unit test-operator test-db test-db-isolation test-integration test-ci-local clean
 
 ifeq ($(OS),Windows_NT)
 VENV_PYTHON := .venv/Scripts/python.exe
@@ -93,6 +93,12 @@ typecheck:  ## yarn typecheck the frontend
 lint:  ## ruff backend + eslint frontend
 	ruff check apps tests
 	cd frontend && yarn lint
+
+dev-test:  ## Run interactive dev tests (Playwright headed mode with screenshots)
+	cd frontend && npx playwright test e2e/dev.spec.ts --headed --debug
+
+dev-test-video:  ## Run dev tests with video recording
+	cd frontend && npx playwright test e2e/dev.spec.ts --headed --debug --record-video=on
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 clean:  ## Remove caches
