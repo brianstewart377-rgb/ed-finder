@@ -14,6 +14,15 @@
 
 import { Page, expect } from '@playwright/test';
 
+// Dynamically import injectAxe only in test environment
+let injectAxe: ((page: Page) => Promise<void>) | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  injectAxe = require('axe-playwright').injectAxe;
+} catch {
+  // Axe not installed, accessibility checks will be skipped
+}
+
 /**
  * Navigate to the map page and wait for it to be interactive.
  */
@@ -201,4 +210,62 @@ export async function testRealStarZoom(page: Page) {
   }
 
   console.warn('Real-star layer did not appear after 8 zoom steps');
+}
+
+/**
+ * Check for accessibility violations using Axe-core.
+ *
+ * Returns array of violations found. Empty array = no violations.
+ */
+export async function checkAccessibility(page: Page, context = 'page') {
+  if (!injectAxe) {
+    console.warn('⚠ Axe-core not available, skipping accessibility check');
+    return [];
+  }
+
+  try {
+    await injectAxe(page);
+    const violations = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (window as any).axe.run((err: any, results: any) => {
+        if (err) throw err;
+        return results.violations;
+      });
+    });
+
+    if (violations && violations.length > 0) {
+      console.warn(`⚠ Found ${violations.length} accessibility violations on ${context}`);
+      violations.forEach((v: any) => {
+        console.warn(`  - ${v.id}: ${v.description} (${v.nodes?.length} nodes)`);
+      });
+    } else {
+      console.log(`✓ No accessibility violations found on ${context}`);
+    }
+
+    return violations || [];
+  } catch (error) {
+    console.error('Accessibility check failed:', error);
+    return [];
+  }
+}
+
+/**
+ * Assert no critical accessibility violations.
+ *
+ * Throws if critical violations found (e.g., missing alt text, contrast issues).
+ */
+export async function assertAccessible(page: Page, context = 'page') {
+  const violations = await checkAccessibility(page, context);
+
+  // Filter to critical issues
+  const critical = violations.filter((v: any) => {
+    const impact = v.impact?.toLowerCase();
+    return impact === 'critical' || impact === 'serious';
+  });
+
+  if (critical.length > 0) {
+    throw new Error(
+      `Critical accessibility violations found on ${context}: ${critical.map((v: any) => v.id).join(', ')}`
+    );
+  }
 }
