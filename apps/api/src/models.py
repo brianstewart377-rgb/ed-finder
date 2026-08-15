@@ -744,6 +744,7 @@ class ArchetypeRationale(BaseModel):
     tags:           list[str]                         = Field(default_factory=list)
     score_breakdown: Optional[ArchetypeScoreBreakdown] = None
     data_confidence: Optional[float]                  = None
+    canonical_confidence: Optional[dict[str, Any]]   = None  # CRE-aligned canonical shape
 
 
 class ArchetypeScore(BaseModel):
@@ -1119,6 +1120,7 @@ class FacilityTemplateResponse(BaseModel):
     allowed_location:    str
     pad_size:            Optional[str] = None
     confidence:          Optional[str] = None
+    canonical_confidence: Optional[dict[str, Any]] = None  # CRE-aligned canonical shape
     notes:               Optional[str] = None
     # list[dict[str, Any]] / dict[str, Any] still emit as
     # Record<string, never> via openapi-typescript (its handling of Pydantic's

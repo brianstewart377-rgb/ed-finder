@@ -486,19 +486,22 @@ def facility_data_confidence_to_canonical(
     """Map facility catalogue data_confidence to canonical form.
 
     Facility data_confidence indicates certainty of CP values:
-    - 'confirmed' → High (verified from multiple observations)
-    - 'observed' → High–Usable (community reports, high confidence)
-    - 'estimated' → Exploratory–Weak (extrapolated / not widely verified)
+    - 'confirmed' → High (in authoritative community catalogue, e.g. DaftMav)
+    - 'observed' → Usable (community reports, high confidence)
+    - 'estimated' → Exploratory (extrapolated / not widely verified)
+    - (unrecognized) → Insufficient (no assessment)
 
     Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.3
     """
     if data_confidence == 'confirmed':
+        # 'confirmed' means in authoritative catalogue (DaftMav), not live-observed.
+        # Use OFFICIAL to represent community-authoritative source (SA-0002).
         return CanonicalConfidence(
-            source_authority=SourceAuthority.LIVE_EVIDENCE,
+            source_authority=SourceAuthority.OFFICIAL,
             score=92.0,
             band=ConfidenceBand.HIGH,
             layer=ConfidenceLayer.CATALOGUE,
-            reason='Verified from multiple in-game observations',
+            reason='Facility in authoritative community catalogue (DaftMav)',
         )
     elif data_confidence == 'observed':
         return CanonicalConfidence(
@@ -506,15 +509,24 @@ def facility_data_confidence_to_canonical(
             score=80.0,
             band=ConfidenceBand.USABLE,
             layer=ConfidenceLayer.CATALOGUE,
-            reason='Seen in community reports, DaftMav workbook',
+            reason='Seen in community reports, high confidence',
         )
-    else:  # 'estimated' or unknown
+    elif data_confidence == 'estimated':
         return CanonicalConfidence(
             source_authority=SourceAuthority.INFERRED,
             score=55.0,
             band=ConfidenceBand.EXPLORATORY,
             layer=ConfidenceLayer.CATALOGUE,
             reason='Extrapolated / not widely verified',
+        )
+    else:
+        # Unrecognized or missing data_confidence: no assessment.
+        return CanonicalConfidence(
+            source_authority=SourceAuthority.INFERRED,
+            score=0.0,
+            band=ConfidenceBand.INSUFFICIENT,
+            layer=ConfidenceLayer.CATALOGUE,
+            reason=f'Unrecognized data_confidence value: {data_confidence!r}',
         )
 
 
