@@ -33,6 +33,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from edfinder_api.config import log, limiter
 from edfinder_api.ingest.slot_prediction import INSUFFICIENT_DATA_REASON, predict_system_slots
+from edfinder_api.mechanics.confidence import (
+    ConfidenceLayer,
+    archetype_numeric_confidence_to_canonical,
+)
 from edfinder_api.models import (
     ArchetypeRankingsResponse,
     ArchetypeRerankRequest,
@@ -211,6 +215,24 @@ def _json_object(value: Any) -> dict[str, Any]:
         except json.JSONDecodeError:
             return {}
         return parsed if isinstance(parsed, dict) else {}
+
+
+def _rationale_with_canonical_confidence(rationale: dict[str, Any]) -> dict[str, Any]:
+    """Enrich archetype rationale with canonical confidence if data_confidence present.
+
+    Converts numeric data_confidence to canonical form for CRE-aligned workflows.
+    """
+    if not rationale or not isinstance(rationale.get('data_confidence'), (int, float)):
+        return rationale
+
+    data_confidence_score = float(rationale['data_confidence'])
+    canonical = archetype_numeric_confidence_to_canonical(
+        data_confidence_score,
+        layer=ConfidenceLayer.PROJECTED_OPERATIONAL,
+        reason=f'Body-data completeness: {data_confidence_score:.1%}',
+    )
+    rationale['canonical_confidence'] = canonical.to_dict()
+    return rationale
     return {}
 
 
@@ -459,7 +481,7 @@ async def post_archetype_rerank(request: Request, body: ArchetypeRerankRequest):
             'reranked_score':   int(round(raw)),
             'original_score':   round(float(row['archetype_score'] or 0), 2),
             'confidence':       round(float(row['confidence'] or 0.85), 3),
-            'rationale':        _json_object(row['rationale']),
+            'rationale':        _rationale_with_canonical_confidence(_json_object(row['rationale'])),
         })
 
     reranked.sort(key=lambda r: r['reranked_score'], reverse=True)
@@ -675,7 +697,7 @@ async def get_system_archetypes(request: Request, id64: int):
     # Add rationale to primary archetype entry
     primary = row['primary_archetype']
     if primary in archetypes_out and row['rationale']:
-        archetypes_out[primary]['rationale'] = _json_object(row['rationale'])
+        archetypes_out[primary]['rationale'] = _rationale_with_canonical_confidence(_json_object(row['rationale']))
 
     topology_out = None
     if topo_row:

@@ -1979,6 +1979,10 @@ export interface components {
             score_breakdown?: components["schemas"]["ArchetypeScoreBreakdown"] | null;
             /** Data Confidence */
             data_confidence?: number | null;
+            /** Canonical Confidence */
+            canonical_confidence?: {
+                [key: string]: unknown;
+            } | null;
         } & {
             [key: string]: unknown;
         };
@@ -3419,6 +3423,10 @@ export interface components {
             pad_size?: string | null;
             /** Confidence */
             confidence?: string | null;
+            /** Canonical Confidence */
+            canonical_confidence?: {
+                [key: string]: unknown;
+            } | null;
             /** Notes */
             notes?: string | null;
             /** Prerequisites */

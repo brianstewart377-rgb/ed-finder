@@ -56,6 +56,7 @@ async def get_facility_templates(
             allowed_location=f.allowed_location,
             pad_size=f.pad_size,
             confidence=f.data_confidence,
+            canonical_confidence=f.canonical_confidence.to_dict(),
             notes=f.stat_effects.get('note') if isinstance(f.stat_effects, dict) else None,
             prerequisites=f.prerequisites if isinstance(f.prerequisites, list) else [],
             economy_effects=f.economy_effects if isinstance(f.economy_effects, dict) else {},

@@ -474,3 +474,87 @@ def simulation_confidence_signals(
 
 def signals_to_dict(signals: list[ConfidenceSignal]) -> list[dict[str, Any]]:
     return [signal.to_dict() for signal in signals]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase 3: Facility catalogue & archetype scoring
+# ──────────────────────────────────────────────────────────────────────────────
+
+def facility_data_confidence_to_canonical(
+    data_confidence: str,
+) -> CanonicalConfidence:
+    """Map facility catalogue data_confidence to canonical form.
+
+    Facility data_confidence indicates certainty of CP values:
+    - 'confirmed' → High (in authoritative community catalogue, e.g. DaftMav)
+    - 'observed' → Usable (community reports, high confidence)
+    - 'estimated' → Exploratory (extrapolated / not widely verified)
+    - (unrecognized) → Insufficient (no assessment)
+
+    Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.3
+    """
+    if data_confidence == 'confirmed':
+        # 'confirmed' means in authoritative catalogue (DaftMav), not live-observed.
+        # Use OFFICIAL to represent community-authoritative source (SA-0002).
+        return CanonicalConfidence(
+            source_authority=SourceAuthority.OFFICIAL,
+            score=92.0,
+            band=ConfidenceBand.HIGH,
+            layer=ConfidenceLayer.CATALOGUE,
+            reason='Facility in authoritative community catalogue (DaftMav)',
+        )
+    elif data_confidence == 'observed':
+        return CanonicalConfidence(
+            source_authority=SourceAuthority.COMMUNITY,
+            score=80.0,
+            band=ConfidenceBand.USABLE,
+            layer=ConfidenceLayer.CATALOGUE,
+            reason='Seen in community reports, high confidence',
+        )
+    elif data_confidence == 'estimated':
+        return CanonicalConfidence(
+            source_authority=SourceAuthority.INFERRED,
+            score=55.0,
+            band=ConfidenceBand.EXPLORATORY,
+            layer=ConfidenceLayer.CATALOGUE,
+            reason='Extrapolated / not widely verified',
+        )
+    else:
+        # Unrecognized or missing data_confidence: no assessment.
+        return CanonicalConfidence(
+            source_authority=SourceAuthority.INFERRED,
+            score=0.0,
+            band=ConfidenceBand.INSUFFICIENT,
+            layer=ConfidenceLayer.CATALOGUE,
+            reason=f'Unrecognized data_confidence value: {data_confidence!r}',
+        )
+
+
+def archetype_numeric_confidence_to_canonical(
+    score: float,
+    *,
+    layer: ConfidenceLayer = ConfidenceLayer.PROJECTED_OPERATIONAL,
+    reason: str = 'Numeric archetype confidence',
+) -> CanonicalConfidence:
+    """Map numeric archetype confidence (0–1 or 0–100) to canonical form.
+
+    Used for:
+    - archetype.data_confidence (body-data completeness)
+    - archetype_confidence (archetype match strength)
+
+    Both are numeric 0–1 floats that map to confidence bands.
+    Converted to 0–100 for canonical scoring.
+
+    Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.4
+    """
+    normalized_score = score * 100 if score <= 1.0 else score
+    normalized_score = min(100.0, max(0.0, normalized_score))
+    band = score_to_band(score)
+
+    return CanonicalConfidence(
+        source_authority=SourceAuthority.INFERRED,
+        score=normalized_score,
+        band=band,
+        layer=layer,
+        reason=reason,
+    )
