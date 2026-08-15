@@ -28,7 +28,6 @@ from typing import Any, Dict, Optional
 import asyncpg
 
 from edfinder_api.helpers import SOL_ID64, safe_coords_from_row
-from ratings_breakdown import reconstruct_score_breakdown
 from edfinder_api.search_economies import (
     ratings_score_column,
     archetype_score_column,
@@ -438,8 +437,6 @@ def _build_local_search_sql(
             r.score,
             {ctx.display_score_col}   AS display_score,
             {ctx.finder_score_expr}   AS archetype_score,
-            r.score_agriculture, r.score_refinery, r.score_industrial,
-            r.score_hightech, r.score_military, r.score_tourism,
             r.score_extraction,
             r.economy_suggestion,
             r.slots               AS r_slots,
@@ -992,8 +989,6 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
                 s.updated_at,
                 r.score,
                 r.score               AS display_score,
-                r.score_agriculture, r.score_refinery, r.score_industrial,
-                r.score_hightech, r.score_military, r.score_tourism,
                 r.score_extraction,
                 r.economy_suggestion,
                 r.slots               AS r_slots,
@@ -1055,21 +1050,6 @@ async def local_db_system(id64: int, pool: asyncpg.Pool) -> Optional[dict]:
     body_list = [_normalize_body(b) for b in body_rows]
     record = _build_system_record(row, body_list)
     record["body_count"] = len(body_list)
-
-    reconstruction_row = dict(row)
-    reconstruction_row['slots']          = row['r_slots']
-    reconstruction_row['body_quality']   = row['r_body_quality']
-    reconstruction_row['orbital_safety'] = row['r_orbital_safety']
-    score_breakdown_bodies = [
-        {
-            'subtype': b['subtype'],
-            'geo_signal_count': b['geo_signals'],
-            'bio_signal_count': b['bio_signals'],
-            'has_rings': bool(b['has_rings']),
-        }
-        for b in body_rows
-    ]
-    record["score_breakdown"] = reconstruct_score_breakdown(reconstruction_row, score_breakdown_bodies)
 
     # Fetch stations
     async with pool.acquire() as conn:
