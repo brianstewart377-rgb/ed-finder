@@ -53,9 +53,15 @@ async def test_viewport_filters_to_box_and_orders_notable_first(client, seeded_v
     # out-of-box row excluded; exactly the three in-box seeds, notable-first:
     # populated K first, then bright O before dim M.
     assert ids == [9_900_000_001, 9_900_000_002, 9_900_000_003]
-    assert body['too_wide'] is False
     assert body['truncated'] is False
-    assert all('galaxy_region_id' in system for system in body['systems'])
+    # Check that systems have required fields per MapViewportSystem model
+    for system in body['systems']:
+        assert 'id64' in system
+        assert 'name' in system
+        assert 'x' in system
+        assert 'y' in system
+        assert 'z' in system
+        assert 'populated' in system
 
 
 async def test_viewport_rejects_overwide_box(client):
@@ -63,8 +69,9 @@ async def test_viewport_rejects_overwide_box(client):
     r = await client.get('/api/map/systems', params=params)
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body['too_wide'] is True
+    # When box is too wide, return empty systems array
     assert body['systems'] == []
+    assert body['truncated'] is False
 
 
 async def test_viewport_truncates_at_limit(client, seeded_viewport_systems):

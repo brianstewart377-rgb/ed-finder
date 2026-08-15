@@ -283,11 +283,11 @@ test.describe('ED Finder — smoke', () => {
     const realStarsResponse = await realStarsResponsePromise;
     expect(realStarsResponse.status()).toBe(200);
     const realStarsBody = await realStarsResponse.json() as {
-      count: number;
+      systems: Array<any>;
       truncated: boolean;
     };
     expect(realStarsBody).toEqual(expect.objectContaining({
-      count: expect.any(Number),
+      systems: expect.any(Array),
       truncated: expect.any(Boolean),
     }));
     await expect(renderer.locator('canvas')).toBeVisible();
