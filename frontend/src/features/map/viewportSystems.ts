@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import * as THREE from 'three';
 import { api } from '@/lib/api';
-import type { MapSystemsResponse, MapViewportBox, MapViewportSystem } from '@/lib/api';
+import type { MapViewportResponse, MapViewportBox, MapViewportSystem } from '@/lib/api';
 import { spectralStarColor } from '@/lib/starColor';
 import { CAMERA_VIEWPORT_HEIGHT_RATIO } from '@/features/map-foundation/camera';
 
@@ -120,7 +120,7 @@ export function buildRealStarBuffers(systems: MapViewportSystem[]): { positions:
   systems.forEach((system, index) => {
     // Galaxy (x, y, z) -> three (x, z, y), matching the existing map layers.
     positions.set([system.x, system.z, system.y], index * 3);
-    color.set(spectralStarColor(system.star));
+    color.set(spectralStarColor(system.main_star_class));
     colors.set([color.r, color.g, color.b], index * 3);
   });
   return { positions, colors };
@@ -182,7 +182,7 @@ export function useViewportSystems(opts: {
     return () => clearTimeout(timer);
   }, [box]);
 
-  const query = useQuery<MapSystemsResponse, Error>({
+  const query = useQuery<MapViewportResponse, Error>({
     // Key on the settled box so the request is stable once camera settles.
     queryKey: ['map', 'systems', settledBox?.min_x, settledBox?.max_x, settledBox?.min_z, settledBox?.max_z],
     queryFn: () => api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT),
