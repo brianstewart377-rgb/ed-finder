@@ -8,6 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 async function waitForBackend(maxRetries = 30, delayMs = 1000): Promise<void> {
   for (let i = 0; i < maxRetries; i++) {
     try {
+      // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
       const response = await fetch('http://127.0.0.1:8000/api/health', {
         signal: AbortSignal.timeout(2000),
       });
