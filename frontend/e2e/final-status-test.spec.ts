@@ -11,10 +11,10 @@ test('comprehensive E2E status check', async ({ page }) => {
   const apiHealth = await fetch('http://localhost:8000/api/health').then(r => r.json()).catch(e => ({ error: e.message }));
   console.log('✓ API Status:', JSON.stringify(apiHealth));
 
-  // Navigate to app
-  console.log('\n✓ Navigating to localhost:3000/map...');
-  await page.goto('http://localhost:3000/map');
-  await page.waitForTimeout(3000);
+  // Navigate to app using hash-based routing
+  console.log('\n✓ Navigating to localhost:3000/#map (hash-based routing)...');
+  await page.goto('http://localhost:3000/#map');
+  await page.waitForTimeout(5000);
 
   // Capture all info
   const title = await page.title();
