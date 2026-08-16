@@ -182,13 +182,14 @@ export function useViewportSystems(opts: {
         const shouldEnable = currentEnabled && shouldEnableRealStarDetail(current.camera, current.viewport, detailEnabled);
 
         // Log every zoom change with detailed info
-        const ratio = span.maxSpan / (detailEnabled ? 14_000 : 12_500);
+        const currentThreshold = detailEnabled ? REAL_STAR_EXIT_MAX_LY : REAL_STAR_ENTER_MAX_LY;
+        const ratio = span.maxSpan / currentThreshold;
         console.log('[viewport-systems] zoom detected:', {
           zoom: current.camera.zoom,
           maxSpan: span.maxSpan,
           ratio: ratio.toFixed(1) + 'x threshold',
           threshold: detailEnabled ? 'EXIT_MAX_LY' : 'ENTER_MAX_LY',
-          thresholdValue: detailEnabled ? 14_000 : 12_500,
+          thresholdValue: currentThreshold,
           shouldEnable,
           suggestedThreshold: Math.round(span.maxSpan / 2), // Suggest enabling at half current span
           currentlyEnabled: detailEnabled,
