@@ -42,7 +42,7 @@ export function RealStarLayer({ systems, zoom, opacity, onSelect }: RealStarLaye
   useGpuPointPicking(systems, positions, zoom, onSelect);
   if (systems.length === 0) return null;
   return (
-    <points renderOrder={7}>
+    <points renderOrder={13}>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
