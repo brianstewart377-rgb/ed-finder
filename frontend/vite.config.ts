@@ -25,7 +25,7 @@ export default defineConfig(({ mode }) => {
   const loadedEnv = loadEnv(mode, rootDir, '');
   const proxyTarget = loadedEnv.VITE_DEV_API_TARGET
     || process.env.VITE_DEV_API_TARGET
-    || 'http://127.0.0.1:8000';
+    || 'http://127.0.0.1:8001';
   const publicBase = loadedEnv.VITE_PUBLIC_BASE
     || process.env.VITE_PUBLIC_BASE
     || '/';

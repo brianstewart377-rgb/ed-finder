@@ -40,6 +40,7 @@ CHECKED_WORKFLOWS = (
     'ci.yml',
     'codeql.yml',
     'container-image-parity.yml',
+    'coverage.yml',
     'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
     'review-lab.yml',
