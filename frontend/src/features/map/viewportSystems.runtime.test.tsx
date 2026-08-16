@@ -49,11 +49,11 @@ describe('real-star viewport runtime contract', () => {
 
   it('accounts for the tilted-camera ground footprint', () => {
     const topDown = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 50, pitchDeg: 0.5 },
+      { center: { x: 0, z: 0 }, zoom: 140, pitchDeg: 0.5 },
       viewport,
     );
     const tilted = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 50, pitchDeg: 42 },
+      { center: { x: 0, z: 0 }, zoom: 140, pitchDeg: 42 },
       viewport,
     );
 
