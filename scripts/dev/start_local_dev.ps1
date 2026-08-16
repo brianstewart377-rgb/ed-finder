@@ -13,19 +13,19 @@ $frontendDir = Join-Path $repoRoot 'frontend'
 $apiHealthUrl = "http://127.0.0.1:$ApiPort/api/health"
 $frontendUrl = "http://localhost:$FrontendPort/"
 
-Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "=================================================================================================================================================================================" -ForegroundColor Cyan
 Write-Host "Starting ED-Finder Local Dev Environment" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "=================================================================================================================================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not (Test-Path -LiteralPath $apiScript)) {
-  Write-Host "✗ API script not found" -ForegroundColor Red
+  Write-Host "=OKOK API script not found" -ForegroundColor Red
   Write-Host "  Expected: $apiScript" -ForegroundColor Red
   exit 1
 }
 
 if (-not (Test-Path -LiteralPath $frontendDir)) {
-  Write-Host "✗ Frontend directory not found" -ForegroundColor Red
+  Write-Host "=OKOK Frontend directory not found" -ForegroundColor Red
   Write-Host "  Expected: $frontendDir" -ForegroundColor Red
   exit 1
 }
@@ -70,18 +70,18 @@ function Test-FrontendReady {
   }
 }
 
-# Port availability check
+# ====== Port availability check ===================================================================================================================================================
 Write-Host "Checking port availability..." -ForegroundColor Gray
 
 if (Test-PortInUse -Port $ApiPort) {
   $owner = Get-PortOwner -Port $ApiPort
-  Write-Host "⚠ Port $ApiPort already in use (owned by: $owner)" -ForegroundColor Yellow
+  Write-Host "=!! Port $ApiPort already in use (owned by: $owner)" -ForegroundColor Yellow
   Write-Host "  Trying to use existing API on that port..." -ForegroundColor Gray
 }
 
 if (Test-PortInUse -Port $FrontendPort) {
   $owner = Get-PortOwner -Port $FrontendPort
-  Write-Host "⚠ Port $FrontendPort already in use (owned by: $owner)" -ForegroundColor Yellow
+  Write-Host "=!! Port $FrontendPort already in use (owned by: $owner)" -ForegroundColor Yellow
   Write-Host "  Trying to use existing frontend on that port..." -ForegroundColor Gray
 }
 
@@ -111,7 +111,7 @@ if (-not (Test-ApiHealth -Url $apiHealthUrl)) {
     $attempts = $_
     if (Test-ApiHealth -Url $apiHealthUrl) {
       $healthy = $true
-      Write-Host "✓ API healthy after $attempts attempts" -ForegroundColor Green
+      Write-Host "=OKOK API healthy after $attempts attempts" -ForegroundColor Green
       return
     }
     if ($attempts % 10 -eq 0) {
@@ -121,13 +121,13 @@ if (-not (Test-ApiHealth -Url $apiHealthUrl)) {
   }
 
   if (-not $healthy) {
-    Write-Host "✗ API health check failed after 60 seconds" -ForegroundColor Red
+    Write-Host "=OKOK API health check failed after 60 seconds" -ForegroundColor Red
     Write-Host "  Check: $apiHealthUrl" -ForegroundColor Red
     Write-Host "  Run: make test-env-check" -ForegroundColor Yellow
     exit 1
   }
 } else {
-  Write-Host "✓ API already running" -ForegroundColor Green
+  Write-Host "=OKOK API already running" -ForegroundColor Green
 }
 
 Write-Host ""
@@ -136,7 +136,7 @@ Write-Host "Open browser: $frontendUrl" -ForegroundColor Gray
 
 if ($OpenBrowser) {
   if (Test-FrontendReady -Url $frontendUrl) {
-    Write-Host "✓ Frontend already running, opening browser..." -ForegroundColor Green
+    Write-Host "=OKOK Frontend already running, opening browser..." -ForegroundColor Green
     Start-Process $frontendUrl
   } else {
     Write-Host "  Launching after frontend ready..." -ForegroundColor Gray
@@ -158,16 +158,16 @@ if ($OpenBrowser) {
 }
 
 Write-Host ""
-Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "=================================================================================================================================================================================" -ForegroundColor Cyan
 Write-Host "Development environment ready!" -ForegroundColor Green
 Write-Host "API:      http://127.0.0.1:$ApiPort" -ForegroundColor Cyan
 Write-Host "Frontend: $frontendUrl" -ForegroundColor Cyan
-Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "=================================================================================================================================================================================" -ForegroundColor Cyan
 Write-Host ""
 
 Set-Location $frontendDir
 if (-not $env:VITE_CACHE_DIR -and $env:LOCALAPPDATA) {
   $env:VITE_CACHE_DIR = Join-Path $env:LOCALAPPDATA 'ED-Finder\vite-cache'
 }
-$env:VITE_DEV_API_TARGET = 'http://127.0.0.1:' + $ApiPort
+$env:VITE_DEV_API_TARGET = "http://127.0.0.1:$ApiPort"
 npm run start
