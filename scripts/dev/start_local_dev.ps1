@@ -13,9 +13,9 @@ $frontendDir = Join-Path $repoRoot 'frontend'
 $apiHealthUrl = "http://127.0.0.1:$ApiPort/api/health"
 $frontendUrl = "http://localhost:$FrontendPort/"
 
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "Starting ED-Finder Local Dev Environment" -ForegroundColor Cyan
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 
 if (-not (Test-Path -LiteralPath $apiScript)) {
@@ -70,7 +70,7 @@ function Test-FrontendReady {
   }
 }
 
-# ── Port availability check ─────────────────────────────────────────────────
+# Port availability check
 Write-Host "Checking port availability..." -ForegroundColor Gray
 
 if (Test-PortInUse -Port $ApiPort) {
@@ -158,15 +158,16 @@ if ($OpenBrowser) {
 }
 
 Write-Host ""
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host "Development environment ready!" -ForegroundColor Green
 Write-Host "API:      http://127.0.0.1:$ApiPort" -ForegroundColor Cyan
 Write-Host "Frontend: $frontendUrl" -ForegroundColor Cyan
-Write-Host "═══════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
 Write-Host ""
 
 Set-Location $frontendDir
 if (-not $env:VITE_CACHE_DIR -and $env:LOCALAPPDATA) {
   $env:VITE_CACHE_DIR = Join-Path $env:LOCALAPPDATA 'ED-Finder\vite-cache'
 }
+$env:VITE_DEV_API_TARGET = "http://127.0.0.1:$ApiPort"
 npm run start
