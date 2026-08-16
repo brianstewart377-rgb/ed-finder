@@ -23,6 +23,15 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Helper to run native commands despite stderr-as-error from $ErrorActionPreference
+function Invoke-NativeCommand {
+  param([scriptblock]$ScriptBlock)
+  $prevErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  & $ScriptBlock
+  $ErrorActionPreference = $prevErrorAction
+}
+
 if (-not $RepoPath) {
   $RepoPath = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 }
@@ -134,24 +143,24 @@ if (-not $SkipPull) {
 Set-Location (Join-Path $RepoPath 'frontend')
 
 Write-Host '[release] Ensuring frontend dependencies are installed...'
-yarn install --frozen-lockfile
+Invoke-NativeCommand { yarn install --frozen-lockfile }
 if ($LASTEXITCODE -ne 0) { throw 'yarn install failed' }
 
 if (-not $SkipTypecheck) {
   Write-Host '[release] Running typecheck...'
-  yarn typecheck
+  Invoke-NativeCommand { yarn typecheck }
   if ($LASTEXITCODE -ne 0) { throw 'typecheck failed' }
 }
 
 if (-not $SkipBuild) {
   Write-Host '[release] Running build...'
-  yarn build
+  Invoke-NativeCommand { yarn build }
   if ($LASTEXITCODE -ne 0) { throw 'build failed' }
 }
 
 if (-not $SkipTests) {
   Write-Host '[release] Running tests...'
-  yarn test:ci
+  Invoke-NativeCommand { yarn test:ci }
   if ($LASTEXITCODE -ne 0) { throw 'tests failed' }
 }
 
