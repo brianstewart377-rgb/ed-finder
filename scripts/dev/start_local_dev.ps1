@@ -169,5 +169,5 @@ Set-Location $frontendDir
 if (-not $env:VITE_CACHE_DIR -and $env:LOCALAPPDATA) {
   $env:VITE_CACHE_DIR = Join-Path $env:LOCALAPPDATA 'ED-Finder\vite-cache'
 }
-$env:VITE_DEV_API_TARGET = "http://127.0.0.1:$ApiPort"
+$env:VITE_DEV_API_TARGET = 'http://127.0.0.1:' + $ApiPort
 npm run start
