@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { shouldEnableRealStarDetail, realStarViewportBox, REAL_STAR_ENTER_MAX_LY, REAL_STAR_EXIT_MAX_LY } from './viewportSystems';
+import { describe, it, expect } from 'vitest';
+import { shouldEnableRealStarDetail, realStarViewportBox } from './viewportSystems';
 
 describe('viewportSystems', () => {
   describe('shouldEnableRealStarDetail', () => {
