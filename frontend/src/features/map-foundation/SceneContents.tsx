@@ -23,6 +23,7 @@ import { declutterRegionLabels } from './map-presentation';
 import { GlowPointsMaterial } from './glowPoints';
 import { RealStarLayer } from './RealStarLayer';
 import { DensitySwirl } from './DensitySwirl';
+import { VolumetricGalaxy } from './VolumetricGalaxy';
 import { PowerplayPointLayer } from './PowerplayPointLayer';
 import {
   buildClusterGeometry,
@@ -371,6 +372,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <ReferenceMarker reference={reference} zoom={props.scene.camera.zoom} />
       </>
     )}
+    <VolumetricGalaxy opacity={currentDensitySwirlOpacityRef.current} />
     {heatmap && (
       <group ref={densitySwirlGroupRef}>
         <DensitySwirl
