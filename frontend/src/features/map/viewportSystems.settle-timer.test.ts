@@ -61,7 +61,8 @@ describe('viewport systems settle timer logic', () => {
 
   it('threshold should have hysteresis', () => {
     // At boundary zoom, should require hysteresis
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 130, pitchDeg: 0.5 };
+    // Use zoom=10 which produces span between 120k and 150k for hysteresis test
+    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 10, pitchDeg: 0.5 };
 
     // When disabled, enter threshold is 120k
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);
@@ -70,6 +71,7 @@ describe('viewport systems settle timer logic', () => {
     const shouldExitFromEnabled = shouldEnableRealStarDetail(boundaryCamera, viewport, true);
 
     // At boundary, should not toggle (prevents flicker)
+    // span should be > 120k (don't enter from off) but <= 150k (can stay enabled)
     expect(shouldEnterFromDisabled).toBe(false);
     expect(shouldExitFromEnabled).toBe(true);
   });
