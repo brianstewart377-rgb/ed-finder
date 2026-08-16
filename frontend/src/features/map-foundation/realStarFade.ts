@@ -14,7 +14,7 @@ export function realStarLayerTargets(
 ): RealStarFadeTargets {
   const showRealStars = realStarCount > 0 && !truncated;
   const targets = {
-    densitySwirlOpacity: 1, // Density swirl always visible
+    densitySwirlOpacity: showRealStars ? 0 : 1, // Fade swirl as real stars appear
     starsOpacity: showRealStars ? 1 : 0,
   };
   if (showRealStars) {
