@@ -26,10 +26,11 @@ try {
 /**
  * Navigate to the map page and wait for it to be interactive.
  */
-export async function navigateToMap(page: Page, baseUrl = 'http://localhost:3000') {
+export async function navigateToMap(page: Page) {
   // Frontend uses hash-based routing: /#map not /map
   // App will parse the hash and render the MapTab component
-  await page.goto(`${baseUrl}/#map`);
+  // Use relative URL so Playwright's baseURL config is applied
+  await page.goto('/#map');
   // Wait for canvas to be rendered
   await page.waitForSelector('[data-testid="stage26e-production-map-viewport"]', { timeout: 20000 });
 }

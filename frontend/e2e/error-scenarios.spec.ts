@@ -20,7 +20,7 @@ test.describe('Error Scenarios', () => {
     // Block /api/local/search to simulate network failure
     await context.route('/api/local/search', (route) => route.abort('failed'));
 
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
 
     // Click on search tab (if not already there)
     const searchTab = page.locator('button:has-text("Search")').first();
@@ -134,7 +134,7 @@ test.describe('Error Scenarios', () => {
       });
     });
 
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
 
     // App should timeout gracefully within its own timeout period
     // and not freeze the entire page
@@ -191,7 +191,7 @@ test.describe('Error Scenarios', () => {
       route.abort('failed');
     });
 
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
 
     // Try to search
     const searchBtn = page.locator('button:has-text("Search")').last();
@@ -216,7 +216,7 @@ test.describe('Error Scenarios', () => {
       route.respond({ status: 200, body: JSON.stringify({}) });
     });
 
-    await page.goto('http://localhost:3000/');
+    await page.goto('/');
 
     // App should still load
     await page.waitForTimeout(2000);

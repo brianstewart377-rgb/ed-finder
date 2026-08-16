@@ -19,7 +19,7 @@ test('real-star layer zoom detection', async ({ page }) => {
 
   // Navigate to map
   console.log('Navigating to map...');
-  await page.goto('http://localhost:3000/#map');
+  await page.goto('/#map');
   await page.waitForTimeout(3000);
 
   // Check initial state

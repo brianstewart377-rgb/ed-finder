@@ -12,8 +12,8 @@ test('comprehensive E2E status check', async ({ page }) => {
   console.log('✓ API Status:', JSON.stringify(apiHealth));
 
   // Navigate to app using hash-based routing
-  console.log('\n✓ Navigating to localhost:3000/#map (hash-based routing)...');
-  await page.goto('http://localhost:3000/#map');
+  console.log('\n✓ Navigating to /#map (hash-based routing)...');
+  await page.goto('/#map');
   await page.waitForTimeout(5000);
 
   // Capture all info

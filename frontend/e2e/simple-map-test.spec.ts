@@ -25,7 +25,7 @@ test('check map page loads', async ({ page }) => {
   });
 
   console.log('\n✓ Navigating to map (hash-based routing: /#map)...');
-  await page.goto('http://localhost:3000/#map');
+  await page.goto('/#map');
 
   // Wait for page to fully load
   await page.waitForTimeout(5000);
