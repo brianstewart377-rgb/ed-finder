@@ -13,10 +13,14 @@ export function realStarLayerTargets(
   truncated: boolean,
 ): RealStarFadeTargets {
   const showRealStars = realStarCount > 0 && !truncated;
-  return {
+  const targets = {
     heatmapOpacity: showRealStars ? 0 : 1,
     starsOpacity: showRealStars ? 1 : 0,
   };
+  if (showRealStars) {
+    console.log(`[RealStarFade] Showing ${realStarCount} stars (truncated=${truncated})`);
+  }
+  return targets;
 }
 
 export interface RealStarFadeState extends RealStarFadeTargets {
@@ -98,6 +102,10 @@ export function useRealStarFade(
     heatmapOpacityRef.current = advanced.state.heatmapOpacity;
     starsOpacityRef.current = advanced.state.starsOpacity;
     applyOpacities(advanced.state);
+
+    if (advanced.complete && targets.heatmapOpacity !== 1) {
+      console.log(`[RealStarFade] Complete: heatmap=${advanced.state.heatmapOpacity.toFixed(2)}, stars=${advanced.state.starsOpacity.toFixed(2)}`);
+    }
 
     // Keep demand rendering alive until the complete cross-fade has actually
     // reached its targets. R3F already supplied this frame's delta; consuming
