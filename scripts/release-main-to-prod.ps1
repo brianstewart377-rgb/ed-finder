@@ -124,8 +124,8 @@ if ($untracked) {
 
 if (-not $SkipPull) {
   Write-Host '[release] Pulling latest main...'
-  git pull --ff-only origin main 2>$null
-  if ($LASTEXITCODE -ne 0) { throw 'git pull failed' }
+  $pullOutput = & git pull --ff-only origin main 2>&1
+  if ($LASTEXITCODE -ne 0) { throw "git pull failed: $pullOutput" }
 }
 
 Set-Location (Join-Path $RepoPath 'frontend')
