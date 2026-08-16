@@ -43,6 +43,7 @@ export function VolumetricGalaxy({
         uCameraPos: { value: camera.position },
         uTime: { value: 0 },
         uOpacity: { value: opacity },
+        uResolution: { value: new THREE.Vector2(size.width, size.height) },
       },
       vertexShader: `
         precision highp float;
@@ -61,6 +62,7 @@ export function VolumetricGalaxy({
         uniform vec3 uCameraPos;
         uniform float uTime;
         uniform float uOpacity;
+        uniform vec2 uResolution;
 
         // Density functions from research
         float bulgeProfile(float R) {
@@ -107,10 +109,10 @@ export function VolumetricGalaxy({
         }
 
         void main() {
-          // Normalized screen coordinates
-          vec2 uv = gl_FragCoord.xy / vec2(800.0, 600.0);
+          // Normalized screen coordinates (0 to 1)
+          vec2 uv = gl_FragCoord.xy / uResolution;
 
-          // Simple volume march for now - 24 steps
+          // Ray direction from camera through screen pixel
           vec3 rayDir = normalize(vec3(uv - 0.5, 1.0));
           vec3 rayPos = uCameraPos;
 
@@ -162,11 +164,12 @@ export function VolumetricGalaxy({
   }, [gl, scene, camera, size]);
 
   // Update shader uniforms each frame
-  useFrame(({ camera: cam, clock }) => {
+  useFrame(({ camera: cam, clock, size: frameSize }) => {
     if (quadRef.current && quadRef.current.material instanceof THREE.RawShaderMaterial) {
       quadRef.current.material.uniforms.uCameraPos.value.copy(cam.position);
       quadRef.current.material.uniforms.uTime.value = clock.elapsedTime;
       quadRef.current.material.uniforms.uOpacity.value = opacity;
+      quadRef.current.material.uniforms.uResolution.value.set(frameSize.width, frameSize.height);
     }
   });
 
