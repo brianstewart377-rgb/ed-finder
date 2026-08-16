@@ -22,6 +22,7 @@ import { measureRendererGpuTiming } from './performance';
 import { declutterRegionLabels } from './map-presentation';
 import { GlowPointsMaterial } from './glowPoints';
 import { RealStarLayer } from './RealStarLayer';
+import { DensitySwirl } from './DensitySwirl';
 import { PowerplayPointLayer } from './PowerplayPointLayer';
 import {
   buildClusterGeometry,
@@ -303,13 +304,22 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   } = realStarLayerTargets(realStars?.length ?? 0, truncated);
 
   const heatmapMaterialRef = useRef<THREE.PointsMaterial>(null);
+  const densitySwirlGroupRef = useRef<THREE.Group | null>(null);
   const starsGroupRef = useRef<THREE.Group | null>(null);
   const applyRealStarOpacities = useCallback((opacities: {
     heatmapOpacity: number;
+    densitySwirlOpacity: number;
     starsOpacity: number;
   }) => {
     if (heatmapMaterialRef.current) {
       heatmapMaterialRef.current.opacity = opacities.heatmapOpacity;
+    }
+    if (densitySwirlGroupRef.current) {
+      densitySwirlGroupRef.current.traverse((child) => {
+        if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
+          child.material.opacity = opacities.densitySwirlOpacity;
+        }
+      });
     }
     if (starsGroupRef.current) {
       starsGroupRef.current.traverse((child) => {
@@ -323,9 +333,11 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   }, []);
   const {
     heatmapOpacityRef: currentHeatmapOpacityRef,
+    densitySwirlOpacityRef: currentDensitySwirlOpacityRef,
     starsOpacityRef: currentStarsOpacityRef,
   } = useRealStarFade({
     heatmapOpacity: targetHeatmapOpacity,
+    densitySwirlOpacity: 0,
     starsOpacity: targetStarsOpacity,
   }, applyRealStarOpacities);
 
@@ -391,6 +403,14 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         depthWrite={false}
       />
     </points>}
+    {heatmap && (
+      <group ref={densitySwirlGroupRef}>
+        <DensitySwirl
+          heatmap={heatmap}
+          opacity={currentDensitySwirlOpacityRef.current}
+        />
+      </group>
+    )}
     {realStars && realStars.length > 0 && (
       <group ref={starsGroupRef}>
         <RealStarLayer
