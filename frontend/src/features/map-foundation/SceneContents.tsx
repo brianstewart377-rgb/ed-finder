@@ -1,4 +1,3 @@
-import { type ThreeEvent, useThree } from '@react-three/fiber';
 import {
   useCallback,
   useEffect,
@@ -21,9 +20,7 @@ import type {
 import { measureRendererGpuTiming } from './performance';
 import { declutterRegionLabels } from './map-presentation';
 import { GlowPointsMaterial } from './glowPoints';
-import { RealStarLayer } from './RealStarLayer';
 import { DensitySwirl } from './DensitySwirl';
-import { VolumetricGalaxy } from './VolumetricGalaxy';
 import { PowerplayPointLayer } from './PowerplayPointLayer';
 import {
   buildClusterGeometry,
@@ -38,7 +35,7 @@ import {
   MAX_CAMERA_PITCH_DEG,
   MIN_CAMERA_PITCH_DEG,
 } from './camera';
-import { GalaxyBackdrop } from './GalaxyBackdrop';
+import { GALAXY_CENTER, GalaxyBackdrop } from './GalaxyBackdrop';
 import { RouteLayer } from './RouteLayer';
 import {
   buildExplorationTrailBuffers,
@@ -247,7 +244,13 @@ export function GpuTimingBridge({ onReady }: { onReady: FoundationRendererProps[
 
 export function SceneContents(props: FoundationRendererProps & { visible: ReturnType<typeof selectVisibleSystems> }) {
   const { visible } = props;
+  const { camera: renderCamera } = useThree();
   const [hoveredSystemId, setHoveredSystemId] = useState<number | null>(null);
+  const volumetricGameWorldOffset = useMemo(() => new THREE.Vector3(
+    -GALAXY_CENTER.x,
+    -GALAXY_CENTER.z,
+    0,
+  ), []);
   const spatial = props.scene.camera.pitchDeg > 4;
   const reference = props.reference ?? { name: 'Origin', x: props.scene.origin.x, z: props.scene.origin.z };
   const backgroundPositions = useMemo(
@@ -300,13 +303,22 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   // Compute target opacities based on zoom state (box) and cap state (truncated)
   const truncated = props.productionOverlays?.realStarsTruncated ?? false;
   const {
+    densitySwirlOpacity: targetDensitySwirlOpacity,
     starsOpacity: targetStarsOpacity,
   } = realStarLayerTargets(realStars?.length ?? 0, truncated);
   const densitySwirlGroupRef = useRef<THREE.Group | null>(null);
   const starsGroupRef = useRef<THREE.Group | null>(null);
   const applyRealStarOpacities = useCallback((opacities: {
+    densitySwirlOpacity: number;
     starsOpacity: number;
   }) => {
+    if (densitySwirlGroupRef.current) {
+      densitySwirlGroupRef.current.traverse((child) => {
+        if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
+          child.material.opacity = opacities.densitySwirlOpacity;
+        }
+      });
+    }
     if (starsGroupRef.current) {
       starsGroupRef.current.traverse((child) => {
         if (child instanceof THREE.Points && child.material instanceof THREE.ShaderMaterial) {
@@ -321,7 +333,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     densitySwirlOpacityRef: currentDensitySwirlOpacityRef,
     starsOpacityRef: currentStarsOpacityRef,
   } = useRealStarFade({
-    densitySwirlOpacity: 1,
+    densitySwirlOpacity: targetDensitySwirlOpacity,
     starsOpacity: targetStarsOpacity,
   }, applyRealStarOpacities);
 
@@ -372,7 +384,13 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <ReferenceMarker reference={reference} zoom={props.scene.camera.zoom} />
       </>
     )}
-    <VolumetricGalaxy opacity={currentDensitySwirlOpacityRef.current} />
+    <VolumetricGalaxy
+      opacity={currentDensitySwirlOpacityRef.current}
+      opacityRef={currentDensitySwirlOpacityRef}
+      cameraWorldPos={renderCamera.position}
+      gameWorldOffset={volumetricGameWorldOffset}
+      worldScale={1}
+    />
     {heatmap && (
       <group ref={densitySwirlGroupRef}>
         <DensitySwirl
