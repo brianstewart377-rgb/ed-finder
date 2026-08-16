@@ -108,6 +108,7 @@ jobs:
     name: Coverage Summary
     needs: [backend-coverage, frontend-coverage]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: always()
     steps:
       - name: Check coverage results
