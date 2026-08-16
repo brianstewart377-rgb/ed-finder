@@ -1,23 +1,44 @@
 import { test, expect } from '@playwright/test';
 
 test('check map page loads', async ({ page }) => {
-  test.setTimeout(30000);
+  test.setTimeout(60000);
 
-  console.log('\n✓ Navigating to map...');
-  await page.goto('http://localhost:5173/map');
-
-  // Wait a bit for the page to load
-  await page.waitForTimeout(3000);
-
-  // Log all console messages
+  // Capture console and errors BEFORE navigation
   page.on('console', (msg) => {
     console.log(`[CONSOLE] ${msg.type()}: ${msg.text()}`);
   });
 
-  // Log all page errors
   page.on('pageerror', (error) => {
     console.log(`[PAGE ERROR] ${error.message}`);
   });
+
+  page.on('request', (request) => {
+    if (request.url().includes('/api/')) {
+      console.log(`[REQUEST] ${request.method()} ${request.url().split('?')[0]}`);
+    }
+  });
+
+  page.on('response', (response) => {
+    if (response.url().includes('/api/')) {
+      console.log(`[RESPONSE] ${response.status()} ${response.url().split('?')[0]}`);
+    }
+  });
+
+  console.log('\n✓ Navigating to map...');
+  await page.goto('http://localhost:3000/map');
+
+  // Wait for page to fully load
+  await page.waitForTimeout(5000);
+
+  // Check if Map tab exists and click it if needed
+  const mapTab = page.locator('button:has-text("Map")').first();
+  const mapTabVisible = await mapTab.isVisible().catch(() => false);
+  console.log(`✓ Map tab visible: ${mapTabVisible}`);
+  if (mapTabVisible) {
+    console.log('✓ Clicking Map tab...');
+    await mapTab.click();
+    await page.waitForTimeout(2000);
+  }
 
   // Check what's on the page
   const title = await page.title();
@@ -51,6 +72,6 @@ test('check map page loads', async ({ page }) => {
   }
 
   // Take a screenshot for visual inspection
-  await page.screenshot({ path: 'frontend/test-results/simple-map-test.png' });
+  await page.screenshot({ path: 'test-results/simple-map-test.png' });
   console.log(`✓ Screenshot saved`);
 });
