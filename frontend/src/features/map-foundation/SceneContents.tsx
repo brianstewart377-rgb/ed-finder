@@ -299,28 +299,13 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   // Compute target opacities based on zoom state (box) and cap state (truncated)
   const truncated = props.productionOverlays?.realStarsTruncated ?? false;
   const {
-    heatmapOpacity: targetHeatmapOpacity,
     starsOpacity: targetStarsOpacity,
   } = realStarLayerTargets(realStars?.length ?? 0, truncated);
-
-  const heatmapMaterialRef = useRef<THREE.PointsMaterial>(null);
   const densitySwirlGroupRef = useRef<THREE.Group | null>(null);
   const starsGroupRef = useRef<THREE.Group | null>(null);
   const applyRealStarOpacities = useCallback((opacities: {
-    heatmapOpacity: number;
-    densitySwirlOpacity: number;
     starsOpacity: number;
   }) => {
-    if (heatmapMaterialRef.current) {
-      heatmapMaterialRef.current.opacity = opacities.heatmapOpacity;
-    }
-    if (densitySwirlGroupRef.current) {
-      densitySwirlGroupRef.current.traverse((child) => {
-        if (child instanceof THREE.Points && child.material instanceof THREE.Material) {
-          child.material.opacity = opacities.densitySwirlOpacity;
-        }
-      });
-    }
     if (starsGroupRef.current) {
       starsGroupRef.current.traverse((child) => {
         if (child instanceof THREE.Points && child.material instanceof THREE.ShaderMaterial) {
@@ -332,12 +317,10 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     }
   }, []);
   const {
-    heatmapOpacityRef: currentHeatmapOpacityRef,
     densitySwirlOpacityRef: currentDensitySwirlOpacityRef,
     starsOpacityRef: currentStarsOpacityRef,
   } = useRealStarFade({
-    heatmapOpacity: targetHeatmapOpacity,
-    densitySwirlOpacity: 0,
+    densitySwirlOpacity: 1,
     starsOpacity: targetStarsOpacity,
   }, applyRealStarOpacities);
 
@@ -388,21 +371,6 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <ReferenceMarker reference={reference} zoom={props.scene.camera.zoom} />
       </>
     )}
-    {heatmap && currentHeatmapOpacityRef.current > 0 && <points>
-      <bufferGeometry>
-        <bufferAttribute attach="attributes-position" args={[heatmap.positions, 3]} />
-        <bufferAttribute attach="attributes-color" args={[heatmap.colors, 3]} />
-      </bufferGeometry>
-      <pointsMaterial
-        ref={heatmapMaterialRef}
-        vertexColors
-        size={2.5}
-        sizeAttenuation={true}
-        transparent={true}
-        opacity={currentHeatmapOpacityRef.current}
-        depthWrite={false}
-      />
-    </points>}
     {heatmap && (
       <group ref={densitySwirlGroupRef}>
         <DensitySwirl
