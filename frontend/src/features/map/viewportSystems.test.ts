@@ -6,7 +6,7 @@ describe('viewportSystems', () => {
     it('should enable real-star detail when zoomed in below enter threshold', () => {
       const camera = {
         center: { x: 0, z: 0 },
-        zoom: 0.5, // Zoomed in
+        zoom: 5, // Zoomed in enough (thresholds are 120k/150k LY)
         pitchDeg: 0.5,
       };
       const viewport = {
@@ -22,7 +22,7 @@ describe('viewportSystems', () => {
     it('should NOT enable when zoomed out beyond enter threshold', () => {
       const camera = {
         center: { x: 0, z: 0 },
-        zoom: 100, // Very zoomed out
+        zoom: 1000, // Very zoomed out (span >> 150k LY)
         pitchDeg: 0.5,
       };
       const viewport = {
