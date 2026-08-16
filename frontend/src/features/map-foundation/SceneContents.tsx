@@ -418,7 +418,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
           ? Math.min(explorationVisits[0].cell_size ?? 100, attenuatedPointSize(props.scene.camera.zoom, 16))
           : attenuatedPointSize(props.scene.camera.zoom, 10)}
         sizeAttenuation
-        opacity={0.9}
+        opacity={currentHeatmapOpacityRef.current}
       />
     </points>}
     {explorationTrailBuffers.positions.length > 0 && <lineSegments renderOrder={10}>
