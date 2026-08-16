@@ -396,8 +396,8 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       <pointsMaterial
         ref={heatmapMaterialRef}
         vertexColors
-        size={heatmap.voxelSize * 0.72}
-        sizeAttenuation={false}
+        size={2.5}
+        sizeAttenuation={true}
         transparent={true}
         opacity={currentHeatmapOpacityRef.current}
         depthWrite={false}
