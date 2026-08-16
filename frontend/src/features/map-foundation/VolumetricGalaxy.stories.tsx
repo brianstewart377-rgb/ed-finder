@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { VolumetricGalaxy } from './VolumetricGalaxy';
 
 const meta: Meta = {
@@ -10,9 +9,8 @@ const meta: Meta = {
     <Canvas
       style={{ width: '100%', height: '600px', background: '#000' }}
       orthographic={false}
+      camera={{ position: [0, 0, 100], fov: 75 }}
     >
-      <PerspectiveCamera makeDefault position={[0, 0, 100]} />
-      <OrbitControls />
       <VolumetricGalaxy opacity={args.opacity} />
       <ambientLight intensity={0.1} />
     </Canvas>
