@@ -245,6 +245,27 @@ Stage 19 warehouse/enrichment operator scripts live here, split into active (top
 
 See memory: [[frontend_deploy_sequence]] for the manual deployment procedure, pre-deployment verification, and drift detection.
 
+## Visual testing before deploy (mandatory)
+
+**Any change affecting rendering, layout, or UI must be tested visually before deploy. No exceptions.**
+
+This includes:
+- Three.js/canvas rendering (map heatmap, stars, layers)
+- CSS/Tailwind layout changes
+- Component restructuring affecting visual output
+- Opacity, color, size calculations
+- Anything users *see*
+
+**Process:**
+1. **Start Docker** if not running: `docker compose -f docker-compose.local.yml up -d`
+2. **Run E2E tests** (uses live backend): `cd frontend && npx playwright test --project=chromium`
+3. **Use Storybook** for isolated component inspection before E2E
+4. **DO NOT DEPLOY** without visual verification passing
+
+**Why:** Unit tests verify behavior, not visuals. A heatmap rendering bug (giant cells covering regions) passed all unit tests but reached production because visual E2E testing was skipped. Storybook and Playwright E2E exist to catch this; use them.
+
+See memory: [[visual_testing_mandatory]] for the full rule.
+
 ## Debugging data drift
 
 See memory: [[debugging_data_drift]] for the methodology earned from the body_rings association_status hunt — check schema before code, every write verb, and verify claims before reasoning on top of them.
