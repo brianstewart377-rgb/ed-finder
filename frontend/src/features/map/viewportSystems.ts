@@ -217,17 +217,28 @@ export function useViewportSystems(opts: {
   const [settledBox, setSettledBox] = useState<MapViewportBox | null>(null);
   useEffect(() => {
     if (box == null) {
+      console.log('[viewport-systems] box is null, clearing settledBox');
       setSettledBox(null);
       return undefined;
     }
-    const timer = setTimeout(() => setSettledBox(box), SETTLE_MS);
-    return () => clearTimeout(timer);
+    console.log('[viewport-systems] box changed, starting 250ms settle timer', { box });
+    const timer = setTimeout(() => {
+      console.log('[viewport-systems] settle timer fired, setting settledBox');
+      setSettledBox(box);
+    }, SETTLE_MS);
+    return () => {
+      console.log('[viewport-systems] settle timer cleared');
+      clearTimeout(timer);
+    };
   }, [box]);
 
   const query = useQuery<MapViewportResponse, Error>({
     // Key on the settled box so the request is stable once camera settles.
     queryKey: ['map', 'systems', settledBox?.min_x, settledBox?.max_x, settledBox?.min_z, settledBox?.max_z],
-    queryFn: () => api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT),
+    queryFn: () => {
+      console.log('[viewport-systems] executing query for box', settledBox);
+      return api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT);
+    },
     enabled: enabled && settledBox != null,
     staleTime: 60_000,
     gcTime: 300_000,
