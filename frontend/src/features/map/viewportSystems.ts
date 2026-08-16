@@ -208,8 +208,8 @@ export function useViewportSystems(opts: {
   }, []);
 
   const box = useMemo(
-    () => detailEnabled ? realStarViewportBox(optsRef.current.camera, optsRef.current.viewport) : null,
-    [detailEnabled],
+    () => detailEnabled ? realStarViewportBox(opts.camera, opts.viewport) : null,
+    [detailEnabled, opts.camera.center.x, opts.camera.center.z, opts.camera.zoom, opts.camera.pitchDeg, opts.viewport.width, opts.viewport.height],
   );
 
   // Debounce: wait for camera to settle before issuing a query. Smooth zoom/pan
