@@ -376,7 +376,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <ReferenceMarker reference={reference} zoom={props.scene.camera.zoom} />
       </>
     )}
-    {heatmap && <points>
+    {heatmap && currentHeatmapOpacityRef.current > 0 && <points>
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[heatmap.positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[heatmap.colors, 3]} />
@@ -384,11 +384,8 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       <pointsMaterial
         ref={heatmapMaterialRef}
         vertexColors
-        size={Math.min(
-          heatmap.voxelSize * 0.72,
-          attenuatedPointSize(props.scene.camera.zoom, 10),
-        )}
-        sizeAttenuation
+        size={heatmap.voxelSize * 0.72}
+        sizeAttenuation={false}
         transparent={true}
         opacity={currentHeatmapOpacityRef.current}
         depthWrite={false}

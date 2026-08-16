@@ -28,6 +28,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined, // avoid concurrent software-WebGL contexts
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? 'github' : 'list',
+  globalSetup: './e2e/globalSetup.ts',
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',

@@ -158,6 +158,7 @@ export function useViewportSystems(opts: {
 }): UseViewportSystemsResult {
   const enabled = opts.enabled ?? true;
   const [detailEnabled, setDetailEnabled] = useState(false);
+  const detailEnabledRef = useRef(false);
   const lastCameraKeyRef = useRef<string>('');
   const optsRef = useRef(opts);
 
@@ -166,12 +167,15 @@ export function useViewportSystems(opts: {
     optsRef.current = opts;
   }, [opts.camera, opts.viewport, opts.enabled]);
 
+  // Keep detailEnabled ref in sync for RAF closure
+  useEffect(() => {
+    detailEnabledRef.current = detailEnabled;
+  }, [detailEnabled]);
+
   // Monitor camera changes via requestAnimationFrame (outside Canvas context)
   useEffect(() => {
     let animId: number;
-    let frameCount = 0;
     const checkCameraChange = () => {
-      frameCount++;
       const current = optsRef.current;
       const cameraKey = `${current.camera.center.x}|${current.camera.center.z}|${current.camera.zoom}|${current.camera.pitchDeg ?? 0}`;
 
@@ -179,24 +183,15 @@ export function useViewportSystems(opts: {
         lastCameraKeyRef.current = cameraKey;
         const currentEnabled = current.enabled ?? true;
         const span = realStarViewportSpan(current.camera, current.viewport);
-        const shouldEnable = currentEnabled && shouldEnableRealStarDetail(current.camera, current.viewport, detailEnabled);
+        const shouldEnable = currentEnabled && shouldEnableRealStarDetail(current.camera, current.viewport, detailEnabledRef.current);
 
-        // Log every zoom change with detailed info
-        const currentThreshold = detailEnabled ? REAL_STAR_EXIT_MAX_LY : REAL_STAR_ENTER_MAX_LY;
-        const ratio = span.maxSpan / currentThreshold;
-        console.log('[viewport-systems] zoom detected:', {
-          zoom: current.camera.zoom,
-          maxSpan: span.maxSpan,
-          ratio: ratio.toFixed(1) + 'x threshold',
-          threshold: detailEnabled ? 'EXIT_MAX_LY' : 'ENTER_MAX_LY',
-          thresholdValue: currentThreshold,
-          shouldEnable,
-          suggestedThreshold: Math.round(span.maxSpan / 2), // Suggest enabling at half current span
-          currentlyEnabled: detailEnabled,
-        });
-
-        if (shouldEnable !== detailEnabled) {
-          console.log('[viewport-systems] TOGGLING DETAIL - was:', detailEnabled, 'now:', shouldEnable);
+        if (shouldEnable !== detailEnabledRef.current) {
+          console.log('[viewport-systems] zoom detected, detail toggle:', {
+            zoom: current.camera.zoom,
+            span: span.maxSpan,
+            from: detailEnabledRef.current,
+            to: shouldEnable,
+          });
           setDetailEnabled(shouldEnable);
         }
       }
@@ -217,28 +212,20 @@ export function useViewportSystems(opts: {
   const [settledBox, setSettledBox] = useState<MapViewportBox | null>(null);
   useEffect(() => {
     if (box == null) {
-      console.log('[viewport-systems] box is null, clearing settledBox');
       setSettledBox(null);
       return undefined;
     }
-    console.log('[viewport-systems] box changed, starting 250ms settle timer', { box });
     const timer = setTimeout(() => {
-      console.log('[viewport-systems] settle timer fired, setting settledBox');
+      console.log('[viewport-systems] settle timer fired, issuing query');
       setSettledBox(box);
     }, SETTLE_MS);
-    return () => {
-      console.log('[viewport-systems] settle timer cleared');
-      clearTimeout(timer);
-    };
+    return () => clearTimeout(timer);
   }, [box]);
 
   const query = useQuery<MapViewportResponse, Error>({
     // Key on the settled box so the request is stable once camera settles.
     queryKey: ['map', 'systems', settledBox?.min_x, settledBox?.max_x, settledBox?.min_z, settledBox?.max_z],
-    queryFn: () => {
-      console.log('[viewport-systems] executing query for box', settledBox);
-      return api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT);
-    },
+    queryFn: () => api.mapSystems(settledBox as MapViewportBox, REAL_STAR_LIMIT),
     enabled: enabled && settledBox != null,
     staleTime: 60_000,
     gcTime: 300_000,
