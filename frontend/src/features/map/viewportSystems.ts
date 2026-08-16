@@ -18,10 +18,11 @@ const GRID_LY = 250;
 // thin, so this covers virtually all systems while staying under the guard.
 export const REAL_STAR_Y_HALF_LY = 6_000;
 // Separate enter and exit thresholds prevent repeated heatmap/detail toggles at
-// the LOD boundary. Both remain below the server's 15k too_wide guard after
-// grid rounding expands the requested box.
-export const REAL_STAR_ENTER_MAX_LY = 12_500;
-export const REAL_STAR_EXIT_MAX_LY = 14_000;
+// the LOD boundary. Thresholds tuned to enable real-star detail at reasonable zoom
+// levels (roughly 40-50 LY/px). Values account for the viewport span calculation
+// which includes margin (1.25x) and pitch footprint scaling.
+export const REAL_STAR_ENTER_MAX_LY = 120_000;
+export const REAL_STAR_EXIT_MAX_LY = 150_000;
 const REAL_STAR_LIMIT = 40_000;
 // Wait for the camera to settle before issuing a viewport query, so smooth
 // zoom / continuous panning (which change the box every animation frame) can't
@@ -168,18 +169,37 @@ export function useViewportSystems(opts: {
   // Monitor camera changes via requestAnimationFrame (outside Canvas context)
   useEffect(() => {
     let animId: number;
+    let frameCount = 0;
     const checkCameraChange = () => {
+      frameCount++;
       const current = optsRef.current;
       const cameraKey = `${current.camera.center.x}|${current.camera.center.z}|${current.camera.zoom}|${current.camera.pitchDeg ?? 0}`;
+
       if (cameraKey !== lastCameraKeyRef.current) {
         lastCameraKeyRef.current = cameraKey;
         const currentEnabled = current.enabled ?? true;
+        const span = realStarViewportSpan(current.camera, current.viewport);
         const shouldEnable = currentEnabled && shouldEnableRealStarDetail(current.camera, current.viewport, detailEnabled);
+
+        // Log every zoom change with detailed info
+        const ratio = span.maxSpan / (detailEnabled ? 14_000 : 12_500);
+        console.log('[viewport-systems] zoom detected:', {
+          zoom: current.camera.zoom,
+          maxSpan: span.maxSpan,
+          ratio: ratio.toFixed(1) + 'x threshold',
+          threshold: detailEnabled ? 'EXIT_MAX_LY' : 'ENTER_MAX_LY',
+          thresholdValue: detailEnabled ? 14_000 : 12_500,
+          shouldEnable,
+          suggestedThreshold: Math.round(span.maxSpan / 2), // Suggest enabling at half current span
+          currentlyEnabled: detailEnabled,
+        });
+
         if (shouldEnable !== detailEnabled) {
-          console.log('[viewport-systems] camera key:', cameraKey, 'should enable:', shouldEnable);
+          console.log('[viewport-systems] TOGGLING DETAIL - was:', detailEnabled, 'now:', shouldEnable);
           setDetailEnabled(shouldEnable);
         }
       }
+
       animId = requestAnimationFrame(checkCameraChange);
     };
     animId = requestAnimationFrame(checkCameraChange);
