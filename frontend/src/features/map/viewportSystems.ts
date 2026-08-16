@@ -70,7 +70,7 @@ function pitchFootprintScale(pitchDeg = 0.5): number {
   return Math.max(farExtent, nearExtent) / 0.5;
 }
 
-function realStarViewportSpan(
+export function realStarViewportSpan(
   camera: ViewportCamera,
   viewport: ViewportSize,
 ): { halfX: number; halfZ: number; maxSpan: number } {
