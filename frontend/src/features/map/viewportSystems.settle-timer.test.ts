@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { realStarViewportBox, shouldEnableRealStarDetail, realStarViewportSpan } from './viewportSystems';
-import type { MapViewportBox } from '@/lib/api';
 
 describe('viewport systems settle timer logic', () => {
   const viewport = { width: 1280, height: 720 };
