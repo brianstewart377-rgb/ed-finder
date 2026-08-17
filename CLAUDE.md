@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync and update it after any major roadmap change such as a stage completion, cutover, or lane shift):** Stages 25A–25H and **26A–26E are complete**. The next-generation R3F/Three.js desktop map has been **cut over to production (commit `3b53477`) and is in observation**, with real-star LOD streaming (Phase 1 backend in progress, 2026-08-15) and bounded post-cutover polish slices shipped (e.g. PR #367); the prior renderer remains an explicit build-time rollback (`VITE_STAGE26E_PRODUCTION_MAP=disabled`). Foundation-finishing work (archetype-scoring cleanup ✓, CRE confidence-vocabulary reconciliation ✓, data-trust hardening ✓) is mostly complete; accounts/auth, journal `A-2`/`A-3`, and score-weighted corridor routing remain deferred/gated. Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace.
+ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync and update it after any major roadmap change such as a stage completion, cutover, or lane shift):** Stages 25A–25H and **26A–26E are complete**. The R3F/Three.js desktop map (commit `3b53477`) is being **replaced with Babylon.js renderer (2026-08-16 redesign plan)** incorporating Stellar Forge-inspired galactic density model; prior renderer remains rollback option (`VITE_STAGE26E_PRODUCTION_MAP=disabled`). Foundation-finishing work (archetype-scoring cleanup ✓, CRE confidence-vocabulary reconciliation ✓, data-trust hardening ✓) is mostly complete; accounts/auth, journal `A-2`/`A-3`, score-weighted corridor routing, and real-star LOD streaming (Phase 2) remain deferred/gated. Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace.
 
 `ed-finder` is one of **three repos** in this workspace, and it is the app-only one:
 - `ed-finder` (this repo) — runnable product app, frontend, API, local dev stack. Nothing here should invent new colonisation mechanics truth.
@@ -39,13 +39,13 @@ Historical context: `docs/colonisation-redesign/stage-N-*.md` files contain rati
 
 ## Current Lane
 
-**Current lane:** Foundation-finishing work (not new product features yet).
+**Current lane:** Babylon.js map redesign (replacing Three.js renderer with Stellar Forge-inspired galactic density model).
 
-**Active focus:** Archetype-scoring cleanup, CRE confidence-vocabulary reconciliation, dependency-aware doc triage, bounded hygiene pass.
+**Active focus:** Complete 5-task implementation: scene foundation + coordinate transforms + galactic density + stars layer + camera controls + E2E testing. Real-star LOD streaming deferred to Phase 2.
 
-**Deferred work:** Accounts/auth, journal A-2/A-3, score-weighted corridor routing remain explicitly deferred.
+**Deferred work:** Accounts/auth, journal A-2/A-3, score-weighted corridor routing, real-star LOD streaming (Phase 2).
 
-**Next map project:** Real-star LOD streaming (Phase 2) — already designed and planned.
+**Next map project:** Real-star LOD streaming (Phase 2) — design complete, implementation queued after Babylon.js foundation.
 
 **Critical context:** Repo is mid-response to external adversarial audit. Foundation-safety prioritization order:
 1. Ratings rebaseline / body-data contract drift
