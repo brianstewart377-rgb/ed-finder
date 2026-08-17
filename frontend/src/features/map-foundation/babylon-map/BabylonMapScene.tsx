@@ -3,6 +3,7 @@ import * as BABYLON from 'babylonjs';
 import type { MapViewportSystem } from '@/lib/api';
 import type { BabylonMapSceneHandle, GameWorldPosition, MapSceneConfig } from './types';
 import { setupMapCamera, updateCameraPosition } from './mapCamera';
+import { createStarsLayer, updateStarsLayer } from './starsLayer';
 
 export interface BabylonMapSceneProps {
   sceneRef: React.MutableRefObject<BabylonMapSceneHandle | null>;
@@ -13,11 +14,11 @@ export interface BabylonMapSceneProps {
 /**
  * React wrapper for the Babylon.js scene lifecycle: owns the canvas, engine,
  * scene, and render loop, and exposes an imperative handle (`sceneRef`) for
- * the map feature to drive camera position and (in Task 2) star data without
+ * the map feature to drive camera position and star data without
  * re-rendering React on every frame.
  *
- * Real stars (`updateStars`) and galaxy particles are wired up in Tasks 2-3;
- * this task only establishes the scene, camera stub, and the handle surface.
+ * Real stars (`updateStars`/`updateZoom`, backed by `starsLayer.ts`) are
+ * wired up as of Task 2. Galaxy background particles are still Task 3.
  */
 export function BabylonMapScene({ sceneRef, config, onSceneReady }: BabylonMapSceneProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -43,6 +44,15 @@ export function BabylonMapScene({ sceneRef, config, onSceneReady }: BabylonMapSc
 
       const currentZoomRef = { current: config.cameraZoomLy };
 
+      // Owned by this effect's closure, not React state: the render loop and
+      // imperative handle methods below run outside React's render cycle, so
+      // stars/layer state lives here rather than in a ref that would need a
+      // re-render to update. `lastSystems` lets `updateZoom` re-weight the
+      // existing star batch (density/LOD) without the caller having to
+      // re-supply the systems array on every zoom change.
+      let starsLayerMesh: BABYLON.Mesh | null = null;
+      let lastSystems: MapViewportSystem[] = [];
+
       const handle: BabylonMapSceneHandle = {
         scene,
         engine,
@@ -60,16 +70,31 @@ export function BabylonMapScene({ sceneRef, config, onSceneReady }: BabylonMapSc
           // if a future task needs live rescaling.
           console.warn('BabylonMapScene.setWorldScale: not supported after scene initialization');
         },
-        updateStars: (_systems: MapViewportSystem[]) => {
-          // Implemented in Task 2 (starsLayer.ts) with density/zoom weighting.
+        updateStars: (systems: MapViewportSystem[]) => {
           // Guard against the Task 1 -> Task 2 handoff race: callers must not
           // touch the scene before Babylon reports it ready.
           if (!scene || !scene.isReady()) return;
+
+          lastSystems = systems;
+          const options = { densityWeighting: true, zoomLy: currentZoomRef.current };
+
+          if (starsLayerMesh) {
+            updateStarsLayer(starsLayerMesh, systems, config.worldScale, options);
+          } else {
+            starsLayerMesh = createStarsLayer(scene, systems, config.worldScale, options);
+          }
         },
         updateZoom: (zoomLy: number) => {
-          // Re-applied to stars/particles once Task 2/3 land; for now this
-          // only tracks the current zoom level for future LOD weighting.
           currentZoomRef.current = zoomLy;
+
+          // Re-apply density/LOD weighting to the existing star batch. Do
+          // NOT call updateStars([]) here -- that would wipe the layer,
+          // since [] is indistinguishable from "no stars in viewport".
+          if (!scene || !scene.isReady() || !starsLayerMesh) return;
+          updateStarsLayer(starsLayerMesh, lastSystems, config.worldScale, {
+            densityWeighting: true,
+            zoomLy,
+          });
         },
       };
 
