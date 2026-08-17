@@ -27,8 +27,10 @@ document that should answer "what next?".
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
-  planning workspace. Stage 26 authorizes a measured desktop replacement of
-  its low-value frontend implementation while preserving that product role.
+  planning workspace. Stage 26E R3F/Three.js map (commit `3b53477`) is being replaced
+  with a Babylon.js-based renderer (2026-08-16 redesign plan) incorporating
+  Stellar Forge-inspired galactic density model. Prior renderer remains rollback
+  option. Real-star LOD streaming (Phase 2) is deferred post-foundation.
 - Map layer posture (2026-08-08): the map's typed `MapSceneDescriptor` layer/adapter
   boundary (Stage 26D) is the standing, documented pattern for any Explore-journey
   feature that wants map presence — not a closed list limited to Finder, Compare,
