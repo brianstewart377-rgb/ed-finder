@@ -66,5 +66,11 @@ export default defineConfig({
     url:     'http://localhost:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
+    // Validate server is actually responding before reusing
+    env: {
+      ...process.env,
+      // Allow forcing full restart by setting PLAYWRIGHT_NO_REUSE_SERVER=1
+      ...(process.env.PLAYWRIGHT_NO_REUSE_SERVER && { FORCE_REBUILD: '1' }),
+    },
   },
 });

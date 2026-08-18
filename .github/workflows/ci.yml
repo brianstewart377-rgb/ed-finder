@@ -550,6 +550,8 @@ jobs:
     if: needs.changes.outputs.needs_frontend_ci == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      CI: 'true'
     services:
       postgres:
         image: postgres:16-alpine
@@ -637,23 +639,29 @@ jobs:
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
           PYTHONPATH:   ${{ github.workspace }}
+          UVICORN_LOG:  /tmp/uvicorn.log
         working-directory: apps/api/src
         run: |
           nohup python -m uvicorn edfinder_api.main:app --host 127.0.0.1 --port 8002 > /tmp/uvicorn.log 2>&1 &
+          API_STARTED=false
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8002/api/health >/dev/null 2>&1; then
               echo "✓ API ready after ${i}s"
-              exit 0
+              API_STARTED=true
+              break
             fi
             if [ $((i % 10)) -eq 0 ]; then
               echo "  Waiting for API... (${i}/60s)"
             fi
             sleep 1
           done
-          echo "::error::API failed to start within 60s"
-          echo "API startup log:"
-          tail -50 /tmp/uvicorn.log
-          exit 1
+
+          if [ "$API_STARTED" != "true" ]; then
+            echo "::error::API failed to start within 60s"
+            echo "API startup log (last 50 lines):"
+            tail -50 /tmp/uvicorn.log || echo "No log file found"
+            exit 1
+          fi
 
       - name: Install frontend deps
         working-directory: frontend
@@ -675,7 +683,8 @@ jobs:
           # the dev pod); CI runs on :8002 to coexist with anything
           # else mapped to :8001 on the runner.
           VITE_DEV_API_TARGET: http://127.0.0.1:8002
-          CI: 'true'
+          E2E_API_HOST: 127.0.0.1
+          E2E_API_PORT: '8002'
         run: xvfb-run --auto-servernum yarn e2e
 
       - name: Upload Playwright report on failure
