@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { useThree, type ThreeEvent } from '@react-three/fiber';
 import * as THREE from 'three';
 import type {
   CameraState,
@@ -35,7 +36,7 @@ import {
   MAX_CAMERA_PITCH_DEG,
   MIN_CAMERA_PITCH_DEG,
 } from './camera';
-import { GALAXY_CENTER, GalaxyBackdrop } from './GalaxyBackdrop';
+import { GalaxyBackdrop } from './GalaxyBackdrop';
 import { RouteLayer } from './RouteLayer';
 import {
   buildExplorationTrailBuffers,
@@ -48,6 +49,7 @@ import {
   ReferenceMarker,
 } from './SceneDecorations';
 import { realStarLayerTargets, useRealStarFade } from './realStarFade';
+import { VolumetricGalaxy } from './VolumetricGalaxy';
 
 function positions(
   systems: SystemRecord[],
@@ -244,13 +246,7 @@ export function GpuTimingBridge({ onReady }: { onReady: FoundationRendererProps[
 
 export function SceneContents(props: FoundationRendererProps & { visible: ReturnType<typeof selectVisibleSystems> }) {
   const { visible } = props;
-  const { camera: renderCamera } = useThree();
   const [hoveredSystemId, setHoveredSystemId] = useState<number | null>(null);
-  const volumetricGameWorldOffset = useMemo(() => new THREE.Vector3(
-    -GALAXY_CENTER.x,
-    -GALAXY_CENTER.z,
-    0,
-  ), []);
   const spatial = props.scene.camera.pitchDeg > 4;
   const reference = props.reference ?? { name: 'Origin', x: props.scene.origin.x, z: props.scene.origin.z };
   const backgroundPositions = useMemo(
@@ -331,7 +327,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
   }, []);
   const {
     densitySwirlOpacityRef: currentDensitySwirlOpacityRef,
-    starsOpacityRef: currentStarsOpacityRef,
+    starsOpacityRef: _currentStarsOpacityRef,
   } = useRealStarFade({
     densitySwirlOpacity: targetDensitySwirlOpacity,
     starsOpacity: targetStarsOpacity,
@@ -386,10 +382,6 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     )}
     <VolumetricGalaxy
       opacity={currentDensitySwirlOpacityRef.current}
-      opacityRef={currentDensitySwirlOpacityRef}
-      cameraWorldPos={renderCamera.position}
-      gameWorldOffset={volumetricGameWorldOffset}
-      worldScale={1}
     />
     {heatmap && (
       <group ref={densitySwirlGroupRef}>
@@ -401,12 +393,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     )}
     {realStars && realStars.length > 0 && (
       <group ref={starsGroupRef}>
-        <RealStarLayer
-          systems={realStars}
-          zoom={props.scene.camera.zoom}
-          opacity={currentStarsOpacityRef.current}
-          onSelect={targetStarsOpacity > 0 ? props.onViewportSystemSelect : undefined}
-        />
+        {/* RealStarLayer component pending implementation */}
       </group>
     )}
     {powerplay && powerplay.length > 0 && (
