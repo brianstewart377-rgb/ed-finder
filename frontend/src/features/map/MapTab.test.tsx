@@ -196,7 +196,7 @@ describe('MapTab', () => {
     render(<MapTab systems={systems} reference={reference} />);
 
     // Canvas should be present
-    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    const canvas = screen.getByTestId('galactic-map-canvas') as unknown as HTMLCanvasElement;
     expect(canvas).toBeTruthy();
 
     // jsdom lacks setPointerCapture, mock it before firing pointer events

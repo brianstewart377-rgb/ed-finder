@@ -212,7 +212,7 @@ export function RendererSizeSync({ viewport }: { viewport: ViewportSize }) {
     const observer = typeof ResizeObserver === 'undefined'
       ? null
       : new ResizeObserver(queueSync);
-    observer?.observe(canvas);
+    observer?.observe(canvas as unknown as Element);
     window.addEventListener('resize', queueSync);
     window.visualViewport?.addEventListener('resize', queueSync);
     return () => {

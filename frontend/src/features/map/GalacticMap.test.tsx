@@ -92,7 +92,7 @@ describe('GalacticMap', () => {
       />,
     );
 
-    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    const canvas = screen.getByTestId('galactic-map-canvas') as unknown as HTMLCanvasElement;
     // jsdom lacks setPointerCapture, so mock it before firing events
     canvas.setPointerCapture = vi.fn() as unknown as typeof canvas.setPointerCapture;
     canvas.releasePointerCapture = vi.fn() as unknown as typeof canvas.releasePointerCapture;
@@ -302,7 +302,7 @@ describe('GalacticMap', () => {
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
     render(<GalacticMap systems={systems} reference={reference} />);
 
-    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    const canvas = screen.getByTestId('galactic-map-canvas') as unknown as HTMLCanvasElement;
     Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 600 });
     Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 400 });
 
@@ -321,7 +321,7 @@ describe('GalacticMap', () => {
     const systems = [makeSystem({ id64: 1, name: 'Alpha', coords: { x: 10, y: 0, z: 5 } })];
     render(<GalacticMap systems={systems} reference={reference} />);
 
-    const canvas = screen.getByTestId('galactic-map-canvas') as HTMLCanvasElement;
+    const canvas = screen.getByTestId('galactic-map-canvas') as unknown as HTMLCanvasElement;
     Object.defineProperty(canvas, 'clientWidth', { configurable: true, value: 600 });
     Object.defineProperty(canvas, 'clientHeight', { configurable: true, value: 400 });
 
