@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
 
+test.beforeEach(async ({ page }) => {
+  // Clear state between tests (issue #10: test isolation)
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+});
+
 test('comprehensive E2E status check', async ({ page }) => {
   test.setTimeout(60000);
 
@@ -7,70 +15,99 @@ test('comprehensive E2E status check', async ({ page }) => {
   console.log('║        COMPREHENSIVE E2E STATUS CHECK                       ║');
   console.log('╚════════════════════════════════════════════════════════════╝\n');
 
-  // API health
-  const apiHealth = await fetch('http://localhost:8000/api/health').then(r => r.json()).catch(e => ({ error: e.message }));
-  console.log('✓ API Status:', JSON.stringify(apiHealth));
+  // Capture page errors (for robustness)
+  const pageErrors: string[] = [];
+  const errorHandler = (error: Error) => {
+    pageErrors.push(error.message);
+    console.log(`[PAGE ERROR] ${error.message}`);
+  };
+  page.on('pageerror', errorHandler);
 
-  // Navigate to app using hash-based routing
-  console.log('\n✓ Navigating to /#map (hash-based routing)...');
-  await page.goto('/#map');
-  await page.waitForTimeout(5000);
+  try {
+    // API health
+    const apiHealth = await fetch('http://localhost:8000/api/health').then(r => r.json()).catch(e => ({ error: e.message }));
+    console.log('✓ API Status:', JSON.stringify(apiHealth));
 
-  // Capture all info
-  const title = await page.title();
-  console.log(`✓ Page Title: ${title}`);
+    // Navigate to app using hash-based routing
+    console.log('\n✓ Navigating to /#map (hash-based routing)...');
+    await page.goto('/#map');
+    await page.waitForTimeout(5000);
 
-  const url = page.url();
-  console.log(`✓ Current URL: ${url}`);
+    // Capture all info
+    const title = await page.title();
+    console.log(`✓ Page Title: ${title}`);
 
-  // Check for canvas
-  const canvasCount = await page.locator('canvas').count();
-  console.log(`✓ Canvas Elements: ${canvasCount}`);
+    const url = page.url();
+    console.log(`✓ Current URL: ${url}`);
 
-  // Check for map viewport
-  const viewportCount = await page.locator('[data-testid="stage26e-production-map-viewport"]').count();
-  console.log(`✓ Map Viewport Elements: ${viewportCount}`);
+    // Check for canvas
+    const canvasCount = await page.locator('canvas').count();
+    console.log(`✓ Canvas Elements: ${canvasCount}`);
+    expect(canvasCount).toBeGreaterThan(0);
 
-  // Check for Three.js scene
-  const sceneElements = await page.locator('[class*="scene"],[data-testid*="scene"]').count();
-  console.log(`✓ Scene Elements: ${sceneElements}`);
+    // Check for map viewport
+    const viewportCount = await page.locator('[data-testid="stage26e-production-map-viewport"]').count();
+    console.log(`✓ Map Viewport Elements: ${viewportCount}`);
 
-  // Capture console logs
-  const consoleLogs: string[] = [];
-  page.on('console', (msg) => {
-    const text = msg.text();
-    if (text.includes('[viewport-systems]') || text.includes('Real') || text.includes('Stars')) {
-      consoleLogs.push(text);
-      console.log(`  [CONSOLE] ${text}`);
-    }
-  });
+    // Check for Three.js scene
+    const sceneElements = await page.locator('[class*="scene"],[data-testid*="scene"]').count();
+    console.log(`✓ Scene Elements: ${sceneElements}`);
 
-  // Check API calls
-  const apiCalls: { method: string; url: string }[] = [];
-  page.on('response', (response) => {
-    if (response.url().includes('/api/map')) {
-      apiCalls.push({
-        method: 'GET',
-        url: response.url().split('?')[0]
-      });
-      console.log(`  [API] ${response.status()} ${response.url().split('?')[0]}`);
-    }
-  });
+    // Capture console logs
+    const consoleLogs: string[] = [];
+    const consoleHandler = (msg: any) => {
+      const text = msg.text();
+      if (text.includes('[viewport-systems]') || text.includes('Real') || text.includes('Stars')) {
+        consoleLogs.push(text);
+        console.log(`  [CONSOLE] ${text}`);
+      }
+    };
+    page.on('console', consoleHandler);
 
-  // Wait for any potential API calls
-  await page.waitForTimeout(3000);
+    // Check API calls
+    const apiCalls: { method: string; url: string }[] = [];
+    const responseHandler = (response: any) => {
+      if (response.url().includes('/api/map')) {
+        apiCalls.push({
+          method: 'GET',
+          url: response.url().split('?')[0]
+        });
+        console.log(`  [API] ${response.status()} ${response.url().split('?')[0]}`);
+      }
+    };
+    page.on('response', responseHandler);
 
-  console.log('\n╔════════════════════════════════════════════════════════════╗');
-  console.log('║  SUMMARY                                                     ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
-  console.log(`✓ API Connected: ${apiHealth.status === 'ok' ? 'YES' : 'NO'}`);
-  console.log(`✓ Frontend Loaded: YES`);
-  console.log(`✓ Canvas Detected: ${canvasCount > 0 ? 'YES' : 'PENDING/NO'}`);
-  console.log(`✓ Map Viewport Detected: ${viewportCount > 0 ? 'YES' : 'PENDING/NO'}`);
-  console.log(`✓ Real-Star Viewport Hook: ${consoleLogs.length > 0 ? 'ACTIVE' : 'INACTIVE'}`);
-  console.log(`✓ Map Systems API Calls: ${apiCalls.length}`);
+    // Wait for any potential API calls
+    await page.waitForTimeout(3000);
 
-  // Take final screenshot
-  await page.screenshot({ path: 'test-results/final-status.png' });
-  console.log('\n✓ Screenshot saved to test-results/final-status.png');
+    console.log('\n╔════════════════════════════════════════════════════════════╗');
+    console.log('║  SUMMARY                                                     ║');
+    console.log('╚════════════════════════════════════════════════════════════╝');
+    console.log(`✓ API Connected: ${apiHealth.status === 'ok' ? 'YES' : 'NO'}`);
+    console.log(`✓ Frontend Loaded: YES`);
+    console.log(`✓ Canvas Detected: ${canvasCount > 0 ? 'YES' : 'PENDING/NO'}`);
+    console.log(`✓ Map Viewport Detected: ${viewportCount > 0 ? 'YES' : 'PENDING/NO'}`);
+    console.log(`✓ Real-Star Viewport Hook: ${consoleLogs.length > 0 ? 'ACTIVE' : 'INACTIVE'}`);
+    console.log(`✓ Map Systems API Calls: ${apiCalls.length}`);
+
+    // Validate screenshot with baseline (issue #4: screenshot validation)
+    await expect(page).toHaveScreenshot('final-status.png', {
+      maxDiffPixels: 150,
+      threshold: 0.2,
+    });
+    console.log('\n✓ Screenshot validated against baseline');
+
+    // Assert no page errors occurred
+    expect(
+      pageErrors,
+      `Page errors should not occur. Errors: ${pageErrors.join(', ')}`
+    ).toEqual([]);
+
+    // Clean up handlers
+    page.off('console', consoleHandler);
+    page.off('response', responseHandler);
+
+  } finally {
+    page.off('pageerror', errorHandler);
+  }
 });
