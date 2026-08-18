@@ -39,14 +39,36 @@ async function globalSetup(config: FullConfig) {
   console.log('Starting E2E backend services...');
 
   try {
+    const repoRoot = path.resolve(__dirname, '../..');
+
     if (isCI) {
-      // In CI, assume docker-compose is already running from the pipeline
-      console.log('ℹ CI environment detected, waiting for existing backend...');
+      // In CI, clean up any orphaned containers from previous runs to avoid port conflicts
+      console.log('ℹ CI environment detected, ensuring clean Docker state...');
+      try {
+        execSync('docker compose -f docker-compose.local.yml down --remove-orphans 2>/dev/null || true', {
+          cwd: repoRoot,
+          shell: '/bin/bash',
+          stdio: 'inherit',
+        });
+      } catch {
+        // Ignore cleanup errors
+      }
+      // Wait a moment for ports to be released
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      // Start fresh
+      console.log('  Starting Docker services...');
+      execSync('docker compose -f docker-compose.local.yml up -d', {
+        cwd: repoRoot,
+        stdio: 'inherit',
+      });
+      console.log('✓ Docker services started');
+
+      // Wait for backend to be ready
       await waitForBackend();
     } else {
       // Local development: start Docker services
       console.log('Starting Docker services (docker-compose.local.yml)...');
-      const repoRoot = path.resolve(__dirname, '../..');
 
       try {
         // Check if services are already running
