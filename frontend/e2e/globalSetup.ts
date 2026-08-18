@@ -27,7 +27,7 @@ async function waitForPortRelease(port: number, maxWaitMs: number = 10000): Prom
   throw new Error(`Port ${port} not released after ${maxWaitMs}ms`);
 }
 
-async function waitForBackend(maxRetries = 60, delayMs = 1000): Promise<void> {
+async function waitForBackend(maxRetries = 60, initialDelayMs = 100): Promise<void> {
   let lastError: Error | null = null;
 
   for (let i = 0; i < maxRetries; i++) {
@@ -47,10 +47,14 @@ async function waitForBackend(maxRetries = 60, delayMs = 1000): Promise<void> {
     } catch (e) {
       lastError = e instanceof Error ? e : new Error(String(e));
     }
+
+    // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms, then cap at 2s
+    const exponentialDelay = Math.min(initialDelayMs * Math.pow(2, i), 2000);
+
     if (i < maxRetries - 1 && (i + 1) % 10 === 0) {
-      console.log(`  Waiting for backend... (${i + 1}/${maxRetries})`);
+      console.log(`  Waiting for backend... (${i + 1}/${maxRetries}, next delay: ${exponentialDelay}ms)`);
     }
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    await new Promise(resolve => setTimeout(resolve, exponentialDelay));
   }
 
   // Capture uvicorn logs for diagnosis
@@ -64,7 +68,7 @@ async function waitForBackend(maxRetries = 60, delayMs = 1000): Promise<void> {
   }
 
   throw new Error(
-    `Backend failed to start after ${maxRetries * delayMs / 1000}s at ${API_URL}\n` +
+    `Backend failed to start after ${maxRetries}s at ${API_URL}\n` +
     `Last error: ${lastError?.message}\n` +
     `API logs (last 20 lines):\n${apiLogs}`
   );
@@ -112,14 +116,15 @@ async function globalSetup(config: FullConfig) {
         }
       }
 
-      // Poll for port availability instead of blind sleep
-      console.log('  Waiting for ports to be released...');
-      try {
-        await waitForPortRelease(6379, 10000);
-        await waitForPortRelease(55432, 10000);
-      } catch (error) {
-        console.warn('⚠ Port release timeout, proceeding anyway:', error);
-      }
+      // Skip port wait in CI — fresh runners have no lingering processes
+      // If CI exhibits port conflicts, uncomment these:
+      // console.log('  Waiting for ports to be released...');
+      // try {
+      //   await waitForPortRelease(6379, 5000);
+      //   await waitForPortRelease(55432, 5000);
+      // } catch (error) {
+      //   console.warn('⚠ Port release timeout, proceeding anyway:', error);
+      // }
 
       console.log('  Starting Docker services...');
       execSync('docker compose -f docker-compose.local.yml up -d', {

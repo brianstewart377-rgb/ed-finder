@@ -22,10 +22,10 @@ const reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
  */
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  timeout: 15_000,
   expect: { timeout: 5_000 },
-  fullyParallel: false,           // shared backend = sequential is safer
-  workers: process.env.CI ? 1 : undefined, // avoid concurrent software-WebGL contexts
+  fullyParallel: true,           // tests have proper isolation via beforeEach
+  workers: process.env.CI ? 2 : undefined, // 2 workers in CI for parallelization
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? 'github' : 'list',
   globalSetup: './e2e/globalSetup.ts',
@@ -33,32 +33,36 @@ export default defineConfig({
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
   },
   projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
     },
-    {
-      name: 'firefox',
-      use: {
-        ...devices['Desktop Firefox'],
-        launchOptions: {
-          headless: process.env.CI ? false : undefined,
-          firefoxUserPrefs: {
-            'webgl.force-enabled': true,
-            'webgl.forbid-software': false,
+    // Firefox and MSEdge run locally only; CI uses chromium for speed
+    ...(!process.env.CI ? [
+      {
+        name: 'firefox',
+        use: {
+          ...devices['Desktop Firefox'],
+          launchOptions: {
+            headless: true,
+            firefoxUserPrefs: {
+              'webgl.force-enabled': true,
+              'webgl.forbid-software': false,
+            },
           },
         },
       },
-    },
-    {
-      name: 'msedge',
-      use: {
-        ...devices['Desktop Edge'],
-        channel: 'msedge',
+      {
+        name: 'msedge',
+        use: {
+          ...devices['Desktop Edge'],
+          channel: 'msedge',
+        },
       },
-    },
+    ] : []),
   ],
   webServer: reviewLabRun ? undefined : {
     // `yarn preview` after `yarn build` — serves the production bundle.
