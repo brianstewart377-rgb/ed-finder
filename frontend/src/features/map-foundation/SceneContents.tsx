@@ -397,7 +397,7 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
         <points renderOrder={20}>
           <bufferGeometry>
             <bufferAttribute attach="attributes-position" args={[new Float32Array(
-              realStars.flatMap(s => [s.coords.x, s.coords.z, s.coords.y])
+              realStars.flatMap(s => [s.x, s.z, s.y])
             ), 3]} />
           </bufferGeometry>
           <GlowPointsMaterial
