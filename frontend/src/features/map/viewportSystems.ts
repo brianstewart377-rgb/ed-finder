@@ -18,11 +18,10 @@ const GRID_LY = 250;
 // thin, so this covers virtually all systems while staying under the guard.
 export const REAL_STAR_Y_HALF_LY = 6_000;
 // Separate enter and exit thresholds prevent repeated heatmap/detail toggles at
-// the LOD boundary. Thresholds tuned to enable real-star detail at reasonable zoom
-// levels (roughly 20-30 LY/px for enter, 30-40 LY/px for exit). Values account
-// for the viewport span calculation which includes margin (1.25x) and pitch footprint scaling.
-export const REAL_STAR_ENTER_MAX_LY = 50_000;
-export const REAL_STAR_EXIT_MAX_LY = 80_000;
+// the LOD boundary. For testing with small datasets, thresholds are very low so
+// real stars appear with minimal zoom. For production, increase to 50k-80k LY.
+export const REAL_STAR_ENTER_MAX_LY = 5_000;
+export const REAL_STAR_EXIT_MAX_LY = 8_000;
 const REAL_STAR_LIMIT = 40_000;
 // Wait for the camera to settle before issuing a viewport query, so smooth
 // zoom / continuous panning (which change the box every animation frame) can't
