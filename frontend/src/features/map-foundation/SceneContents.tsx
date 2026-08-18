@@ -383,7 +383,8 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     <VolumetricGalaxy
       opacity={currentDensitySwirlOpacityRef.current}
     />
-    {heatmap && (
+    {/* Heatmap disabled — use VolumetricGalaxy as primary density representation */}
+    {false && heatmap && (
       <group ref={densitySwirlGroupRef}>
         <DensitySwirl
           heatmap={heatmap}
@@ -393,7 +394,19 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     )}
     {realStars && realStars.length > 0 && (
       <group ref={starsGroupRef}>
-        {/* RealStarLayer component pending implementation */}
+        <points renderOrder={20}>
+          <bufferGeometry>
+            <bufferAttribute attach="attributes-position" args={[new Float32Array(
+              realStars.flatMap(s => [s.coords.x, s.coords.z, s.coords.y])
+            ), 3]} />
+          </bufferGeometry>
+          <GlowPointsMaterial
+            color="#ffffff"
+            size={attenuatedPointSize(props.scene.camera.zoom, 5)}
+            sizeAttenuation
+            opacity={targetStarsOpacity}
+          />
+        </points>
       </group>
     )}
     {powerplay && powerplay.length > 0 && (
