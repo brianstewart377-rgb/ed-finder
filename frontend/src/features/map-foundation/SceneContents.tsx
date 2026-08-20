@@ -42,6 +42,7 @@ import {
   buildExplorationTrailBuffers,
   buildExplorationVisitBuffers,
 } from './explorationGeometry';
+import { buildRealStarBuffers } from '@/features/map/viewportSystems';
 import {
   CameraCenterGuide,
   RangeGrid,
@@ -293,6 +294,10 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
     () => buildExplorationTrailBuffers(explorationTrail ?? []),
     [explorationTrail],
   );
+  const realStarBuffers = useMemo(
+    () => buildRealStarBuffers(realStars ?? []),
+    [realStars],
+  );
   const cameraDistance = cameraDistanceForView(props.scene.camera, props.viewport);
 
   // ── Real-star fade logic (Phase 3) ──────────────────────────────────
@@ -396,12 +401,11 @@ export function SceneContents(props: FoundationRendererProps & { visible: Return
       <group ref={starsGroupRef}>
         <points renderOrder={20}>
           <bufferGeometry>
-            <bufferAttribute attach="attributes-position" args={[new Float32Array(
-              realStars.flatMap(s => [s.x, s.z, s.y])
-            ), 3]} />
+            <bufferAttribute attach="attributes-position" args={[realStarBuffers.positions, 3]} />
+            <bufferAttribute attach="attributes-color" args={[realStarBuffers.colors, 3]} />
           </bufferGeometry>
           <GlowPointsMaterial
-            color="#ffffff"
+            vertexColors
             size={attenuatedPointSize(props.scene.camera.zoom, 5)}
             sizeAttenuation
             opacity={targetStarsOpacity}
