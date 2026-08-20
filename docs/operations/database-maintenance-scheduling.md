@@ -1,156 +1,122 @@
 # Database Maintenance Scheduling
 
-After the Alpine→Debian migration and pg_repack installation (2026-08-20), production now has the tools to prevent bloat. This runbook documents the maintenance schedule.
+PostgreSQL autovacuum is the primary dead-tuple maintenance mechanism.
+`pg_repack` is retained as a measured, table-scoped recovery tool for physical
+bloat that autovacuum cannot return to the filesystem. It is not a weekly
+rewrite job.
 
-## Weekly pg_repack (Bloat Reclamation)
+## Committed Steady-State Schedule
 
-**Purpose:** Compact tables and reclaim dead tuple space without full locks.
+The maintenance sidecar runs these relevant jobs in UTC:
 
-**Schedule:** Sundays 02:00 UTC (low-traffic maintenance window)
+- daily `02:10`: custom-format backup
+- daily `03:15`: `ANALYZE` and materialized-view maintenance
+- Sunday `04:00`: targeted concurrent reindex plus `VACUUM (ANALYZE)`
+- Wednesday `01:30`: read-only dead-tuple pressure report
 
-**Add to production crontab** (or maintenance container's `crontab.d` if applicable):
+The pressure report is written by
+`apps/maintenance/scripts/run_bloat_check.sh` to
+`/data/logs/bloat-check.log`. It uses `pg_stat_user_tables` and labels large,
+high-dead-tuple tables for operator review. Those statistics indicate tuple
+pressure; they are not a direct measurement of physical bloat.
+
+There is deliberately no scheduled `pg_repack` command. Repacking every table
+on a timer duplicates autovacuum work, creates avoidable I/O and WAL, can
+overlap backups, and may require hundreds of gigabytes of temporary disk.
+
+## Durable pg_repack Installation
+
+Production PostgreSQL is built from `apps/postgres/Dockerfile`, based on
+`postgres:16-bookworm`, with the PGDG `postgresql-16-repack` package installed.
+This keeps the CLI and server library present after container recreation.
+
+The normal application deployment deliberately does not recreate PostgreSQL.
+After this image change is merged, activate it once in an approved database
+maintenance window, after a verified backup and with application writers
+stopped:
 
 ```bash
-# Sunday 02:00 UTC: pg_repack all tables
-0 2 * * 0 cd /opt/ed-finder && docker compose exec -T postgres psql -U edfinder -d edfinder -c "SELECT pg_repack(t.oid) FROM pg_class t INNER JOIN pg_namespace n ON (n.oid = t.relnamespace) WHERE n.nspname = 'public' AND t.relkind = 'r' AND t.reltuples > 0 ORDER BY t.relpages DESC;" > /data/logs/pg_repack.log 2>&1
-```
-
-**Alternative (simpler, less aggressive):**
-
-```bash
-# Sunday 02:00 UTC: vacuum and analyze
-0 2 * * 0 cd /opt/ed-finder && docker compose exec -T postgres vacuumdb -U edfinder -d edfinder -z > /data/logs/vacuum.log 2>&1
-```
-
-**Monitoring:**
-- Check `/data/logs/pg_repack.log` (or `vacuum.log`) for errors
-- Verify disk space freed via `df /dev/mapper/vg0-root` after completion
-- Expected result: 5-15GB freed on each run (depending on EDDN write rate)
-
-## Monthly Backup Rehearsal
-
-**Purpose:** Validate that production backups can actually be restored (catch corruption early).
-
-**Schedule:** First Monday of each month, 01:00 UTC
-
-**Procedure:**
-
-```bash
-# Run manual restore into edfinder_restore_rehearsal, then drop it
 cd /opt/ed-finder
-bash scripts/rehearse_postgres_restore.sh \
-  --backup-file /data/backups/postgres/latest.dump \
-  --target-db edfinder_restore_monthly_$(date +%Y%m%d) \
-  --receipt-file /data/backups/postgres/restore_rehearsal_$(date +%Y-%m-%d).json
+docker compose build postgres
+docker compose up -d --no-deps postgres
+docker compose exec -T postgres pg_repack --version
 ```
 
-**Verification steps (included in script):**
-1. Backup file exists and is readable
-2. pg_restore succeeds (full data load)
-3. `schema_migrations` table has correct count (should be ≥35 for current schema)
-4. Sample row count checks pass (systems, bodies, ratings non-zero)
+The named `postgres_data` volume is retained across the container recreation.
+Do not perform this activation during a restore or ordinary application deploy.
 
-**Output:**
-- Receipt file at `/data/backups/postgres/restore_rehearsal_YYYY-MM-DD.json`
-- Contains: timestamp, target DB name, row counts, success/failure
+The `pg_repack` extension is database-local. The operator wrapper checks for
+it and runs `CREATE EXTENSION pg_repack` only as part of an explicitly
+confirmed table rewrite. A read-only check never creates the extension.
 
-**Cleanup:**
-- Script automatically drops `edfinder_restore_monthly_*` database after verification
-- Keep receipt files in git history for audit trail
+## Read-Only Operator Check
 
-## Disk Space Monitoring (Manual Until Prometheus/Grafana Setup)
-
-**Check weekly:**
+From the production host:
 
 ```bash
-ssh ed-finder-prod "df -h /dev/mapper/vg0-root"
+cd /opt/ed-finder
+bash scripts/operator/run_pg_repack.sh
 ```
 
-**Alert thresholds:**
-- 70% full: investigate growth rate, consider expansion timeline
-- 80% full: expand volume or clear old backups immediately
-- 95%+ full: emergency (what we hit on 2026-08-20)
+The default mode only prints the largest public tables, live/dead tuple
+estimates, and recent autovacuum/analyze timestamps.
 
-**Add Prometheus alert** (if monitoring stack enabled):
+## Explicit Table Repack
 
-```yaml
-- alert: PostgresVolumeFull
-  expr: node_filesystem_avail_bytes{mountpoint="/",fstype="ext4"} / node_filesystem_size_bytes{mountpoint="/"} < 0.2
-  for: 5m
-  annotations:
-    summary: "Postgres volume {{ $value | humanizePercentage }} free"
-```
+First confirm all of the following:
 
-## Monitoring Table Bloat
+1. a current restore-rehearsed backup exists
+2. no restore, importer, or application rebuild is active
+3. the target has measured physical bloat worth reclaiming
+4. PostgreSQL-volume free space is sufficient
+5. the maintenance window does not overlap backups or other heavy work
 
-**Ad-hoc check (run monthly):**
+Then run exactly one named table:
 
 ```bash
-ssh ed-finder-prod "docker compose exec -T postgres psql -U edfinder -d edfinder -c \"
-SELECT 
-  schemaname, 
-  tablename, 
-  pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size,
-  ROUND(100.0 * (pg_total_relation_size(schemaname||'.'||tablename) - pg_relation_size(schemaname||'.'||tablename)) / pg_total_relation_size(schemaname||'.'||tablename)) as index_pct
-FROM pg_tables 
-WHERE schemaname = 'public' 
-ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC 
-LIMIT 15;
-\""
+cd /opt/ed-finder
+bash scripts/operator/run_pg_repack.sh \
+  --run \
+  --table public.ratings \
+  --confirm
 ```
 
-**Expected output after fresh restore + pg_repack:**
-- Large tables (systems, bodies) should have low index overhead (10-30%)
-- If any table > 50% index bloat: prioritize pg_repack run
+The wrapper:
 
-## Post-Migration Baseline (2026-08-20)
+- requires the production-host operator guard
+- accepts only one unquoted `public.<table>` identifier
+- refuses to run while `pg_restore` or importer/rebuild containers are active
+- prevents overlapping wrapper runs
+- verifies the packaged CLI
+- installs the database extension only inside the confirmed run when absent
+- requires free space equal to twice the table-plus-index size by default
+- runs `pg_repack --dry-run` before the rewrite
+- uses `--no-kill-backend` and a finite wait timeout
+- records pre/post relation sizes in `/data/logs/pg_repack.log`
 
-After restore completes and pg_repack runs:
+`--allow-low-disk` exists for a separately reviewed exception where measured
+live data is far smaller than the bloated relation. It must not be used merely
+to get past the guard.
 
-```bash
-docker compose exec -T postgres psql -U edfinder -d edfinder -c "
-SELECT COUNT(*) as systems FROM systems;
-SELECT COUNT(*) as bodies FROM bodies;
-SELECT COUNT(*) as ratings FROM ratings;
-SELECT pg_size_pretty(pg_database_size('edfinder')) as total_size;
-"
-```
+The upstream CLI and operational requirements are documented in the
+[pg_repack documentation](https://github.com/reorg/pg_repack/blob/master/doc/pg_repack.rst).
 
-**Expected:**
-- Systems: ~189M rows
-- Bodies: ~213GB (largest table)
-- Ratings: ~43GB
-- Total DB: ~250-300GB (vs. 1.4TB bloated)
+## Fresh Restore Policy
 
-## Maintenance Container Integration
+Do not run `pg_repack` after a fresh logical restore. A new restore has already
+rewritten its tables and indexes without the old dead-tuple bloat. Run staged
+`ANALYZE` for planner statistics, resume autovacuum, and collect a new baseline
+before considering any physical rewrite.
 
-If running in `maintenance` sidecar (preferred):
+## Backup Rehearsal Scheduling
 
-Add to `apps/maintenance/scripts/crontab`:
+Restore rehearsals remain host-orchestrated through
+`scripts/rehearse_postgres_restore.sh`, because they create a separate database
+and require the Docker Compose host boundary. The former maintenance-sidecar
+cron wrapper was removed: the sidecar does not have the Docker CLI, repository
+mount, or socket needed by that wrapper.
 
-```cron
-# pg_repack weekly
-0 2 * * 0 /app/scripts/pg_repack.sh
-
-# Backup rehearsal monthly
-0 1 1 * * /app/scripts/backup_rehearsal.sh
-```
-
-And commit wrapper scripts:
-- `apps/maintenance/scripts/pg_repack.sh` — calls `pg_repack` via docker
-- `apps/maintenance/scripts/backup_rehearsal.sh` — calls `rehearse_postgres_restore.sh`
-
-## Automation Readiness Checklist
-
-- [ ] pg_repack installed on production (✅ 2026-08-20)
-- [ ] Backup rehearsal script exists (`scripts/rehearse_postgres_restore.sh`) (✅)
-- [ ] Cron jobs scheduled (pg_repack weekly, rehearsal monthly)
-- [ ] Disk space alerts configured (70%/80% thresholds)
-- [ ] Receipt files committed to git for audit trail
-- [ ] Prometheus/Grafana monitoring stack running (optional but recommended)
-
-## References
-
-- Incident that triggered this: `docs/operations/database-bloat-incident-2026-08-20.md`
-- Backup & restore runbook: `docs/operations/postgres-backup-and-restore.md`
-- Monitoring setup: `docs/operations/monitoring.md`
+Do not add Docker socket access to the maintenance container. A future
+unattended rehearsal must be implemented as a dedicated fail-closed workflow
+with core-data row thresholds and durable receipts. Until then, use the manual
+path in `docs/operations/postgres-backup-and-restore.md`.

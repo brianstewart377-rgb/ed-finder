@@ -18,6 +18,10 @@ Current scripts:
 
 - `require_hetzner_operator_env.sh`: reusable fail-fast guard for
   Hetzner-only commands.
+- `run_pg_repack.sh`: defaults to a read-only dead-tuple pressure report. A
+  physical rewrite requires `--run`, exactly one `--table public.<name>`, and
+  `--confirm`; it blocks active restores/importers, runs pg_repack's dry-run
+  preflight, and enforces conservative free-space headroom by default.
 - `stage18j_run_station_type_dry_run.sh`: generates the Stage 18J-P
   station-type dry-run artifact from the validated reconciliation artifact
   after verifying its SHA-256. It requires bounded `MAX_ROWS`, caps blocked

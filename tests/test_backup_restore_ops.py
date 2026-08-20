@@ -319,9 +319,64 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
     assert '--production-safe --allow-stale-colonisation-status' in crontab
     assert 'apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl' in dockerfile
     assert 'COPY apps/maintenance/scripts/run_backup.sh                /usr/local/bin/run_backup.sh' in dockerfile
+    assert 'COPY apps/maintenance/scripts/run_bloat_check.sh' in dockerfile
     assert 'COPY scripts/run_data_invariants_receipted.sh              /usr/local/bin/run_data_invariants_receipted.sh' in dockerfile
     assert 'COPY scripts/checks/data_invariants.py                     /opt/ed-finder/scripts/checks/data_invariants.py' in dockerfile
     assert 'COPY shared_contracts/data_invariant_contracts.py          /opt/ed-finder/shared_contracts/data_invariant_contracts.py' in dockerfile
+
+
+def test_pg_repack_is_durable_operator_gated_and_never_scheduled_as_a_rewrite():
+    compose = _read('docker-compose.yml')
+    postgres_dockerfile = _read('apps', 'postgres', 'Dockerfile')
+    maintenance_dockerfile = _read('apps', 'maintenance', 'Dockerfile')
+    crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
+    bloat_check = _read(
+        'apps', 'maintenance', 'scripts', 'run_bloat_check.sh'
+    )
+    operator = _read('scripts', 'operator', 'run_pg_repack.sh')
+    runbook = _read(
+        'docs', 'operations', 'database-maintenance-scheduling.md'
+    )
+    incident = _read(
+        'docs', 'operations', 'database-bloat-incident-2026-08-20.md'
+    )
+    deploy = _read('scripts', 'deploy_main.sh')
+
+    assert 'dockerfile: apps/postgres/Dockerfile' in compose
+    assert 'image: ed-finder-postgres:16-bookworm-repack' in compose
+    assert 'FROM postgres:16-bookworm' in postgres_dockerfile
+    assert 'postgresql-16-repack' in postgres_dockerfile
+    assert 'pg_repack --version' in postgres_dockerfile
+    assert 'docker compose up -d --build api eddn maintenance' in deploy
+    assert 'docker compose up -d --build api eddn maintenance postgres' not in deploy
+
+    assert 'COPY apps/maintenance/scripts/run_bloat_check.sh' in maintenance_dockerfile
+    assert '/usr/local/bin/run_bloat_check.sh' in crontab
+    assert '/app/scripts/pg_repack.sh' not in crontab
+    assert '/app/scripts/backup_rehearsal.sh' not in crontab
+    assert 'SELECT pg_repack' not in operator
+    assert 'SELECT pg_repack' not in runbook
+    assert 'MODE="check"' in operator
+    assert '--run' in operator
+    assert '--table' in operator
+    assert '--confirm' in operator
+    assert 'source scripts/operator/require_hetzner_operator_env.sh' in operator
+    assert "application_name = 'pg_restore'" in operator
+    assert '--dry-run' in operator
+    assert '--no-kill-backend' in operator
+    assert 'PG_REPACK_FREE_SPACE_MULTIPLE:-2' in operator
+    assert 'pg_stat_user_tables' in bloat_check
+    assert 'not a physical-bloat measurement' in bloat_check
+    assert 'There is deliberately no scheduled `pg_repack` command.' in runbook
+    assert 'Destructive action preceded adequate verification' in incident
+    assert 'no scheduled all-table repack' in incident
+    assert 'Schedule weekly pg_repack' not in incident
+    assert not ROOT.joinpath(
+        'apps', 'maintenance', 'scripts', 'pg_repack.sh'
+    ).exists()
+    assert not ROOT.joinpath(
+        'apps', 'maintenance', 'scripts', 'backup_rehearsal.sh'
+    ).exists()
 
 
 def test_restore_helper_defaults_to_safe_non_live_target():
@@ -349,6 +404,20 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert 'restore_args=(' in rehearsal
     assert 'bash scripts/restore_postgres_backup.sh "${restore_args[@]}"' in rehearsal
     assert 'SELECT COUNT(*) FROM schema_migrations;' in rehearsal
+    assert 'MIN_SYSTEM_ROWS=180000000' in rehearsal
+    assert 'SELECT COUNT(*) FROM systems;' in rehearsal
+    assert "lower(name) IN ('sol', 'colonia')" in rehearsal
+    assert "pg_total_relation_size('public.bodies')" in rehearsal
+    assert "pg_total_relation_size('public.ratings')" in rehearsal
+    assert 'SELECT COUNT(*) FROM stations;' in rehearsal
+    assert 'WHERE NOT convalidated' in rehearsal
+    assert 'WHERE NOT indisvalid OR NOT indisready' in rehearsal
+    assert '"systems_rows": $SYSTEM_ROWS' in rehearsal
+    assert '"unvalidated_constraints": $UNVALIDATED_CONSTRAINTS' in rehearsal
+    assert '"invalid_or_not_ready_indexes": $INVALID_INDEXES' in rehearsal
+    assert 'trap cleanup_target EXIT' in rehearsal
+    assert 'restore rehearsals must use a disposable target database, never edfinder' in rehearsal
+    assert 'refusing cleanup of live database edfinder' in rehearsal
     assert 'dropdb -U edfinder --if-exists "$TARGET_DB"' in rehearsal
     assert '--receipt-file' in rehearsal
 

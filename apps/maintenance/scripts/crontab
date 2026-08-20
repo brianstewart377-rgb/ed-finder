@@ -10,6 +10,8 @@
 #               fresh by the time European morning traffic hits.
 # 04:00 Sunday — weekly REINDEX + VACUUM ANALYZE.
 # 04:45 Sunday — production-safe invariants receipt with durable history.
+# 01:30 Wednesday — read-only dead-tuple pressure report. Actual pg_repack
+#                   runs are explicit, table-scoped operator actions.
 #
 # Output is captured by `crond -f -L /dev/stdout` and tee'd to
 # /data/logs/maintenance.log inside the script itself.
@@ -18,7 +20,6 @@
 */30 * * * * /usr/local/bin/run_disk_watchdog.sh >> /data/logs/disk-watchdog.log 2>&1
 10 2 * * *   /usr/local/bin/run_backup.sh nightly
 15 3 * * *   /usr/local/bin/run_maintenance.sh nightly
+30 1 * * 3   /usr/local/bin/run_bloat_check.sh
  0 4 * * 0   /usr/local/bin/run_maintenance.sh weekly
 45 4 * * 0   /usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4 --production-safe --allow-stale-colonisation-status --receipt-file /data/receipts/data-invariants/weekly-latest.json --durable-receipt-dir /data/receipts/data-invariants/weekly-history >> /data/logs/data-invariants.log 2>&1
- 0 2 * * 3   /app/scripts/pg_repack.sh
- 0 1 1 * *   /app/scripts/backup_rehearsal.sh

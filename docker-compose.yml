@@ -13,7 +13,10 @@ services:
   # ── PostgreSQL 16 ─────────────────────────────────────────────────────────
   # Tuned for: Hetzner AX41-SSD — i7-8700 (6C/12T), 128 GB RAM, 3×1 TB NVMe RAID-5
   postgres:
-    image: postgres:16-bookworm
+    build:
+      context: .
+      dockerfile: apps/postgres/Dockerfile
+    image: ed-finder-postgres:16-bookworm-repack
     container_name: ed-postgres
     restart: unless-stopped
     logging: *default-logging
