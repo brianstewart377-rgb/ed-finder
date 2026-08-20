@@ -49,7 +49,7 @@ describe('viewport systems settle timer logic', () => {
 
   it('box should change when zoom changes', () => {
     const box1 = realStarViewportBox(camera, viewport);
-    const zoomedCamera = { ...camera, zoom: 10 };
+    const zoomedCamera = { ...camera, zoom: 5 };  // Zoom out but stay below 8000 LY threshold
     const box2 = realStarViewportBox(zoomedCamera, viewport);
 
     // Different zoom should produce different box span
@@ -59,23 +59,22 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('threshold should have hysteresis', () => {
-    // For hysteresis: span should be between ENTER (120k) and EXIT (150k) thresholds
-    // Need to find zoom that produces span in that range
-    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span
-    // For span=130k: zoom ≈ 130000 / (640 * 0.78 * 1.25 * 2) ≈ 104
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 104, pitchDeg: 0.5 };
+    // For hysteresis: span should be between ENTER (5000) and EXIT (8000) LY thresholds
+    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span (approximate)
+    // For span=6500 LY: zoom ≈ 6500 / (640 * 0.78 * 1.25 * 2) ≈ 6.4
+    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.4, pitchDeg: 0.5 };
     const span = realStarViewportSpan(boundaryCamera, viewport);
 
-    console.log(`[hysteresis test] zoom=104 produces span=${span.maxSpan.toFixed(0)} LY`);
+    console.log(`[hysteresis test] zoom=6.4 produces span=${span.maxSpan.toFixed(0)} LY`);
 
-    // When disabled, enter threshold is 120k
+    // When disabled, enter threshold is 5000 LY
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);
 
-    // When enabled, exit threshold is 150k (higher)
+    // When enabled, exit threshold is 8000 LY (higher)
     const shouldExitFromEnabled = shouldEnableRealStarDetail(boundaryCamera, viewport, true);
 
     // At boundary, should not toggle (prevents flicker)
-    // span should be > 120k (don't enter from off) but <= 150k (can stay enabled)
+    // span should be > 5000 (don't enter from off) but <= 8000 (can stay enabled)
     expect(shouldEnterFromDisabled).toBe(false);
     expect(shouldExitFromEnabled).toBe(true);
   });

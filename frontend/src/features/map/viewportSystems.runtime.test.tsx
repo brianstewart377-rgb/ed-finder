@@ -39,7 +39,7 @@ describe('real-star viewport runtime contract', () => {
   it('uses distinct enter and exit thresholds at the LOD boundary', () => {
     const boundaryCamera = {
       center: { x: 0, z: 0 },
-      zoom: 3, // Thresholds are 5000/8000 LY, so ~3 LY/px sits in hysteresis
+      zoom: 6.5, // ~6.5 LY/px produces 6850 LY span, sits in hysteresis (5000-8000)
       pitchDeg: 0.5,
     };
 
@@ -49,11 +49,11 @@ describe('real-star viewport runtime contract', () => {
 
   it('accounts for the tilted-camera ground footprint', () => {
     const topDown = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 0.5 },
+      { center: { x: 0, z: 0 }, zoom: 8, pitchDeg: 0.5 },
       viewport,
     );
     const tilted = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 42 },
+      { center: { x: 0, z: 0 }, zoom: 8, pitchDeg: 42 },
       viewport,
     );
 
