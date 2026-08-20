@@ -39,7 +39,7 @@ describe('real-star viewport runtime contract', () => {
   it('uses distinct enter and exit thresholds at the LOD boundary', () => {
     const boundaryCamera = {
       center: { x: 0, z: 0 },
-      zoom: 135, // Thresholds are 120k/150k LY, so ~135 LY/px sits in hysteresis
+      zoom: 3, // Thresholds are 5000/8000 LY, so ~3 LY/px sits in hysteresis
       pitchDeg: 0.5,
     };
 
@@ -49,11 +49,11 @@ describe('real-star viewport runtime contract', () => {
 
   it('accounts for the tilted-camera ground footprint', () => {
     const topDown = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 140, pitchDeg: 0.5 },
+      { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 0.5 },
       viewport,
     );
     const tilted = realStarViewportBox(
-      { center: { x: 0, z: 0 }, zoom: 140, pitchDeg: 42 },
+      { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 42 },
       viewport,
     );
 
@@ -67,7 +67,7 @@ describe('real-star viewport runtime contract', () => {
       .mockResolvedValueOnce(response(1, 'First viewport'))
       .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
 
-    const initial = { center: { x: 0, z: 0 }, zoom: 5, pitchDeg: 42 };
+    const initial = { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 42 };
     const hook = renderHook(
       ({ camera }) => useViewportSystems({ camera, viewport }),
       { wrapper, initialProps: { camera: initial } },
@@ -86,7 +86,7 @@ describe('real-star viewport runtime contract', () => {
 
   it('surfaces a current-viewport request failure', async () => {
     vi.spyOn(api, 'mapSystems').mockRejectedValue(new Error('detail lane failed'));
-    const camera = { center: { x: 0, z: 0 }, zoom: 5, pitchDeg: 42 };
+    const camera = { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 42 };
     const hook = renderHook(
       () => useViewportSystems({ camera, viewport }),
       { wrapper },

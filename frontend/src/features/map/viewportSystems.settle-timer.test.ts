@@ -3,7 +3,7 @@ import { realStarViewportBox, shouldEnableRealStarDetail, realStarViewportSpan }
 
 describe('viewport systems settle timer logic', () => {
   const viewport = { width: 1280, height: 720 };
-  const camera = { center: { x: 0, z: 0 }, zoom: 5, pitchDeg: 0.5 };
+  const camera = { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 0.5 };
 
   beforeEach(() => {
     vi.useFakeTimers();
