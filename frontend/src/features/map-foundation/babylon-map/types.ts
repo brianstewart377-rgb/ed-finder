@@ -32,11 +32,13 @@ export interface MapSceneConfig {
 export interface BabylonMapSceneHandle {
   scene: BABYLON.Scene | null;
   engine: BABYLON.Engine | null;
+  canvas: HTMLCanvasElement | null;
   dispose: () => void;
   setCameraPosition: (pos: GameWorldPosition, zoomLy: number) => void;
   setWorldScale: (scale: number) => void;
   updateStars: (systems: MapViewportSystem[]) => void;
   updateZoom: (zoomLy: number) => void; // Re-apply LOD weighting on zoom change
+  getStarAtScreenPosition: (screenX: number, screenY: number) => MapViewportSystem | null;
 }
 
 export interface CoordinateTransform {

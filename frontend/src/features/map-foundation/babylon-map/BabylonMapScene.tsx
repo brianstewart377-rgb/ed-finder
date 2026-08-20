@@ -56,6 +56,7 @@ export function BabylonMapScene({ sceneRef, config, onSceneReady }: BabylonMapSc
       const handle: BabylonMapSceneHandle = {
         scene,
         engine,
+        canvas: canvasRef.current,
         dispose: () => {
           scene?.dispose();
           engine?.dispose();
@@ -95,6 +96,49 @@ export function BabylonMapScene({ sceneRef, config, onSceneReady }: BabylonMapSc
             densityWeighting: true,
             zoomLy,
           });
+        },
+        getStarAtScreenPosition: (screenX: number, screenY: number) => {
+          if (!scene || !starsLayerMesh) return null;
+
+          // Get the positions of all stars
+          const positions = starsLayerMesh.getVerticesData(BABYLON.VertexBuffer.PositionKind);
+          if (!positions || lastSystems.length === 0) return null;
+
+          // Use Babylon's getPickRay to create a ray from camera through the screen position
+          const ray = scene.createPickingRay(screenX, screenY, BABYLON.Matrix.Identity(), camera);
+          if (!ray) return null;
+
+          // Find closest star to the ray
+          let closestDistance = Infinity;
+          let closestIndex = -1;
+          const pickRadius = 50; // Picking radius in world units
+
+          for (let i = 0; i < positions.length; i += 3) {
+            const starPos = new BABYLON.Vector3(
+              positions[i],
+              positions[i + 1],
+              positions[i + 2],
+            );
+
+            // Distance from ray to star position
+            const v = starPos.subtract(ray.origin);
+            const dotProduct = BABYLON.Vector3.Dot(v, ray.direction);
+            if (dotProduct < 0) continue; // Star is behind camera
+
+            const closestPoint = ray.origin.add(ray.direction.scale(dotProduct));
+            const dist = BABYLON.Vector3.Distance(starPos, closestPoint);
+
+            if (dist < closestDistance && dist < pickRadius) {
+              closestDistance = dist;
+              closestIndex = i / 3;
+            }
+          }
+
+          // Return the system data for the closest star
+          if (closestIndex >= 0 && closestIndex < lastSystems.length) {
+            return lastSystems[closestIndex];
+          }
+          return null;
         },
       };
 
