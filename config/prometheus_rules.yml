@@ -67,3 +67,21 @@ groups:
         annotations:
           summary: "Nightly update ran far longer than its normal ~3h baseline"
           description: "Most recent scripts/nightly_update.sh run took {{ $value }}s (over 6h). This fires on completion, success or failure — a slow-but-still-completing run is the early symptom of the same class of regression that once took 24h (2026-08-06)."
+
+      - alert: DiskSpaceHigh
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space {{ $value | humanizePercentage }} available on root volume"
+          description: "Production volume has dropped below 30% free space. This is a warning to plan expansion."
+
+      - alert: DiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.2
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CRITICAL: Disk space {{ $value | humanizePercentage }} available on root volume"
+          description: "Production volume has dropped below 20% free space. Operations risk. Expansion or cleanup required immediately."
