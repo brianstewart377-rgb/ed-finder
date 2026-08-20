@@ -38,7 +38,9 @@ import {
   type MapViewPreset,
 } from './production-parity';
 import { useAuthoritativeRegionLayer } from './production-regions';
-import { R3FMapFoundation } from './R3FMapFoundation';
+import { BabylonMapFoundation } from './BabylonMapFoundation';
+// R3FMapFoundation kept as fallback/reference until Babylon cutover complete
+// import { R3FMapFoundation } from './R3FMapFoundation';
 import type { RegionLayerData, ViewportSize } from './types';
 import {
   DEFAULT_CAMERA_PITCH_DEG,
@@ -637,7 +639,7 @@ export function ProductionMapTab({
       <div className="map-workspace__map-frame">
           <MapErrorBoundary>
             <div ref={viewportRef} data-testid="stage26e-production-map-viewport" className="stage26e-production-map-viewport">
-              <R3FMapFoundation
+              <BabylonMapFoundation
                 scene={scene}
                 regions={showRegions ? regionLayer.data ?? EMPTY_REGIONS : EMPTY_REGIONS}
                 productionOverlays={{

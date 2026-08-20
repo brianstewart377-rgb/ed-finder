@@ -60,12 +60,11 @@ describe('viewport systems settle timer logic', () => {
 
   it('threshold should have hysteresis', () => {
     // For hysteresis: span should be between ENTER (5000) and EXIT (8000) LY thresholds
-    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span (approximate)
-    // For span=6500 LY: zoom ≈ 6500 / (640 * 0.78 * 1.25 * 2) ≈ 6.4
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.4, pitchDeg: 0.5 };
+    // Zoom that produces span ~6500 LY (between thresholds)
+    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 4.8, pitchDeg: 0.5 };
     const span = realStarViewportSpan(boundaryCamera, viewport);
 
-    console.log(`[hysteresis test] zoom=6.4 produces span=${span.maxSpan.toFixed(0)} LY`);
+    console.log(`[hysteresis test] zoom=4.8 produces span=${span.maxSpan.toFixed(0)} LY`);
 
     // When disabled, enter threshold is 5000 LY
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);

@@ -69,6 +69,50 @@ vi.mock('./R3FMapFoundation', () => ({
   ),
 }));
 
+vi.mock('./BabylonMapFoundation', () => ({
+  BabylonMapFoundation: ({ scene, regions, productionOverlays, viewPreset, onInteraction, onZoomIntent, onViewportSystemSelect }: {
+    scene: {
+      systems: Array<{ id64: number }>;
+      camera: { bearingDeg: number; pitchDeg: number; zoom: number; center: { x: number; z: number } };
+    };
+    regions: { labels: unknown[]; boundaries: unknown[] };
+    productionOverlays: { heatmap: { cellCount: number } | null; aggregateHulls: { hullCount: number } | null };
+    viewPreset: string;
+    onInteraction: (event: { type: 'selectSystem'; systemId64: number; clusterAnchorId64: null }) => void;
+    onZoomIntent?: (deltaY: number) => void;
+    onViewportSystemSelect?: (system: {
+      id64: number; name: string; x: number; y: number; z: number;
+      star: string | null; populated: boolean; galaxy_region_id: number | null;
+    }) => void;
+  }) => (
+    <div
+      data-testid="r3f-production-renderer"
+      data-system-count={scene.systems.length}
+      data-region-label-count={regions.labels.length}
+      data-region-boundary-count={regions.boundaries.length}
+      data-camera-bearing={scene.camera.bearingDeg}
+      data-camera-pitch={scene.camera.pitchDeg}
+      data-camera-zoom={scene.camera.zoom}
+      data-view-preset={viewPreset}
+      data-heatmap-count={productionOverlays.heatmap?.cellCount ?? 0}
+      data-hull-count={productionOverlays.aggregateHulls?.hullCount ?? 0}
+    >
+      <button type="button" onClick={() => onInteraction({ type: 'selectSystem', systemId64: scene.systems[0]?.id64 ?? 0, clusterAnchorId64: null })}>
+        Select first
+      </button>
+      <button type="button" onClick={() => onZoomIntent?.(-120)}>
+        Simulate wheel zoom
+      </button>
+      <button type="button" onClick={() => onViewportSystemSelect?.({
+        id64: 777, name: 'Viewport Star', x: 7, y: 8, z: 9,
+        star: 'G', populated: false, galaxy_region_id: 12,
+      })}>
+        Pick viewport star
+      </button>
+    </div>
+  ),
+}));
+
 const layers = {
   regions: { data: undefined, isLoading: false, isError: false, error: null },
   heatmap: {

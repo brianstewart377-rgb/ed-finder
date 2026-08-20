@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { MapViewportSystem } from '@/lib/api';
 import { buildRealStarBuffers } from './viewportSystems';
-import { spectralStarColor } from '@/lib/starColor'; // Used to verify colors in test
 
 describe('buildRealStarBuffers — geometry and color verification', () => {
   it('produces correct position buffer layout (x, z, y per system)', () => {
