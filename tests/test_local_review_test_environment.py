@@ -911,7 +911,7 @@ def test_frontend_target_remains_compatible_with_review_api():
     playwright_config = _read(FRONTEND_PLAYWRIGHT_CONFIG)
     docs = _read(DOC_PATH)
     review_spec = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
-    assert "|| 'http://127.0.0.1:8001';" in vite_config
+    assert "|| 'http://127.0.0.1:8000';" in vite_config
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
     assert 'report --latest' in docs
