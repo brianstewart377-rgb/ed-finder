@@ -1,14 +1,15 @@
 # Map Testing Strategy — Best-in-Class Rendering Verification
 
 ## Goal
-Ensure map rendering, interactions, and performance are genuinely working, not just mocked. Tests must verify the actual 3D scene, not just logic or API calls.
+Ensure map rendering with Babylon.js, interactions, and performance are genuinely working, not just mocked. Tests must verify the actual 3D scene, not just logic or API calls.
 
-## Current Gaps
-- ❌ React Three Fiber completely mocked in unit tests
-- ❌ No visual verification (stars/heatmap actually appear on canvas)
-- ❌ No buffer/geometry verification (position/color data correct)
-- ❌ No animation timing tests (fade actually animates)
-- ❌ No WebGL state verification (uniforms, material states)
+## Current Status
+- ✅ BabylonMapFoundation wired into ProductionMapTab (Stage 26)
+- ✅ Real-star rendering with spectral colors and density weighting implemented
+- ✅ Buffer verification unit tests (buildRealStarBuffers)
+- ❌ No visual verification (stars actually appear on Babylon canvas)
+- ❌ No animation timing tests (fade animates correctly)
+- ❌ No WebGL state verification (Babylon vertex buffers, materials)
 
 ## Testing Pyramid
 
@@ -58,18 +59,20 @@ it('buildRealStarBuffers produces correct position/color layout', () => {
 
 **Status:** Mostly covered, but test infrastructure issues (vitest timeout)
 
-### Layer 4: Integration Tests with Real Canvas (NEW - critical)
+### Layer 4: Integration Tests with Real Babylon Canvas (NEW - critical)
 Create a test harness that:
-- Mounts actual R3F/Three.js scene (not mocked)
-- Renders to an offscreen canvas
-- Queries WebGL state (uniforms, buffers, materials)
+- Mounts actual Babylon.js scene (not mocked in tests, real render)
+- Renders to an offscreen canvas (via `BABYLON.Engine` with canvas)
+- Queries Babylon mesh state (vertex data, material properties)
 - Measures frame timing without mocks
+- Verifies real-star mesh creation with spectral colors
 
 **Example tools:**
-- Three.js's built-in `WebGLRenderTarget` for headless rendering
-- Query shader uniforms: `material.uniforms.uOpacity.value`
-- Verify buffer binding: `geometry.attributes.position`
-- Snapshot canvas pixels for color verification
+- Babylon.js's `BABYLON.Engine(canvas)` for canvas initialization
+- Query mesh buffers: `mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind)`
+- Verify vertex colors: `mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind)`
+- Material state: `mesh.material.pointSize`, `material.alphaMode`
+- Snapshot canvas pixels for color verification via `canvas.getImageData()`
 
 ### Layer 5: E2E Visual Tests with Playwright (NEW - highest confidence)
 Real browser, real rendering, real verification.
@@ -150,17 +153,18 @@ test('clicking a real star selects it', async ({ page }) => {
 
 ## Implementation Roadmap
 
-### Phase 1: Buffer Tests (This PR)
-- Add `viewportSystems.buffers.test.ts`
-- Test buildRealStarBuffers correctness
-- Verify spectral color mapping
-- Memory budget tests
+### Phase 1: Buffer Tests (Complete ✅)
+- ✅ Add `viewportSystems.buffers.test.ts` with 9 comprehensive tests
+- ✅ Test buildRealStarBuffers correctness (position/color layout)
+- ✅ Verify spectral color mapping (O→blue through M→red)
+- ✅ Memory budget tests (40k system capacity)
 
-### Phase 2: Canvas Integration (Follow-up)
-- Create E2E test harness with real R3F/Three.js
-- Canvas pixel analysis utilities
-- Zoom behavior verification
-- Fade animation timing tests
+### Phase 2: Babylon Canvas Integration (Follow-up)
+- Create integration test harness with real Babylon.js engine
+- Babylon mesh/vertex buffer verification (real-star positions and colors)
+- Canvas pixel analysis utilities (verify stars appear with correct colors)
+- Zoom behavior verification (LOD density weighting re-applies on zoom)
+- Fade animation timing tests (if fade is added later)
 
 ### Phase 3: Full Visual E2E (Stabilization)
 - Real-star rendering Playwright tests
@@ -181,9 +185,13 @@ test('clicking a real star selects it', async ({ page }) => {
 
 ## Tools & Libraries
 
-- **Three.js testing:** `canvas.getContext('webgl2')` for context queries
-- **Pixel analysis:** `canvas.getImageData()` for color verification
-- **Playwright:** `page.locator('canvas').screenshot()` for visual regression
+- **Babylon.js testing:** 
+  - `BABYLON.Engine(canvas)` for canvas/scene setup
+  - `mesh.getVerticesData(BABYLON.VertexBuffer.PositionKind)` for position verification
+  - `mesh.getVerticesData(BABYLON.VertexBuffer.ColorKind)` for color verification
+  - `engine.runRenderLoop()` for manual frame stepping in tests
+- **Pixel analysis:** `canvas.getImageData()` for color verification and visual validation
+- **Playwright:** `page.locator('canvas').screenshot()` for visual regression of rendered stars
 - **Animation timing:** `page.evaluate()` with `performance.now()` for frame measurements
 
 ## Success Criteria
