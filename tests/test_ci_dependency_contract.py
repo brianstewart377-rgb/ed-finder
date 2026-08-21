@@ -51,6 +51,8 @@ def test_coverage_jobs_have_their_runtime_dependencies_and_seeded_schema():
     assert seed_step in coverage_workflow
     assert 'run: bash scripts/seed_check.sh' in coverage_workflow
     assert coverage_workflow.index(seed_step) < coverage_workflow.index(coverage_step)
+    assert 'coverage run -m pytest tests/ -m "not (operator or e2e or slow)"' in coverage_workflow
+    assert 'coverage run -m pytest tests/ -m "unit or integration or db"' not in coverage_workflow
     assert '"@vitest/coverage-v8": "4.1.10"' in frontend_package
 
 
