@@ -11,6 +11,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONTAINER_PARITY_ENV = 'EDFINDER_RUN_CONTAINER_PARITY'
+_POSTGRES_PARITY_IMAGE = 'ed-finder-postgres:16-bookworm-repack'
 
 
 def _read(*parts: str) -> str:
@@ -61,6 +62,18 @@ def _run_docker_compose(docker: str, *args: str) -> subprocess.CompletedProcess[
     )
 
 
+def _run_docker(docker: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [docker, *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+    )
+
+
 def test_env_and_compose_expose_optional_readonly_database_dsn():
     env_example = _read('env.example')
     compose = _read('docker-compose.yml')
@@ -91,6 +104,7 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'dockerfile: apps/importer/Dockerfile' in compose
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'dockerfile: apps/postgres/Dockerfile' in compose
+    assert f'image: {_POSTGRES_PARITY_IMAGE}' in compose
     assert 'dockerfile: apps/api/Dockerfile' in review_compose
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
@@ -122,12 +136,11 @@ def test_built_api_eddn_and_importer_images_pass_runtime_import_parity():
     )
     assert build.returncode == 0, build.stderr or build.stdout
 
-    repack_probe = _run_docker_compose(
+    repack_probe = _run_docker(
         docker,
         'run',
         '--rm',
-        '--no-deps',
-        'postgres',
+        _POSTGRES_PARITY_IMAGE,
         'pg_repack',
         '--version',
     )
