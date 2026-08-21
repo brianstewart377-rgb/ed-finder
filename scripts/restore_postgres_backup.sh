@@ -78,6 +78,7 @@ cat "$BACKUP_FILE" | dc exec -T postgres \
   pg_restore \
     -U edfinder \
     -d "$TARGET_DB" \
+    --exit-on-error \
     --clean \
     --if-exists \
     --no-owner \

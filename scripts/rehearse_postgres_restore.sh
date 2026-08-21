@@ -233,6 +233,10 @@ INVALID_INDEXES="$(
   dc exec -T postgres psql -U edfinder -d "$TARGET_DB" -At \
     -c "SELECT COUNT(*) FROM pg_index WHERE NOT indisvalid OR NOT indisready;"
 )"
+UNPOPULATED_MATERIALIZED_VIEWS="$(
+  dc exec -T postgres psql -U edfinder -d "$TARGET_DB" -At \
+    -c "SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind = 'm' AND NOT c.relispopulated;"
+)"
 
 [[ "$PUBLIC_TABLES" -ge 1 ]] || die "rehearsal restored no public tables"
 [[ "$SCHEMA_MIGRATIONS" -ge "$MIN_SCHEMA_MIGRATIONS" ]] || \
@@ -249,6 +253,8 @@ INVALID_INDEXES="$(
   die "$UNVALIDATED_CONSTRAINTS constraints are not validated"
 [[ "$INVALID_INDEXES" -eq 0 ]] || \
   die "$INVALID_INDEXES indexes are invalid or not ready"
+[[ "$UNPOPULATED_MATERIALIZED_VIEWS" -eq 0 ]] || \
+  die "$UNPOPULATED_MATERIALIZED_VIEWS public materialized views are not populated"
 
 ok "public tables visible: $PUBLIC_TABLES"
 ok "schema migrations visible: $SCHEMA_MIGRATIONS"
@@ -259,6 +265,7 @@ ok "ratings relation bytes: $RATINGS_BYTES"
 ok "stations rows: $STATION_ROWS"
 ok "unvalidated constraints: $UNVALIDATED_CONSTRAINTS"
 ok "invalid/not-ready indexes: $INVALID_INDEXES"
+ok "unpopulated materialized views: $UNPOPULATED_MATERIALIZED_VIEWS"
 
 if [[ -n "$RECEIPT_FILE" ]]; then
   mkdir -p "$(dirname "$RECEIPT_FILE")"
@@ -282,6 +289,7 @@ if [[ -n "$RECEIPT_FILE" ]]; then
   "stations_rows": $STATION_ROWS,
   "unvalidated_constraints": $UNVALIDATED_CONSTRAINTS,
   "invalid_or_not_ready_indexes": $INVALID_INDEXES,
+  "unpopulated_materialized_views": $UNPOPULATED_MATERIALIZED_VIEWS,
   "keep_db": $([[ "$KEEP_DB" -eq 1 ]] && echo true || echo false)
 }
 EOF
@@ -307,3 +315,4 @@ echo "  Bodies bytes:       $BODIES_BYTES"
 echo "  Ratings bytes:      $RATINGS_BYTES"
 echo "  Stations rows:      $STATION_ROWS"
 echo "  Invalid indexes:    $INVALID_INDEXES"
+echo "  Unpopulated MVs:    $UNPOPULATED_MATERIALIZED_VIEWS"

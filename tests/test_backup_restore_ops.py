@@ -388,6 +388,7 @@ def test_restore_helper_defaults_to_safe_non_live_target():
     assert '--compose-file' in restore
     assert 'dc() {' in restore
     assert 'pg_restore' in restore
+    assert '--exit-on-error' in restore
 
 
 def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
@@ -412,9 +413,11 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert 'SELECT COUNT(*) FROM stations;' in rehearsal
     assert 'WHERE NOT convalidated' in rehearsal
     assert 'WHERE NOT indisvalid OR NOT indisready' in rehearsal
+    assert "c.relkind = 'm' AND NOT c.relispopulated" in rehearsal
     assert '"systems_rows": $SYSTEM_ROWS' in rehearsal
     assert '"unvalidated_constraints": $UNVALIDATED_CONSTRAINTS' in rehearsal
     assert '"invalid_or_not_ready_indexes": $INVALID_INDEXES' in rehearsal
+    assert '"unpopulated_materialized_views": $UNPOPULATED_MATERIALIZED_VIEWS' in rehearsal
     assert 'trap cleanup_target EXIT' in rehearsal
     assert 'restore rehearsals must use a disposable target database, never edfinder' in rehearsal
     assert 'refusing cleanup of live database edfinder' in rehearsal

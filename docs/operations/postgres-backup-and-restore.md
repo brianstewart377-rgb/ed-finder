@@ -104,7 +104,7 @@ The script:
 1. checks the archive exists
 2. refuses to target live `edfinder` unless `--allow-live-db` is supplied
 3. drops and recreates the target database
-4. pipes the custom-format archive into `pg_restore`
+4. pipes the custom-format archive into `pg_restore` with `--exit-on-error`
 5. runs a basic public-table smoke check
 
 ## Restore Rehearsal
@@ -124,10 +124,16 @@ The helper:
 3. requires at least 180 million systems for the production Compose path
 4. verifies both Sol and Colonia, substantial `bodies` and `ratings` relations,
    and at least one station
-5. verifies the migration ledger, validated constraints, and valid/ready indexes
+5. verifies the migration ledger, validated constraints, valid/ready indexes,
+   and that every public materialized view is populated
 6. drops the disposable rehearsal database again unless `--keep-db` is supplied,
    including cleanup on failed validation
 7. optionally writes a JSON receipt containing every readiness marker
+
+`--exit-on-error` makes a failed materialized-view refresh or any other archive
+error stop the restore at the first failure. The independent populated-view
+check then catches archives whose materialized views were already unpopulated
+at backup time.
 
 For the canonical local Windows/disposable stack, point the helper at
 `docker-compose.local.yml`. That stack has no `maintenance` service, so the
