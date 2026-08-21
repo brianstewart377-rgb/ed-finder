@@ -50,6 +50,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt coverage
 
+      - name: Apply schema + seed (with invariant checks)
+        env:
+          PGPASSWORD: edfinder
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: bash scripts/seed_check.sh
+
       - name: Run tests with coverage
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
