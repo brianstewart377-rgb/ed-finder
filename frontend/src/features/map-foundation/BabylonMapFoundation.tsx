@@ -132,19 +132,29 @@ export function BabylonMapFoundation({
             position: 'absolute',
             left: `${tooltipPos.x + 10}px`,
             top: `${tooltipPos.y + 10}px`,
-            backgroundColor: 'rgba(0, 0, 0, 0.8)',
-            color: '#fff',
-            padding: '4px 8px',
+            backgroundColor: 'rgba(0, 0, 0, 0.85)',
+            color: '#e0e0e0',
+            padding: '6px 10px',
             borderRadius: '4px',
-            fontSize: '12px',
+            fontSize: '11px',
             fontFamily: 'monospace',
             pointerEvents: 'none',
             zIndex: 1000,
-            whiteSpace: 'nowrap',
-            border: '1px solid #666',
+            border: '1px solid #555',
+            lineHeight: '1.4',
           }}
         >
-          {hoveredSystem.name}
+          <div style={{ fontWeight: 'bold', marginBottom: '2px' }}>
+            {hoveredSystem.name}
+          </div>
+          <div style={{ fontSize: '10px', color: '#aaa' }}>
+            {hoveredSystem.main_star_class ? `${hoveredSystem.main_star_class}-class star` : 'Unknown type'}
+            {' · '}
+            {hoveredSystem.populated ? 'Populated' : 'Uninhabited'}
+          </div>
+          <div style={{ fontSize: '10px', color: '#999', marginTop: '2px' }}>
+            {hoveredSystem.x.toFixed(0)}, {hoveredSystem.y.toFixed(0)}, {hoveredSystem.z.toFixed(0)}
+          </div>
         </div>
       )}
     </div>
