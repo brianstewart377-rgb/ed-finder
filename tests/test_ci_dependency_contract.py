@@ -62,3 +62,12 @@ def test_ci_playwright_reuses_the_health_checked_backend():
 
     assert "EDFINDER_SKIP_E2E_BACKEND: '1'" in workflow
     assert "process.env.EDFINDER_SKIP_E2E_BACKEND === '1'" in global_setup
+
+
+def test_docker_build_context_excludes_local_dependency_and_test_artifacts():
+    dockerignore = _read('.dockerignore').splitlines()
+
+    assert '.venv' in dockerignore
+    assert '.pytest_cache' in dockerignore
+    assert 'frontend/node_modules' in dockerignore
+    assert 'frontend/test-results' in dockerignore

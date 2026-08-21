@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   // Clear state between tests (issue #10: test isolation)
+  await page.goto('/');
   await page.evaluate(() => {
     localStorage.clear();
     sessionStorage.clear();
@@ -10,6 +11,7 @@ test.beforeEach(async ({ page }) => {
 
 test('real-star layer renders when zoomed in', async ({ page }) => {
   test.setTimeout(60000);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
 
   console.log('\n╔════════════════════════════════════════════════════════════╗');
   console.log('║         REAL-STAR LAYER ZOOM DETECTION TEST               ║');
@@ -73,11 +75,10 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
       return isRealStarsCall;
     });
 
-    // Adaptive zoom polling instead of hard-coded timing (issue #6)
-    let reachedTarget = false;
+    // Keep zooming until the real-star request actually fires. The LOD is
+    // defined by viewport span, so a broad LY/px range can stop too early on
+    // wider CI viewports.
     const maxZoomAttempts = 20;
-    const targetZoomMin = 20;
-    const targetZoomMax = 150;
     const zoomStep = 1000;
 
     for (let i = 0; i < maxZoomAttempts; i++) {
@@ -89,26 +90,20 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
         }));
       });
 
-      await page.waitForTimeout(100);
+      await page.waitForTimeout(300);
 
       const currentZoom = await renderer.evaluate((element) => {
         return Number((element as any).dataset.cameraZoom);
       });
       console.log(`  Step ${i + 1}: Zoom = ${currentZoom} LY/px`);
 
-      if (currentZoom >= targetZoomMin && currentZoom <= targetZoomMax) {
-        reachedTarget = true;
-        console.log(`  ✓ Reached target zoom range (${currentZoom} LY/px)`);
-        break;
-      }
-
-      if (currentZoom > targetZoomMax) {
-        console.log('  ⚠ Zoom exceeded target, stopping');
+      if (hadApiCall) {
+        console.log(`  ✓ Real-star request fired at ${currentZoom} LY/px`);
         break;
       }
     }
 
-    expect(reachedTarget, 'Should reach zoom level suitable for real-star detail').toBe(true);
+    expect(hadApiCall, 'Should cross the viewport-span LOD and request real stars').toBe(true);
 
     // Wait for API response with proper error handling (issue #1)
     try {
@@ -132,7 +127,7 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
     console.log('╚════════════════════════════════════════════════════════════╝');
 
     console.log(`✓ Canvas rendering: ${canvas > 0 ? 'YES' : 'NO'}`);
-    console.log(`✓ Reached target zoom: ${reachedTarget ? 'YES' : 'NO'}`);
+    console.log(`✓ Reached real-star LOD: ${hadApiCall ? 'YES' : 'NO'}`);
     console.log(`✓ API calls to /map/systems: ${apiCalls.length > 0 ? 'YES' : 'NO'}`);
     console.log(`✓ Real-star API response received: ${hadApiCall ? 'YES' : 'NO'}`);
     console.log(`✓ Viewport-systems console messages: ${viewportMessages.length > 0 ? 'YES' : 'NO'}`);
@@ -149,7 +144,6 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
 
     // Core assertions
     expect(canvas).toBeGreaterThan(0);
-    expect(reachedTarget).toBe(true);
     expect(hadApiCall).toBe(true);
   } finally {
     // Clean up event listeners

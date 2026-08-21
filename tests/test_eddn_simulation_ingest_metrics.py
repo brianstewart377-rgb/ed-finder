@@ -12,6 +12,7 @@ EddnSimulationIngestFlushStalled alert and CLAUDE.md.
 """
 import os
 import sys
+from importlib import reload
 from pathlib import Path
 
 
@@ -41,7 +42,13 @@ def test_initialised_fresh_at_import_time():
     """Set at module import (process start), not left unset — a freshly
     started process must not immediately read as stalled before its first
     real flush cycle has had a chance to complete."""
-    assert eddn_client.seconds_since_last_flush() < 60
+    # The comprehensive coverage job may take several minutes between test
+    # collection (when this module is first imported) and this assertion. A
+    # reload exercises the process-start behaviour directly instead of making
+    # the result depend on suite duration or test order.
+    reloaded_client = reload(eddn_client)
+
+    assert reloaded_client.seconds_since_last_flush() < 5
 
 
 def test_metrics_endpoint_exposes_the_gauge():

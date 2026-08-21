@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   // Clear state between tests (issue #10: test isolation)
+  await page.goto('/');
   await page.evaluate(() => {
     localStorage.clear();
     sessionStorage.clear();

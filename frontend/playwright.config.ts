@@ -28,7 +28,11 @@ export default defineConfig({
   workers: process.env.CI ? 2 : undefined, // 2 workers in CI for parallelization
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? 'github' : 'list',
-  globalSetup: './e2e/globalSetup.ts',
+  // Review Lab owns an isolated Docker stack, API, and preview lifecycle.
+  // Running the ordinary E2E setup as well starts a second local Compose
+  // stack, waits for an API that setup never launches, and leaks that stack
+  // into Review Lab's Docker-baseline check.
+  globalSetup: reviewLabRun ? undefined : './e2e/globalSetup.ts',
   use: {
     baseURL: 'http://localhost:4173',
     trace: 'on-first-retry',

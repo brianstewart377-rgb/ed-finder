@@ -275,15 +275,23 @@ test.describe('ED Finder — smoke', () => {
     const realStarsResponsePromise = page.waitForResponse((response) => (
       new URL(response.url()).pathname === '/api/map/systems'
     ));
-    await renderer.evaluate((element) => {
-      element.dispatchEvent(new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        deltaY: -3_500,
-      }));
-    });
+    let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await renderer.evaluate((element) => {
+        element.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -1_000,
+        }));
+      });
+      await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+        .toBeLessThan(previousZoom);
+      const zoom = Number(await renderer.getAttribute('data-camera-zoom'));
+      previousZoom = zoom;
+      if (zoom <= 3) break;
+    }
     await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
-      .toBeLessThan(10);
+      .toBeLessThanOrEqual(3);
 
     const realStarsResponse = await realStarsResponsePromise;
     expect(realStarsResponse.status()).toBe(200);
@@ -443,12 +451,13 @@ test.describe('ED Finder — smoke', () => {
     await page.getByTestId('search-submit').click();
     await expect(page.getByTestId('search-summary')).toBeVisible({ timeout: 15_000 });
 
-    // Click first result
-    const firstResult = page.locator('[data-testid^="system-card-"]').first();
+    // Expand the first current result card and use its explicit detail action.
+    const firstResult = page.locator('[data-testid^="result-card-"]').first();
     await expect(firstResult).toBeVisible();
-    const systemName = await firstResult.textContent();
+    const systemName = (await firstResult.locator('h3').textContent())?.trim();
 
-    await firstResult.click();
+    await firstResult.locator('header').click();
+    await firstResult.getByRole('button', { name: 'Inspect system' }).click();
 
     // Modal should appear with system details
     const modal = page.locator('[data-testid="system-detail-modal"]');
@@ -470,6 +479,8 @@ test.describe('ED Finder — smoke', () => {
 
   // Issue #9: API error handling
   test('handles real-stars endpoint error gracefully', async ({ page }) => {
+    test.setTimeout(30_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     // Abort the real-stars API to simulate server error
     await page.route('/api/map/systems', (route) => {
       route.abort('failed');
@@ -478,16 +489,27 @@ test.describe('ED Finder — smoke', () => {
     await page.goto('/');
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
+    await page.getByTestId('map-snap-top-down').click();
 
     const renderer = page.locator('.map-foundation-renderer');
+    await expect(renderer).toBeVisible({ timeout: 10_000 });
+    const realStarsRequestPromise = page.waitForRequest((request) => (
+      new URL(request.url()).pathname === '/api/map/systems'
+    ));
 
     // Deep zoom to trigger real-stars request
+    let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
     for (let i = 0; i < 10; i++) {
       await renderer.evaluate((el) => {
         (el as any).dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
       });
-      await page.waitForTimeout(100);
+      await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+        .toBeLessThan(previousZoom);
+      const zoom = Number(await renderer.getAttribute('data-camera-zoom'));
+      previousZoom = zoom;
+      if (zoom <= 3) break;
     }
+    await realStarsRequestPromise;
 
     // Should not crash or freeze - canvas should still be visible
     await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
