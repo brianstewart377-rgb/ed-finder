@@ -676,7 +676,7 @@ jobs:
         run: yarn build
 
       - name: Restore Playwright browser cache
-        uses: actions/cache@3d10df36a13dd38f21cfe2eb21b847daaa8c7b33 # v4.0.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}

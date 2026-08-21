@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { realStarViewportBox, shouldEnableRealStarDetail, realStarViewportSpan } from './viewportSystems';
+import {
+  REAL_STAR_ENTER_MAX_LY,
+  REAL_STAR_EXIT_MAX_LY,
+  realStarViewportBox,
+  shouldEnableRealStarDetail,
+  realStarViewportSpan,
+} from './viewportSystems';
 
 describe('viewport systems settle timer logic', () => {
   const viewport = { width: 1280, height: 720 };
@@ -59,13 +65,20 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('threshold should have hysteresis', () => {
-    // For hysteresis: span should be between ENTER (5000) and EXIT (8000) LY thresholds
-    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span (approximate)
-    // For span=6500 LY: zoom ≈ 6500 / (640 * 0.78 * 1.25 * 2) ≈ 6.4
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.4, pitchDeg: 0.5 };
+    const targetSpan = (REAL_STAR_ENTER_MAX_LY + REAL_STAR_EXIT_MAX_LY) / 2;
+    const unitSpan = realStarViewportSpan(
+      { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 0.5 },
+      viewport,
+    ).maxSpan;
+    const boundaryCamera = {
+      center: { x: 0, z: 0 },
+      zoom: targetSpan / unitSpan,
+      pitchDeg: 0.5,
+    };
     const span = realStarViewportSpan(boundaryCamera, viewport);
 
-    console.log(`[hysteresis test] zoom=6.4 produces span=${span.maxSpan.toFixed(0)} LY`);
+    expect(span.maxSpan).toBeGreaterThan(REAL_STAR_ENTER_MAX_LY);
+    expect(span.maxSpan).toBeLessThanOrEqual(REAL_STAR_EXIT_MAX_LY);
 
     // When disabled, enter threshold is 5000 LY
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);

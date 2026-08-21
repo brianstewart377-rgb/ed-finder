@@ -63,7 +63,7 @@ jobs:
           coverage report --fail-under=70
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5c47eb3cae59d1fd1c3ef4cd4e8f4fbb3dab1ff2
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: ./coverage.xml
           flags: backend
@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Set up Node 22
-        uses: actions/setup-node@1a4b3d3a2e7ab5a68c9e4e6a8c69c7ea5e9e4b54
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: npm
@@ -97,7 +97,7 @@ jobs:
         run: yarn test:ci --coverage --run
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@5c47eb3cae59d1fd1c3ef4cd4e8f4fbb3dab1ff2
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: ./frontend/coverage/coverage-final.json
           flags: frontend
