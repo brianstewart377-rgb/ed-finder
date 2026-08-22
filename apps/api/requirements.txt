@@ -3,7 +3,7 @@
 # apps/importer/requirements.txt and are NOT installed into this image.
 asyncpg==0.31.0
 fastapi==0.141.1
-uvicorn[standard]==0.52.1
+uvicorn[standard]==0.52.3
 redis[asyncio]==8.1.0
 pydantic==2.13.4
 pydantic-settings==2.15.0
@@ -40,4 +40,4 @@ Pillow==12.3.0
 
 # Optional error tracking (GlitchTip/Sentry-API-compatible). Only active
 # when SENTRY_DSN is set — see config.py and docs/operations/glitchtip-error-tracking.md.
-sentry-sdk==2.66.1
+sentry-sdk==2.68.0
