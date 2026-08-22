@@ -2,6 +2,7 @@ import {
   test,
   expect,
   type APIRequestContext,
+  type ConsoleMessage,
   type Page,
 } from '@playwright/test';
 
@@ -106,6 +107,11 @@ async function expectCanvasToBeSynced(page: Page) {
 test.describe('ED Finder — smoke', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage so each test starts from a known state.
+    await page.route('https://fonts.googleapis.com/**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: '',
+    }));
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
@@ -180,7 +186,7 @@ test.describe('ED Finder — smoke', () => {
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
     test.setTimeout(60_000);
     const graphicsWarnings: string[] = [];
-    const consoleHandler = (message: any) => {
+    const consoleHandler = (message: ConsoleMessage) => {
       if (
         (message.type() === 'warning' || message.type() === 'error')
         && /drawArraysInstanced|destination rect|viewport rect/i.test(message.text())
@@ -296,7 +302,7 @@ test.describe('ED Finder — smoke', () => {
     const realStarsResponse = await realStarsResponsePromise;
     expect(realStarsResponse.status()).toBe(200);
     const realStarsBody = await realStarsResponse.json() as {
-      systems: Array<any>;
+      systems: Array<unknown>;
       truncated: boolean;
     };
     expect(realStarsBody).toEqual(expect.objectContaining({
@@ -466,13 +472,8 @@ test.describe('ED Finder — smoke', () => {
     // Verify modal contains the clicked system's data
     await expect(modal).toContainText(systemName ?? '');
 
-    // Close modal by clicking backdrop or close button
-    const closeButton = modal.locator('[data-testid="modal-close"]');
-    if (await closeButton.isVisible()) {
-      await closeButton.click();
-    } else {
-      await page.locator('[data-testid="system-detail-modal-backdrop"]').click();
-    }
+    // Close through the modal's stable, user-visible close control.
+    await modal.getByTestId('system-detail-close').click();
 
     await expect(modal).not.toBeVisible({ timeout: 5_000 });
   });
@@ -501,7 +502,7 @@ test.describe('ED Finder — smoke', () => {
     let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
     for (let i = 0; i < 10; i++) {
       await renderer.evaluate((el) => {
-        (el as any).dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
+        el.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
       });
       await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
         .toBeLessThan(previousZoom);
@@ -517,7 +518,7 @@ test.describe('ED Finder — smoke', () => {
 
   test('handles heatmap endpoint error gracefully', async ({ page }) => {
     // Simulate heatmap endpoint timeout
-    await page.route('/api/map/heatmap', async (route) => {
+    await page.route('/api/map/heatmap', async () => {
       // Delay response indefinitely to simulate timeout
       await new Promise(() => {});
     });

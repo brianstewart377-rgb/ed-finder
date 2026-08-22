@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+const externalPreviewRun = process.env.EDFINDER_E2E_EXTERNAL_PREVIEW === '1';
+const e2eBaseUrl = process.env.EDFINDER_E2E_BASE_URL || 'http://localhost:4173';
 
 /**
  * Playwright config for ED Finder E2E tests.
@@ -32,9 +34,9 @@ export default defineConfig({
   // Running the ordinary E2E setup as well starts a second local Compose
   // stack, waits for an API that setup never launches, and leaks that stack
   // into Review Lab's Docker-baseline check.
-  globalSetup: reviewLabRun ? undefined : './e2e/globalSetup.ts',
+  globalSetup: reviewLabRun || externalPreviewRun ? undefined : './e2e/globalSetup.ts',
   use: {
-    baseURL: 'http://localhost:4173',
+    baseURL: e2eBaseUrl,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -68,7 +70,7 @@ export default defineConfig({
       },
     ] : []),
   ],
-  webServer: reviewLabRun ? undefined : {
+  webServer: reviewLabRun || externalPreviewRun ? undefined : {
     // `yarn preview` after `yarn build` — serves the production bundle.
     command: 'yarn preview --port 4173 --strictPort',
     url:     'http://localhost:4173',

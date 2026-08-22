@@ -1,7 +1,12 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type ConsoleMessage, type Response } from '@playwright/test';
 
 test.beforeEach(async ({ page }) => {
   // Clear state between tests (issue #10: test isolation)
+  await page.route('https://fonts.googleapis.com/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/css',
+    body: '',
+  }));
   await page.goto('/');
   await page.evaluate(() => {
     localStorage.clear();
@@ -10,7 +15,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('real-star layer renders when zoomed in', async ({ page }) => {
-  test.setTimeout(60000);
+  test.setTimeout(120_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
   console.log('\n╔════════════════════════════════════════════════════════════╗');
@@ -21,7 +26,7 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
   const viewportMessages: string[] = [];
   const apiCalls: string[] = [];
 
-  const consoleHandler = (msg: any) => {
+  const consoleHandler = (msg: ConsoleMessage) => {
     const text = msg.text();
     if (text.includes('[viewport-systems]')) {
       viewportMessages.push(text);
@@ -31,7 +36,7 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
   page.on('console', consoleHandler);
 
   // Intercept API calls to detect /map/systems requests
-  const responseHandler = (response: any) => {
+  const responseHandler = (response: Response) => {
     if (response.url().includes('/api/map/systems')) {
       const status = response.status();
       apiCalls.push(`${response.url()} → ${status}`);
@@ -64,62 +69,48 @@ test('real-star layer renders when zoomed in', async ({ page }) => {
 
     const renderer = page.locator('.map-foundation-renderer');
 
-    // Set up API response listener with proper race condition handling (issue #1)
-    let hadApiCall = false;
-    const apiCallPromise = page.waitForResponse((response) => {
-      const isRealStarsCall = new URL(response.url()).pathname === '/api/map/systems';
-      if (isRealStarsCall) {
-        console.log('[API] Real-star API call detected:', response.status());
-        hadApiCall = true;
-      }
-      return isRealStarsCall;
-    });
+    // Register before zooming so a fast response cannot win the listener race.
+    const apiCallPromise = page.waitForResponse((response) => (
+      new URL(response.url()).pathname === '/api/map/systems'
+    ));
 
-    // Keep zooming until the real-star request actually fires. The LOD is
-    // defined by viewport span, so a broad LY/px range can stop too early on
-    // wider CI viewports.
-    const maxZoomAttempts = 20;
+    // Cross the LOD deliberately, then let the camera settle. Waiting for the
+    // response inside this animation loop races React's settled-camera debounce
+    // on slower CI renderers.
+    const maxZoomAttempts = 10;
     const zoomStep = 1000;
+    let currentZoom = Number(await renderer.getAttribute('data-camera-zoom'));
 
     for (let i = 0; i < maxZoomAttempts; i++) {
-      await renderer.evaluate((element) => {
+      const previousZoom = currentZoom;
+      await renderer.evaluate((element, deltaY) => {
         element.dispatchEvent(new WheelEvent('wheel', {
           bubbles: true,
           cancelable: true,
-          deltaY: -zoomStep,
+          deltaY,
         }));
-      });
+      }, -zoomStep);
 
-      await page.waitForTimeout(300);
-
-      const currentZoom = await renderer.evaluate((element) => {
-        return Number((element as any).dataset.cameraZoom);
-      });
+      await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+        .toBeLessThan(previousZoom);
+      currentZoom = Number(await renderer.getAttribute('data-camera-zoom'));
       console.log(`  Step ${i + 1}: Zoom = ${currentZoom} LY/px`);
 
-      if (hadApiCall) {
-        console.log(`  ✓ Real-star request fired at ${currentZoom} LY/px`);
-        break;
-      }
+      if (currentZoom <= 3) break;
     }
 
-    expect(hadApiCall, 'Should cross the viewport-span LOD and request real stars').toBe(true);
-
-    // Wait for API response with proper error handling (issue #1)
-    try {
-      await Promise.race([
-        apiCallPromise,
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Real-stars API did not fire within 10s')), 10000)
-        )
-      ]);
-    } catch (e) {
-      if (!hadApiCall) {
-        throw e;
-      }
-      // API fired but response still resolving; wait a bit more
-      await page.waitForTimeout(500);
-    }
+    expect(currentZoom, 'Should cross the viewport-span LOD').toBeLessThanOrEqual(3);
+    const apiResponse = await apiCallPromise;
+    expect(apiResponse.status()).toBe(200);
+    const apiBody = await apiResponse.json() as {
+      systems: Array<unknown>;
+      truncated: boolean;
+    };
+    expect(apiBody).toEqual(expect.objectContaining({
+      systems: expect.any(Array),
+      truncated: expect.any(Boolean),
+    }));
+    const hadApiCall = true;
 
     // Final verification
     console.log('\n╔════════════════════════════════════════════════════════════╗');

@@ -17,6 +17,18 @@ from edfinder_api.ingest.slot_prediction import SlotPrediction
 from edfinder_api.routers import simulation as simulation_router
 
 
+@pytest.fixture(autouse=True)
+def isolate_slot_prediction_cache(monkeypatch):
+    async def cache_miss(*_args, **_kwargs):
+        return None
+
+    async def discard_cache_write(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(simulation_router, 'cache_get', cache_miss)
+    monkeypatch.setattr(simulation_router, 'cache_set', discard_cache_write)
+
+
 class MockConnection:
     async def fetch(self, query, *args):
         if 'FROM body_scan_facts' in query:
