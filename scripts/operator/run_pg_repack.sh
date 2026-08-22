@@ -37,11 +37,23 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --check) MODE="check"; shift ;;
         --run) MODE="run"; shift ;;
-        --table) TARGET_TABLE="${2:-}"; shift 2 ;;
+        --table)
+            [[ $# -ge 2 ]] || die "--table requires a value"
+            TARGET_TABLE="$2"
+            shift 2
+            ;;
         --confirm) CONFIRMED=1; shift ;;
         --allow-low-disk) ALLOW_LOW_DISK=1; shift ;;
-        --wait-timeout) WAIT_TIMEOUT="${2:-}"; shift 2 ;;
-        --jobs) JOBS="${2:-}"; shift 2 ;;
+        --wait-timeout)
+            [[ $# -ge 2 ]] || die "--wait-timeout requires a value"
+            WAIT_TIMEOUT="$2"
+            shift 2
+            ;;
+        --jobs)
+            [[ $# -ge 2 ]] || die "--jobs requires a value"
+            JOBS="$2"
+            shift 2
+            ;;
         -h|--help) usage; exit 0 ;;
         *) die "unknown argument: $1" ;;
     esac

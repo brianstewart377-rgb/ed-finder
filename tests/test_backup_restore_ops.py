@@ -22,6 +22,16 @@ def _write_executable(path: Path, body: str) -> None:
     path.chmod(0o755)
 
 
+def _find_bash() -> str | None:
+    candidates: list[str | None] = []
+    if os.name == 'nt':
+        program_files = os.environ.get('ProgramFiles')
+        if program_files:
+            candidates.append(str(Path(program_files) / 'Git' / 'bin' / 'bash.exe'))
+    candidates.append(shutil.which('bash'))
+    return next((candidate for candidate in candidates if candidate and Path(candidate).is_file()), None)
+
+
 def _run_backup_scenario(
     tmp_path: Path,
     *,
@@ -377,6 +387,25 @@ def test_pg_repack_is_durable_operator_gated_and_never_scheduled_as_a_rewrite():
     assert not ROOT.joinpath(
         'apps', 'maintenance', 'scripts', 'backup_rehearsal.sh'
     ).exists()
+
+
+def test_pg_repack_value_flags_fail_with_clear_missing_value_errors():
+    bash = _find_bash()
+    assert bash is not None, 'bash is required for the pg_repack parser tests'
+    script = ROOT / 'scripts' / 'operator' / 'run_pg_repack.sh'
+
+    for flag in ('--table', '--wait-timeout', '--jobs'):
+        completed = subprocess.run(
+            [bash, str(script), '--run', flag],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+
+        assert completed.returncode != 0
+        assert f'ERROR: {flag} requires a value' in completed.stderr
+        assert 'shift' not in completed.stderr.lower()
 
 
 def test_restore_helper_defaults_to_safe_non_live_target():
