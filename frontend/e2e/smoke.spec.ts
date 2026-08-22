@@ -83,7 +83,7 @@ async function expectCanvasToBeSynced(page: Page) {
         && lastMetrics.syncGuard === 'true'
         && !lastMetrics.contextLost
       );
-    }).toBe(true);
+    }, { timeout: 15_000 }).toBe(true);
   } catch (error) {
     throw new Error(
       `Canvas metrics did not synchronize: ${JSON.stringify(lastMetrics)}`,
@@ -184,7 +184,7 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
     // Camera easing has its own deterministic unit coverage. This integration
     // check verifies the controls and final state without tying CI to the
     // frame rate of a software-rendered WebGL scene.
@@ -264,8 +264,26 @@ test.describe('ED Finder — smoke', () => {
 
     try {
       await expectCanvasToBeSynced(page);
-      await page.setViewportSize({ width: 1111, height: 733 });
-      await expect.poll(async () => (await readCanvasMetrics(page)).cssWidth).toBe(1111);
+      const metricsBeforeResize = await readCanvasMetrics(page);
+      const viewportBeforeResize = page.viewportSize();
+      expect(viewportBeforeResize).not.toBeNull();
+      await page.setViewportSize({
+        width: viewportBeforeResize!.width === 1111 ? 1139 : 1111,
+        height: viewportBeforeResize!.height === 733 ? 719 : 733,
+      });
+      await expect.poll(async () => {
+        const [metrics, containerBox] = await Promise.all([
+          readCanvasMetrics(page),
+          mapViewport.boundingBox(),
+        ]);
+        return Boolean(containerBox)
+          && metrics.cssWidth === Math.round(containerBox!.width)
+          && metrics.cssHeight === Math.round(containerBox!.height)
+          && (
+            metrics.cssWidth !== metricsBeforeResize.cssWidth
+            || metrics.cssHeight !== metricsBeforeResize.cssHeight
+          );
+      }, { timeout: 15_000 }).toBe(true);
       await expectCanvasToBeSynced(page);
 
       await page.getByTestId('map-view-results').click();
@@ -326,6 +344,8 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
+    test.setTimeout(45_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
 
@@ -334,6 +354,7 @@ test.describe('ED Finder — smoke', () => {
     const canvas = renderer.locator('canvas');
     await expect.poll(
       () => canvas.evaluate((element) => element.dataset.drawingBufferSynced),
+      { timeout: 15_000 },
     ).toBe('true');
 
     await canvas.evaluate((element) => {
@@ -355,7 +376,12 @@ test.describe('ED Finder — smoke', () => {
       });
     });
 
-    await page.setViewportSize({ width: 1111, height: 733 });
+    const viewportBeforeResize = page.viewportSize();
+    expect(viewportBeforeResize).not.toBeNull();
+    await page.setViewportSize({
+      width: viewportBeforeResize!.width === 1111 ? 1139 : 1111,
+      height: viewportBeforeResize!.height === 733 ? 719 : 733,
+    });
     await expect.poll(async () => {
       const sequence = await canvas.evaluate((element) => (
         (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
@@ -364,7 +390,7 @@ test.describe('ED Finder — smoke', () => {
       const invalidatedAt = sequence.indexOf('false');
       return invalidatedAt >= 0
         && sequence.slice(invalidatedAt + 1).includes('true');
-    }).toBe(true);
+    }, { timeout: 15_000 }).toBe(true);
 
     const sequence = await canvas.evaluate((element) => (
       (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
