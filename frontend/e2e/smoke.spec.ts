@@ -184,7 +184,11 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(90_000);
+    // Camera easing has its own deterministic unit coverage. This integration
+    // check verifies the controls and final state without tying CI to the
+    // frame rate of a software-rendered WebGL scene.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     const graphicsWarnings: string[] = [];
     const consoleHandler = (message: ConsoleMessage) => {
       if (
@@ -239,8 +243,16 @@ test.describe('ED Finder — smoke', () => {
     const zoomInTarget = initialZoom * Math.exp(-0.22);
     await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
       .toBeCloseTo(zoomInTarget, 6);
+    const zoomedInValue = Number(await renderer.getAttribute('data-camera-zoom'));
     await page.getByTestId('map-zoom-out').click();
-    await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+    await expect.poll(
+      async () => Number(await renderer.getAttribute('data-camera-zoom')),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(zoomedInValue);
+    await expect.poll(
+      async () => Number(await renderer.getAttribute('data-camera-zoom')),
+      { timeout: 15_000 },
+    )
       .toBeCloseTo(initialZoom, 6);
     const zoomBeforeSnap = await renderer.getAttribute('data-camera-zoom');
     await page.getByTestId('map-snap-top-down').click();
@@ -480,7 +492,7 @@ test.describe('ED Finder — smoke', () => {
 
   // Issue #9: API error handling
   test('handles real-stars endpoint error gracefully', async ({ page }) => {
-    test.setTimeout(30_000);
+    test.setTimeout(120_000);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     // Abort the real-stars API to simulate server error
     await page.route('/api/map/systems', (route) => {
@@ -498,11 +510,13 @@ test.describe('ED Finder — smoke', () => {
       new URL(request.url()).pathname === '/api/map/systems'
     ));
 
-    // Deep zoom to trigger real-stars request
+    // Deep zoom to trigger the real-stars request. Use the same deliberate
+    // LOD crossing as the success-path test; CI's software renderer can take
+    // considerably longer than a local GPU to render and settle the hooks.
     let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
     for (let i = 0; i < 10; i++) {
       await renderer.evaluate((el) => {
-        el.dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
+        el.dispatchEvent(new WheelEvent('wheel', { deltaY: -1_000, bubbles: true }));
       });
       await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
         .toBeLessThan(previousZoom);
