@@ -43,7 +43,7 @@ export function useAuth(): UseAuth {
 
   const signIn = useCallback(() => {
     const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    window.location.assign(`/api/auth/frontier/login?return_to=${encodeURIComponent(returnTo)}`);
+    window.location.assign(api.frontierLoginUrl(returnTo));
   }, []);
 
   const signOut = useCallback(async () => {

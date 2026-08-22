@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+import httpx
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -23,8 +24,12 @@ def _request(
     admin_token: str = '',
     method: str = 'GET',
     origin: str = '',
+    host: str = 'testserver',
+    path: str = '/',
+    query_string: bytes = b'',
+    scheme: str = 'http',
 ) -> Request:
-    headers = []
+    headers = [(b'host', host.encode('ascii'))]
     if admin_token:
         headers.append((b'x-admin-token', admin_token.encode('ascii')))
     if origin:
@@ -32,13 +37,43 @@ def _request(
     return Request({
         'type': 'http',
         'method': method,
-        'path': '/',
+        'path': path,
         'headers': headers,
-        'query_string': b'',
-        'server': ('testserver', 80),
+        'query_string': query_string,
+        'server': (host, 443 if scheme == 'https' else 80),
         'client': ('127.0.0.1', 1234),
-        'scheme': 'http',
+        'scheme': scheme,
     })
+
+
+class _AsyncContext:
+    def __init__(self, value):
+        self.value = value
+
+    async def __aenter__(self):
+        return self.value
+
+    async def __aexit__(self, exc_type, exc, traceback):
+        return False
+
+
+class _RecordingConnection:
+    def __init__(self):
+        self.queries: list[str] = []
+
+    def transaction(self):
+        return _AsyncContext(self)
+
+    async def execute(self, query: str, *_args):
+        self.queries.append(' '.join(query.split()))
+
+
+class _RecordingPool:
+    def __init__(self):
+        self.connection = _RecordingConnection()
+
+    def acquire(self):
+        return _AsyncContext(self.connection)
 
 
 def test_frontier_authorize_url_uses_registered_callback_pkce_and_scopes(monkeypatch: pytest.MonkeyPatch):
@@ -77,6 +112,87 @@ def test_frontier_authorize_url_uses_registered_callback_pkce_and_scopes(monkeyp
 )
 def test_return_target_is_restricted_to_local_paths(candidate: str, expected: str):
     assert auth_router._safe_return_to(candidate) == expected
+
+
+@pytest.mark.asyncio
+async def test_frontier_login_canonicalizes_to_registered_callback_host(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, 'frontier_client_id', 'client-123')
+    monkeypatch.setattr(settings, 'frontier_client_secret', 'shared-secret')
+    monkeypatch.setattr(
+        settings,
+        'frontier_redirect_uri',
+        'https://ed-finder.app/api/auth/frontier/callback',
+    )
+
+    response = await auth_router.frontier_login(
+        _request(
+            host='www.ed-finder.app',
+            path='/api/auth/frontier/login',
+            query_string=b'return_to=%2F%23admin',
+            scheme='https',
+        ),
+        pool=_RecordingPool(),
+    )
+
+    assert response.status_code == 307
+    assert response.headers['location'] == (
+        'https://ed-finder.app/api/auth/frontier/login?return_to=%2F%23admin'
+    )
+
+
+@pytest.mark.asyncio
+async def test_frontier_login_reaps_expired_states_before_insert(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(settings, 'frontier_client_id', 'client-123')
+    monkeypatch.setattr(settings, 'frontier_client_secret', 'shared-secret')
+    monkeypatch.setattr(
+        settings,
+        'frontier_redirect_uri',
+        'https://ed-finder.app/api/auth/frontier/callback',
+    )
+    pool = _RecordingPool()
+
+    response = await auth_router.frontier_login(
+        _request(
+            host='ed-finder.app',
+            path='/api/auth/frontier/login',
+            scheme='https',
+        ),
+        return_to='/#admin',
+        pool=pool,
+    )
+
+    assert response.status_code == 302
+    assert pool.connection.queries[0] == (
+        'DELETE FROM oauth_login_states WHERE expires_at <= NOW()'
+    )
+    assert pool.connection.queries[1].startswith('INSERT INTO oauth_login_states')
+
+
+@pytest.mark.asyncio
+async def test_frontier_token_transport_failure_returns_bad_gateway(monkeypatch: pytest.MonkeyPatch):
+    class _FailingClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return False
+
+        async def post(self, url: str, **_kwargs):
+            raise httpx.ConnectError(
+                'Frontier is unreachable',
+                request=httpx.Request('POST', url),
+            )
+
+    monkeypatch.setattr(auth_router.httpx, 'AsyncClient', _FailingClient)
+
+    with pytest.raises(HTTPException) as caught:
+        await auth_router._exchange_frontier_code('code', 'verifier')
+
+    assert caught.value.status_code == 502
+    assert caught.value.detail == 'Frontier token exchange failed'
 
 
 def test_frontier_identity_uses_parent_account_and_stores_only_commander_name(monkeypatch: pytest.MonkeyPatch):

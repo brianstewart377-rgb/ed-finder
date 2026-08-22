@@ -1,4 +1,4 @@
-import { jsonFetch } from './core';
+import { jsonFetch, resolveApiUrl } from './core';
 
 export interface AuthUser {
   commander_name: string | null;
@@ -8,6 +8,10 @@ export interface AuthSession {
   authenticated: boolean;
   user: AuthUser | null;
   owner_claim_available: boolean;
+}
+
+export function frontierLoginUrl(returnTo: string): string {
+  return resolveApiUrl(`/auth/frontier/login?return_to=${encodeURIComponent(returnTo)}`);
 }
 
 export function authSession(): Promise<AuthSession> {

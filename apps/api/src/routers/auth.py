@@ -138,18 +138,18 @@ async def _exchange_frontier_code(code: str, verifier: str) -> dict[str, Any]:
         'User-Agent': settings.frontier_user_agent,
     }
     async with httpx.AsyncClient(headers=headers, timeout=12.0) as client:
-        token_response = await client.post(
-            f"{settings.frontier_auth_base_url.rstrip('/')}/token",
-            data={
-                'grant_type': 'authorization_code',
-                'client_id': settings.frontier_client_id,
-                'client_secret': settings.frontier_client_secret,
-                'code': code,
-                'code_verifier': verifier,
-                'redirect_uri': settings.frontier_redirect_uri,
-            },
-        )
         try:
+            token_response = await client.post(
+                f"{settings.frontier_auth_base_url.rstrip('/')}/token",
+                data={
+                    'grant_type': 'authorization_code',
+                    'client_id': settings.frontier_client_id,
+                    'client_secret': settings.frontier_client_secret,
+                    'code': code,
+                    'code_verifier': verifier,
+                    'redirect_uri': settings.frontier_redirect_uri,
+                },
+            )
             token_response.raise_for_status()
             token_payload = token_response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -291,6 +291,17 @@ def _session_response(
     )
 
 
+def _canonical_frontier_login_url(request: Request) -> Optional[str]:
+    """Keep the OAuth state cookie on the registered callback host."""
+    callback = urlsplit(settings.frontier_redirect_uri)
+    if callback.scheme not in {'http', 'https'} or not callback.netloc:
+        return None
+    if request.url.netloc.casefold() == callback.netloc.casefold():
+        return None
+    query = f'?{request.url.query}' if request.url.query else ''
+    return f'{callback.scheme}://{callback.netloc}{request.url.path}{query}'
+
+
 @router.get('/frontier/login')
 @limiter.limit('20/minute')
 async def frontier_login(
@@ -299,6 +310,10 @@ async def frontier_login(
     pool: asyncpg.Pool = Depends(get_pool),
 ):
     _require_frontier_ready()
+    canonical_url = _canonical_frontier_login_url(request)
+    if canonical_url is not None:
+        return RedirectResponse(canonical_url, status_code=307)
+
     state = secrets.token_urlsafe(32)
     verifier = secrets.token_urlsafe(64)
     challenge = _base64url(hashlib.sha256(verifier.encode('ascii')).digest())
@@ -306,21 +321,25 @@ async def frontier_login(
         seconds=settings.auth_state_ttl_seconds,
     )
     async with pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO oauth_login_states (
-                state_hash,
-                code_verifier,
-                return_to,
-                expires_at
+        async with conn.transaction():
+            await conn.execute(
+                'DELETE FROM oauth_login_states WHERE expires_at <= NOW()'
             )
-            VALUES ($1, $2, $3, $4)
-            """,
-            token_digest(state),
-            verifier,
-            _safe_return_to(return_to),
-            expires_at,
-        )
+            await conn.execute(
+                """
+                INSERT INTO oauth_login_states (
+                    state_hash,
+                    code_verifier,
+                    return_to,
+                    expires_at
+                )
+                VALUES ($1, $2, $3, $4)
+                """,
+                token_digest(state),
+                verifier,
+                _safe_return_to(return_to),
+                expires_at,
+            )
 
     response = RedirectResponse(
         build_frontier_authorize_url(state=state, code_challenge=challenge),

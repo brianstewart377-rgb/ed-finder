@@ -4,6 +4,12 @@ import { api } from './api';
 describe('Frontier auth API helpers', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('builds sign-in navigation through the configured API base', () => {
+    expect(api.frontierLoginUrl('/?view=map#admin')).toBe(
+      '/api/auth/frontier/login?return_to=%2F%3Fview%3Dmap%23admin',
+    );
+  });
+
   it('uses cookie credentials for session reads and logout', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => ({
       ok: true,

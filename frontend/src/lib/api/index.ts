@@ -56,6 +56,7 @@ export { ApiError } from './core';
 export type { AuthSession, AuthUser } from './auth';
 
 export const api = {
+  frontierLoginUrl: auth.frontierLoginUrl,
   authSession: auth.authSession,
   authLogout: auth.authLogout,
   claimOwner: auth.claimOwner,
