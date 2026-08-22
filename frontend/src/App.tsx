@@ -12,6 +12,8 @@ import { useCompare } from '@/features/compare/useCompare';
 import { useSearchTuning } from '@/features/search-tuning/useSearchTuning';
 import { useFcPlanner } from '@/features/fc-planner/useFcPlanner';
 import { useAdmin } from '@/features/admin/useAdmin';
+import { useAuth } from '@/features/auth/useAuth';
+import { OwnerAccessGate } from '@/features/auth/OwnerAccessGate';
 import { useSystemDetail } from '@/features/system-detail/useSystemDetail';
 import { useColonyProjectStore } from '@/features/colony-planner/colonyProjectStore';
 import {
@@ -103,7 +105,8 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
   const compare   = useCompare();
   const searchTuning = useSearchTuning();
   const fc        = useFcPlanner();
-  const admin     = useAdmin();
+  const auth      = useAuth();
+  const admin     = useAdmin(auth.user?.is_owner === true);
   const saveProject = useColonyProjectStore((state) => state.saveProject);
   const [health, setHealth] = useState<string>('Checking API');
   const [detailFocus, setDetailFocus] = useState<'colony-planner' | null>(null);
@@ -305,6 +308,7 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         selectedSystem={shellSelectedSystem}
         onOpenSelectedSystemInPlan={shellSelectedSystem && route !== 'colony-planner' ? openShellContextInPlan : undefined}
         onDismissSelectedSystem={closeSystemDetail}
+        auth={auth}
       />
 
       <SavedSystemNotice
@@ -392,11 +396,22 @@ function LiveAppInner({ hashRoute }: { hashRoute: HashRoute }) {
         )}
 
         {route === 'admin' && (
-          <LazyAdminTab admin={admin} onOpenOperator={openOperatorDashboard} />
+          <OwnerAccessGate auth={auth}>
+            <LazyAdminTab
+              admin={admin}
+              onOpenOperator={openOperatorDashboard}
+              ownerName={auth.user?.commander_name ?? 'Frontier owner'}
+            />
+          </OwnerAccessGate>
         )}
 
         {route === 'operator' && (
-          <LazyOperatorCockpitTab admin={admin} />
+          <OwnerAccessGate auth={auth}>
+            <LazyOperatorCockpitTab
+              admin={admin}
+              ownerName={auth.user?.commander_name ?? 'Frontier owner'}
+            />
+          </OwnerAccessGate>
         )}
 
         {route === 'map' && (

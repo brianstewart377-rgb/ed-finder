@@ -73,7 +73,7 @@ export interface UseAdmin {
   clearLastOperationResult: () => void;
 }
 
-export function useAdmin(): UseAdmin {
+export function useAdmin(ownerAuthorized = false): UseAdmin {
   const [token, setTokenState] = useState<string>(
     () => sessionStorage.getItem(TOKEN_KEY) ?? ''
   );
@@ -110,21 +110,12 @@ export function useAdmin(): UseAdmin {
   }, []);
 
   const forgetToken = useCallback(() => setToken(''), [setToken]);
+  const hasAccess = ownerAuthorized || token.length > 0;
 
   const refresh = useCallback(async () => {
-    setMetaLoading(true);
-    setMetaError(null);
-    try {
-      const [s, c] = await Promise.all([api.status(), api.cacheStats()]);
-      setStatus(s);
-      setCache(c);
-    } catch (e: unknown) {
-      setMetaError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setMetaLoading(false);
-    }
-
-    if (!token) {
+    if (!hasAccess) {
+      setStatus(null);
+      setCache(null);
       setEnrichmentStatus(null);
       setWarehouseStatus(null);
       setDataStatus(null);
@@ -133,12 +124,14 @@ export function useAdmin(): UseAdmin {
       setImportSourceRuns([]);
       setOperationHistory([]);
       setLastOperationResult(null);
+      setMetaError(null);
       setEnrichmentError(null);
       setWarehouseError(null);
       setDataStatusError(null);
       setCronStatusError(null);
       setImportDashboardError(null);
       setOperationHistoryError(null);
+      setMetaLoading(false);
       setEnrichmentLoading(false);
       setWarehouseLoading(false);
       setDataStatusLoading(false);
@@ -147,6 +140,19 @@ export function useAdmin(): UseAdmin {
       setOperationHistoryLoading(false);
       return;
     }
+
+    setMetaLoading(true);
+    setMetaError(null);
+    try {
+      const [s, c] = await Promise.all([api.status(token), api.cacheStats(token)]);
+      setStatus(s);
+      setCache(c);
+    } catch (e: unknown) {
+      setMetaError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setMetaLoading(false);
+    }
+
     setEnrichmentLoading(true);
     setEnrichmentError(null);
     try {
@@ -219,7 +225,7 @@ export function useAdmin(): UseAdmin {
     } finally {
       setOperationHistoryLoading(false);
     }
-  }, [token]);
+  }, [hasAccess, token]);
 
   // Initial fetch + 30s poll. We don't poll faster — these endpoints hit
   // the DB and there's no value in sub-second updates for ops dashboards.
@@ -259,7 +265,7 @@ export function useAdmin(): UseAdmin {
 
   return {
     token, setToken, forgetToken,
-    hasToken: token.length > 0,
+    hasToken: hasAccess,
     status, cache, enrichmentStatus, warehouseStatus, dataStatus, cronStatus, importSafetyGates, importSourceRuns, operationHistory,
     metaLoading, metaError, enrichmentLoading, enrichmentError, warehouseLoading, warehouseError, dataStatusLoading, dataStatusError, cronStatusLoading, cronStatusError, importDashboardLoading, importDashboardError, operationHistoryLoading, operationHistoryError, refresh,
     lastOperationResult,
