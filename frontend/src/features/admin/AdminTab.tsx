@@ -13,6 +13,7 @@ import { ProfileSyncPanel } from '@/features/profile-sync/ProfileSyncPanel';
 export interface AdminTabProps {
   admin: UseAdmin;
   onOpenOperator?: (sourceRunKey?: string) => void;
+  ownerName?: string | null;
 }
 
 /**
@@ -32,7 +33,7 @@ export interface AdminTabProps {
  * per-step stream, but the dashboard can at least show the last known run
  * windows and current in-process rebuild state.
  */
-export function AdminTab({ admin, onOpenOperator }: AdminTabProps) {
+export function AdminTab({ admin, onOpenOperator, ownerName }: AdminTabProps) {
   const [tokenDraft, setTokenDraft] = useState(admin.token);
 
   return (
@@ -40,7 +41,7 @@ export function AdminTab({ admin, onOpenOperator }: AdminTabProps) {
       <header className="panel flex flex-wrap items-center gap-3 px-5 py-3">
         <h2 className="font-display text-orange tracking-[0.14em] text-lg">⚙️ Admin</h2>
         <span className="font-mono text-xs text-silver-dk">
-          ops console — token-gated status and actions
+          ops console — owner-gated status and actions
         </span>
         <span className="flex-1" />
         <button
@@ -53,13 +54,25 @@ export function AdminTab({ admin, onOpenOperator }: AdminTabProps) {
         </button>
       </header>
 
-      <AdminAuthPanel
-        tokenDraft={tokenDraft}
-        onTokenDraftChange={setTokenDraft}
-        hasToken={admin.hasToken}
-        onSave={() => admin.setToken(tokenDraft.trim())}
-        onForget={() => { admin.forgetToken(); setTokenDraft(''); }}
-      />
+      {ownerName ? (
+        <section className="panel p-5 space-y-2" data-testid="admin-owner-session">
+          <h3 className="font-display text-orange text-xs uppercase tracking-[0.18em]">
+            1. Owner access
+          </h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-green">● Frontier owner session verified</span>
+            <span className="text-xs text-silver-dk">CMDR {ownerName}</span>
+          </div>
+        </section>
+      ) : (
+        <AdminAuthPanel
+          tokenDraft={tokenDraft}
+          onTokenDraftChange={setTokenDraft}
+          hasToken={admin.hasToken}
+          onSave={() => admin.setToken(tokenDraft.trim())}
+          onForget={() => { admin.forgetToken(); setTokenDraft(''); }}
+        />
+      )}
 
       <AdminLiveStatusPanel
         status={admin.status}
