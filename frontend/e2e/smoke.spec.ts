@@ -2,6 +2,7 @@ import {
   test,
   expect,
   type APIRequestContext,
+  type ConsoleMessage,
   type Page,
 } from '@playwright/test';
 
@@ -82,7 +83,7 @@ async function expectCanvasToBeSynced(page: Page) {
         && lastMetrics.syncGuard === 'true'
         && !lastMetrics.contextLost
       );
-    }).toBe(true);
+    }, { timeout: 15_000 }).toBe(true);
   } catch (error) {
     throw new Error(
       `Canvas metrics did not synchronize: ${JSON.stringify(lastMetrics)}`,
@@ -106,6 +107,11 @@ async function expectCanvasToBeSynced(page: Page) {
 test.describe('ED Finder — smoke', () => {
   test.beforeEach(async ({ page }) => {
     // Clear localStorage so each test starts from a known state.
+    await page.route('https://fonts.googleapis.com/**', (route) => route.fulfill({
+      status: 200,
+      contentType: 'text/css',
+      body: '',
+    }));
     await page.goto('/');
     await page.evaluate(() => localStorage.clear());
     await page.reload();
@@ -178,9 +184,13 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
-    test.setTimeout(60_000);
+    test.setTimeout(120_000);
+    // Camera easing has its own deterministic unit coverage. This integration
+    // check verifies the controls and final state without tying CI to the
+    // frame rate of a software-rendered WebGL scene.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     const graphicsWarnings: string[] = [];
-    const consoleHandler = (message: any) => {
+    const consoleHandler = (message: ConsoleMessage) => {
       if (
         (message.type() === 'warning' || message.type() === 'error')
         && /drawArraysInstanced|destination rect|viewport rect/i.test(message.text())
@@ -233,8 +243,16 @@ test.describe('ED Finder — smoke', () => {
     const zoomInTarget = initialZoom * Math.exp(-0.22);
     await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
       .toBeCloseTo(zoomInTarget, 6);
+    const zoomedInValue = Number(await renderer.getAttribute('data-camera-zoom'));
     await page.getByTestId('map-zoom-out').click();
-    await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+    await expect.poll(
+      async () => Number(await renderer.getAttribute('data-camera-zoom')),
+      { timeout: 15_000 },
+    ).toBeGreaterThan(zoomedInValue);
+    await expect.poll(
+      async () => Number(await renderer.getAttribute('data-camera-zoom')),
+      { timeout: 15_000 },
+    )
       .toBeCloseTo(initialZoom, 6);
     const zoomBeforeSnap = await renderer.getAttribute('data-camera-zoom');
     await page.getByTestId('map-snap-top-down').click();
@@ -246,8 +264,26 @@ test.describe('ED Finder — smoke', () => {
 
     try {
       await expectCanvasToBeSynced(page);
-      await page.setViewportSize({ width: 1111, height: 733 });
-      await expect.poll(async () => (await readCanvasMetrics(page)).cssWidth).toBe(1111);
+      const metricsBeforeResize = await readCanvasMetrics(page);
+      const viewportBeforeResize = page.viewportSize();
+      expect(viewportBeforeResize).not.toBeNull();
+      await page.setViewportSize({
+        width: viewportBeforeResize!.width === 1111 ? 1139 : 1111,
+        height: viewportBeforeResize!.height === 733 ? 719 : 733,
+      });
+      await expect.poll(async () => {
+        const [metrics, containerBox] = await Promise.all([
+          readCanvasMetrics(page),
+          mapViewport.boundingBox(),
+        ]);
+        return Boolean(containerBox)
+          && metrics.cssWidth === Math.round(containerBox!.width)
+          && metrics.cssHeight === Math.round(containerBox!.height)
+          && (
+            metrics.cssWidth !== metricsBeforeResize.cssWidth
+            || metrics.cssHeight !== metricsBeforeResize.cssHeight
+          );
+      }, { timeout: 15_000 }).toBe(true);
       await expectCanvasToBeSynced(page);
 
       await page.getByTestId('map-view-results').click();
@@ -275,20 +311,28 @@ test.describe('ED Finder — smoke', () => {
     const realStarsResponsePromise = page.waitForResponse((response) => (
       new URL(response.url()).pathname === '/api/map/systems'
     ));
-    await renderer.evaluate((element) => {
-      element.dispatchEvent(new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        deltaY: -3_500,
-      }));
-    });
+    let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await renderer.evaluate((element) => {
+        element.dispatchEvent(new WheelEvent('wheel', {
+          bubbles: true,
+          cancelable: true,
+          deltaY: -1_000,
+        }));
+      });
+      await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+        .toBeLessThan(previousZoom);
+      const zoom = Number(await renderer.getAttribute('data-camera-zoom'));
+      previousZoom = zoom;
+      if (zoom <= 3) break;
+    }
     await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
-      .toBeLessThan(10);
+      .toBeLessThanOrEqual(3);
 
     const realStarsResponse = await realStarsResponsePromise;
     expect(realStarsResponse.status()).toBe(200);
     const realStarsBody = await realStarsResponse.json() as {
-      systems: Array<any>;
+      systems: Array<unknown>;
       truncated: boolean;
     };
     expect(realStarsBody).toEqual(expect.objectContaining({
@@ -300,6 +344,8 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
+    test.setTimeout(45_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
 
@@ -308,6 +354,7 @@ test.describe('ED Finder — smoke', () => {
     const canvas = renderer.locator('canvas');
     await expect.poll(
       () => canvas.evaluate((element) => element.dataset.drawingBufferSynced),
+      { timeout: 15_000 },
     ).toBe('true');
 
     await canvas.evaluate((element) => {
@@ -329,7 +376,12 @@ test.describe('ED Finder — smoke', () => {
       });
     });
 
-    await page.setViewportSize({ width: 1111, height: 733 });
+    const viewportBeforeResize = page.viewportSize();
+    expect(viewportBeforeResize).not.toBeNull();
+    await page.setViewportSize({
+      width: viewportBeforeResize!.width === 1111 ? 1139 : 1111,
+      height: viewportBeforeResize!.height === 733 ? 719 : 733,
+    });
     await expect.poll(async () => {
       const sequence = await canvas.evaluate((element) => (
         (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
@@ -338,7 +390,7 @@ test.describe('ED Finder — smoke', () => {
       const invalidatedAt = sequence.indexOf('false');
       return invalidatedAt >= 0
         && sequence.slice(invalidatedAt + 1).includes('true');
-    }).toBe(true);
+    }, { timeout: 15_000 }).toBe(true);
 
     const sequence = await canvas.evaluate((element) => (
       (element as HTMLCanvasElement & { resizeTelemetrySequence?: string[] })
@@ -443,12 +495,13 @@ test.describe('ED Finder — smoke', () => {
     await page.getByTestId('search-submit').click();
     await expect(page.getByTestId('search-summary')).toBeVisible({ timeout: 15_000 });
 
-    // Click first result
-    const firstResult = page.locator('[data-testid^="system-card-"]').first();
+    // Expand the first current result card and use its explicit detail action.
+    const firstResult = page.locator('[data-testid^="result-card-"]').first();
     await expect(firstResult).toBeVisible();
-    const systemName = await firstResult.textContent();
+    const systemName = (await firstResult.locator('h3').textContent())?.trim();
 
-    await firstResult.click();
+    await firstResult.locator('header').click();
+    await firstResult.getByRole('button', { name: 'Inspect system' }).click();
 
     // Modal should appear with system details
     const modal = page.locator('[data-testid="system-detail-modal"]');
@@ -457,19 +510,16 @@ test.describe('ED Finder — smoke', () => {
     // Verify modal contains the clicked system's data
     await expect(modal).toContainText(systemName ?? '');
 
-    // Close modal by clicking backdrop or close button
-    const closeButton = modal.locator('[data-testid="modal-close"]');
-    if (await closeButton.isVisible()) {
-      await closeButton.click();
-    } else {
-      await page.locator('[data-testid="system-detail-modal-backdrop"]').click();
-    }
+    // Close through the modal's stable, user-visible close control.
+    await modal.getByTestId('system-detail-close').click();
 
     await expect(modal).not.toBeVisible({ timeout: 5_000 });
   });
 
   // Issue #9: API error handling
   test('handles real-stars endpoint error gracefully', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     // Abort the real-stars API to simulate server error
     await page.route('/api/map/systems', (route) => {
       route.abort('failed');
@@ -478,16 +528,29 @@ test.describe('ED Finder — smoke', () => {
     await page.goto('/');
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
+    await page.getByTestId('map-snap-top-down').click();
 
     const renderer = page.locator('.map-foundation-renderer');
+    await expect(renderer).toBeVisible({ timeout: 10_000 });
+    const realStarsRequestPromise = page.waitForRequest((request) => (
+      new URL(request.url()).pathname === '/api/map/systems'
+    ));
 
-    // Deep zoom to trigger real-stars request
+    // Deep zoom to trigger the real-stars request. Use the same deliberate
+    // LOD crossing as the success-path test; CI's software renderer can take
+    // considerably longer than a local GPU to render and settle the hooks.
+    let previousZoom = Number(await renderer.getAttribute('data-camera-zoom'));
     for (let i = 0; i < 10; i++) {
       await renderer.evaluate((el) => {
-        (el as any).dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
+        el.dispatchEvent(new WheelEvent('wheel', { deltaY: -1_000, bubbles: true }));
       });
-      await page.waitForTimeout(100);
+      await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
+        .toBeLessThan(previousZoom);
+      const zoom = Number(await renderer.getAttribute('data-camera-zoom'));
+      previousZoom = zoom;
+      if (zoom <= 3) break;
     }
+    await realStarsRequestPromise;
 
     // Should not crash or freeze - canvas should still be visible
     await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
@@ -495,7 +558,7 @@ test.describe('ED Finder — smoke', () => {
 
   test('handles heatmap endpoint error gracefully', async ({ page }) => {
     // Simulate heatmap endpoint timeout
-    await page.route('/api/map/heatmap', async (route) => {
+    await page.route('/api/map/heatmap', async () => {
       // Delay response indefinitely to simulate timeout
       await new Promise(() => {});
     });

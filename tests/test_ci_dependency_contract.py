@@ -40,3 +40,34 @@ def test_confirmed_target_or_skip_is_pytest8_safe_for_module_level_smokes():
     helper = _read('tests', 'helpers', 'db_isolation.py')
 
     assert 'allow_module_level=True' in helper
+
+
+def test_coverage_jobs_have_their_runtime_dependencies_and_seeded_schema():
+    coverage_workflow = _read('.github', 'workflows', 'coverage.yml')
+    frontend_package = _read('frontend', 'package.json')
+
+    seed_step = '- name: Apply schema + seed (with invariant checks)'
+    coverage_step = '- name: Run tests with coverage'
+    assert seed_step in coverage_workflow
+    assert 'run: bash scripts/seed_check.sh' in coverage_workflow
+    assert coverage_workflow.index(seed_step) < coverage_workflow.index(coverage_step)
+    assert 'coverage run -m pytest tests/ -m "not (operator or e2e or slow)"' in coverage_workflow
+    assert 'coverage run -m pytest tests/ -m "unit or integration or db"' not in coverage_workflow
+    assert '"@vitest/coverage-v8": "4.1.10"' in frontend_package
+
+
+def test_ci_playwright_reuses_the_health_checked_backend():
+    workflow = _read('.github', 'workflows', 'ci.yml')
+    global_setup = _read('frontend', 'e2e', 'globalSetup.ts')
+
+    assert "EDFINDER_SKIP_E2E_BACKEND: '1'" in workflow
+    assert "process.env.EDFINDER_SKIP_E2E_BACKEND === '1'" in global_setup
+
+
+def test_docker_build_context_excludes_local_dependency_and_test_artifacts():
+    dockerignore = _read('.dockerignore').splitlines()
+
+    assert '.venv' in dockerignore
+    assert '.pytest_cache' in dockerignore
+    assert 'frontend/node_modules' in dockerignore
+    assert 'frontend/test-results' in dockerignore

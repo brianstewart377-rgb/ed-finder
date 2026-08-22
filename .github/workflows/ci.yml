@@ -676,7 +676,7 @@ jobs:
         run: yarn build
 
       - name: Restore Playwright browser cache
-        uses: actions/cache@3d10df36a13dd38f21cfe2eb21b847daaa8c7b33 # v4.0.0
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.cache/ms-playwright
           key: playwright-browsers-${{ runner.os }}-${{ hashFiles('**/yarn.lock') }}
@@ -697,6 +697,10 @@ jobs:
           VITE_DEV_API_TARGET: http://127.0.0.1:8002
           E2E_API_HOST: 127.0.0.1
           E2E_API_PORT: '8002'
+          # The job already booted and health-checked FastAPI against its
+          # service containers. Do not let Playwright start a second local
+          # Compose stack on the same PostgreSQL/Redis host ports.
+          EDFINDER_SKIP_E2E_BACKEND: '1'
         run: xvfb-run --auto-servernum yarn e2e --shard=${{ matrix.shard }}/2
 
       - name: Upload Playwright report on failure

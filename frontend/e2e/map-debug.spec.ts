@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 test('Map rendering - debug console and network', async ({ page }) => {
+  test.setTimeout(45_000);
+
   // Capture console messages and errors
   const consoleLogs: Array<{ type: string; text: string }> = [];
   const networkErrors: string[] = [];

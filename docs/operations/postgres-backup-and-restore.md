@@ -104,7 +104,7 @@ The script:
 1. checks the archive exists
 2. refuses to target live `edfinder` unless `--allow-live-db` is supplied
 3. drops and recreates the target database
-4. pipes the custom-format archive into `pg_restore`
+4. pipes the custom-format archive into `pg_restore` with `--exit-on-error`
 5. runs a basic public-table smoke check
 
 ## Restore Rehearsal
@@ -121,14 +121,27 @@ The helper:
 
 1. runs a manual backup through the maintenance sidecar unless `--skip-backup` is supplied
 2. restores into `edfinder_restore_rehearsal` by default
-3. verifies both public-table visibility and `schema_migrations` presence
-4. drops the disposable rehearsal database again unless `--keep-db` is supplied
-5. optionally writes a small JSON receipt for the ops log
+3. requires at least 180 million systems for the production Compose path
+4. verifies both Sol and Colonia, substantial `bodies` and `ratings` relations,
+   and at least one station
+5. verifies the migration ledger, validated constraints, valid/ready indexes,
+   and that every public materialized view is populated
+6. drops the disposable rehearsal database again unless `--keep-db` is supplied,
+   including cleanup on failed validation
+7. optionally writes a JSON receipt containing every readiness marker
+
+`--exit-on-error` makes a failed materialized-view refresh or any other archive
+error stop the restore at the first failure. The independent populated-view
+check then catches archives whose materialized views were already unpopulated
+at backup time.
 
 For the canonical local Windows/disposable stack, point the helper at
 `docker-compose.local.yml`. That stack has no `maintenance` service, so the
 script automatically falls back to a direct `pg_dump` via the `postgres`
 service and writes the default archive under `artifacts/restore-rehearsals/`.
+The local Compose path defaults relation and system thresholds to one row/byte
+instead of the production-scale limits, while retaining the known-system,
+constraint, and index checks.
 If the normal local `edfinder` DB was created by historical raw init scripts
 and does not yet expose `schema_migrations`, prefer a disposable source
 database that you seeded through the manifest-ledger path first.
@@ -187,4 +200,4 @@ Recorded local disposable rehearsal:
 - There is no WAL archiving or point-in-time recovery yet.
 - Retention is finite and local to the server.
 - A backup is only operationally trusted once the restore rehearsal has been
-  executed and recorded.
+  executed, passed the core-data and structural checks, and been recorded.

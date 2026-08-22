@@ -941,6 +941,7 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
     assert 'shouldSkipReviewLabCollector()' in review_spec
     assert 'reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === \'1\'' in playwright_config
+    assert "globalSetup: reviewLabRun ? undefined : './e2e/globalSetup.ts'" in playwright_config
     assert 'webServer: reviewLabRun ? undefined :' in playwright_config
 
 

@@ -9,6 +9,7 @@ on:
       - 'apps/api/Dockerfile'
       - 'apps/eddn/Dockerfile'
       - 'apps/importer/Dockerfile'
+      - 'apps/postgres/Dockerfile'
       - 'apps/api/requirements.txt'
       - 'apps/eddn/requirements.txt'
       - 'apps/importer/requirements.txt'
