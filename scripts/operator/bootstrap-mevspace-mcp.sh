@@ -6,6 +6,7 @@ REPO_DIR="/opt/ed-finder"
 SERVICE_USER="ed-mcp"
 SERVICE_NAME="ed-finder-operator-mcp.service"
 VENV_DIR="/opt/ed-finder/.venv-operator-mcp"
+ROOT_DISPATCH="/usr/local/sbin/ed-finder-mcp-dispatch"
 SUDOERS_FILE="/etc/sudoers.d/ed-finder-operator-mcp"
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}"
 MCP_PORT="8765"
@@ -29,7 +30,21 @@ show_service_failure() {
 [[ -d .git ]] || stop "git repository not found"
 [[ "$(git branch --show-current)" == "infra/multi-target-operator-mcp" ]] || \
   stop "expected branch infra/multi-target-operator-mcp"
-[[ -z "$(git status --porcelain)" ]] || stop "working tree is not clean"
+
+# Repair the executable-bit mutation made by the first bootstrap revision, if present.
+git update-index --chmod=-x scripts/operator/mcp-root-dispatch.sh 2>/dev/null || true
+chmod 0644 scripts/operator/mcp-root-dispatch.sh 2>/dev/null || true
+
+# Ignore the generated service venv before checking cleanliness. This keeps reruns idempotent.
+if ! grep -qxF '.venv-operator-mcp/' .git/info/exclude 2>/dev/null; then
+  printf '.venv-operator-mcp/\n' >> .git/info/exclude
+fi
+
+[[ -z "$(git status --porcelain)" ]] || {
+  printf 'Working tree changes:\n' >&2
+  git status --short >&2
+  stop "working tree is not clean"
+}
 
 printf '== Updating operator branch ==\n'
 git pull --ff-only origin infra/multi-target-operator-mcp
@@ -48,11 +63,10 @@ python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip
 "$VENV_DIR/bin/pip" install -r services/operator-mcp/requirements.txt
 
-printf '\n== Installing locked dispatcher permissions ==\n'
-chown root:root scripts/operator/mcp-root-dispatch.sh
-chmod 0755 scripts/operator/mcp-root-dispatch.sh
+printf '\n== Installing locked dispatcher ==\n'
+install -o root -g root -m 0755 scripts/operator/mcp-root-dispatch.sh "$ROOT_DISPATCH"
 cat >"$SUDOERS_FILE" <<EOF
-${SERVICE_USER} ALL=(root) NOPASSWD: ${REPO_DIR}/scripts/operator/mcp-root-dispatch.sh
+${SERVICE_USER} ALL=(root) NOPASSWD: ${ROOT_DISPATCH}
 EOF
 chmod 0440 "$SUDOERS_FILE"
 visudo -cf "$SUDOERS_FILE" >/dev/null
@@ -71,6 +85,7 @@ Group=${SERVICE_USER}
 WorkingDirectory=${REPO_DIR}
 Environment=EDFINDER_REPO_DIR=${REPO_DIR}
 Environment=EDFINDER_MCP_PORT=${MCP_PORT}
+Environment=EDFINDER_MCP_ROOT_DISPATCH=${ROOT_DISPATCH}
 ExecStart=${VENV_DIR}/bin/python ${REPO_DIR}/services/operator-mcp/server.py
 Restart=on-failure
 RestartSec=3
@@ -113,7 +128,7 @@ case "$http_code" in
 esac
 
 printf '\nRead-only dispatcher smoke test as %s:\n' "$SERVICE_USER"
-sudo -u "$SERVICE_USER" sudo -n "$REPO_DIR/scripts/operator/mcp-root-dispatch.sh" pg18-lab-status
+sudo -u "$SERVICE_USER" sudo -n "$ROOT_DISPATCH" pg18-lab-status
 
 printf '\nOK: ED-Finder MevSpace operator MCP bootstrap completed.\n'
 printf 'Endpoint is localhost-only: http://127.0.0.1:%s/mcp\n' "$MCP_PORT"
