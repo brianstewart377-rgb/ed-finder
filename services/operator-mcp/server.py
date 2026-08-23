@@ -5,24 +5,23 @@ import os
 import subprocess
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 REPO_DIR = Path(os.environ.get("EDFINDER_REPO_DIR", "/opt/ed-finder")).resolve()
 ROOT_DISPATCH = REPO_DIR / "scripts/operator/mcp-root-dispatch.sh"
+SUDO = "/usr/bin/sudo"
 
-mcp = FastMCP(
+mcp = MCPServer(
     "ED-Finder MevSpace Operator",
     instructions=(
         "Read-only operator tools for the NEW ED-Finder MevSpace host. "
-        "Tools invoke only allowlisted repository operator stages. "
+        "Tools invoke only allowlisted repository operator stages through a locked root dispatcher. "
         "No arbitrary shell command execution is exposed."
     ),
-    stateless_http=True,
-    json_response=True,
 )
 
 
-def _run_stage(stage: str, *, args: list[str] | None = None) -> str:
+def _run_stage(stage: str, *, log_lines: int | None = None) -> str:
     allowed = {
         "context",
         "docker-status",
@@ -35,12 +34,15 @@ def _run_stage(stage: str, *, args: list[str] | None = None) -> str:
     if not ROOT_DISPATCH.is_file():
         raise RuntimeError(f"operator dispatcher not found: {ROOT_DISPATCH}")
 
-    cmd = ["sudo", "-n", str(ROOT_DISPATCH), stage]
-    if args:
-        cmd.extend(args)
+    command = [SUDO, "-n", str(ROOT_DISPATCH), stage]
+    if stage == "pg18-lab-logs":
+        lines = 100 if log_lines is None else log_lines
+        if not 1 <= lines <= 500:
+            raise ValueError("lines must be between 1 and 500")
+        command.append(str(lines))
 
     proc = subprocess.run(
-        cmd,
+        command,
         cwd=REPO_DIR,
         text=True,
         stdout=subprocess.PIPE,
@@ -76,16 +78,14 @@ def pg18_lab_status() -> str:
 
 @mcp.tool()
 def pg18_lab_settings() -> str:
-    """Read the allowlisted PostgreSQL 18 lab settings used for tuning/benchmarking."""
+    """Read the allowlisted PostgreSQL 18 lab settings used for tuning and benchmarking."""
     return _run_stage("pg18-lab-settings")
 
 
 @mcp.tool()
 def pg18_lab_logs(lines: int = 100) -> str:
     """Read the last 1-500 lines of the PG18 lab container log."""
-    if not 1 <= lines <= 500:
-        raise ValueError("lines must be between 1 and 500")
-    return _run_stage("pg18-lab-logs", args=[str(lines)])
+    return _run_stage("pg18-lab-logs", log_lines=lines)
 
 
 if __name__ == "__main__":
