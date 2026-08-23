@@ -15,6 +15,13 @@ stop() {
   exit 1
 }
 
+show_service_failure() {
+  printf '\n== MCP service failure diagnostics ==\n' >&2
+  systemctl --no-pager --full status "$SERVICE_NAME" >&2 || true
+  printf '\n== Recent MCP journal ==\n' >&2
+  journalctl -u "$SERVICE_NAME" -n 80 --no-pager >&2 || true
+}
+
 [[ "$(id -u)" -eq 0 ]] || stop "run as root"
 [[ "$(hostname 2>/dev/null || true)" == "$EXPECTED_HOSTNAME" ]] || \
   stop "wrong host; expected $EXPECTED_HOSTNAME"
@@ -78,13 +85,21 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now "$SERVICE_NAME"
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
 
 printf '\n== Smoke tests ==\n'
 sleep 2
+if ! systemctl is-active --quiet "$SERVICE_NAME"; then
+  show_service_failure
+  stop "MCP service failed to start"
+fi
 systemctl --no-pager --full status "$SERVICE_NAME" | sed -n '1,12p'
 printf '\nListening socket:\n'
-ss -ltnp | grep "127.0.0.1:${MCP_PORT}" || stop "MCP service is not listening on localhost:${MCP_PORT}"
+ss -ltnp | grep "127.0.0.1:${MCP_PORT}" || {
+  show_service_failure
+  stop "MCP service is not listening on localhost:${MCP_PORT}"
+}
 printf '\nHTTP endpoint probe:\n'
 http_code="$(curl -sS -o /tmp/ed-mcp-probe.out -w '%{http_code}' --max-time 5 "http://127.0.0.1:${MCP_PORT}/mcp" || true)"
 printf 'GET /mcp -> HTTP %s\n' "$http_code"
@@ -92,6 +107,7 @@ case "$http_code" in
   200|400|405|406) ;;
   *)
     cat /tmp/ed-mcp-probe.out 2>/dev/null || true
+    show_service_failure
     stop "unexpected MCP endpoint response"
     ;;
 esac
