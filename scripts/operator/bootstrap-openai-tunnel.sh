@@ -40,34 +40,43 @@ printf '== Installing tunnel-client prerequisites ==\n'
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl unzip ca-certificates
 
-printf '\n== Downloading official tunnel-client %s ==\n' "$RELEASE"
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
-base="https://github.com/openai/tunnel-client/releases/download/${RELEASE}"
-curl -fL --retry 3 --retry-delay 2 "$base/$ASSET" -o "$tmpdir/$ASSET"
-curl -fL --retry 3 --retry-delay 2 "$base/SHA256SUMS.txt" -o "$tmpdir/SHA256SUMS.txt"
-expected="$(awk -v asset="$ASSET" '$2==asset || $2=="*"asset {print $1; exit}' "$tmpdir/SHA256SUMS.txt")"
-[[ -n "$expected" ]] || stop "$ASSET checksum not found in release manifest"
-actual="$(sha256sum "$tmpdir/$ASSET" | awk '{print $1}')"
-[[ "$actual" == "$expected" ]] || stop "tunnel-client checksum mismatch"
-unzip -q "$tmpdir/$ASSET" -d "$tmpdir/unpacked"
-client_path="$(find "$tmpdir/unpacked" -type f -name tunnel-client -print -quit)"
-[[ -n "$client_path" ]] || stop "tunnel-client binary not found in archive"
-install -o root -g root -m 0755 "$client_path" "$BIN"
-"$BIN" --version
-
-printf '\n== Runtime API key ==\n'
-printf 'Paste the OpenAI Runtime API key with Tunnels Read + Use. Input will not be echoed.\n'
-IFS= read -r -s -p 'Runtime API key: ' runtime_key
-printf '\n'
-[[ -n "$runtime_key" ]] || stop "runtime API key was empty"
+if [[ -x "$BIN" ]] && "$BIN" --version 2>/dev/null | grep -q '^0\.0\.10+'; then
+  printf '\n== Reusing installed tunnel-client %s ==\n' "$RELEASE"
+  "$BIN" --version
+else
+  printf '\n== Downloading official tunnel-client %s ==\n' "$RELEASE"
+  tmpdir="$(mktemp -d)"
+  trap 'rm -rf "$tmpdir"' EXIT
+  base="https://github.com/openai/tunnel-client/releases/download/${RELEASE}"
+  curl -fL --retry 3 --retry-delay 2 "$base/$ASSET" -o "$tmpdir/$ASSET"
+  curl -fL --retry 3 --retry-delay 2 "$base/SHA256SUMS.txt" -o "$tmpdir/SHA256SUMS.txt"
+  expected="$(awk -v asset="$ASSET" '$2==asset || $2=="*"asset {print $1; exit}' "$tmpdir/SHA256SUMS.txt")"
+  [[ -n "$expected" ]] || stop "$ASSET checksum not found in release manifest"
+  actual="$(sha256sum "$tmpdir/$ASSET" | awk '{print $1}')"
+  [[ "$actual" == "$expected" ]] || stop "tunnel-client checksum mismatch"
+  unzip -q "$tmpdir/$ASSET" -d "$tmpdir/unpacked"
+  client_path="$(find "$tmpdir/unpacked" -type f -name tunnel-client -print -quit)"
+  [[ -n "$client_path" ]] || stop "tunnel-client binary not found in archive"
+  install -o root -g root -m 0755 "$client_path" "$BIN"
+  "$BIN" --version
+fi
 
 install -d -o root -g root -m 0700 "$SECRET_DIR"
-umask 077
-printf 'CONTROL_PLANE_API_KEY=%s\n' "$runtime_key" > "$SECRET_FILE"
-unset runtime_key
-chmod 0600 "$SECRET_FILE"
-chown root:root "$SECRET_FILE"
+if [[ -s "$SECRET_FILE" ]] && grep -q '^CONTROL_PLANE_API_KEY=.' "$SECRET_FILE"; then
+  printf '\n== Runtime API key ==\n'
+  printf 'Reusing existing root-only runtime API key from %s.\n' "$SECRET_FILE"
+else
+  printf '\n== Runtime API key ==\n'
+  printf 'Paste the OpenAI Runtime API key with Tunnels Read + Use. Input will not be echoed.\n'
+  IFS= read -r -s -p 'Runtime API key: ' runtime_key
+  printf '\n'
+  [[ -n "$runtime_key" ]] || stop "runtime API key was empty"
+  umask 077
+  printf 'CONTROL_PLANE_API_KEY=%s\n' "$runtime_key" > "$SECRET_FILE"
+  unset runtime_key
+  chmod 0600 "$SECRET_FILE"
+  chown root:root "$SECRET_FILE"
+fi
 
 printf '\n== Running tunnel-client preflight ==\n'
 set -a
@@ -77,7 +86,21 @@ set +a
 export CONTROL_PLANE_TUNNEL_ID="$TUNNEL_ID"
 export MCP_SERVER_URL="$MCP_URL"
 export HEALTH_LISTEN_ADDR="$HEALTH_ADDR"
-"$BIN" doctor --explain
+set +e
+doctor_output="$("$BIN" doctor --explain 2>&1)"
+doctor_rc=$?
+set -e
+printf '%s\n' "$doctor_output"
+if (( doctor_rc != 0 )); then
+  if printf '%s\n' "$doctor_output" | grep -qx 'FAILED_CHECKS oauth_metadata' \
+     && printf '%s\n' "$doctor_output" | grep -q 'HTTP 404'; then
+    printf '\nNOTE: OAuth metadata 404 is expected for this intentionally no-auth localhost MCP.\n'
+    printf 'The official no-auth tunnel profile allows readiness when PRMD candidates return 404.\n'
+  else
+    unset CONTROL_PLANE_API_KEY CONTROL_PLANE_TUNNEL_ID MCP_SERVER_URL HEALTH_LISTEN_ADDR
+    stop "tunnel-client preflight failed for a reason other than the expected no-auth OAuth 404"
+  fi
+fi
 unset CONTROL_PLANE_API_KEY CONTROL_PLANE_TUNNEL_ID MCP_SERVER_URL HEALTH_LISTEN_ADDR
 
 printf '\n== Installing tunnel systemd service ==\n'
