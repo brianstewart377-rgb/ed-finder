@@ -8,7 +8,9 @@ from pathlib import Path
 from mcp.server.mcpserver import MCPServer
 
 REPO_DIR = Path(os.environ.get("EDFINDER_REPO_DIR", "/opt/ed-finder")).resolve()
-ROOT_DISPATCH = REPO_DIR / "scripts/operator/mcp-root-dispatch.sh"
+ROOT_DISPATCH = Path(
+    os.environ.get("EDFINDER_MCP_ROOT_DISPATCH", "/usr/local/sbin/ed-finder-mcp-dispatch")
+).resolve()
 SUDO = "/usr/bin/sudo"
 
 mcp = MCPServer(
