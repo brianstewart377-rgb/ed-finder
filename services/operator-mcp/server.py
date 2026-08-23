@@ -8,8 +8,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP
 
 REPO_DIR = Path(os.environ.get("EDFINDER_REPO_DIR", "/opt/ed-finder")).resolve()
-DISPATCH = REPO_DIR / "scripts/operator/dispatch-target.sh"
-TARGET = "mevspace"
+ROOT_DISPATCH = REPO_DIR / "scripts/operator/mcp-root-dispatch.sh"
 
 mcp = FastMCP(
     "ED-Finder MevSpace Operator",
@@ -23,7 +22,7 @@ mcp = FastMCP(
 )
 
 
-def _run_stage(stage: str, *, extra_env: dict[str, str] | None = None) -> str:
+def _run_stage(stage: str, *, args: list[str] | None = None) -> str:
     allowed = {
         "context",
         "docker-status",
@@ -33,17 +32,16 @@ def _run_stage(stage: str, *, extra_env: dict[str, str] | None = None) -> str:
     }
     if stage not in allowed:
         raise ValueError(f"unsupported operator stage: {stage}")
-    if not DISPATCH.is_file():
-        raise RuntimeError(f"operator dispatcher not found: {DISPATCH}")
+    if not ROOT_DISPATCH.is_file():
+        raise RuntimeError(f"operator dispatcher not found: {ROOT_DISPATCH}")
 
-    env = os.environ.copy()
-    if extra_env:
-        env.update(extra_env)
+    cmd = ["sudo", "-n", str(ROOT_DISPATCH), stage]
+    if args:
+        cmd.extend(args)
 
     proc = subprocess.run(
-        ["bash", str(DISPATCH), TARGET, stage],
+        cmd,
         cwd=REPO_DIR,
-        env=env,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -87,7 +85,7 @@ def pg18_lab_logs(lines: int = 100) -> str:
     """Read the last 1-500 lines of the PG18 lab container log."""
     if not 1 <= lines <= 500:
         raise ValueError("lines must be between 1 and 500")
-    return _run_stage("pg18-lab-logs", extra_env={"PG18_LOG_LINES": str(lines)})
+    return _run_stage("pg18-lab-logs", args=[str(lines)])
 
 
 if __name__ == "__main__":
