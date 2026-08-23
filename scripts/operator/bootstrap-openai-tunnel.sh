@@ -12,6 +12,8 @@ UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}"
 SECRET_DIR="/etc/ed-finder"
 SECRET_FILE="${SECRET_DIR}/openai-tunnel.env"
 BIN="/usr/local/bin/tunnel-client"
+RELEASE="v0.0.10"
+ASSET="tunnel-client-${RELEASE}-linux-amd64.zip"
 
 stop() {
   printf 'STOP: %s\n' "$*" >&2
@@ -32,23 +34,23 @@ show_service_failure() {
 [[ "$TUNNEL_ID" =~ ^tunnel_[0-9a-f]{32}$ ]] || stop "invalid tunnel id"
 
 systemctl is-active --quiet ed-finder-operator-mcp.service || stop "operator MCP service is not active"
-curl -sS -o /dev/null --max-time 5 "$MCP_URL" || true
+ss -ltn | grep -q '127.0.0.1:8765' || stop "operator MCP is not listening on 127.0.0.1:8765"
 
 printf '== Installing tunnel-client prerequisites ==\n'
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y curl unzip ca-certificates
 
-printf '\n== Downloading latest official tunnel-client release ==\n'
+printf '\n== Downloading official tunnel-client %s ==\n' "$RELEASE"
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
-base="https://github.com/openai/tunnel-client/releases/latest/download"
-curl -fL "$base/linux-amd64.zip" -o "$tmpdir/linux-amd64.zip"
-curl -fL "$base/SHA256SUMS.txt" -o "$tmpdir/SHA256SUMS.txt"
-expected="$(awk '$2=="linux-amd64.zip" || $2=="*linux-amd64.zip" {print $1; exit}' "$tmpdir/SHA256SUMS.txt")"
-[[ -n "$expected" ]] || stop "linux-amd64.zip checksum not found in release manifest"
-actual="$(sha256sum "$tmpdir/linux-amd64.zip" | awk '{print $1}')"
+base="https://github.com/openai/tunnel-client/releases/download/${RELEASE}"
+curl -fL --retry 3 --retry-delay 2 "$base/$ASSET" -o "$tmpdir/$ASSET"
+curl -fL --retry 3 --retry-delay 2 "$base/SHA256SUMS.txt" -o "$tmpdir/SHA256SUMS.txt"
+expected="$(awk -v asset="$ASSET" '$2==asset || $2=="*"asset {print $1; exit}' "$tmpdir/SHA256SUMS.txt")"
+[[ -n "$expected" ]] || stop "$ASSET checksum not found in release manifest"
+actual="$(sha256sum "$tmpdir/$ASSET" | awk '{print $1}')"
 [[ "$actual" == "$expected" ]] || stop "tunnel-client checksum mismatch"
-unzip -q "$tmpdir/linux-amd64.zip" -d "$tmpdir/unpacked"
+unzip -q "$tmpdir/$ASSET" -d "$tmpdir/unpacked"
 client_path="$(find "$tmpdir/unpacked" -type f -name tunnel-client -print -quit)"
 [[ -n "$client_path" ]] || stop "tunnel-client binary not found in archive"
 install -o root -g root -m 0755 "$client_path" "$BIN"
