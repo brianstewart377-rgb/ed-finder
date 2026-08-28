@@ -1,0 +1,8 @@
+{"timestamp":"2026-07-12T10:10:00Z","event":"Fileheader","part":1,"language":"English/UK","Odyssey":true,"gameversion":"5.0.0.2100","build":"r310428/r0"}
+{"timestamp":"2026-07-12T10:11:00Z","event":"FSDJump","StarSystem":"HIP 7337","SystemAddress":11667293823,"StarPos":[-29.3125,-42.40625,-19.84375],"StarClass":"G","JumpDist":12.34,"FuelUsed":1.5,"FuelLevel":30.5}
+{"timestamp":"2026-07-12T10:12:00Z","event":"Scan","StarSystem":"HIP 7337","SystemAddress":11667293823,"BodyName":"HIP 7337 2","BodyID":2,"DistanceFromArrivalLS":123.4,"PlanetClass":"Rocky body","Atmosphere":"thin carbon dioxide",
+
+{"timestamp":"2026-07-12T10:14:00Z","event":"Materials","Raw":[{"Name":"iron","Count":5}],"Encoded":[{"Name":"wakeheat","Count":2}],"Manufactured":[{"Name":"mechanicalscrap","Count":3}]}
+{"timestamp":"2026-07-12T10:15:00Z","event":"TotallyFakeEvent","SystemAddress":11667293823,"FakeField":true}
+{"timestamp":"2026-07-12T10:11:00Z","event":"FSDJump","StarSystem":"HIP 7337","SystemAddress":11667293823,"StarPos":[-29.3125,-42.40625,-19.84375],"StarClass":"G","JumpDist":12.34,"FuelUsed":1.5,"FuelLevel":30.5}
+{"timestamp":"2026-07-12T10:16:00Z","event":"FSDJump","StarSystem":"Col 285 Sector KN-I b9-0","SystemAddress":3104491741666,"StarPos":[-55.53125,72.25,-98.3125],"StarClass":"M","JumpDist":9.87,"FuelUsed":1.2,"FuelLevel":29.3}
