@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createV3JournalImport } from '@/lib/api';
 import type {
@@ -12,8 +12,39 @@ import type { JournalImportParseResult, JournalParseFileProgress } from '@/lib/j
 // Server-side quotas (see the V3 journal plan — Global Constraints).
 export const MAX_V3_UPLOAD_FILES = 200;
 export const MAX_V3_UPLOAD_FILE_BYTES = 128 * 1024 * 1024; // 128 MiB client-side cap
+// V3JournalImportRequest.events max_length (router: MAX_EVENTS_PER_REQUEST).
+export const MAX_V3_UPLOAD_EVENTS = 50_000;
 
 export type JournalUploadPhase = 'idle' | 'parsing' | 'uploading' | 'done' | 'error';
+
+/**
+ * Raised when a parsed selection has more events than the server accepts in a
+ * single request. Chunked uploads are NOT attempted: the server's file-level
+ * dedupe admits a file (account, content_sha256) once, and events whose
+ * source file was skipped in THAT request are not processed — so repeating
+ * the file manifest across chunks would silently drop every later chunk.
+ * The honest fallback is this friendly pre-flight error (no RFC 7807 body).
+ */
+export class UploadSelectionTooLargeError extends Error {
+  constructor(public readonly eventCount: number) {
+    super(
+      `This selection has ${eventCount.toLocaleString()} journal events — more than the ` +
+        `${MAX_V3_UPLOAD_EVENTS.toLocaleString()}-event per-upload cap. Split the selection ` +
+        '(for example, import a shorter date range of journal files) and import again.',
+    );
+    this.name = 'UploadSelectionTooLargeError';
+  }
+}
+
+/** Observations that would actually go on the wire (V3 requires a timestamp). */
+export function countUploadableEvents(result: JournalImportParseResult): number {
+  return result.observations.filter((observation) => observation.observed_at).length;
+}
+
+/** Observations the wire request must drop because they lack `observed_at`. */
+export function countObservationsWithoutTimestamp(result: JournalImportParseResult): number {
+  return result.observations.length - countUploadableEvents(result);
+}
 
 export interface JournalUploadProgress {
   files_processed: number;
@@ -41,6 +72,10 @@ export function useJournalUpload() {
   const [phase, setPhase] = useState<JournalUploadPhase>('idle');
   const [progress, setProgress] = useState<JournalUploadProgress | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
+  // Synchronous in-flight guard: `phase` is async state, so two `start` calls
+  // in the same tick must still not double-parse/double-upload.
+  const inFlightRef = useRef(false);
+  const busy = phase === 'parsing' || phase === 'uploading';
 
   const mutation = useMutation({
     mutationFn: async (files: File[]): Promise<V3JournalImportReceipt> => {
@@ -57,6 +92,21 @@ export function useJournalUpload() {
           'No supported journal events were found in the selected files.',
         ]);
       }
+      const droppedWithoutTimestamp = countObservationsWithoutTimestamp(result);
+      if (droppedWithoutTimestamp > 0) {
+        setWarnings((current) => [
+          ...current,
+          `${droppedWithoutTimestamp} observation${droppedWithoutTimestamp === 1 ? '' : 's'} ` +
+            `without a timestamp ${droppedWithoutTimestamp === 1 ? 'was' : 'were'} not uploaded — ` +
+            'every uploaded event needs an event timestamp.',
+        ]);
+      }
+      const uploadable = countUploadableEvents(result);
+      if (uploadable > MAX_V3_UPLOAD_EVENTS) {
+        // Pre-flight cap check: never send a request the server must reject
+        // with 422 — see UploadSelectionTooLargeError for why not chunked.
+        throw new UploadSelectionTooLargeError(uploadable);
+      }
       setPhase('uploading');
       return createV3JournalImport(buildV3JournalImportRequest(result));
     },
@@ -68,16 +118,26 @@ export function useJournalUpload() {
     onError: () => {
       setPhase('error');
     },
+    onSettled: () => {
+      inFlightRef.current = false;
+    },
   });
 
   return {
     phase,
+    busy,
     progress,
     warnings,
     receipt: mutation.data ?? null,
     error: mutation.error ?? null,
-    start: (files: File[]) => { mutation.mutate(files); },
+    start: (files: File[]) => {
+      // Re-entrancy guard: ignore a start while a parse/upload is in flight.
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+      mutation.mutate(files);
+    },
     reset: () => {
+      inFlightRef.current = false;
       mutation.reset();
       setPhase('idle');
       setProgress(null);
@@ -89,13 +149,20 @@ export function useJournalUpload() {
 /**
  * Client-side quota screening: reject files over the 128 MiB cap and cap the
  * selection at 200 files (matching the server quotas). Warnings are surfaced
- * in the panel; accepted files still upload normally.
+ * in the panel as a SUMMARY plus a capped name list — a per-file line per
+ * oversize file would otherwise grow to the 200-file cap; accepted files
+ * still upload normally.
  */
 export function screenUploadFiles(files: File[]): { accepted: File[]; warnings: string[] } {
   const warnings: string[] = [];
   const overSize = files.filter((file) => file.size > MAX_V3_UPLOAD_FILE_BYTES);
-  for (const file of overSize) {
-    warnings.push(`${file.name} was skipped — larger than the 128 MiB file cap.`);
+  if (overSize.length > 0) {
+    const verb = overSize.length === 1 ? 'file was' : 'files were';
+    warnings.push(`${overSize.length} ${verb} skipped — larger than the 128 MiB file cap.`);
+    const MAX_WARNING_NAMES = 10;
+    const detailNames = overSize.slice(0, MAX_WARNING_NAMES).map((file) => file.name).join(', ');
+    const extra = overSize.length > MAX_WARNING_NAMES ? ` and ${overSize.length - MAX_WARNING_NAMES} more` : '';
+    warnings.push(`Skipped: ${detailNames}${extra}`);
   }
   let accepted = files.filter((file) => file.size <= MAX_V3_UPLOAD_FILE_BYTES);
   if (accepted.length > MAX_V3_UPLOAD_FILES) {

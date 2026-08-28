@@ -3,6 +3,7 @@ import type { DragEvent, InputHTMLAttributes } from 'react';
 import { ApiError } from '@/lib/api';
 import {
   MAX_V3_UPLOAD_FILES,
+  UploadSelectionTooLargeError,
   supportsWebkitDirectory,
   useJournalUpload,
 } from './useJournalUpload';
@@ -28,6 +29,7 @@ export function JournalUploadPanel() {
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragging(false);
+    if (upload.busy) return; // pickers/dropzone are inert while a run is in flight
     const dropped = Array.from(event.dataTransfer?.files ?? [])
       .filter((file) => DROP_EXTENSION_RE.test(file.name));
     if (dropped.length === 0) return;
@@ -59,6 +61,7 @@ export function JournalUploadPanel() {
             type="file"
             accept=".log,.json,.txt"
             multiple
+            disabled={upload.busy}
             onChange={(event) => handleFiles(event.target.files)}
             className="sr-only"
             data-testid="journal-upload-file-input"
@@ -70,6 +73,7 @@ export function JournalUploadPanel() {
             <input
               type="file"
               multiple
+              disabled={upload.busy}
               onChange={(event) => handleFiles(event.target.files)}
               className="sr-only"
               data-testid="journal-upload-folder-input"
@@ -85,17 +89,20 @@ export function JournalUploadPanel() {
       <div
         onDragOver={(event) => {
           event.preventDefault();
+          if (upload.busy) return;
           setDragging(true);
         }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
+        aria-disabled={upload.busy}
         data-testid="journal-upload-dropzone"
         className={[
           'flex min-h-[96px] items-center justify-center rounded-chunk-lg border border-dashed px-4 py-6 text-center text-sm transition-colors',
           dragging ? 'border-orange bg-orange/10 text-orange' : 'border-border/70 bg-bg2/35 text-silver-dk',
+          upload.busy ? 'cursor-not-allowed opacity-50' : '',
         ].join(' ')}
       >
-        Drop .log or .json journal files here to import them.
+        {upload.busy ? 'Import in progress — the pickers are disabled until it finishes.' : 'Drop .log or .json journal files here to import them.'}
       </div>
 
       {upload.phase !== 'idle' ? (
@@ -199,6 +206,10 @@ function formatEventCounts(eventCounts: Record<string, number>): string {
 function formatUploadError(error: unknown): string {
   if (error instanceof ApiError && error.status === 429) {
     return 'Daily import quota exceeded (429). The server accepts 200,000 events per account per day — try again tomorrow.';
+  }
+  if (error instanceof UploadSelectionTooLargeError) {
+    // Friendly pre-flight copy — deliberately NOT the raw RFC 7807 body.
+    return error.message;
   }
   return error instanceof Error ? error.message : 'Journal import failed.';
 }

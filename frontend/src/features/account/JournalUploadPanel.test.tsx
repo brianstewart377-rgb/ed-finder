@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, createV3JournalImport } from '@/lib/api';
+import type { V3JournalImportRequest } from '@/lib/api';
 import { useAuth } from '@/features/auth/useAuth';
 import { parseJournalFiles } from '@/features/journal-import/parseJournalFiles';
 import type { JournalImportParseResult } from '@/lib/journalParsing';
@@ -193,6 +194,99 @@ describe('JournalUploadPanel', () => {
     selectJournalFile();
 
     expect((await screen.findByTestId('journal-upload-error')).textContent).toContain('Daily import quota exceeded (429)');
+  });
+
+  it('refuses a selection over the 50,000-event cap with friendly copy and no raw RFC 7807 body', async () => {
+    const oversized = {
+      ...PARSE_RESULT,
+      observations: Array.from({ length: 50_001 }, (_, i) => ({
+        ...PARSE_RESULT.observations[0],
+        observation_key: `o-${i}`.padEnd(64, 'k'),
+      })),
+    };
+    mockedParseJournalFiles.mockResolvedValue(oversized);
+
+    renderPanel();
+    selectJournalFile();
+
+    const errorBox = await screen.findByTestId('journal-upload-error');
+    expect(errorBox.textContent).toContain('50,000-event per-upload cap');
+    expect(errorBox.textContent).toContain('50,001');
+    // Friendly pre-flight copy — never the raw API 422 body.
+    expect(errorBox.textContent).not.toContain('/v1/journal/imports');
+    expect(errorBox.textContent).not.toContain('"detail"');
+    expect(mockedCreateV3JournalImport).not.toHaveBeenCalled();
+  });
+
+  it('uploads a selection at exactly the 50,000-event cap', async () => {
+    const atCap = {
+      ...PARSE_RESULT,
+      observations: Array.from({ length: 50_000 }, (_, i) => ({
+        ...PARSE_RESULT.observations[0],
+        observation_key: `c-${i}`.padEnd(64, 'k'),
+      })),
+    };
+    mockedParseJournalFiles.mockResolvedValue(atCap);
+    mockedCreateV3JournalImport.mockResolvedValue(makeReceipt());
+
+    renderPanel();
+    selectJournalFile();
+
+    await waitFor(() => expect(mockedCreateV3JournalImport).toHaveBeenCalledTimes(1));
+    expect(await screen.findByTestId('journal-upload-receipt')).toBeTruthy();
+  });
+
+  it('ignores a re-entrant start while a run is in flight and disables the pickers', async () => {
+    let resolveParse!: (result: JournalImportParseResult) => void;
+    mockedParseJournalFiles.mockImplementation(
+      () => new Promise<JournalImportParseResult>((resolve) => { resolveParse = resolve; }),
+    );
+    mockedCreateV3JournalImport.mockResolvedValue(makeReceipt());
+
+    renderPanel();
+    const file = new File(['{"event":"Scan"}\n'], 'Journal.demo.log', { type: 'text/plain' });
+    const input = screen.getByTestId('journal-upload-file-input') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [file] } });
+    // Re-entrant start while the first parse is still in flight.
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(mockedParseJournalFiles).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input.disabled).toBe(true));
+    expect(screen.getByTestId('journal-upload-dropzone').getAttribute('aria-disabled')).toBe('true');
+
+    // Dropping files while busy is inert too.
+    fireEvent.drop(screen.getByTestId('journal-upload-dropzone'), {
+      dataTransfer: { files: [file] } as unknown as DataTransfer,
+    });
+    expect(mockedParseJournalFiles).toHaveBeenCalledTimes(1);
+
+    resolveParse(PARSE_RESULT);
+    await screen.findByTestId('journal-upload-receipt');
+    expect(mockedCreateV3JournalImport).toHaveBeenCalledTimes(1);
+    expect(mockedParseJournalFiles).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(input.disabled).toBe(false));
+  });
+
+  it('warns with a count when observations lack a timestamp instead of silently dropping them', async () => {
+    const withDrop = {
+      ...PARSE_RESULT,
+      observations: [
+        PARSE_RESULT.observations[0],
+        { ...PARSE_RESULT.observations[0], observation_key: 'e'.repeat(64), observed_at: null },
+      ],
+    };
+    mockedParseJournalFiles.mockResolvedValue(withDrop);
+    mockedCreateV3JournalImport.mockResolvedValue(makeReceipt());
+
+    renderPanel();
+    selectJournalFile();
+
+    const warnings = await screen.findByTestId('journal-upload-warnings');
+    expect(warnings.textContent).toContain('1 observation without a timestamp was not uploaded');
+
+    await waitFor(() => expect(mockedCreateV3JournalImport).toHaveBeenCalledTimes(1));
+    const request = mockedCreateV3JournalImport.mock.calls[0]?.[0] as V3JournalImportRequest;
+    expect(request.events).toHaveLength(1);
   });
 
   it('never mentions research contribution or consent in the upload surface', () => {
