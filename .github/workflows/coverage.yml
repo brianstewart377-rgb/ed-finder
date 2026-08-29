@@ -10,6 +10,10 @@ permissions:
   contents: read
   checks: write
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend-coverage:
     name: Backend Code Coverage
@@ -34,10 +38,10 @@ jobs:
         ports: ['6379:6379']
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
@@ -50,19 +54,52 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt coverage
 
-      - name: Run tests with coverage
+      - name: Apply schema + seed
+        env:
+          PGPASSWORD: edfinder
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: bash scripts/seed_check.sh
+
+      - name: Validate seeded coverage database
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
-          REDIS_URL: redis://localhost:6379/0
+        run: python scripts/checks/data_invariants.py --target-rating-version 3.4
+
+      - name: Run unit coverage
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          REDIS_URL: redis://localhost:6379/15
           CORS_ORIGINS: http://test
           ADMIN_TOKEN: test-admin-token
           LOG_LEVEL: WARNING
         run: |
-          coverage run -m pytest tests/ -m "unit or integration or db"
-          coverage xml
+          coverage erase
+          coverage run -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
+
+      - name: Append integration coverage
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          REDIS_URL: redis://localhost:6379/15
+          CORS_ORIGINS: http://test
+          ADMIN_TOKEN: test-admin-token
+          LOG_LEVEL: WARNING
+        run: |
+          coverage run --append -m pytest \
+            tests/integration/ \
+            tests/test_migration_applier_runtime.py \
+            tests/test_migration_ledger_baseline_runtime.py \
+            tests/test_data_trust_runtime.py \
+            -q
+
+      - name: Build backend coverage reports
+        if: always()
+        run: |
+          coverage xml -o coverage.xml
+          coverage json -o coverage.json
           coverage report --fail-under=70
 
-      - name: Upload coverage to Codecov
+      - name: Upload backend coverage to Codecov
+        if: success()
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: ./coverage.xml
@@ -70,13 +107,25 @@ jobs:
           name: backend-coverage
           fail_ci_if_error: false
 
+      - name: Preserve backend coverage diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: backend-coverage-${{ github.run_attempt }}
+          path: |
+            coverage.xml
+            coverage.json
+            .coverage
+          if-no-files-found: warn
+          retention-days: 7
+
   frontend-coverage:
     name: Frontend Code Coverage
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -88,21 +137,49 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
-      - name: Install dependencies
+      - name: Install locked frontend dependencies
         working-directory: frontend
         run: yarn install --frozen-lockfile --no-progress --non-interactive
 
-      - name: Run tests with coverage
+      - name: Install pinned Vitest V8 coverage provider
         working-directory: frontend
-        run: yarn test:ci --coverage --run
+        # Vitest's coverage provider is an optional package. Keep normal app
+        # dependencies frozen, then add the exact provider only to this
+        # disposable CI workspace until it is promoted into yarn.lock.
+        run: >-
+          yarn add --dev --exact --ignore-scripts --no-lockfile --non-interactive
+          @vitest/coverage-v8@4.1.10
 
-      - name: Upload coverage to Codecov
+      - name: Run complete frontend suite with coverage
+        working-directory: frontend
+        run: |
+          node scripts/run-vitest.mjs run \
+            --coverage \
+            --coverage.provider=v8 \
+            --coverage.reporter=text \
+            --coverage.reporter=json \
+            --coverage.reporter=json-summary \
+            --coverage.reporter=lcov \
+            --coverage.reportOnFailure \
+            --maxWorkers=2
+
+      - name: Upload frontend coverage to Codecov
+        if: success()
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           files: ./frontend/coverage/coverage-final.json
           flags: frontend
           name: frontend-coverage
           fail_ci_if_error: false
+
+      - name: Preserve frontend coverage diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: frontend-coverage-${{ github.run_attempt }}
+          path: frontend/coverage
+          if-no-files-found: warn
+          retention-days: 7
 
   coverage-report:
     name: Coverage Summary
@@ -111,10 +188,19 @@ jobs:
     timeout-minutes: 5
     if: always()
     steps:
-      - name: Check coverage results
+      - name: Write and enforce coverage result summary
+        env:
+          BACKEND_RESULT: ${{ needs.backend-coverage.result }}
+          FRONTEND_RESULT: ${{ needs.frontend-coverage.result }}
         run: |
-          echo "## Code Coverage Report"
-          echo "- Backend: Check Codecov for detailed results"
-          echo "- Frontend: Check Codecov for detailed results"
-          echo ""
-          echo "View coverage dashboard at: https://codecov.io/gh/${{ github.repository }}"
+          {
+            echo "## Code Coverage Report"
+            echo "- Backend coverage job: ${BACKEND_RESULT}"
+            echo "- Frontend coverage job: ${FRONTEND_RESULT}"
+            echo "- Detailed reports are retained as workflow artifacts for 7 days."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$BACKEND_RESULT" != "success" || "$FRONTEND_RESULT" != "success" ]]; then
+            echo "::error::Coverage pipeline failed: backend=${BACKEND_RESULT}, frontend=${FRONTEND_RESULT}"
+            exit 1
+          fi
