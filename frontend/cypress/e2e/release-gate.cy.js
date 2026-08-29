@@ -47,35 +47,34 @@ function openProductionMap() {
   cy.getByTestId('stage26e-production-map').should('be.visible');
 }
 
-function clickDeepZoom(count = 24) {
+function crossRealStarLod() {
   const renderer = '.map-foundation-renderer';
+  const targetZoom = 1;
 
-  // The normal map journey already proves the real control is actionable.
-  // These clicks are setup for crossing the LOD threshold, so call the real
-  // production button handler directly and prove each state transition landed.
-  // This avoids paying Cypress actionability/animation waits 24 times while
-  // still exercising exactly the application handler users trigger.
-  function step(remaining) {
-    if (remaining <= 0) return;
+  cy.get(renderer).invoke('attr', 'data-camera-zoom').then((beforeValue) => {
+    const beforeZoom = Number(beforeValue);
+    expect(beforeZoom, 'zoom before deep-zoom gesture').to.be.greaterThan(0);
+    if (beforeZoom <= targetZoom) return;
 
-    cy.get(renderer).invoke('attr', 'data-camera-zoom').then((beforeValue) => {
-      const beforeZoom = Number(beforeValue);
-      expect(beforeZoom, 'zoom before deep-zoom step').to.be.greaterThan(0);
-
-      cy.getByTestId('map-zoom-in').then(($button) => {
-        $button[0].click();
-      });
-
-      cy.get(renderer, { timeout: 1500 }).should(($renderer) => {
-        expect(Number($renderer.attr('data-camera-zoom')), 'zoom after deep-zoom step')
-          .to.be.lessThan(beforeZoom);
-      });
-
-      cy.then(() => step(remaining - 1));
+    // The production map's wheel listener forwards deltaY directly into the
+    // same smooth-zoom controller used by the +/- buttons. Compute one real
+    // wheel delta that lands safely inside the detail LOD instead of paying
+    // for 24 separate 500 ms button animations as test setup.
+    const deltaY = Math.log(targetZoom / beforeZoom) * 1000;
+    cy.get(renderer).then(($renderer) => {
+      const win = $renderer[0].ownerDocument.defaultView;
+      $renderer[0].dispatchEvent(new win.WheelEvent('wheel', {
+        deltaY,
+        bubbles: true,
+        cancelable: true,
+      }));
     });
-  }
 
-  step(count);
+    cy.get(renderer, { timeout: 2000 }).should(($renderer) => {
+      expect(Number($renderer.attr('data-camera-zoom')), 'zoom after deep-zoom gesture')
+        .to.be.at.most(targetZoom * 1.05);
+    });
+  });
 }
 
 describe('ED Finder release gate — Cypress parity', () => {
@@ -181,7 +180,7 @@ describe('ED Finder release gate — Cypress parity', () => {
     cy.getByTestId('map-view-galaxy').click();
     cy.getByTestId('map-snap-top-down').click();
 
-    clickDeepZoom();
+    crossRealStarLod();
 
     cy.wait('@realStars', { timeout: 5000 }).then((interception) => {
       expect(interception.response?.statusCode).to.equal(200);
@@ -198,7 +197,7 @@ describe('ED Finder release gate — Cypress parity', () => {
     cy.getByTestId('map-view-galaxy').click();
     cy.getByTestId('map-snap-top-down').click();
 
-    clickDeepZoom();
+    crossRealStarLod();
 
     cy.wait('@realStarsFailure', { timeout: 5000 });
     cy.get('.map-foundation-renderer canvas').should('be.visible');
