@@ -39,10 +39,11 @@ ATTESTATION_NOTE = (
 LINEAGE_RE = re.compile(r'^[A-Za-z0-9_-]{16,64}$')
 
 
-class _FakePool:
+class _FakeConnection:
     """Records SQL calls; fetch returns configured rows; execute appends to
     the call log. Insert calls into research_export_batch update a receipt
-    ledger so supersede behaviour can be asserted deterministically."""
+    ledger so supersede behaviour can be asserted deterministically. Exposes
+    a no-op transaction() (mirrors the store-test fake discipline)."""
 
     def __init__(self, *, rows: list[dict] | None = None) -> None:
         self.rows = rows or []
@@ -75,6 +76,46 @@ class _FakePool:
                 'superseded_by_batch_id': superseded_by_batch_id,
                 'created_at': created_at,
             })
+
+    def transaction(self) -> '_FakeTransaction':
+        return _FakeTransaction()
+
+
+class _FakeTransaction:
+    async def __aenter__(self) -> '_FakeTransaction':
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+
+class _FakePool:
+    """Pool shim: build_export calls pool.fetch/execute directly (Task 4's
+    interface); supersede_lineage_batches runs through acquire(). All calls
+    are recorded on the single fake connection."""
+
+    def __init__(self, *, rows: list[dict] | None = None) -> None:
+        self.conn = _FakeConnection(rows=rows)
+
+    async def fetch(self, sql: str, *args):
+        return await self.conn.fetch(sql, *args)
+
+    async def execute(self, sql: str, *args):
+        return await self.conn.execute(sql, *args)
+
+    def acquire(self) -> '_FakeAcquire':
+        return _FakeAcquire(self.conn)
+
+
+class _FakeAcquire:
+    def __init__(self, conn: _FakeConnection) -> None:
+        self.conn = conn
+
+    async def __aenter__(self) -> _FakeConnection:
+        return self.conn
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
 
 
 def _event_row(event_type: str, key: dict, payload: dict, ts: datetime = TS) -> dict:
@@ -185,7 +226,7 @@ def test_build_export_payload_sha_receipt_consistent():
     assert payload['observations'][0]['observed_week'] == '2026-W35'
     assert payload['observations'][0]['source_event_sha256'] == 'ab' * 32
     # Receipt insert carries the sha256 as bytea bytes.
-    assert pool.receipt_rows and pool.receipt_rows[0]['payload_sha256'] == bytes.fromhex(sha_hex)
+    assert pool.conn.receipt_rows and pool.conn.receipt_rows[0]['payload_sha256'] == bytes.fromhex(sha_hex)
 
 
 def test_build_export_orders_observations_deterministically():
@@ -218,10 +259,59 @@ def test_build_export_respects_limit():
 def test_build_export_sql_is_account_scoped():
     pool = _FakePool(rows=[])
     asyncio.run(build_export(pool, ACCOUNT_ID, limit=1000))
-    fetch_sql = next(sql for kind, sql, _args in pool.calls if kind == 'fetch')
+    fetch_sql = next(sql for kind, sql, _args in pool.conn.calls if kind == 'fetch')
     assert 'owner_account_id' in fetch_sql and '$1' in fetch_sql
-    insert_sql = next(sql for kind, sql, _args in pool.calls if kind == 'execute')
+    insert_sql = next(sql for kind, sql, _args in pool.conn.calls if kind == 'execute')
     assert 'research_export_batch' in insert_sql
+
+
+def test_build_export_binds_created_at_as_datetime():
+    # Backend fix wave: timestamptz columns are bound as tz-aware datetime
+    # objects, never ISO strings. generated_at (payload) stays the
+    # second-precision Z string derived from the SAME instant, so receipt
+    # created_at == generated_at (replay contract).
+    pool = _FakePool(rows=[
+        _event_row('Scan', {'SystemAddress': 1, 'BodyID': 3}, {'StarSystem': 'Sol'}),
+    ])
+    payload, _sha, receipt = asyncio.run(build_export(pool, ACCOUNT_ID, limit=1000))
+    insert_args = next(
+        args for kind, sql, args in pool.conn.calls
+        if kind == 'execute' and 'INSERT' in sql
+    )
+    created_at_arg = insert_args[10]  # _EXPORT_BATCH_COLUMNS order: created_at last
+    assert isinstance(created_at_arg, datetime), type(created_at_arg)
+    assert created_at_arg.tzinfo is not None
+    assert isinstance(receipt['created_at'], datetime)
+    # generated_at is the same instant, second-precision UTC with 'Z'.
+    assert payload['generated_at'] == (
+        created_at_arg.astimezone(timezone.utc)
+        .isoformat(timespec='seconds').replace('+00:00', 'Z')
+    )
+
+
+def test_receipt_manifest_persists_limit_payload_manifest_does_not():
+    # Backend fix wave: the raw-row limit is receipt-internal replay
+    # metadata (manifest.limit in the RECEIPT's manifest column) — the
+    # CRE-visible payload manifest stays schema-frozen (the consumer schema
+    # enforces additionalProperties: false).
+    pool = _FakePool(rows=[
+        _event_row('Scan', {'SystemAddress': 1, 'BodyID': 3}, {'StarSystem': 'Sol'}),
+        _event_row('Scan', {'SystemAddress': 2, 'BodyID': 3}, {'StarSystem': 'Beta'}),
+    ])
+    payload, _sha, receipt = asyncio.run(build_export(pool, ACCOUNT_ID, limit=1))
+    assert 'limit' not in payload['manifest']
+    assert receipt['observation_count'] == 1
+    assert receipt['manifest']['limit'] == 1
+    assert receipt['manifest']['observation_count'] == 1
+    # The INSERTed receipt manifest is the limit-carrying one (JSON text).
+    insert_args = next(
+        args for kind, sql, args in pool.conn.calls
+        if kind == 'execute' and 'INSERT' in sql
+    )
+    # Bound as a dict (the app pool's jsonb codec encodes dicts to jsonb
+    # objects; pre-encoded text would become a jsonb string).
+    stored_manifest = insert_args[6]
+    assert stored_manifest['limit'] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -243,17 +333,17 @@ def test_supersede_marks_batches_and_emits_payload():
     assert payload['manifest'] == {'withdrawal': True}
     assert sorted(payload['superseded_export_batch_ids']) == sorted(batch_ids)
     # Superseded batches are referenced by a new ledger row (supersede receipt).
-    assert pool.receipt_rows
-    supersede_receipt = pool.receipt_rows[0]
+    assert pool.conn.receipt_rows
+    supersede_receipt = pool.conn.receipt_rows[0]
     assert supersede_receipt['lineage_token'] == 'tok-1'
     assert supersede_receipt['batch_state'] == 'SUPERSEDED'
     assert supersede_receipt['observation_count'] == 0
     # jsonb column is passed as JSON text to the DB (asyncpg convention).
-    assert json.loads(supersede_receipt['manifest']) == {'withdrawal': True}
+    assert supersede_receipt['manifest'] == {'withdrawal': True}
     # The UPDATE marks the old batches SUPERSEDED, pointing at the new receipt.
-    update_sql = next(sql for kind, sql, _args in pool.calls if kind == 'execute' and 'UPDATE' in sql)
+    update_sql = next(sql for kind, sql, _args in pool.conn.calls if kind == 'execute' and 'UPDATE' in sql)
     assert 'SUPERSEDED' in update_sql and 'superseded_by_batch_id' in update_sql
-    update_args = next(args for kind, sql, args in pool.calls if kind == 'execute' and 'UPDATE' in sql)
+    update_args = next(args for kind, sql, args in pool.conn.calls if kind == 'execute' and 'UPDATE' in sql)
     # $1 = account_id, $2 = lineage_token, $3 = superseded_by_batch_id.
     assert update_args[0] == ACCOUNT_ID and update_args[1] == 'tok-1'
     assert update_args[2] == supersede_receipt['export_batch_id']
@@ -266,7 +356,7 @@ def test_supersede_payload_sha_matches_receipt_bytes():
     ])
     payload = asyncio.run(supersede_lineage_batches(pool, ACCOUNT_ID, 'tok-1'))
     sha = hashlib.sha256(payload_bytes(payload)).hexdigest()
-    assert pool.receipt_rows[0]['payload_sha256'] == bytes.fromhex(sha)
+    assert pool.conn.receipt_rows[0]['payload_sha256'] == bytes.fromhex(sha)
 
 
 def test_supersede_with_no_batches_emits_empty_payload_no_receipt():
@@ -274,9 +364,9 @@ def test_supersede_with_no_batches_emits_empty_payload_no_receipt():
     payload = asyncio.run(supersede_lineage_batches(pool, ACCOUNT_ID, 'tok-1'))
     assert payload['kind'] == 'supersede'
     assert payload['superseded_export_batch_ids'] == []
-    assert pool.receipt_rows == []
+    assert pool.conn.receipt_rows == []
     # Only the fetch ran — no UPDATE, no INSERT.
-    assert all(kind == 'fetch' for kind, _sql, _args in pool.calls)
+    assert all(kind == 'fetch' for kind, _sql, _args in pool.conn.calls)
 
 
 def test_supersede_only_touches_created_batches_for_account_and_token():
@@ -286,7 +376,7 @@ def test_supersede_only_touches_created_batches_for_account_and_token():
         {'export_batch_id': str(uuid.uuid4()), 'lineage_token': 'other-tok', 'created_at': TS},
     ])
     asyncio.run(supersede_lineage_batches(pool, ACCOUNT_ID, 'tok-1'))
-    update_calls = [(sql, args) for kind, sql, args in pool.calls if kind == 'execute' and 'UPDATE' in sql]
+    update_calls = [(sql, args) for kind, sql, args in pool.conn.calls if kind == 'execute' and 'UPDATE' in sql]
     assert len(update_calls) == 1
     sql, args = update_calls[0]
     assert 'owner_account_id' in sql and 'lineage_token' in sql and "batch_state = 'CREATED'" in sql

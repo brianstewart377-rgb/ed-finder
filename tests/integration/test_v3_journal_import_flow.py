@@ -40,30 +40,11 @@ _ORIGIN = {"Origin": settings.cors_origins.split(",")[0].strip()}
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _v2_table_shim():
-    """Make the shared integration conftest work against the V3-only fixture
-    DB (PG18 rehearsal database on 127.0.0.1:55433): its ``clean_db`` fixture
-    TRUNCATEs V2 tables that do not exist in the fresh V3 lineage. Create them
-    as empty stand-ins so TRUNCATE succeeds. No-op against the V2 DB (tables
-    already exist), and the shim's tables are never read by these tests."""
-    import asyncpg as _asyncpg
-
-    async def _create():
-        conn = await _asyncpg.connect(os.environ["DATABASE_URL"])
-        try:
-            for name in (
-                "watchlist", "system_notes", "profile_sync", "watchlist_changelog",
-                "api_cache", "evidence_records", "derived_features", "rule_decisions",
-                "rule_proposals", "observed_facts", "exploration_facts",
-                "powerplay_cycles", "commander_powerplay_state",
-                "commander_powerplay_events", "powerplay_observations",
-            ):
-                await conn.execute(f'CREATE TABLE IF NOT EXISTS public.{name} (id integer)')
-        finally:
-            await conn.close()
-
-    import asyncio
-    asyncio.run(_create())
+def _v2_table_shim(v3_v2_table_shim):
+    """Session-scoped dependency (body lives in conftest): the V3-only fixture
+    DB lacks the V2 tables conftest's ``clean_db`` TRUNCATEs; the shared
+    ``v3_v2_table_shim`` fixture creates empty stand-ins. Autouse so the
+    TRUNCATE always succeeds for these tests."""
 
 
 def _cookie(token: str) -> dict[str, str]:

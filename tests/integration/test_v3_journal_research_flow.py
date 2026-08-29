@@ -14,6 +14,8 @@ Flows covered (plan Task 3):
      byte identity holds after pinning from the receipts.
   9. Replay: GET rebuilds the payload; SHA-256 of the rebuilt bytes matches
      the receipt. Cross-account batch read -> 404.
+  10. (3.1 regression) limit-truncated export replays byte-identically.
+  11. (3.2 regression) same-instant superseded batches replay consistently.
 """
 
 from __future__ import annotations
@@ -21,7 +23,6 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import os
 import re
 import uuid
 
@@ -45,30 +46,11 @@ _ORIGIN = {"Origin": settings.cors_origins.split(",")[0].strip()}
 
 
 @pytest.fixture(scope="session", autouse=True)
-def _v2_table_shim():
-    """Make the shared integration conftest work against the V3-only fixture
-    DB (PG18 rehearsal database on 127.0.0.1:55433): its ``clean_db`` fixture
-    TRUNCATEs V2 tables that do not exist in the fresh V3 lineage. Create them
-    as empty stand-ins so TRUNCATE succeeds. No-op against the V2 DB (tables
-    already exist), and the shim's tables are never read by these tests."""
-    import asyncpg as _asyncpg
-
-    async def _create():
-        conn = await _asyncpg.connect(os.environ["DATABASE_URL"])
-        try:
-            for name in (
-                "watchlist", "system_notes", "profile_sync", "watchlist_changelog",
-                "api_cache", "evidence_records", "derived_features", "rule_decisions",
-                "rule_proposals", "observed_facts", "exploration_facts",
-                "powerplay_cycles", "commander_powerplay_state",
-                "commander_powerplay_events", "powerplay_observations",
-            ):
-                await conn.execute(f'CREATE TABLE IF NOT EXISTS public.{name} (id integer)')
-        finally:
-            await conn.close()
-
-    import asyncio
-    asyncio.run(_create())
+def _v2_table_shim(v3_v2_table_shim):
+    """Session-scoped dependency (body lives in conftest): the V3-only fixture
+    DB lacks the V2 tables conftest's ``clean_db`` TRUNCATEs; the shared
+    ``v3_v2_table_shim`` fixture creates empty stand-ins. Autouse so the
+    TRUNCATE always succeeds for these tests."""
 
 
 def _cookie(token: str) -> dict[str, str]:
@@ -320,6 +302,88 @@ async def test_export_replay_hash_matches_receipt(client, pool):
         cookies=_cookie(other_token),
     )
     assert resp.status_code == 404
+
+
+async def test_export_replay_limited_batch_matches_receipt(client, pool):
+    """3.1 regression: a limit-truncated export replays byte-identically.
+
+    The raw-row limit must be persisted in the receipt manifest
+    (manifest.limit) at export time and read back by the GET rebuild, so a
+    truncated export's rebuilt SHA matches its receipt. Fixture: 9 events,
+    6 exportable; LIMIT 5 raw rows (SQL order: 3 FSDJump travel-excluded
+    first, then FSSBodySignals + FSSDiscoveryScan) -> 2 sanitized
+    observations — the truncation lands inside the excluded-event prefix,
+    proving the limit applies to raw rows BEFORE sanitization.
+    """
+    _, token = await _create_account(pool, f"replay-lim-{uuid.uuid4().hex[:8]}")
+    assert (await _import(client, token)).status_code == 200
+    assert (await _put_consent(client, token, "GRANT")).status_code == 200
+
+    receipt = (await _export(client, token, limit=5)).json()
+    assert receipt["observation_count"] == 2
+
+    resp = await client.get(
+        f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
+        cookies=_cookie(token),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["receipt"]["payload_sha256"] == receipt["payload_sha256"]
+    rebuilt = json.dumps(body["payload"], sort_keys=True, separators=(",", ":")).encode()
+    assert hashlib.sha256(rebuilt).hexdigest() == receipt["payload_sha256"]
+
+
+async def test_supersede_replay_same_second_batches(client, pool):
+    """3.2 regression: supersede replay is consistent when superseded
+    batches share one created_at instant.
+
+    The superseded-batch ordering must match on BOTH sides (Task 4's
+    supersede build and the router's rebuild): (created_at,
+    export_batch_id). Two batches are forced to an identical created_at via
+    UPDATE, then WITHDRAW; the emitted supersede batch must replay with a
+    matching SHA and uuid-sorted batch ids. Without the export-side
+    tiebreak this fails whenever creation order differs from uuid order
+    (~50% of no-fix runs).
+    """
+    _, token = await _create_account(pool, f"ss-replay-{uuid.uuid4().hex[:8]}")
+    assert (await _import(client, token)).status_code == 200
+    assert (await _put_consent(client, token, "GRANT")).status_code == 200
+    r1 = (await _export(client, token)).json()
+    r2 = (await _export(client, token)).json()
+
+    # Every export carries its OWN lineage token (per-export lineage), so
+    # the two batches are pinned onto ONE token here — otherwise WITHDRAW
+    # supersedes each token separately and emits two supersede batches.
+    # Force one exact created_at instant for both receipts so the ordering
+    # depends solely on the (created_at, export_batch_id) tiebreak.
+    await pool.execute(
+        "UPDATE v3_private.research_export_batch "
+        "SET created_at = '2026-08-28T12:00:00.000000+00:00', "
+        "    lineage_token = $1 "
+        "WHERE export_batch_id = ANY($2::uuid[])",
+        r1["lineage_token"],
+        [uuid.UUID(r1["export_batch_id"]), uuid.UUID(r2["export_batch_id"])],
+    )
+
+    resp = await _put_consent(client, token, "WITHDRAW")
+    assert resp.status_code == 200, resp.text
+
+    # The supersede batch is the only receipt with observation_count == 0.
+    batches = (await client.get(
+        "/api/v1/journal/research-exports", cookies=_cookie(token)
+    )).json()
+    supersede_batches = [b for b in batches if b["observation_count"] == 0]
+    assert len(supersede_batches) == 1, "expected exactly one supersede batch"
+    detail = await client.get(
+        f"/api/v1/journal/research-exports/{supersede_batches[0]['export_batch_id']}",
+        cookies=_cookie(token),
+    )
+    assert detail.status_code == 200, detail.text
+    payload = detail.json()["payload"]
+    assert payload.get("kind") == "supersede"
+    assert payload["superseded_export_batch_ids"] == sorted(
+        [r1["export_batch_id"], r2["export_batch_id"]]
+    )
 
 
 async def test_research_lane_auth_and_origin(client, pool):

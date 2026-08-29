@@ -64,6 +64,34 @@ import redis.asyncio as aioredis  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 
+# V2-named tables that the shared ``clean_db`` TRUNCATE list references.
+# The V3-only fixture DB (fresh PG18 lineage, no V2 schema) lacks them, so
+# the journal flow tests create empty stand-ins for TRUNCATE to succeed.
+# No-op against the V2 DB (tables already exist); the stand-ins are never
+# read by any test. Session-scoped and NON-autouse on purpose: only the
+# tests that need a V3-only DB request it, so the general integration suite
+# never depends on DATABASE_URL being set.
+@pytest.fixture(scope="session")
+def v3_v2_table_shim():
+    import asyncio
+
+    async def _create():
+        conn = await asyncpg.connect(os.environ["DATABASE_URL"])
+        try:
+            for name in (
+                "watchlist", "system_notes", "profile_sync", "watchlist_changelog",
+                "api_cache", "evidence_records", "derived_features", "rule_decisions",
+                "rule_proposals", "observed_facts", "exploration_facts",
+                "powerplay_cycles", "commander_powerplay_state",
+                "commander_powerplay_events", "powerplay_observations",
+            ):
+                await conn.execute(f'CREATE TABLE IF NOT EXISTS public.{name} (id integer)')
+        finally:
+            await conn.close()
+
+    asyncio.run(_create())
+
+
 # Function-scoped fixture: each test gets its own pool/redis lifecycle.
 # That avoids the "session fixture / per-test event loop" mismatch that
 # otherwise hangs on teardown.

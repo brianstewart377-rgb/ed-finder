@@ -160,12 +160,14 @@ async def _active_lineage_tokens(pool: asyncpg.Pool, account_id: uuid.UUID) -> l
 def _observation_sort_key(row: dict[str, Any]) -> tuple:
     """Mirror Task 4's deterministic (event_type, canonical key JSON,
     event_timestamp) ordering — jsonb arrives as a dict via the pool codec."""
-    key = row["event_key"]
-    if isinstance(key, str):
-        return (row["event_type"], key, row["event_timestamp"])
     return (
         row["event_type"],
-        json.dumps(key, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        json.dumps(
+            row["event_key"],
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+        ),
         row["event_timestamp"],
     )
 
@@ -173,25 +175,38 @@ def _observation_sort_key(row: dict[str, Any]) -> tuple:
 async def _rebuild_observations(
     pool: asyncpg.Pool,
     account_id: uuid.UUID,
+    *,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Rebuild the deterministic observation list for one account.
 
     Mirrors Task 4's ``build_export`` row selection byte-for-byte: same SQL
     (all event types, jsonb key order, timestamp), then the same Python
-    re-sort, then ``sanitize_observation`` (None entries excluded). No LIMIT
-    is applied because the receipt stores only the sanitized observation
-    count, not the raw-row limit — replay is byte-exact when the original
-    export covered the account's full event set (the flow-test case), and
-    honestly 409s when data has since changed.
+    re-sort, then ``sanitize_observation`` (None entries excluded). When the
+    receipt manifest stores a raw-row ``limit`` (backend fix wave: receipt-
+    internal ``manifest.limit``), the same limit is applied so a
+    limit-truncated export replays byte-for-byte; without it (full-set
+    exports) no limit is applied.
     """
     sanitize = _sanitize()
-    rows = await pool.fetch(
-        """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
-             FROM v3_private.journal_event
-            WHERE owner_account_id = $1
-            ORDER BY event_type, event_key, event_timestamp""",
-        account_id,
-    )
+    if limit is None:
+        rows = await pool.fetch(
+            """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
+                 FROM v3_private.journal_event
+                WHERE owner_account_id = $1
+                ORDER BY event_type, event_key, event_timestamp""",
+            account_id,
+        )
+    else:
+        rows = await pool.fetch(
+            """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
+                 FROM v3_private.journal_event
+                WHERE owner_account_id = $1
+                ORDER BY event_type, event_key, event_timestamp
+                LIMIT $2""",
+            account_id,
+            limit,
+        )
     rows.sort(key=_observation_sort_key)
     observations: list[dict[str, Any]] = []
     for row in rows:
@@ -293,7 +308,13 @@ async def _rebuilt_payload(
             superseded_export_batch_ids=superseded_ids,
             generated_at=_generated_at(row),
         )
-    observations = await _rebuild_observations(pool, user.account_id)
+    manifest = row.get("manifest")
+    limit: int | None = None
+    if isinstance(manifest, dict):
+        stored_limit = manifest.get("limit")
+        if stored_limit is not None:
+            limit = int(stored_limit)
+    observations = await _rebuild_observations(pool, user.account_id, limit=limit)
     return export_module.build_export_payload(
         export_batch_id=str(batch_id),
         lineage_token=str(row["lineage_token"]),

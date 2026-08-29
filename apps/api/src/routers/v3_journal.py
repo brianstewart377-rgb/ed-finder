@@ -25,6 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from edfinder_api.auth import AuthenticatedUser, get_request_user, require_same_origin
 from edfinder_api.config import limiter
 from edfinder_api.deps import get_pool
+# Frozen 30-event allowlist — single source of truth is
+# edfinder_api.journal.event_contract.JOURNAL_EVENT_ALLOWLIST (Task 2).
+from edfinder_api.journal.event_contract import JOURNAL_EVENT_ALLOWLIST
 
 router = APIRouter(prefix="/api/v1/journal", tags=["v3-journal"])
 
@@ -32,23 +35,6 @@ router = APIRouter(prefix="/api/v1/journal", tags=["v3-journal"])
 MAX_EVENTS_PER_REQUEST = 50_000
 MAX_FILES_PER_IMPORT = 200
 MAX_FILE_EVENT_COUNT = 1_000_000
-
-# Frozen 30-event allowlist. Mirrors
-# edfinder_api.journal.event_contract.JOURNAL_EVENT_ALLOWLIST (Task 2); the
-# authoritative module wins once it lands, the mirrored copy below keeps this
-# router import-checkable while that task is in flight.
-try:  # pragma: no cover - fallback only while Task 2 is pending
-    from edfinder_api.journal.event_contract import JOURNAL_EVENT_ALLOWLIST
-except ImportError:
-    JOURNAL_EVENT_ALLOWLIST = frozenset({
-        'ApproachBody', 'CarrierJump', 'CodexEntry', 'Commander', 'Died',
-        'Disembark', 'Docked', 'Embark', 'Fileheader', 'FSDJump', 'FSDTarget',
-        'FSSAllBodiesFound', 'FSSBodySignals', 'FSSDiscoveryScan', 'LeaveBody',
-        'Liftoff', 'LoadGame', 'Location', 'MultiSellExplorationData',
-        'NavRoute', 'NavRouteClear', 'Resurrect', 'SAAScanComplete',
-        'SAASignalsFound', 'Scan', 'ScanOrganic', 'Screenshot',
-        'SellExplorationData', 'SellOrganicData', 'Touchdown',
-    })
 
 
 class V1Model(BaseModel):

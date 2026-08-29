@@ -23,6 +23,12 @@ from edfinder_api.journal.identity import event_identity
 
 MAX_DAILY_EVENTS_PER_ACCOUNT = 200_000
 
+# Level-2 event inserts are chunked parallel-array ``unnest`` statements
+# (the adjudicated perf fix: per-event INSERT measured 125-272 events/s;
+# batched inserts clear the >= 2,000/s floor). Chunk size bounded so one
+# statement stays well under parameter-count and work-memory limits.
+EVENT_INSERT_CHUNK_SIZE = 5_000
+
 _SOURCE_CODE = 'frontier_journal'
 _RIGHTS_POLICY_VERSION = '1.0'
 _ARTIFACT_KIND = 'JOURNAL_FILE'
@@ -36,6 +42,56 @@ _NORMALIZER_VERSION = 'v3.0'
 _IMPORTER_CODE_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-store:code:1').digest()
 _IMPORTER_CONFIG_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-store:config:1').digest()
 _NORMALIZER_SHA256 = hashlib.sha256(b'ed-finder-v3-journal-identity:v3.0').digest()
+
+# Column order of v3_private.journal_event (mirrors migration 003 DDL).
+_EVENT_BATCH_INSERT_SQL = '''
+    INSERT INTO v3_private.journal_event (
+        journal_event_id, owner_account_id, private_import_id,
+        journal_file_id, source_run_id, event_type,
+        event_key, event_payload, event_timestamp,
+        source_record_hash, source_offset
+    )
+    SELECT * FROM unnest(
+        $1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::uuid[],
+        $6::text[], $7::jsonb[], $8::jsonb[], $9::timestamptz[],
+        $10::bytea[], $11::bigint[]
+    )
+    ON CONFLICT (owner_account_id, event_type, event_key) DO NOTHING
+'''
+
+
+async def _insert_event_chunk(
+    conn: asyncpg.Connection,
+    *,
+    chunk: list[dict],
+) -> int:
+    """One chunked batched event insert; returns the inserted rowcount.
+
+    ``chunk`` entries carry the fully prepared values (stripped payload,
+    canonical event_key, 32-byte hash, tz-aware timestamp). event_key and
+    event_payload are bound as DICTS, not pre-encoded JSON text: the app's
+    pool registers a jsonb codec with ``encoder=json.dumps`` (main.py
+    ``_init_conn``), which re-encodes a Python str as a JSON string scalar
+    (``jsonb_typeof = 'string'`` -> CHECK violation); dicts encode to proper
+    jsonb objects under either codec regime. The command tag ('INSERT 0 N')
+    yields the inserted count — ON CONFLICT DO NOTHING rows are excluded
+    from N.
+    """
+    tag = await conn.execute(
+        _EVENT_BATCH_INSERT_SQL,
+        [row['journal_event_id'] for row in chunk],
+        [row['owner_account_id'] for row in chunk],
+        [row['private_import_id'] for row in chunk],
+        [row['journal_file_id'] for row in chunk],
+        [row['source_run_id'] for row in chunk],
+        [row['event_type'] for row in chunk],
+        [row['event_key'] for row in chunk],
+        [row['event_payload'] for row in chunk],
+        [row['event_timestamp'] for row in chunk],
+        [row['source_record_hash'] for row in chunk],
+        [row['source_offset'] for row in chunk],
+    )
+    return int(tag.rsplit(' ', 1)[-1])
 
 
 class JournalQuotaExceededError(RuntimeError):
@@ -344,7 +400,11 @@ async def import_journal_batch(
             )
 
             # (5) Per-file admission: content hash is the level-1 dedupe key.
-            admitted_file_ids: dict[str, uuid.UUID] = {}
+            # admitted_file_ids keys on content_sha256 (NOT the file name):
+            # two same-named files in one request then attribute their
+            # events to the correct journal_import_file row (the review's
+            # provenance fix — name-keying was last-wins).
+            admitted_file_ids: dict[bytes, uuid.UUID] = {}
             for item in files:
                 content_sha = _hash_bytes(item.get('content_sha256'), field='content_sha256')
                 file_row = await conn.fetchrow(
@@ -377,12 +437,27 @@ async def import_journal_batch(
                     counts = replace(counts, files_skipped=counts.files_skipped + 1)
                 else:
                     counts = replace(counts, files_admitted=counts.files_admitted + 1)
-                    admitted_file_ids[str(item.get('name') or '')] = file_row['journal_file_id']
+                    admitted_file_ids[content_sha] = file_row['journal_file_id']
+            # Events carry only the source FILE NAME, so a name -> content
+            # sha map bridges the two key spaces (names unique in practice;
+            # content sha is the ambiguity-free admission key).
+            file_sha_by_name = {
+                str(item.get('name') or ''): _hash_bytes(
+                    item.get('content_sha256'), field='content_sha256',
+                )
+                for item in files
+            }
 
             # (6) Per event: server re-strip (defense-in-depth), semantic
-            # identity, insert-or-skip on the level-2 dedupe key.
+            # identity, then chunked batched inserts on the level-2 dedupe
+            # key (ON CONFLICT DO NOTHING inside each chunk).
+            prepared: list[dict] = []
             for event in events:
-                journal_file_id = admitted_file_ids.get(str(event.get('source_file') or ''))
+                content_sha = file_sha_by_name.get(str(event.get('source_file') or ''))
+                journal_file_id = (
+                    admitted_file_ids.get(content_sha)
+                    if content_sha is not None else None
+                )
                 if journal_file_id is None:
                     # Events from skipped/unknown files are not processed.
                     continue
@@ -398,42 +473,32 @@ async def import_journal_batch(
                     record_hash,
                     event_timestamp=_normalize_ts(event.get('event_timestamp'), required=True),
                 )
-                event_row = await conn.fetchrow(
-                    '''
-                    INSERT INTO v3_private.journal_event (
-                        journal_event_id, owner_account_id, private_import_id,
-                        journal_file_id, source_run_id, event_type,
-                        event_key, event_payload, event_timestamp,
-                        source_record_hash, source_offset
-                    ) VALUES (
-                        $1, $2, $3,
-                        $4, $5, $6,
-                        $7::jsonb, $8::jsonb, $9,
-                        $10, $11
-                    )
-                    ON CONFLICT (owner_account_id, event_type, event_key)
-                    DO NOTHING
-                    RETURNING journal_event_id
-                    ''',
-                    uuid.uuid4(),
-                    account_id,
-                    private_import_id,
-                    journal_file_id,
-                    source_run_id,
-                    event_type,
-                    event_key,
-                    stripped,
-                    _normalize_ts(event.get('event_timestamp'), required=True),
-                    record_hash,
-                    int(event.get('source_offset') or 0),
-                )
                 counts = replace(
                     counts,
                     privacy_stripped_fields=counts.privacy_stripped_fields + n_removed,
                 )
-                if event_row is None:
-                    counts = replace(counts, duplicates_skipped=counts.duplicates_skipped + 1)
-                else:
-                    counts = replace(counts, events_inserted=counts.events_inserted + 1)
+                prepared.append({
+                    'journal_event_id': uuid.uuid4(),
+                    'owner_account_id': account_id,
+                    'private_import_id': private_import_id,
+                    'journal_file_id': journal_file_id,
+                    'source_run_id': source_run_id,
+                    'event_type': event_type,
+                    'event_key': event_key,
+                    'event_payload': stripped,
+                    'event_timestamp': _normalize_ts(event.get('event_timestamp'), required=True),
+                    'source_record_hash': record_hash,
+                    'source_offset': int(event.get('source_offset') or 0),
+                })
+
+            inserted = 0
+            for start in range(0, len(prepared), EVENT_INSERT_CHUNK_SIZE):
+                chunk = prepared[start:start + EVENT_INSERT_CHUNK_SIZE]
+                inserted += await _insert_event_chunk(conn, chunk=chunk)
+            counts = replace(
+                counts,
+                events_inserted=counts.events_inserted + inserted,
+                duplicates_skipped=counts.duplicates_skipped + (len(prepared) - inserted),
+            )
 
     return private_import_id, counts

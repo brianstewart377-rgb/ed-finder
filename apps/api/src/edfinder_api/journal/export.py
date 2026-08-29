@@ -76,8 +76,15 @@ def _new_lineage_token() -> str:
     return token[:64]
 
 
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
+def _stamp_now() -> tuple[datetime, str]:
+    """One instant in two forms: the tz-aware ``datetime`` bound into
+    timestamptz columns (never an ISO string — asyncpg type fidelity) and
+    the second-precision ``Z``-suffixed string stamped into the payload's
+    ``generated_at`` (the deterministic serialization form). Both derive
+    from the SAME instant so receipt ``created_at`` equals ``generated_at``
+    (replay contract)."""
+    instant = datetime.now(timezone.utc)
+    return instant, instant.isoformat(timespec='seconds').replace('+00:00', 'Z')
 
 
 def build_export_payload(
@@ -88,7 +95,19 @@ def build_export_payload(
     generated_at: str,
     observations: list[dict],
 ) -> dict:
-    """Exact v1.0.0 export payload shape (plan 'Export payload shape')."""
+    """Exact v1.0.0 export payload shape (plan 'Export payload shape').
+
+    The manifest is the CRE-visible manifest and MUST stay exactly the
+    schema's ``exportManifest`` (CRE schema enforces
+    ``additionalProperties: false``). Replay metadata such as the raw-row
+    ``limit`` is persisted separately in the RECEIPT's manifest column (see
+    ``build_export``), never inside the payload manifest.
+    """
+    manifest: dict[str, Any] = {
+        'observation_count': len(observations),
+        'contributing_accounts_attested': 1,
+        'attestation_note': ATTESTATION_NOTE,
+    }
     return {
         'schema': EXPORT_SCHEMA,
         'schema_version': EXPORT_SCHEMA_VERSION,
@@ -97,11 +116,7 @@ def build_export_payload(
         'consent_version': consent_version,
         'sanitized_contract_version': SANITIZED_CONTRACT_VERSION,
         'generated_at': generated_at,
-        'manifest': {
-            'observation_count': len(observations),
-            'contributing_accounts_attested': 1,
-            'attestation_note': ATTESTATION_NOTE,
-        },
+        'manifest': manifest,
         'observations': observations,
     }
 
@@ -112,12 +127,17 @@ def payload_bytes(payload: dict) -> bytes:
 
 
 def _observation_sort_key(row: dict):
-    key = row['event_key']
-    if isinstance(key, str):
-        return (row['event_type'], key, row['event_timestamp'])
+    # MUST stay byte-identical to the research router's rebuild sort key
+    # (v3_journal_research._observation_sort_key): jsonb always arrives as a
+    # dict via the pool codec, so the canonical form is the json.dumps string.
     return (
         row['event_type'],
-        json.dumps(key, sort_keys=True, separators=(',', ':'), ensure_ascii=True),
+        json.dumps(
+            row['event_key'],
+            sort_keys=True,
+            separators=(',', ':'),
+            ensure_ascii=True,
+        ),
         row['event_timestamp'],
     )
 
@@ -135,6 +155,14 @@ async def build_export(
     ``batch_state='CREATED'``. Excluded event types are dropped by
     ``sanitize_observation``; the surviving observations are deterministically
     ordered by (event_type, canonical key json, event_timestamp).
+
+    ``limit`` applies to RAW ROWS BEFORE sanitization exclusion: an account
+    with excluded (travel/identity) events exports FEWER observations than
+    the limit — never more. The applied limit is persisted in the RECEIPT's
+    manifest column (``manifest.limit``, receipt-internal replay metadata —
+    deliberately NOT in the CRE-visible payload manifest, whose schema
+    forbids extra keys) so a limit-truncated export is replayable: the
+    rebuild reads the limit back from the stored receipt manifest.
     """
     rows = await pool.fetch(_SELECT_EVENTS_SQL, account_id, limit)
     event_rows = [
@@ -158,7 +186,7 @@ async def build_export(
         if observation is not None:
             observations.append(observation)
 
-    generated_at = _iso_now()
+    created_at_dt, generated_at = _stamp_now()
     export_batch_id = str(uuid.uuid4())
     lineage_token = _new_lineage_token()
     payload = build_export_payload(
@@ -168,10 +196,14 @@ async def build_export(
         generated_at=generated_at,
         observations=observations,
     )
+    # Receipt-internal replay metadata: the raw-row limit is needed by the
+    # rebuild to reproduce a limit-truncated export byte-for-byte. It lives
+    # in the RECEIPT manifest only — the payload manifest (CRE-visible) is
+    # schema-frozen and must not carry it.
+    receipt_manifest = {**payload['manifest'], 'limit': limit}
     payload_bytes_ = payload_bytes(payload)
     sha_hex = hashlib.sha256(payload_bytes_).hexdigest()
 
-    created_at = generated_at
     receipt_row = {
         'export_batch_id': export_batch_id,
         'owner_account_id': str(account_id),
@@ -179,11 +211,11 @@ async def build_export(
         'sanitized_contract_version': SANITIZED_CONTRACT_VERSION,
         'lineage_token': lineage_token,
         'observation_count': len(observations),
-        'manifest': payload['manifest'],
+        'manifest': receipt_manifest,
         'payload_sha256': sha_hex,
         'batch_state': 'CREATED',
         'superseded_by_batch_id': None,
-        'created_at': created_at,
+        'created_at': created_at_dt,
     }
 
     params = (
@@ -193,11 +225,14 @@ async def build_export(
         SANITIZED_CONTRACT_VERSION,
         lineage_token,
         len(observations),
-        json.dumps(payload['manifest']),
+        # Bind the manifest as a DICT, never pre-encoded JSON text: the app
+        # pool's jsonb codec (encoder=json.dumps, main.py _init_conn)
+        # re-encodes a str as a JSON string scalar -> CHECK violation.
+        receipt_manifest,
         bytes.fromhex(sha_hex),
         'CREATED',
         None,
-        created_at,
+        created_at_dt,
     )
     await pool.execute(
         f'INSERT INTO v3_private.research_export_batch '
@@ -221,57 +256,68 @@ async def supersede_lineage_batches(
     the supersede payload with an empty ``superseded_export_batch_ids`` list
     and writes no receipt. Observations and receipts are never deleted.
     """
-    rows = await pool.fetch(
-        'SELECT export_batch_id, lineage_token, created_at '
-        'FROM v3_private.research_export_batch '
-        "WHERE owner_account_id = $1 AND lineage_token = $2 AND batch_state = 'CREATED' "
-        'ORDER BY created_at',
-        account_id,
-        lineage_token,
-    )
-    superseded_ids = [str(row['export_batch_id']) for row in rows]
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            # (created_at, export_batch_id) ordering MUST match the router's
+            # superseded-id rebuild exactly: created_at is second-precision
+            # in the payload's generated_at, so same-instant batches need the
+            # uuid tiebreak or the supersede replay can reorder ids and 409.
+            rows = await conn.fetch(
+                'SELECT export_batch_id, lineage_token, created_at '
+                'FROM v3_private.research_export_batch '
+                "WHERE owner_account_id = $1 AND lineage_token = $2 AND batch_state = 'CREATED' "
+                'ORDER BY created_at, export_batch_id',
+                account_id,
+                lineage_token,
+            )
+            superseded_ids = [str(row['export_batch_id']) for row in rows]
 
-    generated_at = _iso_now()
-    supersede_payload: dict[str, Any] = {
-        'schema': EXPORT_SCHEMA,
-        'schema_version': EXPORT_SCHEMA_VERSION,
-        'kind': 'supersede',
-        'lineage_token': lineage_token,
-        'superseded_export_batch_ids': superseded_ids,
-        'consent_version': CONSENT_VERSION,
-        'generated_at': generated_at,
-        'manifest': {'withdrawal': True},
-    }
+            created_at_dt, generated_at = _stamp_now()
+            supersede_payload: dict[str, Any] = {
+                'schema': EXPORT_SCHEMA,
+                'schema_version': EXPORT_SCHEMA_VERSION,
+                'kind': 'supersede',
+                'lineage_token': lineage_token,
+                'superseded_export_batch_ids': superseded_ids,
+                'consent_version': CONSENT_VERSION,
+                'generated_at': generated_at,
+                'manifest': {'withdrawal': True},
+            }
 
-    if not superseded_ids:
-        return supersede_payload
+            # Nothing to supersede: return the (empty) supersede payload but
+            # persist NO receipt row — an empty-id supersede batch is
+            # schema-invalid (minItems: 1) and must never be stored/served.
+            if not superseded_ids:
+                return supersede_payload
 
-    supersede_batch_id = uuid.uuid4()
-    sha_hex = hashlib.sha256(payload_bytes(supersede_payload)).hexdigest()
-    params = (
-        supersede_batch_id,
-        account_id,
-        CONSENT_VERSION,
-        SANITIZED_CONTRACT_VERSION,
-        lineage_token,
-        0,
-        json.dumps({'withdrawal': True}),
-        bytes.fromhex(sha_hex),
-        'SUPERSEDED',
-        None,
-        generated_at,
-    )
-    await pool.execute(
-        f'INSERT INTO v3_private.research_export_batch '
-        f'({", ".join(_EXPORT_BATCH_COLUMNS)}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
-        *params,
-    )
-    await pool.execute(
-        'UPDATE v3_private.research_export_batch '
-        "SET batch_state = 'SUPERSEDED', superseded_by_batch_id = $3 "
-        "WHERE owner_account_id = $1 AND lineage_token = $2 AND batch_state = 'CREATED'",
-        account_id,
-        lineage_token,
-        supersede_batch_id,
-    )
-    return supersede_payload
+            supersede_batch_id = uuid.uuid4()
+            sha_hex = hashlib.sha256(payload_bytes(supersede_payload)).hexdigest()
+            params = (
+                supersede_batch_id,
+                account_id,
+                CONSENT_VERSION,
+                SANITIZED_CONTRACT_VERSION,
+                lineage_token,
+                0,
+                # Dict, not pre-encoded text — see build_export's note on the
+                # app pool's jsonb codec (str would become a jsonb string).
+                {'withdrawal': True},
+                bytes.fromhex(sha_hex),
+                'SUPERSEDED',
+                None,
+                created_at_dt,
+            )
+            await conn.execute(
+                f'INSERT INTO v3_private.research_export_batch '
+                f'({", ".join(_EXPORT_BATCH_COLUMNS)}) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+                *params,
+            )
+            await conn.execute(
+                'UPDATE v3_private.research_export_batch '
+                "SET batch_state = 'SUPERSEDED', superseded_by_batch_id = $3 "
+                "WHERE owner_account_id = $1 AND lineage_token = $2 AND batch_state = 'CREATED'",
+                account_id,
+                lineage_token,
+                supersede_batch_id,
+            )
+            return supersede_payload
