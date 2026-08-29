@@ -9,6 +9,46 @@ const KNOWN_SEED_NAMES = [
   'Wolf', 'HIP', 'Sothis', 'Pleione', 'Diaguandri',
 ];
 
+const GRAPHICS_WARNING_PATTERN = /drawArraysInstanced|destination rect|viewport rect/i;
+
+function consoleArgText(value) {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function visitWithGraphicsWarningCapture(url = '/') {
+  cy.visit(url, {
+    onBeforeLoad(win) {
+      const graphicsWarnings = [];
+      win.__edFinderGraphicsWarnings = graphicsWarnings;
+
+      ['warn', 'error'].forEach((level) => {
+        const original = win.console[level].bind(win.console);
+        win.console[level] = (...args) => {
+          const text = args.map(consoleArgText).join(' ');
+          if (GRAPHICS_WARNING_PATTERN.test(text)) {
+            graphicsWarnings.push(text);
+          }
+          original(...args);
+        };
+      });
+    },
+  });
+}
+
+function assertNoGraphicsWarnings() {
+  cy.window().then((win) => {
+    expect(
+      win.__edFinderGraphicsWarnings ?? [],
+      'WebGL graphics warnings collected during the production map journey',
+    ).to.deep.equal([]);
+  });
+}
+
 function assertSearchBackendReady() {
   cy.request({
     method: 'POST',
@@ -30,10 +70,14 @@ function runSearch() {
   cy.getByTestId('search-summary').should('be.visible');
 }
 
-function openProductionMap() {
+function openProductionMap({ captureGraphicsWarnings = false } = {}) {
   cy.intercept('GET', '**/stage26e/authoritative-regions.json').as('regions');
   cy.intercept('GET', '**/api/map/heatmap*').as('heatmap');
-  cy.visit('/');
+  if (captureGraphicsWarnings) {
+    visitWithGraphicsWarningCapture('/');
+  } else {
+    cy.visit('/');
+  }
   cy.getByTestId('nav-map').click();
   cy.wait('@regions').then((interception) => {
     // Vite correctly returns 304 after Chrome has cached the immutable region
@@ -141,7 +185,7 @@ describe('ED Finder release gate — Cypress parity', () => {
   });
 
   it('activates the production map and keeps its renderer synchronized', () => {
-    openProductionMap();
+    openProductionMap({ captureGraphicsWarnings: true });
 
     cy.getByTestId('stage26e-route-flag-state').should('contain.text', 'Live map');
     cy.getByTestId('stage26e-map-regions-toggle').should('be.checked');
@@ -172,6 +216,7 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     cy.viewport(1111, 733);
     cy.assertCanvasSynced();
+    assertNoGraphicsWarnings();
   });
 
   it('crosses the real-star LOD and loads detailed systems', () => {
