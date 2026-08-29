@@ -115,7 +115,7 @@ def test_scan_full_observation_allowlist():
     payload = {
         'StarSystem': 'Sol',
         'BodyName': 'Earth',
-        'BodyClass': 'PlanetClass (rocky body)',
+        'PlanetClass': 'PlanetClass (rocky body)',
         'Atmosphere': 'thin carbon dioxide atmosphere',
         'Volcanism': 'major silicate vapour geysers volcanism',
         'MassEM': 0.99,
@@ -145,12 +145,38 @@ def test_scan_full_observation_allowlist():
     assert env['atmosphere'] == 'thin carbon dioxide atmosphere'
     assert env['volcanism'] == 'major silicate vapour geysers volcanism'
     assert env['mass_em'] == 0.99
-    assert env['radius_km'] == 6371000.0
-    assert env['surface_gravity_g'] == 9.8
+    # Arbitrated unit conversions: metres -> km (/1000, 4dp), m/s^2 -> g
+    # (/9.80665, 6dp).
+    assert env['radius_km'] == round(6371000.0 / 1000.0, 4)
+    assert env['surface_gravity_g'] == round(9.8 / 9.80665, 6)
     assert env['surface_temperature_k'] == 288.0
     assert env['landable'] is True
     assert env['terraform_state'] == 'Terraformable'
     _assert_no_excluded_keys(obs)
+
+
+def test_body_environment_conversions_and_class_sources():
+    # Arbitration: body_class comes from PlanetClass (never BodyClass);
+    # star_type from StarType; conversions are exact.
+    payload = {
+        'StarSystem': 'X',
+        'BodyClass': 'PlanetClass (gas giant)',   # must NOT be used
+        'PlanetClass': 'PlanetClass (rocky body)',
+        'StarType': 'G2V',
+        'Radius': 1_000,                          # 1 km
+        'SurfaceGravity': 9.80665,                # exactly 1 g
+    }
+    obs = sanitize_observation(_row('Scan', payload=payload))
+    assert obs is not None
+    env = obs['body_environment']
+    assert env['body_class'] == 'PlanetClass (rocky body)'
+    assert env['star_type'] == 'G2V'
+    assert env['radius_km'] == 1.0
+    assert env['surface_gravity_g'] == 1.0
+    # Non-numeric values for converted fields fail closed.
+    bad = {**payload, 'Radius': 'not-a-number'}
+    with pytest.raises(ValueError):
+        sanitize_observation(_row('Scan', payload=bad))
 
 
 def test_observation_id_is_deterministic_uuid5():
@@ -227,6 +253,40 @@ def test_fssbodysignals_signals_and_genuses():
     _assert_no_excluded_keys(obs)
 
 
+def test_signals_entries_are_projected_to_type_count_only():
+    # Arbitration: journal Signals entries PROJECT to {Type, Count} only —
+    # Type_Localised and other extras are dropped (consumer schema items are
+    # additionalProperties: false).
+    payload = {
+        'StarSystem': 'X',
+        'Signals': [
+            {'Type': '$SAA_SignalType_Biological;', 'Type_Localised': 'Biological',
+             'Count': 3, 'Genus': '$Genus_Foo;'},
+            {'Type': '$SAA_SignalType_Geological;', 'Type_Localised': 'Geological',
+             'Count': 1},
+        ],
+    }
+    obs = sanitize_observation(_row('FSSBodySignals', payload=payload))
+    assert obs is not None
+    assert obs['signals'] == [
+        {'Type': '$SAA_SignalType_Biological;', 'Count': 3},
+        {'Type': '$SAA_SignalType_Geological;', 'Count': 1},
+    ]
+    _assert_no_excluded_keys(obs)
+
+
+def test_codexentry_system_name_from_journal_system_field():
+    # CodexEntry's journal-native system-name field is 'System' (allowlisted
+    # on the event); the sanitizer's fallback chain reads it so the
+    # fail-closed system_name requirement is satisfiable with real data.
+    payload = {'System': 'Systeia Aub XR-A c14-11', 'Region': 'Inner Orion Spur'}
+    key = {'SystemAddress': 12345, 'BodyID': 2, 'EntryID': 'E01'}
+    obs = sanitize_observation(_row('CodexEntry', key=key, payload=payload))
+    assert obs is not None
+    assert obs['system_name'] == 'Systeia Aub XR-A c14-11'
+    assert obs['codex_region'] == 'Inner Orion Spur'
+
+
 def test_saasignalsfound_genuses_tokens_only():
     payload = {
         'StarSystem': 'X',
@@ -242,7 +302,7 @@ def test_saasignalsfound_genuses_tokens_only():
     _assert_no_excluded_keys(obs)
 
 
-def test_sellorganicdata_sale_list_without_values_or_marketid():
+def test_sellorganicdata_sale_object_without_values_or_marketid():
     payload = {
         'MarketID': 3223000000,
         'BioData': [
@@ -256,17 +316,28 @@ def test_sellorganicdata_sale_list_without_values_or_marketid():
                 'TotalValue': 1050,
                 'Count': 3,
             },
+            {
+                'Genus': '$Genus_Tussock;',
+                'Species': '$Species_Tussock_02;',
+                'Value': 900,
+                'Count': 2,
+            },
         ],
     }
     key = {'MarketID': '3223000000', 'BioDataSha256': 'aa' * 32}
     obs = sanitize_observation(_row('SellOrganicData', key=key, payload=payload))
     assert obs is not None
-    assert obs['sale'] == [{
-        'genus': '$Genus_Bacterial;',
-        'species': '$Species_Bacterial_01;',
-        'variant': '$Variant_Bacterial_01;',
-        'count': 3,
-    }]
+    # Arbitrated shape: sale is an OBJECT {count, items:[{genus,species,variant?}]}
+    # where count = number of BioData items; per-item journal Count, Value,
+    # Bonus and localised Name are never emitted.
+    assert obs['sale'] == {
+        'count': 2,
+        'items': [
+            {'genus': '$Genus_Bacterial;', 'species': '$Species_Bacterial_01;',
+             'variant': '$Variant_Bacterial_01;'},
+            {'genus': '$Genus_Tussock;', 'species': '$Species_Tussock_02;'},
+        ],
+    }
     # Hard exclusions for sale events: no MarketID, no Value/Bonus/TotalValue,
     # no localised Name.
     assert 'MarketID' not in obs
@@ -380,7 +451,11 @@ def test_sale_nested_values_excluded():
     }
     obs = sanitize_observation(_row('SellOrganicData', key={'MarketID': '1', 'BioDataSha256': 'bb' * 32}, payload=payload))
     assert obs is not None
-    assert obs['sale'] == [{'genus': '$Genus_A;', 'species': '$Species_B;', 'count': 2}]
+    # count = number of BioData items (1), never the journal per-item Count.
+    assert obs['sale'] == {
+        'count': 1,
+        'items': [{'genus': '$Genus_A;', 'species': '$Species_B;'}],
+    }
     _assert_no_excluded_keys(obs)
 
 
@@ -468,7 +543,10 @@ def test_sellorganicdata_omits_system_fields():
     obs = sanitize_observation(_row('SellOrganicData', key=key, payload=payload))
     assert obs is not None
     assert 'system_id64' not in obs and 'system_name' not in obs
-    assert obs['sale'] == [{'genus': '$Genus_A;', 'species': '$Species_B;', 'count': 1}]
+    assert obs['sale'] == {
+        'count': 1,
+        'items': [{'genus': '$Genus_A;', 'species': '$Species_B;'}],
+    }
     _assert_no_excluded_keys(obs)
 
 

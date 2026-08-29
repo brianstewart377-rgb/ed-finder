@@ -61,7 +61,7 @@ SELECT consent_version, sanitized_contract_version, purpose, audience_code,
        decision, decided_at
 FROM v3_private.research_consent
 WHERE owner_account_id = $1
-ORDER BY decided_at DESC
+ORDER BY decided_at DESC, research_consent_id DESC
 LIMIT 1
 """
 

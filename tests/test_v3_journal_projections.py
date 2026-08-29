@@ -214,3 +214,30 @@ def test_every_query_is_scoped_by_owner_account_id():
     for sql, _args in conn.calls:
         assert 'owner_account_id' in sql, sql
         assert '$1' in sql, sql
+
+
+def test_every_query_references_event_payload_never_bare_payload():
+    # Regression: migration 003's column is event_payload. A bare `payload`
+    # identifier in any projection query is a column bug (Postgres would
+    # error at runtime; the fake pool cannot catch it, so the SQL text
+    # itself is asserted).
+    import re
+
+    conn = _FakeProjectionConn()
+    conn.fetchval_results.extend([1, 1, 1, 1])
+    conn.fetchrow_results.append(None)
+    conn.fetch_results.extend([[], [], [], [], [], []])
+    pool = _FakeProjectionPool(conn)
+    _run(journal_summary(pool, ACCOUNT_ID))
+    _run(visited_systems(pool, ACCOUNT_ID))
+    _run(scanned_bodies(pool, ACCOUNT_ID))
+    _run(codex_entries(pool, ACCOUNT_ID))
+    _run(organic_progress(pool, ACCOUNT_ID))
+    _run(sale_history(pool, ACCOUNT_ID))
+    assert conn.calls, 'expected recorded SQL calls'
+    for sql, _args in conn.calls:
+        # \\bpayload\\b does not match inside event_payload ('_' is a word
+        # char), so any hit is the bare (wrong) column name.
+        assert not re.search(r'\bpayload\b', sql), f'bare payload column in SQL: {sql}'
+    # Sanity: at least one recorded statement actually reads event_payload.
+    assert any('event_payload' in sql for sql, _args in conn.calls)

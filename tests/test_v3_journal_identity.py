@@ -20,9 +20,10 @@ from edfinder_api.journal.event_contract import strip_payload
 from edfinder_api.journal.identity import bio_data_sha256, canonical_key, event_identity
 
 # A real source-record hash is a 32-byte SHA-256; its hex form is 64 chars
-# (the plan's fixture "ab"*32 bytes -> hex "ab"*32 would contradict its own
-# 64-hex assertion, so the fixture is 64 bytes here).
-SRC = bytes.fromhex('ab' * 64)
+# (the backend fix wave restored the fixture to the production shape — a
+# 64-byte fixture would assert a 128-char hex key that can never occur:
+# store._hash_bytes and the DB CHECK both enforce 32 bytes).
+SRC = bytes.fromhex('ab' * 32)
 
 
 def test_codexentry_repeat_dedupes_by_entry_id():
@@ -83,7 +84,7 @@ def test_carrierjump_timestamp_chronology_distinct():
 
 def test_loadgame_falls_back_to_content_address():
     a = event_identity('LoadGame', {'Commander': 'X', 'FID': 'F1'}, SRC)
-    assert a == {'source_record_hash': 'ab' * 64}
+    assert a == {'source_record_hash': 'ab' * 32}
 
 
 def test_content_addressed_events_use_source_record_hash():
@@ -93,7 +94,7 @@ def test_content_addressed_events_use_source_record_hash():
         'FSDTarget', 'NavRoute', 'NavRouteClear',
     ):
         key = event_identity(event_type, {'anything': 1}, SRC)
-        assert key == {'source_record_hash': 'ab' * 64}, event_type
+        assert key == {'source_record_hash': 'ab' * 32}, event_type
 
 
 def test_body_events_without_lat_long_are_equal():
@@ -189,3 +190,32 @@ def test_identity_ignores_non_key_payload_fields():
     key = event_identity('CodexEntry',
         {'SystemAddress': 1, 'BodyID': 2, 'EntryID': 'E9', 'Name_Localised': 'Anything'}, SRC)
     assert key == {'SystemAddress': '1', 'BodyID': '2', 'EntryID': 'E9'}
+
+
+def test_uint64_rejects_fractional_floats_fail_closed():
+    # int(1.5) would truncate to '1' and collide with the real uint64 1 —
+    # fail closed instead (backend fix wave).
+    with pytest.raises(ValueError, match='integral uint64'):
+        event_identity('Scan', {'SystemAddress': 1.5, 'BodyID': 1}, SRC)
+    with pytest.raises(ValueError, match='integral uint64'):
+        event_identity('ScanOrganic',
+            {'SystemAddress': 10, 'Body': 3.7, 'Genus': '$Genus_Foo;', 'ScanType': 'Log'}, SRC)
+
+
+def test_uint64_accepts_integral_floats():
+    key = event_identity('Scan', {'SystemAddress': 1.0, 'BodyID': 2.0}, SRC)
+    assert key == {'SystemAddress': '1', 'BodyID': '2'}
+
+
+def test_entry_id_is_used_as_is_without_trim():
+    # Contract: "EntryID -> string as-is" — surrounding whitespace is NOT
+    # trimmed (deviates from the generic trimmed-string branch on purpose).
+    key = event_identity('CodexEntry',
+        {'SystemAddress': 1, 'EntryID': '  E01  '}, SRC)
+    assert key['EntryID'] == '  E01  '
+
+
+def test_entry_id_numeric_is_stringified_as_is():
+    # Real journal EntryIDs are numeric; str() conversion, never trim.
+    key = event_identity('CodexEntry', {'SystemAddress': 1, 'EntryID': 2100301}, SRC)
+    assert key['EntryID'] == '2100301'

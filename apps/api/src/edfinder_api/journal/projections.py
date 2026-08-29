@@ -20,34 +20,43 @@ BODY_OBSERVATION_TYPES: frozenset[str] = frozenset({
     'Disembark', 'Embark', 'Screenshot',
 })
 
+# Interpolated into the two SQL statements below via f-strings. The
+# provenance is constant-only: this literal is built at import time from the
+# frozen compile-time BODY_OBSERVATION_TYPES set above — never from user or
+# database data — so the interpolation is not an injection vector (the
+# review's parameterization audit flags f-string SQL, and this comment is
+# the recorded disposition for these two sites).
 _BODY_OBSERVATION_SQL = ', '.join(repr(value) for value in sorted(BODY_OBSERVATION_TYPES))
 
 _UNIQUE_BIO_OBSERVATIONS_SQL = '''
     SELECT COUNT(*)::int
       FROM (
-        -- ScanOrganic: distinct (system, body, genus, species, variant)
+        -- ScanOrganic: distinct (system, body, genus, species, variant).
+        -- UNION (not UNION ALL) dedupes: repeated ScanType stages of the
+        -- same organism (Log + Sample) are ONE unique bio observation, and
+        -- a biology CodexEntry row can coincide with a ScanOrganic row.
         SELECT event_key->>'SystemAddress' AS system_id64,
                event_key->>'BodyID' AS body_id,
-               payload->>'Genus' AS genus,
-               payload->>'Species' AS species,
-               payload->>'Variant' AS variant
+               event_payload->>'Genus' AS genus,
+               event_payload->>'Species' AS species,
+               event_payload->>'Variant' AS variant
           FROM v3_private.journal_event
          WHERE owner_account_id = $1 AND event_type = 'ScanOrganic'
-           AND payload->>'Genus' IS NOT NULL
-        UNION ALL
+           AND event_payload->>'Genus' IS NOT NULL
+        UNION
         -- biology CodexEntry name tokens (category carries the biology flag)
         SELECT event_key->>'SystemAddress', event_key->>'BodyID',
-               payload->>'Name', NULL, NULL
+               event_payload->>'Name', NULL, NULL
           FROM v3_private.journal_event
          WHERE owner_account_id = $1 AND event_type = 'CodexEntry'
-           AND COALESCE(payload->>'Category', '') ILIKE '%biology%'
-        UNION ALL
+           AND COALESCE(event_payload->>'Category', '') ILIKE '%biology%'
+        UNION
         -- SAASignalsFound Genuses: genus-level only
         SELECT event_key->>'SystemAddress', event_key->>'BodyID',
                genus.value, NULL, NULL
           FROM v3_private.journal_event,
                jsonb_array_elements_text(
-                   COALESCE(payload->'Genuses', '[]'::jsonb)
+                   COALESCE(event_payload->'Genuses', '[]'::jsonb)
                ) AS genus(value)
          WHERE owner_account_id = $1 AND event_type = 'SAASignalsFound'
       ) AS bio_observations
@@ -158,7 +167,7 @@ async def visited_systems(
             '''
             SELECT
                 event_key->>'SystemAddress' AS system_id64,
-                MAX(COALESCE(payload->>'StarSystem', payload->>'System'))
+                MAX(COALESCE(event_payload->>'StarSystem', event_payload->>'System'))
                     AS system_name,
                 MIN(event_timestamp) AS first_observed_at,
                 MAX(event_timestamp) AS last_observed_at,
@@ -190,7 +199,7 @@ async def scanned_bodies(
             SELECT
                 event_key->>'SystemAddress' AS system_id64,
                 event_key->>'BodyID' AS body_id,
-                MAX(payload->>'BodyName') AS body_name,
+                MAX(event_payload->>'BodyName') AS body_name,
                 MIN(event_timestamp) AS first_observed_at,
                 MAX(event_timestamp) AS last_observed_at,
                 COUNT(*)::int AS scan_count
@@ -217,10 +226,10 @@ async def codex_entries(pool: asyncpg.Pool, account_id: object) -> list[dict[str
             '''
             SELECT
                 event_key->>'EntryID' AS entry_id,
-                MAX(payload->>'Name') AS name,
-                MAX(payload->>'Category') AS category,
-                MAX(payload->>'SubCategory') AS subcategory,
-                MAX(payload->>'Region') AS region,
+                MAX(event_payload->>'Name') AS name,
+                MAX(event_payload->>'Category') AS category,
+                MAX(event_payload->>'SubCategory') AS subcategory,
+                MAX(event_payload->>'Region') AS region,
                 MAX(event_key->>'SystemAddress') AS system_id64,
                 MAX(event_key->>'BodyID') AS body_id,
                 MIN(event_timestamp) AS first_observed_at,
@@ -241,16 +250,16 @@ async def organic_progress(pool: asyncpg.Pool, account_id: object) -> list[dict[
         rows = await conn.fetch(
             '''
             SELECT
-                payload->>'Genus' AS genus,
-                payload->>'Species' AS species,
-                payload->>'Variant' AS variant,
-                ARRAY_AGG(DISTINCT payload->>'ScanType'
-                          ORDER BY payload->>'ScanType') AS stages,
+                event_payload->>'Genus' AS genus,
+                event_payload->>'Species' AS species,
+                event_payload->>'Variant' AS variant,
+                ARRAY_AGG(DISTINCT event_payload->>'ScanType'
+                          ORDER BY event_payload->>'ScanType') AS stages,
                 MIN(event_timestamp) AS first_observed_at,
                 MAX(event_timestamp) AS last_observed_at
               FROM v3_private.journal_event
              WHERE owner_account_id = $1 AND event_type = 'ScanOrganic'
-             GROUP BY payload->>'Genus', payload->>'Species', payload->>'Variant'
+             GROUP BY event_payload->>'Genus', event_payload->>'Species', event_payload->>'Variant'
              ORDER BY last_observed_at DESC, genus, species, variant
             ''',
             account_id,
@@ -269,8 +278,8 @@ async def sale_history(
         rows = await conn.fetch(
             '''
             SELECT
-                payload->'BioData' AS bio_data,
-                payload->>'MarketID' AS market_id,
+                event_payload->'BioData' AS bio_data,
+                event_payload->>'MarketID' AS market_id,
                 event_timestamp AS observed_at
               FROM v3_private.journal_event
              WHERE owner_account_id = $1 AND event_type = 'SellOrganicData'

@@ -105,3 +105,22 @@ def test_strip_payload_removes_non_allowlisted_loadgame_fields():
     # content-addressed and stay private); SquadronName is not a parser field.
     assert removed == 1
     assert stripped['Commander'] == 'X' and 'SquadronName' not in stripped
+
+
+def test_exported_events_can_carry_the_sanitizer_system_name_fields():
+    # Payload-allowlist gap regression (backend fix wave): the sanitizer
+    # fail-closes on a missing system name for every non-sale exported type,
+    # so CodexEntry / ScanOrganic / SAAScanComplete must be ABLE to carry
+    # SystemName/StarSystem (plus CodexEntry's journal-native 'System').
+    for event_type in ('CodexEntry', 'ScanOrganic', 'SAAScanComplete'):
+        allowed = EVENT_PAYLOAD_ALLOWLIST[event_type]
+        assert 'SystemName' in allowed, event_type
+        assert 'StarSystem' in allowed, event_type
+    assert 'System' in EVENT_PAYLOAD_ALLOWLIST['CodexEntry']
+    # And the strip path actually keeps them.
+    stripped, removed = strip_payload('SAAScanComplete', {
+        'StarSystem': 'Sol', 'SystemName': 'Sol', 'BodyName': 'Earth',
+        'SystemAddress': 1, 'BodyID': 2, 'Secret': 1,
+    })
+    assert removed == 1
+    assert stripped['StarSystem'] == 'Sol' and stripped['SystemName'] == 'Sol'

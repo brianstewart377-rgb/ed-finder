@@ -46,28 +46,42 @@ _CONSENT_COLUMNS = (
 class _FakePool:
     """Fake asyncpg pool materializing the append-only research_consent
     ledger. execute(INSERT) appends a row; fetch returns rows ordered by
-    decided_at DESC (the effective-state query's contract). decided_at is
-    nudged forward if two inserts land in the same microsecond, modelling
-    the real DB's strictly-increasing per-transaction timestamps."""
+    decided_at DESC, research_consent_id DESC (the effective-state query's
+    contract, including the tie-break). decided_at is nudged forward if two
+    inserts land in the same microsecond, modelling the real DB's
+    strictly-increasing per-transaction timestamps."""
 
     def __init__(self) -> None:
         self.rows: list[dict] = []
         self.calls: list[tuple[str, str, tuple]] = []
+        self.raise_unique_on_insert: bool = False
 
     async def fetch(self, sql: str, *args):
         self.calls.append(('fetch', sql, args))
         # Model the effective-state query (account-scoped, ordered by
-        # decided_at DESC) and the grant-existence query (account + version
-        # + decision='GRANT').
+        # decided_at DESC, research_consent_id DESC) and the grant-existence
+        # query (account + version + decision='GRANT').
         account_id, *_rest = args
         rows = [r for r in self.rows if r['owner_account_id'] == account_id]
         if "decision = 'GRANT'" in sql:
             rows = [r for r in rows if r['decision'] == 'GRANT']
-        return sorted(rows, key=lambda r: r['decided_at'], reverse=True)
+        return sorted(
+            rows,
+            key=lambda r: (r['decided_at'], r['research_consent_id']),
+            reverse=True,
+        )
 
     async def execute(self, sql: str, *args):
         self.calls.append(('execute', sql, args))
         if 'research_consent' in sql and 'INSERT' in sql:
+            if self.raise_unique_on_insert:
+                # The REAL asyncpg class: consent.py's race guard catches
+                # asyncpg.exceptions.UniqueViolationError specifically.
+                import asyncpg
+                raise asyncpg.exceptions.UniqueViolationError(
+                    'duplicate key value violates unique constraint '
+                    '"research_consent_owner_version_decision_key"'
+                )
             row = dict(zip(_CONSENT_COLUMNS, args, strict=False))
             if self.rows and row['decided_at'] <= self.rows[-1]['decided_at']:
                 row['decided_at'] = self.rows[-1]['decided_at'] + timedelta(microseconds=1)
@@ -224,3 +238,53 @@ def test_consent_never_touches_import_path():
 
     public_names = {n for n in dir(consent_module) if not n.startswith('_')}
     assert not any('journal_event' in n.lower() or 'import' in n.lower() for n in public_names)
+
+
+def test_effective_consent_tie_break_uses_higher_research_consent_id():
+    # Backend fix wave (review 4.7): two decisions in the same microsecond
+    # must resolve deterministically — ORDER BY decided_at DESC,
+    # research_consent_id DESC. The fake models that ordering.
+    pool = _FakePool()
+    shared_ts = datetime(2026, 8, 3, 12, 0, 0, tzinfo=timezone.utc)
+    pool.rows = [
+        {
+            'research_consent_id': uuid.UUID('00000000-0000-4000-8000-000000000001'),
+            'owner_account_id': ACCOUNT_ID,
+            'consent_version': CONSENT_VERSION,
+            'sanitized_contract_version': SANITIZED_CONTRACT_VERSION,
+            'purpose': PURPOSE,
+            'audience_code': AUDIENCE,
+            'decision': 'GRANT',
+            'decided_at': shared_ts,
+            'withdrawn_at': None,
+        },
+        {
+            'research_consent_id': uuid.UUID('00000000-0000-4000-8000-000000000002'),
+            'owner_account_id': ACCOUNT_ID,
+            'consent_version': CONSENT_VERSION,
+            'sanitized_contract_version': SANITIZED_CONTRACT_VERSION,
+            'purpose': PURPOSE,
+            'audience_code': AUDIENCE,
+            'decision': 'WITHDRAW',
+            'decided_at': shared_ts,
+            'withdrawn_at': shared_ts,
+        },
+    ]
+    state = asyncio.run(effective_consent(pool, ACCOUNT_ID))
+    assert state is not None
+    # The WITHDRAW row has the higher research_consent_id and wins the tie.
+    assert state['decision'] == 'WITHDRAW'
+    assert state['decided_at'] == shared_ts
+
+
+def test_unique_violation_race_guard_raises_consent_state_error():
+    # Backend fix wave (review 4.10): a concurrent request inserting the
+    # same (account, version, decision) between the pre-check and the INSERT
+    # surfaces as the DB UNIQUE violation — the module maps it to
+    # ConsentStateError (router -> 409), never a raw asyncpg error.
+    pool = _FakePool()
+    pool.raise_unique_on_insert = True
+    with pytest.raises(ConsentStateError):
+        asyncio.run(record_consent(pool, ACCOUNT_ID, decision='GRANT'))
+    # The pre-check found no GRANT row; only the failed INSERT was attempted.
+    assert pool.rows == []

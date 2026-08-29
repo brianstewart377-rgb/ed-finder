@@ -53,13 +53,24 @@ _SEMANTIC_KEY_FIELDS: dict[str, tuple[str, ...]] = {
 
 
 def _uint64_decimal(value: object, *, field: str) -> str:
-    """Canonicalize a uint64 as a decimal string."""
+    """Canonicalize a uint64 as a decimal string.
+
+    Fail-closed on non-integral floats: ``int(1.5)`` truncates to ``1`` and
+    would silently collide with the real uint64 ``1`` (the review's finding)
+    — a fractional SystemAddress/BodyID from a buggy or malicious client is
+    rejected instead. Integral floats (``1.0``) are accepted.
+    """
     if isinstance(value, bool):
         raise ValueError(f'{field} must be a uint64, got bool')
-    try:
+    if isinstance(value, float):
+        if not value.is_integer():
+            raise ValueError(f'{field} must be an integral uint64, got {value!r}')
         number = int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f'{field} must be a uint64, got {value!r}') from exc
+    else:
+        try:
+            number = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{field} must be a uint64, got {value!r}') from exc
     if number < 0 or number > _UINT64_MAX:
         raise ValueError(f'{field} out of uint64 range: {number}')
     return str(number)
@@ -204,6 +215,10 @@ def event_identity(
             key[field] = _uint64_decimal(event_payload[field], field=field)
         elif field in ('Latitude', 'Longitude'):
             key[field] = _round4_decimal(event_payload[field], field=field)
+        elif field == 'EntryID':
+            # Contract: "EntryID -> string as-is" — no trim, no type
+            # coercion beyond str() (journal EntryIDs may be numeric).
+            key[field] = str(event_payload[field])
         else:
             key[field] = _trimmed_string(event_payload[field], field=field)
     return key

@@ -29,6 +29,11 @@ Exported event set (everything else returns None): Scan, FSSBodySignals,
 SAASignalsFound, SAAScanComplete, CodexEntry, ScanOrganic, SellOrganicData,
 FSSDiscoveryScan, FSSAllBodiesFound. FSSDiscoveryScan/FSSAllBodiesFound are
 system-level observations with no body fields (recorded deviation).
+
+Limit interaction: the export builder's ``limit`` applies to RAW rows
+BEFORE this module's exclusion — an account with excluded event types
+exports fewer observations than the limit, never more (the applied limit is
+persisted as ``manifest.limit``).
 """
 
 from __future__ import annotations
@@ -64,12 +69,15 @@ _ENVIRONMENT_EVENT_TYPES = frozenset({'Scan', 'FSSBodySignals', 'SAASignalsFound
 # Event types whose payload contributes a signals/genuses block.
 _SIGNALS_EVENT_TYPES = frozenset({'FSSBodySignals', 'SAASignalsFound'})
 
-# body_environment: normalized key -> journal payload field(s), values
-# passed through verbatim (journal strings/floats only — no derivation).
-# Units remain journal-native (Radius is meters, SurfaceGravity m/s^2,
-# SurfaceTemperature K) — documented in the export contract.
+# body_environment: normalized key -> journal payload field(s). Journal
+# strings/floats pass through verbatim except the two documented unit
+# conversions below (arbitrated shapes, cre-export-schema.md):
+#   radius_km         = journal Radius metres / 1000, rounded 4dp
+#   surface_gravity_g = journal SurfaceGravity m/s^2 / 9.80665, rounded 6dp
+# ``body_class`` comes from PlanetClass, ``star_type`` from StarType
+# (arbitration: single source per key; no BodyClass conflation).
 _ENVIRONMENT_FIELD_MAP: dict[str, tuple[str, ...]] = {
-    'body_class': ('BodyClass', 'PlanetClass'),
+    'body_class': ('PlanetClass',),
     'star_type': ('StarType',),
     'atmosphere': ('Atmosphere',),
     'volcanism': ('Volcanism',),
@@ -80,6 +88,10 @@ _ENVIRONMENT_FIELD_MAP: dict[str, tuple[str, ...]] = {
     'landable': ('Landable',),
     'terraform_state': ('TerraformState',),
 }
+
+# Arbitrated unit conversions (divisor, decimal places).
+_RADIUS_M_TO_KM = (1000.0, 4)
+_SURFACE_GRAVITY_MS2_TO_G = (9.80665, 6)
 
 
 def minimize_time(dt: datetime) -> str:
@@ -127,23 +139,54 @@ def _source_hash_hex(source_record_hash: Any) -> str:
     raise ValueError(f'source_record_hash must be bytes or hex str, got {type(source_record_hash).__name__}')
 
 
+def _converted_number(value: object, *, divisor: float, precision: int, field: str) -> float:
+    """Journal numeric -> converted unit (fail-closed on non-numeric)."""
+    if isinstance(value, bool):
+        raise ValueError(f'{field} must be numeric, got {value!r}')
+    if not isinstance(value, (int, float)):
+        try:
+            value = float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f'{field} must be numeric, got {value!r}') from exc
+    return round(float(value) / divisor, precision)
+
+
 def _environment_block(payload: dict) -> dict | None:
     """Normalized body/environment facts from Scan/FSSBodySignals/
-    SAASignalsFound payloads; absent keys are omitted (fail-closed)."""
+    SAASignalsFound payloads; absent keys are omitted (fail-closed). The two
+    unit-converted keys (radius_km, surface_gravity_g) are converted per the
+    arbitrated shapes; every other value passes through journal-native."""
     block: dict[str, Any] = {}
     for normalized_name, journal_names in _ENVIRONMENT_FIELD_MAP.items():
         for journal_name in journal_names:
             if journal_name in payload and payload[journal_name] is not None:
-                block[normalized_name] = payload[journal_name]
+                if normalized_name == 'radius_km':
+                    divisor, precision = _RADIUS_M_TO_KM
+                    block[normalized_name] = _converted_number(
+                        payload[journal_name], divisor=divisor, precision=precision,
+                        field=journal_name,
+                    )
+                elif normalized_name == 'surface_gravity_g':
+                    divisor, precision = _SURFACE_GRAVITY_MS2_TO_G
+                    block[normalized_name] = _converted_number(
+                        payload[journal_name], divisor=divisor, precision=precision,
+                        field=journal_name,
+                    )
+                else:
+                    block[normalized_name] = payload[journal_name]
                 break
     return block or None
 
 
 def _signals_block(event_type: str, payload: dict) -> dict | None:
-    """Signals (counts, verbatim entries) and Genuses (projected to canonical
-    genus tokens; localised names are not allowlisted) for FSSBodySignals /
-    SAASignalsFound. Null values inside entries are dropped — the CRE
-    consumer schema rejects JSON nulls, so no null may ever be emitted."""
+    """Signals and Genuses for FSSBodySignals / SAASignalsFound (arbitrated
+    shapes, cre-export-schema.md): ``signals`` entries are PROJECTED down to
+    ``{"Type": str, "Count": int}`` only (journal extras like
+    ``Type_Localised`` are dropped); ``genuses`` is a SEPARATE optional
+    string-array field of canonical genus tokens from ``SAASignalsFound.
+    Genuses`` (localised names are not allowlisted). Null values inside
+    entries are dropped — the CRE consumer schema rejects JSON nulls, so no
+    null may ever be emitted."""
     block: dict[str, Any] = {}
     if event_type not in _SIGNALS_EVENT_TYPES:
         return None
@@ -151,11 +194,19 @@ def _signals_block(event_type: str, payload: dict) -> dict | None:
         signals = payload['Signals']
         if not isinstance(signals, list):
             raise ValueError('payload Signals must be a list')
-        block['signals'] = [
-            {k: v for k, v in entry.items() if v is not None}
-            for entry in signals
-            if isinstance(entry, dict)
-        ]
+        projected: list[dict[str, Any]] = []
+        for entry in signals:
+            if not isinstance(entry, dict):
+                continue
+            item: dict[str, Any] = {}
+            if entry.get('Type') is not None:
+                item['Type'] = entry['Type']
+            if entry.get('Count') is not None:
+                item['Count'] = entry['Count']
+            if item:
+                projected.append(item)
+        if projected:
+            block['signals'] = projected
     if 'Genuses' in payload and payload['Genuses'] is not None:
         genuses = payload['Genuses']
         if not isinstance(genuses, list):
@@ -168,15 +219,20 @@ def _signals_block(event_type: str, payload: dict) -> dict | None:
     return block or None
 
 
-def _sale_block(payload: dict) -> list[dict] | None:
-    """SellOrganicData sale entries: {genus, species, variant, count} only.
-    MarketID, Value/Bonus/TotalValue and localised Name are hard-excluded."""
+def _sale_block(payload: dict) -> dict | None:
+    """SellOrganicData sale OBJECT per the arbitrated shape (cre-export-
+    schema.md): ``{"count": int, "items": [{"genus", "species", "variant?"}]}``
+    where ``count`` = the NUMBER of BioData items (the journal carries a
+    list, not per-item counts) and each item carries genus/species plus
+    variant when present (variant omitted otherwise, never null). MarketID,
+    Value/Bonus/TotalValue and localised Name are hard-excluded; per-item
+    journal ``Count`` is never emitted."""
     bio_data = payload.get('BioData')
     if bio_data is None:
         return None
     if not isinstance(bio_data, list):
         raise ValueError('payload BioData must be a list')
-    sale: list[dict] = []
+    items: list[dict] = []
     for item in bio_data:
         if not isinstance(item, dict):
             continue
@@ -184,11 +240,11 @@ def _sale_block(payload: dict) -> list[dict] | None:
         for token_key in ('Genus', 'Species', 'Variant'):
             if item.get(token_key) is not None:
                 entry[token_key.lower()] = item[token_key]
-        if item.get('Count') is not None:
-            entry['count'] = item['Count']
         if entry:
-            sale.append(entry)
-    return sale or None
+            items.append(entry)
+    if not items:
+        return None
+    return {'count': len(items), 'items': items}
 
 
 def sanitize_observation(event_row: dict) -> dict | None:
@@ -229,10 +285,17 @@ def sanitize_observation(event_row: dict) -> dict | None:
     if event_key.get('BodyID') is not None:
         body_id = str(event_key['BodyID'])
 
-    # system_name: observed value only (payload, never derived).
+    # system_name: observed value only (payload, never derived). Fallback
+    # chain covers every exported event type's journal-native name field:
+    # SystemName (FSSDiscoveryScan/FSSAllBodiesFound), StarSystem
+    # (Scan/ScanOrganic/SAAScanComplete/FSSBodySignals/SAASignalsFound/
+    # CodexEntry), and System (CodexEntry's journal field — kept in the
+    # allowlist so the fail-closed name requirement is satisfiable).
     system_name = payload.get('SystemName')
     if system_name is None:
         system_name = payload.get('StarSystem')
+    if system_name is None:
+        system_name = payload.get('System')
 
     # CRE contract (schema review directive): system_id64 and system_name
     # are ALWAYS present for every exported observation type EXCEPT

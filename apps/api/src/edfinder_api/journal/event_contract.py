@@ -34,8 +34,9 @@ _PARSER_PAYLOAD_FIELDS: dict[str, tuple[str, ...]] = {
     'CodexEntry': (
         'EntryID', 'Name', 'Name_Localised', 'SubCategory',
         'SubCategory_Localised', 'Category', 'Category_Localised', 'Region',
-        'System', 'SystemAddress', 'BodyID', 'NearestDestination',
-        'NearestDestination_Localised', 'Latitude', 'Longitude', 'Traits',
+        'System', 'SystemName', 'StarSystem', 'SystemAddress', 'BodyID',
+        'NearestDestination', 'NearestDestination_Localised', 'Latitude',
+        'Longitude', 'Traits',
     ),
     'Commander': ('Name', 'FID'),
     'Died': ('KillerName', 'KillerShip', 'KillerRank', 'Killers'),
@@ -84,7 +85,8 @@ _PARSER_PAYLOAD_FIELDS: dict[str, tuple[str, ...]] = {
     'NavRouteClear': (),
     'Resurrect': ('Option', 'Cost', 'Bankrupt'),
     'SAAScanComplete': (
-        'SystemAddress', 'BodyName', 'BodyID', 'ProbesUsed', 'EfficiencyTarget',
+        'StarSystem', 'SystemName', 'SystemAddress', 'BodyName', 'BodyID',
+        'ProbesUsed', 'EfficiencyTarget',
     ),
     'SAASignalsFound': ('StarSystem', 'SystemAddress', 'BodyName', 'BodyID', 'Signals', 'Genuses'),
     'Scan': (
@@ -100,8 +102,8 @@ _PARSER_PAYLOAD_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     'ScanOrganic': (
         'ScanType', 'Genus', 'Genus_Localised', 'Species', 'Species_Localised',
-        'Variant', 'Variant_Localised', 'SystemAddress', 'Body', 'BodyID',
-        'BodyName',
+        'Variant', 'Variant_Localised', 'StarSystem', 'SystemName',
+        'SystemAddress', 'Body', 'BodyID', 'BodyName',
     ),
     'Screenshot': (
         'Filename', 'Width', 'Height', 'System', 'SystemAddress', 'Body',

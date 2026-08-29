@@ -187,6 +187,19 @@
       "backup_deletion_ledger_behavior": "Ledger records irreversible claim revocation without the key hash; backups must not reactivate the claim."
     },
     {
+      "data_class": "OAuth login state",
+      "schema": "v3_identity",
+      "relation": "oauth_login_state",
+      "relation_fq": "v3_identity.oauth_login_state",
+      "logical_domain": "Short-lived single-use Frontier OAuth state nonce for the login flow",
+      "personal_data_disposition": "NON_PERSONAL_CONTROL",
+      "ownership_resolution": "Not account-owned: transient control value binding the authorization request to the browser session; deleted after use or expiry.",
+      "export_behavior": "Never exported; store only the digest of the state value, never the raw value.",
+      "delete_withdraw_behavior": "Delete after single use or expiry; purge expired rows on each login flow.",
+      "retention_class": "SHORT_LIVED_CONTROL",
+      "backup_deletion_ledger_behavior": "Backups must not resurrect an expired or consumed state; restore-time purge treats all rows as invalid."
+    },
+    {
       "data_class": "Private source import",
       "schema": "v3_private",
       "relation": "private_import",

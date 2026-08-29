@@ -72,10 +72,13 @@ class _FakeJournalConn:
         self.source_row: dict | None = {'source_id': 1}
         self.rights_row: dict | None = {'rights_policy_id': 1}
         self.commander_edge_row: dict | None = None
+        self.owner_edge_row: dict | None = None
         self.artifact_insert_results: deque[dict | None] = deque()
         self.file_insert_results: deque[dict | None] = deque()
-        self.event_insert_results: deque[dict | None] = deque()
         self.run_result: dict | None = {'source_run_id': uuid.uuid4()}
+        # Batched event inserts: per-call number of duplicate rows the fake
+        # reports as ON CONFLICT-skipped (command tag excludes them).
+        self.event_insert_skipped: deque[int] = deque()
 
     def record(self, sql: str, args: tuple) -> None:
         self.calls.append((sql, args))
@@ -110,14 +113,24 @@ class _FakeJournalConn:
             return {'private_import_id': uuid.uuid4()}
         if kind == 'file_insert':
             return self.file_insert_results.popleft() if self.file_insert_results else {'journal_file_id': uuid.uuid4()}
-        if kind == 'event_insert':
-            return self.event_insert_results.popleft() if self.event_insert_results else {'journal_event_id': uuid.uuid4()}
         if kind == 'commander_edge':
+            # Direct-edge query binds ($1 account, $2 commander); the OWNER
+            # fallback query binds only ($1 account).
+            if len(args) == 1:
+                return self.owner_edge_row
             return self.commander_edge_row
         return None
 
     async def execute(self, sql: str, *args: object) -> str:
         self.record(sql, args)
+        kind = _classify(sql)
+        if kind == 'event_insert':
+            # Batched unnest INSERT: the command tag counts inserted rows
+            # only (ON CONFLICT DO NOTHING rows are excluded), so the fake
+            # reports len(array) minus configured duplicates.
+            batch_size = len(args[0])
+            skipped = self.event_insert_skipped.popleft() if self.event_insert_skipped else 0
+            return f'INSERT 0 {max(batch_size - skipped, 0)}'
         return 'INSERT 0 0'
 
     def calls_of(self, kind: str) -> list[tuple]:
@@ -209,12 +222,15 @@ def test_happy_path_counts_and_returns_import_id():
         event_counts={'Scan': 1, 'ScanOrganic': 1, 'FSDJump': 1},
     )
     assert len(conn.calls_of('file_insert')) == 2
-    assert len(conn.calls_of('event_insert')) == 3
+    # Batched inserts: the 3 events go in ONE unnest statement.
+    event_calls = conn.calls_of('event_insert')
+    assert len(event_calls) == 1
+    assert len(event_calls[0][0]) == 3  # journal_event_id array length == events
 
 
 def test_file_dedupe_and_event_dedupe_counts():
     conn = _FakeJournalConn()
-    conn.event_insert_results = deque([None, {'journal_event_id': uuid.uuid4()}])
+    conn.event_insert_skipped = deque([1])  # 1 of the 2 batched events conflicts
     pool = _FakeJournalPool(conn)
     _import_id, counts = _asyncio_run(import_journal_batch(
         pool,
@@ -246,9 +262,11 @@ def test_events_from_skipped_files_are_not_processed():
     assert counts.files_skipped == 1
     assert counts.events_inserted == 1
     assert counts.duplicates_skipped == 0
-    # The skipped file's FSDJump must never reach an event INSERT; a missing
-    # EventTimestamp would have raised if it had been processed.
-    assert len(conn.calls_of('event_insert')) == 1
+    # The skipped file's FSDJump must never reach an event INSERT (the one
+    # batched call carries only the admitted file's event).
+    event_calls = conn.calls_of('event_insert')
+    assert len(event_calls) == 1
+    assert len(event_calls[0][0]) == 1
     assert counts.event_counts == {'Scan': 1, 'FSDJump': 1}
 
 
@@ -355,6 +373,108 @@ def test_owner_commander_id_only_with_active_edge():
     ))
     import_args2 = conn2.calls_of('private_import_insert')[0]
     assert import_args2[2] is None
+
+
+def test_owner_edge_fallback_branch_uses_accounts_active_owner_edge():
+    # Backend fix wave (review 2.7): when no commander_id is supplied (or the
+    # supplied edge is inactive), the store falls back to the account's
+    # active OWNER access edge — the composite FK (owner_account_id,
+    # owner_commander_id) requires an existing edge either way.
+    OWNER_ID = uuid.UUID('33333333-3333-4333-8333-333333333333')
+    conn = _FakeJournalConn()
+    conn.owner_edge_row = {'commander_id': OWNER_ID}
+    _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn), account_id=ACCOUNT_ID, commander_id=None,
+        parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
+    ))
+    import_args = conn.calls_of('private_import_insert')[0]
+    assert import_args[2] == OWNER_ID
+    # Direct edge absent (fake returns None for the 2-arg query) but the
+    # account's active OWNER edge present -> OWNER wins.
+    conn2 = _FakeJournalConn()
+    conn2.commander_edge_row = None
+    conn2.owner_edge_row = {'commander_id': OWNER_ID}
+    _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn2), account_id=ACCOUNT_ID,
+        commander_id=COMMANDER_ID,  # no direct edge -> fallback
+        parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
+    ))
+    import_args2 = conn2.calls_of('private_import_insert')[0]
+    assert import_args2[2] == OWNER_ID
+    # No edge anywhere -> NULL owner_commander_id (composite FK satisfied by
+    # the existing account-only case).
+    conn3 = _FakeJournalConn()
+    conn3.commander_edge_row = None
+    conn3.owner_edge_row = None
+    _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn3), account_id=ACCOUNT_ID, commander_id=None,
+        parser_version='p1', files=_files(HASH_A), events=_events('Scan'),
+    ))
+    assert conn3.calls_of('private_import_insert')[0][2] is None
+
+
+def test_event_inserts_are_chunked_at_the_batch_boundary(monkeypatch):
+    # Backend fix wave (perf): chunked unnest inserts of <= 5,000; with the
+    # chunk size monkeypatched small, 5 events split into 3 batched calls of
+    # sizes [2, 2, 1] and all counts still add up.
+    import edfinder_api.journal.store as store_module
+
+    monkeypatch.setattr(store_module, 'EVENT_INSERT_CHUNK_SIZE', 2)
+    conn = _FakeJournalConn()
+    _import_id, counts = _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn),
+        account_id=ACCOUNT_ID,
+        parser_version='p1',
+        files=_files(HASH_A, HASH_B),
+        events=_events('Scan', 'ScanOrganic', 'FSDJump', 'Scan', 'Scan'),
+    ))
+    event_calls = conn.calls_of('event_insert')
+    assert [len(args[0]) for args in event_calls] == [2, 2, 1]
+    assert counts.events_received == 5
+    assert counts.events_inserted == 5
+    assert counts.duplicates_skipped == 0
+
+
+def test_same_name_files_both_admitted_and_events_resolve_by_content_sha():
+    # Backend fix wave (review 2.5): admitted_file_ids keys on content_sha256,
+    # NOT the file name, so two same-named files in one request each get
+    # their own journal_import_file row (the admission map is ambiguity-free).
+    # Events still carry only the source file NAME, so they resolve through
+    # the name -> sha bridge deterministically (last-wins for duplicate
+    # names) — the guarantee pinned here is that no file row or event is
+    # dropped and every event attributes to an admitted row's id.
+    conn = _FakeJournalConn()
+    file_rows = [{'journal_file_id': uuid.uuid4()}, {'journal_file_id': uuid.uuid4()}]
+    conn.file_insert_results = deque(file_rows)
+    files = [
+        {'name': 'Journal.dup.log', 'content_sha256': HASH_A, 'size_bytes': 100,
+         'line_count': 1, 'event_count': 1},
+        {'name': 'Journal.dup.log', 'content_sha256': HASH_B, 'size_bytes': 200,
+         'line_count': 1, 'event_count': 1},
+    ]
+    events = _events('Scan', 'ScanOrganic')
+    events[0]['source_file'] = 'Journal.dup.log'
+    events[1]['source_file'] = 'Journal.dup.log'
+    events[0]['source_record_hash'] = hashlib.sha256(b'x1').hexdigest()
+    events[1]['source_record_hash'] = hashlib.sha256(b'x2').hexdigest()
+    _import_id, counts = _asyncio_run(import_journal_batch(
+        _FakeJournalPool(conn),
+        account_id=ACCOUNT_ID,
+        parser_version='p1',
+        files=files,
+        events=events,
+    ))
+    assert counts.files_admitted == 2
+    assert counts.files_skipped == 0
+    assert counts.events_inserted == 2
+    assert len(conn.calls_of('file_insert')) == 2
+    event_calls = conn.calls_of('event_insert')
+    assert len(event_calls) == 1
+    journal_file_ids = event_calls[0][3]  # $4 = journal_file_id array
+    # Both events resolve to the SECOND same-named file's content sha
+    # (last-wins through the name -> sha bridge) — a deterministic,
+    # non-dropping resolution; the admission map itself holds both shas.
+    assert journal_file_ids == [file_rows[1]['journal_file_id']] * 2
 
 
 def test_all_sql_is_parameterized():
