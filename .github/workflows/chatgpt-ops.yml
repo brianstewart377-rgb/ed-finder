@@ -1,0 +1,134 @@
+name: ChatGPT Ops Control Plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Allowlisted operation"
+        required: true
+        type: choice
+        options:
+          - production-status
+          - db-readonly-health
+          - latest-artifacts
+          - latest-artifact-summary
+      artifact_stage:
+        description: "Artifact stage for artifact operations"
+        required: false
+        default: "stage-18j"
+        type: string
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/ops-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ops-production
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Run allowlisted production read operation
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            operation="$INPUT_OPERATION"
+            artifact_stage="${INPUT_ARTIFACT_STAGE:-stage-18j}"
+            request_file="workflow_dispatch"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            mapfile -t request_files < <(
+              git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/ops-requests/*.json'
+            )
+            if [ "${#request_files[@]}" -ne 1 ]; then
+              echo "Expected exactly one changed ops request file; found ${#request_files[@]}" >&2
+              printf '%s\n' "${request_files[@]:-}" >&2
+              exit 64
+            fi
+            request_file="${request_files[0]}"
+            parsed_json="$(python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text(encoding="utf-8")); extra=set(d)-{"operation","artifact_stage"}; extra and sys.exit(f"Unsupported request keys: {sorted(extra)}"); op=d.get("operation"); stage=d.get("artifact_stage","stage-18j"); (isinstance(op,str) and op) or sys.exit("operation must be a non-empty string"); (isinstance(stage,str) and stage) or sys.exit("artifact_stage must be a non-empty string"); print(json.dumps([op,stage]))' "$request_file")"
+            operation="$(python -c 'import json,sys; print(json.loads(sys.argv[1])[0])' "$parsed_json")"
+            artifact_stage="$(python -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$parsed_json")"
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
+            exit 64
+          fi
+
+          case "$operation" in
+            production-status) stage=context ;;
+            db-readonly-health) stage=db-readonly-health ;;
+            latest-artifacts) stage=latest-artifacts ;;
+            latest-artifact-summary) stage=latest-artifact-summary ;;
+            *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
+          esac
+
+          case "$artifact_stage" in
+            stage-[A-Za-z0-9]*) ;;
+            *) echo "Unsupported artifact_stage: $artifact_stage" >&2; exit 64 ;;
+          esac
+          if printf '%s' "$artifact_stage" | grep -q '[^A-Za-z0-9_-]'; then
+            echo "artifact_stage contains invalid characters" >&2
+            exit 64
+          fi
+
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "artifact_stage=$artifact_stage" >> "$GITHUB_OUTPUT"
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
+          echo "request_file=$request_file" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing HETZNER_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing HETZNER_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing HETZNER_OPERATOR_PORT" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run existing fail-closed operator dispatcher
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+          STAGE: ${{ steps.request.outputs.stage }}
+          ARTIFACT_STAGE: ${{ steps.request.outputs.artifact_stage }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing HETZNER_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              "cd /opt/ed-finder && git fetch origin main && git checkout main && git pull --ff-only origin main && bash scripts/operator/actions/dispatch.sh '$STAGE' '$ARTIFACT_STAGE'"
