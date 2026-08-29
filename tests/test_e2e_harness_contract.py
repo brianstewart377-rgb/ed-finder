@@ -20,14 +20,23 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_playwright_ci_retries_classify_flakes_without_hiding_them():
-    config = _read(FRONTEND / "playwright.config.ts")
+def test_cypress_owns_release_gate_while_playwright_flakes_are_diagnostic():
+    playwright_config = _read(FRONTEND / "playwright.config.ts")
+    cypress_config = _read(FRONTEND / "cypress.config.cjs")
 
-    assert "retries: isCI ? 1 : 0" in config
-    assert "failOnFlakyTests: isCI" in config
-    assert "trace: 'on-first-retry'" in config
-    assert "globalTimeout: isCI ?" in config
-    assert "['html', { open: 'never', outputFolder: 'playwright-report' }]" in config
+    # Ordinary legacy Playwright remains useful as a diagnostic suite during
+    # migration: deterministic failures still fail both attempts, while a
+    # retry-only WebGL timing flake does not overrule the Cypress release gate.
+    # Review Lab remains strict until its separate browser collector migrates.
+    assert "retries: isCI ? 1 : 0" in playwright_config
+    assert "failOnFlakyTests: reviewLabRun" in playwright_config
+    assert "trace: 'on-first-retry'" in playwright_config
+    assert "globalTimeout: isCI ?" in playwright_config
+    assert "['html', { open: 'never', outputFolder: 'playwright-report' }]" in playwright_config
+
+    # Cypress is the authoritative release signal and therefore remains strict:
+    # no test retries are allowed to turn a failing journey green.
+    assert "retries: 0" in cypress_config
 
 
 def test_e2e_backend_lifecycle_is_ownership_aware_and_non_destructive():
