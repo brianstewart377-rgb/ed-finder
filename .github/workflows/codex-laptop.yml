@@ -15,6 +15,11 @@ on:
         options:
           - investigate
           - implement
+  push:
+    branches:
+      - codex-task-requests
+    paths:
+      - '.github/codex-requests/*.json'
 
 permissions:
   contents: write
@@ -32,7 +37,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 0
+          fetch-depth: 2
+
+      - name: Resolve request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TASK: ${{ inputs.task }}
+          INPUT_MODE: ${{ inputs.mode }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            task="$INPUT_TASK"
+            mode="$INPUT_MODE"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/codex-requests/*.json')
+            [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one Codex request file" >&2; exit 64; }
+            mapfile -t values < <(python3 - "${files[0]}" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+d = json.loads(p.read_text())
+extra = set(d) - {"task", "mode"}
+if extra:
+    raise SystemExit(f"Unsupported request keys: {sorted(extra)}")
+task = d.get("task")
+mode = d.get("mode", "investigate")
+if not isinstance(task, str) or not task.strip():
+    raise SystemExit("task must be a non-empty string")
+if mode not in {"investigate", "implement"}:
+    raise SystemExit("unsupported mode")
+print(mode)
+print(task.replace("\n", " "))
+PY
+)
+            mode="${values[0]}"
+            task="${values[1]}"
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
+            exit 64
+          fi
+          {
+            echo "mode=$mode"
+            echo "task<<EOF"
+            echo "$task"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Verify worker identity
         shell: bash
@@ -49,10 +101,10 @@ jobs:
           codex --version
 
       - name: Run Codex investigation
-        if: inputs.mode == 'investigate'
+        if: steps.request.outputs.mode == 'investigate'
         shell: bash
         env:
-          CODEX_TASK: ${{ inputs.task }}
+          CODEX_TASK: ${{ steps.request.outputs.task }}
         run: |
           set -euo pipefail
           prompt=$(cat <<'EOF'
@@ -68,7 +120,7 @@ $CODEX_TASK"
           codex exec --sandbox read-only "$prompt"
 
       - name: Implement mode safety stop
-        if: inputs.mode == 'implement'
+        if: steps.request.outputs.mode == 'implement'
         shell: bash
         run: |
           echo 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.' >&2
