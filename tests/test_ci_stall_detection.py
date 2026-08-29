@@ -41,6 +41,7 @@ CHECKED_WORKFLOWS = (
     'chatgpt-ops.yml',
     'ci.yml',
     'codeql.yml',
+    'codex-laptop.yml',
     'container-image-parity.yml',
     'coverage.yml',
     'dependabot-auto-merge.yml',
