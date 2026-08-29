@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { realStarViewportBox, shouldEnableRealStarDetail, realStarViewportSpan } from './viewportSystems';
+import {
+  REAL_STAR_ENTER_MAX_LY,
+  REAL_STAR_EXIT_MAX_LY,
+  realStarViewportBox,
+  shouldEnableRealStarDetail,
+  realStarViewportSpan,
+} from './viewportSystems';
 
 describe('viewport systems settle timer logic', () => {
   const viewport = { width: 1280, height: 720 };
@@ -59,24 +65,28 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('threshold should have hysteresis', () => {
-    // For hysteresis: span should be between ENTER (5000) and EXIT (8000) LY thresholds
-    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span (approximate)
-    // For span=6500 LY: zoom ≈ 6500 / (640 * 0.78 * 1.25 * 2) ≈ 6.4
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.4, pitchDeg: 0.5 };
+    // Build a camera whose real footprint sits in the middle of the actual
+    // enter/exit band. This keeps the hysteresis contract test coupled to the
+    // exported thresholds and projection math instead of a hand-estimated zoom.
+    const unitCamera = { center: { x: 0, z: 0 }, zoom: 1, pitchDeg: 0.5 };
+    const unitSpan = realStarViewportSpan(unitCamera, viewport).maxSpan;
+    const targetSpan = (REAL_STAR_ENTER_MAX_LY + REAL_STAR_EXIT_MAX_LY) / 2;
+    const boundaryCamera = { ...unitCamera, zoom: targetSpan / unitSpan };
     const span = realStarViewportSpan(boundaryCamera, viewport);
 
-    console.log(`[hysteresis test] zoom=6.4 produces span=${span.maxSpan.toFixed(0)} LY`);
+    console.log(
+      `[hysteresis test] zoom=${boundaryCamera.zoom.toFixed(3)} produces span=${span.maxSpan.toFixed(0)} LY`,
+    );
 
-    // When disabled, enter threshold is 5000 LY
+    // When disabled, the lower enter threshold applies; when already enabled,
+    // the higher exit threshold applies. Inside the band, state should stick.
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);
+    const shouldStayEnabled = shouldEnableRealStarDetail(boundaryCamera, viewport, true);
 
-    // When enabled, exit threshold is 8000 LY (higher)
-    const shouldExitFromEnabled = shouldEnableRealStarDetail(boundaryCamera, viewport, true);
-
-    // At boundary, should not toggle (prevents flicker)
-    // span should be > 5000 (don't enter from off) but <= 8000 (can stay enabled)
+    expect(span.maxSpan).toBeGreaterThan(REAL_STAR_ENTER_MAX_LY);
+    expect(span.maxSpan).toBeLessThanOrEqual(REAL_STAR_EXIT_MAX_LY);
     expect(shouldEnterFromDisabled).toBe(false);
-    expect(shouldExitFromEnabled).toBe(true);
+    expect(shouldStayEnabled).toBe(true);
   });
 
   it('settle timer is tested via runtime contract tests', () => {
@@ -86,8 +96,7 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('should detect when viewport span exceeds exit threshold', () => {
-    // At high zoom-out level, span should exceed 150k threshold
-    // Use normal viewport with very high zoom (zoomed way out)
+    // Use normal viewport with very high zoom (zoomed way out).
     const camera = { center: { x: 0, z: 0 }, zoom: 200, pitchDeg: 0.5 };
     const span = realStarViewportSpan(camera, viewport);
 
@@ -96,7 +105,7 @@ describe('viewport systems settle timer logic', () => {
     const shouldEnable = shouldEnableRealStarDetail(camera, viewport, true);
     const box = realStarViewportBox(camera, viewport);
 
-    // When zoomed out this far, span > 150k, so detail should be disabled
+    expect(span.maxSpan).toBeGreaterThan(REAL_STAR_EXIT_MAX_LY);
     expect(shouldEnable).toBe(false);
     expect(box).toBeNull();
   });
