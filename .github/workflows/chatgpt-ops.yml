@@ -17,6 +17,11 @@ on:
         required: false
         default: "stage-18j"
         type: string
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/ops-requests/*.json'
 
 permissions:
   contents: read
@@ -32,31 +37,86 @@ jobs:
     environment: hetzner-operator
     timeout-minutes: 10
     steps:
-      - name: Validate inputs and map operation
-        id: validate
+      - name: Checkout request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        id: request
         shell: bash
         env:
-          OPERATION: ${{ inputs.operation }}
-          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          case "$OPERATION" in
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            operation="$INPUT_OPERATION"
+            artifact_stage="${INPUT_ARTIFACT_STAGE:-stage-18j}"
+            request_file="workflow_dispatch"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            mapfile -t request_files < <(
+              git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/ops-requests/*.json'
+            )
+            if [ "${#request_files[@]}" -ne 1 ]; then
+              echo "Expected exactly one changed ops request file; found ${#request_files[@]}" >&2
+              printf '%s\n' "${request_files[@]:-}" >&2
+              exit 64
+            fi
+            request_file="${request_files[0]}"
+            readarray -t parsed < <(python - "$request_file" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+allowed_keys = {"operation", "artifact_stage"}
+extra = set(data) - allowed_keys
+if extra:
+    raise SystemExit(f"Unsupported request keys: {sorted(extra)}")
+operation = data.get("operation")
+artifact_stage = data.get("artifact_stage", "stage-18j")
+if not isinstance(operation, str) or not operation:
+    raise SystemExit("operation must be a non-empty string")
+if not isinstance(artifact_stage, str) or not artifact_stage:
+    raise SystemExit("artifact_stage must be a non-empty string")
+print(operation)
+print(artifact_stage)
+PY
+            )
+            operation="${parsed[0]}"
+            artifact_stage="${parsed[1]}"
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
+            exit 64
+          fi
+
+          case "$operation" in
             production-status) stage=context ;;
             db-readonly-health) stage=db-readonly-health ;;
             latest-artifacts) stage=latest-artifacts ;;
             latest-artifact-summary) stage=latest-artifact-summary ;;
-            *) echo "Unsupported operation: $OPERATION" >&2; exit 64 ;;
+            *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
 
-          case "$ARTIFACT_STAGE" in
+          case "$artifact_stage" in
             stage-[A-Za-z0-9]*) ;;
-            *) echo "Unsupported artifact_stage: $ARTIFACT_STAGE" >&2; exit 64 ;;
+            *) echo "Unsupported artifact_stage: $artifact_stage" >&2; exit 64 ;;
           esac
-          if printf '%s' "$ARTIFACT_STAGE" | grep -q '[^A-Za-z0-9_-]'; then
+          if printf '%s' "$artifact_stage" | grep -q '[^A-Za-z0-9_-]'; then
             echo "artifact_stage contains invalid characters" >&2
             exit 64
           fi
+
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "artifact_stage=$artifact_stage" >> "$GITHUB_OUTPUT"
           echo "stage=$stage" >> "$GITHUB_OUTPUT"
+          echo "request_file=$request_file" >> "$GITHUB_OUTPUT"
 
       - name: Prepare SSH
         shell: bash
@@ -81,8 +141,8 @@ jobs:
           SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
-          STAGE: ${{ steps.validate.outputs.stage }}
-          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
+          STAGE: ${{ steps.request.outputs.stage }}
+          ARTIFACT_STAGE: ${{ steps.request.outputs.artifact_stage }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing HETZNER_OPERATOR_USER" >&2; exit 1; }
