@@ -27,7 +27,7 @@ permissions:
 
 jobs:
   codex:
-    runs-on: [self-hosted, Linux, X64, codex-worker]
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     steps:
       - name: Checkout request
