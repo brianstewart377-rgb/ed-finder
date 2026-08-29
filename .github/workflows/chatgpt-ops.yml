@@ -68,29 +68,9 @@ jobs:
               exit 64
             fi
             request_file="${request_files[0]}"
-            readarray -t parsed < <(python - "$request_file" <<'PY'
-import json
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1])
-data = json.loads(path.read_text(encoding="utf-8"))
-allowed_keys = {"operation", "artifact_stage"}
-extra = set(data) - allowed_keys
-if extra:
-    raise SystemExit(f"Unsupported request keys: {sorted(extra)}")
-operation = data.get("operation")
-artifact_stage = data.get("artifact_stage", "stage-18j")
-if not isinstance(operation, str) or not operation:
-    raise SystemExit("operation must be a non-empty string")
-if not isinstance(artifact_stage, str) or not artifact_stage:
-    raise SystemExit("artifact_stage must be a non-empty string")
-print(operation)
-print(artifact_stage)
-PY
-            )
-            operation="${parsed[0]}"
-            artifact_stage="${parsed[1]}"
+            parsed_json="$(python -c 'import json,pathlib,sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text(encoding="utf-8")); extra=set(d)-{"operation","artifact_stage"}; extra and sys.exit(f"Unsupported request keys: {sorted(extra)}"); op=d.get("operation"); stage=d.get("artifact_stage","stage-18j"); (isinstance(op,str) and op) or sys.exit("operation must be a non-empty string"); (isinstance(stage,str) and stage) or sys.exit("artifact_stage must be a non-empty string"); print(json.dumps([op,stage]))' "$request_file")"
+            operation="$(python -c 'import json,sys; print(json.loads(sys.argv[1])[0])' "$parsed_json")"
+            artifact_stage="$(python -c 'import json,sys; print(json.loads(sys.argv[1])[1])' "$parsed_json")"
           else
             echo "Unsupported event: $EVENT_NAME" >&2
             exit 64
