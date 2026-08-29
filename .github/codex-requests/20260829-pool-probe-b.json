@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Concurrency probe B. Investigation only: read CLAUDE.md, docs/ROADMAP.md, and .github/workflows/codex-laptop.yml; report the current origin/main SHA and three worker safety constraints. Do not modify files, commit, push, deploy, access production, or use production credentials."
+}
