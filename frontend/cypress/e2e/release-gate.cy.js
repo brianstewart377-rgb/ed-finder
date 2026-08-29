@@ -35,7 +35,14 @@ function openProductionMap() {
   cy.intercept('GET', '**/api/map/heatmap*').as('heatmap');
   cy.visit('/');
   cy.getByTestId('nav-map').click();
-  cy.wait('@regions').its('response.statusCode').should('eq', 200);
+  cy.wait('@regions').then((interception) => {
+    // Vite correctly returns 304 after Chrome has cached the immutable region
+    // asset from an earlier isolated test. Both 200 and 304 prove the same
+    // browser-facing contract; rejecting 304 turns browser caching into a
+    // false failure.
+    expect([200, 304], 'authoritative region response status')
+      .to.include(interception.response?.statusCode);
+  });
   cy.wait('@heatmap').its('response.statusCode').should('eq', 200);
   cy.getByTestId('stage26e-production-map').should('be.visible');
 }
@@ -198,8 +205,13 @@ describe('ED Finder release gate — Cypress parity', () => {
         .and('contain.text', systemName);
     });
 
-    cy.getByTestId('modal-close').then(($close) => {
-      if ($close.is(':visible')) {
+    cy.get('body').then(($body) => {
+      // Cypress `cy.get()` is an assertion that an element exists, so it
+      // cannot be used to implement Playwright-style optional lookup. Inspect
+      // the current DOM first, then use the supported backdrop fallback when
+      // this modal variant has no explicit close button.
+      const $close = $body.find('[data-testid="modal-close"]');
+      if ($close.length > 0 && $close.is(':visible')) {
         cy.wrap($close).click();
       } else {
         cy.getByTestId('system-detail-modal-backdrop').click('topLeft');
