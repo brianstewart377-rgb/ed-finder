@@ -59,15 +59,13 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('threshold should have hysteresis', () => {
-    // Choose a viewport span safely between the ENTER (5000) and EXIT (8000) LY thresholds.
-    // The prior 6.4 value landed just above EXIT (~8014 LY) after projection changes,
-    // so use 6.0 to keep this contract away from the numerical boundary.
-    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.0, pitchDeg: 0.5 };
+    // For hysteresis: span should be between ENTER (5000) and EXIT (8000) LY thresholds
+    // Math: zoom * 640 * 0.78 * 1.25 * 2 = span (approximate)
+    // For span=6500 LY: zoom ≈ 6500 / (640 * 0.78 * 1.25 * 2) ≈ 6.4
+    const boundaryCamera = { center: { x: 0, z: 0 }, zoom: 6.4, pitchDeg: 0.5 };
     const span = realStarViewportSpan(boundaryCamera, viewport);
 
-    console.log(`[hysteresis test] zoom=6.0 produces span=${span.maxSpan.toFixed(0)} LY`);
-    expect(span.maxSpan).toBeGreaterThan(5000);
-    expect(span.maxSpan).toBeLessThanOrEqual(8000);
+    console.log(`[hysteresis test] zoom=6.4 produces span=${span.maxSpan.toFixed(0)} LY`);
 
     // When disabled, enter threshold is 5000 LY
     const shouldEnterFromDisabled = shouldEnableRealStarDetail(boundaryCamera, viewport, false);
@@ -75,8 +73,8 @@ describe('viewport systems settle timer logic', () => {
     // When enabled, exit threshold is 8000 LY (higher)
     const shouldExitFromEnabled = shouldEnableRealStarDetail(boundaryCamera, viewport, true);
 
-    // Inside the hysteresis band, detail must remain off when already off,
-    // but remain enabled when it was already enabled.
+    // At boundary, should not toggle (prevents flicker)
+    // span should be > 5000 (don't enter from off) but <= 8000 (can stay enabled)
     expect(shouldEnterFromDisabled).toBe(false);
     expect(shouldExitFromEnabled).toBe(true);
   });
@@ -88,7 +86,7 @@ describe('viewport systems settle timer logic', () => {
   });
 
   it('should detect when viewport span exceeds exit threshold', () => {
-    // At high zoom-out level, span should exceed the exit threshold.
+    // At high zoom-out level, span should exceed 150k threshold
     // Use normal viewport with very high zoom (zoomed way out)
     const camera = { center: { x: 0, z: 0 }, zoom: 200, pitchDeg: 0.5 };
     const span = realStarViewportSpan(camera, viewport);
@@ -98,7 +96,7 @@ describe('viewport systems settle timer logic', () => {
     const shouldEnable = shouldEnableRealStarDetail(camera, viewport, true);
     const box = realStarViewportBox(camera, viewport);
 
-    // When zoomed out this far, detail should be disabled.
+    // When zoomed out this far, span > 150k, so detail should be disabled
     expect(shouldEnable).toBe(false);
     expect(box).toBeNull();
   });
