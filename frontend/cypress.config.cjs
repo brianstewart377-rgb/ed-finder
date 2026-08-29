@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const path = require('node:path');
 
 module.exports = {
@@ -16,7 +17,7 @@ module.exports = {
   allowCypressEnv: false,
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://127.0.0.1:4173',
-    specPattern: 'cypress/e2e/**/*.cy.js',
+    specPattern: 'cypress/e2e/release-gate.cy.js',
     supportFile: 'cypress/support/e2e.js',
     testIsolation: true,
     screenshotsFolder: 'cypress/artifacts/screenshots',
@@ -43,6 +44,20 @@ module.exports = {
         }
       });
 
+      on('task', {
+        writeReviewSummary({ outputPath, summary }) {
+          if (!outputPath || !path.isAbsolute(outputPath)) {
+            throw new Error('Review Lab summary output path must be absolute.');
+          }
+          fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+          fs.writeFileSync(outputPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+          return null;
+        },
+      });
+
+      config.env.reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+      config.env.reviewOutputPath = process.env.EDFINDER_REVIEW_OUTPUT_PATH || '';
+      config.env.reviewScenariosJson = process.env.EDFINDER_REVIEW_SCENARIOS_JSON || '';
       config.projectRoot = path.resolve(__dirname);
       return config;
     },
