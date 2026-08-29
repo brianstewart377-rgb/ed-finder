@@ -34,7 +34,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     steps:
-      - name: Checkout
+      - name: Checkout request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 2
@@ -69,6 +69,15 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Switch to main workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=2
+          git checkout --detach origin/main
+          git reset --hard origin/main
+          git clean -ffdx
+
       - name: Verify worker identity
         shell: bash
         run: |
@@ -90,8 +99,21 @@ jobs:
           CODEX_TASK: ${{ steps.request.outputs.task }}
         run: |
           set -euo pipefail
+          before="$(git status --porcelain=v1 --untracked-files=all)"
+          [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox read-only "$prompt"
+          # Ubuntu 24.04 on this dedicated, credential-free dev worker blocks Codex's
+          # bwrap user/network namespace setup. Use Codex's no-sandbox execution only
+          # for investigation jobs, then fail closed if the workspace changed at all.
+          codex exec --sandbox danger-full-access "$prompt"
+          after="$(git status --porcelain=v1 --untracked-files=all)"
+          if [ -n "$after" ]; then
+            echo "Investigation modified the workspace; failing closed." >&2
+            printf '%s\n' "$after" >&2
+            git reset --hard HEAD
+            git clean -ffdx
+            exit 66
+          fi
 
       - name: Implement mode safety stop
         if: steps.request.outputs.mode == 'implement'
