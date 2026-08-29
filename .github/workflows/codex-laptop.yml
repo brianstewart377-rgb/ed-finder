@@ -1,0 +1,75 @@
+name: Codex Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task for Codex CLI"
+        required: true
+        type: string
+      mode:
+        description: "Execution mode"
+        required: true
+        default: investigate
+        type: choice
+        options:
+          - investigate
+          - implement
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: codex-worker
+  cancel-in-progress: false
+
+jobs:
+  codex:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Verify worker identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "runner=$RUNNER_NAME"
+          echo "workspace=$GITHUB_WORKSPACE"
+          id
+          uname -a
+          if ! command -v codex >/dev/null 2>&1; then
+            echo "CODEX_NOT_INSTALLED"
+            exit 42
+          fi
+          codex --version
+
+      - name: Run Codex investigation
+        if: inputs.mode == 'investigate'
+        shell: bash
+        env:
+          CODEX_TASK: ${{ inputs.task }}
+        run: |
+          set -euo pipefail
+          prompt=$(cat <<'EOF'
+          You are operating in the ED-Finder repository as an investigation-only worker.
+          Do not modify files, commit, push, deploy, access production, or use production credentials.
+          Inspect the repository and answer the task below with concrete file paths and findings.
+          EOF
+          )
+          prompt="$prompt
+
+TASK:
+$CODEX_TASK"
+          codex exec --sandbox read-only "$prompt"
+
+      - name: Implement mode safety stop
+        if: inputs.mode == 'implement'
+        shell: bash
+        run: |
+          echo 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.' >&2
+          exit 64
