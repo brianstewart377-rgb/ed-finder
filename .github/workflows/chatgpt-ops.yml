@@ -1,0 +1,63 @@
+name: ChatGPT Ops Control Plane
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Allowlisted operation"
+        required: true
+        type: choice
+        options:
+          - production-status
+          - backup-status
+          - pgbackrest-check
+          - api-smoke
+          - collect-logs
+      target:
+        description: "Target environment"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ops-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      operation: ${{ steps.validate.outputs.operation }}
+    steps:
+      - name: Validate requested operation
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ inputs.operation }}" in
+            production-status|backup-status|pgbackrest-check|api-smoke|collect-logs) ;;
+            *) echo "Unsupported operation" >&2; exit 64 ;;
+          esac
+          echo "operation=${{ inputs.operation }}" >> "$GITHUB_OUTPUT"
+
+  execute:
+    needs: guard
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse until an audited server transport is configured
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ChatGPT Ops workflow is installed but intentionally inert."
+          echo "No audited GitHub Actions -> ed-new transport has been wired yet."
+          echo "Requested operation: ${{ needs.guard.outputs.operation }}"
+          echo "Configure the existing deployment/SSH transport through an audited follow-up PR; do not add secrets to the repository."
+          exit 78
