@@ -38,13 +38,14 @@ export default defineConfig({
   grepInvert: isCI
     ? /loads the real-star detail endpoint after crossing the deep-zoom LOD|handles real-stars endpoint error gracefully/
     : undefined,
-  // During the Cypress gate migration, a Playwright test that fails both
-  // attempts still fails the job. A first-attempt renderer timing miss that
-  // passes its isolated retry remains visible as diagnostic flake evidence but
-  // no longer blocks the Cypress-owned release gate.
+  // During the Cypress gate migration, ordinary Playwright CI still retries
+  // once so deterministic failures fail both attempts, while retry-only WebGL
+  // timing flakes remain diagnostic. Review Lab still owns its separate browser
+  // acceptance contract, so a Review Lab flake remains a hard failure until its
+  // collector is migrated too.
   retries: isCI ? 1 : 0,
   retryStrategy: isCI ? 'isolated' : 'immediate',
-  failOnFlakyTests: false,
+  failOnFlakyTests: reviewLabRun,
   reportSlowTests: { max: 5, threshold: 10_000 },
   reporter: isCI
     ? [
