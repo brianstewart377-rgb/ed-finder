@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+// This file is an ad-hoc diagnostic probe (added specifically for running
+// `npx playwright test e2e/map-debug.spec.ts` while investigating map
+// console/network behaviour). Keep it available for explicit debugging, but
+// do not make every pull request wait on GPU/WebGL diagnostic zoom loops.
+test.skip(
+  process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true',
+  'ad-hoc map diagnostics; run this spec explicitly when debugging',
+);
+
 test('Map rendering - debug console and network', async ({ page }) => {
   // Capture console messages and errors
   const consoleLogs: Array<{ type: string; text: string }> = [];
