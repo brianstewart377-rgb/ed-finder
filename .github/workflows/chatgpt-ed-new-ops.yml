@@ -1,0 +1,95 @@
+name: ChatGPT ed-new Ops
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Allowlisted ed-new operation"
+        required: true
+        type: choice
+        options:
+          - host-status
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-ops-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chatgpt-ed-new-ops
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Run allowlisted ed-new operation
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            operation="$INPUT_OPERATION"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            mapfile -t request_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/ed-new-ops-requests/*.json')
+            [ "${#request_files[@]}" -eq 1 ] || { echo "Expected exactly one ed-new request file" >&2; exit 64; }
+            operation="$(python -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); extra=set(d)-{"operation"}; extra and sys.exit(f"Unsupported request keys: {sorted(extra)}"); op=d.get("operation"); (isinstance(op,str) and op) or sys.exit("operation must be a non-empty string"); print(op)' "${request_files[0]}")"
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
+            exit 64
+          fi
+          case "$operation" in
+            host-status) ;;
+            *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
+          esac
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run bounded ed-new bootstrap status
+        if: steps.request.outputs.operation == 'host-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
