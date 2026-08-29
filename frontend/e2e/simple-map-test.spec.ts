@@ -1,13 +1,5 @@
 import { test, expect } from '@playwright/test';
 
-test.beforeEach(async ({ page }) => {
-  // Clear state between tests (issue #10: test isolation)
-  await page.evaluate(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-  });
-});
-
 test('check map page loads', async ({ page }) => {
   test.setTimeout(60000);
 
