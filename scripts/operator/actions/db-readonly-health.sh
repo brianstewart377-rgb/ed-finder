@@ -4,13 +4,30 @@ set -euo pipefail
 cd /opt/ed-finder
 
 echo "== DB read-only health =="
-echo "Loading /opt/ed-finder/.env without printing secrets..."
+echo "Loading POSTGRES_PASSWORD from /opt/ed-finder/.env without sourcing unrelated values..."
 
-set -a
-source /opt/ed-finder/.env
-set +a
+POSTGRES_PASSWORD="$(python3 -c '
+from pathlib import Path
 
-test -n "${POSTGRES_PASSWORD:-}" || { echo "STOP: POSTGRES_PASSWORD is not set" >&2; exit 1; }
+value = None
+for raw in Path("/opt/ed-finder/.env").read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    key, candidate = line.split("=", 1)
+    if key.strip() != "POSTGRES_PASSWORD":
+        continue
+    candidate = candidate.strip()
+    if len(candidate) >= 2 and candidate[0] == candidate[-1] and candidate[0] in ("\"", "\'"):
+        candidate = candidate[1:-1]
+    value = candidate
+if value is None:
+    raise SystemExit("POSTGRES_PASSWORD is not set in /opt/ed-finder/.env")
+print(value)
+')"
+export POSTGRES_PASSWORD
+
+test -n "${POSTGRES_PASSWORD:-}" || { echo "STOP: POSTGRES_PASSWORD is empty" >&2; exit 1; }
 
 python3 -c '
 import os
