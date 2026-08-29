@@ -1,212 +1,209 @@
-import { FullConfig } from '@playwright/test';
+import type { FullConfig } from '@playwright/test';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '../..');
+const composeFile = path.join(repoRoot, 'docker-compose.local.yml');
 
 const API_HOST = process.env.E2E_API_HOST || '127.0.0.1';
 const API_PORT = process.env.E2E_API_PORT || '8000';
 const API_URL = `http://${API_HOST}:${API_PORT}`;
 
-async function waitForPortRelease(port: number, maxWaitMs: number = 10000): Promise<void> {
-  const startTime = Date.now();
-  while (Date.now() - startTime < maxWaitMs) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/`, {
-        signal: AbortSignal.timeout(200),
-      });
-      // Port is in use; wait and retry
-      await new Promise(resolve => setTimeout(resolve, 200));
-    } catch {
-      // Port is not in use; success
-      return;
-    }
-  }
-  throw new Error(`Port ${port} not released after ${maxWaitMs}ms`);
+type BackendMode = 'external' | 'compose';
+
+function sleep(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
 }
 
-async function waitForBackend(maxRetries = 60, initialDelayMs = 100): Promise<void> {
-  let lastError: Error | null = null;
+function resolveBackendMode(): BackendMode {
+  const explicitMode = process.env.EDFINDER_E2E_BACKEND_MODE?.trim().toLowerCase();
+  if (explicitMode) {
+    if (explicitMode !== 'external' && explicitMode !== 'compose') {
+      throw new Error(
+        `Invalid EDFINDER_E2E_BACKEND_MODE=${JSON.stringify(explicitMode)}; `
+        + 'expected "external" or "compose".',
+      );
+    }
+    return explicitMode;
+  }
 
-  for (let i = 0; i < maxRetries; i++) {
+  // Backwards-compatible markers for callers that already own the backend.
+  if (
+    process.env.EDFINDER_SKIP_E2E_BACKEND === '1'
+    || process.env.EDFINDER_REVIEW_LAB_RUN === '1'
+  ) {
+    return 'external';
+  }
+
+  const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
+  if (isCI && process.env.E2E_API_PORT) {
+    console.warn(
+      '⚠ CI E2E backend ownership inferred from E2E_API_PORT. '
+      + 'Set EDFINDER_E2E_BACKEND_MODE=external explicitly in the caller.',
+    );
+    return 'external';
+  }
+
+  return 'compose';
+}
+
+function readApiLogTail(): string {
+  try {
+    const logFile = process.env.UVICORN_LOG || '/tmp/uvicorn.log';
+    return fs.readFileSync(logFile, 'utf-8').split('\n').slice(-30).join('\n');
+  } catch {
+    return 'No API logs available';
+  }
+}
+
+async function waitForBackend(timeoutMs = 60_000): Promise<void> {
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let attempt = 0;
+  let lastError: Error | null = null;
+  let lastStatus: number | null = null;
+  let lastBody = '';
+
+  while (Date.now() < deadline) {
+    attempt += 1;
     try {
       // nosemgrep: typescript.react.security.react-insecure-request.react-insecure-request
       const response = await fetch(`${API_URL}/api/health`, {
-        signal: AbortSignal.timeout(2000),
+        signal: AbortSignal.timeout(2_000),
       });
+      lastStatus = response.status;
+      lastBody = await response.text();
+
       if (response.ok) {
-        const body = await response.json() as Record<string, unknown>;
-        // Validate actual health, not just HTTP status
-        if (body.status === 'ok' || body.database === 'connected') {
-          console.log(`✓ Backend API is ready at ${API_URL}`);
-          return;
+        try {
+          const body = JSON.parse(lastBody) as Record<string, unknown>;
+          if (body.status === 'ok' || body.database === 'connected') {
+            console.log(`✓ Backend API is ready at ${API_URL}`);
+            return;
+          }
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
         }
       }
-    } catch (e) {
-      lastError = e instanceof Error ? e : new Error(String(e));
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
     }
 
-    // Exponential backoff: 100ms, 200ms, 400ms, 800ms, 1600ms, then cap at 2s
-    const exponentialDelay = Math.min(initialDelayMs * Math.pow(2, i), 2000);
-
-    if (i < maxRetries - 1 && (i + 1) % 10 === 0) {
-      console.log(`  Waiting for backend... (${i + 1}/${maxRetries}, next delay: ${exponentialDelay}ms)`);
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs >= timeoutMs) {
+      break;
     }
-    await new Promise(resolve => setTimeout(resolve, exponentialDelay));
-  }
 
-  // Capture uvicorn logs for diagnosis
-  let apiLogs = 'No API logs available';
-  try {
-    const logFile = process.env.UVICORN_LOG || '/tmp/uvicorn.log';
-    const logs = fs.readFileSync(logFile, 'utf-8').split('\n').slice(-20);
-    apiLogs = logs.join('\n');
-  } catch {
-    // Logs not available
+    const delayMs = Math.min(100 * (2 ** Math.min(attempt - 1, 5)), 2_000);
+    if (attempt === 1 || attempt % 5 === 0) {
+      console.log(
+        `  Waiting for backend at ${API_URL} `
+        + `(elapsed ${(elapsedMs / 1000).toFixed(1)}s, next delay ${delayMs}ms)`,
+      );
+    }
+    await sleep(Math.min(delayMs, Math.max(0, deadline - Date.now())));
   }
 
   throw new Error(
-    `Backend failed to start after ${maxRetries}s at ${API_URL}\n` +
-    `Last error: ${lastError?.message}\n` +
-    `API logs (last 20 lines):\n${apiLogs}`
+    `Backend did not become ready within ${timeoutMs}ms at ${API_URL}\n`
+    + `Last HTTP status: ${lastStatus ?? 'none'}\n`
+    + `Last response body: ${lastBody || 'none'}\n`
+    + `Last error: ${lastError?.message ?? 'none'}\n`
+    + `API logs (last 30 lines):\n${readApiLogTail()}`,
   );
 }
 
-async function globalSetup(config: FullConfig) {
-  const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-  const reviewLabManagedBackend = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
-  // The normal CI workflow boots PG/Redis as Actions services and starts the API
-  // on :8002 before invoking Playwright. Do not start docker-compose.local.yml a
-  // second time on the same runner and collide with those bound service ports.
-  const ciManagedBackend = isCI && process.env.E2E_API_PORT === '8002';
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1'
-    || reviewLabManagedBackend
-    || ciManagedBackend;
-
-  if (skipBackend) {
-    console.log('ℹ Skipping E2E backend startup because the backend is externally managed');
-    return;
-  }
-
-  console.log('Starting E2E backend services...');
-
+function runningComposeServices(): Set<string> {
   try {
-    const repoRoot = path.resolve(__dirname, '../..');
-    const composeFile = path.join(repoRoot, 'docker-compose.local.yml');
-
-    // Validate that repo root and compose file exist
-    if (!fs.existsSync(composeFile)) {
-      throw new Error(
-        `docker-compose.local.yml not found at ${composeFile}\n` +
-        `Repo root resolved to: ${repoRoot}`
-      );
-    }
-
-    if (isCI) {
-      console.log('ℹ CI environment detected, ensuring clean Docker state...');
-      try {
-        console.log('  Running: docker compose down --remove-orphans');
-        execSync('docker compose -f docker-compose.local.yml down --remove-orphans', {
-          cwd: repoRoot,
-          stdio: 'inherit',
-        });
-        console.log('✓ Docker cleanup complete');
-      } catch (error) {
-        // Only continue if error is "service not found" (no containers to clean)
-        if (error instanceof Error && error.message.includes('No such service')) {
-          console.log('ℹ No existing containers to clean');
-        } else {
-          console.error('✗ Docker cleanup failed (proceeding anyway):');
-          console.error(error);
-        }
-      }
-
-      // Skip port wait in CI — fresh runners have no lingering processes
-      // If CI exhibits port conflicts, uncomment these:
-      // console.log('  Waiting for ports to be released...');
-      // try {
-      //   await waitForPortRelease(6379, 5000);
-      //   await waitForPortRelease(55432, 5000);
-      // } catch (error) {
-      //   console.warn('⚠ Port release timeout, proceeding anyway:', error);
-      // }
-
-      console.log('  Starting Docker services...');
-      execSync('docker compose -f docker-compose.local.yml up -d', {
+    const output = execSync(
+      'docker compose -f docker-compose.local.yml ps --services --status running',
+      {
         cwd: repoRoot,
-        stdio: 'inherit',
-      });
-      console.log('✓ Docker services started');
-
-      await waitForBackend();
-    } else {
-      // Local development: check if services are healthy
-      console.log('Checking Docker services...');
-
-      try {
-        const healthOutput = execSync(
-          'docker compose -f docker-compose.local.yml ps --format "table {{.Service}}\t{{.State}}"',
-          { cwd: repoRoot, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-        );
-        const services = healthOutput.split('\n').slice(1).filter(Boolean);
-        const allHealthy = services.length > 0 && services.every(line => {
-          const parts = line.split(/\s+/);
-          const state = parts[1];
-          return state === 'running';
-        });
-
-        if (allHealthy) {
-          console.log('ℹ Docker services already running and healthy');
-          await waitForBackend();
-          return;
-        }
-      } catch {
-        // Services not running or command failed
-      }
-
-      console.log('  Starting Docker services...');
-      execSync('docker compose -f docker-compose.local.yml up -d', {
-        cwd: repoRoot,
-        stdio: 'inherit',
-      });
-      console.log('✓ Docker services started');
-
-      await waitForBackend();
-    }
-  } catch (error) {
-    console.error('✗ Backend startup failed:', error);
-    process.exit(1);
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    return new Set(output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean));
+  } catch {
+    return new Set();
   }
 }
 
-async function globalTeardown() {
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1'
-    || process.env.EDFINDER_REVIEW_LAB_RUN === '1';
-  const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-
-  if (skipBackend || isCI) {
-    return;
+function startComposeDependencies(): void {
+  if (!fs.existsSync(composeFile)) {
+    throw new Error(
+      `docker-compose.local.yml not found at ${composeFile}\n`
+      + `Repo root resolved to: ${repoRoot}`,
+    );
   }
 
-  // Optionally stop services after tests (can be disabled with env var)
+  console.log('  Starting Docker dependencies owned by the E2E harness...');
+  execSync('docker compose -f docker-compose.local.yml up -d', {
+    cwd: repoRoot,
+    stdio: 'inherit',
+  });
+  console.log('✓ Docker dependencies started');
+}
+
+function stopOwnedComposeDependencies(): void {
   if (process.env.EDFINDER_LEAVE_E2E_SERVICES === '1') {
-    console.log('ℹ Leaving Docker services running (EDFINDER_LEAVE_E2E_SERVICES=1)');
+    console.log('ℹ Leaving E2E-owned Docker services running (EDFINDER_LEAVE_E2E_SERVICES=1)');
     return;
   }
 
-  console.log('Stopping E2E backend services...');
+  console.log('Stopping E2E-owned Docker dependencies...');
   try {
-    const repoRoot = path.resolve(__dirname, '../..');
-    execSync('docker compose -f docker-compose.local.yml down --volumes', {
+    // Deliberately preserve volumes: docker-compose.local.yml is also the local
+    // development stack and a test run must never destroy a developer's data.
+    execSync('docker compose -f docker-compose.local.yml down --remove-orphans', {
       cwd: repoRoot,
       stdio: 'inherit',
     });
-    console.log('✓ Docker services stopped and volumes cleaned');
+    console.log('✓ E2E-owned Docker dependencies stopped');
   } catch (error) {
-    console.error('✗ Failed to stop services:', error);
+    console.error('✗ Failed to stop E2E-owned Docker dependencies:', error);
   }
 }
 
-export { globalSetup as default, globalTeardown };
+async function globalSetup(_config: FullConfig) {
+  const backendMode = resolveBackendMode();
+
+  if (backendMode === 'external') {
+    console.log(`ℹ E2E backend is externally managed; verifying readiness at ${API_URL}`);
+    await waitForBackend();
+    return;
+  }
+
+  console.log('Checking E2E Docker dependencies...');
+  const runningServices = runningComposeServices();
+  const dependenciesAlreadyRunning = runningServices.has('postgres') && runningServices.has('redis');
+
+  if (dependenciesAlreadyRunning) {
+    console.log('ℹ Postgres and Redis are already running; the harness will not claim ownership');
+    await waitForBackend();
+    return;
+  }
+
+  let ownsComposeDependencies = false;
+  try {
+    startComposeDependencies();
+    ownsComposeDependencies = true;
+    await waitForBackend();
+  } catch (error) {
+    if (ownsComposeDependencies) {
+      stopOwnedComposeDependencies();
+    }
+    throw error;
+  }
+
+  // Playwright invokes a function returned from globalSetup as global teardown.
+  // Only stop services that this invocation actually started.
+  return async () => {
+    stopOwnedComposeDependencies();
+  };
+}
+
+export { globalSetup as default };
