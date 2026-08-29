@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Runner availability probe F. Investigation only: report RUNNER_NAME, current origin/main SHA, and confirm the repository state gate passed. Do not modify files, commit, push, deploy, access production, or use production credentials."
+}
