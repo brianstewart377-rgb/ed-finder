@@ -20,23 +20,24 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_cypress_owns_release_gate_while_playwright_flakes_are_diagnostic():
-    playwright_config = _read(FRONTEND / "playwright.config.ts")
+def test_cypress_owns_generic_browser_release_gate():
+    ci_workflow = _read(WORKFLOWS / "ci.yml")
     cypress_config = _read(FRONTEND / "cypress.config.cjs")
+    playwright_config = _read(FRONTEND / "playwright.config.ts")
 
-    # Ordinary legacy Playwright remains useful as a diagnostic suite during
-    # migration: deterministic failures still fail both attempts, while a
-    # retry-only WebGL timing flake does not overrule the Cypress release gate.
-    # Review Lab remains strict until its separate browser collector migrates.
-    assert "retries: isCI ? 1 : 0" in playwright_config
-    assert "failOnFlakyTests: reviewLabRun" in playwright_config
-    assert "trace: 'on-first-retry'" in playwright_config
-    assert "globalTimeout: isCI ?" in playwright_config
-    assert "['html', { open: 'never', outputFolder: 'playwright-report' }]" in playwright_config
+    # Ordinary PR CI must not grow a second browser release gate again.
+    assert "Frontend v2 E2E (Playwright)" not in ci_workflow
+    assert "yarn playwright install" not in ci_workflow
+    assert "ms-playwright" not in ci_workflow
+    assert "yarn e2e --shard=" not in ci_workflow
 
     # Cypress is the authoritative release signal and therefore remains strict:
     # no test retries are allowed to turn a failing journey green.
     assert "retries: 0" in cypress_config
+
+    # Review Lab still uses the transitional Playwright collector and remains
+    # strict until that isolated acceptance path is migrated as well.
+    assert "failOnFlakyTests: reviewLabRun" in playwright_config
 
 
 def test_e2e_backend_lifecycle_is_ownership_aware_and_non_destructive():
@@ -57,7 +58,7 @@ def test_e2e_specs_do_not_use_never_resolving_promises_as_failure_simulation():
             offenders.append(spec.name)
 
     assert not offenders, (
-        "E2E specs must use bounded Playwright route abort/fulfill behaviour, "
+        "E2E specs must use bounded browser route abort/fulfill behaviour, "
         "not a Promise that can strand a worker until the job timeout: "
         + ", ".join(offenders)
     )
