@@ -10,7 +10,7 @@ concurrency:
 
 jobs:
   cypress-release-gate:
-    name: Cypress release-gate parity (Chrome)
+    name: Frontend v2 E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
