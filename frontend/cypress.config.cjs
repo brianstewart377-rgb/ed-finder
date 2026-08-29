@@ -1,4 +1,13 @@
+const fs = require('node:fs');
 const path = require('node:path');
+
+function reviewLabConfig() {
+  return {
+    reviewLabRun: process.env.EDFINDER_REVIEW_LAB_RUN === '1',
+    outputPath: process.env.EDFINDER_REVIEW_OUTPUT_PATH || '',
+    rawScenarioPlan: process.env.EDFINDER_REVIEW_SCENARIOS_JSON || '',
+  };
+}
 
 module.exports = {
   retries: 0,
@@ -41,6 +50,33 @@ module.exports = {
           // screenshots/video retain full browser evidence.
           console.error(`Cypress spec failed: ${failed.length} test(s)`);
         }
+      });
+
+      on('task', {
+        'reviewLab:getConfig'() {
+          return reviewLabConfig();
+        },
+        'reviewLab:prepareOutput'() {
+          const { outputPath } = reviewLabConfig();
+          if (!outputPath) {
+            throw new Error('EDFINDER_REVIEW_OUTPUT_PATH is required for Cypress Review Lab.');
+          }
+          const directory = path.dirname(outputPath);
+          fs.mkdirSync(directory, { recursive: true });
+          const probe = path.join(directory, '.review-lab-cypress-write-probe');
+          fs.writeFileSync(probe, 'ok\n', 'utf8');
+          fs.unlinkSync(probe);
+          return null;
+        },
+        'reviewLab:writeSummary'(summary) {
+          const { outputPath } = reviewLabConfig();
+          if (!outputPath) {
+            throw new Error('EDFINDER_REVIEW_OUTPUT_PATH is required for Cypress Review Lab.');
+          }
+          fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+          fs.writeFileSync(outputPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+          return null;
+        },
       });
 
       config.projectRoot = path.resolve(__dirname);
