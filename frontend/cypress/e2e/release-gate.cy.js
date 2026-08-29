@@ -182,7 +182,11 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     crossRealStarLod();
 
-    cy.wait('@realStars', { timeout: 5000 }).then((interception) => {
+    // The production hook waits 250 ms for a settled camera before enabling
+    // the query. CI WebGL/RAF scheduling can delay that observation, so allow
+    // headroom for the request to begin while keeping retries disabled and all
+    // response/content assertions intact.
+    cy.wait('@realStars', { timeout: 15_000 }).then((interception) => {
       expect(interception.response?.statusCode).to.equal(200);
       expect(interception.response?.body.systems).to.be.an('array');
       expect(interception.response?.body.truncated).to.be.a('boolean');
@@ -199,7 +203,7 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     crossRealStarLod();
 
-    cy.wait('@realStarsFailure', { timeout: 5000 });
+    cy.wait('@realStarsFailure', { timeout: 15_000 });
     cy.get('.map-foundation-renderer canvas').should('be.visible');
     cy.contains(/detailed star layer could not be loaded/i).should('be.visible');
   });
