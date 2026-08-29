@@ -56,25 +56,8 @@ jobs:
           elif [ "$EVENT_NAME" = "push" ]; then
             mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/codex-requests/*.json')
             [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one Codex request file" >&2; exit 64; }
-            mapfile -t values < <(python3 - "${files[0]}" <<'PY'
-import json, pathlib, sys
-p = pathlib.Path(sys.argv[1])
-d = json.loads(p.read_text())
-extra = set(d) - {"task", "mode"}
-if extra:
-    raise SystemExit(f"Unsupported request keys: {sorted(extra)}")
-task = d.get("task")
-mode = d.get("mode", "investigate")
-if not isinstance(task, str) or not task.strip():
-    raise SystemExit("task must be a non-empty string")
-if mode not in {"investigate", "implement"}:
-    raise SystemExit("unsupported mode")
-print(mode)
-print(task.replace("\n", " "))
-PY
-)
-            mode="${values[0]}"
-            task="${values[1]}"
+            mode="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); extra=set(d)-{"task","mode"}; extra and sys.exit("unsupported request keys"); m=d.get("mode","investigate"); m in {"investigate","implement"} or sys.exit("unsupported mode"); print(m)' "${files[0]}")"
+            task="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); t=d.get("task"); isinstance(t,str) and t.strip() or sys.exit("task must be non-empty"); print(t.replace("\n"," "))' "${files[0]}")"
           else
             echo "Unsupported event: $EVENT_NAME" >&2
             exit 64
@@ -107,16 +90,7 @@ PY
           CODEX_TASK: ${{ steps.request.outputs.task }}
         run: |
           set -euo pipefail
-          prompt=$(cat <<'EOF'
-          You are operating in the ED-Finder repository as an investigation-only worker.
-          Do not modify files, commit, push, deploy, access production, or use production credentials.
-          Inspect the repository and answer the task below with concrete file paths and findings.
-          EOF
-          )
-          prompt="$prompt
-
-TASK:
-$CODEX_TASK"
+          prompt="You are operating in the ED-Finder repository as an investigation-only worker. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox read-only "$prompt"
 
       - name: Implement mode safety stop
