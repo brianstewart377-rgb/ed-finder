@@ -9,55 +9,86 @@ on:
         type: choice
         options:
           - production-status
-          - backup-status
-          - pgbackrest-check
-          - api-smoke
-          - collect-logs
-      target:
-        description: "Target environment"
-        required: true
-        default: production
-        type: choice
-        options:
-          - production
+          - db-readonly-health
+          - latest-artifacts
+          - latest-artifact-summary
+      artifact_stage:
+        description: "Artifact stage for artifact operations"
+        required: false
+        default: "stage-18j"
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: chatgpt-ops-${{ inputs.target }}
+  group: chatgpt-ops-production
   cancel-in-progress: false
 
 jobs:
-  guard:
+  execute:
+    name: Run allowlisted production read operation
     runs-on: ubuntu-latest
-    outputs:
-      operation: ${{ steps.validate.outputs.operation }}
+    environment: hetzner-operator
+    timeout-minutes: 10
     steps:
-      - name: Validate requested operation
+      - name: Validate inputs and map operation
         id: validate
         shell: bash
+        env:
+          OPERATION: ${{ inputs.operation }}
+          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
         run: |
           set -euo pipefail
-          case "${{ inputs.operation }}" in
-            production-status|backup-status|pgbackrest-check|api-smoke|collect-logs) ;;
-            *) echo "Unsupported operation" >&2; exit 64 ;;
+          case "$OPERATION" in
+            production-status) stage=context ;;
+            db-readonly-health) stage=db-readonly-health ;;
+            latest-artifacts) stage=latest-artifacts ;;
+            latest-artifact-summary) stage=latest-artifact-summary ;;
+            *) echo "Unsupported operation: $OPERATION" >&2; exit 64 ;;
           esac
-          echo "operation=${{ inputs.operation }}" >> "$GITHUB_OUTPUT"
 
-  execute:
-    needs: guard
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
+          case "$ARTIFACT_STAGE" in
+            stage-[A-Za-z0-9]*) ;;
+            *) echo "Unsupported artifact_stage: $ARTIFACT_STAGE" >&2; exit 64 ;;
+          esac
+          if printf '%s' "$ARTIFACT_STAGE" | grep -q '[^A-Za-z0-9_-]'; then
+            echo "artifact_stage contains invalid characters" >&2
+            exit 64
+          fi
+          echo "stage=$stage" >> "$GITHUB_OUTPUT"
 
-      - name: Refuse until an audited server transport is configured
+      - name: Prepare SSH
         shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
         run: |
           set -euo pipefail
-          echo "ChatGPT Ops workflow is installed but intentionally inert."
-          echo "No audited GitHub Actions -> ed-new transport has been wired yet."
-          echo "Requested operation: ${{ needs.guard.outputs.operation }}"
-          echo "Configure the existing deployment/SSH transport through an audited follow-up PR; do not add secrets to the repository."
-          exit 78
+          test -n "$SSH_KEY" || { echo "Missing HETZNER_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing HETZNER_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing HETZNER_OPERATOR_PORT" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run existing fail-closed operator dispatcher
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+          STAGE: ${{ steps.validate.outputs.stage }}
+          ARTIFACT_STAGE: ${{ inputs.artifact_stage }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing HETZNER_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              "cd /opt/ed-finder && git fetch origin main && git checkout main && git pull --ff-only origin main && bash scripts/operator/actions/dispatch.sh '$STAGE' '$ARTIFACT_STAGE'"
