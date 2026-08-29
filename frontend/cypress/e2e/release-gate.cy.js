@@ -48,9 +48,34 @@ function openProductionMap() {
 }
 
 function clickDeepZoom(count = 24) {
-  for (let index = 0; index < count; index += 1) {
-    cy.getByTestId('map-zoom-in').click();
+  const renderer = '.map-foundation-renderer';
+
+  // The normal map journey already proves the real control is actionable.
+  // These clicks are setup for crossing the LOD threshold, so call the real
+  // production button handler directly and prove each state transition landed.
+  // This avoids paying Cypress actionability/animation waits 24 times while
+  // still exercising exactly the application handler users trigger.
+  function step(remaining) {
+    if (remaining <= 0) return;
+
+    cy.get(renderer).invoke('attr', 'data-camera-zoom').then((beforeValue) => {
+      const beforeZoom = Number(beforeValue);
+      expect(beforeZoom, 'zoom before deep-zoom step').to.be.greaterThan(0);
+
+      cy.getByTestId('map-zoom-in').then(($button) => {
+        $button[0].click();
+      });
+
+      cy.get(renderer, { timeout: 1500 }).should(($renderer) => {
+        expect(Number($renderer.attr('data-camera-zoom')), 'zoom after deep-zoom step')
+          .to.be.lessThan(beforeZoom);
+      });
+
+      cy.then(() => step(remaining - 1));
+    });
   }
+
+  step(count);
 }
 
 describe('ED Finder release gate — Cypress parity', () => {
@@ -158,7 +183,7 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     clickDeepZoom();
 
-    cy.wait('@realStars', { timeout: 30000 }).then((interception) => {
+    cy.wait('@realStars', { timeout: 5000 }).then((interception) => {
       expect(interception.response?.statusCode).to.equal(200);
       expect(interception.response?.body.systems).to.be.an('array');
       expect(interception.response?.body.truncated).to.be.a('boolean');
@@ -175,7 +200,7 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     clickDeepZoom();
 
-    cy.wait('@realStarsFailure', { timeout: 30000 });
+    cy.wait('@realStarsFailure', { timeout: 5000 });
     cy.get('.map-foundation-renderer canvas').should('be.visible');
     cy.contains(/detailed star layer could not be loaded/i).should('be.visible');
   });
