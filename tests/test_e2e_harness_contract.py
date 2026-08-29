@@ -24,11 +24,12 @@ def test_cypress_owns_release_gate_while_playwright_flakes_are_diagnostic():
     playwright_config = _read(FRONTEND / "playwright.config.ts")
     cypress_config = _read(FRONTEND / "cypress.config.cjs")
 
-    # Legacy Playwright remains useful as a diagnostic suite during migration:
-    # deterministic failures still fail both attempts, while retry-only WebGL
-    # timing flakes no longer overrule the Cypress-owned release gate.
+    # Ordinary legacy Playwright remains useful as a diagnostic suite during
+    # migration: deterministic failures still fail both attempts, while a
+    # retry-only WebGL timing flake does not overrule the Cypress release gate.
+    # Review Lab remains strict until its separate browser collector migrates.
     assert "retries: isCI ? 1 : 0" in playwright_config
-    assert "failOnFlakyTests: false" in playwright_config
+    assert "failOnFlakyTests: reviewLabRun" in playwright_config
     assert "trace: 'on-first-retry'" in playwright_config
     assert "globalTimeout: isCI ?" in playwright_config
     assert "['html', { open: 'never', outputFolder: 'playwright-report' }]" in playwright_config
