@@ -76,10 +76,17 @@ async function waitForBackend(maxRetries = 60, initialDelayMs = 100): Promise<vo
 
 async function globalSetup(config: FullConfig) {
   const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1';
+  const reviewLabManagedBackend = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+  // The normal CI workflow boots PG/Redis as Actions services and starts the API
+  // on :8002 before invoking Playwright. Do not start docker-compose.local.yml a
+  // second time on the same runner and collide with those bound service ports.
+  const ciManagedBackend = isCI && process.env.E2E_API_PORT === '8002';
+  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1'
+    || reviewLabManagedBackend
+    || ciManagedBackend;
 
   if (skipBackend) {
-    console.log('ℹ Skipping backend startup (EDFINDER_SKIP_E2E_BACKEND=1)');
+    console.log('ℹ Skipping E2E backend startup because the backend is externally managed');
     return;
   }
 
@@ -175,7 +182,8 @@ async function globalSetup(config: FullConfig) {
 }
 
 async function globalTeardown() {
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1';
+  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1'
+    || process.env.EDFINDER_REVIEW_LAB_RUN === '1';
   const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
 
   if (skipBackend || isCI) {
