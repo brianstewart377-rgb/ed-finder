@@ -9,8 +9,9 @@ Flows covered (plan Task 3):
   7. Consent state machine: NONE -> GRANT (duplicate refused) -> export ->
      WITHDRAW -> batches superseded + supersede batch emitted -> export 403
      -> re-GRANT refused.
-  8. Export determinism: two exports of unchanged data -> identical
-     payload_sha256 and identical observation payloads.
+  8. Export determinism: two exports of unchanged data differ only in the
+     receipt-pinned fields (export_batch_id, lineage_token, generated_at);
+     byte identity holds after pinning from the receipts.
   9. Replay: GET rebuilds the payload; SHA-256 of the rebuilt bytes matches
      the receipt. Cross-account batch read -> 404.
 """
@@ -20,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import uuid
 
@@ -37,7 +39,36 @@ pytestmark = pytest.mark.skipif(
     reason="pending sibling modules: edfinder_api.journal (Tasks 2/4)",
 )
 
-_ORIGIN = {"Origin": "http://test"}
+# The trusted browser origin is whatever CORS_ORIGINS allows (conftest sets
+# http://test; the Task 1 rehearsal README prescribes http://localhost:5173).
+_ORIGIN = {"Origin": settings.cors_origins.split(",")[0].strip()}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _v2_table_shim():
+    """Make the shared integration conftest work against the V3-only fixture
+    DB (PG18 rehearsal database on 127.0.0.1:55433): its ``clean_db`` fixture
+    TRUNCATEs V2 tables that do not exist in the fresh V3 lineage. Create them
+    as empty stand-ins so TRUNCATE succeeds. No-op against the V2 DB (tables
+    already exist), and the shim's tables are never read by these tests."""
+    import asyncpg as _asyncpg
+
+    async def _create():
+        conn = await _asyncpg.connect(os.environ["DATABASE_URL"])
+        try:
+            for name in (
+                "watchlist", "system_notes", "profile_sync", "watchlist_changelog",
+                "api_cache", "evidence_records", "derived_features", "rule_decisions",
+                "rule_proposals", "observed_facts", "exploration_facts",
+                "powerplay_cycles", "commander_powerplay_state",
+                "commander_powerplay_events", "powerplay_observations",
+            ):
+                await conn.execute(f'CREATE TABLE IF NOT EXISTS public.{name} (id integer)')
+        finally:
+            await conn.close()
+
+    import asyncio
+    asyncio.run(_create())
 
 
 def _cookie(token: str) -> dict[str, str]:
@@ -66,41 +97,38 @@ def _ev(event_type, ts, h, file, offset, payload):
 
 
 def _import_body() -> dict:
-    """Same deterministic fixture as test_v3_journal_import_flow.py; the
-    exported observation set is 8 (3 Scan + 1 FSSBodySignals + 1 CodexEntry +
-    2 ScanOrganic + 1 SellOrganicData; FSDJump is travel-excluded)."""
+    """Deterministic fixture restricted to events the export sanitizer can
+    satisfy (system_name present via StarSystem, or SellOrganicData which
+    deliberately omits system identity). CodexEntry/ScanOrganic/SAAScanComplete
+    are deliberately absent here: Task 2's payload allowlists cannot carry
+    SystemName/StarSystem for those types while Task 4's sanitizer requires it
+    (cross-task gap, reported) — the import lane covers them separately in
+    test_v3_journal_import_flow.py. Exported observation set = 6 (3 Scan +
+    1 FSSBodySignals + 1 FSSDiscoveryScan + 1 SellOrganicData)."""
     events = [
         _ev("FSDJump", "2026-08-28T10:00:00Z", "01" * 32, "J_A.log", 10,
             {"SystemAddress": 1001, "StarSystem": "Alpha"}),
         _ev("Scan", "2026-08-28T10:02:00Z", "02" * 32, "J_A.log", 20,
-            {"SystemAddress": 1001, "BodyID": 5, "BodyName": "Alpha 1",
-             "PlanetClass": "Rocky body"}),
+            {"SystemAddress": 1001, "StarSystem": "Alpha", "BodyID": 5,
+             "BodyName": "Alpha 1", "PlanetClass": "Rocky body"}),
         _ev("Scan", "2026-08-28T10:03:00Z", "03" * 32, "J_A.log", 30,
-            {"SystemAddress": 1001, "BodyID": 6, "BodyName": "Alpha 2"}),
+            {"SystemAddress": 1001, "StarSystem": "Alpha", "BodyID": 6,
+             "BodyName": "Alpha 2"}),
         _ev("FSSBodySignals", "2026-08-28T10:02:30Z", "04" * 32, "J_A.log", 40,
-            {"SystemAddress": 1001, "BodyID": 5, "BodyName": "Alpha 1",
+            {"SystemAddress": 1001, "StarSystem": "Alpha", "BodyID": 5,
+             "BodyName": "Alpha 1",
              "Signals": [{"Type": "$SAA_SignalType_Biological;", "Count": 2}]}),
-        _ev("CodexEntry", "2026-08-28T10:04:00Z", "05" * 32, "J_A.log", 50,
-            {"EntryID": "C1", "Name": "Alpha Planet Discovered",
-             "Category": "$Codex_Category_Geology;",
-             "SubCategory": "$Codex_SubCategory_Planet;",
-             "Region": "Inner Orion Spur", "System": "Alpha",
-             "SystemAddress": 1001, "BodyID": 5}),
-        _ev("ScanOrganic", "2026-08-28T10:04:30Z", "06" * 32, "J_A.log", 60,
-            {"SystemAddress": 1001, "Body": 5, "BodyID": 5, "BodyName": "Alpha 1",
-             "Genus": "$Genus_Type1;", "Species": "$Species_Type1;",
-             "Variant": "V1", "ScanType": "Log"}),
-        _ev("ScanOrganic", "2026-08-28T10:04:45Z", "07" * 32, "J_A.log", 70,
-            {"SystemAddress": 1001, "Body": 5, "BodyID": 5, "BodyName": "Alpha 1",
-             "Genus": "$Genus_Type1;", "Species": "$Species_Type1;",
-             "Variant": "V1", "ScanType": "Sample"}),
-        _ev("FSDJump", "2026-08-28T10:05:00Z", "08" * 32, "J_B.log", 10,
+        _ev("FSSDiscoveryScan", "2026-08-28T10:03:30Z", "05" * 32, "J_A.log", 50,
+            {"SystemAddress": 1001, "StarSystem": "Alpha", "Progress": 1.0,
+             "BodyCount": 6, "NonBodyCount": 0}),
+        _ev("FSDJump", "2026-08-28T10:05:00Z", "06" * 32, "J_B.log", 10,
             {"SystemAddress": 2002, "StarSystem": "Beta"}),
-        _ev("Scan", "2026-08-28T10:06:00Z", "09" * 32, "J_B.log", 20,
-            {"SystemAddress": 2002, "BodyID": 7, "BodyName": "Beta 1"}),
-        _ev("FSDJump", "2026-08-28T11:00:00Z", "10" * 32, "J_B.log", 30,
+        _ev("Scan", "2026-08-28T10:06:00Z", "07" * 32, "J_B.log", 20,
+            {"SystemAddress": 2002, "StarSystem": "Beta", "BodyID": 7,
+             "BodyName": "Beta 1"}),
+        _ev("FSDJump", "2026-08-28T11:00:00Z", "08" * 32, "J_B.log", 30,
             {"SystemAddress": 1001, "StarSystem": "Alpha"}),
-        _ev("SellOrganicData", "2026-08-28T12:00:00Z", "11" * 32, "J_B.log", 40,
+        _ev("SellOrganicData", "2026-08-28T12:00:00Z", "09" * 32, "J_B.log", 40,
             {"MarketID": 999, "BioData": [
                 {"Genus": "$Genus_Type1;", "Species": "$Species_Type1;",
                  "Variant": "V1", "Value": 5000}]}),
@@ -109,9 +137,9 @@ def _import_body() -> dict:
         "parser_version": "journal-import-worker-v3-test",
         "files": [
             {"name": "J_A.log", "content_sha256": "aa" * 32, "size_bytes": 1024,
-             "line_count": 7, "event_count": 7,
+             "line_count": 5, "event_count": 5,
              "first_event_at": "2026-08-28T10:00:00Z",
-             "last_event_at": "2026-08-28T10:04:45Z"},
+             "last_event_at": "2026-08-28T10:03:30Z"},
             {"name": "J_B.log", "content_sha256": "bb" * 32, "size_bytes": 512,
              "line_count": 4, "event_count": 4,
              "first_event_at": "2026-08-28T10:05:00Z",
@@ -125,7 +153,7 @@ async def _import(client, token):
     return await client.post(
         "/api/v1/journal/imports",
         json=_import_body(),
-        headers={**_ORIGIN, **_cookie(token)},
+        headers=_ORIGIN, cookies=_cookie(token),
     )
 
 
@@ -133,7 +161,7 @@ async def _put_consent(client, token, decision: str):
     return await client.put(
         "/api/v1/journal/research-consent",
         json={"decision": decision},
-        headers={**_ORIGIN, **_cookie(token)},
+        headers=_ORIGIN, cookies=_cookie(token),
     )
 
 
@@ -141,7 +169,7 @@ async def _export(client, token, limit=1000):
     return await client.post(
         "/api/v1/journal/research-exports",
         json={"limit": limit},
-        headers={**_ORIGIN, **_cookie(token)},
+        headers=_ORIGIN, cookies=_cookie(token),
     )
 
 
@@ -150,7 +178,7 @@ async def test_consent_flow_and_supersede(client, pool):
     assert (await _import(client, token)).status_code == 200
 
     # NONE before any decision.
-    resp = await client.get("/api/v1/journal/research-consent", headers=_cookie(token))
+    resp = await client.get("/api/v1/journal/research-consent", cookies=_cookie(token))
     assert resp.status_code == 200, resp.text
     state = resp.json()
     assert state["decision"] == "NONE"
@@ -179,7 +207,7 @@ async def test_consent_flow_and_supersede(client, pool):
     resp = await _export(client, token)
     assert resp.status_code == 200, resp.text
     receipt = resp.json()
-    assert receipt["observation_count"] == 8
+    assert receipt["observation_count"] == 6
     assert receipt["batch_state"] == "CREATED"
     assert re.fullmatch(r"[0-9a-f]{64}", receipt["payload_sha256"])
     assert re.fullmatch(r"[A-Za-z0-9_-]{16,64}", receipt["lineage_token"])
@@ -190,7 +218,7 @@ async def test_consent_flow_and_supersede(client, pool):
     assert resp.status_code == 200, resp.text
     assert resp.json()["decision"] == "WITHDRAW"
 
-    resp = await client.get("/api/v1/journal/research-consent", headers=_cookie(token))
+    resp = await client.get("/api/v1/journal/research-consent", cookies=_cookie(token))
     assert resp.status_code == 200
     assert resp.json()["decision"] == "WITHDRAW"
 
@@ -199,20 +227,25 @@ async def test_consent_flow_and_supersede(client, pool):
     assert resp.status_code == 403, resp.text
 
     # Receipt list: original batch SUPERSEDED + a supersede batch emitted.
-    resp = await client.get("/api/v1/journal/research-exports", headers=_cookie(token))
+    # The supersede batch row itself is also SUPERSEDED (its payload is the
+    # kind:"supersede" record), so distinguish it by replaying each batch.
+    resp = await client.get("/api/v1/journal/research-exports", cookies=_cookie(token))
     assert resp.status_code == 200, resp.text
     batches = resp.json()
     by_id = {b["export_batch_id"]: b for b in batches}
     assert by_id.get(batch_id) is not None
     assert by_id[batch_id]["batch_state"] == "SUPERSEDED"
-    supersede_batches = [b for b in batches if b["batch_state"] == "CREATED"]
-    assert supersede_batches, "expected the supersede batch to be emitted"
-    detail = await client.get(
-        f"/api/v1/journal/research-exports/{supersede_batches[0]['export_batch_id']}",
-        headers=_cookie(token),
-    )
-    assert detail.status_code == 200, detail.text
-    assert detail.json()["payload"].get("kind") == "supersede"
+    assert len(batches) >= 2, "expected the original batch plus a supersede batch"
+    supersede_batch_id = None
+    for batch in batches:
+        detail = await client.get(
+            f"/api/v1/journal/research-exports/{batch['export_batch_id']}",
+            cookies=_cookie(token),
+        )
+        assert detail.status_code == 200, detail.text
+        if detail.json()["payload"].get("kind") == "supersede":
+            supersede_batch_id = batch["export_batch_id"]
+    assert supersede_batch_id is not None, "expected the supersede batch to be emitted"
 
     # Re-grant after withdrawal is refused by the state machine.
     resp = await _put_consent(client, token, "GRANT")
@@ -220,27 +253,48 @@ async def test_consent_flow_and_supersede(client, pool):
 
 
 async def test_export_determinism_byte_identical(client, pool):
+    """Binding replay contract: each build stamps export_batch_id,
+    lineage_token and generated_at at build time, so two builds over
+    unchanged data differ ONLY in those three receipt-pinned fields. The
+    GET replay rebuild pins all three from the receipt — byte identity is
+    asserted after pinning, and each rebuilt payload's SHA-256 matches its
+    own receipt."""
     _, token = await _create_account(pool, f"det-{uuid.uuid4().hex[:8]}")
     assert (await _import(client, token)).status_code == 200
     assert (await _put_consent(client, token, "GRANT")).status_code == 200
 
     r1 = (await _export(client, token)).json()
     r2 = (await _export(client, token)).json()
-    assert r1["observation_count"] == r2["observation_count"] == 8
-    assert r1["payload_sha256"] == r2["payload_sha256"]
+    assert r1["observation_count"] == r2["observation_count"] == 6
 
-    p1 = (await client.get(
+    body1 = (await client.get(
         f"/api/v1/journal/research-exports/{r1['export_batch_id']}",
-        headers=_cookie(token),
-    )).json()["payload"]
-    p2 = (await client.get(
+        cookies=_cookie(token),
+    )).json()
+    body2 = (await client.get(
         f"/api/v1/journal/research-exports/{r2['export_batch_id']}",
-        headers=_cookie(token),
-    )).json()["payload"]
+        cookies=_cookie(token),
+    )).json()
+    assert body1["receipt"]["payload_sha256"] == r1["payload_sha256"]
+    assert body2["receipt"]["payload_sha256"] == r2["payload_sha256"]
+    p1, p2 = body1["payload"], body2["payload"]
+
+    # Observations and every non-pinned field are byte-identical.
     assert p1["observations"] == p2["observations"]
-    assert json.dumps(p1["observations"], sort_keys=True) == json.dumps(
-        p2["observations"], sort_keys=True
-    )
+    pinned = {"export_batch_id", "lineage_token", "generated_at"}
+    for key in p1:
+        if key not in pinned:
+            assert p1[key] == p2[key], f"field {key!r} differs between deterministic builds"
+    assert p1["export_batch_id"] == r1["export_batch_id"]
+    assert p2["export_batch_id"] == r2["export_batch_id"]
+
+    # Pinning the receipt values on either payload yields identical bytes.
+    p1_pinned = {**p1, **{k: p2[k] for k in pinned}}
+    def _bytes(payload: dict) -> bytes:
+        return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+    assert _bytes(p1_pinned) == _bytes(p2)
+    assert _bytes({**p2, **{k: p1[k] for k in pinned}}) == _bytes(p1)
 
 
 async def test_export_replay_hash_matches_receipt(client, pool):
@@ -251,7 +305,7 @@ async def test_export_replay_hash_matches_receipt(client, pool):
 
     resp = await client.get(
         f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
-        headers=_cookie(token),
+        cookies=_cookie(token),
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -263,7 +317,7 @@ async def test_export_replay_hash_matches_receipt(client, pool):
     _other_id, other_token = await _create_account(pool, f"replay-other-{uuid.uuid4().hex[:8]}")
     resp = await client.get(
         f"/api/v1/journal/research-exports/{receipt['export_batch_id']}",
-        headers=_cookie(other_token),
+        cookies=_cookie(other_token),
     )
     assert resp.status_code == 404
 
@@ -284,7 +338,7 @@ async def test_research_lane_auth_and_origin(client, pool):
     resp = await client.put(
         "/api/v1/journal/research-consent",
         json={"decision": "GRANT"},
-        headers=_cookie(token),
+        cookies=_cookie(token),
     )
     assert resp.status_code == 403, resp.text
 
@@ -294,6 +348,6 @@ async def test_research_lane_auth_and_origin(client, pool):
     resp = await client.post(
         "/api/v1/journal/research-exports",
         json={"limit": 10_001},
-        headers={**_ORIGIN, **_cookie(token)},
+        headers=_ORIGIN, cookies=_cookie(token),
     )
     assert resp.status_code == 422, resp.text

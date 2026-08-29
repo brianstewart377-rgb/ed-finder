@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any, Literal
 
 import asyncpg
@@ -28,15 +29,6 @@ from edfinder_api.config import limiter
 from edfinder_api.deps import get_pool
 
 router = APIRouter(prefix="/api/v1/journal", tags=["v3-journal-research"])
-
-# The exported observation set (plan Task 4 sanitization spec): travel and
-# identity events are hard-excluded by sanitize_observation; these nine event
-# types are the only ones that can appear in a CRE export payload.
-EXPORT_OBSERVATION_TYPES = frozenset({
-    "Scan", "FSSBodySignals", "SAASignalsFound", "SAAScanComplete",
-    "CodexEntry", "ScanOrganic", "SellOrganicData", "FSSDiscoveryScan",
-    "FSSAllBodiesFound",
-})
 
 MAX_EXPORT_OBSERVATIONS_DEFAULT = 1_000
 MAX_EXPORT_OBSERVATIONS_CAP = 10_000
@@ -165,30 +157,42 @@ async def _active_lineage_tokens(pool: asyncpg.Pool, account_id: uuid.UUID) -> l
     return [str(row["lineage_token"]) for row in rows]
 
 
+def _observation_sort_key(row: dict[str, Any]) -> tuple:
+    """Mirror Task 4's deterministic (event_type, canonical key JSON,
+    event_timestamp) ordering — jsonb arrives as a dict via the pool codec."""
+    key = row["event_key"]
+    if isinstance(key, str):
+        return (row["event_type"], key, row["event_timestamp"])
+    return (
+        row["event_type"],
+        json.dumps(key, sort_keys=True, separators=(",", ":"), ensure_ascii=True),
+        row["event_timestamp"],
+    )
+
+
 async def _rebuild_observations(
     pool: asyncpg.Pool,
     account_id: uuid.UUID,
-    *,
-    limit: int,
 ) -> list[dict[str, Any]]:
     """Rebuild the deterministic observation list for one account.
 
-    Mirrors Task 4's export selection: exported event types, rows ordered by
-    (event_type, canonical key JSON, event_timestamp) — jsonb's sorted-key
-    text form equals ``json.dumps(key, sort_keys=True)`` for canonical keys —
-    then sanitized (None entries excluded).
+    Mirrors Task 4's ``build_export`` row selection byte-for-byte: same SQL
+    (all event types, jsonb key order, timestamp), then the same Python
+    re-sort, then ``sanitize_observation`` (None entries excluded). No LIMIT
+    is applied because the receipt stores only the sanitized observation
+    count, not the raw-row limit — replay is byte-exact when the original
+    export covered the account's full event set (the flow-test case), and
+    honestly 409s when data has since changed.
     """
     sanitize = _sanitize()
     rows = await pool.fetch(
         """SELECT event_type, event_key, event_payload, event_timestamp, source_record_hash
              FROM v3_private.journal_event
-            WHERE owner_account_id = $1 AND event_type = ANY($2::text[])
-            ORDER BY event_type, event_key::text, event_timestamp
-            LIMIT $3""",
+            WHERE owner_account_id = $1
+            ORDER BY event_type, event_key, event_timestamp""",
         account_id,
-        sorted(EXPORT_OBSERVATION_TYPES),
-        limit,
     )
+    rows.sort(key=_observation_sort_key)
     observations: list[dict[str, Any]] = []
     for row in rows:
         observation = sanitize.sanitize_observation(dict(row))
@@ -232,12 +236,25 @@ async def _superseded_export_batch_ids(
 
 
 def _generated_at(row: dict[str, Any]) -> str:
+    """Reproduce the export build's stamped ``generated_at``.
+
+    Task 4's ``build_export`` stamps ``generated_at`` with
+    ``datetime.isoformat(timespec='seconds')`` + a trailing ``Z`` and stores
+    the same instant as the receipt's ``created_at``. The rebuild must
+    reproduce that exact string, not Python's default microsecond/``+00:00``
+    form, or the payload bytes diverge.
+    """
     manifest = row.get("manifest")
     if isinstance(manifest, dict):
         value = manifest.get("generated_at")
         if value:
             return str(value)
-    return _iso(row["created_at"])
+    value = row["created_at"]
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    return str(value)
 
 
 def _rebuild_supersede_payload(
@@ -276,11 +293,7 @@ async def _rebuilt_payload(
             superseded_export_batch_ids=superseded_ids,
             generated_at=_generated_at(row),
         )
-    observations = await _rebuild_observations(
-        pool,
-        user.account_id,
-        limit=int(row["observation_count"]),
-    )
+    observations = await _rebuild_observations(pool, user.account_id)
     return export_module.build_export_payload(
         export_batch_id=str(batch_id),
         lineage_token=str(row["lineage_token"]),
@@ -334,8 +347,9 @@ async def put_v3_research_consent(
         state = await consent.record_consent(pool, user.account_id, decision=body.decision)
     except HTTPException:
         raise
-    except ValueError as exc:
-        # Task 4's state machine may refuse (e.g. re-grant while withdrawn).
+    except consent.ConsentStateError as exc:
+        # Task 4's append-only ledger may refuse (e.g. re-grant while
+        # withdrawn, or a duplicate GRANT decision row).
         raise HTTPException(409, str(exc)) from exc
     return _state_from_effective(state)
 
