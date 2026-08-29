@@ -78,6 +78,16 @@ jobs:
           git reset --hard origin/main
           git clean -ffdx
 
+      - name: Prepare repository state gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -x .venv/bin/python ]; then
+            python3 -m venv .venv
+          fi
+          PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+          echo "CODEX_STATE_GATE=PASS"
+
       - name: Verify worker identity
         shell: bash
         run: |
@@ -101,7 +111,7 @@ jobs:
           set -euo pipefail
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
-          prompt="You are operating in the ED-Finder repository as an investigation-only worker. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
+          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
@@ -124,7 +134,7 @@ jobs:
           git checkout -B "$branch" origin/main
           git config user.name "codex-worker"
           git config user.email "codex-worker@users.noreply.github.com"
-          prompt="You are an implementation worker in the ED-Finder repository. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on origin/main before creating this isolated implementation branch; do not rerun that gate merely because the branch name is now different. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           git diff --check
           changes="$(git status --porcelain=v1 --untracked-files=all)"
