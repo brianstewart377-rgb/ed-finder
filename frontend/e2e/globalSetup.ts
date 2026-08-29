@@ -8,11 +8,35 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '../..');
 const composeFile = path.join(repoRoot, 'docker-compose.local.yml');
 
-const API_HOST = process.env.E2E_API_HOST || '127.0.0.1';
-const API_PORT = process.env.E2E_API_PORT || '8000';
-const API_URL = `http://${API_HOST}:${API_PORT}`;
-
 type BackendMode = 'external' | 'compose';
+
+function resolveApiUrl(): string {
+  // Explicit E2E host/port wins for ordinary CI, which boots its API on :8002.
+  if (process.env.E2E_API_HOST || process.env.E2E_API_PORT) {
+    const host = process.env.E2E_API_HOST || '127.0.0.1';
+    const port = process.env.E2E_API_PORT || '8000';
+    return `http://${host}:${port}`;
+  }
+
+  // Review Lab owns an isolated API on :8001 and already passes that exact
+  // origin to Vite as VITE_DEV_API_TARGET. Reuse the same target for backend
+  // readiness instead of falling back to the unrelated normal API on :8000.
+  const viteApiTarget = process.env.VITE_DEV_API_TARGET?.trim();
+  if (viteApiTarget) {
+    const parsed = new URL(viteApiTarget);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(
+        `Invalid VITE_DEV_API_TARGET=${JSON.stringify(viteApiTarget)}; `
+        + 'expected an http(s) URL.',
+      );
+    }
+    return parsed.origin;
+  }
+
+  return 'http://127.0.0.1:8000';
+}
+
+const API_URL = resolveApiUrl();
 
 function sleep(delayMs: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, delayMs));
