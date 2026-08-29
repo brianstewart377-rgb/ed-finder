@@ -96,19 +96,25 @@ async function zoomMapUntil(page: Page, done: () => boolean) {
   const renderer = page.locator('.map-foundation-renderer');
   const zoomIn = page.getByTestId('map-zoom-in');
 
+  // The normal map smoke test already proves the real control is actionable.
+  // Here the clicks are test setup for crossing the deep-zoom LOD, so dispatch
+  // the same production button handler in-page instead of paying Playwright's
+  // actionability/stability wait 18-24 times. Reduced motion makes each camera
+  // transition commit immediately; the final poll then gives the real 250 ms
+  // viewport settle timer room to issue its request.
   for (let attempt = 0; attempt < 24 && !done(); attempt += 1) {
     const before = Number(await renderer.getAttribute('data-camera-zoom'));
-    await zoomIn.click();
+    await zoomIn.evaluate((element) => (element as HTMLButtonElement).click());
     await expect.poll(
       async () => Number(await renderer.getAttribute('data-camera-zoom')),
-      { timeout: 3000 },
+      { timeout: 1500, intervals: [25, 50, 100] },
     ).toBeLessThan(before);
-    // useViewportSystems intentionally waits 250 ms after camera movement
-    // before querying, so allow the production debounce to complete.
-    await page.waitForTimeout(350);
   }
 
-  expect(done(), 'Expected deep zoom to trigger the real-star detail request').toBe(true);
+  await expect.poll(
+    () => done(),
+    { timeout: 5000, intervals: [50, 100, 250] },
+  ).toBe(true);
 }
 
 /**
@@ -197,6 +203,7 @@ test.describe('ED Finder — smoke', () => {
 
   test('Map navigation opens the activated Stage 26E renderer', async ({ page }) => {
     test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     const graphicsWarnings: string[] = [];
     const consoleHandler = (message: any) => {
       if (
@@ -321,6 +328,7 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
+    test.setTimeout(30_000);
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
 
@@ -480,12 +488,9 @@ test.describe('ED Finder — smoke', () => {
     await expect(modal).toBeVisible({ timeout: 10_000 });
     await expect(modal).toContainText(systemName);
 
-    const closeButton = modal.locator('[data-testid="modal-close"]');
-    if (await closeButton.isVisible()) {
-      await closeButton.click();
-    } else {
-      await page.locator('[data-testid="system-detail-modal-backdrop"]').click();
-    }
+    const closeButton = modal.getByTestId('system-detail-close');
+    await expect(closeButton).toBeVisible();
+    await closeButton.click();
 
     await expect(modal).not.toBeVisible({ timeout: 5_000 });
   });
