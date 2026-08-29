@@ -44,6 +44,7 @@ CHECKED_WORKFLOWS = (
     'codex-laptop.yml',
     'container-image-parity.yml',
     'coverage.yml',
+    'cypress-parity.yml',
     'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
     'review-lab.yml',
