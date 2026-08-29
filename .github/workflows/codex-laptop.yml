@@ -1,4 +1,4 @@
-name: Codex Laptop Worker
+name: Codex Worker
 
 on:
   workflow_dispatch:
@@ -21,12 +21,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: codex-laptop-worker
+  group: codex-worker
   cancel-in-progress: false
 
 jobs:
   codex:
-    runs-on: [self-hosted, Windows, X64, codex-laptop]
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     steps:
       - name: Checkout
@@ -34,36 +34,42 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify bounded worker identity
-        shell: pwsh
+      - name: Verify worker identity
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Stop'
-          $codex = 'C:\Users\brian\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe'
-          if (-not (Test-Path $codex)) { throw "Codex CLI not found at expected path: $codex" }
-          Write-Host "runner=$env:RUNNER_NAME"
-          Write-Host "workspace=$env:GITHUB_WORKSPACE"
-          & $codex --version
+          set -euo pipefail
+          echo "runner=$RUNNER_NAME"
+          echo "workspace=$GITHUB_WORKSPACE"
+          id
+          uname -a
+          if ! command -v codex >/dev/null 2>&1; then
+            echo "CODEX_NOT_INSTALLED"
+            exit 42
+          fi
+          codex --version
 
       - name: Run Codex investigation
         if: inputs.mode == 'investigate'
-        shell: pwsh
+        shell: bash
         env:
           CODEX_TASK: ${{ inputs.task }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $codex = 'C:\Users\brian\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe'
-          $prompt = @"
+          set -euo pipefail
+          prompt=$(cat <<'EOF'
           You are operating in the ED-Finder repository as an investigation-only worker.
           Do not modify files, commit, push, deploy, access production, or use production credentials.
           Inspect the repository and answer the task below with concrete file paths and findings.
+          EOF
+          )
+          prompt="$prompt
 
-          TASK:
-          $env:CODEX_TASK
-          "@
-          & $codex exec --sandbox read-only $prompt
+TASK:
+$CODEX_TASK"
+          codex exec --sandbox read-only "$prompt"
 
       - name: Implement mode safety stop
         if: inputs.mode == 'implement'
-        shell: pwsh
+        shell: bash
         run: |
-          throw 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.'
+          echo 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.' >&2
+          exit 64
