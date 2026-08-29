@@ -1,1 +1,1 @@
-{"mode":"investigate","task":"Report the repository root path, current commit SHA, and confirm whether CLAUDE.md exists. Do not modify anything."}
+{"mode":"investigate","task":"Report the repository root path, current commit SHA, and confirm whether CLAUDE.md exists. Do not modify anything. This is a bootstrap connectivity probe."}
