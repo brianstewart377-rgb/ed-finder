@@ -13,6 +13,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 E2E = FRONTEND / "e2e"
+CYPRESS_SPEC = FRONTEND / "cypress" / "e2e" / "release-gate.cy.js"
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 
@@ -22,14 +23,27 @@ def _read(path: Path) -> str:
 
 def test_cypress_owns_generic_browser_release_gate():
     ci_workflow = _read(WORKFLOWS / "ci.yml")
+    cypress_workflow_text = _read(WORKFLOWS / "cypress-parity.yml")
     cypress_config = _read(FRONTEND / "cypress.config.cjs")
     playwright_config = _read(FRONTEND / "playwright.config.ts")
 
-    # Ordinary PR CI must not grow a second browser release gate again.
+    # Ordinary CI must not grow a second Playwright browser release gate again.
+    # Reject the repository's normal aliases as well as direct CLI spellings so
+    # an unsharded Playwright invocation cannot bypass this contract.
     assert "Frontend v2 E2E (Playwright)" not in ci_workflow
-    assert "yarn playwright install" not in ci_workflow
+    assert "yarn e2e" not in ci_workflow
+    assert "yarn playwright" not in ci_workflow
+    assert "npx playwright" not in ci_workflow
+    assert "playwright install" not in ci_workflow
     assert "ms-playwright" not in ci_workflow
-    assert "yarn e2e --shard=" not in ci_workflow
+
+    # Cypress replaces the generic CI lane for both PRs and direct main pushes.
+    # BaseLoader keeps the YAML key `on` as a string instead of YAML 1.1's bool.
+    cypress_workflow = yaml.load(cypress_workflow_text, Loader=yaml.BaseLoader)
+    triggers = cypress_workflow["on"]
+    assert "pull_request" in triggers
+    assert "workflow_dispatch" in triggers
+    assert triggers["push"]["branches"] == ["main"]
 
     # Cypress is the authoritative release signal and therefore remains strict:
     # no test retries are allowed to turn a failing journey green.
@@ -38,6 +52,17 @@ def test_cypress_owns_generic_browser_release_gate():
     # Review Lab still uses the transitional Playwright collector and remains
     # strict until that isolated acceptance path is migrated as well.
     assert "failOnFlakyTests: reviewLabRun" in playwright_config
+
+
+def test_cypress_preserves_webgl_graphics_warning_regression_gate():
+    spec = _read(CYPRESS_SPEC)
+
+    # The retired Playwright smoke lane rejected Chromium/WebGL warnings that
+    # correlate with a mounted-but-blank/corrupt map. Keep that signal in the
+    # authoritative Cypress production-map journey before removing the lane.
+    assert "drawArraysInstanced|destination rect|viewport rect" in spec
+    assert "visitWithGraphicsWarningCapture" in spec
+    assert "assertNoGraphicsWarnings();" in spec
 
 
 def test_e2e_backend_lifecycle_is_ownership_aware_and_non_destructive():
