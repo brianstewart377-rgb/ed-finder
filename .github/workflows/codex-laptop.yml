@@ -73,7 +73,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=2
+          git fetch origin main --depth=10
           git checkout --detach origin/main
           git reset --hard origin/main
           git clean -ffdx
@@ -102,9 +102,6 @@ jobs:
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          # Ubuntu 24.04 on this dedicated, credential-free dev worker blocks Codex's
-          # bwrap user/network namespace setup. Use Codex's no-sandbox execution only
-          # for investigation jobs, then fail closed if the workspace changed at all.
           codex exec --sandbox danger-full-access "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
@@ -115,9 +112,40 @@ jobs:
             exit 66
           fi
 
-      - name: Implement mode safety stop
+      - name: Run Codex implementation
         if: steps.request.outputs.mode == 'implement'
+        id: implement
         shell: bash
+        env:
+          CODEX_TASK: ${{ steps.request.outputs.task }}
         run: |
-          echo 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.' >&2
-          exit 64
+          set -euo pipefail
+          branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          git checkout -B "$branch" origin/main
+          git config user.name "codex-worker"
+          git config user.email "codex-worker@users.noreply.github.com"
+          prompt="You are an implementation worker in the ED-Finder repository. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          codex exec --sandbox danger-full-access "$prompt"
+          git diff --check
+          changes="$(git status --porcelain=v1 --untracked-files=all)"
+          if [ -z "$changes" ]; then
+            echo "Codex produced no changes; refusing empty implementation branch." >&2
+            exit 67
+          fi
+          echo "== changed files =="
+          git status --short
+          git add -A
+          git commit -m "Codex implementation run ${GITHUB_RUN_ID}"
+          git push --force-with-lease origin "$branch"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "CODEX_BRANCH=$branch"
+
+      - name: Implementation branch summary
+        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+        run: |
+          set -euo pipefail
+          echo "Implementation branch pushed: $CODEX_BRANCH"
+          echo "Open a PR only after review of the diff and test evidence."
