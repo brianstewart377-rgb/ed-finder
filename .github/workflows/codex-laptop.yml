@@ -1,0 +1,69 @@
+name: Codex Laptop Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task for Codex CLI"
+        required: true
+        type: string
+      mode:
+        description: "Execution mode"
+        required: true
+        default: investigate
+        type: choice
+        options:
+          - investigate
+          - implement
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: codex-laptop-worker
+  cancel-in-progress: false
+
+jobs:
+  codex:
+    runs-on: [self-hosted, Windows, X64, codex-laptop]
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+
+      - name: Verify bounded worker identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $codex = 'C:\Users\brian\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe'
+          if (-not (Test-Path $codex)) { throw "Codex CLI not found at expected path: $codex" }
+          Write-Host "runner=$env:RUNNER_NAME"
+          Write-Host "workspace=$env:GITHUB_WORKSPACE"
+          & $codex --version
+
+      - name: Run Codex investigation
+        if: inputs.mode == 'investigate'
+        shell: pwsh
+        env:
+          CODEX_TASK: ${{ inputs.task }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $codex = 'C:\Users\brian\AppData\Local\Programs\OpenAI\Codex\bin\codex.exe'
+          $prompt = @"
+          You are operating in the ED-Finder repository as an investigation-only worker.
+          Do not modify files, commit, push, deploy, access production, or use production credentials.
+          Inspect the repository and answer the task below with concrete file paths and findings.
+
+          TASK:
+          $env:CODEX_TASK
+          "@
+          & $codex exec --sandbox read-only $prompt
+
+      - name: Implement mode safety stop
+        if: inputs.mode == 'implement'
+        shell: pwsh
+        run: |
+          throw 'Implement mode is intentionally disabled until the investigation-only worker is proven end-to-end.'
