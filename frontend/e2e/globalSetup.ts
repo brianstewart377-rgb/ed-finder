@@ -76,10 +76,10 @@ async function waitForBackend(maxRetries = 60, initialDelayMs = 100): Promise<vo
 
 async function globalSetup(config: FullConfig) {
   const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1';
+  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1' || process.env.EDFINDER_REVIEW_LAB_RUN === '1';
 
   if (skipBackend) {
-    console.log('ℹ Skipping backend startup (EDFINDER_SKIP_E2E_BACKEND=1)');
+    console.log('ℹ Skipping E2E backend startup because the backend is externally managed');
     return;
   }
 
@@ -175,7 +175,7 @@ async function globalSetup(config: FullConfig) {
 }
 
 async function globalTeardown() {
-  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1';
+  const skipBackend = process.env.EDFINDER_SKIP_E2E_BACKEND === '1' || process.env.EDFINDER_REVIEW_LAB_RUN === '1';
   const isCI = process.env.CI === 'true' || process.env.GITHUB_ACTIONS === 'true';
 
   if (skipBackend || isCI) {
