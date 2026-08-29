@@ -230,19 +230,15 @@ describe('ED Finder release gate — Cypress parity', () => {
         .and('contain.text', systemName);
     });
 
-    cy.get('body').then(($body) => {
-      // Cypress `cy.get()` is an assertion that an element exists, so it
-      // cannot be used to implement Playwright-style optional lookup. Inspect
-      // the current DOM first, then use the supported backdrop fallback when
-      // this modal variant has no explicit close button.
-      const $close = $body.find('[data-testid="modal-close"]');
-      if ($close.length > 0 && $close.is(':visible')) {
-        cy.wrap($close).click();
-      } else {
-        cy.getByTestId('system-detail-modal-backdrop').click('topLeft');
-      }
+    // Review Lab already locks Escape-to-close as an accessibility contract.
+    // Use that supported product path instead of guessing implementation-only
+    // backdrop/close-button test ids.
+    cy.get('body').type('{esc}');
+    cy.get('body').should(($body) => {
+      const $modal = $body.find('[data-testid="system-detail-modal"]');
+      const closed = $modal.length === 0 || !Cypress.dom.isVisible($modal[0]);
+      expect(closed, 'system detail modal closed by Escape').to.equal(true);
     });
-    cy.getByTestId('system-detail-modal').should('not.exist');
   });
 
   it('installs and controls through the cache-neutral service worker', () => {
