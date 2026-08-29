@@ -92,6 +92,25 @@ async function expectCanvasToBeSynced(page: Page) {
   expectCanvasMetricsToBeSynced(await readCanvasMetrics(page));
 }
 
+async function zoomMapUntil(page: Page, done: () => boolean) {
+  const renderer = page.locator('.map-foundation-renderer');
+  const zoomIn = page.getByTestId('map-zoom-in');
+
+  for (let attempt = 0; attempt < 24 && !done(); attempt += 1) {
+    const before = Number(await renderer.getAttribute('data-camera-zoom'));
+    await zoomIn.click();
+    await expect.poll(
+      async () => Number(await renderer.getAttribute('data-camera-zoom')),
+      { timeout: 3000 },
+    ).toBeLessThan(before);
+    // useViewportSystems intentionally waits 250 ms after camera movement
+    // before querying, so allow the production debounce to complete.
+    await page.waitForTimeout(350);
+  }
+
+  expect(done(), 'Expected deep zoom to trigger the real-star detail request').toBe(true);
+}
+
 /**
  * E2E smoke tests for the live SPA — runs against `yarn preview` (Vite
  * preview server) with `/api/*` proxied to the local FastAPI.
@@ -271,32 +290,35 @@ test.describe('ED Finder — smoke', () => {
     await page.getByTestId('map-view-galaxy').click();
     await page.getByTestId('map-snap-top-down').click();
 
-    const renderer = page.locator('.map-foundation-renderer');
-    const realStarsResponsePromise = page.waitForResponse((response) => (
-      new URL(response.url()).pathname === '/api/map/systems'
-    ));
-    await renderer.evaluate((element) => {
-      element.dispatchEvent(new WheelEvent('wheel', {
-        bubbles: true,
-        cancelable: true,
-        deltaY: -3_500,
-      }));
-    });
-    await expect.poll(async () => Number(await renderer.getAttribute('data-camera-zoom')))
-      .toBeLessThan(10);
-
-    const realStarsResponse = await realStarsResponsePromise;
-    expect(realStarsResponse.status()).toBe(200);
-    const realStarsBody = await realStarsResponse.json() as {
-      systems: Array<any>;
-      truncated: boolean;
+    let realStarsRequested = false;
+    const requestHandler = (request: any) => {
+      if (new URL(request.url()).pathname === '/api/map/systems') {
+        realStarsRequested = true;
+      }
     };
-    expect(realStarsBody).toEqual(expect.objectContaining({
-      systems: expect.any(Array),
-      truncated: expect.any(Boolean),
-    }));
-    await expect(renderer.locator('canvas')).toBeVisible();
-    await expect(page.getByText(/detailed star layer could not be loaded/i)).toHaveCount(0);
+    page.on('request', requestHandler);
+    const realStarsResponsePromise = page.waitForResponse(
+      (response) => new URL(response.url()).pathname === '/api/map/systems',
+      { timeout: 30_000 },
+    );
+
+    try {
+      await zoomMapUntil(page, () => realStarsRequested);
+      const realStarsResponse = await realStarsResponsePromise;
+      expect(realStarsResponse.status()).toBe(200);
+      const realStarsBody = await realStarsResponse.json() as {
+        systems: Array<any>;
+        truncated: boolean;
+      };
+      expect(realStarsBody).toEqual(expect.objectContaining({
+        systems: expect.any(Array),
+        truncated: expect.any(Boolean),
+      }));
+      await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
+      await expect(page.getByText(/detailed star layer could not be loaded/i)).toHaveCount(0);
+    } finally {
+      page.off('request', requestHandler);
+    }
   });
 
   test('invalidates renderer sync telemetry while a resize is pending', async ({ page }) => {
@@ -443,21 +465,22 @@ test.describe('ED Finder — smoke', () => {
     await page.getByTestId('search-submit').click();
     await expect(page.getByTestId('search-summary')).toBeVisible({ timeout: 15_000 });
 
-    // Click first result
-    const firstResult = page.locator('[data-testid^="system-card-"]').first();
-    await expect(firstResult).toBeVisible();
-    const systemName = await firstResult.textContent();
+    const firstResult = page.locator('[data-testid^="result-card-"]').first();
+    await expect(firstResult).toBeVisible({ timeout: 15_000 });
+    const systemName = (await firstResult.locator('h3').textContent())?.trim() ?? '';
+    expect(systemName).not.toBe('');
 
-    await firstResult.click();
+    // Result cards now expand first; the explicit Inspect system action opens
+    // the detail modal. Clicking the whole card only toggles its details.
+    await firstResult.locator('header').click();
+    const inspectButton = firstResult.getByRole('button', { name: 'Inspect system' });
+    await expect(inspectButton).toBeVisible();
+    await inspectButton.click();
 
-    // Modal should appear with system details
     const modal = page.locator('[data-testid="system-detail-modal"]');
-    await expect(modal).toBeVisible({ timeout: 5_000 });
+    await expect(modal).toBeVisible({ timeout: 10_000 });
+    await expect(modal).toContainText(systemName);
 
-    // Verify modal contains the clicked system's data
-    await expect(modal).toContainText(systemName ?? '');
-
-    // Close modal by clicking backdrop or close button
     const closeButton = modal.locator('[data-testid="modal-close"]');
     if (await closeButton.isVisible()) {
       await closeButton.click();
@@ -470,27 +493,32 @@ test.describe('ED Finder — smoke', () => {
 
   // Issue #9: API error handling
   test('handles real-stars endpoint error gracefully', async ({ page }) => {
-    // Abort the real-stars API to simulate server error
-    await page.route('/api/map/systems', (route) => {
+    test.setTimeout(30_000);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.route(/\/api\/map\/systems(?:\?|$)/, (route) => {
       route.abort('failed');
     });
 
     await page.goto('/');
     await page.getByTestId('nav-map').click();
     await page.getByTestId('map-view-galaxy').click();
+    await page.getByTestId('map-snap-top-down').click();
 
-    const renderer = page.locator('.map-foundation-renderer');
+    let realStarsRequested = false;
+    const requestHandler = (request: any) => {
+      if (new URL(request.url()).pathname === '/api/map/systems') {
+        realStarsRequested = true;
+      }
+    };
+    page.on('request', requestHandler);
 
-    // Deep zoom to trigger real-stars request
-    for (let i = 0; i < 10; i++) {
-      await renderer.evaluate((el) => {
-        (el as any).dispatchEvent(new WheelEvent('wheel', { deltaY: -500, bubbles: true }));
-      });
-      await page.waitForTimeout(100);
+    try {
+      await zoomMapUntil(page, () => realStarsRequested);
+      await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
+      await expect(page.getByText(/detailed star layer could not be loaded/i)).toBeVisible({ timeout: 5_000 });
+    } finally {
+      page.off('request', requestHandler);
     }
-
-    // Should not crash or freeze - canvas should still be visible
-    await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
   });
 
   test('handles heatmap endpoint error gracefully', async ({ page }) => {
