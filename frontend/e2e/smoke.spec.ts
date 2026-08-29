@@ -124,10 +124,9 @@ async function zoomMapUntil(page: Page, done: () => boolean) {
  */
 test.describe('ED Finder — smoke', () => {
   test.beforeEach(async ({ page }) => {
-    // Clear localStorage so each test starts from a known state.
+    // Each Playwright test already gets a fresh BrowserContext. Navigate once;
+    // do not add storage-clearing reloads that duplicate runner isolation.
     await page.goto('/');
-    await page.evaluate(() => localStorage.clear());
-    await page.reload();
   });
 
   test('app boots with health badge', async ({ page }) => {
@@ -522,18 +521,21 @@ test.describe('ED Finder — smoke', () => {
   });
 
   test('handles heatmap endpoint error gracefully', async ({ page }) => {
-    // Simulate heatmap endpoint timeout
-    await page.route('/api/map/heatmap', async (route) => {
-      // Delay response indefinitely to simulate timeout
-      await new Promise(() => {});
+    const heatmapRequest = page.waitForRequest((request) => (
+      new URL(request.url()).pathname === '/api/map/heatmap'
+    ));
+    await page.route(/\/api\/map\/heatmap(?:\?|$)/, (route) => {
+      route.abort('timedout');
     });
 
     await page.goto('/');
     await page.getByTestId('nav-map').click();
+    await heatmapRequest;
 
-    // After some time, should either recover or show graceful error
-    // At minimum, shouldn't hard-crash
-    await expect(page.locator('body')).toBeVisible({ timeout: 5000 });
+    // The failure is deterministic and bounded: prove the map shell remains
+    // usable rather than leaving a route handler pending forever.
+    await expect(page.getByTestId('stage26e-production-map')).toBeVisible();
+    await expect(page.locator('.map-foundation-renderer canvas')).toBeVisible();
   });
 });
 
