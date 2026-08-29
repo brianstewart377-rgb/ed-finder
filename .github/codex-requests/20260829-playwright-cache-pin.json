@@ -1,0 +1,4 @@
+{
+  "mode": "implement",
+  "task": "Fix only the clearly broken CI infrastructure pin in .github/workflows/ci.yml that prevents both Playwright E2E shards from starting: actions/cache currently points at unresolved SHA 3d10df36a13dd38f21cfe2eb21b847daaa8c7b33. Replace that one pin with the verified official actions/cache v4.2.4 commit SHA 0400d5f644dc74513175e3cd8d07132dd4860809 and update the adjacent version comment to v4.2.4. Do not alter product code, test expectations, other workflow behavior, production systems, deployment settings, or unrelated files. Validate the workflow YAML/contract as far as the repo tooling permits, run git diff --check, and report exact scope and checks."
+}
