@@ -37,6 +37,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 # added here explicitly — a file silently excluded from this list would
 # defeat the point of the contract.
 CHECKED_WORKFLOWS = (
+    'chatgpt-ops.yml',
     'ci.yml',
     'codeql.yml',
     'container-image-parity.yml',
@@ -56,7 +57,7 @@ class _NoBoolCoercionLoader(yaml.SafeLoader):
     Actions job literally named `on` or `yes` — both legal job IDs — would
     collide with any other job of the opposite boolean-ish name into a
     single `True`/`False` dict key, and the later one silently overwrites
-    the earlier one before this test ever sees it. This repo's real
+    the earlier before this test ever sees it. This repo's real
     workflows don't currently use such a job ID, but the contract itself
     must not depend on that staying true by luck. No code here inspects
     value types (only key presence), so disabling coercion for values too
@@ -151,9 +152,8 @@ def test_boolean_like_job_ids_do_not_collide():
     """Codex Review finding: 'on' and 'yes' are both legal GitHub Actions
     job IDs, but PyYAML's default (YAML 1.1) boolean coercion resolves
     bare `on`/`yes` mapping keys to Python True, so two such jobs would
-    collide into a single dict key and the later one would silently
-    overwrite the earlier — the overwritten job's timeout requirement
-    would then vanish along with it, unseen by this contract."""
+    collide with any other job of the opposite boolean-ish name into a
+    single `True`/`False` dict key and silently overwrite one another."""
     workflow_yaml = (
         'jobs:\n'
         '  on:\n'
@@ -162,9 +162,6 @@ def test_boolean_like_job_ids_do_not_collide():
         '    runs-on: ubuntu-latest\n'
         '    timeout-minutes: 10\n'
     )
-    # First prove the vulnerable default loader actually collides them —
-    # otherwise this test could pass for the wrong reason (PyYAML having
-    # changed its default) without proving the custom loader is needed.
     default_loaded = yaml.safe_load(workflow_yaml)
     assert len(default_loaded['jobs']) == 1, (
         'expected PyYAML default coercion to collide these two keys; if '
