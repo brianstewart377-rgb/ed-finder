@@ -40,6 +40,24 @@ class Settings(BaseSettings):
     app_version:        str  = '3.0.1-hetzner'
     build_sha:          str  = 'unknown'
     admin_token:        Optional[str] = None
+    # Frontier OAuth. The client secret is server-only and must never be
+    # exposed to the Vite bundle. OAuth access/refresh tokens are deliberately
+    # not persisted: this first account slice stores only the stable Frontier
+    # account identifier and Commander name approved for ED-Finder.
+    frontier_client_id: Optional[str] = None
+    frontier_client_secret: Optional[str] = None
+    frontier_redirect_uri: str = 'https://ed-finder.app/api/auth/frontier/callback'
+    frontier_auth_base_url: str = 'https://auth.frontierstore.net'
+    frontier_capi_base_url: str = 'https://companion.orerve.net'
+    frontier_user_agent: str = 'EDCD-EDFinder-3.0.1'
+    # Recovery/explicit provisioning path. Normal owner bootstrap uses the
+    # existing ADMIN_TOKEN once, then persists the role in app_users.
+    frontier_owner_customer_ids: str = ''
+    auth_session_cookie_name: str = 'ed_finder_session'
+    auth_state_cookie_name: str = 'ed_finder_oauth_state'
+    auth_session_ttl_seconds: int = 604800
+    auth_state_ttl_seconds: int = 600
+    auth_cookie_secure: bool = True
     # Optional read-only station enrichment status artifact. This should point
     # at JSON produced by `scripts/station_enrichment_status.py --json` on a
     # filesystem mounted into the API container, for example under /data/logs.
@@ -92,6 +110,8 @@ class Settings(BaseSettings):
         'enrichment_status_json_path',
         'enrichment_warehouse_status_json_path',
         'sentry_dsn',
+        'frontier_client_id',
+        'frontier_client_secret',
         mode='before',
     )
     @classmethod
@@ -99,6 +119,14 @@ class Settings(BaseSettings):
         if isinstance(v, str) and not v.strip():
             return None
         return v
+
+    @property
+    def frontier_owner_ids(self) -> frozenset[str]:
+        return frozenset(
+            value.strip()
+            for value in self.frontier_owner_customer_ids.split(',')
+            if value.strip()
+        )
 
     @field_validator('cors_origins')
     @classmethod
