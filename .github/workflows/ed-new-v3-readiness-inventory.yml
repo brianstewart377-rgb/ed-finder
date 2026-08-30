@@ -1,0 +1,166 @@
+name: ed-new V3 Readiness Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-readiness-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Inventory V3 identity semantics and recovery state
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-readiness-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"inventory-v3-readiness"}:
+              raise SystemExit(64)
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Inventory identity semantics and recovery state
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container], text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-X','-At','-F','|']
+          def q(sql):
+              return subprocess.check_output(base+['-c',sql], text=True).strip()
+
+          print('== IDENTITY ROW COUNTS ==')
+          print(q("SELECT 'account',count(*) FROM v3_identity.account UNION ALL SELECT 'commander',count(*) FROM v3_identity.commander UNION ALL SELECT 'external_identity',count(*) FROM v3_identity.external_identity UNION ALL SELECT 'commander_external_identity',count(*) FROM v3_identity.commander_external_identity UNION ALL SELECT 'oauth_login_state',count(*) FROM v3_identity.oauth_login_state UNION ALL SELECT 'session',count(*) FROM v3_identity.session UNION ALL SELECT 'account_role',count(*) FROM v3_identity.account_role UNION ALL SELECT 'account_commander_access',count(*) FROM v3_identity.account_commander_access ORDER BY 1"))
+
+          print('== SEEDED ROLES ==')
+          print(q("SELECT role_id,public_code,description,active FROM v3_identity.role ORDER BY role_id"))
+
+          print('== IDENTITY FUNCTIONS ==')
+          print(q("SELECT p.proname,p.prokind,pg_get_function_identity_arguments(p.oid),pg_get_function_result(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='v3_identity' ORDER BY p.proname,pg_get_function_identity_arguments(p.oid)"))
+
+          print('== IDENTITY TRIGGERS ==')
+          print(q("SELECT c.relname,t.tgname,pg_get_triggerdef(t.oid,true) FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='v3_identity' AND NOT t.tgisinternal ORDER BY c.relname,t.tgname"))
+
+          print('== IDENTITY TABLE COMMENTS ==')
+          print(q("SELECT c.relname,COALESCE(obj_description(c.oid,'pg_class'),'') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='v3_identity' AND c.relkind='r' ORDER BY c.relname"))
+
+          print('== PROVIDER/ISSUER COUNTS ==')
+          print(q("SELECT provider,issuer,count(*) FROM v3_identity.external_identity GROUP BY provider,issuer ORDER BY provider,issuer"))
+          print(q("SELECT provider,issuer,count(*) FROM v3_identity.commander_external_identity GROUP BY provider,issuer ORDER BY provider,issuer"))
+
+          print('== POSTGRES RECOVERY CONFIG ==')
+          print(q("SELECT 'server_version',current_setting('server_version') UNION ALL SELECT 'data_directory',current_setting('data_directory') UNION ALL SELECT 'archive_mode',current_setting('archive_mode') UNION ALL SELECT 'archive_command',current_setting('archive_command') UNION ALL SELECT 'wal_level',current_setting('wal_level') UNION ALL SELECT 'in_recovery',pg_is_in_recovery()::text ORDER BY 1"))
+
+          print('== ARCHIVER STATUS ==')
+          print(q("SELECT archived_count,failed_count,COALESCE(last_archived_wal,''),COALESCE(last_failed_wal,''),COALESCE(last_archived_time::text,''),COALESCE(last_failed_time::text,'') FROM pg_stat_archiver"))
+
+          print('== POSTGRES TOOL VERSIONS ==')
+          for tool in ('pg_dump','pg_restore','pg_basebackup'):
+              try:
+                  out=subprocess.check_output(['docker','exec',container,tool,'--version'], text=True).strip()
+              except subprocess.CalledProcessError as exc:
+                  out=f'ERROR exit={exc.returncode}'
+              print(f'{tool}|{out}')
+
+          print('== CONTAINER MOUNTS ==')
+          for mount in inspect.get('Mounts',[]):
+              safe={k:mount.get(k) for k in ('Type','Name','Source','Destination','Mode','RW','Propagation') if mount.get(k) not in (None,'')}
+              print(json.dumps(safe, sort_keys=True))
+
+          print('== COMPOSE METADATA ==')
+          labels=inspect.get('Config',{}).get('Labels',{}) or {}
+          for key in ('com.docker.compose.project','com.docker.compose.project.working_dir','com.docker.compose.project.config_files'):
+              print(f'{key}|{labels.get(key,"")}')
+
+          print('== BACKUP-LIKE PATH METADATA ==')
+          candidates=[]
+          for raw in ('/data/backups','/var/backups','/opt/ed-finder/backups','/srv/ed-finder/backups'):
+              p=pathlib.Path(raw)
+              if p.exists():
+                  candidates.append(p)
+          source_root=labels.get('com.docker.compose.project.working_dir','')
+          if source_root:
+              for child in ('backups','backup','artifacts'):
+                  p=pathlib.Path(source_root)/child
+                  if p.exists(): candidates.append(p)
+          seen=set()
+          for root in candidates:
+              try: root=root.resolve()
+              except OSError: continue
+              if root in seen: continue
+              seen.add(root)
+              print(f'ROOT|{root}')
+              try:
+                  entries=[]
+                  for p in root.rglob('*'):
+                      try:
+                          if p.is_file() and p.suffix.lower() in {'.dump','.backup','.bak','.gz','.zst','.json','.sha256'}:
+                              st=p.stat(); entries.append((st.st_mtime,st.st_size,p))
+                      except OSError:
+                          pass
+                  for mtime,size,p in sorted(entries, reverse=True)[:30]:
+                      print(f'FILE|{p}|{size}|{int(mtime)}')
+              except OSError as exc:
+                  print(f'ERROR|{root}|{type(exc).__name__}')
+
+          print('== SAFETY ==')
+          print('db_access_performed|read-only metadata/selects only')
+          print('db_writes_performed|false')
+          print('host_mutation_performed|false')
+          PY
