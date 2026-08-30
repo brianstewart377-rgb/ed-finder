@@ -1,0 +1,92 @@
+name: ed-new V3 Backup Info
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-backup-info-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  info:
+    name: Read retained V3 backup inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-backup-info-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"read-v3-backup-info"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Read pgBackRest metadata and verify-process state
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess, time
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          p=subprocess.run(['docker','exec','-u','postgres',container,'pgbackrest','--stanza=edfinder_v3','--log-level-console=off','--output=json','info'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          print('pgbackrest_info_exit|' + str(p.returncode))
+          if p.returncode:
+              raise SystemExit('pgBackRest info failed')
+          data=json.loads(p.stdout)
+          if len(data)!=1:
+              raise SystemExit('unexpected stanza count')
+          s=data[0]
+          print('stanza|' + str(s.get('name','')) + '|' + str(s.get('status',{}).get('message','')))
+          backups=s.get('backup',[])
+          complete=[b for b in backups if b.get('timestamp',{}).get('stop') and not b.get('error',False)]
+          print('backup_count|' + str(len(backups)))
+          print('completed_backup_count|' + str(len(complete)))
+          if complete:
+              b=complete[-1]
+              print('latest_completed_label|' + str(b.get('label','')))
+              print('latest_completed_type|' + str(b.get('type','')))
+              print('latest_completed_start|' + str(b.get('timestamp',{}).get('start','')))
+              print('latest_completed_stop|' + str(b.get('timestamp',{}).get('stop','')))
+              print('latest_completed_db_size|' + str(b.get('info',{}).get('size','')))
+              print('latest_completed_repo_size|' + str(b.get('repo',{}).get('size','')))
+          top=subprocess.run(['docker','top',container,'-eo','pid,etimes,args'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          verify_lines=[line for line in top.stdout.splitlines() if 'pgbackrest' in line.lower() and 'verify' in line.lower()]
+          print('verify_process_count|' + str(len(verify_lines)))
+          print('db_writes_performed|false')
+          PY
