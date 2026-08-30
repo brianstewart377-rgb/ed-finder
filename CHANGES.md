@@ -5,6 +5,26 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-08-30 - Stage 27A spatial platform contracts and audit
+
+**Stage 27 now has an authoritative contract before runtime work** - Added the
+product and renderer-neutral architecture decisions for one Galaxy/System
+spatial platform, including truth classes, semantic zoom, first-class personal
+exploration, System fidelity S0–S5, CRE/CPE ownership, accessibility,
+reliability, benchmarks, recovery, and inert contract sketches.
+
+**The migration starts from accurate Stage 26 history** - The equal bakeoff
+selected R3F/Three.js, its foundation and production cutover succeeded, and it
+remains production/rollback. Expanded product requirements now select a modern
+Babylon 9-class workbench direction; the August 16 Babylon 6/world-scale/point-
+cloud plan is explicitly historical and must not be executed wholesale.
+
+**Data readiness is evidence-led, not guessed** - Added Stage 26 inheritance,
+three-repo capability, and System Map readiness audits plus a SELECT-only
+coverage pack. No authorized production read path was used, so V3 population
+coverage remains unknown. No runtime, dependency, production behavior,
+mechanics, database, deployment, or V2 archive change is claimed.
+
 ## 2026-07-23 - Stage 26E post-cutover boundary and projection polish
 
 **The live map's region structure is clearer without changing its data** -

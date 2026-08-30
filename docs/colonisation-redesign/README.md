@@ -4,7 +4,29 @@ This folder contains the active contracts, closeout records, architecture notes,
 and historical implementation docs for ED-Finder's colonisation, planner,
 evidence, and enrichment work.
 
-## Active Stage 26 Control
+## Active Stage 27A Control
+
+**Stage 27A Spatial Platform Contract and Audit is current. It is
+documentation/audit work only. After owner acceptance it may authorize Stage
+27B only; no Babylon runtime or production map change is authorized here.**
+
+- [`../ROADMAP.md`](../ROADMAP.md) is the single authority for programme order.
+- [`spatial-platform-product-contract.md`](./spatial-platform-product-contract.md)
+  defines product scales, truth classes, workflows and acceptance.
+- [`spatial-platform-architecture-decision.md`](./spatial-platform-architecture-decision.md)
+  defines renderer-neutral ownership, contracts and the Babylon 9-class
+  technical direction.
+- [`stage-27a-stage26-inheritance-matrix.md`](./stage-27a-stage26-inheritance-matrix.md),
+  [`stage-27a-spatial-capability-inventory.md`](./stage-27a-spatial-capability-inventory.md),
+  and [`stage-27a-system-map-data-readiness.md`](./stage-27a-system-map-data-readiness.md)
+  are the evidence audits.
+
+Stage 26 remains accurate history: equal bakeoff selected R3F/Three.js, its
+foundation shipped, and production cutover completed. R3F remains production
+and rollback until Stage 27's later bakeoff/cutover. Babylon did not win Stage
+26 and the August 16 narrow replacement plan is not current authority.
+
+## Historical Stage 26 Control
 
 The prior **Active Stage 25 Control** is complete and remains the settled
 product-shell and selected-system context baseline for this new lane.
@@ -25,8 +47,7 @@ product-shell and selected-system context baseline for this new lane.
   records the typed Finder, Compare, saved/evidence, System Detail, Cluster
   Search, and read-only Planner hand-offs retained behind the isolated entry.
 - [`stage-26e-cutover-readiness.md`](./stage-26e-cutover-readiness.md)
-  records current browser, accessibility, visual, and performance evidence plus
-  the parity, memory, GPU, and legal blockers that keep cutover unauthorized.
+  preserves browser, accessibility, visual, performance and cutover evidence.
 - [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
   remains the settled shell and selected-system context baseline.
 
@@ -35,8 +56,7 @@ product-shell and selected-system context baseline for this new lane.
 Use this order before changing planner, evidence, or enrichment behaviour:
 
 1. [`../ROADMAP.md`](../ROADMAP.md)
-2. [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md)
-   for map work, or
+2. The Stage 27A product and architecture contracts above for spatial work, or
    [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
    for shell and planner-context work
 3. [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md)
@@ -53,7 +73,12 @@ If an older document's recommended next step conflicts with
 | Document | Why it matters |
 |---|---|
 | [`../ROADMAP.md`](../ROADMAP.md) | Single source for current priorities, boundaries, and next work. |
-| [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md) | Active map authorization, research artifacts, renderer bake-off, integration boundary, and staged cutover contract. |
+| [`spatial-platform-product-contract.md`](./spatial-platform-product-contract.md) | Active Stage 27 product, truth and acceptance authority. |
+| [`spatial-platform-architecture-decision.md`](./spatial-platform-architecture-decision.md) | Active renderer-neutral architecture and Babylon 9-class direction. |
+| [`stage-27a-stage26-inheritance-matrix.md`](./stage-27a-stage26-inheritance-matrix.md) | Stage 26 behavior/test migration evidence. |
+| [`stage-27a-spatial-capability-inventory.md`](./stage-27a-spatial-capability-inventory.md) | ED-Finder/CRE/CPE ownership and implementation audit. |
+| [`stage-27a-system-map-data-readiness.md`](./stage-27a-system-map-data-readiness.md) | System data capability, exposure, coverage and provenance audit. |
+| [`stage-26a-next-generation-map-foundation-contract.md`](./stage-26a-next-generation-map-foundation-contract.md) | Historical Stage 26 authorization and requirements evidence. |
 | [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md) | Settled shell and selected-system context baseline. |
 | [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md) | Current evidence-language and visual-system baseline. |
 | [`stage-25a-current-state-map-product-visual-baseline.md`](./stage-25a-current-state-map-product-visual-baseline.md) | Current-state audit and map posture baseline. |
