@@ -16,6 +16,10 @@ does not touch the database.
 
 Current scripts:
 
+- `audit_production_candidate.py`: read-only, fail-closed readiness audit for an
+  existing PostgreSQL production candidate. It requires an explicit
+  `DATABASE_URL`/`--database-url`, emits human output by default, and supports
+  `--json` or `--json-output PATH` for a durable, credential-free receipt.
 - `require_hetzner_operator_env.sh`: reusable fail-fast guard for
   Hetzner-only commands.
 - `stage18j_run_station_type_dry_run.sh`: generates the Stage 18J-P

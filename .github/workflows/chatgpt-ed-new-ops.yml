@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - host-status
+          - production-candidate-readiness
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -55,7 +56,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status) ;;
+            host-status|production-candidate-readiness) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -93,3 +94,76 @@ jobs:
               -o StrictHostKeyChecking=yes \
               "$SSH_USER@$SSH_HOST" \
               'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
+
+      - name: Run read-only production-candidate readiness audit
+        id: candidate_audit
+        if: steps.request.outputs.operation == 'production-candidate-readiness'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          test -n "$CANDIDATE_DATABASE_URL" || { echo "Missing ED_NEW_CANDIDATE_DATABASE_URL" >&2; exit 1; }
+          echo "::add-mask::$CANDIDATE_DATABASE_URL"
+          set +e
+          printf '%s\n' "$CANDIDATE_DATABASE_URL" | ssh \
+              -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              'set -eu; IFS= read -r DATABASE_URL; test -n "$DATABASE_URL"; export DATABASE_URL; unset REPLY; cd /opt/ed-finder; test -f scripts/operator/audit_production_candidate.py; receipt="$(mktemp)"; trap '\''rm -f "$receipt"'\'' EXIT; set +e; python3 scripts/operator/audit_production_candidate.py --json-output "$receipt" >&2; status=$?; set -e; test -s "$receipt" && cat "$receipt"; exit "$status"' \
+              > production-candidate-readiness.json
+          audit_status=$?
+          set -e
+          echo "audit_status=$audit_status" >> "$GITHUB_OUTPUT"
+          if [ "$audit_status" -gt 2 ]; then
+            echo "Unexpected readiness-audit exit status: $audit_status" >&2
+          fi
+
+      - name: Validate readiness receipt is JSON and credential-free
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always()
+        shell: bash
+        env:
+          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = Path('production-candidate-readiness.json')
+          raw = receipt.read_text(encoding='utf-8')
+          json.loads(raw)
+          secret = os.environ.get('CANDIDATE_DATABASE_URL', '')
+          if secret and secret in raw:
+              raise SystemExit('Readiness receipt contains the candidate database URL')
+          PY
+
+      - name: Retain production-candidate readiness receipt
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-candidate-readiness-${{ github.run_id }}
+          path: production-candidate-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce production-candidate readiness result
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always()
+        shell: bash
+        env:
+          AUDIT_STATUS: ${{ steps.candidate_audit.outputs.audit_status }}
+        run: |
+          set -euo pipefail
+          case "$AUDIT_STATUS" in
+            0) echo "Production-candidate readiness audit passed." ;;
+            1) echo "Production candidate has readiness blockers; inspect the JSON receipt." >&2; exit 1 ;;
+            2) echo "Production-candidate audit failed closed; inspect the run without exposing credentials." >&2; exit 2 ;;
+            *) echo "Production-candidate audit did not produce a valid result." >&2; exit 2 ;;
+          esac
