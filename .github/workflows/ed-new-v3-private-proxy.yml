@@ -1,0 +1,139 @@
+name: ed-new V3 Private Proxy
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-proxy-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  proxy:
+    name: Bring up private V3 reverse proxy
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-proxy-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"bootstrap-private-v3-proxy"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Create proxy and smoke API paths
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          runtime='/opt/ed-finder-v3-runtime'
+          conf="$runtime/nginx-private.conf"
+          name='edfinder-v3-proxy'
+          net='edfinder-v3-runtime'
+          mkdir -p "$runtime"
+          chmod 700 "$runtime"
+          cat > "$conf" <<'NGINX'
+          events {}
+          http {
+            server_tokens off;
+            access_log /dev/stdout;
+            error_log /dev/stderr warn;
+            server {
+              listen 8080;
+              location = /_proxy-health {
+                add_header Content-Type text/plain;
+                return 200 'ok\n';
+              }
+              location /api/ {
+                proxy_http_version 1.1;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto https;
+                proxy_pass http://api:8000;
+              }
+              location / {
+                return 404;
+              }
+            }
+          }
+          NGINX
+          chmod 600 "$conf"
+
+          if docker inspect "$name" >/dev/null 2>&1; then
+            docker rm -f "$name" >/dev/null
+          fi
+          docker run -d \
+            --name "$name" \
+            --restart unless-stopped \
+            --network "$net" \
+            --network-alias proxy \
+            --label com.edfinder.v3.runtime=true \
+            -p 127.0.0.1:58080:8080 \
+            -v "$conf:/etc/nginx/nginx.conf:ro" \
+            nginx:1.28-alpine >/dev/null
+
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 3 http://127.0.0.1:58080/_proxy-health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -fsS --max-time 3 http://127.0.0.1:58080/_proxy-health | grep -qx ok
+          curl -fsS --max-time 3 http://127.0.0.1:58080/api/health > /tmp/proxy-api-health.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/proxy-api-health.json'))
+          if p.get('status')!='ok' or p.get('database')!='connected':
+              raise SystemExit(p)
+          print('proxy_api_health|PASS')
+          PY
+          curl -fsS --max-time 3 http://127.0.0.1:58080/api/v1/auth/session > /tmp/proxy-session.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/proxy-session.json'))
+          if p.get('authenticated') is not False:
+              raise SystemExit(p)
+          print('proxy_anonymous_session|PASS')
+          PY
+          echo "proxy_restart_policy|$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$name")"
+          echo 'proxy_bind|127.0.0.1:58080'
+          echo 'public_exposure|false'
+          echo 'oauth_login_initiated|false'
+          echo 'db_write_route_called|false'
+          REMOTE
