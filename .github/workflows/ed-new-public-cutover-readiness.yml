@@ -55,19 +55,18 @@ jobs:
             -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import ipaddress, json, socket, subprocess, urllib.request
+          import ipaddress, json, shutil, socket, subprocess, urllib.request
 
           def run(args):
-              return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+              try:
+                  return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+              except FileNotFoundError:
+                  return None
 
           print('hostname|' + socket.gethostname())
-
-          # Inventory host IPv4 addresses without printing them. Decide only whether
-          # current public DNS already resolves to an address assigned to this host.
           ip = run(['ip','-j','-4','addr','show'])
-          host_ips=set()
-          public_ips=set()
-          if ip.returncode == 0:
+          host_ips=set(); public_ips=set()
+          if ip and ip.returncode == 0:
               for iface in json.loads(ip.stdout or '[]'):
                   for a in iface.get('addr_info',[]):
                       addr=a.get('local')
@@ -92,26 +91,22 @@ jobs:
           print('dns_points_to_ed_new|' + str(bool(host_ips & dns_ips)).lower())
 
           ss=run(['ss','-lnt'])
-          lines=ss.stdout.splitlines()
+          lines=(ss.stdout.splitlines() if ss else [])
           def port_used(port):
               suffix=':'+str(port)
               for line in lines[1:]:
                   cols=line.split()
-                  if len(cols) >= 4:
-                      local=cols[3]
-                      if local.endswith(suffix):
-                          return True
+                  if len(cols) >= 4 and cols[3].endswith(suffix): return True
               return False
           for port in (80,443,58080,58095):
               print(f'host_port_{port}_listening|' + str(port_used(port)).lower())
 
           ps=run(['docker','ps','--format','{{.Names}}|{{.Image}}|{{.Ports}}'])
           print('v3_runtime_containers:')
-          for line in ps.stdout.splitlines():
-              if 'edfinder-v3' in line.lower():
-                  print(line)
+          if ps:
+              for line in ps.stdout.splitlines():
+                  if 'edfinder-v3' in line.lower(): print(line)
 
-          # Confirm the private nginx/API chain is still healthy.
           for url,label in [
               ('http://127.0.0.1:58080/api/v1/auth/session','private_nginx_auth_session'),
               ('http://127.0.0.1:58095/openapi.json','private_api_openapi'),
@@ -124,29 +119,34 @@ jobs:
                   code=getattr(exc,'code',None)
                   print(label+'_status|'+(str(code) if code else 'ERROR'))
 
-          # Firewall summaries only; do not dump unrelated rules.
+          print('ufw_installed|' + str(shutil.which('ufw') is not None).lower())
           ufw=run(['ufw','status'])
-          if ufw.returncode == 0:
-              first=(ufw.stdout.splitlines() or ['unknown'])[0].strip()
-              print('ufw_status|' + first)
-              low=ufw.stdout.lower()
-              for port in (80,443):
-                  allowed=False
-                  for raw in low.splitlines():
-                      if str(port) in raw and 'allow' in raw:
-                          allowed=True
-                  print(f'ufw_port_{port}_allow_rule|' + str(allowed).lower())
+          if ufw and ufw.returncode == 0:
+              print('ufw_status|' + ((ufw.stdout.splitlines() or ['unknown'])[0].strip()))
           else:
               print('ufw_status|unavailable')
 
+          print('nft_installed|' + str(shutil.which('nft') is not None).lower())
           nft=run(['nft','list','ruleset'])
-          if nft.returncode == 0:
+          if nft and nft.returncode == 0:
               low=nft.stdout.lower()
               print('nft_ruleset_present|true')
-              print('nft_mentions_port_80|' + str(('dport 80' in low or 'dport { 80' in low)).lower())
-              print('nft_mentions_port_443|' + str(('dport 443' in low or 'dport { 443' in low)).lower())
+              for port in (80,443):
+                  mentions=(f'dport {port}' in low or f'dport {{ {port}' in low)
+                  print(f'nft_mentions_port_{port}|' + str(mentions).lower())
           else:
               print('nft_ruleset_present|false')
+
+          print('iptables_installed|' + str(shutil.which('iptables') is not None).lower())
+          ipt=run(['iptables','-S','INPUT'])
+          if ipt and ipt.returncode == 0:
+              low=ipt.stdout.lower()
+              print('iptables_input_policy_known|true')
+              for port in (80,443):
+                  mentions=(f'--dport {port}' in low)
+                  print(f'iptables_mentions_port_{port}|' + str(mentions).lower())
+          else:
+              print('iptables_input_policy_known|false')
 
           print('mutations_performed|false')
           PY
