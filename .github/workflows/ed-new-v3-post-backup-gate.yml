@@ -1,0 +1,102 @@
+name: ed-new V3 Post Backup Gate
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-post-backup-gate-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  postgate:
+    name: Stop redundant verify and inspect live auth routes
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-post-backup-gate-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Guarded cleanup and live route inventory
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, os, signal, subprocess, time, urllib.request
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          # Re-prove latest backup has an exact completed-successfully verify before stopping anything.
+          stanza=json.loads(subprocess.check_output(['docker','exec','-u','postgres',c,'pgbackrest','--stanza=edfinder_v3','--log-level-console=off','--output=json','info'],text=True))[0]
+          complete=[b for b in stanza.get('backup',[]) if b.get('timestamp',{}).get('stop') and not b.get('error',False)]
+          if not complete:
+              raise SystemExit('no completed backup exists')
+          label=str(complete[-1].get('label',''))
+          log=subprocess.check_output(['docker','exec','-u','postgres',c,'cat','/var/log/pgbackrest/edfinder_v3-verify.log'],text=True,errors='replace').splitlines()
+          verified=False
+          for i,line in enumerate(log):
+              if 'verify command begin' in line.lower() and f'--set={label}' in line:
+                  for end in log[i+1:]:
+                      if 'verify command begin' in end.lower(): break
+                      if 'verify command end:' in end.lower():
+                          verified='completed successfully' in end.lower()
+                          break
+          if not verified:
+              raise SystemExit('refusing verify cleanup: latest backup lacks successful exact verify')
+          top=subprocess.check_output(['docker','top',c,'-eo','pid,args'],text=True)
+          parents=[]
+          for line in top.splitlines()[1:]:
+              parts=line.strip().split(None,1)
+              if len(parts)==2 and parts[1].strip()=='pgbackrest --stanza=edfinder_v3 --log-level-console=info verify':
+                  parents.append(int(parts[0]))
+          if len(parents)>1:
+              raise SystemExit('refusing cleanup: more than one verify parent remains')
+          if parents:
+              os.kill(parents[0], signal.SIGTERM)
+              for _ in range(20):
+                  time.sleep(0.5)
+                  now=subprocess.check_output(['docker','top',c,'-eo','pid,args'],text=True)
+                  if str(parents[0]) not in now:
+                      break
+              print('redundant_verify_terminated|true')
+          else:
+              print('redundant_verify_terminated|already_finished')
+          print('verified_backup|'+label)
+          with urllib.request.urlopen('http://127.0.0.1:58095/openapi.json',timeout=5) as r:
+              spec=json.load(r)
+          paths=sorted(p for p in spec.get('paths',{}) if 'auth' in p.lower() or 'frontier' in p.lower())
+          print('live_auth_route_count|'+str(len(paths)))
+          for p in paths:
+              print('live_auth_route|'+p)
+          print('db_writes_performed|false')
+          PY
