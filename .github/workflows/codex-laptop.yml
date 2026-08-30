@@ -1,5 +1,9 @@
 name: Codex Worker
 
+# Recovery/diagnostic guide:
+# docs/development/codex-worker-bridge-runbook.md
+# A missing standalone Codex control in ChatGPT does not imply this bridge is unavailable.
+
 on:
   workflow_dispatch:
     inputs:
