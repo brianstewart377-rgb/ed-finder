@@ -1,0 +1,337 @@
+name: Route Live Auth To ed-new
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/hetzner-route-auth-to-ed-new-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-key:
+    name: Prepare one-time metadata key on current ingress
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 5
+    outputs:
+      public_key_b64: ${{ steps.key.outputs.public_key_b64 }}
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/hetzner-route-auth-to-ed-new-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"route-live-auth-to-ed-new"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Generate one-time encryption key
+        id: key
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh_cmd=(ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST")
+          "${ssh_cmd[@]}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          d=/opt/ed-finder/.v3-auth-cutover
+          mkdir -p "$d"; chmod 700 "$d"
+          rm -f "$d/origin-key.pem" "$d/origin-key.pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$d/origin-key.pem" >/dev/null 2>&1
+          openssl pkey -in "$d/origin-key.pem" -pubout -out "$d/origin-key.pub.pem" >/dev/null 2>&1
+          chmod 600 "$d/origin-key.pem" "$d/origin-key.pub.pem"
+          REMOTE
+          pub="$("${ssh_cmd[@]}" 'base64 -w0 /opt/ed-finder/.v3-auth-cutover/origin-key.pub.pem')"
+          echo "public_key_b64=$pub" >> "$GITHUB_OUTPUT"
+          echo 'one_time_metadata_key|PASS'
+
+  encrypt-new-origin:
+    name: Encrypt ed-new public origin for current ingress
+    needs: prepare-key
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    outputs:
+      encrypted_origin_b64: ${{ steps.encrypt.outputs.encrypted_origin_b64 }}
+    steps:
+      - name: Encrypt origin metadata
+        id: encrypt
+        shell: bash
+        env:
+          ORIGIN_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          PUBLIC_KEY_B64: ${{ needs.prepare-key.outputs.public_key_b64 }}
+        run: |
+          set -euo pipefail
+          test -n "$ORIGIN_HOST"
+          printf '%s' "$PUBLIC_KEY_B64" | base64 -d > /tmp/origin-key.pub.pem
+          ORIGIN_HOST="$ORIGIN_HOST" python3 - <<'PY'
+          import json,os,pathlib,re
+          host=os.environ['ORIGIN_HOST'].strip()
+          if not host or len(host)>255 or not re.fullmatch(r'[A-Za-z0-9._:-]+',host):
+              raise SystemExit('unexpected ed-new origin host format')
+          pathlib.Path('/tmp/origin.json').write_text(json.dumps({'host':host},separators=(',',':')))
+          PY
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/origin-key.pub.pem \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in /tmp/origin.json -out /tmp/origin.enc
+          echo "encrypted_origin_b64=$(base64 -w0 /tmp/origin.enc)" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/origin-key.pub.pem /tmp/origin.json /tmp/origin.enc
+          echo 'origin_metadata_encrypted|PASS'
+
+  install-route:
+    name: Route only live auth paths to ed-new
+    needs: [prepare-key, encrypt-new-origin]
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Install narrow nginx auth routes with rollback
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+          ENCRYPTED_ORIGIN_B64: ${{ needs.encrypt-new-origin.outputs.encrypted_origin_b64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ENCRYPTED_ORIGIN_B64" | base64 -d > /tmp/origin.enc
+          scp -q -i ~/.ssh/key -P "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            /tmp/origin.enc "$SSH_USER@$SSH_HOST:/tmp/v3-auth-origin.enc"
+          rm -f /tmp/origin.enc
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import ipaddress,json,pathlib,re,shutil,subprocess,time
+          root=pathlib.Path('/opt/ed-finder')
+          d=root/'.v3-auth-cutover'
+          enc=pathlib.Path('/tmp/v3-auth-origin.enc')
+          plain=pathlib.Path('/tmp/v3-auth-origin.json')
+          key=d/'origin-key.pem'
+          conf=root/'config/nginx.conf'
+          backup=d/'nginx.conf.before-v3-auth-route'
+          marker_begin='# BEGIN TEMP V3 AUTH ROUTE TO ED-NEW'
+          marker_end='# END TEMP V3 AUTH ROUTE TO ED-NEW'
+          try:
+              subprocess.run(['openssl','pkeyutl','-decrypt','-inkey',str(key),
+                              '-pkeyopt','rsa_padding_mode:oaep','-pkeyopt','rsa_oaep_md:sha256',
+                              '-in',str(enc),'-out',str(plain)],check=True,
+                             stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              meta=json.loads(plain.read_text())
+              host=str(meta['host']).strip()
+              if not host or len(host)>255 or not re.fullmatch(r'[A-Za-z0-9._:-]+',host):
+                  raise SystemExit('invalid decrypted ed-new origin')
+              try:
+                  ip=ipaddress.ip_address(host)
+                  origin=f'[{host}]' if ip.version==6 else host
+              except ValueError:
+                  origin=host
+
+              # Prove the new public auth origin before changing current ingress.
+              p=subprocess.run(['curl','-fsS','--max-time','8','-H','Host: ed-finder.app',
+                                f'http://{origin}/api/auth/session'],
+                               text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+              if p.returncode:
+                  raise SystemExit('ed-new public auth origin preflight failed')
+              payload=json.loads(p.stdout)
+              if payload.get('authenticated') is not False:
+                  raise SystemExit('unexpected ed-new anonymous session response')
+
+              text=conf.read_text()
+              if not backup.exists():
+                  shutil.copy2(conf,backup)
+              # Make reruns idempotent by removing prior marked blocks first.
+              text=re.sub(r'\n\s*'+re.escape(marker_begin)+r'.*?'+re.escape(marker_end)+r'\n', '\n', text, flags=re.S)
+
+              def blocks(src):
+                  starts=[m.start() for m in re.finditer(r'(?m)^\s*server\s*\{',src)]
+                  out=[]
+                  for start in starts:
+                      open_pos=src.find('{',start)
+                      depth=0; end=None
+                      for i in range(open_pos,len(src)):
+                          ch=src[i]
+                          if ch=='{': depth+=1
+                          elif ch=='}':
+                              depth-=1
+                              if depth==0:
+                                  end=i+1; break
+                      if end: out.append((start,end,src[start:end]))
+                  return out
+
+              targets=[]
+              for start,end,block in blocks(text):
+                  if 'server_name ed-finder.app www.ed-finder.app;' not in block:
+                      continue
+                  generic=re.search(r'(?m)^\s*location\s+/api/\s*\{',block)
+                  if not generic:
+                      continue
+                  proto='$http_x_forwarded_proto' if re.search(r'(?m)^\s*listen\s+80\s*;',block) else '$scheme'
+                  insert=start+generic.start()
+                  targets.append((insert,proto))
+              if len(targets) != 2:
+                  raise SystemExit(f'expected two main ed-finder server blocks, found {len(targets)}')
+
+              for insert,proto in sorted(targets,reverse=True):
+                  route=f'''        {marker_begin}\n        location ^~ /api/auth/ {{\n            proxy_pass         http://{origin};\n            proxy_http_version 1.1;\n            proxy_set_header   Connection        "";\n            proxy_set_header   Host              $host;\n            proxy_set_header   X-Real-IP         $remote_addr;\n            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;\n            proxy_set_header   X-Forwarded-Proto {proto};\n            proxy_set_header   X-Forwarded-Host  $host;\n            proxy_connect_timeout 5s;\n            proxy_read_timeout 30s;\n        }}\n        location ^~ /api/v1/auth/ {{\n            proxy_pass         http://{origin};\n            proxy_http_version 1.1;\n            proxy_set_header   Connection        "";\n            proxy_set_header   Host              $host;\n            proxy_set_header   X-Real-IP         $remote_addr;\n            proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;\n            proxy_set_header   X-Forwarded-Proto {proto};\n            proxy_set_header   X-Forwarded-Host  $host;\n            proxy_connect_timeout 5s;\n            proxy_read_timeout 30s;\n        }}\n        {marker_end}\n\n'''
+                  text=text[:insert]+route+text[insert:]
+
+              conf.write_text(text)
+              test=subprocess.run(['docker','exec','ed-nginx','nginx','-t'],text=True,
+                                  stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+              if test.returncode:
+                  shutil.copy2(backup,conf)
+                  subprocess.run(['docker','exec','ed-nginx','nginx','-s','reload'],check=False,
+                                 stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+                  raise SystemExit('new nginx auth route failed syntax validation')
+              subprocess.run(['docker','exec','ed-nginx','nginx','-s','reload'],check=True,
+                             stdout=subprocess.DEVNULL)
+              time.sleep(1)
+              print('old_ingress_auth_route|INSTALLED')
+              print('old_ingress_full_site_route_changed|false')
+              print('rollback_snapshot|PRESENT')
+          finally:
+              for p in (enc,plain,key,d/'origin-key.pub.pem'):
+                  try: p.unlink()
+                  except FileNotFoundError: pass
+          PY
+      - name: Prove Cloudflare live auth path reaches V3
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 10 https://ed-finder.app/api/auth/session > /tmp/session.json
+          python3 - <<'PY'
+          import json
+          with open('/tmp/session.json',encoding='utf-8') as f: data=json.load(f)
+          if data.get('authenticated') is not False:
+              raise SystemExit('public auth session did not return V3 anonymous response')
+          print('cloudflare_to_v3_auth_session|PASS')
+          PY
+
+          umask 077
+          curl -sS --max-time 10 -D /tmp/login.headers -o /dev/null \
+            'https://ed-finder.app/api/auth/frontier/login?return_to=/'
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import parse_qs,urlsplit
+          raw=Path('/tmp/login.headers').read_text('utf-8',errors='replace')
+          blocks=[b for b in raw.replace('\r\n','\n').split('\n\n') if b.strip()]
+          lines=blocks[-1].splitlines()
+          if not lines or ' 302 ' not in lines[0]: raise SystemExit('public login did not return 302')
+          location=''; cookies=[]
+          for line in lines[1:]:
+              if ':' not in line: continue
+              k,v=line.split(':',1)
+              if k.lower()=='location': location=v.strip()
+              if k.lower()=='set-cookie': cookies.append(v.strip())
+          u=urlsplit(location); q=parse_qs(u.query)
+          if u.hostname!='auth.frontierstore.net' or u.path!='/auth': raise SystemExit('public login did not target Frontier')
+          if (q.get('redirect_uri') or [''])[0] != 'https://ed-finder.app/api/auth/frontier/callback':
+              raise SystemExit('public login callback mismatch')
+          if q.get('code_challenge_method') != ['S256']: raise SystemExit('public login PKCE mismatch')
+          state=(q.get('state') or [''])[0]
+          chosen=None
+          for c in cookies:
+              low=c.lower()
+              if 'secure' in low and 'httponly' in low and 'samesite=lax' in low and 'path=/api' in low:
+                  chosen=c.split(';',1)[0]; break
+          if not state or not chosen: raise SystemExit('public login state/cookie missing')
+          Path('/tmp/state').write_text(state)
+          Path('/tmp/cookie').write_text(chosen)
+          print('cloudflare_to_v3_frontier_login|PASS')
+          PY
+          state_enc="$(python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import quote
+          print(quote(Path('/tmp/state').read_text(),safe=''))
+          PY
+          )"
+          cookie="$(cat /tmp/cookie)"
+          curl -sS --max-time 10 -D /tmp/callback.headers -o /dev/null \
+            -H "Cookie: $cookie" \
+            "https://ed-finder.app/api/auth/frontier/callback?error=access_denied&state=$state_enc"
+          python3 - <<'PY'
+          from pathlib import Path
+          raw=Path('/tmp/callback.headers').read_text('utf-8',errors='replace')
+          blocks=[b for b in raw.replace('\r\n','\n').split('\n\n') if b.strip()]
+          lines=blocks[-1].splitlines()
+          if not lines or ' 302 ' not in lines[0]: raise SystemExit('public callback did not return 302')
+          loc=''
+          for line in lines[1:]:
+              if line.lower().startswith('location:'): loc=line.split(':',1)[1].strip()
+          if loc != '/?auth=denied#finder': raise SystemExit('public denied callback destination mismatch')
+          print('cloudflare_to_v3_compat_callback|PASS')
+          PY
+
+  verify-new-state:
+    name: Verify V3 identity state stayed clean
+    needs: install-route
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+      - name: Verify no account/session/residual login state
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          r="$(docker exec -u postgres "$c" sh -lc \
+            'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d edfinder_v3_phase4c_full_20260827_r5 -At -F "|" -c "SELECT (SELECT count(*) FROM v3_identity.account),(SELECT count(*) FROM v3_identity.session),(SELECT count(*) FROM v3_identity.oauth_login_state);"')"
+          [ "$r" = '0|0|0' ]
+          echo 'v3_identity_after_public_smoke|0_accounts_0_sessions_0_states'
+          echo 'live_auth_bridge_smoke|PASS'
+          REMOTE
