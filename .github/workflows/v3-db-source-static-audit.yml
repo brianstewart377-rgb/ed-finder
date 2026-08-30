@@ -1,0 +1,78 @@
+name: V3 DB Source Static Audit
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/v3-db-source-static-audit-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: src
+          persist-credentials: false
+      - name: Static database surface audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,re
+          root=pathlib.Path('src')
+          print('== SQL INVENTORY ==')
+          for p in sorted((root/'sql').glob('*.sql')):
+              t=p.read_text(encoding='utf-8',errors='replace')
+              objects=[]
+              pats=[
+                ('TABLE',r'(?i)CREATE\s+(?:UNLOGGED\s+)?TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w.]*)'),
+                ('MVIEW',r'(?i)CREATE\s+MATERIALIZED\s+VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w.]*)'),
+                ('VIEW',r'(?i)CREATE\s+(?!MATERIALIZED)VIEW\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][\w.]*)'),
+                ('TYPE',r'(?i)CREATE\s+TYPE\s+([A-Za-z_][\w.]*)'),
+                ('FUNC',r'(?i)CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([A-Za-z_][\w.]*)'),
+                ('TRIGGER',r'(?i)CREATE\s+(?:OR\s+REPLACE\s+)?TRIGGER\s+([A-Za-z_][\w.]*)'),
+              ]
+              for kind,pat in pats:
+                  for m in re.finditer(pat,t): objects.append(kind+':'+m.group(1))
+              alters=sorted(set(re.findall(r'(?i)ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?([A-Za-z_][\w.]*)',t)))
+              refs=set()
+              for pat in [r'(?i)\bFROM\s+([A-Za-z_][\w.]*)',r'(?i)\bJOIN\s+([A-Za-z_][\w.]*)',r'(?i)\bUPDATE\s+([A-Za-z_][\w.]*)',r'(?i)\bINSERT\s+INTO\s+([A-Za-z_][\w.]*)',r'(?i)\bREFERENCES\s+([A-Za-z_][\w.]*)']:
+                  refs.update(re.findall(pat,t))
+              flags=[]
+              for label,needle in [('PUBLIC','public'),('SYSTEMS','systems'),('BODIES','bodies'),('RATINGS','ratings'),('DIRTY','dirty'),('MVIEW','MATERIALIZED VIEW'),('TRIGGER','TRIGGER'),('GIN','USING gin'),('POSTGIS','geometry(')]:
+                  if needle.lower() in t.lower(): flags.append(label)
+              print(f'{p.name}|bytes={len(t)}|objects={";".join(objects[:18]) or "-"}|alter={";".join(alters[:12]) or "-"}|refs={";".join(sorted(refs)[:24]) or "-"}|flags={",".join(flags) or "-"}')
+
+          print('== DB-HEAVY PYTHON INVENTORY ==')
+          src=root/'apps'/'importer'/'src'
+          names=['build_grid.py','build_ratings.py','build_clusters.py','build_topology.py','build_archetype_scores.py','build_regional_analysis.py','dirty_flags.py','import_spansh.py','enrich_system_data.py','backfill_station_body_links.py']
+          for name in names:
+              p=src/name
+              if not p.is_file(): continue
+              t=p.read_text(encoding='utf-8',errors='replace')
+              refs=set()
+              for pat in [r'(?i)\bFROM\s+([A-Za-z_][\w.]*)',r'(?i)\bJOIN\s+([A-Za-z_][\w.]*)',r'(?i)\bUPDATE\s+([A-Za-z_][\w.]*)',r'(?i)\bINSERT\s+INTO\s+([A-Za-z_][\w.]*)',r'(?i)\bCOPY\s+([A-Za-z_][\w.]*)']:
+                  refs.update(re.findall(pat,t))
+              flags=[]
+              for label,needle in [('MP','multiprocessing'),('NUMPY','numpy'),('SCIPY','scipy'),('EXECUTEMANY','executemany'),('EXECUTE_VALUES','execute_values'),('COPY','copy_expert'),('PER_SYSTEM','for system'),('DIRTY','rating_dirty'),('CLUSTER_DIRTY','cluster_dirty'),('GRID','grid_cell_id'),('MACRO_GRID','macro_grid_id')]:
+                  if needle.lower() in t.lower(): flags.append(label)
+              batch=[]
+              for m in re.finditer(r'(?m)^\s*([A-Z][A-Z0-9_]*(?:BATCH|CHUNK|WORKER)[A-Z0-9_]*)\s*=\s*([^#\n]+)',t):
+                  batch.append(m.group(1)+'='+m.group(2).strip())
+              print(f'{name}|bytes={len(t)}|execute={t.count(".execute(")}|executemany={t.count("executemany")}|refs={";".join(sorted(refs)[:30]) or "-"}|flags={",".join(flags) or "-"}|constants={";".join(batch[:16]) or "-"}')
+
+          print('== V3 SOURCE TREE ==')
+          v3=list((src/'v3_spansh').glob('*.py')) if (src/'v3_spansh').is_dir() else []
+          print('v3_spansh_files|'+str(len(v3)))
+          for p in sorted(v3):
+              t=p.read_text(encoding='utf-8',errors='replace')
+              print(f'v3_spansh/{p.name}|bytes={len(t)}|copy={str("COPY" in t).lower()}|macro_grid={str("macro_grid" in t).lower()}')
+          PY
