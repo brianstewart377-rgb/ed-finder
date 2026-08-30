@@ -22,7 +22,6 @@ jobs:
         with:
           fetch-depth: 2
       - name: Resolve request
-        id: req
         shell: bash
         run: |
           set -euo pipefail
@@ -31,7 +30,7 @@ jobs:
           case "${changed[0]}" in .github/v3-auth-bridge-new-target-requests/*.json) ;; *) exit 64 ;; esac
           python3 - "${changed[0]}" <<'PY'
           import base64,json,pathlib,sys
-          p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text())
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text())
           if set(d)!={'operation','tunnel_pub_b64','metadata_pub_b64'} or d['operation']!='install-new-tunnel-target':
               raise SystemExit('invalid request')
           pub=base64.b64decode(d['tunnel_pub_b64'],validate=True)
@@ -87,7 +86,7 @@ jobs:
           curl -fsS --max-time 5 http://127.0.0.1:58080/api/health >/dev/null
           echo 'new_tunnel_target|PASS'
           REMOTE
-      - name: Encrypt connection metadata for old host
+      - name: Encrypt pinned connection metadata for old host
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
@@ -95,28 +94,23 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
-          pinned_entry="$(ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts | awk '!/^#/ && $2=="ssh-ed25519" {print; exit}')"
-          test -n "$pinned_entry" || { echo 'Pinned known_hosts has no ed25519 entry for target' >&2; exit 1; }
-          TARGET_HOST="$SSH_HOST" TARGET_PORT="$SSH_PORT" PINNED_ENTRY="$pinned_entry" python3 - <<'PY'
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts | awk '!/^#/ {print; exit}' > /tmp/pinned-host-key
+          test -s /tmp/pinned-host-key || { echo 'No pinned known_hosts key found for target' >&2; exit 1; }
+          fingerprint="$(ssh-keygen -lf /tmp/pinned-host-key -E sha256 | awk '{print $2}')"
+          case "$fingerprint" in SHA256:*) ;; *) echo 'Invalid pinned host-key fingerprint' >&2; exit 1 ;; esac
+          TARGET_HOST="$SSH_HOST" TARGET_PORT="$SSH_PORT" FINGERPRINT="$fingerprint" python3 - <<'PY'
           import json,os,pathlib
-          entry=os.environ['PINNED_ENTRY'].strip()
-          parts=entry.split()
-          if len(parts)<3 or parts[1] != 'ssh-ed25519':
-              raise SystemExit('invalid pinned ed25519 known_hosts entry')
           d={
               'host':os.environ['TARGET_HOST'],
               'port':int(os.environ['TARGET_PORT']),
               'user':'edfinder-v3-tunnel',
-              'known_hosts_entry':entry,
+              'host_key_sha256':os.environ['FINGERPRINT'],
           }
-          raw=json.dumps(d,separators=(',',':')).encode()
-          if len(raw)>400:
-              raise SystemExit('encrypted metadata unexpectedly large')
-          pathlib.Path('/tmp/metadata.json').write_bytes(raw)
+          pathlib.Path('/tmp/metadata.json').write_text(json.dumps(d,separators=(',',':')))
           PY
           openssl pkeyutl -encrypt -pubin -inkey /tmp/meta.pub.pem \
             -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
             -in /tmp/metadata.json -out /tmp/metadata.enc
           echo "encrypted_metadata_b64|$(base64 -w0 /tmp/metadata.enc)"
           echo 'encrypted_metadata|PASS'
-          rm -f /tmp/tunnel.pub /tmp/meta.pub.pem /tmp/metadata.json /tmp/metadata.enc
+          rm -f /tmp/tunnel.pub /tmp/meta.pub.pem /tmp/metadata.json /tmp/metadata.enc /tmp/pinned-host-key
