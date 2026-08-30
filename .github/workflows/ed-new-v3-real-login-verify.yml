@@ -1,0 +1,110 @@
+name: ed-new V3 Real Frontier Login Verify
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-real-login-verify-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify real Frontier login populated V3 identity
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-real-login-verify-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"verify-real-frontier-login"}:
+              raise SystemExit(64)
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Read V3 identity outcome
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+
+          def sql(q):
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -F "|" -c "$1"'
+              return subprocess.check_output(['docker','exec','-u','postgres',c,'sh','-lc',cmd,'sh',q],text=True).strip()
+
+          tables={
+              'accounts':'v3_identity.account',
+              'commanders':'v3_identity.commander',
+              'external_identities':'v3_identity.external_identity',
+              'commander_identity_links':'v3_identity.commander_external_identity',
+              'account_commander_links':'v3_identity.account_commander_access',
+              'sessions':'v3_identity.session',
+              'roles':'v3_identity.account_role',
+              'oauth_states':'v3_identity.oauth_login_state',
+          }
+          counts={k:int(sql(f'SELECT count(*) FROM {t}') or '0') for k,t in tables.items()}
+          for k,v in counts.items():
+              print(f'{k}|{v}')
+
+          # Session contract from V3 migration includes expires_at and revoked_at.
+          active_sessions=int(sql("SELECT count(*) FROM v3_identity.session WHERE expires_at > NOW() AND revoked_at IS NULL") or '0')
+          print(f'active_sessions|{active_sessions}')
+
+          # Read-only freshness evidence without exposing IDs or names.
+          for label,table in [('account','v3_identity.account'),('session','v3_identity.session')]:
+              cols=set(filter(None,sql(f"SELECT column_name FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='{table.split('.')[-1]}'").splitlines()))
+              if 'created_at' in cols:
+                  age=sql(f"SELECT CASE WHEN max(created_at) IS NULL THEN 'none' WHEN max(created_at) > NOW() - interval '30 minutes' THEN 'recent' ELSE 'older' END FROM {table}")
+                  print(f'latest_{label}_created|{age}')
+
+          required=('accounts','commanders','external_identities','commander_identity_links','account_commander_links','sessions')
+          missing=[k for k in required if counts[k] < 1]
+          if missing:
+              raise SystemExit('real login is missing expected V3 identity rows: '+','.join(missing))
+          if active_sessions < 1:
+              raise SystemExit('real login created no active V3 session')
+
+          print('real_frontier_login_identity|PASS')
+          print('real_frontier_login_session|PASS')
+          print('identifiers_printed|false')
+          print('database_writes_performed|false')
+          PY
