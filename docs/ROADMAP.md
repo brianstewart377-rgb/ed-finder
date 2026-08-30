@@ -5,8 +5,11 @@ document that should answer "what next?".
 
 ## Current State
 
-- Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
-  next-generation map replacement lane without reopening planner scope.
+- Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
+  scope and Stage 26's R3F map programme are complete historical foundations.
+- Current authorization: **27A Spatial Platform Contract and Audit only**.
+  Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
+  runtime, production map change, or any later Stage 27 slice.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E production cutover is complete and in observation:
   browser, accessibility, visual,
@@ -31,19 +34,20 @@ document that should answer "what next?".
   a separately staged follow-up.
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
-- Map posture: Map remains a secondary Explore surface, not the primary
-  planning workspace. Stage 26E R3F/Three.js map (commit `3b53477`) is being replaced
-  with a Babylon.js-based renderer (2026-08-16 redesign plan) incorporating
-  Stellar Forge-inspired galactic density model. Prior renderer remains rollback
-  option. Real-star LOD streaming (Phase 2) is deferred post-foundation.
+- Map posture: Stage 26E R3F/Three.js (cutover commit `3b53477`) remains the
+  production baseline and rollback until a Stage 27 Babylon renderer earns a
+  later explicit bakeoff/cutover. Stage 27 deliberately allows the spatial
+  platform to assist Explore → Inspect → Plan → Review, while Colony Planner
+  remains the canonical detailed Build Plan workspace/persistence owner. No
+  silent plan mutation or Preview execution is allowed.
 - Map layer posture (2026-08-08): the map's typed `MapSceneDescriptor` layer/adapter
   boundary (Stage 26D) is the standing, documented pattern for any Explore-journey
   feature that wants map presence — not a closed list limited to Finder, Compare,
   System Detail, Cluster Search, and Planner hand-off. The first new consumer of
   this pattern is a personal exploration data layer (own design doc:
   `docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md`). This does
-  not change "Map remains a secondary Explore surface" or Colony Cockpit's role as
-  the sole canonical planning workspace, and does not authorize planner-map fusion.
+  is retained as Stage 26 history. Stage 27 supersedes its global Explore-only
+  restriction while preserving explicit ownership and truth boundaries.
 - Scoring posture: player-facing UI continues to speak in **Development
   Score**, API rerank helpers stay under **archetypes**, and the current DB
   implementation still runs on the **Ratings v3.4** scorer/tables. The full
@@ -122,7 +126,7 @@ and leaving 749 GB disk free. Preserve this baseline: do not write
 5. Features (corridor routing, journal Lane 2, accounts) build on this
    foundation.
 
-## Stage 25 Objective
+## Stage 25 Objective (historical)
 
 Stage 25 has exactly one primary objective:
 
@@ -131,7 +135,7 @@ Stage 25 has exactly one primary objective:
 > and keep all deeper planner integration, write-capable lanes, and operational
 > work explicitly unauthorized.
 
-## Frozen Product Facts
+## Frozen Stage 25 Product Facts (historical)
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
@@ -141,7 +145,8 @@ Stage 25 has exactly one primary objective:
 - Stage 25F is complete.
 - Stage 25G is complete.
 - Stage 25H is complete.
-- The map is retained as a secondary Explore surface only.
+- At Stage 25, the map was retained as a secondary Explore surface only; Stage
+  27 supersedes that global restriction without changing planner ownership.
 - Colony Planner: `canonical_live`.
 - simulation-preview: `integrated_into_stage25d_cockpit`.
 - map: `canonical_live` as a secondary Explore surface.
@@ -155,9 +160,8 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Execute Stage 26A as a documentation-only authorization, then use
-   artifact-backed research and an equal three-renderer bake-off before any
-   production map implementation or renderer choice.
+1. Complete Stage 27A's product, architecture, data-readiness, migration and
+   governance contracts before any new Babylon runtime implementation.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -259,7 +263,38 @@ competing roadmap source.
   process residue should be executed as a bounded hygiene pass after the
   foundation risks above, not as a substitute for them.
 
-## Current Next Steps
+## Stage 27 Programme (current authority)
+
+The programme implements one renderer-neutral platform for Finder, CRE, CPE,
+Exploration, Powerplay and Routes across Galaxy and System scales. The product
+north star and ownership rules are normative in
+[`spatial-platform-product-contract.md`](./colonisation-redesign/spatial-platform-product-contract.md)
+and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatial-platform-architecture-decision.md).
+
+| Stage | Scope | Authorization |
+|---|---|---|
+| **27A** | Spatial Platform Contract and Audit | **CURRENT**; docs/audit/contracts only |
+| 27B | Babylon 9 Runtime Workbench | Authorized only after 27A acceptance; isolated, no production wiring |
+| 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27A |
+| 27D | Real-System Streaming and Interaction | Not authorized by 27A |
+| 27E | Stage 26 Capability Parity | Not authorized by 27A |
+| 27F | ED-Finder Spatial Workflows | Not authorized by 27A |
+| 27G | Galaxy Bakeoff and Cutover | Not authorized by 27A; explicit cutover decision required |
+| 27H | System Scene Data and Rendering Contract | Not authorized by 27A |
+| 27I | 3D System Map | Not authorized by 27A |
+| 27J | Colonised-System Infrastructure | Not authorized by 27A |
+| 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
+| 27L | Advanced Spatial Workflows | Not authorized by 27A |
+
+Stage 27A's only follow-on authorization is 27B. The R3F production map stays
+in place throughout workbench/foundation stages. Mechanics remain CRE-owned,
+planning remains CPE-owned, ED-Finder orchestrates/presents, and the renderer
+owns neither.
+
+## Stage 25/26 historical next steps
+
+The material below preserves completed-stage decisions and evidence. It is not
+authority for what begins after Stage 27A.
 
 - Stage 25 product work is complete and promoted. Preserve its shell/context
   baseline while documentation triage, scoring cleanup, and CRE contract work
