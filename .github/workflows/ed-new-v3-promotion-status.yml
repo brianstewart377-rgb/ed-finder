@@ -1,0 +1,130 @@
+name: ed-new V3 Promotion Status
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-promotion-status-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    name: Read retained V3 publication state
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-promotion-status-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"v3-promotion-status"}:
+              raise SystemExit(64)
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Read V3 canonical publication metadata
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import subprocess
+
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At','-F','|']
+          def q(sql):
+              return subprocess.check_output(base+['-c',sql],text=True).strip().splitlines()
+
+          print('database|' + database)
+          print('server_version|' + q('SHOW server_version')[0])
+          print('current_pointer:')
+          current=q("""
+            SELECT g.generation_id,g.generation_key,g.relation_schema,g.lifecycle_state,
+                   c.publication_sequence,c.published_at
+              FROM v3_meta.current_canonical_generation c
+              JOIN v3_meta.canonical_generation g USING(generation_id)
+             WHERE c.singleton
+          """)
+          print('- ' + current[0] if current else '- none')
+
+          print('generations:')
+          generations=q("""
+            SELECT generation_id,generation_key,relation_schema,lifecycle_state,
+                   validation_completed_at,published_at,retired_at
+              FROM v3_meta.canonical_generation
+             ORDER BY created_at,generation_key
+          """)
+          for row in generations:
+              print('- '+row)
+
+          print('migration_ledger:')
+          for row in q("""
+            SELECT migration_name,encode(migration_sha256,'hex'),applied_at
+              FROM v3_meta.schema_migration
+             ORDER BY migration_name
+          """):
+              print('- '+row)
+
+          print('target_schema_relation_count|' + q("""
+            SELECT count(*)
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+             WHERE n.nspname='v3_gen_phase4c_full_20260827_r5'
+               AND c.relkind='r'
+               AND c.relname = ANY(ARRAY[
+                 'systems','bodies','body_composition','body_alias','body_parent_evidence',
+                 'rings','body_signal_current','body_genus_current','ring_signal_current',
+                 'stations','station_alias','station_placement','station_service_current',
+                 'station_economy_current'
+               ])
+          """)[0])
+          print('db_writes_performed|false')
+          PY
