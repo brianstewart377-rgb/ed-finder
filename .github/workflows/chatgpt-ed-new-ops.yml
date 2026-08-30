@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - host-status
+          - production-candidate-readiness
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -55,7 +56,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status) ;;
+            host-status|production-candidate-readiness) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -66,16 +67,28 @@ jobs:
           SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
           test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
           test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing ED_NEW_OPERATOR_SSH_KNOWN_HOSTS" >&2; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
           chmod 600 ~/.ssh/ed_new_operator_key
-          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then
+            known_hosts_target="$SSH_HOST"
+          else
+            known_hosts_target="[$SSH_HOST]:$SSH_PORT"
+          fi
+          ssh-keygen -F "$known_hosts_target" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "ED_NEW_OPERATOR_SSH_KNOWN_HOSTS has no trusted key for the configured host and port" >&2
+            exit 1
+          }
 
       - name: Run bounded ed-new bootstrap status
         if: steps.request.outputs.operation == 'host-status'
@@ -90,6 +103,104 @@ jobs:
           ssh -i ~/.ssh/ed_new_operator_key \
               -p "$SSH_PORT" \
               -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null \
               -o StrictHostKeyChecking=yes \
               "$SSH_USER@$SSH_HOST" \
               'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
+
+      - name: Run read-only production-candidate readiness audit
+        id: candidate_audit
+        if: steps.request.outputs.operation == 'production-candidate-readiness'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
+          REVIEWED_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          test -n "$CANDIDATE_DATABASE_URL" || { echo "Missing ED_NEW_CANDIDATE_DATABASE_URL" >&2; exit 1; }
+          [[ "$REVIEWED_REVISION" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid reviewed revision" >&2; exit 1; }
+          echo "::add-mask::$CANDIDATE_DATABASE_URL"
+          audit_bundle="$(mktemp)"
+          trap 'rm -f "$audit_bundle"' EXIT
+          # Package the implementation and its complete migration authority from
+          # this exact checkout. The remote host copy is deliberately not used.
+          tar -czf "$audit_bundle" scripts/operator/audit_production_candidate.py sql
+          scp -q -i ~/.ssh/ed_new_operator_key \
+              -P "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null \
+              -o StrictHostKeyChecking=yes \
+              "$audit_bundle" "$SSH_USER@$SSH_HOST:/tmp/ed-finder-candidate-audit-$GITHUB_RUN_ID.tar.gz"
+          set +e
+          printf '%s\n' "$CANDIDATE_DATABASE_URL" | ssh \
+              -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              "set -eu; bundle=/tmp/ed-finder-candidate-audit-$GITHUB_RUN_ID.tar.gz; workdir=\"\$(mktemp -d)\"; receipt=\"\$(mktemp)\"; trap 'rm -rf \"\$workdir\"; rm -f \"\$receipt\" \"\$bundle\"' EXIT; tar -xzf \"\$bundle\" -C \"\$workdir\"; IFS= read -r DATABASE_URL; test -n \"\$DATABASE_URL\"; export DATABASE_URL; cd \"\$workdir\"; set +e; python3 scripts/operator/audit_production_candidate.py --reviewed-revision '$REVIEWED_REVISION' --json-output \"\$receipt\" >&2; status=\$?; set -e; test -s \"\$receipt\" && cat \"\$receipt\"; exit \"\$status\"" \
+              > production-candidate-readiness.json
+          audit_status=$?
+          set -e
+          echo "audit_status=$audit_status" >> "$GITHUB_OUTPUT"
+          if [ "$audit_status" -gt 2 ]; then
+            echo "Unexpected readiness-audit exit status: $audit_status" >&2
+          fi
+
+      - name: Validate readiness receipt is JSON and credential-free
+        id: validate_candidate_receipt
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always()
+        shell: bash
+        env:
+          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
+          REVIEWED_REVISION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          receipt = Path('production-candidate-readiness.json')
+          raw = receipt.read_text(encoding='utf-8')
+          payload = json.loads(raw)
+          if payload.get('reviewed_revision') != os.environ['REVIEWED_REVISION']:
+              raise SystemExit('Readiness receipt is not bound to the reviewed revision')
+          identity = payload.get('candidate_identity', {})
+          if 'error' not in payload and (not identity.get('database') or not identity.get('system_identifier')):
+              raise SystemExit('Readiness receipt lacks stable candidate identity')
+          secret = os.environ.get('CANDIDATE_DATABASE_URL', '')
+          if secret and secret in raw:
+              raise SystemExit('Readiness receipt contains the candidate database URL')
+          PY
+
+      - name: Retain production-candidate readiness receipt
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always() && steps.validate_candidate_receipt.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-candidate-readiness-${{ github.run_id }}
+          path: production-candidate-readiness.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce production-candidate readiness result
+        if: steps.request.outputs.operation == 'production-candidate-readiness' && always()
+        shell: bash
+        env:
+          AUDIT_STATUS: ${{ steps.candidate_audit.outputs.audit_status }}
+        run: |
+          set -euo pipefail
+          case "$AUDIT_STATUS" in
+            0) echo "Production-candidate readiness audit passed." ;;
+            1) echo "Production candidate has readiness blockers; inspect the JSON receipt." >&2; exit 1 ;;
+            2) echo "Production-candidate audit failed closed; inspect the run without exposing credentials." >&2; exit 2 ;;
+            *) echo "Production-candidate audit did not produce a valid result." >&2; exit 2 ;;
+          esac

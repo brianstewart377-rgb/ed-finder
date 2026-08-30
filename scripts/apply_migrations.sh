@@ -22,7 +22,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/.env}"
-if [[ -f "$ENV_FILE" ]]; then
+if [[ "${EDFINDER_ENV_ALREADY_RESOLVED:-0}" != "1" && -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck source=/dev/null
   source "$ENV_FILE"
@@ -48,6 +48,9 @@ say() { printf '\n[INFO] %s\n' "$*"; }
 ok()  { printf '[OK]   %s\n' "$*"; }
 warn() { printf '[WARN] %s\n' "$*"; }
 die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
+
+[[ "$LEDGER_TABLE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] ||
+  die "MIGRATION_LEDGER_TABLE must be a simple unquoted SQL identifier"
 
 validate_timeout() {
   local name="$1"

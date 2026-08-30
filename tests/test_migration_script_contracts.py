@@ -24,6 +24,8 @@ def test_apply_migrations_uses_manifest_ledger_and_checksum_guards():
     assert 'DATABASE_URL="${DATABASE_MIGRATION_URL:-${DATABASE_URL:-}}"' in script
     assert 'MANIFEST_FILE="${MIGRATION_MANIFEST:-$SQL_DIR/migration-manifest.txt}"' in script
     assert 'LEDGER_TABLE="${MIGRATION_LEDGER_TABLE:-schema_migrations}"' in script
+    assert 'MIGRATION_LEDGER_TABLE must be a simple unquoted SQL identifier' in script
+    assert '^[A-Za-z_][A-Za-z0-9_]*$' in script
     assert 'COMPOSE_FILE_OVERRIDE="${EDFINDER_DOCKER_COMPOSE_FILE:-}"' in script
     assert '--compose-file' in script
     assert 'dc exec -T "$MIGRATION_DB_SERVICE" sh -lc' in script

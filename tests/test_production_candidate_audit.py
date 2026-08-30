@@ -1,0 +1,340 @@
+from __future__ import annotations
+
+import hashlib
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REVISION = "a" * 40
+SCRIPT = ROOT / "scripts" / "operator" / "audit_production_candidate.py"
+SPEC = importlib.util.spec_from_file_location("audit_production_candidate", SCRIPT)
+audit = importlib.util.module_from_spec(SPEC)
+assert SPEC.loader is not None
+sys.modules[SPEC.name] = audit
+SPEC.loader.exec_module(audit)
+
+
+def test_manifest_modes_and_checksums_are_authoritative(tmp_path):
+    (tmp_path / "001.sql").write_text("SELECT 1;\n", encoding="utf-8")
+    (tmp_path / "002.sql").write_text("SELECT 2;\n", encoding="utf-8")
+    manifest = tmp_path / "migration-manifest.txt"
+    manifest.write_text("001.sql\n002.sql|manual\n", encoding="utf-8")
+
+    entries = audit.load_manifest(manifest)
+
+    assert [(entry.filename, entry.mode) for entry in entries] == [("001.sql", "auto"), ("002.sql", "manual")]
+    assert entries[0].checksum == hashlib.sha256(b"SELECT 1;\n").hexdigest()
+
+
+class LedgerReader:
+    def relation_kind(self, name):
+        return "r" if name == "schema_migrations" else None
+
+    def rows(self, query, params=()):
+        assert "schema_migrations" in query
+        return [("001.sql", "wrong"), ("unexpected.sql", "abc")]
+
+
+def test_migration_audit_separates_auto_manual_checksum_and_unexpected(tmp_path):
+    (tmp_path / "001.sql").write_text("SELECT 1;", encoding="utf-8")
+    (tmp_path / "002.sql").write_text("SELECT 2;", encoding="utf-8")
+    manifest = tmp_path / "migration-manifest.txt"
+    manifest.write_text("001.sql\n002.sql|manual\n", encoding="utf-8")
+
+    result = audit.migration_audit(LedgerReader(), audit.load_manifest(manifest))
+
+    assert result["pending_auto"] == []
+    assert result["pending_manual"] == ["002.sql"]
+    assert result["checksum_mismatches"] == ["001.sql"]
+    assert result["unexpected_ledger_entries"] == ["unexpected.sql"]
+
+
+def test_migration_audit_uses_validated_configured_ledger_table(tmp_path):
+    (tmp_path / "001.sql").write_text("SELECT 1;", encoding="utf-8")
+    manifest = tmp_path / "migration-manifest.txt"
+    manifest.write_text("001.sql\n", encoding="utf-8")
+
+    class CustomLedgerReader(LedgerReader):
+        def relation_kind(self, name):
+            assert name == "custom_ledger"
+            return "r"
+
+        def rows(self, query, params=()):
+            assert 'public."custom_ledger"' in query
+            return [("001.sql", hashlib.sha256(b"SELECT 1;").hexdigest())]
+
+    result = audit.migration_audit(CustomLedgerReader(), audit.load_manifest(manifest), "custom_ledger")
+    assert result["pending_auto"] == []
+
+    for unsafe in ("public.schema_migrations", "ledger;DROP TABLE systems", 'ledger"'):
+        try:
+            audit.validate_ledger_table(unsafe)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe ledger identifier accepted: {unsafe}")
+
+
+def _otherwise_ready_report():
+    required = [
+        {"name": "grid", "present": True, "eligible": 2, "metadata_missing": 0, "missing": 0, "invalid_grid": 0, "invalid_macro": 0},
+        {"name": "ratings", "present": True, "eligible": 2, "missing": 0, "wrong_version": 0, "dirty": 0},
+        {"name": "topology", "present": True, "eligible": 2, "missing": 0, "stale": 0},
+        {"name": "economy_pair_synergy", "present": True, "eligible": 2, "source_missing": 0, "missing": 0, "unexpected": 0},
+        {"name": "archetypes", "present": True, "eligible": 2, "scores_missing": 0, "traits_missing": 0, "dirty": 0},
+        {"name": "regional_analysis", "present": True, "eligible": 2, "missing": 0},
+        {"name": "station_body_links", "present": True, "eligible": 2, "missing": 0},
+        {"name": "clusters", "present": True, "eligible": 2, "missing": 0, "dirty_rows": 0, "system_dirty": 0},
+    ]
+    return {
+        "server": {"version_num": 180000},
+        "migrations": {"ledger_present": True, "pending_auto": [], "pending_manual": [], "checksum_mismatches": [], "unexpected_ledger_entries": []},
+        "base_tables": [{"name": name, "classification": "required_base", "present": True, "row_count": 2} for name in ("systems", "bodies", "stations", "body_rings")],
+        "required_builds": required,
+        "materialized_views": [{"name": "mv", "classification": "required_build", "present": True, "populated": True, "freshness_verified": True, "row_count": 2}],
+        "runtime_feature_tables": [],
+    }
+
+
+def test_required_builds_block_but_runtime_feature_tables_do_not():
+    report = _otherwise_ready_report()
+    report["runtime_feature_tables"] = [
+        {"name": "journal_events", "classification": "inventory_only", "present": True, "row_count": 0},
+        {"name": "routes", "classification": "inventory_only", "present": False, "row_count": None},
+        {"name": "app_users", "classification": "inventory_only", "present": True, "row_count": 0},
+    ]
+    assert audit.blockers_for(report) == []
+
+    report["required_builds"][1]["wrong_version"] = 1
+    assert audit.blockers_for(report) == ["ratings v3.4 build incomplete"]
+
+
+def test_requires_exact_postgres_18_and_complete_synergy_coverage():
+    report = _otherwise_ready_report()
+    report["server"]["version_num"] = 190000
+    report["required_builds"][3].update(missing=1)
+
+    assert audit.blockers_for(report) == [
+        "PostgreSQL server major version is not 18",
+        "economy_pair_synergy coverage incomplete",
+    ]
+
+
+def test_stale_extra_rows_cannot_mask_missing_eligible_ids():
+    sql = {name: query for name, _dependencies, query in audit.REQUIRED_METRICS}
+    for name in ("ratings", "topology", "economy_pair_synergy", "archetypes", "regional_analysis", "station_body_links", "clusters"):
+        assert "NOT EXISTS" in sql[name], name
+    assert "COUNT(*) FROM system_slot_topology" not in sql["topology"]
+
+
+def test_synergy_requires_every_repository_canonical_pair_per_system():
+    query = {name: query for name, _dependencies, query in audit.REQUIRED_METRICS}["economy_pair_synergy"]
+    assert "eligible x CROSS JOIN canonical c" in query
+    assert "e.economy_a::text=c.economy_a" in query
+    assert "e.economy_b::text=c.economy_b" in query
+    # This is the exact authority in build_topology.py, not all enum combinations.
+    assert query.count("), ('") == 10
+
+
+def test_partial_pair_rows_and_noncanonical_pairs_fail_closed():
+    report = _otherwise_ready_report()
+    report["required_builds"][3].update(missing=1, unexpected=1)
+    assert audit.blockers_for(report) == [
+        "economy_pair_synergy coverage incomplete",
+        "economy_pair_synergy contains non-canonical pairs",
+    ]
+
+
+def test_topology_must_postdate_current_rating_and_source_rows():
+    query = {name: query for name, _dependencies, query in audit.REQUIRED_METRICS}["topology"]
+    assert "t.updated_at < GREATEST(s.updated_at, r.updated_at" in query
+    assert "SELECT MAX(b.updated_at) FROM bodies b" in query
+
+    report = _otherwise_ready_report()
+    report["required_builds"][2]["stale"] = 1
+    assert audit.blockers_for(report) == [
+        "topology build is stale relative to ratings/source state"
+    ]
+
+
+def test_grid_checks_current_coordinates_relations_and_derived_ids():
+    query = {name: query for name, _dependencies, query in audit.REQUIRED_METRICS}["grid"]
+    assert "LEFT JOIN spatial_grid" in query
+    assert "LEFT JOIN macro_grid" in query
+    assert "e.x < g.min_x OR e.x >= g.max_x" in query
+    assert "floor((e.x-e.min_x)/e.cell_size)" in query
+    assert "floor((e.x-e.min_x)/2000.0)" in query
+
+
+def test_populated_materialized_view_without_ordered_watermark_fails_closed():
+    report = _otherwise_ready_report()
+    report["materialized_views"][0]["freshness_verified"] = False
+    assert audit.blockers_for(report) == ["materialized view freshness unverified: mv"]
+
+
+def test_command_fails_closed_without_database_url(monkeypatch, capsys):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert audit.main([]) == 2
+    assert "no database was contacted" in capsys.readouterr().err
+
+
+def test_unsafe_ledger_configuration_is_rejected_before_connection(monkeypatch):
+    monkeypatch.setattr(
+        audit.psycopg2,
+        "connect",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("must not connect")),
+    )
+    assert audit.main(["--database-url", "postgresql://example.invalid/db", "--ledger-table", "bad.name", "--reviewed-revision", REVISION]) == 2
+
+
+def test_connection_failure_does_not_leak_database_url_or_password(monkeypatch, capsys):
+    secret = "postgresql://user:super-secret@example.invalid/db"
+
+    def fail(*args, **kwargs):
+        raise RuntimeError(f"could not connect to {secret}")
+
+    monkeypatch.setattr(audit.psycopg2, "connect", fail)
+    assert audit.main(["--database-url", secret, "--json", "--reviewed-revision", REVISION]) == 2
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["error"] == "RuntimeError"
+    assert secret not in captured.out + captured.err
+    assert "super-secret" not in captured.out + captured.err
+
+
+def test_missing_optional_relation_is_reported_without_querying_it():
+    class MissingReader:
+        def relation_kind(self, name):
+            return None
+
+        def count(self, name):
+            raise AssertionError("missing relation must not be counted")
+
+    assert audit._relation(MissingReader(), "routes", classification="inventory_only") == {
+        "name": "routes", "classification": "inventory_only", "present": False, "row_count": None
+    }
+
+
+def test_missing_metric_dependency_is_reported_without_aborting_transaction():
+    class MissingReader:
+        def relation_kind(self, name):
+            return None if name == "ratings" else "r"
+
+        def rows(self, query):
+            raise AssertionError("metric SQL must not run with missing dependencies")
+
+    result = audit._metric(MissingReader(), "ratings", "SELECT forbidden", ("systems", "ratings"))
+    assert result["present"] is False
+    assert result["missing_relations"] == ["ratings"]
+
+
+def test_compose_resolution_is_explicit_and_does_not_start_services(monkeypatch):
+    called = []
+
+    class Completed:
+        stdout = json.dumps({"services": {"maintenance": {"environment": {"DATA_INVARIANTS_DATABASE_URL": "postgresql://resolved.invalid/db"}}}})
+
+    def fake_run(command, **kwargs):
+        called.append(command)
+        return Completed()
+
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(audit.subprocess, "run", fake_run)
+    monkeypatch.setattr(audit.psycopg2, "connect", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError()))
+    assert audit.main(["--compose", "--reviewed-revision", REVISION]) == 2
+    assert called[0][-3:] == ["config", "--format", "json"]
+    assert "up" not in called[0] and "run" not in called[0] and "exec" not in called[0]
+
+
+def test_read_only_contract_and_json_human_rendering():
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert 'set_session(readonly=True, autocommit=False, isolation_level="REPEATABLE READ")' in source
+    assert 'SHOW transaction_read_only' in source
+    assert 'SHOW transaction_isolation' in source
+    assert "pg_catalog.pg_control_system()" in source
+    assert not any(token in source for token in ("INSERT INTO systems", "UPDATE systems", "DELETE FROM systems", "CREATE TABLE schema_migrations"))
+
+    report = _otherwise_ready_report()
+    report.update({"ready": True, "read_only": True, "server": {"version": "18.1", "version_num": 180001, "database_size_bytes": 42}, "blockers": []})
+    assert json.loads(json.dumps(report))["read_only"] is True
+    assert "PostgreSQL 18.1" in audit.render_human(report)
+
+
+def test_reviewed_revision_must_be_a_full_stable_digest():
+    assert audit.validate_reviewed_revision(REVISION) == REVISION
+    for unsafe in ("", "main", "A" * 40, "a" * 39, "a" * 41):
+        try:
+            audit.validate_reviewed_revision(unsafe)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"unsafe reviewed revision accepted: {unsafe!r}")
+
+
+def test_audit_uses_one_read_only_repeatable_read_snapshot_and_records_identity(monkeypatch):
+    class Connection:
+        session = None
+        rolled_back = False
+
+        def set_session(self, **kwargs):
+            self.session = kwargs
+
+        def rollback(self):
+            self.rolled_back = True
+
+    class SnapshotReader:
+        def __init__(self, connection):
+            assert connection.session == {
+                "readonly": True,
+                "autocommit": False,
+                "isolation_level": "REPEATABLE READ",
+            }
+
+        def one(self, query, params=()):
+            return {
+                "SHOW transaction_read_only": "on",
+                "SHOW transaction_isolation": "repeatable read",
+                "SHOW server_version": "18.1",
+                "SHOW server_version_num": "180001",
+                "SELECT pg_database_size(current_database())": 42,
+            }[query]
+
+        def rows(self, query, params=()):
+            assert "pg_catalog.pg_control_system()" in query
+            return [("candidate_db", "765432109876543210")]
+
+    connection = Connection()
+    monkeypatch.setattr(audit, "Reader", SnapshotReader)
+    monkeypatch.setattr(audit, "load_manifest", lambda _manifest: [])
+    monkeypatch.setattr(audit, "migration_audit", lambda *_args: {
+        "ledger_present": True, "pending_auto": [], "pending_manual": [],
+        "checksum_mismatches": [], "unexpected_ledger_entries": [],
+    })
+    monkeypatch.setattr(audit, "_relation", lambda _reader, name, classification: {
+        "name": name, "classification": classification, "present": False, "row_count": None,
+    })
+    monkeypatch.setattr(audit, "_metric", lambda _reader, name, *_args, **_kwargs: {
+        "name": name, "classification": "optional", "present": False,
+    })
+    monkeypatch.setattr(audit, "REQUIRED_METRICS", ())
+    monkeypatch.setattr(audit, "INVENTORY_ONLY_TABLES", ())
+
+    report = audit.run_audit(connection, reviewed_revision=REVISION)
+
+    assert connection.rolled_back is True
+    assert report["reviewed_revision"] == REVISION
+    assert report["snapshot"] == {"isolation_level": "repeatable read"}
+    assert report["candidate_identity"] == {
+        "database": "candidate_db",
+        "system_identifier": "765432109876543210",
+    }
+
+
+def test_workflow_transports_reviewed_bundle_and_validates_receipt_binding():
+    workflow = (ROOT / ".github" / "workflows" / "chatgpt-ed-new-ops.yml").read_text(encoding="utf-8")
+    assert 'tar -czf "$audit_bundle" scripts/operator/audit_production_candidate.py sql' in workflow
+    assert "cd /opt/ed-finder" not in workflow
+    assert "--reviewed-revision '$REVIEWED_REVISION'" in workflow
+    assert "payload.get('reviewed_revision') != os.environ['REVIEWED_REVISION']" in workflow
+    assert "payload.get('candidate_identity', {})" in workflow

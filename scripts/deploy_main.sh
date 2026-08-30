@@ -19,6 +19,7 @@
 #   bash scripts/deploy_main.sh --skip-pull
 #   bash scripts/deploy_main.sh --skip-migrations
 #   bash scripts/deploy_main.sh --skip-frontend
+#   bash scripts/deploy_main.sh --external-db
 #   bash scripts/deploy_main.sh --frontend-archive /tmp/frontend-dist.tar.gz
 #
 # Environment overrides:
@@ -38,6 +39,8 @@ SKIP_PULL=0
 SKIP_MIGRATIONS=0
 SKIP_FRONTEND=0
 SKIP_INVARIANTS=0
+EXTERNAL_DB_MODE="${EDFINDER_EXTERNAL_DB_MODE:-false}"
+EXTERNAL_DB_FLAG=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --skip-migrations) SKIP_MIGRATIONS=1; shift ;;
     --skip-frontend)   SKIP_FRONTEND=1; shift ;;
     --skip-invariants) SKIP_INVARIANTS=1; shift ;;
+    --external-db)     EXTERNAL_DB_MODE=true; EXTERNAL_DB_FLAG=1; shift ;;
     --frontend-archive) FRONTEND_ARCHIVE="$2"; shift 2 ;;
     --branch)          BRANCH="$2"; shift 2 ;;
     --repo-dir)        REPO_DIR="$2"; shift 2 ;;
@@ -77,7 +81,11 @@ on_error() {
     echo "  cd $REPO_DIR" >&2
     echo "  git reset --hard \$(awk '{print \$1}' $PRE_DEPLOY_FILE)" >&2
     echo "  ( cd $FRONTEND_DIR && yarn build )" >&2
-    echo "  docker compose up -d --build api eddn maintenance" >&2
+    if [[ "$EXTERNAL_DB_MODE" == "true" ]]; then
+      echo "  docker compose up -d --build --no-deps api eddn maintenance" >&2
+    else
+      echo "  docker compose up -d --build api eddn maintenance" >&2
+    fi
     echo "  docker compose exec nginx nginx -s reload" >&2
   fi
 }
@@ -95,6 +103,39 @@ say "Sanity checks"
 command -v git >/dev/null || die "git not found"
 command -v docker >/dev/null || die "docker not found"
 command -v curl >/dev/null || die "curl not found"
+
+# Compose reads .env automatically; load it here too so the explicit mode and
+# its role-separated URLs are validated. Preserve every value explicitly
+# exported by the operator: shell overrides have the same precedence here that
+# Docker Compose gives them over values from .env.
+declare -A OPERATOR_EXPORTED_ENV=()
+while IFS= read -r name; do
+  OPERATOR_EXPORTED_ENV["$name"]="${!name}"
+done < <(compgen -e)
+set -a
+# shellcheck source=/dev/null
+source .env
+set +a
+for name in "${!OPERATOR_EXPORTED_ENV[@]}"; do
+  export "$name=${OPERATOR_EXPORTED_ENV[$name]}"
+done
+unset OPERATOR_EXPORTED_ENV name
+# Child scripts must consume this already-resolved environment. In particular,
+# the migration applier must not source .env again and replace operator-exported
+# role URLs with file values.
+export EDFINDER_ENV_ALREADY_RESOLVED=1
+if [[ "$EXTERNAL_DB_FLAG" -eq 0 ]]; then
+  EXTERNAL_DB_MODE="${EDFINDER_EXTERNAL_DB_MODE:-false}"
+fi
+
+case "$EXTERNAL_DB_MODE" in
+  true)
+    bash scripts/validate_external_db_config.sh --config-only
+    bash scripts/validate_external_db_config.sh
+    ;;
+  false) ;;
+  *) die "EDFINDER_EXTERNAL_DB_MODE must be exactly true or false" ;;
+esac
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then
   if [[ -n "$FRONTEND_ARCHIVE" ]]; then
     command -v tar >/dev/null || die "tar not found; required to extract --frontend-archive"
@@ -122,9 +163,27 @@ else
 fi
 
 say "Check core services are available"
-docker compose ps postgres >/dev/null
+if [[ "$EXTERNAL_DB_MODE" == "false" ]]; then
+  docker compose ps postgres >/dev/null
+else
+  if [[ -n "$(docker compose ps --status running --services postgres)" ]]; then
+    die "bundled postgres is running in external database mode"
+  fi
+  # Start Redis explicitly because --no-deps below deliberately prevents
+  # Compose from starting either Redis or the bundled PostgreSQL dependency.
+  docker compose up -d --no-deps redis
+  redis_healthy=0
+  for i in {1..30}; do
+    if [[ "$(docker compose exec -T redis redis-cli ping 2>/dev/null || true)" == "PONG" ]]; then
+      redis_healthy=1
+      break
+    fi
+    sleep 2
+  done
+  [[ "$redis_healthy" -eq 1 ]] || die "redis did not become healthy"
+fi
 docker compose ps redis >/dev/null
-ok "compose can see postgres and redis"
+ok "required database and redis services are available"
 
 if [[ "$SKIP_MIGRATIONS" -eq 0 ]]; then
   say "Apply pending ledgered SQL migrations"
@@ -194,11 +253,22 @@ say "Rebuild/restart application containers"
 export EDFINDER_BUILD_SHA
 EDFINDER_BUILD_SHA="$(git rev-parse HEAD)"
 ok "deployment build SHA: $EDFINDER_BUILD_SHA"
-docker compose up -d --build api eddn maintenance
+if [[ "$EXTERNAL_DB_MODE" == "true" ]]; then
+  # --no-deps is the critical isolation boundary: api/eddn/maintenance retain
+  # their default bundled-postgres dependency for existing deployments, but an
+  # explicit external deployment must never create or start that service.
+  docker compose up -d --build --no-deps api eddn maintenance
+else
+  docker compose up -d --build api eddn maintenance
+fi
 ok "application containers updated"
 
 say "Recreate nginx to pick up config and volume changes"
-docker compose up -d --force-recreate nginx
+if [[ "$EXTERNAL_DB_MODE" == "true" ]]; then
+  docker compose up -d --force-recreate --no-deps nginx
+else
+  docker compose up -d --force-recreate nginx
+fi
 ok "nginx container recreated"
 
 say "Wait for API health"
@@ -215,10 +285,16 @@ for i in {1..30}; do
 done
 
 say "Verify facility catalogue"
-facility_count="$(
-  docker compose exec -T postgres psql -U edfinder -d edfinder -At \
-    -c "SELECT COUNT(*) FROM facility_templates;"
-)"
+if [[ "$EXTERNAL_DB_MODE" == "true" ]]; then
+  facility_count="$(PGCONNECT_TIMEOUT=10 PGOPTIONS='-c default_transaction_read_only=on' \
+    psql --no-psqlrc --dbname="$DATABASE_READONLY_URL" -AtX \
+      -c "SELECT COUNT(*) FROM facility_templates;")"
+else
+  facility_count="$(
+    docker compose exec -T postgres psql -U edfinder -d edfinder -At \
+      -c "SELECT COUNT(*) FROM facility_templates;"
+  )"
+fi
 [[ "$facility_count" -ge 1 ]] || die "facility_templates is empty or missing"
 ok "facility_templates rows: $facility_count"
 
