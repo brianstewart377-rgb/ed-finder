@@ -1,0 +1,122 @@
+name: One-shot OAuth Production Preflight
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/oauth-production-preflight.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-production-preflight
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect production OAuth readiness without writes
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_HOST"
+          test -n "$SSH_PORT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Run sanitised read-only production preflight
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/ed-finder
+
+          echo '== Checkout =='
+          echo "branch=$(git branch --show-current)"
+          echo "head=$(git rev-parse HEAD)"
+          echo 'status:'
+          git status --short
+          echo 'tracked_diff_names:'
+          git diff --name-only
+
+          echo
+          echo '== Sanitised docker-compose.yml local diff =='
+          python3 - <<'PY'
+          import re
+          import subprocess
+
+          result = subprocess.run(
+              ['git', 'diff', '--unified=1', '--', 'docker-compose.yml'],
+              check=False,
+              capture_output=True,
+              text=True,
+          )
+          sensitive = re.compile(
+              r'(?i)(password|secret|token|credential|private[_-]?key|client[_-]?id|admin[_-]?token|dsn)'
+          )
+          for line in result.stdout.splitlines():
+              if sensitive.search(line):
+                  prefix = line[:1] if line[:1] in '+-' else ''
+                  print(f'{prefix}<redacted sensitive line>')
+              else:
+                  print(line)
+          if not result.stdout:
+              print('(no local diff)')
+          PY
+
+          echo
+          echo '== OAuth environment presence (values never printed) =='
+          for name in FRONTIER_CLIENT_ID FRONTIER_CLIENT_SECRET FRONTIER_REDIRECT_URI AUTH_COOKIE_SECURE ADMIN_TOKEN; do
+            if grep -Eq "^${name}=.+$" .env; then
+              echo "${name}=present"
+            else
+              echo "${name}=missing"
+            fi
+          done
+
+          redirect_uri="$(sed -n 's/^FRONTIER_REDIRECT_URI=//p' .env | tail -n 1)"
+          if [ "$redirect_uri" = 'https://ed-finder.app/api/auth/frontier/callback' ]; then
+            echo 'frontier_redirect_uri_exact=true'
+          else
+            echo 'frontier_redirect_uri_exact=false'
+          fi
+
+          cookie_secure="$(sed -n 's/^AUTH_COOKIE_SECURE=//p' .env | tail -n 1 | tr '[:upper:]' '[:lower:]')"
+          if [ "$cookie_secure" = 'true' ] || [ "$cookie_secure" = '1' ]; then
+            echo 'auth_cookie_secure=true'
+          else
+            echo 'auth_cookie_secure=false'
+          fi
+
+          echo
+          echo '== Current compose/database readiness =='
+          docker compose config --quiet
+          echo 'compose_config_valid=true'
+          auth_schema_present="$(docker compose exec -T postgres psql -U edfinder -d edfinder -Atqc "SELECT (to_regclass('public.app_users') IS NOT NULL AND to_regclass('public.web_sessions') IS NOT NULL AND to_regclass('public.oauth_login_states') IS NOT NULL)::text;")"
+          echo "oauth_schema_present=${auth_schema_present:-false}"
+          echo 'production_writes_performed=false'
+          REMOTE
