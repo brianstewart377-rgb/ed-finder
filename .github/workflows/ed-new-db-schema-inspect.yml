@@ -1,0 +1,151 @@
+name: ed-new DB Schema Inspect
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-db-schema-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-db-schema-inspect
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect retained PG18 candidate schema
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one schema inspection request file' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/ed-new-db-schema-requests/*.json) ;;
+            *) echo 'Changed path is outside schema inspection request allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation": "inspect-retained-pg18-schema"}:
+              raise SystemExit("Unsupported schema inspection request")
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo 'Missing ED_NEW_OPERATOR_SSH_KEY' >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo 'Missing ED_NEW_OPERATOR_HOST' >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo 'Missing ED_NEW_OPERATOR_PORT' >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'Missing pinned ed-new known-hosts secret' >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo 'Pinned known-host trust mismatch' >&2; exit 1; }
+
+      - name: Inspect exact retained candidate database
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import subprocess
+
+          container = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+          database = "edfinder_v3_phase4c_full_20260827_r5"
+          inspect = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[0]
+          env = {}
+          for item in inspect.get("Config", {}).get("Env", []):
+              if "=" in item:
+                  key, value = item.split("=", 1)
+                  env[key] = value
+          user = env.get("POSTGRES_USER") or "postgres"
+          password = env.get("POSTGRES_PASSWORD") or ""
+          base = ["docker", "exec"]
+          if password:
+              base += ["-e", f"PGPASSWORD={password}"]
+          base += [container, "psql", "-h", "127.0.0.1", "-U", user, "-d", database, "-At"]
+
+          def query(sql):
+              return subprocess.check_output(base + ["-F", "|", "-c", sql], text=True).strip().splitlines()
+
+          print("candidate_database:", database)
+          print("database_size_bytes:", query("SELECT pg_database_size(current_database())")[0])
+          print("server_version:", query("SHOW server_version")[0])
+
+          print("schemas:")
+          for row in query("SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' ORDER BY nspname"):
+              print("-", row)
+
+          print("core_named_relations:")
+          core = query("""
+              SELECT n.nspname, c.relname, c.relkind
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE lower(c.relname) IN ('systems','ratings','bodies','stations','body_rings','app_users','web_sessions','oauth_login_states','schema_migrations')
+              ORDER BY lower(c.relname), n.nspname
+          """)
+          if core:
+              for row in core:
+                  print("-", row)
+          else:
+              print("- none")
+
+          print("largest_relations:")
+          for row in query("""
+              SELECT n.nspname, c.relname, c.relkind, pg_total_relation_size(c.oid)
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname NOT LIKE 'pg_%'
+                AND n.nspname <> 'information_schema'
+                AND c.relkind IN ('r','p','m','i')
+              ORDER BY pg_total_relation_size(c.oid) DESC
+              LIMIT 30
+          """):
+              print("-", row)
+
+          print("relation_counts_by_schema:")
+          for row in query("""
+              SELECT n.nspname, count(*)
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname NOT LIKE 'pg_%'
+                AND n.nspname <> 'information_schema'
+                AND c.relkind IN ('r','p','m','v','i')
+              GROUP BY n.nspname
+              ORDER BY count(*) DESC, n.nspname
+          """):
+              print("-", row)
+          PY
