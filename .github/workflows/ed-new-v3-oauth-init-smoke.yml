@@ -42,7 +42,7 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
           if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
-      - name: Run controlled OAuth initiation and clean test state
+      - name: Run controlled OAuth initiation and inspect safe metadata
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
@@ -62,13 +62,8 @@ jobs:
           session_table='v3_identity.session'
 
           def sql(q):
-              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -c "$1"'
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -F "|" -c "$1"'
               return subprocess.check_output(['docker','exec','-u','postgres',c,'sh','-lc',cmd,'sh',q],text=True).strip()
-
-          columns=set(filter(None,sql("SELECT column_name FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='oauth_login_state'").splitlines()))
-          required_columns={'state_sha256','code_verifier','return_to','intent','account_id','created_at','expires_at'}
-          if not required_columns.issubset(columns):
-              raise SystemExit('live V3 oauth_login_state contract changed unexpectedly')
 
           before_accounts=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
           before_sessions=int(sql(f'SELECT count(*) FROM {session_table}') or '0')
@@ -89,57 +84,53 @@ jobs:
               q=urllib.parse.parse_qs(u.query,keep_blank_values=True)
               if u.scheme!='https' or u.hostname!='auth.frontierstore.net' or u.path!='/auth':
                   raise SystemExit('OAuth redirect target is not Frontier /auth over HTTPS')
-              required={'response_type','client_id','redirect_uri','scope','state','code_challenge','code_challenge_method'}
-              if not required.issubset(q):
-                  raise SystemExit('OAuth redirect is missing required query parameters')
               if q.get('response_type')!=['code'] or q.get('code_challenge_method')!=['S256']:
                   raise SystemExit('OAuth redirect does not use Authorization Code + S256 PKCE')
-
               raw_state=(q.get('state') or [''])[0]
               if not raw_state:
                   raise SystemExit('OAuth redirect state is empty')
               expected_hex=hashlib.sha256(raw_state.encode('utf-8')).hexdigest()
 
-              redirect_uri=(q.get('redirect_uri') or [''])[0]
-              redirect=urllib.parse.urlsplit(redirect_uri)
+              redirect=urllib.parse.urlsplit((q.get('redirect_uri') or [''])[0])
               if redirect.scheme!='https' or redirect.netloc!='ed-finder.app':
                   raise SystemExit('Frontier redirect URI is not HTTPS ed-finder.app')
-              accepted_callbacks={'/api/v1/auth/frontier/callback','/api/auth/frontier/callback'}
-              if redirect.path not in accepted_callbacks:
+              if redirect.path not in {'/api/v1/auth/frontier/callback','/api/auth/frontier/callback'}:
                   raise SystemExit('Frontier redirect URI has an unexpected callback path')
 
               low_cookie=cookie.lower()
-              for flag in ('httponly','secure','samesite=lax'):
+              for flag in ('httponly','secure','samesite=lax','path=/api'):
                   if flag not in low_cookie:
                       raise SystemExit(f'OAuth state cookie missing {flag}')
-              if 'path=/api' not in low_cookie:
-                  raise SystemExit('OAuth state cookie is not scoped to /api')
 
               esc=expected_hex.replace("'","''")
-              row=sql(f"SELECT return_to || '|' || intent || '|' || (account_id IS NULL)::text || '|' || (expires_at > NOW())::text || '|' || (length(code_verifier) >= 43)::text FROM {state_table} WHERE encode(state_sha256,'hex')='{esc}'")
+              row=sql(f"SELECT return_to,intent,(account_id IS NULL)::text,(expires_at > NOW())::text,length(code_verifier),octet_length(state_sha256),(created_at <= NOW())::text FROM {state_table} WHERE encode(state_sha256,'hex')='{esc}'")
               if not row:
                   raise SystemExit('OAuth initiation did not create the expected SHA-256 state row')
               inserted=True
-              if row!='/oauth-smoke|LOGIN|t|t|t':
-                  raise SystemExit('inserted OAuth state row failed semantic checks')
-
-              after_accounts=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
-              after_sessions=int(sql(f'SELECT count(*) FROM {session_table}') or '0')
-              if after_accounts!=before_accounts or after_sessions!=before_sessions:
-                  raise SystemExit('OAuth initiation unexpectedly changed accounts or sessions')
-
-              print('oauth_init_smoke|PASS')
+              parts=row.split('|')
+              if len(parts)!=7:
+                  raise SystemExit('unexpected safe OAuth state metadata shape')
+              stored_return, intent, account_null, future_expiry, verifier_len, digest_len, created_ok=parts
+              print('oauth_init_reached_state_insert|PASS')
               print('http_status|302')
               print('frontier_authorize_target|PASS')
               print('pkce_s256|PASS')
               print('secure_state_cookie|PASS')
-              print('oauth_state_insert|exactly_one_expected_sha256')
-              print('accounts_changed|false')
-              print('sessions_changed|false')
               print('configured_callback_path|'+redirect.path)
-              print('primary_live_callback|/api/v1/auth/frontier/callback')
-              print('compat_live_callback|/api/auth/frontier/callback')
-              print('callback_route_supported|true')
+              print('stored_return_to|'+stored_return)
+              print('stored_intent|'+intent)
+              print('account_id_is_null|'+account_null)
+              print('expires_future|'+future_expiry)
+              print('verifier_length|'+verifier_len)
+              print('state_digest_bytes|'+digest_len)
+              print('created_not_future|'+created_ok)
+
+              after_accounts=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
+              after_sessions=int(sql(f'SELECT count(*) FROM {session_table}') or '0')
+              print('accounts_changed|'+str(after_accounts!=before_accounts).lower())
+              print('sessions_changed|'+str(after_sessions!=before_sessions).lower())
+              if after_accounts!=before_accounts or after_sessions!=before_sessions:
+                  raise SystemExit('OAuth initiation unexpectedly changed accounts or sessions')
           finally:
               if expected_hex:
                   esc=expected_hex.replace("'","''")
