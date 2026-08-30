@@ -1,0 +1,152 @@
+name: ed-new Public Cutover Readiness
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-public-cutover-readiness-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect ed-new public ingress readiness
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-public-cutover-readiness-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect host, firewall, DNS and retained runtime
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import ipaddress, json, socket, subprocess, urllib.request
+
+          def run(args):
+              return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+
+          print('hostname|' + socket.gethostname())
+
+          # Inventory host IPv4 addresses without printing them. Decide only whether
+          # current public DNS already resolves to an address assigned to this host.
+          ip = run(['ip','-j','-4','addr','show'])
+          host_ips=set()
+          public_ips=set()
+          if ip.returncode == 0:
+              for iface in json.loads(ip.stdout or '[]'):
+                  for a in iface.get('addr_info',[]):
+                      addr=a.get('local')
+                      if not addr: continue
+                      host_ips.add(addr)
+                      try:
+                          obj=ipaddress.ip_address(addr)
+                          if not (obj.is_private or obj.is_loopback or obj.is_link_local):
+                              public_ips.add(addr)
+                      except ValueError:
+                          pass
+          print('host_ipv4_count|' + str(len(host_ips)))
+          print('host_public_ipv4_count|' + str(len(public_ips)))
+
+          dns_ips=set()
+          try:
+              for item in socket.getaddrinfo('ed-finder.app',80,socket.AF_INET,socket.SOCK_STREAM):
+                  dns_ips.add(item[4][0])
+          except OSError:
+              pass
+          print('dns_ipv4_count|' + str(len(dns_ips)))
+          print('dns_points_to_ed_new|' + str(bool(host_ips & dns_ips)).lower())
+
+          ss=run(['ss','-lnt'])
+          lines=ss.stdout.splitlines()
+          def port_used(port):
+              suffix=':'+str(port)
+              for line in lines[1:]:
+                  cols=line.split()
+                  if len(cols) >= 4:
+                      local=cols[3]
+                      if local.endswith(suffix):
+                          return True
+              return False
+          for port in (80,443,58080,58095):
+              print(f'host_port_{port}_listening|' + str(port_used(port)).lower())
+
+          ps=run(['docker','ps','--format','{{.Names}}|{{.Image}}|{{.Ports}}'])
+          print('v3_runtime_containers:')
+          for line in ps.stdout.splitlines():
+              if 'edfinder-v3' in line.lower():
+                  print(line)
+
+          # Confirm the private nginx/API chain is still healthy.
+          for url,label in [
+              ('http://127.0.0.1:58080/api/v1/auth/session','private_nginx_auth_session'),
+              ('http://127.0.0.1:58095/openapi.json','private_api_openapi'),
+          ]:
+              try:
+                  req=urllib.request.Request(url, headers={'Host':'ed-finder.app','User-Agent':'edfinder-cutover-readiness/1'})
+                  with urllib.request.urlopen(req,timeout=5) as r:
+                      print(label+'_status|'+str(r.status))
+              except Exception as exc:
+                  code=getattr(exc,'code',None)
+                  print(label+'_status|'+(str(code) if code else 'ERROR'))
+
+          # Firewall summaries only; do not dump unrelated rules.
+          ufw=run(['ufw','status'])
+          if ufw.returncode == 0:
+              first=(ufw.stdout.splitlines() or ['unknown'])[0].strip()
+              print('ufw_status|' + first)
+              low=ufw.stdout.lower()
+              for port in (80,443):
+                  allowed=False
+                  for raw in low.splitlines():
+                      if str(port) in raw and 'allow' in raw:
+                          allowed=True
+                  print(f'ufw_port_{port}_allow_rule|' + str(allowed).lower())
+          else:
+              print('ufw_status|unavailable')
+
+          nft=run(['nft','list','ruleset'])
+          if nft.returncode == 0:
+              low=nft.stdout.lower()
+              print('nft_ruleset_present|true')
+              print('nft_mentions_port_80|' + str(('dport 80' in low or 'dport { 80' in low)).lower())
+              print('nft_mentions_port_443|' + str(('dport 443' in low or 'dport { 443' in low)).lower())
+          else:
+              print('nft_ruleset_present|false')
+
+          print('mutations_performed|false')
+          PY
