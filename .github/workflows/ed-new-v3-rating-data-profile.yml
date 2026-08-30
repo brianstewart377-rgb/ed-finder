@@ -1,0 +1,171 @@
+name: ed-new V3 Rating Data Profile
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-rating-data-profile-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-v3-rating-data-profile
+  cancel-in-progress: false
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected one rating-data profile request' >&2; exit 64; }
+          case "${changed[0]}" in .github/ed-new-v3-rating-data-profile-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation":"profile-v3-rating-data-readonly"}:
+              raise SystemExit('Unsupported request')
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Profile published V3 evidence fields read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess, re
+
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          schema='v3_gen_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container], text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At','-F','|']
+
+          def q(sql):
+              return subprocess.check_output(base+['-c',sql], text=True).strip().splitlines()
+
+          print('profile_mode|readonly')
+          print('schema|'+schema)
+          print('== CANONICAL RELATIONS ==')
+          rels=q(f"""
+            SELECT c.relname,c.relkind,COALESCE(c.reltuples::bigint,0),pg_total_relation_size(c.oid)
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='{schema}' AND c.relkind IN ('r','p','v','m')
+            ORDER BY c.relname
+          """)
+          for r in rels: print(r)
+
+          print('== CANDIDATE EVIDENCE COLUMNS ==')
+          keywords=('volcan','reserve','resource','signal','bio','geo','terraform','land','distance','radius','parent','ring','atmos','tidal','subtype','class','star','body','system','composition','gravity','temperature','pressure','orbit','semi','eccentric','inclination','mass')
+          cols=q(f"""
+            SELECT table_name,column_name,data_type,is_nullable,ordinal_position
+            FROM information_schema.columns
+            WHERE table_schema='{schema}'
+            ORDER BY table_name,ordinal_position
+          """)
+          by_table={}
+          for line in cols:
+              t,c,dt,nul,pos=line.split('|',4)
+              by_table.setdefault(t,[]).append((c,dt,nul,int(pos)))
+              if any(k in c.lower() for k in keywords):
+                  print(f'{t}|{c}|{dt}|nullable={nul}|ordinal={pos}')
+
+          print('== PG_STATS FOR RATING-RELEVANT COLUMNS ==')
+          wanted_by_table={}
+          for t,items in by_table.items():
+              for c,dt,nul,pos in items:
+                  if any(k in c.lower() for k in keywords):
+                      wanted_by_table.setdefault(t,set()).add(c)
+          stats=q(f"""
+            SELECT tablename,attname,
+                   COALESCE(null_frac::text,''),COALESCE(n_distinct::text,''),
+                   COALESCE(avg_width::text,''),COALESCE(correlation::text,'')
+            FROM pg_stats
+            WHERE schemaname='{schema}'
+            ORDER BY tablename,attname
+          """)
+          for line in stats:
+              parts=line.split('|')
+              if len(parts)>=2 and parts[1] in wanted_by_table.get(parts[0],set()):
+                  print(line)
+
+          print('== KEY FIELD PRESENCE ==')
+          probes=[
+            'volcanism','reserve_level','reserve','resource_reserve','resources',
+            'bio_signal_count','geo_signal_count','biological_signal_count','geological_signal_count',
+            'is_terraformable','terraforming_state','is_landable','distance_from_star',
+            'is_tidal_lock','tidal_lock','parents','parent_id','body_id','subtype','body_type',
+            'has_rings','ring_type','mass_mt','inner_radius','outer_radius','atmosphere_type',
+            'surface_temperature','surface_pressure','gravity','radius','spectral_class','is_main_star'
+          ]
+          lower={(t,c.lower()):(c,dt) for t,items in by_table.items() for c,dt,_,_ in items}
+          allcols={c.lower() for items in by_table.values() for c,_,_,_ in items}
+          for p in probes:
+              hits=[]
+              for t,items in by_table.items():
+                  for c,dt,_,_ in items:
+                      if c.lower()==p:
+                          hits.append(f'{t}.{c}:{dt}')
+              print(f'{p}|'+(';'.join(hits) if hits else 'ABSENT'))
+
+          print('== SMALL VALUE DOMAINS / SAMPLES ==')
+          # Only sample tables that physically contain likely rating fields. SYSTEM sampling keeps this bounded.
+          sample_fields={
+            'systems':['main_star_type','population','is_colonised','is_being_colonised','needs_permit'],
+            'bodies':['body_type','subtype','is_landable','is_terraformable','is_tidal_lock','volcanism','reserve_level','distance_from_star','bio_signal_count','geo_signal_count','atmosphere_type'],
+            'rings':['ring_type','reserve_level','association_status'],
+          }
+          for t,fields in sample_fields.items():
+              if t not in by_table: continue
+              actual={c for c,_,_,_ in by_table[t]}
+              for f in fields:
+                  if f not in actual: continue
+                  # Distinct domains are limited to sampled values; cap output.
+                  sql=f'''SELECT {f}::text, count(*) FROM {schema}.{t} TABLESAMPLE SYSTEM (0.01) REPEATABLE (83026) WHERE {f} IS NOT NULL GROUP BY {f} ORDER BY count(*) DESC NULLS LAST LIMIT 20'''
+                  try:
+                      rows=q(sql)
+                  except subprocess.CalledProcessError as e:
+                      print(f'{t}.{f}|sample_error')
+                      continue
+                  print(f'-- {t}.{f}')
+                  for row in rows: print(row)
+
+          print('database_writes_performed|false')
+          PY
