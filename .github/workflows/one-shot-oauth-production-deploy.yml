@@ -1,0 +1,303 @@
+name: One-shot OAuth Production Deploy
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/one-shot-oauth-production-deploy.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oauth-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy merged OAuth and verify production boundary
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 45
+    env:
+      TARGET_SHA: 5403ecca701bc9f53b3e45fe8eedb8457fb21151
+      OAUTH_MERGE_SHA: 06cc7d602b22880596790013d66aef6fc4706d47
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_HOST"
+          test -n "$SSH_PORT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Promote exact main commit and run production OAuth checks
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              bash -s -- "$TARGET_SHA" "$OAUTH_MERGE_SHA" <<'REMOTE'
+          set -euo pipefail
+
+          target_sha="$1"
+          oauth_merge_sha="$2"
+          repo_dir='/opt/ed-finder'
+          backup_root="$repo_dir/.operator-backups"
+          timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+          backup_dir="$backup_root/oauth-deploy-$timestamp"
+          old_head=''
+          deployment_started=0
+          deployment_succeeded=0
+
+          say() { printf '\n[oauth-deploy] %s\n' "$*"; }
+          fail() { printf '[oauth-deploy][ERROR] %s\n' "$*" >&2; exit 1; }
+
+          rollback() {
+            rc=$?
+            if [ "$rc" -eq 0 ] || [ "$deployment_succeeded" -eq 1 ]; then
+              return
+            fi
+            printf '\n[oauth-deploy][ERROR] deployment failed; attempting tracked-code rollback\n' >&2
+            if [ "$deployment_started" -eq 1 ] && [ -n "$old_head" ] && [ -d "$backup_dir" ]; then
+              cd "$repo_dir" || return
+              cp "$backup_dir/env.before" .env || true
+              chmod 600 .env || true
+              git reset --hard "$old_head" || true
+              if command -v yarn >/dev/null 2>&1; then
+                (
+                  cd frontend
+                  yarn install --frozen-lockfile --no-progress --non-interactive --ignore-engines
+                  yarn build
+                ) || true
+              fi
+              docker compose up -d --build api eddn maintenance || true
+              docker compose up -d --force-recreate nginx || true
+              for _ in $(seq 1 30); do
+                if curl -fsS --max-time 5 http://127.0.0.1/api/health >/dev/null 2>&1; then
+                  printf '[oauth-deploy] rollback_health=true\n' >&2
+                  break
+                fi
+                sleep 2
+              done
+              printf '[oauth-deploy] rollback_target=%s\n' "$old_head" >&2
+            fi
+            exit "$rc"
+          }
+          trap rollback EXIT
+
+          cd "$repo_dir"
+          say 'Preflight and backup'
+          [ "$(git branch --show-current)" = 'main' ] || fail 'production checkout is not on main'
+          old_head="$(git rev-parse HEAD)"
+          git fetch --no-tags origin main
+          [ "$(git rev-parse origin/main)" = "$target_sha" ] || fail 'origin/main moved beyond the authorised deployment SHA'
+          git merge-base --is-ancestor "$oauth_merge_sha" "$target_sha" || fail 'target does not contain the merged OAuth implementation'
+          [ -f .env ] || fail '.env is missing'
+          [ -f maintenance-crontab ] || fail 'maintenance-crontab host override source is missing'
+
+          mkdir -p "$backup_dir"
+          chmod 700 "$backup_root" "$backup_dir"
+          printf '%s\n' "$old_head" > "$backup_dir/head.before"
+          git status --short > "$backup_dir/status.before"
+          git diff --binary > "$backup_dir/tracked.patch"
+          cp .env "$backup_dir/env.before"
+          chmod 600 "$backup_dir/env.before"
+
+          mapfile -t tracked_changes < <(git diff --name-only)
+          if [ "${#tracked_changes[@]}" -gt 0 ]; then
+            [ "${#tracked_changes[@]}" -eq 1 ] || fail 'more than one tracked file has local edits'
+            [ "${tracked_changes[0]}" = 'docker-compose.yml' ] || fail 'unexpected tracked local edit'
+            python3 - <<'PY'
+          import subprocess
+
+          diff = subprocess.run(
+              ['git', 'diff', '--unified=0', '--', 'docker-compose.yml'],
+              check=True,
+              capture_output=True,
+              text=True,
+          ).stdout.splitlines()
+          additions = [
+              line[1:]
+              for line in diff
+              if line.startswith('+') and not line.startswith('+++')
+          ]
+          deletions = [
+              line[1:]
+              for line in diff
+              if line.startswith('-') and not line.startswith('---')
+          ]
+          mount = '      - /opt/ed-finder/maintenance-crontab:/etc/crontabs/root:ro'
+          if deletions:
+              raise SystemExit('tracked compose override contains deletions')
+          if mount not in additions:
+              raise SystemExit('expected maintenance crontab mount is absent')
+          other = [line for line in additions if line != mount]
+          if len(other) > 1 or any(not line.lstrip().startswith('#') for line in other):
+              raise SystemExit('tracked compose override contains an unexpected addition')
+          PY
+          fi
+
+          if [ -e docker-compose.override.yml ]; then
+            grep -Fxq '      - /opt/ed-finder/maintenance-crontab:/etc/crontabs/root:ro' docker-compose.override.yml \
+              || fail 'existing docker-compose.override.yml does not preserve the known maintenance mount'
+          else
+            cat > docker-compose.override.yml <<'YAML'
+          services:
+            maintenance:
+              volumes:
+                - /opt/ed-finder/maintenance-crontab:/etc/crontabs/root:ro
+          YAML
+            chmod 600 docker-compose.override.yml
+          fi
+
+          git restore --source=HEAD --staged --worktree docker-compose.yml
+          git diff --quiet || fail 'tracked worktree remains dirty after preserving the known override'
+          git diff --cached --quiet || fail 'tracked index remains dirty after preserving the known override'
+          git checkout main
+          git reset --hard "$target_sha"
+          [ "$(git rev-parse HEAD)" = "$target_sha" ] || fail 'failed to select the exact authorised deployment SHA'
+          git diff --quiet || fail 'tracked worktree became dirty at the deployment target'
+
+          say 'Make OAuth production settings explicit without printing values'
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import tempfile
+
+          path = Path('.env')
+          lines = path.read_text(encoding='utf-8').splitlines()
+          key = 'AUTH_COOKIE_SECURE'
+          output = [line for line in lines if not line.startswith(f'{key}=')]
+          output.append(f'{key}=true')
+          fd, temp_name = tempfile.mkstemp(prefix='.env.', dir='.')
+          try:
+              with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+                  handle.write('\n'.join(output) + '\n')
+              os.chmod(temp_name, 0o600)
+              os.replace(temp_name, path)
+          finally:
+              if os.path.exists(temp_name):
+                  os.unlink(temp_name)
+          PY
+          chmod 600 .env
+
+          for name in FRONTIER_CLIENT_ID FRONTIER_CLIENT_SECRET ADMIN_TOKEN; do
+            grep -Eq "^${name}=.+$" .env || fail "$name is missing"
+          done
+          redirect_uri="$(sed -n 's/^FRONTIER_REDIRECT_URI=//p' .env | tail -n 1)"
+          [ "$redirect_uri" = 'https://ed-finder.app/api/auth/frontier/callback' ] \
+            || fail 'FRONTIER_REDIRECT_URI is not the exact registered callback'
+          [ "$(sed -n 's/^AUTH_COOKIE_SECURE=//p' .env | tail -n 1 | tr '[:upper:]' '[:lower:]')" = 'true' ] \
+            || fail 'AUTH_COOKIE_SECURE is not true'
+          docker compose config --quiet
+          printf '[oauth-deploy] tracked_override_preserved=true\n'
+          printf '[oauth-deploy] oauth_settings_present=true\n'
+          printf '[oauth-deploy] auth_cookie_secure_explicit=true\n'
+
+          say 'Run the standard exact-SHA deployment'
+          deployment_started=1
+          bash scripts/deploy_main.sh --skip-pull
+          [ "$(git rev-parse HEAD)" = "$target_sha" ] || fail 'deployment changed away from the authorised SHA'
+
+          say 'Verify migration and API configuration'
+          schema_ready="$(docker compose exec -T postgres psql -U edfinder -d edfinder -Atqc \"SELECT (to_regclass('public.app_users') IS NOT NULL AND to_regclass('public.web_sessions') IS NOT NULL AND to_regclass('public.oauth_login_states') IS NOT NULL)::text;\")"
+          [ "$schema_ready" = 't' ] || fail 'OAuth schema tables are missing after deployment'
+          docker compose exec -T api python - <<'PY'
+          from edfinder_api.config import settings
+
+          assert settings.frontier_client_id
+          assert settings.frontier_client_secret
+          assert settings.frontier_redirect_uri == 'https://ed-finder.app/api/auth/frontier/callback'
+          assert settings.auth_cookie_secure is True
+          print('[oauth-deploy] api_oauth_configuration=true')
+          PY
+
+          session_code="$(curl -sS --max-time 10 -o /tmp/oauth-session.json -w '%{http_code}' http://127.0.0.1/api/auth/session)"
+          [ "$session_code" = '200' ] || fail 'unauthenticated session endpoint did not return 200'
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          payload = json.loads(Path('/tmp/oauth-session.json').read_text(encoding='utf-8'))
+          assert payload == {
+              'authenticated': False,
+              'user': None,
+              'owner_claim_available': False,
+          }
+          print('[oauth-deploy] signed_out_session_contract=true')
+          PY
+
+          say 'Verify Frontier redirect and secure state-cookie boundary'
+          curl -sS --max-time 15 --max-redirs 0 \
+            -D /tmp/oauth-login.headers \
+            -o /dev/null \
+            'https://ed-finder.app/api/auth/frontier/login?return_to=%2F%23finder'
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import parse_qs, urlsplit
+
+          lines = Path('/tmp/oauth-login.headers').read_text(encoding='iso-8859-1').splitlines()
+          status = lines[0].split()[1]
+          assert status == '302', status
+          headers = {}
+          cookies = []
+          for line in lines[1:]:
+              if not line or ':' not in line:
+                  continue
+              name, value = line.split(':', 1)
+              name = name.strip().lower()
+              value = value.strip()
+              if name == 'set-cookie':
+                  cookies.append(value)
+              else:
+                  headers[name] = value
+
+          location = headers['location']
+          parsed = urlsplit(location)
+          assert parsed.scheme == 'https'
+          assert parsed.netloc == 'auth.frontierstore.net'
+          assert parsed.path.rstrip('/') == '/auth'
+          query = parse_qs(parsed.query)
+          assert query.get('response_type') == ['code']
+          assert query.get('redirect_uri') == ['https://ed-finder.app/api/auth/frontier/callback']
+          assert query.get('code_challenge_method') == ['S256']
+          assert query.get('state', [''])[0]
+          assert query.get('code_challenge', [''])[0]
+          scope = query.get('scope', [''])[0].split()
+          assert {'auth', 'capi'} <= set(scope)
+
+          state_cookie = next(value for value in cookies if value.startswith('ed_finder_oauth_state='))
+          attributes = {part.strip().lower() for part in state_cookie.split(';')[1:]}
+          assert 'secure' in attributes
+          assert 'httponly' in attributes
+          assert 'samesite=lax' in attributes
+          assert 'path=/api/auth/frontier' in attributes
+          print('[oauth-deploy] frontier_authorization_redirect=true')
+          print('[oauth-deploy] oauth_state_cookie_secure=true')
+          PY
+          rm -f /tmp/oauth-login.headers /tmp/oauth-session.json
+
+          deployment_succeeded=1
+          printf '[oauth-deploy] deployed_sha=%s\n' "$target_sha"
+          printf '[oauth-deploy] oauth_schema_present=true\n'
+          printf '[oauth-deploy] production_boundary_verified=true\n'
+          REMOTE
