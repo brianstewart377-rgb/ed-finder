@@ -1,0 +1,136 @@
+name: ed-new Storage Box Persistence
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-storagebox-persist-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  persist:
+    name: Persist working Storage Box rclone mount
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-storagebox-persist-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"persist-storagebox-mount"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Adopt current rclone command without disrupting live mount
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, pathlib, shlex, subprocess
+          target='/mnt/ed-storagebox'
+          runtime=pathlib.Path('/opt/ed-finder-v3-runtime')
+          runtime.mkdir(parents=True, exist_ok=True)
+          os.chmod(runtime,0o700)
+
+          if subprocess.run(['mountpoint','-q',target]).returncode != 0:
+              raise SystemExit('Storage Box is not currently mounted; refusing to infer a mount command')
+
+          candidates=[]
+          for proc in pathlib.Path('/proc').iterdir():
+              if not proc.name.isdigit():
+                  continue
+              try:
+                  raw=(proc/'cmdline').read_bytes()
+              except Exception:
+                  continue
+              argv=[x.decode(errors='replace') for x in raw.split(b'\0') if x]
+              if not argv:
+                  continue
+              exe=pathlib.Path(argv[0]).name
+              if exe!='rclone' or 'mount' not in argv or target not in argv:
+                  continue
+              candidates.append((int(proc.name),argv))
+          if len(candidates)!=1:
+              raise SystemExit(f'Expected exactly one working rclone mount process, found {len(candidates)}')
+          pid,argv=candidates[0]
+
+          # Reject command lines carrying inline secrets. Reusing a config file is fine.
+          sensitive=('password','passwd','secret','token','access-key','secret-key','client-secret')
+          for i,arg in enumerate(argv):
+              low=arg.lower()
+              if low.startswith('--') and any(tok in low for tok in sensitive):
+                  raise SystemExit('Refusing to persist rclone command containing a sensitive command-line option')
+
+          # systemd must own the foreground process, so strip daemonization flags only.
+          cleaned=[]
+          skip_next=False
+          for arg in argv:
+              if skip_next:
+                  skip_next=False
+                  continue
+              if arg=='--daemon':
+                  continue
+              if arg.startswith('--daemon='):
+                  continue
+              cleaned.append(arg)
+          if not cleaned or pathlib.Path(cleaned[0]).name!='rclone' or 'mount' not in cleaned or target not in cleaned:
+              raise SystemExit('Sanitized rclone command is not a valid Storage Box mount command')
+
+          script=runtime/'mount-storagebox.sh'
+          script.write_text('#!/usr/bin/env bash\nset -euo pipefail\nmkdir -p /mnt/ed-storagebox\nexec '+shlex.join(cleaned)+'\n',encoding='utf-8')
+          os.chmod(script,0o700)
+
+          unit=pathlib.Path('/etc/systemd/system/edfinder-storagebox.service')
+          unit.write_text('''[Unit]\nDescription=ED-Finder Storage Box rclone mount\nWants=network-online.target\nAfter=network-online.target\nBefore=docker.service edfinder-v3-runtime.service\n\n[Service]\nType=simple\nExecStartPre=/bin/mkdir -p /mnt/ed-storagebox\nExecStart=/opt/ed-finder-v3-runtime/mount-storagebox.sh\nExecStop=/bin/sh -c 'command -v fusermount3 >/dev/null && fusermount3 -uz /mnt/ed-storagebox || fusermount -uz /mnt/ed-storagebox'\nRestart=on-failure\nRestartSec=10\nTimeoutStopSec=30\n\n[Install]\nWantedBy=multi-user.target\n''',encoding='utf-8')
+
+          # Strengthen runtime ordering without restarting anything now.
+          runtime_unit=pathlib.Path('/etc/systemd/system/edfinder-v3-runtime.service')
+          if runtime_unit.is_file():
+              text=runtime_unit.read_text(encoding='utf-8')
+              if 'Wants=edfinder-storagebox.service' not in text:
+                  text=text.replace('[Unit]\n','[Unit]\nWants=edfinder-storagebox.service\nAfter=edfinder-storagebox.service\n',1)
+                  runtime_unit.write_text(text,encoding='utf-8')
+
+          subprocess.run(['systemctl','daemon-reload'],check=True)
+          subprocess.run(['systemctl','enable','edfinder-storagebox.service'],check=True,stdout=subprocess.DEVNULL)
+          # Do NOT start/restart it: the current mount is serving an active pgBackRest verify.
+          print('storagebox_persistence|PASS')
+          print('current_mount_preserved|true')
+          print('mount_unit_enabled|' + subprocess.check_output(['systemctl','is-enabled','edfinder-storagebox.service'],text=True).strip())
+          print('mount_unit_started_now|false')
+          print('boot_order_before_docker|true')
+          print('db_writes_performed|false')
+          PY
