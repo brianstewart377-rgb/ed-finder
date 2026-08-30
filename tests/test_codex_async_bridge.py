@@ -32,6 +32,9 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
 def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
 
+    checkout = text.split("- name: Checkout main", 1)[1].split(
+        "- name: Resolve request", 1
+    )[0]
     implementation = text.split("- name: Run Codex implementation", 1)[1].split(
         "- name: Push implementation branch", 1
     )[0]
@@ -39,6 +42,7 @@ def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
         "- name: Implementation branch summary", 1
     )[0]
 
+    assert "persist-credentials: false" in checkout
     assert "CODEX_WORKER_GIT_TOKEN" not in implementation
     assert "git push" not in implementation
     assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_wrapper
