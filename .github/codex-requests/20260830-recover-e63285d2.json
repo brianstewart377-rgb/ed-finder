@@ -1,0 +1,4 @@
+{
+  "mode": "implement",
+  "task": "Recovery only. Do not reimplement the PostgreSQL 18 V3 promotion work. Locate the existing Git commit e63285d2 from failed run 33306322119 in local or sibling self-hosted runner Git object stores, especially /home/codex/actions-runner-2/_work/ed-finder/ed-finder. Reproduce exactly that commit's tree changes onto this isolated implementation branch, preserving the original 10-file implementation and no unrelated changes. Verify the resulting diff/tree against e63285d2 where possible. If e63285d2 cannot be found locally, fail closed and make no replacement implementation. Run only the minimal verification needed to prove the recovered tree matches; do not access production systems or credentials. The wrapper will commit and push."
+}
