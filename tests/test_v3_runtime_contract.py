@@ -36,6 +36,12 @@ def test_v3_default_runtime_is_private_and_uses_external_role_urls():
     assert services["maintenance"]["profiles"] == ["maintenance"]
 
 
+def test_v3_maintenance_url_has_compose_safe_disabled_fallback():
+    maintenance_url = _compose()["services"]["maintenance"]["environment"]["DATABASE_URL"]
+    assert maintenance_url == "${V3_DATABASE_MAINTENANCE_URL:-disabled}"
+    assert ";" not in maintenance_url
+
+
 def test_v3_services_have_operational_guards():
     for name in ("redis", "api", "eddn", "proxy", "maintenance"):
         service = _compose()["services"][name]
