@@ -74,36 +74,54 @@ jobs:
           print('== PGBACKREST VERSION ==')
           print(subprocess.check_output(['docker','exec',container,'pgbackrest','version'], text=True).strip())
 
-          print('== PGBACKREST INFO JSON ==')
-          result=subprocess.run(
-              ['docker','exec',container,'pgbackrest',f'--stanza={stanza}','--output=json','info'],
+          print('== PGBACKREST INFO TEXT ==')
+          text_result=subprocess.run(
+              ['docker','exec',container,'pgbackrest',f'--stanza={stanza}','--log-level-console=off','info'],
               text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
           )
-          print(f'exit|{result.returncode}')
-          if result.stderr.strip():
-              print('stderr|' + result.stderr.strip().replace('\n',' ; '))
-          if result.stdout.strip():
-              data=json.loads(result.stdout)
-              # Emit only recovery metadata, never configuration secrets.
-              for stanza_info in data:
-                  print('stanza|' + str(stanza_info.get('name','')) + '|' + str(stanza_info.get('status',{}).get('message','')))
-                  for db in stanza_info.get('db',[]):
-                      print('db|' + '|'.join(str(db.get(k,'')) for k in ('id','system-id','version')))
-                  for backup in stanza_info.get('backup',[]):
-                      ts=backup.get('timestamp',{})
-                      info=backup.get('info',{})
-                      repo=backup.get('repo',{})
-                      print('backup|' + '|'.join([
-                          str(backup.get('label','')),
-                          str(backup.get('type','')),
-                          str(ts.get('start','')),
-                          str(ts.get('stop','')),
-                          str(info.get('size','')),
-                          str(info.get('delta','')),
-                          str(repo.get('size','')),
-                          str(repo.get('delta','')),
-                          str(backup.get('error',False)),
-                      ]))
+          print(f'exit|{text_result.returncode}')
+          for line in text_result.stdout.splitlines():
+              print('stdout|' + line)
+          for line in text_result.stderr.splitlines():
+              print('stderr|' + line)
+
+          print('== PGBACKREST INFO JSON ==')
+          json_result=subprocess.run(
+              ['docker','exec',container,'pgbackrest',f'--stanza={stanza}','--log-level-console=off','--output=json','info'],
+              text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+          )
+          print(f'exit|{json_result.returncode}')
+          for line in json_result.stderr.splitlines():
+              print('stderr|' + line)
+          raw=json_result.stdout.strip()
+          if raw:
+              try:
+                  data=json.loads(raw)
+              except json.JSONDecodeError:
+                  print('json_parse|failed')
+                  for line in raw.splitlines():
+                      print('raw|' + line)
+              else:
+                  print('json_parse|success')
+                  for stanza_info in data:
+                      print('stanza|' + str(stanza_info.get('name','')) + '|' + str(stanza_info.get('status',{}).get('message','')))
+                      for db in stanza_info.get('db',[]):
+                          print('db|' + '|'.join(str(db.get(k,'')) for k in ('id','system-id','version')))
+                      for backup in stanza_info.get('backup',[]):
+                          ts=backup.get('timestamp',{})
+                          info=backup.get('info',{})
+                          repo=backup.get('repo',{})
+                          print('backup|' + '|'.join([
+                              str(backup.get('label','')),
+                              str(backup.get('type','')),
+                              str(ts.get('start','')),
+                              str(ts.get('stop','')),
+                              str(info.get('size','')),
+                              str(info.get('delta','')),
+                              str(repo.get('size','')),
+                              str(repo.get('delta','')),
+                              str(backup.get('error',False)),
+                          ]))
 
           print('== STORAGEBOX MOUNT ==')
           mount=subprocess.run(['findmnt','-T','/mnt/ed-storagebox','-no','TARGET,SOURCE,FSTYPE,OPTIONS'], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
