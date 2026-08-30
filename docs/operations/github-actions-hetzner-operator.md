@@ -64,3 +64,23 @@ Repository secrets:
 
 Any future production DB write stage must be added by a separate PR and must not use arbitrary command input.
 
+## Separate ed-new V3 recovery lane
+
+The `ChatGPT ed-new Ops` workflow has one narrowly scoped recovery operation:
+`recover-v3-runtime-contract`. It targets only the retained container
+`edfinder-v3-phase4c-full-20260827_r5-postgres` and derives the source root and
+Compose files from Docker Compose labels. It never inspects container
+environment values, contacts the database, or writes to the remote host. The
+archive is streamed to the Actions runner and uploaded with a file manifest,
+machine-readable safety receipt, and archive SHA-256 sidecar.
+
+The lane requires the environment secret `ED_NEW_OPERATOR_KNOWN_HOSTS` to hold
+the pinned OpenSSH known-host entry for `ED_NEW_OPERATOR_HOST` and
+`ED_NEW_OPERATOR_PORT`. Runtime host discovery (`ssh-keyscan`) is prohibited.
+
+Recovery is limited to Compose YAML, Dockerfile/Containerfile build inputs,
+`.sql`, `.sh`, `.py`, and non-secret-name `.md`, `.txt`, and `.json` files.
+It fails closed on `.env` and secret/credential/token/key/certificate names,
+logs, backups, dumps, database data/volumes, pgBackRest or SSH material,
+symlinks, special files, paths outside the label-resolved source root, and
+file-count or byte limits. File contents are not printed to Actions logs.

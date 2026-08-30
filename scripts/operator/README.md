@@ -18,6 +18,11 @@ Current scripts:
 
 - `require_hetzner_operator_env.sh`: reusable fail-fast guard for
   Hetzner-only commands.
+- `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
+  `recover-v3-runtime-contract` operation. It identifies the retained Phase 4C
+  R5 Compose source root from container labels, rejects secret-like and unsafe
+  paths, and streams a bounded checksummed source archive without database
+  access or remote-host writes.
 - `stage18j_run_station_type_dry_run.sh`: generates the Stage 18J-P
   station-type dry-run artifact from the validated reconciliation artifact
   after verifying its SHA-256. It requires bounded `MAX_ROWS`, caps blocked
