@@ -1,0 +1,210 @@
+name: ed-new Stage Public Auth Edge
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-stage-public-auth-edge-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: Stage independent V3 auth edge and probe externally
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-stage-public-auth-edge-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          expected={"operation":"stage-v3-public-auth-edge"}
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != expected:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Stage edge locally on ed-new
+        id: stage
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          edge_dir="$HOME/.edfinder-v3-public-auth-edge"
+          edge_name='edfinder-v3-public-auth-edge'
+
+          # Fail closed if another service claimed the public HTTP port.
+          if ss -lnt | awk 'NR>1 {print $4}' | grep -Eq '(^|:|\])80$'; then
+            echo 'port 80 is already in use; refusing to stage edge' >&2
+            exit 1
+          fi
+
+          # Re-prove the private V3 auth chain before exposing anything.
+          curl -fsS --max-time 5 -H 'Host: ed-finder.app' \
+            http://127.0.0.1:58080/api/v1/auth/session >/dev/null
+
+          mkdir -p "$edge_dir"
+          cat > "$edge_dir/nginx.conf" <<'NGINX'
+          worker_processes 1;
+          events { worker_connections 256; }
+          http {
+            access_log /var/log/nginx/access.log;
+            error_log /var/log/nginx/error.log warn;
+            map $http_x_forwarded_proto $edge_proto {
+              ""      $scheme;
+              default $http_x_forwarded_proto;
+            }
+            server {
+              listen 80 default_server;
+              server_name _;
+
+              location = /healthz {
+                default_type text/plain;
+                return 200 "ok\n";
+              }
+
+              # Compatibility paths used by the existing public site/Frontier registration.
+              location = /api/auth/frontier/login {
+                proxy_pass http://127.0.0.1:58080/api/v1/auth/frontier/login;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+              location = /api/auth/frontier/callback {
+                proxy_pass http://127.0.0.1:58080/api/auth/frontier/callback;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+              location = /api/auth/session {
+                proxy_pass http://127.0.0.1:58080/api/v1/auth/session;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+              location = /api/auth/logout {
+                proxy_pass http://127.0.0.1:58080/api/v1/auth/logout;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+              location = /api/auth/owner/claim {
+                proxy_pass http://127.0.0.1:58080/api/v1/auth/owner/claim;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+
+              location ^~ /api/v1/auth/ {
+                proxy_pass http://127.0.0.1:58080;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $edge_proto;
+                proxy_set_header X-Forwarded-Host $host;
+              }
+
+              # Deliberately do not pretend the full V3 site is cut over yet.
+              location / {
+                default_type text/plain;
+                return 503 "ED-Finder migration edge is ready; full application cutover is not active.\n";
+              }
+            }
+          }
+          NGINX
+
+          docker run --rm -v "$edge_dir/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.28-alpine nginx -t
+          docker rm -f "$edge_name" >/dev/null 2>&1 || true
+          docker run -d \
+            --name "$edge_name" \
+            --restart unless-stopped \
+            --network host \
+            -v "$edge_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            nginx:1.28-alpine >/dev/null
+
+          for i in $(seq 1 20); do
+            if curl -fsS --max-time 2 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null; then
+              break
+            fi
+            sleep 0.5
+          done
+          curl -fsS --max-time 3 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null
+          curl -fsS --max-time 5 -H 'Host: ed-finder.app' http://127.0.0.1/api/auth/session >/dev/null
+          echo 'local_public_edge|PASS'
+          echo 'dns_changed|false'
+          echo 'database_mutated|false'
+          REMOTE
+      - name: Probe public HTTP from outside ed-new
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+        run: |
+          set -euo pipefail
+          body="$(curl -fsS --max-time 8 -H 'Host: ed-finder.app' "http://${SSH_HOST}/healthz")"
+          [ "$body" = 'ok' ]
+          session_code="$(curl -sS -o /tmp/session.json -w '%{http_code}' --max-time 8 -H 'Host: ed-finder.app' "http://${SSH_HOST}/api/auth/session")"
+          [ "$session_code" = '200' ]
+          python3 - <<'PY'
+          import json
+          with open('/tmp/session.json','r',encoding='utf-8') as f:
+              data=json.load(f)
+          if data.get('authenticated') is not False:
+              raise SystemExit('unexpected auth session response')
+          PY
+          echo 'external_public_http|PASS'
+          echo 'public_auth_session|PASS'
+      - name: Roll back staged edge if external probe failed
+        if: ${{ failure() && steps.stage.outcome == 'success' }}
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'docker rm -f edfinder-v3-public-auth-edge >/dev/null 2>&1 || true'
