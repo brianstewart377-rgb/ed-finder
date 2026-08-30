@@ -14,7 +14,6 @@ from .contract import (
     REVIEW_LAB_BROWSER_MARKER,
     REVIEW_LAB_VIEWPORT_PROFILES,
     REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION,
-    VERIFY_BROWSER_SPEC,
     ReviewLabError,
 )
 from .lifecycle import review_api_origin, review_preview_origin, run_subprocess
@@ -28,6 +27,9 @@ from .observations import evaluate_product_observations
 from .process_registry import ReviewProcessRegistry
 from .scenarios import ScenarioDefinition, selected_browser_flow_keys, selection_requires_product_observations
 from .timeouts import TIMEOUTS
+
+
+CYPRESS_REVIEW_SPEC = FRONTEND_DIR / 'cypress' / 'e2e' / 'review-environment.cy.js'
 
 
 def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
@@ -205,20 +207,20 @@ def _port_available(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) != 0
 
 
-def _playwright_status_hint(text: str) -> str:
+def _browser_status_hint(text: str) -> str:
     lowered = (text or '').lower()
     if not lowered.strip():
         return 'none'
-    if 'already used' in lowered and 'reuseexistingserver' in lowered:
-        return 'playwright_web_server_conflict'
     if 'no tests found' in lowered:
         return 'no_tests_found'
-    if '1 skipped' in lowered or 'skipped' in lowered:
+    if 'skipped' in lowered:
         return 'test_skipped'
     if 'review lab browser verification requires' in lowered or 'edfinder_review_lab_run' in lowered:
         return 'review_lab_configuration_error'
+    if 'cypress' in lowered and 'error' in lowered:
+        return 'cypress_error'
     if 'error:' in lowered:
-        return 'playwright_error'
+        return 'browser_error'
     return 'unknown'
 
 
@@ -232,14 +234,14 @@ def _browser_runner_diagnostics(
     summary_schema_valid: bool,
 ) -> dict[str, Any]:
     return {
-        'playwright_return_code': completed.returncode if completed is not None else None,
+        'browser_return_code': completed.returncode if completed is not None else None,
         'review_marker_present': review_marker_present,
         'output_path_configured': output_path_configured,
         'scenario_plan_configured': scenario_plan_configured,
         'summary_exists': summary_exists,
         'summary_schema_valid': summary_schema_valid,
-        'stdout_status_hint': _playwright_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
-        'stderr_status_hint': _playwright_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
+        'stdout_status_hint': _browser_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
+        'stderr_status_hint': _browser_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
     }
 
 
@@ -288,11 +290,11 @@ def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDe
 
 
 def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinition, ...], registry: ReviewProcessRegistry) -> dict[str, Any]:
-    if not VERIFY_BROWSER_SPEC.is_file():
+    if not CYPRESS_REVIEW_SPEC.is_file():
         raise ReviewLabError(
-            'Review-environment browser collector is missing.',
+            'Review-environment Cypress browser collector is missing.',
             failure_code='REQUIRED_ROUTE_MISSING',
-            safe_diagnostics={'expected_spec': str(VERIFY_BROWSER_SPEC.relative_to(FRONTEND_DIR.parent))},
+            safe_diagnostics={'expected_spec': str(CYPRESS_REVIEW_SPEC.relative_to(FRONTEND_DIR.parent))},
         )
     if not _port_available(EXPECTED_FRONTEND_PREVIEW_PORT):
         raise ReviewLabError(
@@ -313,6 +315,7 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'EDFINDER_REVIEW_OUTPUT_PATH': str(output_path),
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
+        'CYPRESS_BASE_URL': review_preview_origin(),
     }
 
     run_subprocess(
@@ -332,10 +335,21 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     )
     _wait_for_preview_ready(TIMEOUTS.preview_readiness)
     completed = run_subprocess(
-        ['npx', 'playwright', 'test', 'e2e/review-environment.spec.js', '--config', 'playwright.config.ts', '--project', 'chromium', '--reporter=line'],
+        [
+            'npx',
+            '--yes',
+            'cypress@15.21.1',
+            'run',
+            '--browser',
+            'chrome',
+            '--config-file',
+            'cypress.review-lab.config.cjs',
+            '--spec',
+            'cypress/e2e/review-environment.cy.js',
+        ],
         cwd=FRONTEND_DIR,
         env_overrides=env,
-        timeout_seconds=TIMEOUTS.playwright,
+        timeout_seconds=TIMEOUTS.browser,
         allow_failure=True,
         failure_code='BROWSER_PHASE_TIMEOUT',
     )
