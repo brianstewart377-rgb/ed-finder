@@ -1,0 +1,273 @@
+name: ed-new DB Discover and Audit
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-db-discover-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-db-discover-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Discover and audit retained ED-Finder PG18 DB
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one DB discovery request file' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/ed-new-db-discover-requests/*.json) ;;
+            *) echo 'Changed path is outside DB discovery request allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation": "discover-and-audit-retained-pg18"}:
+              raise SystemExit("Unsupported DB discovery request")
+          PY
+
+      - name: Checkout reviewed audit implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e79945d28ba3922573dd100598223037fa51b9f
+          path: trusted-audit
+          persist-credentials: false
+
+      - name: Install audit dependency on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet psycopg2-binary==2.9.12
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo 'Missing ED_NEW_OPERATOR_SSH_KEY' >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo 'Missing ED_NEW_OPERATOR_HOST' >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo 'Missing ED_NEW_OPERATOR_PORT' >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'Missing pinned ed-new known-hosts secret' >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo 'Pinned known-host trust does not cover configured ed-new host/port' >&2
+            exit 1
+          }
+
+      - name: Discover retained databases
+        id: discover
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
+          umask 077
+          meta="$RUNNER_TEMP/edfinder-pg18-discovery.json"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > "$meta" <<'PY'
+          import json
+          import subprocess
+
+          container = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+          inspect = json.loads(subprocess.check_output(["docker", "inspect", container], text=True))[0]
+          env = {}
+          for item in inspect.get("Config", {}).get("Env", []):
+              if "=" in item:
+                  key, value = item.split("=", 1)
+                  env[key] = value
+          user = env.get("POSTGRES_USER") or "postgres"
+          password = env.get("POSTGRES_PASSWORD") or ""
+          docker_base = ["docker", "exec"]
+          if password:
+              docker_base += ["-e", f"PGPASSWORD={password}"]
+          docker_base += [container, "psql", "-h", "127.0.0.1", "-U", user, "-At"]
+          db_names = subprocess.check_output(
+              docker_base + ["-d", "postgres", "-c", "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname"],
+              text=True,
+          ).splitlines()
+          rows = []
+          for db in db_names:
+              q = "SELECT pg_database_size(current_database()), to_regclass('public.systems') IS NOT NULL, to_regclass('public.ratings') IS NOT NULL, to_regclass('public.app_users') IS NOT NULL, to_regclass('public.oauth_login_states') IS NOT NULL"
+              raw = subprocess.check_output(docker_base + ["-d", db, "-F", "|", "-c", q], text=True).strip()
+              size, systems, ratings, app_users, oauth_states = raw.split("|")
+              rows.append({
+                  "database": db,
+                  "size_bytes": int(size),
+                  "systems": systems == "t",
+                  "ratings": ratings == "t",
+                  "app_users": app_users == "t",
+                  "oauth_login_states": oauth_states == "t",
+              })
+          ports = (inspect.get("NetworkSettings", {}).get("Ports", {}) or {}).get("5432/tcp") or []
+          if ports and ports[0].get("HostPort"):
+              target_host = "127.0.0.1"
+              target_port = int(ports[0]["HostPort"])
+          else:
+              networks = inspect.get("NetworkSettings", {}).get("Networks", {}) or {}
+              target_host = next((v.get("IPAddress") for v in networks.values() if v.get("IPAddress")), "")
+              target_port = 5432
+          if not target_host:
+              raise SystemExit("retained PG18 container has no reachable address")
+          matches = [row for row in rows if row["systems"] and row["ratings"]]
+          print(json.dumps({
+              "rows": rows,
+              "match_count": len(matches),
+              "selected_database": matches[0]["database"] if len(matches) == 1 else None,
+              "user": user,
+              "password": password,
+              "target_host": target_host,
+              "target_port": target_port,
+          }))
+          PY
+          python3 - "$meta" <<'PY'
+          import json, pathlib, sys
+          d = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print('PG18 database inventory:')
+          for row in sorted(d['rows'], key=lambda x: x['size_bytes'], reverse=True):
+              gib = row['size_bytes'] / (1024**3)
+              print(f"- {row['database']}: {gib:.1f} GiB systems={row['systems']} ratings={row['ratings']} oauth_tables={row['app_users'] and row['oauth_login_states']}")
+          print(f"ED-Finder candidates with systems+ratings: {d['match_count']}")
+          if d['match_count'] != 1:
+              raise SystemExit('Expected exactly one retained ED-Finder database')
+          print(f"Selected retained ED-Finder database: {d['selected_database']}")
+          PY
+          echo "meta=$meta" >> "$GITHUB_OUTPUT"
+
+      - name: Run exact reviewed audit against discovered ED-Finder DB
+        id: audit
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          META: ${{ steps.discover.outputs.meta }}
+          REVIEWED_REVISION: 2e79945d28ba3922573dd100598223037fa51b9f
+        run: |
+          set -euo pipefail
+          mapfile -t conn < <(python3 - "$META" <<'PY'
+          import json, pathlib, sys, urllib.parse
+          d = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(d['target_host'])
+          print(d['target_port'])
+          user = urllib.parse.quote(str(d['user']), safe='')
+          password = urllib.parse.quote(str(d['password']), safe='')
+          database = urllib.parse.quote(str(d['selected_database']), safe='')
+          print(user if not password else f"{user}:{password}")
+          print(database)
+          PY
+          )
+          target_host="${conn[0]}"
+          target_port="${conn[1]}"
+          auth="${conn[2]}"
+          database="${conn[3]}"
+          local_port="$(python3 - <<'PY'
+          import socket
+          s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
+          PY
+          )"
+          ssh -N -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            -o ExitOnForwardFailure=yes \
+            -L "127.0.0.1:${local_port}:${target_host}:${target_port}" \
+            "$SSH_USER@$SSH_HOST" &
+          tunnel_pid=$!
+          trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
+          python3 - "$local_port" <<'PY'
+          import socket, sys, time
+          port=int(sys.argv[1])
+          for _ in range(50):
+              try:
+                  with socket.create_connection(('127.0.0.1',port), timeout=.2): raise SystemExit(0)
+              except OSError: time.sleep(.1)
+          raise SystemExit('SSH database tunnel did not become ready')
+          PY
+          DATABASE_URL="postgresql://${auth}@127.0.0.1:${local_port}/${database}"
+          echo "::add-mask::$DATABASE_URL"
+          export DATABASE_URL
+          receipt="$GITHUB_WORKSPACE/production-candidate-readiness.json"
+          set +e
+          (cd trusted-audit && python3 scripts/operator/audit_production_candidate.py \
+            --reviewed-revision "$REVIEWED_REVISION" \
+            --json-output "$receipt")
+          status=$?
+          set -e
+          unset DATABASE_URL auth
+          echo "audit_status=$status" >> "$GITHUB_OUTPUT"
+          case "$status" in 0|1|2) ;; *) echo "Unexpected audit status: $status" >&2; exit 2 ;; esac
+
+      - name: Validate receipt
+        if: always()
+        shell: bash
+        env:
+          REVIEWED_REVISION: 2e79945d28ba3922573dd100598223037fa51b9f
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          p=pathlib.Path('production-candidate-readiness.json')
+          payload=json.loads(p.read_text(encoding='utf-8'))
+          if payload.get('reviewed_revision') != os.environ['REVIEWED_REVISION']:
+              raise SystemExit('receipt revision mismatch')
+          identity=payload.get('candidate_identity',{})
+          if 'error' not in payload and (not identity.get('database') or not identity.get('system_identifier')):
+              raise SystemExit('receipt lacks stable candidate identity')
+          PY
+
+      - name: Upload readiness receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: discovered-pg18-readiness-${{ github.run_id }}
+          path: production-candidate-readiness.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce audit result
+        if: always()
+        shell: bash
+        env:
+          AUDIT_STATUS: ${{ steps.audit.outputs.audit_status }}
+        run: |
+          case "$AUDIT_STATUS" in
+            0) echo 'Retained ED-Finder PG18 readiness audit passed.' ;;
+            1) echo 'Retained ED-Finder PG18 is reachable but has readiness blockers.' >&2; exit 1 ;;
+            2) echo 'Retained ED-Finder PG18 audit failed closed.' >&2; exit 2 ;;
+            *) echo 'Audit did not produce a valid result.' >&2; exit 2 ;;
+          esac
