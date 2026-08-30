@@ -57,6 +57,16 @@ ChatGPT clients should therefore report the dispatch acknowledgement/run ID imme
 
 The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
 
+### Codex implementation push credential
+
+Ordinary Codex implementation branches may be pushed with the workflow's normal `GITHUB_TOKEN`. GitHub refuses that token when a commit creates or modifies files under `.github/workflows/`, so workflow-file changes require the repository secret `CODEX_WORKER_GIT_TOKEN`.
+
+`CODEX_WORKER_GIT_TOKEN` should contain a fine-grained personal access token limited to this repository with `Contents: read/write` and `Workflows: read/write`. A broad classic token is not preferred. A GitHub App can be adopted later, but the workflow would need to generate a fresh installation token at runtime rather than storing a short-lived installation token as this repository secret.
+
+The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, or the Codex execution environment. Codex finishes first using the ordinary worker environment. The wrapper then inspects the resulting commit and exposes `CODEX_WORKER_GIT_TOKEN` only to the final branch-push step. Authentication is provided through a temporary `GIT_ASKPASS` helper so the token is not embedded in command arguments, remote URLs, or repository configuration.
+
+If a Codex implementation changes `.github/workflows/*` while `CODEX_WORKER_GIT_TOKEN` is absent, the worker fails closed before attempting the push and reports the missing secret explicitly. Implementations that do not change workflow files continue to fall back to the normal `GITHUB_TOKEN`.
+
 ## Receipts
 
 Every run should record at least:

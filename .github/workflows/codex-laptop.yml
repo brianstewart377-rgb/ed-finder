@@ -142,9 +142,48 @@ jobs:
           git status --short
           git add -A
           git commit -m "Codex implementation run ${GITHUB_RUN_ID}"
-          git push --force-with-lease origin "$branch"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "CODEX_BRANCH=$branch"
+          echo "CODEX_BRANCH_LOCAL=$branch"
+
+      - name: Push implementation branch
+        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          workflow_changes="$(git diff --name-only refs/remotes/origin/main...HEAD | grep -E '^\.github/workflows/' || true)"
+          if [ -n "$workflow_changes" ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
+            echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured. Add that repository secret using a fine-grained personal access token limited to this repository with Contents: read/write and Workflows: read/write."
+            printf 'Workflow files requiring privileged push:\n%s\n' "$workflow_changes"
+            exit 68
+          fi
+
+          push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
+
+          # actions/checkout persists the ordinary GITHUB_TOKEN as an HTTP extraheader.
+          # Remove it only after Codex has finished, then authenticate this wrapper-owned
+          # push through GIT_ASKPASS so the privileged token is never present in argv,
+          # a remote URL, the repository config, or the Codex process environment.
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/usr/bin/env sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$CODEX_PUSH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export CODEX_PUSH_TOKEN="$push_token"
+          export GIT_ASKPASS="$askpass"
+          export GIT_TERMINAL_PROMPT=0
+          git -c credential.helper= push --force-with-lease origin "$CODEX_BRANCH"
+          echo "CODEX_BRANCH=$CODEX_BRANCH"
 
       - name: Implementation branch summary
         if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
