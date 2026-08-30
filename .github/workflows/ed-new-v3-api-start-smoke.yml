@@ -1,0 +1,121 @@
+name: ed-new V3 API Start Smoke
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-api-start-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  start:
+    name: Start and smoke private V3 API
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-api-start-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"start-smoke-private-v3-api"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Start private API and run non-writing smoke checks
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          name='edfinder-v3-api'
+          redis='edfinder-v3-support-redis'
+          pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
+
+          [ "$(docker inspect -f '{{.State.Health.Status}}' "$pg")" = healthy ]
+          docker exec "$redis" redis-cli ping | grep -qx PONG
+          [ "$(docker inspect -f '{{.State.Running}}' "$name")" = false ] || { echo 'API already running; continuing with smoke' >&2; }
+          docker start "$name" >/dev/null
+
+          cleanup_on_failure() {
+            code=$?
+            if [ "$code" -ne 0 ]; then
+              docker logs --tail 80 "$name" 2>&1 | sed -E 's#(postgresql://)[^@ ]+@#\1[REDACTED]@#g' >&2 || true
+              docker stop "$name" >/dev/null 2>&1 || true
+            fi
+            exit "$code"
+          }
+          trap cleanup_on_failure EXIT
+
+          for i in $(seq 1 60); do
+            if curl -fsS --max-time 3 http://127.0.0.1:58095/api/health > /tmp/v3-health.json 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/v3-health.json'))
+          if p.get('status') != 'ok' or p.get('database') != 'connected':
+              raise SystemExit(f'unexpected health payload: {p}')
+          print('api_health|PASS')
+          print('database|' + str(p.get('database')))
+          print('version|' + str(p.get('version')))
+          PY
+
+          curl -fsS --max-time 3 http://127.0.0.1:58095/api/v1/auth/session > /tmp/v3-session.json
+          python3 - <<'PY'
+          import json
+          p=json.load(open('/tmp/v3-session.json'))
+          # With no browser cookie this must be the anonymous/read-only path.
+          if p.get('authenticated') is not False:
+              raise SystemExit(f'unexpected anonymous session payload: {p}')
+          print('anonymous_session|PASS')
+          PY
+
+          docker exec "$redis" redis-cli ping | grep -qx PONG
+          echo 'redis_health|PASS'
+          echo "api_restart_policy|$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$name")"
+          echo 'api_bind|127.0.0.1:58095'
+          echo 'public_exposure|false'
+          echo 'oauth_login_initiated|false'
+          echo 'db_write_route_called|false'
+          trap - EXIT
+          REMOTE
