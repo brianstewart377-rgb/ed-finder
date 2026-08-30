@@ -123,6 +123,36 @@ jobs:
           else:
               print("- none")
 
+          print("v3_identity_relations:")
+          identity = query("""
+              SELECT c.relname, c.relkind
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='v3_identity'
+                AND c.relkind IN ('r','p','m','v')
+              ORDER BY c.relname
+          """)
+          if identity:
+              for row in identity:
+                  print("-", row)
+          else:
+              print("- none")
+
+          print("v3_meta_relations:")
+          meta = query("""
+              SELECT c.relname, c.relkind
+              FROM pg_class c
+              JOIN pg_namespace n ON n.oid=c.relnamespace
+              WHERE n.nspname='v3_meta'
+                AND c.relkind IN ('r','p','m','v')
+              ORDER BY c.relname
+          """)
+          if meta:
+              for row in meta:
+                  print("-", row)
+          else:
+              print("- none")
+
           print("largest_relations:")
           for row in query("""
               SELECT n.nspname, c.relname, c.relkind, pg_total_relation_size(c.oid)
