@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Connectivity probe only. Do not modify files. Confirm the Codex worker can start successfully against current origin/main. Report the installed codex CLI version, current origin/main SHA, and whether the mandatory repository state gate passes. Do not access production, deploy, or use credentials."
+}
