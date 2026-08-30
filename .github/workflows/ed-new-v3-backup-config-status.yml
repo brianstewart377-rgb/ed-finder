@@ -1,0 +1,139 @@
+name: ed-new V3 Backup Automation Status
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-backup-config-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect V3 backup and WAL automation
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-backup-config-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"inspect-v3-backup-automation"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect backup automation without exposing secrets
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess, re
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+
+          def run(args, **kw):
+              return subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, **kw)
+
+          inspect=json.loads(subprocess.check_output(['docker','inspect',c], text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          psql=['docker','exec']
+          if password:
+              psql += ['-e',f'PGPASSWORD={password}']
+          psql += [c,'psql','-h','127.0.0.1','-U',user,'-d',db,'-At','-F','|','-c']
+          settings=subprocess.check_output(psql+["SELECT name,setting FROM pg_settings WHERE name IN ('archive_mode','archive_command','archive_timeout','wal_level') ORDER BY name"], text=True).strip().splitlines()
+          print('postgres_archive_settings:')
+          for line in settings:
+              name, value=line.split('|',1)
+              if name=='archive_command':
+                  # Show only whether pgBackRest is used, never command details/paths/credentials.
+                  print(f'- archive_command_uses_pgbackrest|{str("pgbackrest" in value.lower()).lower()}')
+              else:
+                  print(f'- {name}|{value}')
+
+          info=run(['docker','exec','-u','postgres',c,'pgbackrest','--stanza=edfinder_v3','--log-level-console=off','--output=json','info'])
+          print('pgbackrest_info_exit|' + str(info.returncode))
+          if info.returncode==0:
+              data=json.loads(info.stdout)[0]
+              print('stanza_status|' + str(data.get('status',{}).get('message','')))
+              print('backup_count|' + str(len(data.get('backup',[]))))
+
+          # Show safe pgBackRest config keys only. Values for credential/key/cipher fields are suppressed.
+          cfg=run(['docker','exec','-u','postgres',c,'sh','-lc','for f in /etc/pgbackrest/pgbackrest.conf /etc/pgbackrest.conf; do [ -r "$f" ] && { echo FILE:$f; cat "$f"; }; done'])
+          print('pgbackrest_config_safe:')
+          for raw in cfg.stdout.splitlines():
+              line=raw.strip()
+              if not line or line.startswith('#'):
+                  continue
+              if line.startswith('FILE:') or line.startswith('['):
+                  print('- '+line)
+                  continue
+              if '=' not in line:
+                  continue
+              k,v=line.split('=',1)
+              lk=k.lower()
+              if any(token in lk for token in ('key','secret','pass','token','cipher','s3-key','azure-key')):
+                  print(f'- {k}=<configured:{str(bool(v.strip())).lower()}>')
+              elif k in {'repo1-path','repo1-type','repo1-retention-full','repo1-retention-diff','repo1-retention-archive','archive-async','spool-path','process-max','compress-type'}:
+                  print(f'- {k}={v}')
+
+          # Inventory scheduler configuration without dumping command env/secrets.
+          print('systemd_backup_units:')
+          units=run(['systemctl','list-unit-files','--type=service','--type=timer','--no-legend'])
+          matched=[]
+          for line in units.stdout.splitlines():
+              low=line.lower()
+              if 'pgbackrest' in low or ('edfinder' in low and 'backup' in low):
+                  matched.append(line.strip())
+          for line in matched:
+              print('- '+line)
+          if not matched:
+              print('- none')
+
+          print('cron_backup_entries:')
+          cron=run(['sh','-lc',"(crontab -l 2>/dev/null || true; grep -RhiE 'pgbackrest|edfinder.*backup' /etc/cron.d /etc/crontab 2>/dev/null || true) | sed -E 's#(password|pass|secret|token|key)=([^ ]+)#\\1=<redacted>#Ig'"])
+          lines=[x.strip() for x in cron.stdout.splitlines() if x.strip() and not x.lstrip().startswith('#')]
+          for line in lines[:30]:
+              # Only print schedule and presence of backup command, strip any shell assignments/arguments.
+              print('- configured_entry')
+          if not lines:
+              print('- none')
+          print('cron_backup_entry_count|' + str(len(lines)))
+          print('db_writes_performed|false')
+          PY
