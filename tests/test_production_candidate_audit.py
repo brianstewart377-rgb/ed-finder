@@ -151,6 +151,7 @@ def test_compose_resolution_is_explicit_and_does_not_start_services(monkeypatch)
         called.append(command)
         return Completed()
 
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr(audit.subprocess, "run", fake_run)
     monkeypatch.setattr(audit.psycopg2, "connect", lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError()))
     assert audit.main(["--compose"]) == 2
