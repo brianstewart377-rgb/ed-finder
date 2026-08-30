@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Health-check the existing Codex worker bridge only. Do not modify any files or access production. Report: (1) codex --version, (2) the current origin/main commit SHA, (3) whether CLAUDE.md is readable, and (4) whether this investigation-only Codex execution reached the repository successfully. Keep the answer concise."
+}
