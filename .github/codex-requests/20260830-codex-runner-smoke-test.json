@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Runner smoke test only. Do not modify files. Read CLAUDE.md, then report exactly: CODEX_SMOKE_TEST_OK, the current git branch name, the repository top-level directory name, and whether README.md exists. Do not access production, credentials, network services, databases, or deploy anything. Keep the answer under 10 lines."
+}
