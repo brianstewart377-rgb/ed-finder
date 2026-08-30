@@ -1,0 +1,104 @@
+name: ed-new V3 Backup Evidence Gate
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-backup-evidence-gate-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Attest latest V3 backup from completed pgBackRest verify
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-backup-evidence-gate-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Attest verified latest recovery point
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, re, subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          info=subprocess.check_output(['docker','exec','-u','postgres',c,'pgbackrest','--stanza=edfinder_v3','--log-level-console=off','--output=json','info'],text=True)
+          stanza=json.loads(info)[0]
+          if stanza.get('status',{}).get('message')!='ok':
+              raise SystemExit('pgBackRest stanza is not ok')
+          complete=[b for b in stanza.get('backup',[]) if b.get('timestamp',{}).get('stop') and not b.get('error',False)]
+          if not complete:
+              raise SystemExit('no completed backup exists')
+          latest=complete[-1]
+          label=str(latest.get('label',''))
+          if not label:
+              raise SystemExit('latest backup has no label')
+          dbs=stanza.get('db',[])
+          if len(dbs)!=1 or str(dbs[0].get('version',''))!='18':
+              raise SystemExit('unexpected pgBackRest database identity')
+          system_id=str(dbs[0].get('system-id',''))
+          log=subprocess.check_output(['docker','exec','-u','postgres',c,'cat','/var/log/pgbackrest/edfinder_v3-verify.log'],text=True,errors='replace')
+          lines=log.splitlines()
+          matched=None
+          for i,line in enumerate(lines):
+              low=line.lower()
+              if 'verify command begin' not in low or f'--set={label}' not in line:
+                  continue
+              for end in lines[i+1:]:
+                  elow=end.lower()
+                  if 'verify command begin' in elow:
+                      break
+                  if 'verify command end:' in elow:
+                      if 'completed successfully' in elow:
+                          matched=(line,end)
+                      break
+          if not matched:
+              raise SystemExit(f'latest backup {label} has no completed-successfully pgBackRest verify')
+          begin,end=matched
+          begin_ts=begin.split(' P00',1)[0].strip()
+          end_ts=end.split(' P00',1)[0].strip()
+          print('backup_evidence_gate|PASS')
+          print('stanza|edfinder_v3|ok')
+          print('postgres_version|18')
+          print('system_identifier|'+system_id)
+          print('verified_backup|'+label)
+          print('verified_backup_stop|'+str(latest.get('timestamp',{}).get('stop','')))
+          print('verify_begin|'+begin_ts)
+          print('verify_end|'+end_ts)
+          print('verify_result|completed_successfully')
+          print('db_writes_performed|false')
+          PY
