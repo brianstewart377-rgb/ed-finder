@@ -1,0 +1,151 @@
+name: ed-new V3 API Prepare
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-api-prepare-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-v3-api-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare private V3 API runtime
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 30
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-api-prepare-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"prepare-v3-api-runtime"}:
+              raise SystemExit(64)
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Prepare image and private runtime config
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import urllib.parse
+
+          pg = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db = 'edfinder_v3_phase4c_full_20260827_r5'
+          source_root = pathlib.Path('/root/edfinder-v3-phase4c-full-rehearsal-20260827-r5/repo')
+          runtime_dir = pathlib.Path('/opt/ed-finder-v3-runtime')
+          target_image = 'edfinder-v3-api:phase4c-r5'
+          retained_image = 'edfinder-v3-phase4c-full-20260827_r5-api:locked'
+
+          if not (source_root / 'apps/api/Dockerfile').is_file():
+              raise SystemExit('retained V3 API source tree is missing')
+
+          inspect = json.loads(subprocess.check_output(['docker','inspect',pg], text=True))[0]
+          env = {}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user = env.get('POSTGRES_USER') or 'postgres'
+          password = env.get('POSTGRES_PASSWORD') or ''
+
+          # Prove API startup will not hit the legacy startup-reaper write path.
+          psql = ['docker','exec']
+          if password:
+              psql += ['-e', f'PGPASSWORD={password}']
+          psql += [pg,'psql','-h','127.0.0.1','-U',user,'-d',db,'-At','-c']
+          legacy_admin = subprocess.check_output(psql + ["SELECT to_regclass('public.admin_job_runs') IS NOT NULL"], text=True).strip()
+          if legacy_admin != 'f':
+              raise SystemExit('public.admin_job_runs exists; API startup could perform a DB write before backup gate')
+
+          try:
+              subprocess.run(['docker','image','inspect',retained_image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+              subprocess.run(['docker','tag',retained_image,target_image], check=True)
+              image_source = 'retained-locked-image'
+          except subprocess.CalledProcessError:
+              subprocess.run([
+                  'docker','build','-t',target_image,
+                  '-f',str(source_root / 'apps/api/Dockerfile'),
+                  str(source_root),
+              ], check=True)
+              image_source = 'rebuilt-from-retained-source'
+
+          runtime_dir.mkdir(parents=True, exist_ok=True)
+          os.chmod(runtime_dir, 0o700)
+          q_user = urllib.parse.quote(user, safe='')
+          q_pass = urllib.parse.quote(password, safe='')
+          auth = q_user if not q_pass else f'{q_user}:{q_pass}'
+          q_db = urllib.parse.quote(db, safe='')
+          dsn = f'postgresql://{auth}@postgres:5432/{q_db}'
+          env_path = runtime_dir / 'api.env'
+          env_path.write_text(
+              '\n'.join([
+                  f'DATABASE_URL={dsn}',
+                  f'DATABASE_READONLY_URL={dsn}',
+                  'REDIS_URL=redis://redis:6379/0',
+                  'CORS_ORIGINS=https://ed-finder.app,https://www.ed-finder.app',
+                  'EDDN_SIMULATION_INGEST_ENABLED=false',
+                  'EXPOSE_ERROR_DETAIL=false',
+                  'AUTH_COOKIE_SECURE=true',
+                  'APP_VERSION=3.0.1-v3-cutover',
+                  'LOG_LEVEL=INFO',
+                  '',
+              ]),
+              encoding='utf-8',
+          )
+          os.chmod(env_path, 0o600)
+
+          print('api_prepare|PASS')
+          print('image|' + target_image)
+          print('image_source|' + image_source)
+          print('runtime_config|' + str(env_path))
+          print('frontier_oauth_configured|false')
+          print('api_started|false')
+          print('db_writes_performed|false')
+          PY
