@@ -1,0 +1,95 @@
+name: ed-new V3 API Cold Create
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-api-cold-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  create:
+    name: Create stopped private V3 API container
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-api-cold-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"create-cold-v3-api"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Create stopped API container
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          name='edfinder-v3-api'
+          image='edfinder-v3-api:phase4c-r5'
+          envfile='/opt/ed-finder-v3-runtime/api.env'
+          net='edfinder-v3-runtime'
+          test -f "$envfile"
+          docker image inspect "$image" >/dev/null
+          docker network inspect "$net" >/dev/null
+          if docker inspect "$name" >/dev/null 2>&1; then
+            running="$(docker inspect -f '{{.State.Running}}' "$name")"
+            [ "$running" = false ] || { echo 'Refusing to replace a running API container' >&2; exit 1; }
+            docker rm "$name" >/dev/null
+          fi
+          docker create \
+            --name "$name" \
+            --restart unless-stopped \
+            --network "$net" \
+            --network-alias api \
+            --label com.edfinder.v3.runtime=true \
+            --env-file "$envfile" \
+            -p 127.0.0.1:58095:8000 \
+            "$image" >/dev/null
+          [ "$(docker inspect -f '{{.State.Running}}' "$name")" = false ]
+          echo 'api_cold_container|PASS'
+          echo 'api_state|created-stopped'
+          echo "restart_policy|$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$name")"
+          echo 'bind|127.0.0.1:58095'
+          echo 'public_exposure|false'
+          echo 'db_access_performed|false'
+          echo 'db_writes_performed|false'
+          REMOTE
