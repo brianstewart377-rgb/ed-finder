@@ -1,0 +1,98 @@
+name: ed-new V3 Verify Orphan Cleanup
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-verify-cleanup-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: Terminate only older orphaned pgBackRest verify
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-verify-cleanup-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"terminate-older-orphaned-v3-verify"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Guard and terminate only older verify parent
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import os, signal, subprocess, time
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          needle='pgbackrest --stanza=edfinder_v3 --log-level-console=info verify'
+          def parents():
+              out=subprocess.check_output(['docker','top',c,'-eo','pid,etimes,args'], text=True)
+              found=[]
+              for line in out.splitlines()[1:]:
+                  parts=line.strip().split(None,2)
+                  if len(parts)!=3:
+                      continue
+                  pid_s, elapsed_s, args=parts
+                  if args.strip()==needle:
+                      found.append((int(pid_s), int(elapsed_s), args))
+              return found
+          before=parents()
+          print('verify_parent_count_before|' + str(len(before)))
+          for pid, elapsed, _ in sorted(before, key=lambda x:x[1], reverse=True):
+              print(f'verify_parent|pid={pid}|elapsed_seconds={elapsed}')
+          if len(before)!=2:
+              raise SystemExit('Refusing cleanup: expected exactly two verify parent processes')
+          older=max(before, key=lambda x:x[1])
+          younger=min(before, key=lambda x:x[1])
+          if older[1] - younger[1] < 120:
+              raise SystemExit('Refusing cleanup: duplicate verifies are not clearly separated in start time')
+          os.kill(older[0], signal.SIGTERM)
+          print('terminated_orphan_parent_pid|' + str(older[0]))
+          time.sleep(5)
+          after=parents()
+          print('verify_parent_count_after|' + str(len(after)))
+          for pid, elapsed, _ in after:
+              print(f'remaining_verify_parent|pid={pid}|elapsed_seconds={elapsed}')
+          if len(after)!=1 or after[0][0] != younger[0]:
+              raise SystemExit('Cleanup did not leave exactly the younger tracked verify')
+          print('orphan_cleanup|PASS')
+          print('db_writes_performed|false')
+          print('backup_contents_modified|false')
+          PY
