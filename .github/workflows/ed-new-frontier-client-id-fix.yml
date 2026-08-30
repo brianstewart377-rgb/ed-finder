@@ -1,0 +1,201 @@
+name: ed-new Frontier Client ID Fix
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-frontier-client-id-fix-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    name: Install real Frontier client ID and verify provider acceptance
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-frontier-client-id-fix-requests/*.json) ;; *) exit 64 ;; esac
+          client_id="$(python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,re,sys
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if set(d) != {'operation','client_id'} or d.get('operation') != 'install-frontier-client-id':
+              raise SystemExit(64)
+          v=str(d.get('client_id','')).strip()
+          if not re.fullmatch(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',v):
+              raise SystemExit('client_id is not UUID-shaped')
+          print(v)
+          PY
+          )"
+          echo "client_id=$client_id" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Install client ID and recreate runtime API
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          CLIENT_ID: ${{ steps.request.outputs.client_id }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "CLIENT_ID='$CLIENT_ID' python3 -" <<'PY'
+          import os,pathlib,subprocess,time
+          client_id=os.environ['CLIENT_ID']
+          envfile=pathlib.Path('/opt/ed-finder-v3-runtime/api.env')
+          if not envfile.is_file():
+              raise SystemExit('V3 api.env missing')
+          lines=envfile.read_text(encoding='utf-8').splitlines()
+          out=[]; replaced=False
+          for line in lines:
+              if line.startswith('FRONTIER_CLIENT_ID='):
+                  out.append('FRONTIER_CLIENT_ID='+client_id); replaced=True
+              else:
+                  out.append(line)
+          if not replaced:
+              out.append('FRONTIER_CLIENT_ID='+client_id)
+          envfile.write_text('\n'.join(out)+'\n',encoding='utf-8')
+          os.chmod(envfile,0o600)
+
+          bootstrap=pathlib.Path('/usr/local/sbin/edfinder-v3-runtime-bootstrap')
+          if not bootstrap.is_file():
+              raise SystemExit('runtime bootstrap missing')
+          subprocess.run(['sudo','systemctl','restart','edfinder-v3-runtime-bootstrap.service'],check=True)
+
+          # The public auth edge depends on the private chain. Restart/health it after API recreation.
+          subprocess.run(['sudo','systemctl','restart','edfinder-v3-public-auth-edge.service'],check=True)
+          ok=False
+          for _ in range(30):
+              p=subprocess.run(['curl','-fsS','--max-time','3','-H','Host: ed-finder.app','http://127.0.0.1:58080/api/v1/auth/session'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              if p.returncode==0:
+                  ok=True; break
+              time.sleep(1)
+          if not ok:
+              raise SystemExit('V3 auth chain did not recover')
+          print('client_id_installed|true')
+          print('runtime_recreated|true')
+          print('private_auth_chain|PASS')
+          PY
+
+      - name: Verify live API is using the requested client ID
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          CLIENT_ID: ${{ steps.request.outputs.client_id }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" "CLIENT_ID='$CLIENT_ID' python3 -" <<'PY'
+          import json,os,subprocess
+          expected=os.environ['CLIENT_ID']
+          raw=json.loads(subprocess.check_output(['docker','inspect','edfinder-v3-api'],text=True))[0]
+          env={}
+          for line in raw.get('Config',{}).get('Env',[]):
+              if '=' in line:
+                  k,v=line.split('=',1); env[k]=v
+          if env.get('FRONTIER_CLIENT_ID') != expected:
+              raise SystemExit('running API did not pick up requested client ID')
+          if not env.get('FRONTIER_CLIENT_SECRET'):
+              raise SystemExit('running API has no Frontier client secret')
+          print('live_client_id_match|PASS')
+          print('client_secret_present|true')
+          print('secret_value_printed|false')
+          PY
+
+      - name: Verify Frontier accepts client ID through live public route
+        shell: bash
+        env:
+          CLIENT_ID: ${{ steps.request.outputs.client_id }}
+        run: |
+          set -euo pipefail
+          umask 077
+          curl -sS --max-time 10 -D /tmp/login.headers -o /dev/null \
+            'https://ed-finder.app/api/auth/frontier/login?return_to=/'
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from urllib.parse import parse_qs,urlsplit
+          raw=Path('/tmp/login.headers').read_text('utf-8',errors='replace')
+          blocks=[b for b in raw.replace('\r\n','\n').split('\n\n') if b.strip()]
+          lines=blocks[-1].splitlines()
+          if not lines or ' 302 ' not in lines[0]:
+              raise SystemExit('live login did not return 302')
+          loc=''; cookies=[]
+          for line in lines[1:]:
+              if ':' not in line: continue
+              k,v=line.split(':',1)
+              if k.lower()=='location': loc=v.strip()
+              if k.lower()=='set-cookie': cookies.append(v.strip())
+          q=parse_qs(urlsplit(loc).query)
+          if (q.get('client_id') or [''])[0] != os.environ['CLIENT_ID']:
+              raise SystemExit('generated Frontier URL has wrong client ID')
+          state=(q.get('state') or [''])[0]
+          chosen=''
+          for c in cookies:
+              if 'httponly' in c.lower() and 'secure' in c.lower():
+                  chosen=c.split(';',1)[0]; break
+          if not state or not chosen:
+              raise SystemExit('OAuth state/cookie missing')
+          Path('/tmp/frontier.location').write_text(loc)
+          Path('/tmp/state').write_text(state)
+          Path('/tmp/cookie').write_text(chosen)
+          print('live_generated_client_id|PASS')
+          PY
+
+          provider_code="$(curl -sS -L --max-time 15 -o /tmp/frontier.body -w '%{http_code}' "$(cat /tmp/frontier.location)")"
+          if [ "$provider_code" = 406 ]; then
+            echo 'Frontier still rejects the supplied client ID' >&2
+            exit 1
+          fi
+          case "$provider_code" in
+            2??|3??) ;;
+            *) echo "unexpected Frontier response code: $provider_code" >&2; exit 1 ;;
+          esac
+          echo "frontier_provider_http_status=$provider_code"
+          echo 'frontier_client_id_accepted|PASS'
+
+          encoded_state="$(python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import quote
+          print(quote(Path('/tmp/state').read_text(),safe=''))
+          PY
+          )"
+          curl -sS --max-time 10 -o /dev/null \
+            -H "Cookie: $(cat /tmp/cookie)" \
+            "https://ed-finder.app/api/auth/frontier/callback?error=access_denied&state=$encoded_state"
+          echo 'test_oauth_state_cleanup_requested|true'
