@@ -59,6 +59,11 @@ jobs:
           pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
           db='edfinder_v3_phase4c_full_20260827_r5'
 
+          src0=subprocess.check_output(['docker','exec',api,'sh','-lc',"sed -n '35,125p' /app/routers/auth.py"],text=True)
+          print('AUTH_SOURCE_35_125_BEGIN')
+          print(src0.rstrip())
+          print('AUTH_SOURCE_35_125_END')
+
           src=subprocess.check_output(['docker','exec',api,'sh','-lc',"sed -n '245,325p' /app/routers/auth.py"],text=True)
           print('AUTH_SOURCE_245_325_BEGIN')
           print(src.rstrip())
@@ -75,11 +80,5 @@ jobs:
 
           print('oauth_state_columns:')
           print(sql("SELECT ordinal_position,column_name,data_type,is_nullable,COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='oauth_login_state' ORDER BY ordinal_position") or '<none>')
-          print('oauth_state_constraints:')
-          print(sql("SELECT tc.constraint_name,tc.constraint_type,COALESCE(kcu.column_name,'') FROM information_schema.table_constraints tc LEFT JOIN information_schema.key_column_usage kcu ON kcu.constraint_name=tc.constraint_name AND kcu.table_schema=tc.table_schema AND kcu.table_name=tc.table_name WHERE tc.table_schema='v3_identity' AND tc.table_name='oauth_login_state' ORDER BY tc.constraint_name,kcu.ordinal_position") or '<none>')
-          print('account_columns:')
-          print(sql("SELECT ordinal_position,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='account' ORDER BY ordinal_position") or '<none>')
-          print('session_columns:')
-          print(sql("SELECT ordinal_position,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='session' ORDER BY ordinal_position") or '<none>')
           print('db_writes_performed|false')
           PY
