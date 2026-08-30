@@ -27,3 +27,22 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "timeout-minutes: 120" in text
     assert "codex exec --sandbox danger-full-access" in text
     assert "codex-task-requests" not in text
+
+
+def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+
+    implementation = text.split("- name: Run Codex implementation", 1)[1].split(
+        "- name: Push implementation branch", 1
+    )[0]
+    push_wrapper = text.split("- name: Push implementation branch", 1)[1].split(
+        "- name: Implementation branch summary", 1
+    )[0]
+
+    assert "CODEX_WORKER_GIT_TOKEN" not in implementation
+    assert "git push" not in implementation
+    assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_wrapper
+    assert "^\\.github/workflows/" in push_wrapper
+    assert "Contents: read/write and Workflows: read/write" in push_wrapper
+    assert "GIT_ASKPASS" in push_wrapper
+    assert "git -c credential.helper= push --force-with-lease origin \"$CODEX_BRANCH\"" in push_wrapper
