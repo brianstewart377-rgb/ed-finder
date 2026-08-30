@@ -1,0 +1,125 @@
+name: Codex Dispatch
+run-name: Codex Dispatch · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - codex-task-requests
+    paths:
+      - '.github/codex-requests/*.json'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Resolve request
+        id: request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/codex-requests/*.json')
+          [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one Codex request file" >&2; exit 64; }
+          file="${files[0]}"
+          mode="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); extra=set(d)-{"task","mode"}; extra and sys.exit("unsupported request keys"); m=d.get("mode","investigate"); m in {"investigate","implement"} or sys.exit("unsupported mode"); print(m)' "$file")"
+          task="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); t=d.get("task"); isinstance(t,str) and t.strip() or sys.exit("task must be non-empty"); print(t.replace("\n"," "))' "$file")"
+          stem="$(basename "$file" .json)"
+          request_id="${stem}-${CURRENT_SHA:0:8}"
+          {
+            echo "mode=$mode"
+            echo "request_id=$request_id"
+            echo "request_file=$file"
+            echo "task<<EOF"
+            echo "$task"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch worker asynchronously
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          CODEX_TASK: ${{ steps.request.outputs.task }}
+          CODEX_MODE: ${{ steps.request.outputs.mode }}
+          CODEX_REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          CODEX_REQUEST_FILE: ${{ steps.request.outputs.request_file }}
+        run: |
+          set -euo pipefail
+          payload="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({
+              "ref": "main",
+              "inputs": {
+                  "task": os.environ["CODEX_TASK"],
+                  "mode": os.environ["CODEX_MODE"],
+                  "request_id": os.environ["CODEX_REQUEST_ID"],
+              },
+          }))
+          PY
+          )"
+
+          response_file="$(mktemp)"
+          http_code="$(curl --silent --show-error --location \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/codex-laptop.yml/dispatches" \
+            --data "$payload")"
+
+          if [ "$http_code" != "204" ]; then
+            echo "Codex worker dispatch failed with HTTP $http_code" >&2
+            cat "$response_file" >&2
+            exit 68
+          fi
+
+          worker_run_id=""
+          for _ in 1 2 3 4 5; do
+            runs_file="$(mktemp)"
+            curl --silent --show-error --location \
+              --output "$runs_file" \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$REPOSITORY/actions/workflows/codex-laptop.yml/runs?event=workflow_dispatch&per_page=20"
+            worker_run_id="$(python3 - "$runs_file" "$CODEX_REQUEST_ID" <<'PY'
+          import json, sys
+          path, request_id = sys.argv[1], sys.argv[2]
+          with open(path, encoding="utf-8") as handle:
+              data = json.load(handle)
+          for run in data.get("workflow_runs", []):
+              if request_id in (run.get("display_title") or ""):
+                  print(run["id"])
+                  break
+          PY
+            )"
+            rm -f "$runs_file"
+            [ -n "$worker_run_id" ] && break
+            sleep 2
+          done
+
+          echo "CODEX_DISPATCH_ACCEPTED=true"
+          echo "CODEX_REQUEST_ID=$CODEX_REQUEST_ID"
+          echo "CODEX_REQUEST_FILE=$CODEX_REQUEST_FILE"
+          if [ -n "$worker_run_id" ]; then
+            echo "CODEX_WORKER_RUN_ID=$worker_run_id"
+            echo "worker_run_id=$worker_run_id" >> "$GITHUB_OUTPUT"
+          else
+            echo "CODEX_WORKER_RUN_ID=pending"
+          fi
+          echo "The long-running Codex worker is now independent of this dispatch job. Do not wait for it here."

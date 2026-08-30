@@ -41,6 +41,22 @@ Server connectivity must use already-authorized deployment/SSH credentials if th
 
 If the repository does not already have suitable Actions credentials, the workflow may be merged in an inert state and the one remaining owner action is to add the required GitHub Actions secret/runner connection.
 
+## Codex bridge
+
+Codex task requests are intentionally asynchronous so a ChatGPT web or desktop turn never needs to stay open for the full Codex execution time.
+
+The request path is:
+
+`ChatGPT -> codex-task-requests -> Codex Dispatch -> workflow_dispatch -> Codex Worker -> self-hosted runner -> codex exec`
+
+A request is a single JSON file committed under `.github/codex-requests/` on the `codex-task-requests` branch. `.github/workflows/codex-dispatch.yml` validates that request on a GitHub-hosted runner, dispatches `.github/workflows/codex-laptop.yml` through `workflow_dispatch`, records a stable request identifier, and then exits. Its bounded job must never wait for the Codex worker to finish.
+
+The long-running self-hosted job is a separate workflow run. Its run name includes the stable request identifier, and the dispatcher prints `CODEX_DISPATCH_ACCEPTED=true` plus `CODEX_WORKER_RUN_ID=<id>` when the worker run becomes visible. If GitHub has accepted the dispatch but the worker run has not appeared within the short lookup window, the dispatcher prints `CODEX_WORKER_RUN_ID=pending` and still exits successfully.
+
+ChatGPT clients should therefore report the dispatch acknowledgement/run ID immediately. A later turn may query the worker run for progress or results. A client-side timeout must not be treated as evidence that Codex failed unless the GitHub worker run itself failed or timed out.
+
+The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
+
 ## Receipts
 
 Every run should record at least:
