@@ -12,6 +12,16 @@ VALIDATION_MODES: tuple[SupportRouteValidationMode, ...] = (
 
 REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
     SupportRoute(
+        route='/api/auth/session',
+        frontend_caller='useAuth account bootstrap',
+        required_for_reviewed_flow=True,
+        expected_status=200,
+        review_only_handling='Canonical signed-out session envelope; no OAuth credentials, cookies, database identity, or Frontier request.',
+        allowed_response_characteristics=('JSON object', 'authenticated false', 'user null', 'owner_claim_available false', 'no external fetch'),
+        scenario_coverage=('planner_core', 'empty_optional_support_data', 'support_route_compatibility'),
+        validation_mode='browser_only_validated',
+    ),
+    SupportRoute(
         route='/api/events/live',
         frontend_caller='useEddnFeed SSE bootstrap',
         required_for_reviewed_flow=False,
@@ -114,6 +124,7 @@ REVIEW_SUPPORT_ROUTE_MATRIX: tuple[SupportRoute, ...] = (
 )
 
 REQUIRED_MATRIX_ROUTES = {
+    '/api/auth/session',
     '/api/events/live',
     '/api/events/recent',
     '/api/news/latest',

@@ -16,9 +16,10 @@ type LoadState = 'idle' | 'loading' | 'ok' | 'err';
 
 export interface OperatorCockpitTabProps {
   admin: Pick<UseAdmin, 'token' | 'setToken' | 'forgetToken' | 'hasToken'>;
+  ownerName?: string | null;
 }
 
-export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
+export function OperatorCockpitTab({ admin, ownerName }: OperatorCockpitTabProps) {
   const [tokenDraft, setTokenDraft] = useState(admin.token);
   const [loadState, setLoadState] = useState<LoadState>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
     setDetailState('idle');
     setDetailError(null);
 
-    if (!admin.token) {
+    if (!admin.hasToken) {
       setLoadState('idle');
       setSafetyGates(null);
       setSourceRuns([]);
@@ -79,14 +80,14 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
       setLoadState('err');
       setError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [admin.token]);
+  }, [admin.hasToken, admin.token]);
 
   useEffect(() => {
     void loadCockpit();
   }, [loadCockpit]);
 
   const selectSourceRun = useCallback(async (sourceRunKey: string) => {
-    if (!admin.token) return;
+    if (!admin.hasToken) return;
     writeSelectedOperatorSourceRun(sourceRunKey);
     setPendingSourceRunKey(null);
     cockpitRequestSeq.current += 1;
@@ -112,16 +113,16 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
       setDetailState('err');
       setDetailError(caught instanceof Error ? caught.message : String(caught));
     }
-  }, [admin.token]);
+  }, [admin.hasToken, admin.token]);
 
   useEffect(() => {
-    if (!pendingSourceRunKey || !admin.token || loadState !== 'ok') return;
+    if (!pendingSourceRunKey || !admin.hasToken || loadState !== 'ok') return;
     const matchingRun = sourceRuns.find((run) => run.source_run_key === pendingSourceRunKey);
     if (!matchingRun) return;
     void selectSourceRun(matchingRun.source_run_key);
     writeSelectedOperatorSourceRun(null);
     setPendingSourceRunKey(null);
-  }, [admin.token, loadState, pendingSourceRunKey, selectSourceRun, sourceRuns]);
+  }, [admin.hasToken, loadState, pendingSourceRunKey, selectSourceRun, sourceRuns]);
 
   return (
     <section data-testid="operator-cockpit" className="space-y-5">
@@ -152,6 +153,12 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
           This page is read-only. It uses Stage 19AP operator visibility endpoints and does not run imports,
           enable scheduler/timers, write canonical tables, or run canonical apply.
         </p>
+        {ownerName ? (
+          <div className="flex flex-wrap items-center gap-2" data-testid="operator-owner-session">
+            <span className="font-mono text-[10px] uppercase tracking-wider text-green">● Owner session verified</span>
+            <span className="text-xs text-silver-dk">CMDR {ownerName}</span>
+          </div>
+        ) : (
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="password"
@@ -184,6 +191,7 @@ export function OperatorCockpitTab({ admin }: OperatorCockpitTabProps) {
             {admin.hasToken ? 'Token set' : 'No token'}
           </span>
         </div>
+        )}
       </section>
 
       {loadState === 'loading' && (

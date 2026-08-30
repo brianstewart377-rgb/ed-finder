@@ -24,6 +24,11 @@ document that should answer "what next?".
   broad local pytest burn-down most recently observed green at
   `1487 passed, 16 skipped` in the current workspace.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
+- Identity posture (2026-08-22): Frontier approved ED-Finder's production
+  OAuth client with `AUTH` and `CAPI` scopes and the owner explicitly
+  authorized the account foundation. Frontier sign-in and the owner-only
+  Admin/Operator access slice are in implementation; broader plan sync remains
+  a separately staged follow-up.
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
 - Map posture: Map remains a secondary Explore surface, not the primary
@@ -227,9 +232,10 @@ competing roadmap source.
 
 ### Deferred Product Expansion
 
-- Accounts, auth, and sync expansion remain explicitly deferred pending a
-  separately reviewed identity and product-scope decision; the former ratings,
-  migration, backup, and CI foundation blockers are now closed.
+- The bounded account/auth foundation is now authorized following Frontier
+  OAuth approval and the 2026-08-22 owner identity decision. Cross-device plan
+  sync, collaboration, and broader account expansion remain deferred until the
+  identity foundation has shipped and been observed.
 - Broad product-surface expansion remains secondary to eliminating hidden or
   conflicting surfaces already in the tree.
 
@@ -465,8 +471,8 @@ competing roadmap source.
    API, state-store, storage, cache-truthfulness, and accessibility gaps. H3
    closed the remaining database-operator secret-handling and migration-timeout
    findings with PostgreSQL 16 rehearsals and CI contracts.
-6. Re-evaluate accounts/auth only through a separately reviewed product and
-   identity decision now that steps 1-4 are complete.
+6. **In progress:** ship the separately approved Frontier identity foundation
+   and owner-only operational access slice; stage plan sync independently.
 
 ## Active Priorities
 
@@ -506,8 +512,9 @@ competing roadmap source.
 
 - Mission intelligence remains deferred and unauthorized.
 - Ring/mining work remains deferred and unauthorized.
-- Accounts, OAuth, collaboration, and plan sync remain deferred pending an
-  explicit product and identity-continuity decision.
+- Frontier OAuth identity and owner-only operational access are authorized by
+  the 2026-08-22 product/identity decision. Collaboration and plan sync remain
+  deferred as separate expansion lanes.
 - Journal `A-2` canonical promotion remains deferred pending a separately
   reviewed write-lane authorization; its former migration and restore
   prerequisites are now complete.

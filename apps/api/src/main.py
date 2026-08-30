@@ -51,6 +51,7 @@ from edfinder_api.state import (
 
 # Routers
 from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_operation_runs
+from edfinder_api.routers.auth import router as auth_router
 from edfinder_api.routers.archetypes import router as archetypes_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
 from edfinder_api.routers.evidence import router as evidence_router
@@ -277,6 +278,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in settings.cors_origins.split(',') if o.strip()],
     allow_methods=['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allow_headers=['Content-Type', 'X-Admin-Token', 'Authorization'],
+    allow_credentials=True,
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -348,6 +350,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 # router is mounted first so its ~^/s/[0-9]+$ pattern beats the SPA.
 # ---------------------------------------------------------------------------
 app.include_router(share_router)
+app.include_router(auth_router)
 app.include_router(meta_router)
 app.include_router(news_router)
 app.include_router(watchlist_router)

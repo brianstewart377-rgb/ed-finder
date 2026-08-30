@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse
 from edfinder_api.models import CacheStatsResponse
 from edfinder_api.deps import get_pool
 from edfinder_api.routers.archetypes import get_system_archetypes
+from edfinder_api.routers.auth import AuthSessionResponse
 from edfinder_api.routers.evidence import evidence_system_summary
 
 
@@ -43,6 +44,26 @@ async def review_latest_news(limit: int = 8) -> dict[str, object]:
         'fetched_at': '1970-01-01T00:00:00Z',
         'stale': False,
     }
+
+
+@router.get(
+    '/api/auth/session',
+    response_model=AuthSessionResponse,
+    include_in_schema=False,
+)
+async def review_auth_session() -> AuthSessionResponse:
+    """Expose the real signed-out session envelope without Frontier access.
+
+    Review Lab never receives OAuth credentials or production cookies. The SPA
+    still performs its normal account bootstrap, so return the same canonical
+    unauthenticated contract as production instead of allowing a transport 404
+    to obscure unrelated browser verification.
+    """
+    return AuthSessionResponse(
+        authenticated=False,
+        user=None,
+        owner_claim_available=False,
+    )
 
 
 @router.get('/api/archetypes/system/{id64}', include_in_schema=False)

@@ -11,6 +11,8 @@ import { OperatorModePanel } from './navbar/OperatorModePanel';
 import { OperatorModeMenu } from './navbar/OperatorModeMenu';
 import { primaryWorkspaceForRoute, isRouteActive, workspaceMetaForRoute } from './navbar/helpers';
 import type { RouteDescriptor, PrimaryWorkspace } from './navbar/types';
+import { AccountControls } from '@/features/auth/AccountControls';
+import type { UseAuth } from '@/features/auth/useAuth';
 
 /** Top-bar nav for the live app — sticky chrome panel with brushed-metal sheen
  *  and an ED-orange "active-tab" indicator. Height tuned to match the bottom
@@ -35,6 +37,7 @@ export interface NavBarProps {
   } | null;
   onOpenSelectedSystemInPlan?: (() => void) | undefined;
   onDismissSelectedSystem?: (() => void) | undefined;
+  auth?: UseAuth;
 }
 
 const PLAYER_WORKSPACES: PrimaryWorkspace[] = ['explore', 'plan', 'review'];
@@ -48,6 +51,7 @@ export function NavBar({
   selectedSystem = null,
   onOpenSelectedSystemInPlan,
   onDismissSelectedSystem,
+  auth,
 }: NavBarProps) {
   const appVersionLabel = `v${__APP_VERSION__}`;
   const ok = (health ?? '').toLowerCase() === 'online';
@@ -181,6 +185,8 @@ export function NavBar({
               {currentPrimary ? `${currentWorkspaceMeta.primaryLabel} · ${currentRouteDescriptor?.label ?? currentWorkspaceMeta.title}` : currentWorkspaceMeta.title}
             </span>
           </div>
+
+          {auth ? <AccountControls auth={auth} onNavigate={handleNavigate} /> : null}
 
         {/* ── Density toggle ─────────────────────────── */}
           <button

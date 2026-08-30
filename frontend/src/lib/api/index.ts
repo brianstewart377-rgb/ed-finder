@@ -40,6 +40,7 @@ import * as operator from './operator';
 import * as map from './map';
 import * as routes from './routes';
 import * as powerplay from './powerplay';
+import * as auth from './auth';
 
 export type {
   CommanderPowerplayResponse,
@@ -52,8 +53,13 @@ export type {
 } from './powerplay';
 
 export { ApiError } from './core';
+export type { AuthSession, AuthUser } from './auth';
 
 export const api = {
+  frontierLoginUrl: auth.frontierLoginUrl,
+  authSession: auth.authSession,
+  authLogout: auth.authLogout,
+  claimOwner: auth.claimOwner,
   health: search.health,
   autocomplete: search.autocomplete,
   localSearch: search.localSearch,
