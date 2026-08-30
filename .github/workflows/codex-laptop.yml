@@ -40,6 +40,7 @@ jobs:
         with:
           fetch-depth: 10
           ref: main
+          persist-credentials: false
 
       - name: Resolve request
         id: request
@@ -163,11 +164,9 @@ jobs:
 
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
 
-          # actions/checkout persists the ordinary GITHUB_TOKEN as an HTTP extraheader.
-          # Remove it only after Codex has finished, then authenticate this wrapper-owned
-          # push through GIT_ASKPASS so the privileged token is never present in argv,
-          # a remote URL, the repository config, or the Codex process environment.
-          git config --local --unset-all http.https://github.com/.extraheader || true
+          # Checkout deliberately does not persist credentials. Authenticate only this
+          # wrapper-owned push through GIT_ASKPASS so the selected token is never present
+          # in argv, a remote URL, repository config, or the Codex process environment.
           askpass="$(mktemp)"
           trap 'rm -f "$askpass"' EXIT
           cat > "$askpass" <<'EOF'
