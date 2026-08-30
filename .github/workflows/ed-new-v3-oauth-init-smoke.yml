@@ -54,18 +54,21 @@ jobs:
             -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
-          import http.client, json, subprocess, urllib.parse
+          import http.client, subprocess, urllib.parse
           c='edfinder-v3-phase4c-full-20260827_r5-postgres'
           db='edfinder_v3_phase4c_full_20260827_r5'
+          # Use the container's configured PostgreSQL role/password without ever
+          # placing the credential value in host argv or logs.
           def sql(q):
-              return subprocess.check_output(['docker','exec','-u','postgres',c,'psql','-d',db,'-At','-c',q],text=True).strip()
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -c "$1"'
+              return subprocess.check_output(['docker','exec','-u','postgres',c,'sh','-lc',cmd,'sh',q],text=True).strip()
           before_states=set(filter(None,sql('SELECT state_hash FROM oauth_login_states ORDER BY state_hash').splitlines()))
           before_users=int(sql('SELECT count(*) FROM app_users') or '0')
           before_sessions=int(sql('SELECT count(*) FROM web_sessions') or '0')
           conn=http.client.HTTPConnection('127.0.0.1',58080,timeout=10)
           conn.request('GET','/api/v1/auth/frontier/login?return_to=/oauth-smoke',headers={'Host':'ed-finder.app','User-Agent':'edfinder-v3-oauth-smoke/1'})
           resp=conn.getresponse()
-          body=resp.read()
+          resp.read()
           location=resp.getheader('Location') or ''
           cookie=resp.getheader('Set-Cookie') or ''
           conn.close()
@@ -104,8 +107,7 @@ jobs:
           after_sessions=int(sql('SELECT count(*) FROM web_sessions') or '0')
           if after_users!=before_users or after_sessions!=before_sessions:
               raise SystemExit('OAuth initiation unexpectedly changed users or sessions')
-          # Clean only the exact smoke-test state row after proving it was inserted correctly.
-          subprocess.run(['docker','exec','-u','postgres',c,'psql','-d',db,'-v','ON_ERROR_STOP=1','-c',"DELETE FROM oauth_login_states WHERE state_hash='"+new_hash.replace("'","''")+"';"],check=True,stdout=subprocess.DEVNULL)
+          sql("DELETE FROM oauth_login_states WHERE state_hash='"+new_hash.replace("'","''")+"'")
           final_states=set(filter(None,sql('SELECT state_hash FROM oauth_login_states ORDER BY state_hash').splitlines()))
           if final_states!=before_states:
               raise SystemExit('OAuth smoke cleanup did not restore the original state set')
