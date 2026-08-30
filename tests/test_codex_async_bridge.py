@@ -29,6 +29,14 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "codex-task-requests" not in text
 
 
+def test_codex_workers_are_not_globally_serialized() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+
+    assert "runs-on: [self-hosted, Linux, X64]" in text
+    assert "group: codex-worker" not in text
+    assert "cancel-in-progress:" not in text
+
+
 def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
 
