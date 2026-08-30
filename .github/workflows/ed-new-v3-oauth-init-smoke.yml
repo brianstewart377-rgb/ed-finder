@@ -61,22 +61,19 @@ jobs:
           account_table='v3_identity.account'
           session_table='v3_identity.session'
 
-          # Use the container's configured PostgreSQL role/password without ever
-          # placing credential values in host argv or logs.
           def sql(q):
               cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -c "$1"'
               return subprocess.check_output(['docker','exec','-u','postgres',c,'sh','-lc',cmd,'sh',q],text=True).strip()
 
           columns=set(filter(None,sql("SELECT column_name FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='oauth_login_state'").splitlines()))
-          required_columns={'state_hash','code_verifier','return_to','expires_at'}
+          required_columns={'state_sha256','code_verifier','return_to','intent','account_id','created_at','expires_at'}
           if not required_columns.issubset(columns):
-              raise SystemExit('live V3 oauth_login_state contract is missing required columns')
+              raise SystemExit('live V3 oauth_login_state contract changed unexpectedly')
 
-          before_users=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
+          before_accounts=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
           before_sessions=int(sql(f'SELECT count(*) FROM {session_table}') or '0')
-          expected_hash=None
+          expected_hex=None
           inserted=False
-          redirect_path=''
           try:
               conn=http.client.HTTPConnection('127.0.0.1',58080,timeout=10)
               conn.request('GET','/api/v1/auth/frontier/login?return_to=/oauth-smoke',headers={'Host':'ed-finder.app','User-Agent':'edfinder-v3-oauth-smoke/1'})
@@ -101,11 +98,10 @@ jobs:
               raw_state=(q.get('state') or [''])[0]
               if not raw_state:
                   raise SystemExit('OAuth redirect state is empty')
-              expected_hash=hashlib.sha256(raw_state.encode('utf-8')).hexdigest()
+              expected_hex=hashlib.sha256(raw_state.encode('utf-8')).hexdigest()
 
               redirect_uri=(q.get('redirect_uri') or [''])[0]
               redirect=urllib.parse.urlsplit(redirect_uri)
-              redirect_path=redirect.path
               if redirect.scheme!='https' or redirect.netloc!='ed-finder.app':
                   raise SystemExit('Frontier redirect URI is not HTTPS ed-finder.app')
               accepted_callbacks={'/api/v1/auth/frontier/callback','/api/auth/frontier/callback'}
@@ -116,18 +112,20 @@ jobs:
               for flag in ('httponly','secure','samesite=lax'):
                   if flag not in low_cookie:
                       raise SystemExit(f'OAuth state cookie missing {flag}')
+              if 'path=/api' not in low_cookie:
+                  raise SystemExit('OAuth state cookie is not scoped to /api')
 
-              esc=expected_hash.replace("'","''")
-              row=sql(f"SELECT return_to || '|' || (expires_at > NOW())::text || '|' || (length(code_verifier) >= 43)::text FROM {state_table} WHERE state_hash='{esc}'")
+              esc=expected_hex.replace("'","''")
+              row=sql(f"SELECT return_to || '|' || intent || '|' || (account_id IS NULL)::text || '|' || (expires_at > NOW())::text || '|' || (length(code_verifier) >= 43)::text FROM {state_table} WHERE encode(state_sha256,'hex')='{esc}'")
               if not row:
-                  raise SystemExit('OAuth initiation did not create the expected hashed state row')
+                  raise SystemExit('OAuth initiation did not create the expected SHA-256 state row')
               inserted=True
-              if row!='/oauth-smoke|t|t':
+              if row!='/oauth-smoke|LOGIN|t|t|t':
                   raise SystemExit('inserted OAuth state row failed semantic checks')
 
-              after_users=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
+              after_accounts=int(sql(f'SELECT count(*) FROM {account_table}') or '0')
               after_sessions=int(sql(f'SELECT count(*) FROM {session_table}') or '0')
-              if after_users!=before_users or after_sessions!=before_sessions:
+              if after_accounts!=before_accounts or after_sessions!=before_sessions:
                   raise SystemExit('OAuth initiation unexpectedly changed accounts or sessions')
 
               print('oauth_init_smoke|PASS')
@@ -135,18 +133,18 @@ jobs:
               print('frontier_authorize_target|PASS')
               print('pkce_s256|PASS')
               print('secure_state_cookie|PASS')
-              print('oauth_state_insert|exactly_one_expected_hash')
+              print('oauth_state_insert|exactly_one_expected_sha256')
               print('accounts_changed|false')
               print('sessions_changed|false')
-              print('configured_callback_path|'+redirect_path)
+              print('configured_callback_path|'+redirect.path)
               print('primary_live_callback|/api/v1/auth/frontier/callback')
               print('compat_live_callback|/api/auth/frontier/callback')
               print('callback_route_supported|true')
           finally:
-              if expected_hash:
-                  esc=expected_hash.replace("'","''")
-                  sql(f"DELETE FROM {state_table} WHERE state_hash='{esc}'")
-                  remains=sql(f"SELECT count(*) FROM {state_table} WHERE state_hash='{esc}'")
+              if expected_hex:
+                  esc=expected_hex.replace("'","''")
+                  sql(f"DELETE FROM {state_table} WHERE encode(state_sha256,'hex')='{esc}'")
+                  remains=sql(f"SELECT count(*) FROM {state_table} WHERE encode(state_sha256,'hex')='{esc}'")
                   if remains!='0':
                       raise SystemExit('OAuth smoke cleanup failed')
                   if inserted:
