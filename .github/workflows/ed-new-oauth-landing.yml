@@ -1,0 +1,133 @@
+name: ed-new OAuth Landing
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-oauth-landing-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: Stage minimal V3 OAuth landing page
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-oauth-landing-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"stage-v3-oauth-landing"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Install landing page and restart staged edge
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import pathlib, subprocess, time, urllib.request
+
+          edge_dir=pathlib.Path.home()/'.edfinder-v3-public-auth-edge'
+          conf=edge_dir/'nginx.conf'
+          html=edge_dir/'index.html'
+          if not conf.is_file():
+              raise SystemExit('staged V3 public auth edge config is missing')
+
+          html.write_text('''<!doctype html>
+          <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>ED-Finder V3 Sign In</title>
+          <style>body{font:16px system-ui,sans-serif;max-width:680px;margin:10vh auto;padding:24px;line-height:1.5}button,a.button{display:inline-block;padding:10px 14px;border:1px solid #777;border-radius:8px;text-decoration:none;color:inherit;background:#eee}code{background:#eee;padding:2px 5px;border-radius:4px}.muted{opacity:.72}</style>
+          </head><body>
+          <h1>ED-Finder V3</h1>
+          <p>This temporary migration page is running on the replacement server.</p>
+          <p id="status">Checking sign-in status…</p>
+          <p><a class="button" href="/api/auth/frontier/login?return_to=/">Sign in with Frontier</a></p>
+          <p class="muted">The full V3 interface is still being brought online. This page exists so the database and Frontier sign-in can be verified independently of the retiring server.</p>
+          <script>
+          fetch('/api/auth/session',{credentials:'same-origin'}).then(r=>r.json()).then(s=>{
+            const e=document.getElementById('status');
+            if(!s.authenticated){e.textContent='Not signed in.';return;}
+            const u=s.user||{}; e.textContent='Signed in'+(u.commander_name?' as '+u.commander_name:'')+(u.is_owner?' (owner)':'')+'.';
+          }).catch(()=>{document.getElementById('status').textContent='Sign-in status unavailable.'});
+          </script></body></html>''',encoding='utf-8')
+
+          text=conf.read_text(encoding='utf-8')
+          old='''    # Deliberately do not pretend the full V3 site is cut over yet.\n    location / {\n      default_type text/plain;\n      return 503 "ED-Finder migration edge is ready; full application cutover is not active.\\n";\n    }'''
+          new='''    # Minimal migration landing page; full V3 UI is not promoted yet.\n    location = / {\n      root /usr/share/nginx/html;\n      try_files /index.html =404;\n      add_header Cache-Control "no-store" always;\n    }\n    location = /index.html {\n      root /usr/share/nginx/html;\n      try_files /index.html =404;\n      add_header Cache-Control "no-store" always;\n    }\n    location / {\n      default_type text/plain;\n      return 503 "ED-Finder V3 migration in progress.\\n";\n    }'''
+          if old not in text and new not in text:
+              raise SystemExit('public edge fallback block did not match expected guarded configuration')
+          if old in text:
+              conf.write_text(text.replace(old,new,1),encoding='utf-8')
+
+          subprocess.run(['docker','run','--rm','-v',f'{conf}:/etc/nginx/nginx.conf:ro','-v',f'{html}:/usr/share/nginx/html/index.html:ro','nginx:1.28-alpine','nginx','-t'],check=True)
+          subprocess.run(['docker','rm','-f','edfinder-v3-public-auth-edge'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
+          subprocess.run(['docker','run','-d','--name','edfinder-v3-public-auth-edge','--restart','unless-stopped','--network','host','-v',f'{conf}:/etc/nginx/nginx.conf:ro','-v',f'{html}:/usr/share/nginx/html/index.html:ro','nginx:1.28-alpine'],stdout=subprocess.DEVNULL,check=True)
+
+          for _ in range(20):
+              try:
+                  req=urllib.request.Request('http://127.0.0.1/',headers={'Host':'ed-finder.app'})
+                  with urllib.request.urlopen(req,timeout=2) as r:
+                      body=r.read(4096)
+                      if r.status==200 and b'ED-Finder V3' in body:
+                          break
+              except Exception:
+                  pass
+              time.sleep(.25)
+          else:
+              raise SystemExit('landing page failed local health check')
+
+          req=urllib.request.Request('http://127.0.0.1/api/auth/session',headers={'Host':'ed-finder.app'})
+          with urllib.request.urlopen(req,timeout=5) as r:
+              if r.status != 200:
+                  raise SystemExit('auth session route failed after landing deployment')
+          print('oauth_landing_page|PASS')
+          print('auth_session_route|PASS')
+          print('dns_changed|false')
+          print('database_mutated|false')
+          PY
+      - name: Probe landing page from outside ed-new
+        shell: bash
+        env:
+          PUBLIC_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+        run: |
+          set -euo pipefail
+          page="$(curl -fsS --max-time 8 -H 'Host: ed-finder.app' "http://${PUBLIC_HOST}/")"
+          grep -q 'Sign in with Frontier' <<< "$page"
+          code="$(curl -sS -o /tmp/session.json -w '%{http_code}' --max-time 8 -H 'Host: ed-finder.app' "http://${PUBLIC_HOST}/api/auth/session")"
+          [ "$code" = 200 ]
+          echo 'external_oauth_landing|PASS'
