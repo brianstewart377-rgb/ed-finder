@@ -1,0 +1,73 @@
+name: Hetzner Cloudflare Origin Mode Probe
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/hetzner-cloudflare-origin-mode-probe-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Infer Cloudflare origin transport
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 5
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/hetzner-cloudflare-origin-mode-probe-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Probe public health path through Cloudflare
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import urllib.request
+          req=urllib.request.Request('https://ed-finder.app/nginx-healthz?cf-origin-mode-probe=1',headers={'User-Agent':'edfinder-origin-mode-probe/1'})
+          try:
+              with urllib.request.urlopen(req,timeout=10) as r:
+                  body=r.read(4096)
+                  ctype=(r.headers.get('content-type') or '').lower()
+                  status=r.status
+          except Exception as exc:
+              raise SystemExit(f'public probe failed: {type(exc).__name__}')
+          print('public_status|'+str(status))
+          if body.strip()==b'ok':
+              print('cloudflare_origin_transport|http')
+              print('flexible_mode_evidence|PASS')
+          elif b'<!doctype html' in body.lower() or 'text/html' in ctype:
+              print('cloudflare_origin_transport|https_or_non_http_health_route')
+              print('flexible_mode_evidence|FAIL')
+          else:
+              print('cloudflare_origin_transport|indeterminate')
+              print('flexible_mode_evidence|FAIL')
+          print('mutations_performed|false')
+          PY
