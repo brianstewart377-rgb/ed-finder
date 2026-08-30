@@ -244,6 +244,42 @@ function closeSystemDetailWithEscape() {
   cy.press(Cypress.Keyboard.Keys.ESC);
 }
 
+function armFocusedButtonEnterDefaultAction(control, label) {
+  expect(control.tagName, `${label} native element`).to.equal('BUTTON');
+  expect(control.disabled, `${label} enabled`).to.equal(false);
+
+  let clickObserved = false;
+  const observeClick = () => {
+    clickObserved = true;
+  };
+  control.addEventListener('click', observeClick, { once: true });
+  control.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') {
+      control.removeEventListener('click', observeClick);
+      return;
+    }
+
+    // Cypress emits focused Enter events but omits the native button
+    // default action. Wait until propagation completes, honour
+    // preventDefault(), and supply only that missing action when no
+    // click has already occurred.
+    const win = control.ownerDocument.defaultView;
+    win.queueMicrotask(() => {
+      const stillFocused = control.ownerDocument.activeElement === control;
+      if (
+        !event.defaultPrevented
+        && !clickObserved
+        && stillFocused
+        && control.isConnected
+        && !control.disabled
+      ) {
+        control.click();
+      }
+      control.removeEventListener('click', observeClick);
+    });
+  }, { once: true });
+}
+
 function activateControl(testId, keyboard) {
   cy.getByTestId(testId)
     .scrollIntoView({ block: 'center' })
@@ -251,7 +287,10 @@ function activateControl(testId, keyboard) {
   if (keyboard) {
     cy.getByTestId(testId)
       .focus()
-      .should('have.focus');
+      .should('have.focus')
+      .then(($control) => {
+        armFocusedButtonEnterDefaultAction($control[0], testId);
+      });
     cy.getByTestId(testId)
       .should('have.focus')
       .type('{enter}', { force: true });
@@ -351,6 +390,18 @@ function assertHiddenOrAbsent(testId) {
   });
 }
 
+function assertRenderedControl(testId, label) {
+  return cy.getByTestId(testId).first().should(($control) => {
+    const control = $control[0];
+    const style = control.ownerDocument.defaultView.getComputedStyle(control);
+    const rect = control.getBoundingClientRect();
+    expect(style.display, `${label} display`).not.to.equal('none');
+    expect(style.visibility, `${label} visibility`).not.to.equal('hidden');
+    expect(rect.width, `${label} rendered width`).to.be.greaterThan(0);
+    expect(rect.height, `${label} rendered height`).to.be.greaterThan(0);
+  });
+}
+
 function telemetryToggle() {
   return cy.getByTestId('planner-telemetry-dock-toggle').first();
 }
@@ -370,7 +421,10 @@ function assertTelemetryToggleRendered() {
 function ensureTelemetryToggleKeyboardWorks(checks) {
   assertTelemetryToggleRendered()
     .focus()
-    .should('have.focus');
+    .should('have.focus')
+    .then(($toggle) => {
+      armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');
+    });
   telemetryToggle()
     .should('have.focus')
     .type('{enter}', { force: true });
@@ -378,7 +432,10 @@ function ensureTelemetryToggleKeyboardWorks(checks) {
 
   assertTelemetryToggleRendered()
     .focus()
-    .should('have.focus');
+    .should('have.focus')
+    .then(($toggle) => {
+      armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');
+    });
   telemetryToggle()
     .should('have.focus')
     .type('{enter}', { force: true });
@@ -675,7 +732,10 @@ describe('Local review environment verification — Cypress', () => {
     assertVisible('planner-evidence-discoverability-surface', checks, 'reportOnlyBoundaryVisible');
     assertText('planner-evidence-discoverability-summary', /canonical planner truth/i, checks, 'canonicalBoundaryVisible');
     assertTelemetryToggleRendered();
-    cy.getByTestId('summary-rail-collapse-toggle').should('be.visible').then(() => {
+    assertRenderedControl('summary-rail-collapse-toggle', 'summary rail collapse toggle')
+    .focus()
+    .should('have.focus')
+    .then(() => {
       checks.keyControlsReachable = true;
     });
     ensureTelemetryToggleKeyboardWorks(checks);
