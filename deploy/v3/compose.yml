@@ -1,0 +1,131 @@
+name: edfinder-v3
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-runtime: &runtime
+  restart: unless-stopped
+  init: true
+  logging: *logging
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  redis:
+    <<: *runtime
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "900", "1", "--save", "300", "10", "--maxmemory", "1gb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    mem_limit: 1536m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  api:
+    <<: *runtime
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    environment:
+      DATABASE_URL: ${V3_DATABASE_APP_URL:?set V3_DATABASE_APP_URL to the external PG18 app-role URL}
+      DATABASE_READONLY_URL: ${V3_DATABASE_READONLY_URL:?set V3_DATABASE_READONLY_URL to the external PG18 read-only role URL}
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: ${V3_CORS_ORIGINS:?set V3_CORS_ORIGINS explicitly}
+      BUILD_SHA: ${EDFINDER_BUILD_SHA:-unknown}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      EXPOSE_ERROR_DETAIL: "false"
+      ADMIN_TOKEN: ""
+      FRONTIER_CLIENT_ID: ""
+      FRONTIER_CLIENT_SECRET: ""
+      FRONTIER_OWNER_CUSTOMER_IDS: ""
+      AUTH_COOKIE_SECURE: "true"
+      EDDN_SIMULATION_INGEST_ENABLED: ${V3_EDDN_SIMULATION_INGEST_ENABLED:-true}
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 4g
+    cpus: 4.0
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/api/health"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  eddn:
+    <<: *runtime
+    build:
+      context: ../..
+      dockerfile: apps/eddn/Dockerfile
+    environment:
+      DATABASE_URL: ${V3_DATABASE_EDDN_URL:?set V3_DATABASE_EDDN_URL to the external PG18 EDDN-role URL}
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_FORMAT: json
+      METRICS_PORT: "9091"
+      DIRTY_FLUSH_INTERVAL: "300"
+    depends_on:
+      redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: 2.0
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9091/healthz', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  proxy:
+    <<: *runtime
+    image: nginx:1.29-alpine
+    volumes:
+      - ../../config/v3-private-nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../../frontend/dist:/var/www/app:ro
+    ports:
+      - "${V3_BIND_ADDRESS:-127.0.0.1}:${V3_HTTP_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/nginx-healthz"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  maintenance:
+    <<: *runtime
+    profiles: ["maintenance"]
+    build:
+      context: ../..
+      dockerfile: apps/maintenance/Dockerfile
+    environment:
+      DATABASE_URL: ${V3_DATABASE_MAINTENANCE_URL:-disabled; set an external PG18 maintenance-role URL before enabling this profile}
+      DATA_INVARIANTS_DATABASE_URL: ${V3_DATABASE_READONLY_URL:?set V3_DATABASE_READONLY_URL}
+      LOG_FILE: /data/logs/maintenance.log
+      TZ: UTC
+    volumes:
+      - maintenance_logs:/data/logs
+      - maintenance_receipts:/data/receipts
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "test -x /usr/local/bin/run_maintenance.sh || test -x /app/run_maintenance.sh"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  redis_data:
+  maintenance_logs:
+  maintenance_receipts:
