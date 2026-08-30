@@ -1,0 +1,105 @@
+name: ed-new V3 Rating Vocabulary Profile
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-rating-vocab-profile-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-rating-vocab-profile-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Resolve V3 vocabularies read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          gen='v3_gen_phase4c_full_20260827_r5'
+          vi=json.loads(subprocess.check_output(['docker','inspect',c],text=True))[0]
+          env={}
+          for x in vi.get('Config',{}).get('Env',[]):
+              if '=' in x:
+                  k,v=x.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'; pw=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if pw: base += ['-e',f'PGPASSWORD={pw}']
+          base += [c,'psql','-h','127.0.0.1','-U',user,'-d',db,'-At','-F','|']
+          def q(sql): return subprocess.check_output(base+['-c',sql],text=True).strip().splitlines()
+
+          print('profile_mode|readonly')
+          print('== V3 VOCAB RELATIONS ==')
+          for x in q("""SELECT c.relname,COALESCE(c.reltuples::bigint,0) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='v3_vocab' AND c.relkind='r' ORDER BY c.relname"""):
+              print(x)
+
+          print('== V3 VOCAB COLUMNS ==')
+          for x in q("""SELECT table_name,column_name,data_type,ordinal_position FROM information_schema.columns WHERE table_schema='v3_vocab' ORDER BY table_name,ordinal_position"""):
+              print(x)
+
+          print('== SMALL VOCAB CONTENTS ==')
+          tables=q("""SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='v3_vocab' AND c.relkind='r' AND c.reltuples <= 500 ORDER BY c.relname""")
+          for t in tables:
+              cols=q(f"SELECT column_name FROM information_schema.columns WHERE table_schema='v3_vocab' AND table_name='{t}' ORDER BY ordinal_position")
+              if not cols: continue
+              select=','.join('"'+x.replace('"','""')+'"::text' for x in cols)
+              print('-- '+t+' | '+','.join(cols))
+              try:
+                  for row in q(f'SELECT {select} FROM v3_vocab."{t}" ORDER BY 1 LIMIT 500'):
+                      print(row)
+              except subprocess.CalledProcessError:
+                  print('read_error')
+
+          print('== FULL RELEVANT GENERATION COLUMNS ==')
+          rels=('systems','bodies','body_composition','body_genus_current','body_parent_evidence','body_signal_current','rings','ring_signal_current','stations','station_placement','station_economy_current')
+          relsql=','.join("'"+x+"'" for x in rels)
+          for row in q(f"SELECT table_name,column_name,data_type,is_nullable,ordinal_position FROM information_schema.columns WHERE table_schema='{gen}' AND table_name IN ({relsql}) ORDER BY table_name,ordinal_position"):
+              print(row)
+
+          print('== CRITICAL NULL FRACTIONS ==')
+          critical=('body_type_id','atmosphere_classification_id','terraforming_state_id','volcanism_type_id','is_landable','is_tidally_locked','is_main_star','spectral_class','radius_km','distance_from_arrival_ls','signals_complete','reserve_type_id','ring_type_id')
+          critsql=','.join("'"+x+"'" for x in critical)
+          for row in q(f"SELECT tablename,attname,null_frac,n_distinct FROM pg_stats WHERE schemaname='{gen}' AND attname IN ({critsql}) ORDER BY tablename,attname"):
+              print(row)
+
+          print('database_writes_performed|false')
+          PY
