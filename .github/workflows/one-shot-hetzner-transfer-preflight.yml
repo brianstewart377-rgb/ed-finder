@@ -1,0 +1,106 @@
+name: One-shot Hetzner Transfer Preflight
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/one-shot-hetzner-transfer-preflight.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Identify safe archive transfer path
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 15
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Inspect backup and transfer capabilities without values
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -u
+          cd /opt/ed-finder
+          echo '===== TRANSFER CAPABILITIES ====='
+          for command in rclone rsync zstd pigz pg_dump pg_basebackup pg_restore tar; do
+            if command -v "$command" >/dev/null 2>&1; then
+              printf '%s=' "$command"
+              command -v "$command"
+            else
+              echo "$command=missing"
+            fi
+          done
+          if [ -f /root/.config/rclone/rclone.conf ]; then
+            echo rclone_config_present=true
+            printf 'rclone_config_sha256='; sha256sum /root/.config/rclone/rclone.conf | awk '{print $1}'
+            echo rclone_remotes:
+            rclone listremotes 2>/dev/null | sed 's/:$//' || true
+          else
+            echo rclone_config_present=false
+          fi
+          echo 'ssh_configured_hosts:'
+          if [ -f /root/.ssh/config ]; then
+            awk 'tolower($1)=="host" {for(i=2;i<=NF;i++) print $i}' /root/.ssh/config | grep -v '[*?!]' || true
+          fi
+          echo 'known_hosts_count:'
+          wc -l /root/.ssh/known_hosts 2>/dev/null || true
+
+          echo '===== BACKUP POSTURE ====='
+          if docker inspect ed-maintenance >/dev/null 2>&1; then
+            docker exec ed-maintenance sh -lc '
+              set -u
+              [ -n "${BACKUP_OFFSITE_REMOTE:-}" ] && echo backup_offsite_configured=true || echo backup_offsite_configured=false
+              [ -n "${BACKUP_HEARTBEAT_URL:-}" ] && echo backup_heartbeat_configured=true || echo backup_heartbeat_configured=false
+              [ -n "${BACKUP_OFFSITE_HEARTBEAT_URL:-}" ] && echo backup_offsite_heartbeat_configured=true || echo backup_offsite_heartbeat_configured=false
+              echo backup_dir="${BACKUP_DIR:-/data/backups/postgres}"
+              find "${BACKUP_DIR:-/data/backups/postgres}" -maxdepth 1 -type f -printf "%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%f\n" 2>/dev/null | sort -k2,2 || true
+              if [ -L "${BACKUP_DIR:-/data/backups/postgres}/latest.dump" ]; then
+                latest="$(readlink -f "${BACKUP_DIR:-/data/backups/postgres}/latest.dump")"
+                echo latest_dump="$(basename "$latest")"
+                stat -c "latest_size=%s latest_mtime=%y" "$latest"
+                sha256sum "$latest"
+                pg_restore --list "$latest" >/dev/null && echo latest_catalog_valid=true || echo latest_catalog_valid=false
+                [ -f "${latest}.json" ] && cat "${latest}.json"
+              else
+                echo latest_dump_symlink=false
+              fi
+            ' || true
+          fi
+          echo 'host_backup_tree:'
+          find /data/backups -maxdepth 3 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort -k2,2 || true
+
+          echo '===== SOURCE DATABASE COPY CAPABILITY ====='
+          docker exec ed-postgres sh -lc '
+            set -u
+            for command in pg_dump pg_basebackup pg_restore; do
+              printf "%s=" "$command"
+              command -v "$command" 2>/dev/null || echo missing
+            done
+            pg_dump --version
+            pg_basebackup --version
+            user="${POSTGRES_USER:-postgres}"
+            db="${POSTGRES_DB:-postgres}"
+            psql -X -At -U "$user" -d "$db" -c "SHOW wal_level; SHOW max_wal_senders; SHOW max_replication_slots;"
+          ' || true
+          echo read_only=true
+          REMOTE
