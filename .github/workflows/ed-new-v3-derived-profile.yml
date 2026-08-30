@@ -1,0 +1,118 @@
+name: ed-new V3 Derived Profile
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-derived-profile-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-v3-derived-profile
+  cancel-in-progress: false
+
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-derived-profile-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation":"profile-v3-derived-inputs"}:
+              raise SystemExit('unsupported request')
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Profile published V3 generation read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          schema='v3_gen_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',c],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password:
+              base += ['-e',f'PGPASSWORD={password}']
+          base += [c,'psql','-h','127.0.0.1','-U',user,'-d',db,'-X','-A','-t','-F','|','-v','ON_ERROR_STOP=1']
+          def q(sql):
+              wrapped="SET default_transaction_read_only=on; SET statement_timeout='4min'; "+sql
+              out=subprocess.check_output(base+['-c',wrapped],text=True)
+              return [x for x in out.strip().splitlines() if x.strip()]
+          print('== CANONICAL RELATIONS ==')
+          for row in q(f"""
+            SELECT c.relname,c.relkind,c.reltuples::bigint,
+                   pg_relation_size(c.oid),pg_indexes_size(c.oid),pg_total_relation_size(c.oid)
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='{schema}' AND c.relkind IN ('r','p','m','v')
+            ORDER BY pg_total_relation_size(c.oid) DESC;
+          """):
+              print(row)
+          print('== COLUMNS ==')
+          for row in q(f"""
+            SELECT table_name,ordinal_position,column_name,data_type,udt_name,is_nullable
+            FROM information_schema.columns
+            WHERE table_schema='{schema}'
+            ORDER BY table_name,ordinal_position;
+          """):
+              print(row)
+          print('== INDEXES ==')
+          for row in q(f"""
+            SELECT tablename,indexname,indexdef
+            FROM pg_indexes WHERE schemaname='{schema}' ORDER BY tablename,indexname;
+          """):
+              print(row)
+          print('== COLUMN STATS SELECTED ==')
+          for row in q(f"""
+            SELECT tablename,attname,null_frac,n_distinct,
+                   COALESCE(most_common_vals::text,''),COALESCE(most_common_freqs::text,'')
+            FROM pg_stats
+            WHERE schemaname='{schema}'
+              AND tablename IN ('systems','bodies','rings','stations','body_composition','body_parent_evidence')
+            ORDER BY tablename,attname;
+          """):
+              print(row)
+          print('database_writes_performed|false')
+          PY
