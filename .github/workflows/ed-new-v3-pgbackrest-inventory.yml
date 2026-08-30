@@ -1,0 +1,125 @@
+name: ed-new V3 pgBackRest Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-pgbackrest-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Verify retained V3 pgBackRest recovery inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-pgbackrest-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"inventory-v3-pgbackrest"}:
+              raise SystemExit(64)
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Read pgBackRest inventory
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json
+          import subprocess
+
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          stanza='edfinder_v3'
+
+          print('== PGBACKREST VERSION ==')
+          print(subprocess.check_output(['docker','exec',container,'pgbackrest','version'], text=True).strip())
+
+          print('== PGBACKREST INFO JSON ==')
+          result=subprocess.run(
+              ['docker','exec',container,'pgbackrest',f'--stanza={stanza}','--output=json','info'],
+              text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
+          )
+          print(f'exit|{result.returncode}')
+          if result.stderr.strip():
+              print('stderr|' + result.stderr.strip().replace('\n',' ; '))
+          if result.stdout.strip():
+              data=json.loads(result.stdout)
+              # Emit only recovery metadata, never configuration secrets.
+              for stanza_info in data:
+                  print('stanza|' + str(stanza_info.get('name','')) + '|' + str(stanza_info.get('status',{}).get('message','')))
+                  for db in stanza_info.get('db',[]):
+                      print('db|' + '|'.join(str(db.get(k,'')) for k in ('id','system-id','version')))
+                  for backup in stanza_info.get('backup',[]):
+                      ts=backup.get('timestamp',{})
+                      info=backup.get('info',{})
+                      repo=backup.get('repo',{})
+                      print('backup|' + '|'.join([
+                          str(backup.get('label','')),
+                          str(backup.get('type','')),
+                          str(ts.get('start','')),
+                          str(ts.get('stop','')),
+                          str(info.get('size','')),
+                          str(info.get('delta','')),
+                          str(repo.get('size','')),
+                          str(repo.get('delta','')),
+                          str(backup.get('error',False)),
+                      ]))
+
+          print('== STORAGEBOX MOUNT ==')
+          mount=subprocess.run(['findmnt','-T','/mnt/ed-storagebox','-no','TARGET,SOURCE,FSTYPE,OPTIONS'], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+          print('findmnt_exit|' + str(mount.returncode))
+          if mount.stdout.strip(): print(mount.stdout.strip())
+          if mount.stderr.strip(): print('findmnt_stderr|' + mount.stderr.strip().replace('\n',' ; '))
+
+          print('== STORAGEBOX CAPACITY ==')
+          df=subprocess.run(['df','-hP','/mnt/ed-storagebox'], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+          print('df_exit|' + str(df.returncode))
+          if df.stdout.strip(): print(df.stdout.strip())
+          if df.stderr.strip(): print('df_stderr|' + df.stderr.strip().replace('\n',' ; '))
+
+          print('== SAFETY ==')
+          print('pgbackrest_operation|info only')
+          print('db_writes_performed|false')
+          print('backup_created|false')
+          print('host_mutation_performed|false')
+          PY
