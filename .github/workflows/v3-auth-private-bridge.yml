@@ -1,0 +1,298 @@
+name: V3 Auth Private Bridge
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/v3-auth-private-bridge-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare-old-key:
+    name: Prepare tunnel key on current ingress
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    outputs:
+      tunnel_pub_b64: ${{ steps.keys.outputs.tunnel_pub_b64 }}
+      metadata_pub_b64: ${{ steps.keys.outputs.metadata_pub_b64 }}
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/v3-auth-private-bridge-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Create persistent client key and one-time metadata key
+        id: keys
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh_cmd=(ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST")
+          "${ssh_cmd[@]}" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          d=/opt/ed-finder/.v3-auth-bridge
+          mkdir -p "$d"; chmod 700 "$d"
+          if [ ! -s "$d/id_ed25519" ]; then
+            ssh-keygen -q -t ed25519 -N '' -f "$d/id_ed25519"
+          fi
+          chmod 600 "$d/id_ed25519"; chmod 644 "$d/id_ed25519.pub"
+          rm -f "$d/metadata_rsa.pem" "$d/metadata_rsa.pub.pem"
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:4096 -out "$d/metadata_rsa.pem" >/dev/null 2>&1
+          openssl pkey -in "$d/metadata_rsa.pem" -pubout -out "$d/metadata_rsa.pub.pem" >/dev/null 2>&1
+          chmod 600 "$d/metadata_rsa.pem" "$d/metadata_rsa.pub.pem"
+          REMOTE
+          tunnel_pub_b64="$("${ssh_cmd[@]}" 'base64 -w0 /opt/ed-finder/.v3-auth-bridge/id_ed25519.pub')"
+          metadata_pub_b64="$("${ssh_cmd[@]}" 'base64 -w0 /opt/ed-finder/.v3-auth-bridge/metadata_rsa.pub.pem')"
+          echo "tunnel_pub_b64=$tunnel_pub_b64" >> "$GITHUB_OUTPUT"
+          echo "metadata_pub_b64=$metadata_pub_b64" >> "$GITHUB_OUTPUT"
+          echo 'old_key_prepare|PASS'
+
+  install-new-target:
+    name: Install restricted tunnel account on ed-new
+    needs: prepare-old-key
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    outputs:
+      encrypted_metadata_b64: ${{ steps.metadata.outputs.encrypted_metadata_b64 }}
+    steps:
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Install restricted public key
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          TUNNEL_PUB_B64: ${{ needs.prepare-old-key.outputs.tunnel_pub_b64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$TUNNEL_PUB_B64" | base64 -d > /tmp/tunnel.pub
+          cat /tmp/tunnel.pub | ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          read -r tunnel_pub
+          user=edfinder-v3-tunnel
+          if ! id "$user" >/dev/null 2>&1; then
+            useradd --create-home --shell /bin/bash "$user"
+            passwd -l "$user" >/dev/null 2>&1 || true
+          fi
+          home="$(getent passwd "$user" | cut -d: -f6)"
+          mkdir -p "$home/.ssh"; chmod 700 "$home/.ssh"
+          printf '%s %s\n' 'no-agent-forwarding,no-X11-forwarding,no-pty,no-user-rc,permitopen="127.0.0.1:58080"' "$tunnel_pub" > "$home/.ssh/authorized_keys"
+          chmod 600 "$home/.ssh/authorized_keys"
+          chown -R "$user:$user" "$home/.ssh"
+          forwarding="$(sshd -T -C user="$user",host=localhost,addr=127.0.0.1 | awk '$1=="allowtcpforwarding"{print $2; exit}')"
+          case "$forwarding" in yes|local|all) ;; *) echo "SSH local forwarding disabled for tunnel account: $forwarding" >&2; exit 1 ;; esac
+          curl -fsS --max-time 5 http://127.0.0.1:58080/api/health >/dev/null
+          echo 'new_tunnel_target|PASS'
+          REMOTE
+          rm -f /tmp/tunnel.pub
+      - name: Encrypt ed-new connection metadata for old host only
+        id: metadata
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          META_PUB_B64: ${{ needs.prepare-old-key.outputs.metadata_pub_b64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$META_PUB_B64" | base64 -d > /tmp/meta.pub.pem
+          host_key="$(ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'cat /etc/ssh/ssh_host_ed25519_key.pub')"
+          TARGET_HOST="$SSH_HOST" TARGET_PORT="$SSH_PORT" HOST_KEY="$host_key" python3 - <<'PY'
+          import json, os, pathlib
+          key=os.environ['HOST_KEY'].strip().split()
+          if len(key) < 2 or key[0] != 'ssh-ed25519':
+              raise SystemExit('unexpected ed-new SSH host key')
+          d={
+              'host': os.environ['TARGET_HOST'],
+              'port': int(os.environ['TARGET_PORT']),
+              'user': 'edfinder-v3-tunnel',
+              'host_key_type': key[0],
+              'host_key': key[1],
+          }
+          pathlib.Path('/tmp/metadata.json').write_text(json.dumps(d,separators=(',',':')))
+          PY
+          openssl pkeyutl -encrypt -pubin -inkey /tmp/meta.pub.pem \
+            -pkeyopt rsa_padding_mode:oaep -pkeyopt rsa_oaep_md:sha256 \
+            -in /tmp/metadata.json -out /tmp/metadata.enc
+          echo "encrypted_metadata_b64=$(base64 -w0 /tmp/metadata.enc)" >> "$GITHUB_OUTPUT"
+          rm -f /tmp/meta.pub.pem /tmp/metadata.json /tmp/metadata.enc
+          echo 'encrypted_metadata|PASS'
+
+  start-old-tunnel:
+    name: Start private old-to-new auth tunnel
+    needs: [prepare-old-key, install-new-target]
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Install persistent tunnel and prove nginx-network reachability
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+          ENCRYPTED_METADATA_B64: ${{ needs.install-new-target.outputs.encrypted_metadata_b64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ENCRYPTED_METADATA_B64" | base64 -d > /tmp/metadata.enc
+          scp -q -i ~/.ssh/key -P "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            /tmp/metadata.enc "$SSH_USER@$SSH_HOST:/tmp/v3-auth-metadata.enc"
+          rm -f /tmp/metadata.enc
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, os, pathlib, shlex, subprocess, time
+          d=pathlib.Path('/opt/ed-finder/.v3-auth-bridge')
+          enc=pathlib.Path('/tmp/v3-auth-metadata.enc')
+          plain=pathlib.Path('/tmp/v3-auth-metadata.json')
+          private=d/'metadata_rsa.pem'
+          try:
+              subprocess.run(['openssl','pkeyutl','-decrypt','-inkey',str(private),
+                              '-pkeyopt','rsa_padding_mode:oaep','-pkeyopt','rsa_oaep_md:sha256',
+                              '-in',str(enc),'-out',str(plain)],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+              meta=json.loads(plain.read_text())
+              host=str(meta['host']); port=int(meta['port']); user=str(meta['user'])
+              key_type=str(meta['host_key_type']); key=str(meta['host_key'])
+              if not host or port < 1 or port > 65535 or user!='edfinder-v3-tunnel' or key_type!='ssh-ed25519' or not key:
+                  raise SystemExit('invalid encrypted tunnel metadata')
+
+              ni=json.loads(subprocess.check_output(['docker','inspect','ed-nginx'],text=True))[0]['NetworkSettings']['Networks']
+              ai=json.loads(subprocess.check_output(['docker','inspect','ed-api'],text=True))[0]['NetworkSettings']['Networks']
+              common=[n for n in ni if n in ai and ni[n].get('Gateway')]
+              if len(common)!=1:
+                  raise SystemExit(f'expected one production Docker network shared by nginx/api, got {common}')
+              gateway=ni[common[0]]['Gateway']
+              if not gateway:
+                  raise SystemExit('production Docker network has no gateway')
+
+              known=d/'known_hosts'
+              lookup=host if port==22 else f'[{host}]:{port}'
+              known.write_text(f'{lookup} {key_type} {key}\n')
+              os.chmod(known,0o600)
+              env=d/'tunnel.env'
+              env.write_text('\n'.join([
+                  'TARGET_HOST='+host,
+                  'TARGET_PORT='+str(port),
+                  'TARGET_USER='+user,
+                  'BIND_ADDR='+gateway,
+                  '',
+              ]))
+              os.chmod(env,0o600)
+              script=d/'run-tunnel.sh'
+              script.write_text('''#!/usr/bin/env bash
+set -euo pipefail
+. /opt/ed-finder/.v3-auth-bridge/tunnel.env
+exec /usr/bin/ssh -NT \\
+  -i /opt/ed-finder/.v3-auth-bridge/id_ed25519 \\
+  -p "$TARGET_PORT" \\
+  -o IdentitiesOnly=yes \\
+  -o UserKnownHostsFile=/opt/ed-finder/.v3-auth-bridge/known_hosts \\
+  -o GlobalKnownHostsFile=/dev/null \\
+  -o StrictHostKeyChecking=yes \\
+  -o ExitOnForwardFailure=yes \\
+  -o ServerAliveInterval=30 \\
+  -o ServerAliveCountMax=3 \\
+  -o GatewayPorts=yes \\
+  -L "$BIND_ADDR:18080:127.0.0.1:58080" \\
+  "$TARGET_USER@$TARGET_HOST"
+''')
+              os.chmod(script,0o700)
+              unit=pathlib.Path('/etc/systemd/system/edfinder-v3-auth-tunnel.service')
+              unit.write_text('''[Unit]
+Description=ED-Finder private V3 auth bridge to ed-new
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/opt/ed-finder/.v3-auth-bridge/run-tunnel.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+''')
+              subprocess.run(['systemctl','daemon-reload'],check=True)
+              subprocess.run(['systemctl','enable','--now','edfinder-v3-auth-tunnel.service'],check=True,stdout=subprocess.DEVNULL)
+              ok=False
+              for _ in range(30):
+                  time.sleep(1)
+                  p=subprocess.run(['curl','-fsS','--max-time','3',f'http://{gateway}:18080/api/health'],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
+                  if p.returncode==0:
+                      try:
+                          payload=json.loads(p.stdout)
+                          ok=payload.get('status')=='ok' and payload.get('database')=='connected'
+                      except Exception:
+                          ok=False
+                  if ok: break
+              if not ok:
+                  raise SystemExit('host could not reach V3 API through tunnel')
+              p=subprocess.run(['docker','exec','ed-nginx','wget','-q','-O-','--timeout=5',f'http://{gateway}:18080/api/v1/auth/session'],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+              if p.returncode:
+                  raise SystemExit('nginx container could not reach V3 auth through tunnel')
+              payload=json.loads(p.stdout)
+              if payload.get('authenticated') is not False:
+                  raise SystemExit('unexpected V3 anonymous session through bridge')
+              print('private_auth_bridge|PASS')
+              print('nginx_to_v3_auth|PASS')
+              print('public_routing_changed|false')
+          finally:
+              for p in (enc,plain,private,d/'metadata_rsa.pub.pem'):
+                  try: p.unlink(missing_ok=True)
+                  except Exception: pass
+          PY
