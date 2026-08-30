@@ -1,0 +1,189 @@
+name: One-shot Hetzner Preservation Inventory V2
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/one-shot-hetzner-preservation-inventory-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Complete source DB and backup inventory
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 25
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_HOST"
+          test -n "$SSH_PORT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Capture missing preservation facts read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C
+          cd /opt/ed-finder
+          section() { printf '\n===== %s =====\n' "$*"; }
+
+          section 'DOCKER SERVICES, VOLUMES, AND MOUNTS'
+          docker ps -a --no-trunc --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+          echo '-- volumes with sizes --'
+          docker system df -v 2>/dev/null | sed -n '/Local Volumes space usage:/,/Build cache usage:/p' || true
+          echo '-- mounts --'
+          for id in $(docker ps -aq); do
+            docker inspect "$id" --format '{{.Name}}{{range .Mounts}}\t{{.Type}}\t{{.Name}}\t{{.Source}}\t{{.Destination}}\t{{.RW}}{{end}}'
+          done
+
+          section 'SOURCE POSTGRES INVENTORY'
+          pg_container=''
+          for candidate in ed-postgres postgres; do
+            if docker inspect "$candidate" >/dev/null 2>&1; then
+              pg_container="$candidate"
+              break
+            fi
+          done
+          if [ -z "$pg_container" ]; then
+            pg_container="$(docker ps --filter label=com.docker.compose.service=postgres --format '{{.Names}}' | sed -n '1p')"
+          fi
+          [ -n "$pg_container" ] || { echo 'postgres_container_missing=true'; exit 1; }
+          echo "postgres_container=$pg_container"
+          docker exec "$pg_container" sh -lc '
+            set -eu
+            user="${POSTGRES_USER:-postgres}"
+            db="${POSTGRES_DB:-postgres}"
+            run() { psql -X -v ON_ERROR_STOP=1 -P pager=off -U "$user" -d "$db" -c "$1"; }
+            run "SELECT version();"
+            run "SELECT current_database(), current_user, pg_postmaster_start_time(), pg_is_in_recovery();"
+            run "SELECT datname, datcollate, datctype, pg_encoding_to_char(encoding) AS encoding, pg_size_pretty(pg_database_size(datname)) AS size FROM pg_database WHERE datallowconn ORDER BY pg_database_size(datname) DESC;"
+            run "SELECT pg_size_pretty(sum(pg_database_size(datname))) AS total_database_size FROM pg_database WHERE datallowconn;"
+            run "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+            run "SELECT rolname, rolsuper, rolinherit, rolcreaterole, rolcreatedb, rolcanlogin, rolreplication, rolbypassrls FROM pg_roles ORDER BY rolname;"
+            run "SELECT schemaname, count(*) AS tables, pg_size_pretty(sum(pg_total_relation_size(relid))) AS total_size FROM pg_stat_user_tables GROUP BY schemaname ORDER BY sum(pg_total_relation_size(relid)) DESC;"
+            run "SELECT schemaname, relname, n_live_tup, n_dead_tup, pg_size_pretty(pg_total_relation_size(relid)) AS total_size FROM pg_stat_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 60;"
+            run "SELECT pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn()), current_setting(''wal_level''), current_setting(''max_wal_senders'');"
+            run "SELECT slot_name, plugin, slot_type, active, restart_lsn, confirmed_flush_lsn FROM pg_replication_slots ORDER BY slot_name;"
+            run "SELECT application_name, client_addr, state, sync_state, sent_lsn, write_lsn, flush_lsn, replay_lsn FROM pg_stat_replication ORDER BY application_name;"
+            if psql -X -Atqc "SELECT to_regclass(''public.schema_migrations'') IS NOT NULL" -U "$user" -d "$db" | grep -qx t; then
+              run "SELECT count(*) AS migration_ledger_rows FROM public.schema_migrations;"
+              run "SELECT to_jsonb(t) AS recent_migration FROM (SELECT * FROM public.schema_migrations ORDER BY 1 DESC LIMIT 12) AS t;"
+            else
+              echo migration_ledger_missing=true
+            fi
+          '
+
+          section 'DATABASE CONFIGURATION SAFETY SNAPSHOT'
+          docker exec "$pg_container" sh -lc '
+            set -eu
+            user="${POSTGRES_USER:-postgres}"
+            db="${POSTGRES_DB:-postgres}"
+            psql -X -At -F $'"'"'\t'"'"' -U "$user" -d "$db" -c "SELECT name, setting, unit, source FROM pg_settings WHERE name IN (''archive_mode'',''archive_command'',''data_directory'',''shared_preload_libraries'',''max_connections'',''shared_buffers'',''effective_cache_size'',''maintenance_work_mem'',''work_mem'',''max_wal_size'',''checkpoint_timeout'',''track_io_timing'') ORDER BY name;"
+          '
+
+          section 'LOCAL BACKUP INVENTORY'
+          if docker inspect ed-maintenance >/dev/null 2>&1; then
+            docker exec ed-maintenance sh -lc '
+              set -eu
+              echo backup_environment:
+              [ -n "${BACKUP_OFFSITE_REMOTE:-}" ] && echo offsite_configured=true || echo offsite_configured=false
+              [ -n "${BACKUP_HEARTBEAT_URL:-}" ] && echo local_heartbeat_configured=true || echo local_heartbeat_configured=false
+              [ -n "${BACKUP_OFFSITE_HEARTBEAT_URL:-}" ] && echo offsite_heartbeat_configured=true || echo offsite_heartbeat_configured=false
+              echo backup_files:
+              find /data/backups/postgres -maxdepth 1 -type f -name "edfinder_*" -printf "%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%f\n" 2>/dev/null | sort -k2,2
+              latest=""
+              if [ -L /data/backups/postgres/latest.dump ]; then
+                latest="$(readlink -f /data/backups/postgres/latest.dump)"
+              elif [ -f /data/backups/postgres/latest.dump ]; then
+                latest=/data/backups/postgres/latest.dump
+              fi
+              if [ -n "$latest" ] && [ -f "$latest" ]; then
+                echo "latest_dump_name=$(basename "$latest")"
+                stat -c "latest_dump_size=%s latest_dump_mtime=%y" "$latest"
+                sha256sum "$latest"
+                pg_restore --list "$latest" >/dev/null
+                echo latest_dump_catalog_valid=true
+                meta="${latest}.json"
+                [ -f "$meta" ] && cat "$meta"
+              else
+                echo latest_dump_missing=true
+              fi
+              if [ -n "${BACKUP_OFFSITE_REMOTE:-}" ] && command -v rclone >/dev/null 2>&1; then
+                echo offsite_recent_objects:
+                rclone lsf "$BACKUP_OFFSITE_REMOTE" --files-only --format "stp" --separator "\t" 2>/dev/null | sort -k2,2 | tail -30 || true
+              fi
+            '
+          else
+            echo maintenance_container_missing=true
+          fi
+          for path in /data/backups /data/receipts /data/logs; do
+            if [ -e "$path" ]; then
+              du -smx "$path" 2>/dev/null || true
+              find "$path" -xdev -maxdepth 4 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort -nr | sed -n '1,120p'
+            fi
+          done
+
+          section 'HOST CONFIGURATION AND CERTIFICATE INVENTORY'
+          if [ -f .env ]; then
+            printf '.env_sha256='; sha256sum .env | awk '{print $1}'
+            echo '.env_keys:'
+            sed -n -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' .env | sort -u
+          fi
+          for file in docker-compose.yml docker-compose.override.yml maintenance-crontab maintenance-crontab.orig Dockerfile.postgres docker-compose.yml.pre-v2-retirement.20260829; do
+            if [ -f "$file" ]; then
+              sha256sum "$file"
+              stat -c '%s\t%y\t%n' "$file"
+            fi
+          done
+          find /etc/systemd/system -maxdepth 3 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort
+          find /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly -maxdepth 1 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort || true
+          find /etc/nginx -xdev -maxdepth 3 -type f ! -name '*key*' ! -name '*.pem' -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort || true
+          if [ -d /etc/letsencrypt/live ]; then
+            find /etc/letsencrypt/live -maxdepth 2 -name fullchain.pem -print 2>/dev/null | sort | while read -r cert; do
+              echo "certificate=$cert"
+              openssl x509 -in "$cert" -noout -subject -issuer -serial -dates -fingerprint -sha256 2>/dev/null || true
+            done
+          fi
+          if [ -f /root/.config/rclone/rclone.conf ]; then
+            printf 'rclone_config_present=true sha256='; sha256sum /root/.config/rclone/rclone.conf | awk '{print $1}'
+            echo rclone_remotes:
+            rclone listremotes 2>/dev/null | sed 's/:$//' || true
+          else
+            echo rclone_config_present=false
+          fi
+
+          section 'HOST-ONLY REFERENCE CANDIDATES'
+          git status --short
+          git for-each-ref --format='%(refname:short) %(objectname) %(committerdate:iso8601)' refs/heads | sort
+          find /opt/ed-finder/.operator-backups -xdev -maxdepth 3 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort || true
+          echo 'read_only_inventory=true'
+          echo 'database_writes=false'
+          echo 'files_modified=false'
+          echo 'services_restarted=false'
+          REMOTE
