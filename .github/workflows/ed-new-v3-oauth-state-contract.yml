@@ -1,0 +1,85 @@
+name: ed-new V3 OAuth State Contract
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-oauth-state-contract-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect exact retained OAuth state contract
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-oauth-state-contract-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect source and relational metadata read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import subprocess
+          api='edfinder-v3-api'
+          pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+
+          src=subprocess.check_output(['docker','exec',api,'sh','-lc',"sed -n '245,325p' /app/routers/auth.py"],text=True)
+          print('AUTH_SOURCE_245_325_BEGIN')
+          print(src.rstrip())
+          print('AUTH_SOURCE_245_325_END')
+
+          src2=subprocess.check_output(['docker','exec',api,'sh','-lc',"sed -n '680,775p' /app/routers/auth.py"],text=True)
+          print('AUTH_SOURCE_680_775_BEGIN')
+          print(src2.rstrip())
+          print('AUTH_SOURCE_680_775_END')
+
+          def sql(q):
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -F "|" -c "$1"'
+              return subprocess.check_output(['docker','exec','-u','postgres',pg,'sh','-lc',cmd,'sh',q],text=True).strip()
+
+          print('oauth_state_columns:')
+          print(sql("SELECT ordinal_position,column_name,data_type,is_nullable,COALESCE(column_default,'') FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='oauth_login_state' ORDER BY ordinal_position") or '<none>')
+          print('oauth_state_constraints:')
+          print(sql("SELECT tc.constraint_name,tc.constraint_type,COALESCE(kcu.column_name,'') FROM information_schema.table_constraints tc LEFT JOIN information_schema.key_column_usage kcu ON kcu.constraint_name=tc.constraint_name AND kcu.table_schema=tc.table_schema AND kcu.table_name=tc.table_name WHERE tc.table_schema='v3_identity' AND tc.table_name='oauth_login_state' ORDER BY tc.constraint_name,kcu.ordinal_position") or '<none>')
+          print('account_columns:')
+          print(sql("SELECT ordinal_position,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='account' ORDER BY ordinal_position") or '<none>')
+          print('session_columns:')
+          print(sql("SELECT ordinal_position,column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='session' ORDER BY ordinal_position") or '<none>')
+          print('db_writes_performed|false')
+          PY
