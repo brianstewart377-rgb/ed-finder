@@ -1,0 +1,183 @@
+name: ed-new Public OAuth Roundtrip
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-public-oauth-roundtrip-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  roundtrip:
+    name: Prove public V3 OAuth login and callback ingress
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-public-oauth-roundtrip-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"prove-public-oauth-roundtrip"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Snapshot account and session counts
+        id: before
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE' > /tmp/before.txt
+          set -euo pipefail
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          docker exec -u postgres "$c" sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '"$db"' -At -F "|" -c "$1"' sh \
+            "SELECT (SELECT count(*) FROM v3_identity.account),(SELECT count(*) FROM v3_identity.session);"
+          REMOTE
+          before="$(cat /tmp/before.txt | tail -1)"
+          echo "counts=$before" >> "$GITHUB_OUTPUT"
+      - name: Exercise public login and denied callback
+        id: oauth
+        shell: bash
+        env:
+          PUBLIC_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+        run: |
+          set -euo pipefail
+          rm -f /tmp/login.headers /tmp/callback.headers
+
+          login_code="$(curl -sS --max-time 10 \
+            -D /tmp/login.headers -o /dev/null \
+            -w '%{http_code}' \
+            -H 'Host: ed-finder.app' \
+            -H 'X-Forwarded-Proto: https' \
+            "http://${PUBLIC_HOST}/api/auth/frontier/login?return_to=/")"
+          [ "$login_code" = '302' ]
+
+          python3 - <<'PY' > /tmp/oauth.env
+          import urllib.parse
+          headers={}
+          for raw in open('/tmp/login.headers',encoding='utf-8',errors='replace'):
+              if ':' not in raw: continue
+              k,v=raw.split(':',1)
+              headers.setdefault(k.strip().lower(),[]).append(v.strip())
+          loc=(headers.get('location') or [''])[0]
+          u=urllib.parse.urlsplit(loc)
+          q=urllib.parse.parse_qs(u.query)
+          if u.scheme!='https' or u.hostname!='auth.frontierstore.net' or u.path!='/auth':
+              raise SystemExit('login did not redirect to Frontier')
+          if q.get('code_challenge_method') != ['S256']:
+              raise SystemExit('login did not use S256 PKCE')
+          state=(q.get('state') or [''])[0]
+          callback=(q.get('redirect_uri') or [''])[0]
+          if not state:
+              raise SystemExit('missing state')
+          cb=urllib.parse.urlsplit(callback)
+          if cb.scheme!='https' or cb.netloc!='ed-finder.app' or cb.path!='/api/auth/frontier/callback':
+              raise SystemExit('unexpected registered callback')
+          cookies=headers.get('set-cookie') or []
+          state_cookie=''
+          for c in cookies:
+              first=c.split(';',1)[0]
+              if '=' in first:
+                  name,value=first.split('=',1)
+                  if value==state:
+                      state_cookie=name+'='+value
+                      break
+          if not state_cookie:
+              raise SystemExit('state cookie not found')
+          # Do not print state/cookie values. Store only in root-readable runner temp file.
+          open('/tmp/oauth.secret','w',encoding='utf-8').write(state+'\n'+state_cookie+'\n')
+          print('CALLBACK_PATH='+urllib.parse.quote(cb.path,safe='/'))
+          PY
+          chmod 600 /tmp/oauth.secret
+
+          state="$(sed -n '1p' /tmp/oauth.secret)"
+          state_cookie="$(sed -n '2p' /tmp/oauth.secret)"
+          enc_state="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=""))' "$state")"
+
+          callback_code="$(curl -sS --max-time 10 \
+            -D /tmp/callback.headers -o /dev/null \
+            -w '%{http_code}' \
+            -H 'Host: ed-finder.app' \
+            -H 'X-Forwarded-Proto: https' \
+            -H "Cookie: ${state_cookie}" \
+            "http://${PUBLIC_HOST}/api/auth/frontier/callback?error=access_denied&state=${enc_state}")"
+          [ "$callback_code" = '302' ]
+
+          callback_location="$(awk 'BEGIN{IGNORECASE=1} /^Location:/ {sub(/^Location:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' /tmp/callback.headers)"
+          [ "$callback_location" = '/?auth=denied#finder' ]
+
+          digest="$(python3 -c 'import hashlib,sys; print(hashlib.sha256(sys.argv[1].encode()).hexdigest())' "$state")"
+          printf '%s' "$digest" > /tmp/state_digest
+          chmod 600 /tmp/state_digest
+          rm -f /tmp/oauth.secret
+
+          echo 'public_login_302|PASS'
+          echo 'frontier_authorize_redirect|PASS'
+          echo 'pkce_s256|PASS'
+          echo 'registered_callback|/api/auth/frontier/callback'
+          echo 'public_denied_callback_302|PASS'
+          echo 'callback_denied_redirect|PASS'
+      - name: Verify state consumed and no account/session created
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          BEFORE_COUNTS: ${{ steps.before.outputs.counts }}
+        run: |
+          set -euo pipefail
+          digest="$(cat /tmp/state_digest)"
+          result="$(ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' -- "$digest" <<'REMOTE'
+          set -euo pipefail
+          digest="$1"
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          q="SELECT (SELECT count(*) FROM v3_identity.oauth_login_state WHERE encode(state_sha256,'hex')='${digest}'),(SELECT count(*) FROM v3_identity.account),(SELECT count(*) FROM v3_identity.session);"
+          docker exec -u postgres "$c" sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '"$db"' -At -F "|" -c "$1"' sh "$q"
+          REMOTE
+          )"
+          state_count="${result%%|*}"
+          rest="${result#*|}"
+          after_counts="$rest"
+          [ "$state_count" = '0' ]
+          [ "$after_counts" = "$BEFORE_COUNTS" ]
+          echo 'oauth_state_consumed|PASS'
+          echo 'accounts_changed|false'
+          echo 'sessions_changed|false'
