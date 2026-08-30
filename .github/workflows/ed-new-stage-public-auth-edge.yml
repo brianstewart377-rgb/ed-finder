@@ -12,15 +12,16 @@ permissions:
 
 jobs:
   stage:
-    name: Stage independent V3 auth edge and probe externally
+    name: Make V3 auth edge durable and exercise public callback
     runs-on: ubuntu-latest
     environment: ed-new-operator
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Checkout request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 2
+
       - name: Validate request
         shell: bash
         run: |
@@ -30,10 +31,15 @@ jobs:
           case "${changed[0]}" in .github/ed-new-stage-public-auth-edge-requests/*.json) ;; *) exit 64 ;; esac
           python3 - "${changed[0]}" <<'PY'
           import json, pathlib, sys
-          expected={"operation":"stage-v3-public-auth-edge"}
-          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != expected:
+          allowed = {
+              "stage-v3-public-auth-edge",
+              "harden-v3-public-auth-edge",
+          }
+          payload=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if payload.get("operation") not in allowed or set(payload) != {"operation"}:
               raise SystemExit(64)
           PY
+
       - name: Prepare pinned SSH trust
         shell: bash
         env:
@@ -49,7 +55,8 @@ jobs:
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
           if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
-      - name: Stage edge locally on ed-new
+
+      - name: Install durable public auth edge on ed-new
         id: stage
         shell: bash
         env:
@@ -63,40 +70,36 @@ jobs:
             -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          edge_dir="$HOME/.edfinder-v3-public-auth-edge"
+          sudo -n true
+
+          edge_dir='/etc/edfinder-v3/public-auth-edge'
           edge_name='edfinder-v3-public-auth-edge'
+          sudo install -d -m 0755 "$edge_dir"
 
-          # Fail closed if another service claimed the public HTTP port.
-          if ss -lnt | awk 'NR>1 {print $4}' | grep -Eq '(^|:|\])80$'; then
-            echo 'port 80 is already in use; refusing to stage edge' >&2
-            exit 1
-          fi
-
-          # Re-prove the private V3 auth chain before exposing anything.
-          curl -fsS --max-time 5 -H 'Host: ed-finder.app' \
-            http://127.0.0.1:58080/api/v1/auth/session >/dev/null
-
-          mkdir -p "$edge_dir"
-          cat > "$edge_dir/nginx.conf" <<'NGINX'
+          sudo tee "$edge_dir/nginx.conf" >/dev/null <<'NGINX'
           worker_processes 1;
-          events { worker_connections 256; }
+          events { worker_connections 512; }
           http {
             access_log /var/log/nginx/access.log;
             error_log /var/log/nginx/error.log warn;
+
             map $http_x_forwarded_proto $edge_proto {
               ""      $scheme;
               default $http_x_forwarded_proto;
             }
+
             server {
               listen 80 default_server;
               server_name _;
 
               location = /healthz {
+                access_log off;
                 default_type text/plain;
                 return 200 "ok\n";
               }
 
-              # Compatibility paths used by the existing public site/Frontier registration.
+              # Compatibility routes used by the existing public app and the
+              # Frontier redirect URI already registered for ed-finder.app.
               location = /api/auth/frontier/login {
                 proxy_pass http://127.0.0.1:58080/api/v1/auth/frontier/login;
                 proxy_set_header Host $host;
@@ -147,7 +150,8 @@ jobs:
                 proxy_set_header X-Forwarded-Host $host;
               }
 
-              # Deliberately do not pretend the full V3 site is cut over yet.
+              # Full V3 frontend cutover is intentionally separate. This edge
+              # survives Hetzner and exposes only the auth surface for now.
               location / {
                 default_type text/plain;
                 return 503 "ED-Finder migration edge is ready; full application cutover is not active.\n";
@@ -155,56 +159,250 @@ jobs:
             }
           }
           NGINX
+          sudo chmod 0644 "$edge_dir/nginx.conf"
 
-          docker run --rm -v "$edge_dir/nginx.conf:/etc/nginx/nginx.conf:ro" nginx:1.28-alpine nginx -t
-          docker rm -f "$edge_name" >/dev/null 2>&1 || true
+          sudo tee /usr/local/sbin/edfinder-v3-public-auth-edge-bootstrap >/dev/null <<'SH'
+          #!/bin/sh
+          set -eu
+          EDGE_NAME='edfinder-v3-public-auth-edge'
+          CONF='/etc/edfinder-v3/public-auth-edge/nginx.conf'
+          curl -fsS --max-time 5 -H 'Host: ed-finder.app' \
+            http://127.0.0.1:58080/api/v1/auth/session >/dev/null
+          docker run --rm -v "$CONF:/etc/nginx/nginx.conf:ro" nginx:1.28-alpine nginx -t >/dev/null
+          docker rm -f "$EDGE_NAME" >/dev/null 2>&1 || true
           docker run -d \
-            --name "$edge_name" \
+            --name "$EDGE_NAME" \
             --restart unless-stopped \
             --network host \
-            -v "$edge_dir/nginx.conf:/etc/nginx/nginx.conf:ro" \
+            -v "$CONF:/etc/nginx/nginx.conf:ro" \
             nginx:1.28-alpine >/dev/null
-
-          for i in $(seq 1 20); do
-            if curl -fsS --max-time 2 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null; then
-              break
+          i=0
+          while [ "$i" -lt 20 ]; do
+            if curl -fsS --max-time 2 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null 2>&1; then
+              exit 0
             fi
-            sleep 0.5
+            i=$((i+1))
+            sleep 1
           done
+          exit 1
+          SH
+          sudo chmod 0755 /usr/local/sbin/edfinder-v3-public-auth-edge-bootstrap
+
+          sudo tee /usr/local/sbin/edfinder-v3-public-auth-edge-health >/dev/null <<'SH'
+          #!/bin/sh
+          set -eu
+          if curl -fsS --max-time 3 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null \
+             && curl -fsS --max-time 5 -H 'Host: ed-finder.app' http://127.0.0.1/api/auth/session >/dev/null; then
+            exit 0
+          fi
+          systemctl restart edfinder-v3-public-auth-edge.service
           curl -fsS --max-time 3 -H 'Host: ed-finder.app' http://127.0.0.1/healthz >/dev/null
           curl -fsS --max-time 5 -H 'Host: ed-finder.app' http://127.0.0.1/api/auth/session >/dev/null
-          echo 'local_public_edge|PASS'
+          SH
+          sudo chmod 0755 /usr/local/sbin/edfinder-v3-public-auth-edge-health
+
+          sudo tee /etc/systemd/system/edfinder-v3-public-auth-edge.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=ED-Finder V3 public auth edge
+          Wants=network-online.target
+          After=network-online.target docker.service edfinder-v3-runtime-bootstrap.service
+          Requires=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/sbin/edfinder-v3-public-auth-edge-bootstrap
+          ExecReload=/usr/local/sbin/edfinder-v3-public-auth-edge-bootstrap
+          ExecStop=-/usr/bin/docker rm -f edfinder-v3-public-auth-edge
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          sudo tee /etc/systemd/system/edfinder-v3-public-auth-edge-health.service >/dev/null <<'UNIT'
+          [Unit]
+          Description=Check ED-Finder V3 public auth edge
+          After=edfinder-v3-public-auth-edge.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/usr/local/sbin/edfinder-v3-public-auth-edge-health
+          UNIT
+
+          sudo tee /etc/systemd/system/edfinder-v3-public-auth-edge-health.timer >/dev/null <<'UNIT'
+          [Unit]
+          Description=Check ED-Finder V3 public auth edge every five minutes
+
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=5min
+          AccuracySec=30s
+          Persistent=true
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          sudo systemctl daemon-reload
+          sudo systemctl enable edfinder-v3-public-auth-edge.service >/dev/null
+          sudo systemctl restart edfinder-v3-public-auth-edge.service
+          sudo systemctl enable --now edfinder-v3-public-auth-edge-health.timer >/dev/null
+          sudo /usr/local/sbin/edfinder-v3-public-auth-edge-health
+
+          systemctl is-enabled edfinder-v3-public-auth-edge.service
+          systemctl is-active edfinder-v3-public-auth-edge.service
+          systemctl is-enabled edfinder-v3-public-auth-edge-health.timer
+          systemctl is-active edfinder-v3-public-auth-edge-health.timer
+          echo 'durable_public_auth_edge|PASS'
           echo 'dns_changed|false'
-          echo 'database_mutated|false'
           REMOTE
-      - name: Probe public HTTP from outside ed-new
-        shell: bash
-        env:
-          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
-        run: |
-          set -euo pipefail
-          body="$(curl -fsS --max-time 8 -H 'Host: ed-finder.app' "http://${SSH_HOST}/healthz")"
-          [ "$body" = 'ok' ]
-          session_code="$(curl -sS -o /tmp/session.json -w '%{http_code}' --max-time 8 -H 'Host: ed-finder.app' "http://${SSH_HOST}/api/auth/session")"
-          [ "$session_code" = '200' ]
-          python3 - <<'PY'
-          import json
-          with open('/tmp/session.json','r',encoding='utf-8') as f:
-              data=json.load(f)
-          if data.get('authenticated') is not False:
-              raise SystemExit('unexpected auth session response')
-          PY
-          echo 'external_public_http|PASS'
-          echo 'public_auth_session|PASS'
-      - name: Roll back staged edge if external probe failed
-        if: ${{ failure() && steps.stage.outcome == 'success' }}
+
+      - name: Record auth row counts before public callback smoke
+        id: before
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
         run: |
-          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+          set -euo pipefail
+          counts="$(ssh -i ~/.ssh/key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
-            "$SSH_USER@$SSH_HOST" 'docker rm -f edfinder-v3-public-auth-edge >/dev/null 2>&1 || true'
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          docker exec -u postgres "$c" sh -lc \
+            'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d edfinder_v3_phase4c_full_20260827_r5 -At -F "|" -c "SELECT (SELECT count(*) FROM v3_identity.account),(SELECT count(*) FROM v3_identity.session);"'
+          REMOTE
+          )"
+          echo "counts=$counts" >> "$GITHUB_OUTPUT"
+
+      - name: Exercise public login and compatibility callback without creating a user
+        shell: bash
+        env:
+          ORIGIN_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+        run: |
+          set -euo pipefail
+          umask 077
+          base="http://${ORIGIN_HOST}"
+
+          curl -sS --max-time 10 \
+            -D /tmp/login.headers -o /dev/null \
+            -H 'Host: ed-finder.app' \
+            -H 'X-Forwarded-Proto: https' \
+            "$base/api/auth/frontier/login?return_to=/"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import urlsplit, parse_qs
+          raw=Path('/tmp/login.headers').read_text('utf-8',errors='replace')
+          blocks=[b for b in raw.replace('\r\n','\n').split('\n\n') if b.strip()]
+          lines=blocks[-1].splitlines()
+          if len(lines) < 2 or ' 302 ' not in lines[0]:
+              raise SystemExit('public OAuth login did not return 302')
+          headers={}
+          set_cookies=[]
+          for line in lines[1:]:
+              if ':' not in line: continue
+              k,v=line.split(':',1)
+              if k.lower()=='set-cookie': set_cookies.append(v.strip())
+              else: headers[k.lower()]=v.strip()
+          location=headers.get('location','')
+          u=urlsplit(location); q=parse_qs(u.query)
+          if u.scheme!='https' or u.hostname!='auth.frontierstore.net' or u.path!='/auth':
+              raise SystemExit('public OAuth login target is not Frontier')
+          if q.get('response_type')!=['code'] or q.get('code_challenge_method')!=['S256']:
+              raise SystemExit('public OAuth login is not Authorization Code + S256 PKCE')
+          redirect=(q.get('redirect_uri') or [''])[0]
+          if redirect!='https://ed-finder.app/api/auth/frontier/callback':
+              raise SystemExit('public OAuth redirect URI does not match registered compatibility callback')
+          state=(q.get('state') or [''])[0]
+          if not state:
+              raise SystemExit('public OAuth state is empty')
+          chosen=None
+          for cookie in set_cookies:
+              low=cookie.lower()
+              if 'httponly' in low and 'secure' in low and 'samesite=lax' in low and 'path=/api' in low:
+                  chosen=cookie.split(';',1)[0]
+                  break
+          if not chosen or '=' not in chosen:
+              raise SystemExit('secure OAuth state cookie missing')
+          Path('/tmp/state').write_text(state,encoding='utf-8')
+          Path('/tmp/cookie').write_text(chosen,encoding='utf-8')
+          print('public_frontier_login|PASS')
+          print('registered_callback_uri|PASS')
+          print('public_pkce_s256|PASS')
+          print('public_state_cookie|PASS')
+          PY
+
+          state="$(cat /tmp/state)"
+          cookie="$(cat /tmp/cookie)"
+          encoded_state="$(python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import quote
+          print(quote(Path('/tmp/state').read_text('utf-8'),safe=''))
+          PY
+          )"
+
+          curl -sS --max-time 10 \
+            -D /tmp/callback.headers -o /dev/null \
+            -H 'Host: ed-finder.app' \
+            -H 'X-Forwarded-Proto: https' \
+            -H "Cookie: $cookie" \
+            "$base/api/auth/frontier/callback?error=access_denied&state=$encoded_state"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          raw=Path('/tmp/callback.headers').read_text('utf-8',errors='replace')
+          blocks=[b for b in raw.replace('\r\n','\n').split('\n\n') if b.strip()]
+          lines=blocks[-1].splitlines()
+          if not lines or ' 302 ' not in lines[0]:
+              raise SystemExit('compatibility callback did not return 302')
+          location=''
+          for line in lines[1:]:
+              if line.lower().startswith('location:'):
+                  location=line.split(':',1)[1].strip()
+          if location != '/?auth=denied#finder':
+              raise SystemExit('denied callback returned unexpected destination')
+          print('public_compat_callback|PASS')
+          print('oauth_state_consumed_on_denial|PASS')
+          PY
+
+      - name: Verify callback left no account/session and consumed the exact state
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          BEFORE_COUNTS: ${{ steps.before.outputs.counts }}
+        run: |
+          set -euo pipefail
+          digest="$(python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          print(hashlib.sha256(Path('/tmp/state').read_text('utf-8').encode()).hexdigest())
+          PY
+          )"
+          result="$(printf '%s\n' "$digest" | ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          read -r digest
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          q="SELECT (SELECT count(*) FROM v3_identity.account),(SELECT count(*) FROM v3_identity.session),(SELECT count(*) FROM v3_identity.oauth_login_state WHERE encode(state_sha256,'hex')='${digest}');"
+          docker exec -u postgres "$c" sh -lc \
+            'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d edfinder_v3_phase4c_full_20260827_r5 -At -F "|" -c "$1"' sh "$q"
+          REMOTE
+          )"
+          IFS='|' read -r after_accounts after_sessions remaining_state <<< "$result"
+          IFS='|' read -r before_accounts before_sessions <<< "$BEFORE_COUNTS"
+          [ "$after_accounts" = "$before_accounts" ]
+          [ "$after_sessions" = "$before_sessions" ]
+          [ "$remaining_state" = '0' ]
+          echo 'accounts_changed|false'
+          echo 'sessions_changed|false'
+          echo 'exact_oauth_state_remaining|0'
+          echo 'public_login_callback_smoke|PASS'
