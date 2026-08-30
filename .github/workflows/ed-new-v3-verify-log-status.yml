@@ -1,0 +1,96 @@
+name: ed-new V3 Verify Log Status
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-verify-log-status-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  status:
+    name: Inspect current pgBackRest verify log safely
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-verify-log-status-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect verify log metadata only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import pathlib, re, subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          top=subprocess.check_output(['docker','top',c,'-eo','pid,etimes,args'],text=True)
+          parents=[]
+          exec_ids=[]
+          for line in top.splitlines()[1:]:
+              parts=line.strip().split(None,2)
+              if len(parts)!=3: continue
+              pid,elapsed,args=parts
+              low=args.lower()
+              if args.strip()=='pgbackrest --stanza=edfinder_v3 --log-level-console=info verify':
+                  parents.append((pid,elapsed))
+              m=re.search(r'--exec-id=([^ ]+)',args)
+              if m and 'verify:local' in low:
+                  exec_ids.append(m.group(1))
+          print('verify_parent_count|'+str(len(parents)))
+          for pid,elapsed in parents:
+              print(f'verify_parent|pid={pid}|elapsed_seconds={elapsed}')
+          print('verify_exec_ids|' + ','.join(exec_ids))
+          cmd=['docker','exec','-u','postgres',c,'sh','-lc',r'''for d in /var/log/pgbackrest /tmp/pgbackrest; do [ -d "$d" ] && find "$d" -maxdepth 2 -type f -name '*.log' -printf '%T@ %p\n' 2>/dev/null; done | sort -nr | head -20''']
+          p=subprocess.run(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          files=[]
+          for raw in p.stdout.splitlines():
+              try: _,path=raw.split(' ',1)
+              except ValueError: continue
+              files.append(path)
+          print('candidate_log_count|'+str(len(files)))
+          for path in files[:10]:
+              print('candidate_log|'+path)
+          if files:
+              q=subprocess.run(['docker','exec','-u','postgres',c,'sh','-lc',f'tail -200 {files[0]!r}'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+              safe=[]
+              for raw in q.stdout.splitlines():
+                  low=raw.lower()
+                  if 'verify command begin' in low or 'verify command end' in low or 'error' in low or 'warn' in low:
+                      safe.append(raw)
+              for line in safe[-40:]:
+                  print('verify_log_status|'+line)
+          print('db_writes_performed|false')
+          PY
