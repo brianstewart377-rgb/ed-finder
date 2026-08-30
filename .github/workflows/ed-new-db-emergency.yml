@@ -50,6 +50,12 @@ jobs:
           path: trusted-audit
           persist-credentials: false
 
+      - name: Install audit dependency on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet psycopg2-binary==2.9.12
+
       - name: Prepare pinned SSH trust
         shell: bash
         env:
@@ -75,7 +81,7 @@ jobs:
             exit 1
           }
 
-      - name: Run exact reviewed audit against retained PG18 container
+      - name: Run exact reviewed audit through SSH tunnel
         id: audit
         shell: bash
         env:
@@ -86,92 +92,114 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
-          bundle="$(mktemp)"
-          trap 'rm -f "$bundle"' EXIT
-          tar -czf "$bundle" -C trusted-audit scripts/operator/audit_production_candidate.py sql
-          remote_bundle="/tmp/ed-finder-candidate-audit-${GITHUB_RUN_ID}.tar.gz"
-          scp -q -i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" \
-            -o IdentitiesOnly=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -o GlobalKnownHostsFile=/dev/null \
-            -o StrictHostKeyChecking=yes \
-            "$bundle" "$SSH_USER@$SSH_HOST:$remote_bundle"
-          set +e
+          umask 077
+          meta="$(mktemp)"
+          trap 'rm -f "$meta"' EXIT
+
           ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
-            "$SSH_USER@$SSH_HOST" \
-            "REVIEWED_REVISION='$REVIEWED_REVISION' REMOTE_BUNDLE='$remote_bundle' python3 -" \
-            > production-candidate-readiness.json <<'PY'
+            "$SSH_USER@$SSH_HOST" 'python3 -' > "$meta" <<'PY'
           import json
-          import os
-          import pathlib
           import subprocess
-          import sys
-          import tarfile
-          import tempfile
-          import urllib.parse
 
           container = "edfinder-v3-phase4c-full-20260827_r5-postgres"
-          reviewed = os.environ["REVIEWED_REVISION"]
-          bundle = pathlib.Path(os.environ["REMOTE_BUNDLE"])
-          workdir = pathlib.Path(tempfile.mkdtemp(prefix="edfinder-audit-"))
-          receipt = pathlib.Path(tempfile.mkstemp(prefix="edfinder-audit-receipt-")[1])
-          try:
-              inspect = json.loads(subprocess.check_output(
-                  ["docker", "inspect", container], text=True
-              ))[0]
-              env = {}
-              for item in inspect.get("Config", {}).get("Env", []):
-                  if "=" in item:
-                      key, value = item.split("=", 1)
-                      env[key] = value
-              user = env.get("POSTGRES_USER") or "postgres"
-              database = env.get("POSTGRES_DB") or user
-              password = env.get("POSTGRES_PASSWORD") or ""
-              ports = (inspect.get("NetworkSettings", {}).get("Ports", {}) or {}).get("5432/tcp") or []
-              if ports and ports[0].get("HostPort"):
-                  host = "127.0.0.1"
-                  port = ports[0]["HostPort"]
-              else:
-                  networks = inspect.get("NetworkSettings", {}).get("Networks", {}) or {}
-                  host = next((v.get("IPAddress") for v in networks.values() if v.get("IPAddress")), "")
-                  port = "5432"
-              if not host:
-                  raise RuntimeError("retained PG18 container has no reachable address")
-              auth = urllib.parse.quote(user, safe="")
-              if password:
-                  auth += ":" + urllib.parse.quote(password, safe="")
-              dsn = f"postgresql://{auth}@{host}:{port}/{urllib.parse.quote(database, safe='')}"
-              with tarfile.open(bundle, "r:gz") as archive:
-                  archive.extractall(workdir)
-              child_env = os.environ.copy()
-              child_env["DATABASE_URL"] = dsn
-              proc = subprocess.run(
-                  [sys.executable, "scripts/operator/audit_production_candidate.py",
-                   "--reviewed-revision", reviewed,
-                   "--json-output", str(receipt)],
-                  cwd=workdir,
-                  env=child_env,
-                  stdout=subprocess.DEVNULL,
-                  stderr=sys.stderr,
-                  check=False,
-              )
-              if receipt.is_file() and receipt.stat().st_size:
-                  sys.stdout.write(receipt.read_text(encoding="utf-8"))
-              raise SystemExit(proc.returncode)
-          finally:
-              try: bundle.unlink(missing_ok=True)
-              except Exception: pass
-              try: receipt.unlink(missing_ok=True)
-              except Exception: pass
-              import shutil
-              shutil.rmtree(workdir, ignore_errors=True)
+          inspect = json.loads(subprocess.check_output(
+              ["docker", "inspect", container], text=True
+          ))[0]
+          env = {}
+          for item in inspect.get("Config", {}).get("Env", []):
+              if "=" in item:
+                  key, value = item.split("=", 1)
+                  env[key] = value
+          user = env.get("POSTGRES_USER") or "postgres"
+          database = env.get("POSTGRES_DB") or user
+          password = env.get("POSTGRES_PASSWORD") or ""
+          ports = (inspect.get("NetworkSettings", {}).get("Ports", {}) or {}).get("5432/tcp") or []
+          if ports and ports[0].get("HostPort"):
+              target_host = "127.0.0.1"
+              target_port = int(ports[0]["HostPort"])
+          else:
+              networks = inspect.get("NetworkSettings", {}).get("Networks", {}) or {}
+              target_host = next((v.get("IPAddress") for v in networks.values() if v.get("IPAddress")), "")
+              target_port = 5432
+          if not target_host:
+              raise SystemExit("retained PG18 container has no reachable address")
+          print(json.dumps({
+              "user": user,
+              "database": database,
+              "password": password,
+              "target_host": target_host,
+              "target_port": target_port,
+          }))
           PY
+
+          mapfile -t conn < <(python3 - "$meta" <<'PY'
+          import json
+          import pathlib
+          import sys
+          import urllib.parse
+
+          d = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          print(d["target_host"])
+          print(d["target_port"])
+          user = urllib.parse.quote(str(d["user"]), safe="")
+          password = urllib.parse.quote(str(d["password"]), safe="")
+          database = urllib.parse.quote(str(d["database"]), safe="")
+          auth = user if not password else f"{user}:{password}"
+          print(auth)
+          print(database)
+          PY
+          )
+          target_host="${conn[0]}"
+          target_port="${conn[1]}"
+          auth="${conn[2]}"
+          database="${conn[3]}"
+          local_port="$(python3 - <<'PY'
+          import socket
+          s = socket.socket()
+          s.bind(('127.0.0.1', 0))
+          print(s.getsockname()[1])
+          s.close()
+          PY
+          )"
+
+          ssh -N -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            -o ExitOnForwardFailure=yes \
+            -L "127.0.0.1:${local_port}:${target_host}:${target_port}" \
+            "$SSH_USER@$SSH_HOST" &
+          tunnel_pid=$!
+          trap 'kill "$tunnel_pid" 2>/dev/null || true; rm -f "$meta"' EXIT
+
+          python3 - "$local_port" <<'PY'
+          import socket, sys, time
+          port = int(sys.argv[1])
+          for _ in range(50):
+              try:
+                  with socket.create_connection(('127.0.0.1', port), timeout=0.2):
+                      raise SystemExit(0)
+              except OSError:
+                  time.sleep(0.1)
+          raise SystemExit('SSH database tunnel did not become ready')
+          PY
+
+          DATABASE_URL="postgresql://${auth}@127.0.0.1:${local_port}/${database}"
+          echo "::add-mask::$DATABASE_URL"
+          export DATABASE_URL
+          receipt="$GITHUB_WORKSPACE/production-candidate-readiness.json"
+          set +e
+          (cd trusted-audit && python3 scripts/operator/audit_production_candidate.py \
+            --reviewed-revision "$REVIEWED_REVISION" \
+            --json-output "$receipt")
           status=$?
           set -e
+          unset DATABASE_URL auth
           echo "audit_status=$status" >> "$GITHUB_OUTPUT"
           case "$status" in 0|1|2) ;; *) echo "Unexpected audit status: $status" >&2; exit 2 ;; esac
 
