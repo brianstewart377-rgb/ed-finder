@@ -1,4 +1,5 @@
 name: Codex Worker
+run-name: Codex Worker · ${{ inputs.request_id }}
 
 on:
   workflow_dispatch:
@@ -15,11 +16,11 @@ on:
         options:
           - investigate
           - implement
-  push:
-    branches:
-      - codex-task-requests
-    paths:
-      - '.github/codex-requests/*.json'
+      request_id:
+        description: "Stable request identifier supplied by the async dispatcher"
+        required: false
+        default: manual
+        type: string
 
 permissions:
   contents: write
@@ -34,40 +35,35 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     steps:
-      - name: Checkout request
+      - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 2
+          fetch-depth: 10
+          ref: main
 
       - name: Resolve request
         id: request
         shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
           INPUT_TASK: ${{ inputs.task }}
           INPUT_MODE: ${{ inputs.mode }}
-          BEFORE_SHA: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
+          REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            task="$INPUT_TASK"
-            mode="$INPUT_MODE"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/codex-requests/*.json')
-            [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one Codex request file" >&2; exit 64; }
-            mode="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); extra=set(d)-{"task","mode"}; extra and sys.exit("unsupported request keys"); m=d.get("mode","investigate"); m in {"investigate","implement"} or sys.exit("unsupported mode"); print(m)' "${files[0]}")"
-            task="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); t=d.get("task"); isinstance(t,str) and t.strip() or sys.exit("task must be non-empty"); print(t.replace("\n"," "))' "${files[0]}")"
-          else
-            echo "Unsupported event: $EVENT_NAME" >&2
-            exit 64
-          fi
+          task="$INPUT_TASK"
+          mode="$INPUT_MODE"
+          [ -n "${task//[[:space:]]/}" ] || { echo "task must be non-empty" >&2; exit 64; }
+          case "$mode" in
+            investigate|implement) ;;
+            *) echo "unsupported mode: $mode" >&2; exit 64 ;;
+          esac
           {
             echo "mode=$mode"
             echo "task<<EOF"
             echo "$task"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
+          echo "CODEX_REQUEST_ID=$REQUEST_ID"
 
       - name: Switch to main workspace
         shell: bash
