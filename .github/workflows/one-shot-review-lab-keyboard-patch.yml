@@ -1,0 +1,221 @@
+name: One-shot Review Lab Keyboard Patch
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/one-shot-review-lab-keyboard-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    name: Build reviewed Review Lab patch branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout current PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: codex/run-33282588037-1
+          fetch-depth: 0
+
+      - name: Merge current main and patch keyboard default activation
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'review-lab-patch-bot'
+          git config user.email 'review-lab-patch-bot@users.noreply.github.com'
+          git fetch origin main
+          git switch -C automation/review-lab-keyboard-default
+          git merge --no-edit origin/main
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          spec_path = Path('frontend/cypress/e2e/review-environment.cy.js')
+          source = spec_path.read_text(encoding='utf-8')
+
+          old_activation = """function activateControl(testId, keyboard) {
+            cy.getByTestId(testId)
+              .scrollIntoView({ block: 'center' })
+              .should('be.visible');
+            if (keyboard) {
+              cy.getByTestId(testId)
+                .focus()
+                .should('have.focus');
+              cy.getByTestId(testId)
+                .should('have.focus')
+                .type('{enter}', { force: true });
+            } else {
+              cy.getByTestId(testId).click();
+            }
+          }
+          """
+          new_activation = """function armFocusedButtonEnterDefaultAction(control, label) {
+            expect(control.tagName, `${label} native element`).to.equal('BUTTON');
+            expect(control.disabled, `${label} enabled`).to.equal(false);
+
+            let clickObserved = false;
+            const observeClick = () => {
+              clickObserved = true;
+            };
+            control.addEventListener('click', observeClick, { once: true });
+            control.addEventListener('keydown', (event) => {
+              if (event.key !== 'Enter') {
+                control.removeEventListener('click', observeClick);
+                return;
+              }
+
+              // Cypress emits the focused Enter key events but does not perform
+              // a native button's default click activation. Wait until event
+              // propagation completes, respect preventDefault(), and supply only
+              // the missing default action when no click was already observed.
+              const win = control.ownerDocument.defaultView;
+              win.queueMicrotask(() => {
+                const stillFocused = control.ownerDocument.activeElement === control;
+                if (
+                  !event.defaultPrevented
+                  && !clickObserved
+                  && stillFocused
+                  && control.isConnected
+                  && !control.disabled
+                ) {
+                  control.click();
+                }
+                control.removeEventListener('click', observeClick);
+              });
+            }, { once: true });
+          }
+
+          function activateControl(testId, keyboard) {
+            cy.getByTestId(testId)
+              .scrollIntoView({ block: 'center' })
+              .should('be.visible');
+            if (keyboard) {
+              cy.getByTestId(testId)
+                .focus()
+                .should('have.focus')
+                .then(($control) => {
+                  armFocusedButtonEnterDefaultAction($control[0], testId);
+                });
+              cy.getByTestId(testId)
+                .should('have.focus')
+                .type('{enter}', { force: true });
+            } else {
+              cy.getByTestId(testId).click();
+            }
+          }
+          """
+          if source.count(old_activation) != 1:
+              raise SystemExit('activateControl source shape changed')
+          source = source.replace(old_activation, new_activation)
+
+          rendered_helper = """function assertRenderedControl(testId, label) {
+            return cy.getByTestId(testId).first().should(($control) => {
+              const control = $control[0];
+              const style = control.ownerDocument.defaultView.getComputedStyle(control);
+              const rect = control.getBoundingClientRect();
+              expect(style.display, `${label} display`).not.to.equal('none');
+              expect(style.visibility, `${label} visibility`).not.to.equal('hidden');
+              expect(rect.width, `${label} rendered width`).to.be.greaterThan(0);
+              expect(rect.height, `${label} rendered height`).to.be.greaterThan(0);
+            });
+          }
+
+          """
+          marker = 'function telemetryToggle() {'
+          if source.count(marker) != 1:
+              raise SystemExit('telemetryToggle marker changed')
+          source = source.replace(marker, rendered_helper + marker)
+
+          old_focus = """  assertTelemetryToggleRendered()
+            .focus()
+            .should('have.focus');
+          telemetryToggle()
+          """
+          new_focus = """  assertTelemetryToggleRendered()
+            .focus()
+            .should('have.focus')
+            .then(($toggle) => {
+              armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');
+            });
+          telemetryToggle()
+          """
+          if source.count(old_focus) != 2:
+              raise SystemExit('telemetry focus source shape changed')
+          source = source.replace(old_focus, new_focus)
+
+          old_laptop = """    cy.getByTestId('summary-rail-collapse-toggle').should('be.visible').then(() => {
+                checks.keyControlsReachable = true;
+              });
+          """
+          new_laptop = """    assertRenderedControl('summary-rail-collapse-toggle', 'summary rail collapse toggle')
+              .focus()
+              .should('have.focus')
+              .then(() => {
+                checks.keyControlsReachable = true;
+              });
+          """
+          if source.count(old_laptop) != 1:
+              raise SystemExit('laptop reachability source shape changed')
+          source = source.replace(old_laptop, new_laptop)
+          spec_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('tests/test_local_review_test_environment.py')
+          tests = test_path.read_text(encoding='utf-8')
+          old_setup = """    activation_helper = source[source.index('function activateControl'):source.index('function startPlannerFromSystemDetail')]
+              telemetry_helper = source[source.index('function telemetryToggle'):source.index('function collectOverflowMetrics')]
+
+              assert \"cy.getByTestId(testId)\\n      .should('have.focus')\\n      .type('{enter}', { force: true });\" in activation_helper
+          """
+          new_setup = """    enter_default_helper = source[
+                  source.index('function armFocusedButtonEnterDefaultAction'):
+                  source.index('function activateControl')
+              ]
+              activation_helper = source[source.index('function activateControl'):source.index('function startPlannerFromSystemDetail')]
+              telemetry_helper = source[source.index('function telemetryToggle'):source.index('function collectOverflowMetrics')]
+
+              assert \"control.addEventListener('keydown'\" in enter_default_helper
+              assert \"event.key !== 'Enter'\" in enter_default_helper
+              assert '!event.defaultPrevented' in enter_default_helper
+              assert 'control.ownerDocument.activeElement === control' in enter_default_helper
+              assert '!clickObserved' in enter_default_helper
+              assert 'control.click();' in enter_default_helper
+              assert 'armFocusedButtonEnterDefaultAction($control[0], testId);' in activation_helper
+              assert \"cy.getByTestId(testId)\\n      .should('have.focus')\\n      .type('{enter}', { force: true });\" in activation_helper
+          """
+          if tests.count(old_setup) != 1:
+              raise SystemExit('keyboard contract test source shape changed')
+          tests = tests.replace(old_setup, new_setup)
+
+          old_count = """    assert telemetry_helper.count(\".type('{enter}', { force: true });\") == 2
+          """
+          new_count = """    assert telemetry_helper.count(\".type('{enter}', { force: true });\") == 2
+              assert telemetry_helper.count(
+                  \"armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');\"
+              ) == 2
+              assert \"cy.getByTestId('summary-rail-collapse-toggle').should('be.visible')\" not in source
+              assert \"assertRenderedControl('summary-rail-collapse-toggle', 'summary rail collapse toggle')\" in source
+          """
+          if tests.count(old_count) != 1:
+              raise SystemExit('telemetry contract assertion shape changed')
+          tests = tests.replace(old_count, new_count)
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+
+          node --check frontend/cypress/e2e/review-environment.cy.js
+          python3 - <<'PY'
+          from pathlib import Path
+          source = Path('frontend/cypress/e2e/review-environment.cy.js').read_text(encoding='utf-8')
+          assert source.count("armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');") == 2
+          assert 'armFocusedButtonEnterDefaultAction($control[0], testId);' in source
+          assert "cy.getByTestId('summary-rail-collapse-toggle').should('be.visible')" not in source
+          assert "assertRenderedControl('summary-rail-collapse-toggle', 'summary rail collapse toggle')" in source
+          PY
+
+          git add frontend/cypress/e2e/review-environment.cy.js tests/test_local_review_test_environment.py
+          git commit -m 'test: model native Enter default action in Review Lab'
+          git push --force-with-lease origin HEAD:refs/heads/automation/review-lab-keyboard-default
