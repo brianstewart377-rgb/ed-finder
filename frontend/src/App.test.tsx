@@ -132,6 +132,20 @@ vi.mock('@/features/admin/useAdmin', () => ({
   useAdmin: () => ({}),
 }));
 
+vi.mock('@/features/auth/useAuth', () => ({
+  useAuth: () => ({
+    loading: false,
+    authenticated: true,
+    user: { commander_name: 'Test Owner', is_owner: true },
+    ownerClaimAvailable: false,
+    error: null,
+    signIn: vi.fn(),
+    signOut: vi.fn().mockResolvedValue(undefined),
+    claimOwner: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
 vi.mock('@/features/admin/AdminTab', () => ({
   AdminTab: () => <div data-testid="admin-tab">Admin tab</div>,
 }));

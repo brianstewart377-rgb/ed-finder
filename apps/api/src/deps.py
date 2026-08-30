@@ -7,9 +7,8 @@ Routers do:
     async def endpoint(pool = Depends(get_pool), redis = Depends(get_redis)):
         ...
 
-`require_admin` is both a reusable Depends and a sentinel — it raises 403
-if no ADMIN_TOKEN env var is set, so admin endpoints are disabled by
-default.
+`require_admin` accepts either the legacy server-side ADMIN_TOKEN (for CLI and
+automation) or an owner Frontier web session (for the browser dashboards).
 """
 from __future__ import annotations
 
@@ -23,6 +22,7 @@ import asyncpg
 import redis.asyncio as aioredis
 from fastapi import HTTPException, Request
 
+from edfinder_api.auth import get_request_user, require_same_origin
 from edfinder_api.config import settings
 from edfinder_api.state import (
     get_pool_singleton, get_readonly_pool_singleton, get_redis_singleton, metrics,
@@ -58,14 +58,24 @@ async def get_redis() -> Optional[aioredis.Redis]:
 # ── Admin bearer-token auth. ────────────────────────────────────────────
 async def require_admin(request: Request) -> None:
     token = settings.admin_token
-    if not token:
-        raise HTTPException(403, 'Admin endpoints disabled (ADMIN_TOKEN not set)')
     supplied = request.headers.get('X-Admin-Token') or ''
     auth = request.headers.get('Authorization', '')
     if auth.lower().startswith('bearer '):
         supplied = supplied or auth[7:].strip()
-    if not hmac.compare_digest(supplied, token):
+
+    # Preserve non-browser operator automation during the OAuth transition.
+    if token and supplied and hmac.compare_digest(supplied, token):
+        return
+
+    user = await get_request_user(request)
+    if user is not None and user.is_owner:
+        require_same_origin(request)
+        return
+    if user is not None:
+        raise HTTPException(403, 'Owner access required')
+    if supplied:
         raise HTTPException(401, 'Invalid admin token')
+    raise HTTPException(401, 'Owner sign-in required')
 
 
 # ── Redis cache helpers. Tolerant of an absent Redis (returns None). ────

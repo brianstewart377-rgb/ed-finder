@@ -59,3 +59,4 @@
 045_journal_streaming_provenance.sql
 046_powerplay_observations.sql
 047_routes.sql
+048_frontier_accounts.sql
