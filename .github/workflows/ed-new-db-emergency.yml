@@ -1,0 +1,216 @@
+name: ed-new DB Emergency Audit
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-db-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ed-new-db-emergency
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Audit retained PG18 candidate
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one emergency DB request file' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/ed-new-db-requests/*.json) ;;
+            *) echo 'Changed path is outside emergency DB request allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if data != {"operation": "audit-retained-pg18"}:
+              raise SystemExit("Unsupported emergency DB request")
+          PY
+
+      - name: Checkout reviewed audit implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 2e79945d28ba3922573dd100598223037fa51b9f
+          path: trusted-audit
+          persist-credentials: false
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo 'Missing ED_NEW_OPERATOR_SSH_KEY' >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo 'Missing ED_NEW_OPERATOR_HOST' >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo 'Missing ED_NEW_OPERATOR_PORT' >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'Missing pinned ed-new known-hosts secret' >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo 'Pinned known-host trust does not cover configured ed-new host/port' >&2
+            exit 1
+          }
+
+      - name: Run exact reviewed audit against retained PG18 container
+        id: audit
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          REVIEWED_REVISION: 2e79945d28ba3922573dd100598223037fa51b9f
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
+          bundle="$(mktemp)"
+          trap 'rm -f "$bundle"' EXIT
+          tar -czf "$bundle" -C trusted-audit scripts/operator/audit_production_candidate.py sql
+          remote_bundle="/tmp/ed-finder-candidate-audit-${GITHUB_RUN_ID}.tar.gz"
+          scp -q -i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$bundle" "$SSH_USER@$SSH_HOST:$remote_bundle"
+          set +e
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "REVIEWED_REVISION='$REVIEWED_REVISION' REMOTE_BUNDLE='$remote_bundle' python3 -" \
+            > production-candidate-readiness.json <<'PY'
+          import json
+          import os
+          import pathlib
+          import subprocess
+          import sys
+          import tarfile
+          import tempfile
+          import urllib.parse
+
+          container = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+          reviewed = os.environ["REVIEWED_REVISION"]
+          bundle = pathlib.Path(os.environ["REMOTE_BUNDLE"])
+          workdir = pathlib.Path(tempfile.mkdtemp(prefix="edfinder-audit-"))
+          receipt = pathlib.Path(tempfile.mkstemp(prefix="edfinder-audit-receipt-")[1])
+          try:
+              inspect = json.loads(subprocess.check_output(
+                  ["docker", "inspect", container], text=True
+              ))[0]
+              env = {}
+              for item in inspect.get("Config", {}).get("Env", []):
+                  if "=" in item:
+                      key, value = item.split("=", 1)
+                      env[key] = value
+              user = env.get("POSTGRES_USER") or "postgres"
+              database = env.get("POSTGRES_DB") or user
+              password = env.get("POSTGRES_PASSWORD") or ""
+              ports = (inspect.get("NetworkSettings", {}).get("Ports", {}) or {}).get("5432/tcp") or []
+              if ports and ports[0].get("HostPort"):
+                  host = "127.0.0.1"
+                  port = ports[0]["HostPort"]
+              else:
+                  networks = inspect.get("NetworkSettings", {}).get("Networks", {}) or {}
+                  host = next((v.get("IPAddress") for v in networks.values() if v.get("IPAddress")), "")
+                  port = "5432"
+              if not host:
+                  raise RuntimeError("retained PG18 container has no reachable address")
+              auth = urllib.parse.quote(user, safe="")
+              if password:
+                  auth += ":" + urllib.parse.quote(password, safe="")
+              dsn = f"postgresql://{auth}@{host}:{port}/{urllib.parse.quote(database, safe='')}"
+              with tarfile.open(bundle, "r:gz") as archive:
+                  archive.extractall(workdir)
+              child_env = os.environ.copy()
+              child_env["DATABASE_URL"] = dsn
+              proc = subprocess.run(
+                  [sys.executable, "scripts/operator/audit_production_candidate.py",
+                   "--reviewed-revision", reviewed,
+                   "--json-output", str(receipt)],
+                  cwd=workdir,
+                  env=child_env,
+                  stdout=subprocess.DEVNULL,
+                  stderr=sys.stderr,
+                  check=False,
+              )
+              if receipt.is_file() and receipt.stat().st_size:
+                  sys.stdout.write(receipt.read_text(encoding="utf-8"))
+              raise SystemExit(proc.returncode)
+          finally:
+              try: bundle.unlink(missing_ok=True)
+              except Exception: pass
+              try: receipt.unlink(missing_ok=True)
+              except Exception: pass
+              import shutil
+              shutil.rmtree(workdir, ignore_errors=True)
+          PY
+          status=$?
+          set -e
+          echo "audit_status=$status" >> "$GITHUB_OUTPUT"
+          case "$status" in 0|1|2) ;; *) echo "Unexpected audit status: $status" >&2; exit 2 ;; esac
+
+      - name: Validate and retain receipt
+        if: always()
+        shell: bash
+        env:
+          REVIEWED_REVISION: 2e79945d28ba3922573dd100598223037fa51b9f
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib
+          p = pathlib.Path('production-candidate-readiness.json')
+          payload = json.loads(p.read_text(encoding='utf-8'))
+          if payload.get('reviewed_revision') != os.environ['REVIEWED_REVISION']:
+              raise SystemExit('receipt revision mismatch')
+          identity = payload.get('candidate_identity', {})
+          if 'error' not in payload and (not identity.get('database') or not identity.get('system_identifier')):
+              raise SystemExit('receipt lacks stable candidate identity')
+          PY
+
+      - name: Upload readiness receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: emergency-pg18-readiness-${{ github.run_id }}
+          path: production-candidate-readiness.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Enforce audit result
+        if: always()
+        shell: bash
+        env:
+          AUDIT_STATUS: ${{ steps.audit.outputs.audit_status }}
+        run: |
+          case "$AUDIT_STATUS" in
+            0) echo 'Retained PG18 readiness audit passed.' ;;
+            1) echo 'Retained PG18 is reachable but has readiness blockers.' >&2; exit 1 ;;
+            2) echo 'Retained PG18 audit failed closed.' >&2; exit 2 ;;
+            *) echo 'Audit did not produce a valid result.' >&2; exit 2 ;;
+          esac
