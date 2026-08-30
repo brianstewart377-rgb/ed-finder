@@ -1,0 +1,50 @@
+name: Public Four Host Cutover Probe
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/public-four-host-cutover-probe-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/public-four-host-cutover-probe-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Probe public HTTPS hosts
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in ed-finder.app www.ed-finder.app review.ed-finder.app octopus.ed-finder.app; do
+            echo "HOST|$host"
+            code="$(curl -sS -L --max-time 15 -o /tmp/body -D /tmp/headers -w '%{http_code}' "https://$host/" || true)"
+            echo "http_status|$code"
+            if grep -qi '^server: cloudflare' /tmp/headers; then echo 'cloudflare|yes'; else echo 'cloudflare|unknown'; fi
+            if grep -q 'ED-Finder V3' /tmp/body; then
+              echo 'body_class|v3_survival_landing'
+            elif grep -q 'ED-Finder migration' /tmp/body; then
+              echo 'body_class|v3_migration_edge'
+            elif grep -qi 'octopus' /tmp/body; then
+              echo 'body_class|octopus_content'
+            elif grep -qi 'review' /tmp/body; then
+              echo 'body_class|review_content'
+            elif grep -qi '<html\|<!doctype html' /tmp/body; then
+              echo 'body_class|other_html'
+            else
+              echo 'body_class|other'
+            fi
+          done
