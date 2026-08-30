@@ -1,0 +1,106 @@
+name: ed-new V3 Identity Contract Inspect
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-identity-contract-inspect-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect live V3 identity schema and callback contract
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-identity-contract-inspect-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"inspect-v3-identity-contract"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect live schema and retained callback source
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import pathlib,subprocess,re
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+          def sql(q):
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -F "|" -c "$1"'
+              return subprocess.check_output(['docker','exec','-u','postgres',c,'sh','-lc',cmd,'sh',q],text=True).strip()
+
+          for table in ('account','commander','external_identity','commander_external_identity','account_commander_access','session'):
+              print('TABLE|'+table)
+              rows=sql("SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='"+table+"' ORDER BY ordinal_position")
+              print(rows)
+
+          print('COUNTS')
+          for table in ('account','commander','external_identity','commander_external_identity','account_commander_access','session','oauth_login_state'):
+              print(table+'|'+sql('SELECT count(*) FROM v3_identity.'+table))
+
+          # Safe session-state summary derived dynamically from actual column names.
+          sess_cols=set(sql("SELECT column_name FROM information_schema.columns WHERE table_schema='v3_identity' AND table_name='session'").splitlines())
+          print('SESSION_TIME_COLUMNS|'+','.join(sorted(x for x in sess_cols if 'expire' in x or 'revok' in x or x.endswith('_at'))))
+          if 'revoked_at' in sess_cols:
+              print('sessions_not_revoked|'+sql('SELECT count(*) FROM v3_identity.session WHERE revoked_at IS NULL'))
+          for candidate in ('idle_expires_at','absolute_expires_at','expires_at'):
+              if candidate in sess_cols:
+                  print('sessions_future_'+candidate+'|'+sql(f'SELECT count(*) FROM v3_identity.session WHERE {candidate} > NOW()'))
+
+          src=pathlib.Path('/root/edfinder-v3-phase4c-full-rehearsal-20260827-r5/repo/apps/api/src/routers/auth.py')
+          print('AUTH_SOURCE_PRESENT|'+str(src.is_file()).lower())
+          if src.is_file():
+              lines=src.read_text(encoding='utf-8',errors='replace').splitlines()
+              hits=[]
+              for i,line in enumerate(lines):
+                  low=line.lower()
+                  if ('commander' in low or 'external_identity' in low or 'callback' in low) and not any(s in low for s in ('secret','token','password')):
+                      hits.append(i)
+              wanted=set()
+              for i in hits:
+                  wanted.update(range(max(0,i-2),min(len(lines),i+4)))
+              for i in sorted(wanted):
+                  line=lines[i]
+                  if any(s in line.lower() for s in ('client_secret','access_token','refresh_token','authorization')):
+                      continue
+                  print(f'AUTH|{i+1}|{line[:500]}')
+          print('identifiers_printed|false')
+          print('database_writes_performed|false')
+          PY
