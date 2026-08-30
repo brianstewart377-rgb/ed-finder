@@ -15,7 +15,7 @@ jobs:
     name: Verify retained V3 recovery point
     runs-on: ubuntu-latest
     environment: ed-new-operator
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - name: Checkout request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -64,11 +64,12 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            -o TCPKeepAlive=yes \
             "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
           import json
-          import pathlib
           import subprocess
-          import sys
 
           container = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
           stanza = 'edfinder_v3'
@@ -84,22 +85,22 @@ jobs:
               )
 
           info = run(['pgbackrest', f'--stanza={stanza}', '--log-level-console=off', '--output=json', 'info'])
-          print('pgbackrest_info_exit|' + str(info.returncode))
+          print('pgbackrest_info_exit|' + str(info.returncode), flush=True)
           if info.returncode != 0:
               for line in info.stderr.splitlines():
-                  print('pgbackrest_info_error|' + line)
+                  print('pgbackrest_info_error|' + line, flush=True)
               raise SystemExit('pgBackRest info failed as postgres user')
 
           data = json.loads(info.stdout)
           if len(data) != 1:
               raise SystemExit('Expected exactly one pgBackRest stanza result')
           s = data[0]
-          print('stanza|' + str(s.get('name','')) + '|' + str(s.get('status',{}).get('message','')))
+          print('stanza|' + str(s.get('name','')) + '|' + str(s.get('status',{}).get('message','')), flush=True)
           for db in s.get('db', []):
-              print('db|' + '|'.join(str(db.get(k,'')) for k in ('id','system-id','version')))
+              print('db|' + '|'.join(str(db.get(k,'')) for k in ('id','system-id','version')), flush=True)
 
           backups = s.get('backup', [])
-          print('backup_count|' + str(len(backups)))
+          print('backup_count|' + str(len(backups)), flush=True)
           for b in backups[-10:]:
               ts=b.get('timestamp',{})
               info_b=b.get('info',{})
@@ -115,33 +116,26 @@ jobs:
                   str(archive.get('start','')),
                   str(archive.get('stop','')),
                   str(b.get('error',False)),
-              ]))
+              ]), flush=True)
 
           complete = [b for b in backups if b.get('timestamp',{}).get('stop') and not b.get('error',False)]
           if not complete:
               raise SystemExit('No completed pgBackRest backup exists')
           latest = complete[-1]
-          latest_label = str(latest.get('label',''))
-          print('selected_backup|' + latest_label)
+          print('selected_backup|' + str(latest.get('label','')), flush=True)
 
-          # A prior verify is useful evidence, but perform a fresh repository
-          # verification now so the gate is tied to current repository state.
           verify = run(['pgbackrest', f'--stanza={stanza}', '--log-level-console=info', 'verify'])
-          print('pgbackrest_verify_exit|' + str(verify.returncode))
+          print('pgbackrest_verify_exit|' + str(verify.returncode), flush=True)
           safe_lines=[]
           for raw in (verify.stdout + '\n' + verify.stderr).splitlines():
               lower=raw.lower()
               if any(token in lower for token in ('verify', 'backup', 'complete', 'success', 'warn', 'error')):
-                  # pgBackRest output should not contain credentials; keep this
-                  # deliberately narrow to status lines only.
                   safe_lines.append(raw)
           for line in safe_lines[-30:]:
-              print('verify_status|' + line)
+              print('verify_status|' + line, flush=True)
           if verify.returncode != 0:
               raise SystemExit('Fresh pgBackRest repository verify failed')
 
-          # Re-read metadata after verification and bind the gate to database
-          # identity plus latest completed backup label.
           info2 = run(['pgbackrest', f'--stanza={stanza}', '--log-level-console=off', '--output=json', 'info'])
           if info2.returncode != 0:
               raise SystemExit('Post-verify pgBackRest info failed')
@@ -149,9 +143,9 @@ jobs:
           complete2=[b for b in s2.get('backup',[]) if b.get('timestamp',{}).get('stop') and not b.get('error',False)]
           if not complete2:
               raise SystemExit('Completed backup disappeared after verification')
-          print('verified_backup|' + str(complete2[-1].get('label','')))
-          print('verified_backup_stop|' + str(complete2[-1].get('timestamp',{}).get('stop','')))
-          print('backup_gate|PASS')
-          print('db_writes_performed|false')
-          print('application_data_modified|false')
+          print('verified_backup|' + str(complete2[-1].get('label','')), flush=True)
+          print('verified_backup_stop|' + str(complete2[-1].get('timestamp',{}).get('stop','')), flush=True)
+          print('backup_gate|PASS', flush=True)
+          print('db_writes_performed|false', flush=True)
+          print('application_data_modified|false', flush=True)
           PY
