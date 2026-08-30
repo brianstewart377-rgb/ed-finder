@@ -1,7 +1,8 @@
 """Meta endpoints — health, status, metrics.
 
-Anything diagnostic / non-business-logic lives here. Every environment
-should be able to hit these without auth.
+Anything diagnostic / non-business-logic lives here. The minimal deployment
+health probe stays public; detailed status and metrics remain operator-only at
+the edge or through owner authentication.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from edfinder_api.config import settings
-from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set
+from edfinder_api.deps import get_pool, get_redis, cache_get, cache_set, require_admin
 from edfinder_api.ingest.eddn_client import seconds_since_last_flush as eddn_simulation_ingest_seconds_since_flush
 from edfinder_api.models import HealthResponse, StatusResponse
 from edfinder_api.monitoring import data_invariants_receipt_metrics
@@ -76,7 +77,11 @@ async def health(pool: asyncpg.Pool = Depends(get_pool)):
         raise HTTPException(503, detail=str(e))
 
 
-@router.get('/api/status', response_model=StatusResponse)
+@router.get(
+    '/api/status',
+    response_model=StatusResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def status(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),
@@ -128,7 +133,11 @@ async def status(
     return result
 
 
-@router.get('/api/local/status', response_model=StatusResponse)
+@router.get(
+    '/api/local/status',
+    response_model=StatusResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def local_status(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),
