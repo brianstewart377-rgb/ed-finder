@@ -249,25 +249,27 @@ function armFocusedButtonEnterDefaultAction(control, label) {
   expect(control.disabled, `${label} enabled`).to.equal(false);
 
   let clickObserved = false;
+  let enterEvent = null;
   const observeClick = () => {
     clickObserved = true;
   };
-  control.addEventListener('click', observeClick, { once: true });
-  control.addEventListener('keydown', (event) => {
-    if (event.key !== 'Enter') {
-      control.removeEventListener('click', observeClick);
-      return;
+  const observeKeydown = (event) => {
+    if (event.key === 'Enter' || event.keyCode === 13) {
+      enterEvent = event;
     }
+  };
+  control.addEventListener('click', observeClick);
+  control.addEventListener('keydown', observeKeydown);
 
-    // Cypress emits focused Enter events but omits the native button
-    // default action. Wait until propagation completes, honour
-    // preventDefault(), and supply only that missing action when no
-    // click has already occurred.
-    const win = control.ownerDocument.defaultView;
-    win.queueMicrotask(() => {
+  return {
+    complete() {
+      control.removeEventListener('click', observeClick);
+      control.removeEventListener('keydown', observeKeydown);
+      expect(enterEvent, `${label} Enter keydown`).not.to.equal(null);
+
       const stillFocused = control.ownerDocument.activeElement === control;
       if (
-        !event.defaultPrevented
+        !enterEvent.defaultPrevented
         && !clickObserved
         && stillFocused
         && control.isConnected
@@ -275,9 +277,8 @@ function armFocusedButtonEnterDefaultAction(control, label) {
       ) {
         control.click();
       }
-      control.removeEventListener('click', observeClick);
-    });
-  }, { once: true });
+    },
+  };
 }
 
 function activateControl(testId, keyboard) {
@@ -285,18 +286,17 @@ function activateControl(testId, keyboard) {
     .scrollIntoView({ block: 'center' })
     .should('be.visible');
   if (keyboard) {
-    cy.getByTestId(testId)
+    return cy.getByTestId(testId)
       .focus()
       .should('have.focus')
       .then(($control) => {
-        armFocusedButtonEnterDefaultAction($control[0], testId);
+        const activation = armFocusedButtonEnterDefaultAction($control[0], testId);
+        return cy.wrap($control, { log: false })
+          .type('{enter}', { force: true })
+          .then(() => activation.complete());
       });
-    cy.getByTestId(testId)
-      .should('have.focus')
-      .type('{enter}', { force: true });
-  } else {
-    cy.getByTestId(testId).click();
   }
+  return cy.getByTestId(testId).click();
 }
 
 function startPlannerFromSystemDetail(id64, options = {}) {
@@ -423,22 +423,28 @@ function ensureTelemetryToggleKeyboardWorks(checks) {
     .focus()
     .should('have.focus')
     .then(($toggle) => {
-      armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');
+      const activation = armFocusedButtonEnterDefaultAction(
+        $toggle[0],
+        'planner telemetry toggle',
+      );
+      return cy.wrap($toggle, { log: false })
+        .type('{enter}', { force: true })
+        .then(() => activation.complete());
     });
-  telemetryToggle()
-    .should('have.focus')
-    .type('{enter}', { force: true });
   telemetryToggle().should('have.attr', 'aria-expanded', 'true');
 
   assertTelemetryToggleRendered()
     .focus()
     .should('have.focus')
     .then(($toggle) => {
-      armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');
+      const activation = armFocusedButtonEnterDefaultAction(
+        $toggle[0],
+        'planner telemetry toggle',
+      );
+      return cy.wrap($toggle, { log: false })
+        .type('{enter}', { force: true })
+        .then(() => activation.complete());
     });
-  telemetryToggle()
-    .should('have.focus')
-    .type('{enter}', { force: true });
   telemetryToggle().should('have.attr', 'aria-expanded', 'false').then(() => {
     checks.telemetryToggleKeyboardWorks = true;
     summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true;

@@ -1215,24 +1215,28 @@ def test_cypress_keyboard_helpers_requery_controls_and_avoid_pointer_actionabili
     activation_helper = source[source.index('function activateControl'):source.index('function startPlannerFromSystemDetail')]
     telemetry_helper = source[source.index('function telemetryToggle'):source.index('function collectOverflowMetrics')]
 
-    assert "control.addEventListener('keydown'" in enter_default_helper
-    assert "event.key !== 'Enter'" in enter_default_helper
-    assert '!event.defaultPrevented' in enter_default_helper
+    assert "control.addEventListener('keydown', observeKeydown)" in enter_default_helper
+    assert "event.key === 'Enter' || event.keyCode === 13" in enter_default_helper
+    assert 'let enterEvent = null' in enter_default_helper
+    assert 'return {' in enter_default_helper
+    assert 'complete() {' in enter_default_helper
+    assert 'enterEvent.defaultPrevented' in enter_default_helper
     assert 'control.ownerDocument.activeElement === control' in enter_default_helper
     assert '!clickObserved' in enter_default_helper
     assert 'control.click();' in enter_default_helper
-    assert 'armFocusedButtonEnterDefaultAction($control[0], testId);' in activation_helper
-    assert "cy.getByTestId(testId)\n      .should('have.focus')\n      .type('{enter}', { force: true });" in activation_helper
+    assert 'const activation = armFocusedButtonEnterDefaultAction($control[0], testId);' in activation_helper
+    assert "cy.wrap($control, { log: false })" in activation_helper
+    assert ".type('{enter}', { force: true })" in activation_helper
+    assert '.then(() => activation.complete());' in activation_helper
     assert ":visible" not in telemetry_helper
     assert 'scrollIntoView' not in telemetry_helper
     assert "getComputedStyle(toggle)" in telemetry_helper
     assert "getBoundingClientRect()" in telemetry_helper
     assert "rect.width" in telemetry_helper
     assert "rect.height" in telemetry_helper
-    assert telemetry_helper.count(".type('{enter}', { force: true });") == 2
-    assert telemetry_helper.count(
-        "armFocusedButtonEnterDefaultAction($toggle[0], 'planner telemetry toggle');"
-    ) == 2
+    assert telemetry_helper.count(".type('{enter}', { force: true })") == 2
+    assert telemetry_helper.count('.then(() => activation.complete());') == 2
+    assert telemetry_helper.count("'planner telemetry toggle'") == 2
     assert "cy.getByTestId('summary-rail-collapse-toggle').should('be.visible')" not in source
     assert "assertRenderedControl('summary-rail-collapse-toggle', 'summary rail collapse toggle')" in source
     assert telemetry_helper.index("aria-expanded', 'true'") < telemetry_helper.index("aria-expanded', 'false'")
