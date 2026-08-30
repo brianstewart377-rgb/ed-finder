@@ -1,0 +1,4 @@
+{
+  "mode": "investigate",
+  "task": "Async bridge activation probe only. Do not modify files, deploy, access production, or use production credentials. Confirm Codex starts against current origin/main and report only: codex CLI version, origin/main SHA, and whether the mandatory repository state gate passes."
+}
