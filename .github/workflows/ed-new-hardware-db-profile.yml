@@ -53,22 +53,17 @@ jobs:
             -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          echo '== HOST =='
-          hostname
-          uname -a
           echo '== CPU =='
-          lscpu | grep -E '^(Architecture|CPU\(s\)|On-line CPU|Model name|Thread\(s\) per core|Core\(s\) per socket|Socket\(s\)|CPU max MHz|CPU min MHz|L1d cache|L1i cache|L2 cache|L3 cache|NUMA node\(s\)):' || true
-          echo 'nproc|'$(nproc)
+          lscpu | grep -E '^(Architecture|CPU\(s\)|Model name|Thread\(s\) per core|Core\(s\) per socket|Socket\(s\)|CPU max MHz|L3 cache|NUMA node\(s\)):' || true
           echo '== MEMORY =='
           free -h
-          grep -E '^(MemTotal|SwapTotal|HugePages_Total|Hugepagesize):' /proc/meminfo || true
           echo '== STORAGE =='
-          lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,ROTA,DISC-MAX,DISC-GRAN || true
+          lsblk -o NAME,TYPE,SIZE,FSTYPE,MOUNTPOINTS,MODEL,ROTA || true
           df -hT /
           echo '== POSTGRES SETTINGS =='
           c='edfinder-v3-phase4c-full-20260827_r5-postgres'
           db='edfinder_v3_phase4c_full_20260827_r5'
-          q="SELECT name||'|'||setting||'|'||unit FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','work_mem','maintenance_work_mem','max_worker_processes','max_parallel_workers','max_parallel_workers_per_gather','max_parallel_maintenance_workers','effective_io_concurrency','random_page_cost','seq_page_cost','wal_compression','checkpoint_completion_target','max_wal_size','min_wal_size','temp_file_limit','jit','huge_pages') ORDER BY name;"
+          q="SELECT name||'|'||setting||'|'||COALESCE(unit,'') FROM pg_settings WHERE name IN ('shared_buffers','effective_cache_size','work_mem','maintenance_work_mem','max_worker_processes','max_parallel_workers','max_parallel_workers_per_gather','max_parallel_maintenance_workers','effective_io_concurrency','maintenance_io_concurrency','random_page_cost','seq_page_cost','wal_compression','checkpoint_completion_target','max_wal_size','min_wal_size','temp_file_limit','jit','huge_pages','autovacuum_max_workers','autovacuum_work_mem','default_statistics_target') ORDER BY name;"
           docker exec -u postgres "$c" sh -lc 'PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '"$db"' -At -c "$1"' sh "$q"
           echo 'database_writes_performed|false'
           REMOTE
