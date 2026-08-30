@@ -22,7 +22,9 @@ SCRIPT_DIR = ROOT / 'scripts' / 'dev'
 DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend' / 'vite.config.ts'
-FRONTEND_PLAYWRIGHT_CONFIG = ROOT / 'frontend' / 'playwright.config.ts'
+FRONTEND_CYPRESS_CONFIG = ROOT / 'frontend' / 'cypress.config.cjs'
+FRONTEND_REVIEW_CYPRESS_CONFIG = ROOT / 'frontend' / 'cypress.review-lab.config.cjs'
+FRONTEND_REVIEW_CYPRESS_SPEC = ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js'
 FRONTEND_API = ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'core.ts'
 PLANNER_WORKSPACE = ROOT / 'frontend' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
@@ -908,9 +910,10 @@ def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: 
 @pytest.mark.unit
 def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
-    playwright_config = _read(FRONTEND_PLAYWRIGHT_CONFIG)
+    cypress_config = _read(FRONTEND_CYPRESS_CONFIG)
+    review_cypress_config = _read(FRONTEND_REVIEW_CYPRESS_CONFIG)
     docs = _read(DOC_PATH)
-    review_spec = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
+    review_spec = _read(FRONTEND_REVIEW_CYPRESS_SPEC)
     assert "|| 'http://127.0.0.1:8000';" in vite_config
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
@@ -922,10 +925,13 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'No product observation is currently expected or allowlisted' in docs
     assert 'environment_ready: true' in docs
     assert 'product_acceptance_ready: true' in docs
-    assert 'test.skip(' in review_spec
-    assert 'EDFINDER_REVIEW_LAB_RUN' in review_spec
-    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
-    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
+    assert "specPattern: 'cypress/e2e/release-gate.cy.js'" in cypress_config
+    assert 'writeReviewSummary' not in cypress_config
+    assert "specPattern: 'cypress/e2e/review-environment.cy.js'" in review_cypress_config
+    assert 'writeReviewSummary' in review_cypress_config
+    assert 'EDFINDER_REVIEW_LAB_RUN' in review_cypress_config
+    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_cypress_config
+    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_cypress_config
     assert 'summarySchemaVersion' in review_spec
     assert 'reviewLabRun' in review_spec
     assert 'viewportProfiles' in review_spec
@@ -939,9 +945,6 @@ def test_frontend_target_remains_compatible_with_review_api():
     ):
         assert profile_name in review_spec
     assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
-    assert 'shouldSkipReviewLabCollector()' in review_spec
-    assert 'reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === \'1\'' in playwright_config
-    assert 'webServer: reviewLabRun ? undefined :' in playwright_config
 
 
 @pytest.mark.unit
@@ -987,6 +990,9 @@ def test_review_lab_workflow_invokes_wrapper_authority_and_not_normal_e2e():
     assert '|| true' not in workflow
     assert 'run: yarn e2e\n' not in workflow
     assert 'playwright test' not in workflow
+    assert 'Install Playwright Chromium' not in workflow
+    assert 'yarn e2e:install' not in workflow
+    assert 'cypress@15.21.1 verify' in workflow
     assert 'docker compose down' not in workflow
     assert 'docker rm' not in workflow
     assert 'docker volume rm' not in workflow
@@ -1000,11 +1006,11 @@ def test_review_lab_workflow_uses_failure_only_sanitised_artifacts_and_summary()
     workflow_lower = workflow.lower()
     assert workflow.count('if: failure()') >= 2
     assert 'review-lab-report' in workflow
-    assert 'review-lab-playwright-failure' in workflow
+    assert 'review-lab-cypress-failure' in workflow
     assert '/tmp/edfinder-local-review/latest-report.json' in workflow
     assert '/tmp/edfinder-local-review/*/report.json' in workflow
     assert '/tmp/edfinder-local-review/*/browser-summary.json' in workflow
-    assert 'frontend/test-results' in workflow
+    assert 'frontend/cypress/artifacts' in workflow
     assert 'GITHUB_STEP_SUMMARY' in workflow
     assert 'docker ps -a --filter "label=com.docker.compose.project=edfinder-review"' in workflow
     assert 'docker volume ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
@@ -1183,35 +1189,60 @@ def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malforme
 
 @pytest.mark.unit
 def test_browser_result_card_expansion_helper_is_idempotent():
-    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
-    assert "card.getByRole('button', { name: 'Inspect system' })" in source
-    assert "if (await actionButton.isVisible().catch(() => false)) {" in source
-    assert 'return;' in source
-    assert 'await header.evaluate((node) => {' in source
-    assert "await expect(actionButton).toBeVisible({ timeout: 10_000 });" in source
-    assert "page.getByTestId('open-plan-start')" in source
-    assert "page.getByTestId('plan-objective-decide_later')" in source
-    assert "page.getByTestId('plan-approach-manual')" in source
-    assert "page.getByTestId('confirm-start-plan')" in source
-    assert "page.getByTestId('warehouse-evidence-technical-details')" in source
-    assert "compactDetails.locator('summary').click()" in source
+    source = _read(FRONTEND_REVIEW_CYPRESS_SPEC)
+    helper = source[source.index('function openResultCard'):source.index('function openSystemDetail')]
+    assert "cy.getByTestId(testId).should('be.visible').then(($card) => {" in helper
+    assert "/Inspect system/i.test(button.textContent || '')" in helper
+    assert 'Cypress.dom.isVisible(button)' in helper
+    assert 'if (!inspect) {' in helper
+    assert "cy.wrap($card).find('header').click();" in helper
+    assert "contains('button', 'Inspect system').should('be.visible')" in helper
+    for test_id in ('open-plan-start', 'plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'):
+        assert f"activateControl('{test_id}'" in source
+    assert "$body.find('[data-testid=\"warehouse-evidence-technical-details\"]')" in source
+    assert "cy.getByTestId('warehouse-evidence-technical-details').find('summary').click();" in source
 
 
 @pytest.mark.unit
 def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
-    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
-    helper = source[source.index('async function gotoFinder'):source.index('async function clearState')]
+    source = _read(FRONTEND_REVIEW_CYPRESS_SPEC)
+    helper = source[source.index('function gotoFinder'):source.index('function openResultCard')]
 
-    assert "resolveUrl(baseURL, '/#finder')" in helper
-    assert "page.getByTestId('finder-page-heading')" in helper
-    assert "page.getByTestId('filter-module-system')" in helper
-    assert "page.getByLabel('Colony status')" in helper
-    assert "page.getByRole('option', { name: 'Any', exact: true })" in helper
-    assert "page.getByTestId('search-submit')" in helper
-    assert helper.index("page.getByTestId('filter-module-system')") < helper.index("page.getByLabel('Colony status')")
-    assert helper.index("page.getByRole('option', { name: 'Any', exact: true })") < helper.index("page.getByTestId('search-submit')")
-    assert helper.index("page.getByTestId('search-submit')") < helper.index('search-summary')
-    assert helper.index('search-summary') < helper.index('expectReviewCardsAccessible(page)')
+    assert "cy.visit('/#finder')" in helper
+    assert "cy.getByTestId('finder-page-heading')" in helper
+    assert "cy.getByTestId('filter-module-system')" in helper
+    assert "cy.contains('label', 'Colony status')" in helper
+    assert "cy.contains('[role=\"option\"]', 'Any')" in helper
+    assert "cy.getByTestId('search-submit')" in helper
+    assert helper.index("cy.getByTestId('filter-module-system')") < helper.index("cy.contains('label', 'Colony status')")
+    assert helper.index("cy.contains('[role=\"option\"]', 'Any')") < helper.index("cy.getByTestId('search-submit')")
+    assert helper.index("cy.getByTestId('search-submit')") < helper.index('search-summary')
+    assert helper.index('search-summary') < helper.index('expectReviewCardsAccessible()')
+
+
+@pytest.mark.unit
+def test_cypress_review_helpers_preserve_regex_and_hidden_or_absent_contracts():
+    source = _read(FRONTEND_REVIEW_CYPRESS_SPEC)
+    assert "contain.text', pattern instanceof RegExp ? undefined : pattern" not in source
+    assert "invoke('text').should('match', pattern)" in source
+    assert "should('contain.text', pattern)" in source
+    assert 'elements.length === 0 || !Cypress.dom.isVisible(elements[0])' in source
+    assert source.count("assertHiddenOrAbsent('system-detail-modal')") == 3
+
+
+@pytest.mark.unit
+def test_cypress_review_helpers_requery_controls_after_react_state_changes():
+    source = _read(FRONTEND_REVIEW_CYPRESS_SPEC)
+    telemetry = source[source.index('function ensureTelemetryToggleKeyboardWorks'):source.index('function telemetryToggleCanReceiveFocus')]
+    technical_detail = source[source.index('function openEvidenceTechnicalDetail'):source.index('function assertNoRecovery')]
+    return_to_finder = source[source.index('function returnToFinder'):source.index('function setupPlannerProfile')]
+
+    assert telemetry.count('visibleTelemetryToggle()') == 4
+    assert ".type('{enter}')\n    .should('have.attr', 'aria-expanded'" not in telemetry
+    assert "cy.getByTestId('warehouse-evidence-technical-details').should('have.attr', 'open')" in technical_detail
+    assert "cy.wrap(details).should('have.attr', 'open')" not in technical_detail
+    assert "cy.contains('button:visible', /Back to Finder/i)" in return_to_finder
+    assert ".should('have.focus')\n    .type('{enter}')" in return_to_finder
 
 
 @pytest.mark.unit
@@ -1517,12 +1548,14 @@ def test_run_browser_phase_passes_review_lab_marker_and_validates_summary_contra
 ):
     selected = review_env.scenarios.resolve_scenarios('all')
     subprocess_envs: list[dict[str, str]] = []
+    subprocess_commands: list[list[str]] = []
     preview_envs: list[dict[str, str]] = []
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
         subprocess_envs.append(env)
-        if command[:3] == ['npx', 'playwright', 'test']:
+        subprocess_commands.append(command)
+        if command[:4] == ['npx', '--yes', 'cypress@15.21.1', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             output_path.write_text(json.dumps(_valid_browser_summary(selected)), encoding='utf-8')
         return subprocess.CompletedProcess(command, 0, stdout='1 passed\n', stderr='')
@@ -1545,6 +1578,11 @@ def test_run_browser_phase_passes_review_lab_marker_and_validates_summary_contra
     assert all(env['EDFINDER_REVIEW_OUTPUT_PATH'].endswith('browser-summary.json') for env in subprocess_envs)
     assert all(env['EDFINDER_REVIEW_SCENARIOS_JSON'] for env in subprocess_envs)
     assert all(env['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001' for env in subprocess_envs)
+    assert all(env['CYPRESS_BASE_URL'] == 'http://127.0.0.1:4173' for env in subprocess_envs)
+    browser_command = next(command for command in subprocess_commands if command[:4] == ['npx', '--yes', 'cypress@15.21.1', 'run'])
+    assert browser_command[browser_command.index('--browser') + 1] == 'chrome'
+    assert browser_command[browser_command.index('--config-file') + 1] == 'cypress.review-lab.config.cjs'
+    assert browser_command[browser_command.index('--spec') + 1] == 'cypress/e2e/review-environment.cy.js'
     assert preview_envs[0]['EDFINDER_REVIEW_LAB_RUN'] == '1'
     assert preview_envs[0]['VITE_DEV_API_TARGET'] == 'http://127.0.0.1:8001'
 
@@ -1561,7 +1599,7 @@ def test_run_browser_phase_missing_summary_fails_with_bounded_configuration_diag
             command,
             1,
             stdout='',
-            stderr='Error: http://localhost:4173 is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.\n',
+            stderr='Cypress error: browser collector failed.\n',
         )
 
     class _Registry:
@@ -1578,14 +1616,14 @@ def test_run_browser_phase_missing_summary_fails_with_bounded_configuration_diag
     error = exc_info.value
     assert error.failure_code == 'BROWSER_SUMMARY_MISSING'
     assert error.safe_diagnostics == {
-        'playwright_return_code': 1,
+        'browser_return_code': 1,
         'review_marker_present': True,
         'output_path_configured': True,
         'scenario_plan_configured': True,
         'summary_exists': False,
         'summary_schema_valid': False,
         'stdout_status_hint': 'none',
-        'stderr_status_hint': 'playwright_web_server_conflict',
+        'stderr_status_hint': 'cypress_error',
     }
 
 
@@ -1598,7 +1636,7 @@ def test_run_browser_phase_invalid_summary_fails_handshake_validation(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:4] == ['npx', '--yes', 'cypress@15.21.1', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['reviewLabRun'] = False
@@ -1619,7 +1657,7 @@ def test_run_browser_phase_invalid_summary_fails_handshake_validation(
     error = exc_info.value
     assert error.failure_code == 'BROWSER_RUNNER_CONFIGURATION_FAILED'
     assert error.safe_diagnostics == {
-        'playwright_return_code': 0,
+        'browser_return_code': 0,
         'review_marker_present': True,
         'output_path_configured': True,
         'scenario_plan_configured': True,
@@ -1639,7 +1677,7 @@ def test_run_browser_phase_rejects_mismatched_summary_selection(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:4] == ['npx', '--yes', 'cypress@15.21.1', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['selectedScenarioNames'] = ['planner_core']
@@ -1667,7 +1705,7 @@ def test_run_browser_phase_rejects_mismatched_summary_flow_keys(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:4] == ['npx', '--yes', 'cypress@15.21.1', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['browserFlowKeys'] = ['alpha']
