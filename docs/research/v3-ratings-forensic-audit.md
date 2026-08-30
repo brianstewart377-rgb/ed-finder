@@ -59,6 +59,24 @@ The two known workbook exceptions are retained in `surface_slot_workbook_predict
 
 Observed predictor boundaries/features include temperature 700 K, gravity 2.7 g, landability, radius thresholds 1500/3750/5500 km, HMC bonus, terraformability, geo-or-volcanism, bio, atmosphere +2/+1, and cap 7.
 
+### Raven Colonial source code identified
+
+The public repository `njthomson/RavenColonialWeb` contains `src/slot-prediction.ts`. Its current `predictSurfaceSlots()` is the same family as the later simplified JS heuristic previously tested against our workbook corpus:
+
+- zero if temperature >700 K, gravity >2.7 g, or not landable;
+- radius bands `<1500 => 1`, `<3750 => 2`, `<6000 => 3`, otherwise 4;
+- +1 HMC;
+- +1 terraformable;
+- +1 volcanism OR geo;
+- +2 atmosphere;
+- cap 7.
+
+Git history shows this predictor was introduced in commit `cd7c9d88077f4caf3885c85345d683534e1033a1` on 2025-11-19 (`Predict surface slots when they are unknown (#25)`).
+
+This is a valuable provenance result: Raven is not an independent confirmation of our 99.9568% workbook model. Its published predictor is precisely the weaker heuristic class that produced **96.3731%** on the 4,632-body test when implemented with spreadsheet-compatible volcanism handling. The important disagreements are the 6000 km threshold versus the workbook analysis around 5500 km, no bio term, and unconditional atmosphere +2 rather than the workbook's apparent +2/+1 behavior.
+
+Therefore Raven should be used as an implementation comparison and source of observed/user-corrected slot data, not automatically as the slot-prediction source of truth.
+
 ### Current topology estimator is materially weaker by construction
 
 `apps/importer/src/build_topology.py::estimate_body_slots()` uses coarse body-type/radius rules and omits temperature, gravity, atmosphere, terraformability, geo and bio. Those omitted variables are exactly the variables implicated by the validated 99.9568% model.
@@ -118,6 +136,7 @@ Any Ratings/CRE logic that uses pre-Dodec additive facility-stat assumptions is 
 ## Source-lineage cautions
 
 - `gaborauth/ed-colonisation-planner` is explicitly based on CMDR Dubior's guide, so matching conclusions are not independent evidence unless the repository adds its own observations/tests.
+- `njthomson/RavenColonialWeb` is now directly inspectable and should be treated as a maintained implementation, not primary mechanics evidence. Its source code is valuable for comparison and for finding observed/override data paths.
 - CRE's source-authority/provenance framework is good, but current machine-extracted mechanics appear concentrated around Mega Guide / DaftMav / OASIS / Dubior. Evidence breadth must be increased, particularly with dated official patch notes and direct observed colony outcomes.
 - Community reports after Update 3 show final station/service/market outcomes can also be affected by legacy BGS/faction state. Official colonisation notes are authoritative for the colonisation layer but are not necessarily a complete predictor of every observed station outcome.
 
@@ -128,6 +147,8 @@ Any Ratings/CRE logic that uses pre-Dodec additive facility-stat assumptions is 
 **P0 — contradictory Refinery+Industrial semantics exist across current scoring code, v3.4 documentation, and v4 pair constants.**
 
 **P0 — current ground-slot topology estimator ignores variables used by a 99.9568%-validated model.**
+
+**P1 — Raven's current public slot predictor is materially less accurate on our validation corpus than the workbook predictor, so copying Raven would be a regression.**
 
 **P1 — v3.4 fixed-rank attenuation risks being mistaken for a game mechanic rather than a regularizer.**
 
@@ -140,10 +161,11 @@ Any Ratings/CRE logic that uses pre-Dodec additive facility-stat assumptions is 
 Do not accept the P0 findings solely from code inspection. Next validation should try to prove them wrong:
 
 1. Benchmark `estimate_body_slots()` against the full 4,632-body workbook corpus. If it unexpectedly approaches the workbook accuracy, downgrade the slot concern; otherwise quantify error by subtype/atmosphere/radius/temperature.
-2. Find post-Aug-2025 observed colonies deliberately built as Refinery+Industrial and compare commodity supply/demand, inherited economies, and leader order against Extraction+Refinery / Industrial+Military controls. This determines whether R+I is now viable and whether 0.95 is remotely calibrated.
-3. Construct same system/body fixtures where only tidal lock/icy status changes while the build is weak-linked. Official mechanics predict no strong-link modifier effect on weak links; observed economy percentages should be the falsifier.
-4. Compare archetype rankings with and without topology contribution on a golden-system corpus. If ordering is stable, topology defects may have small practical impact; if not, severity increases.
-5. Trace every `pair_synergy_constants` value to an observation/source. A number without provenance should be treated as a tunable prior, not evidence.
+2. Re-run Raven's exact current `predictSurfaceSlots()` on the workbook corpus with Raven's actual feature mapping, not our spreadsheet approximation. If its result differs materially from 96.3731%, update the comparison.
+3. Find post-Aug-2025 observed colonies deliberately built as Refinery+Industrial and compare commodity supply/demand, inherited economies, and leader order against Extraction+Refinery / Industrial+Military controls. This determines whether R+I is now viable and whether 0.95 is remotely calibrated.
+4. Construct same system/body fixtures where only tidal lock/icy status changes while the build is weak-linked. Official mechanics predict no strong-link modifier effect on weak links; observed economy percentages should be the falsifier.
+5. Compare archetype rankings with and without topology contribution on a golden-system corpus. If ordering is stable, topology defects may have small practical impact; if not, severity increases.
+6. Trace every `pair_synergy_constants` value to an observation/source. A number without provenance should be treated as a tunable prior, not evidence.
 
 ## Golden corpus required before Ratings vNext
 
@@ -164,7 +186,7 @@ Expected record shape: system/body IDs, build topology, facility build order, ob
 ## Persistent research queue
 
 1. Quantitatively benchmark current `build_topology.py::estimate_body_slots()` against `Colonization slot analysis.xlsx`.
-2. Reconstruct the exact workbook surface-slot formula, including why the two exceptions differ.
+2. Reconstruct the exact workbook surface-slot formula, including why the two exceptions differ, and compare it line-by-line with Raven's current `slot-prediction.ts`.
 3. Audit orbital-slot prediction separately; do not assume the surface formula solves orbitals.
 4. Trace current `pair_synergy_constants` and `PAIR_MODIFIERS` to evidence; test whether any are merely hand-tuned.
 5. Search post-Aug-2025 observed Refinery+Industrial colony data and commodity-market examples.
