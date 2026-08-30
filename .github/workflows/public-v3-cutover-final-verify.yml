@@ -1,0 +1,72 @@
+name: Public V3 Cutover Final Verify
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/public-v3-cutover-final-verify-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/public-v3-cutover-final-verify-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Verify public hosts and auth
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in ed-finder.app www.ed-finder.app review.ed-finder.app octopus.ed-finder.app; do
+            code="$(curl -sS -L --max-time 15 -o /tmp/body -D /tmp/headers -w '%{http_code}' "https://$host/")"
+            [ "$code" = 200 ]
+            grep -qi '^server: cloudflare' /tmp/headers
+            grep -q 'ED-Finder V3' /tmp/body
+            echo "$host|200|cloudflare|v3_survival_landing"
+          done
+
+          code="$(curl -sS --max-time 15 -o /tmp/session.json -D /tmp/session.headers -w '%{http_code}' 'https://ed-finder.app/api/auth/session')"
+          [ "$code" = 200 ]
+          grep -qi '^server: cloudflare' /tmp/session.headers
+          python3 - <<'PY'
+          import json
+          d=json.load(open('/tmp/session.json'))
+          if d.get('authenticated') is not False:
+              raise SystemExit('anonymous public session endpoint returned unexpected authenticated=true')
+          print('public_auth_session|PASS')
+          PY
+
+          code="$(curl -sS --max-time 15 -o /dev/null -D /tmp/login.headers -w '%{http_code}' 'https://ed-finder.app/api/auth/frontier/login?return_to=/')"
+          [ "$code" = 302 ]
+          grep -qi '^server: cloudflare' /tmp/login.headers
+          python3 - <<'PY'
+          from pathlib import Path
+          from urllib.parse import parse_qs, urlsplit
+          raw=Path('/tmp/login.headers').read_text(errors='replace').replace('\r\n','\n')
+          loc=''
+          for line in raw.splitlines():
+              if line.lower().startswith('location:'):
+                  loc=line.split(':',1)[1].strip()
+          u=urlsplit(loc)
+          q=parse_qs(u.query)
+          if u.scheme!='https' or u.hostname!='auth.frontierstore.net' or u.path!='/auth':
+              raise SystemExit('Frontier login redirect target is wrong')
+          if q.get('response_type')!=['code'] or q.get('code_challenge_method')!=['S256']:
+              raise SystemExit('Frontier login redirect missing code+PKCE S256')
+          if (q.get('redirect_uri') or [''])[0] != 'https://ed-finder.app/api/auth/frontier/callback':
+              raise SystemExit('Frontier callback URI mismatch')
+          print('public_frontier_login_redirect|PASS')
+          PY
+          echo 'final_public_cutover|PASS'
