@@ -1,0 +1,241 @@
+name: ed-new V3 Runtime Persistence
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-runtime-persist-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  persist:
+    name: Install durable V3 runtime bootstrap and health timer
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-runtime-persist-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"install-v3-runtime-persistence"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Install bootstrap and monitoring units
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          runtime='/opt/ed-finder-v3-runtime'
+          mkdir -p "$runtime"
+          chmod 700 "$runtime"
+          test -s "$runtime/api.env"
+          test -s "$runtime/nginx-private.conf"
+
+          cat > "$runtime/ensure-runtime.sh" <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          net='edfinder-v3-runtime'
+          redis='edfinder-v3-support-redis'
+          nats='edfinder-v3-support-nats'
+          api='edfinder-v3-api'
+          proxy='edfinder-v3-proxy'
+          runtime='/opt/ed-finder-v3-runtime'
+
+          # The canonical database must already exist. Never synthesize or rebuild it here.
+          docker inspect "$pg" >/dev/null 2>&1 || {
+            echo 'FATAL: retained PG18 container is missing; manual recovery required' >&2
+            exit 20
+          }
+          pg_state="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$pg")"
+          [ "$pg_state" = healthy ] || [ "$pg_state" = running ] || {
+            echo "FATAL: retained PG18 is not healthy/running: $pg_state" >&2
+            exit 21
+          }
+
+          docker network inspect "$net" >/dev/null 2>&1 || docker network create --label com.edfinder.v3.runtime=true "$net" >/dev/null
+          if ! docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$pg" | grep -Fxq "$net"; then
+            docker network connect --alias postgres "$net" "$pg"
+          fi
+          docker update --restart unless-stopped "$pg" >/dev/null
+
+          if ! docker inspect "$redis" >/dev/null 2>&1; then
+            docker run -d --name "$redis" --restart unless-stopped \
+              --network "$net" --network-alias redis \
+              --label com.edfinder.v3.runtime=true \
+              redis:8.2.2-alpine redis-server --save '' --appendonly no >/dev/null
+          else
+            docker update --restart unless-stopped "$redis" >/dev/null
+            if ! docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$redis" | grep -Fxq "$net"; then
+              docker network connect --alias redis "$net" "$redis"
+            fi
+            [ "$(docker inspect -f '{{.State.Running}}' "$redis")" = true ] || docker start "$redis" >/dev/null
+          fi
+
+          docker volume inspect edfinder-v3-support-natsdata >/dev/null 2>&1 || docker volume create --label com.edfinder.v3.runtime=true edfinder-v3-support-natsdata >/dev/null
+          if ! docker inspect "$nats" >/dev/null 2>&1; then
+            docker run -d --name "$nats" --restart unless-stopped \
+              --network "$net" --network-alias nats \
+              --label com.edfinder.v3.runtime=true \
+              -v edfinder-v3-support-natsdata:/data \
+              nats:2.12.4-alpine --jetstream --store_dir=/data --name=edfinder-v3-support-nats >/dev/null
+          else
+            docker update --restart unless-stopped "$nats" >/dev/null
+            if ! docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$nats" | grep -Fxq "$net"; then
+              docker network connect --alias nats "$net" "$nats"
+            fi
+            [ "$(docker inspect -f '{{.State.Running}}' "$nats")" = true ] || docker start "$nats" >/dev/null
+          fi
+
+          if ! docker inspect "$api" >/dev/null 2>&1; then
+            docker image inspect edfinder-v3-api:phase4c-r5 >/dev/null
+            test -s "$runtime/api.env"
+            docker create --name "$api" --restart unless-stopped \
+              --network "$net" --network-alias api \
+              --label com.edfinder.v3.runtime=true \
+              --env-file "$runtime/api.env" \
+              -p 127.0.0.1:58095:8000 \
+              edfinder-v3-api:phase4c-r5 >/dev/null
+          else
+            docker update --restart unless-stopped "$api" >/dev/null
+            if ! docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$api" | grep -Fxq "$net"; then
+              docker network connect --alias api "$net" "$api"
+            fi
+          fi
+          [ "$(docker inspect -f '{{.State.Running}}' "$api")" = true ] || docker start "$api" >/dev/null
+
+          if ! docker inspect "$proxy" >/dev/null 2>&1; then
+            test -s "$runtime/nginx-private.conf"
+            docker run -d --name "$proxy" --restart unless-stopped \
+              --network "$net" --network-alias proxy \
+              --label com.edfinder.v3.runtime=true \
+              -p 127.0.0.1:58080:8080 \
+              -v "$runtime/nginx-private.conf:/etc/nginx/nginx.conf:ro" \
+              nginx:1.28-alpine >/dev/null
+          else
+            docker update --restart unless-stopped "$proxy" >/dev/null
+            if ! docker inspect -f '{{range $k,$v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$proxy" | grep -Fxq "$net"; then
+              docker network connect --alias proxy "$net" "$proxy"
+            fi
+            [ "$(docker inspect -f '{{.State.Running}}' "$proxy")" = true ] || docker start "$proxy" >/dev/null
+          fi
+
+          echo 'V3 runtime ensured'
+          SCRIPT
+          chmod 700 "$runtime/ensure-runtime.sh"
+
+          cat > "$runtime/health-check.sh" <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          redis='edfinder-v3-support-redis'
+          nats='edfinder-v3-support-nats'
+          api='edfinder-v3-api'
+          proxy='edfinder-v3-proxy'
+
+          [ "$(docker inspect -f '{{.State.Health.Status}}' "$pg")" = healthy ]
+          docker exec "$redis" redis-cli ping | grep -qx PONG
+          [ "$(docker inspect -f '{{.State.Running}}' "$nats")" = true ]
+          docker inspect -f '{{json .Config.Cmd}}' "$nats" | grep -q -- '--jetstream'
+          [ "$(docker inspect -f '{{.State.Running}}' "$api")" = true ]
+          [ "$(docker inspect -f '{{.State.Running}}' "$proxy")" = true ]
+          curl -fsS --max-time 5 http://127.0.0.1:58095/api/health | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p.get("status")=="ok" and p.get("database")=="connected"'
+          curl -fsS --max-time 5 http://127.0.0.1:58080/_proxy-health | grep -qx ok
+          curl -fsS --max-time 5 http://127.0.0.1:58080/api/v1/auth/session | python3 -c 'import json,sys; p=json.load(sys.stdin); assert p.get("authenticated") is False'
+          echo 'V3 runtime health PASS'
+          SCRIPT
+          chmod 700 "$runtime/health-check.sh"
+
+          cat > /etc/systemd/system/edfinder-v3-runtime.service <<'UNIT'
+          [Unit]
+          Description=Ensure ED-Finder V3 private runtime
+          Requires=docker.service
+          After=docker.service network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/opt/ed-finder-v3-runtime/ensure-runtime.sh
+          RemainAfterExit=yes
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          cat > /etc/systemd/system/edfinder-v3-health.service <<'UNIT'
+          [Unit]
+          Description=Check ED-Finder V3 private runtime health
+          Requires=docker.service
+          After=docker.service edfinder-v3-runtime.service
+
+          [Service]
+          Type=oneshot
+          ExecStart=/opt/ed-finder-v3-runtime/health-check.sh
+          UNIT
+
+          cat > /etc/systemd/system/edfinder-v3-health.timer <<'UNIT'
+          [Unit]
+          Description=Run ED-Finder V3 health check every five minutes
+
+          [Timer]
+          OnBootSec=2min
+          OnUnitActiveSec=5min
+          AccuracySec=30s
+          Persistent=true
+          Unit=edfinder-v3-health.service
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          systemctl daemon-reload
+          systemctl enable edfinder-v3-runtime.service edfinder-v3-health.timer >/dev/null
+          "$runtime/ensure-runtime.sh"
+          "$runtime/health-check.sh"
+          systemctl start edfinder-v3-health.timer
+
+          echo 'runtime_persistence|PASS'
+          echo "runtime_service_enabled|$(systemctl is-enabled edfinder-v3-runtime.service)"
+          echo "health_timer_enabled|$(systemctl is-enabled edfinder-v3-health.timer)"
+          echo "health_timer_active|$(systemctl is-active edfinder-v3-health.timer)"
+          echo 'public_exposure|false'
+          echo 'db_write_route_called|false'
+          REMOTE
