@@ -1,0 +1,154 @@
+name: One-shot V3 Cutover Readiness Audit
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/workflows/one-shot-v3-cutover-readiness-audit.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Map V3 runtime, identity and cutover pointers
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 20
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Audit V3 runtime and external pointer readiness read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -u
+          export LC_ALL=C
+          section() { printf '\n===== %s =====\n' "$*"; }
+          root=/root/edfinder-v3-phase4c-full-rehearsal-20260827-r5
+          repo="$root/repo"
+          pg=edfinder-v3-phase4c-full-20260827_r5-postgres
+
+          section 'V3 SOURCE IDENTITY'
+          if [ -d "$repo/.git" ]; then
+            cd "$repo"
+            printf 'branch='; git branch --show-current
+            printf 'head='; git rev-parse HEAD
+            git status --short
+            git remote -v | sed -E 's#(https?://)[^/@]+@#\1<redacted>@#g'
+            git log -8 --oneline --decorate
+          else
+            echo v3_repo_missing=true
+          fi
+          echo '-- rehearsal top-level files --'
+          find "$root" -maxdepth 2 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort
+          echo '-- compose and environment candidates --'
+          find "$root" "$repo" -maxdepth 4 -type f \( -iname '*compose*.yml' -o -iname '*compose*.yaml' -o -name '.env' -o -name '*.env' -o -iname '*deploy*' -o -iname '*cutover*' -o -iname '*runbook*' \) -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort
+
+          section 'SANITISED V3 COMPOSE CONTRACT'
+          compose=''
+          for candidate in "$root/docker-compose.yml" "$root/compose.yml" "$root/docker-compose.yaml" "$root/compose.yaml"; do
+            [ -f "$candidate" ] && { compose="$candidate"; break; }
+          done
+          if [ -n "$compose" ]; then
+            echo "compose_file=$compose"
+            docker compose -f "$compose" config --services 2>/dev/null || true
+            docker compose -f "$compose" config --volumes 2>/dev/null || true
+            python3 - "$compose" <<'PY'
+          from pathlib import Path
+          import re, sys
+          text = Path(sys.argv[1]).read_text(encoding='utf-8')
+          sensitive = re.compile(r'(?i)(password|secret|token|private.?key|client.?id|credential|dsn)')
+          for line in text.splitlines():
+              if sensitive.search(line):
+                  indent = line[: len(line) - len(line.lstrip())]
+                  print(indent + '<redacted sensitive setting>')
+              else:
+                  print(line)
+          PY
+          else
+            echo compose_file_missing=true
+          fi
+
+          section 'V3 CONTAINER CONTRACTS'
+          for name in \
+            edfinder-v3-phase4c-full-20260827_r5-postgres \
+            edfinder-v3-phase4c-full-20260827_r5-api \
+            edfinder-v3-phase4c-full-20260827_r5-worker \
+            edfinder-v3-phase4c-full-20260827_r5-redis \
+            edfinder-v3-phase4c-full-20260827_r5-nats; do
+            if docker inspect "$name" >/dev/null 2>&1; then
+              echo "-- $name --"
+              docker inspect "$name" --format 'status={{.State.Status}} image={{.Config.Image}} created={{.Created}} restart={{.HostConfig.RestartPolicy.Name}} network_mode={{.HostConfig.NetworkMode}}'
+              docker inspect "$name" --format 'ports={{json .NetworkSettings.Ports}} exposed={{json .Config.ExposedPorts}}'
+              docker inspect "$name" --format 'labels={{json .Config.Labels}}'
+              docker inspect "$name" --format '{{range .Mounts}}mount={{.Type}}:{{.Source}}->{{.Destination}}:rw={{.RW}}{{println}}{{end}}'
+              docker inspect "$name" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+                | sed -n -E 's/^([A-Za-z_][A-Za-z0-9_]*)=.*/env_key=\1/p' | sort -u
+            else
+              echo "container_missing=$name"
+            fi
+          done
+
+          section 'V3 DATABASE SCHEMA POINTERS'
+          docker exec "$pg" sh -lc '
+            set -u
+            user="${POSTGRES_USER:-postgres}"
+            db="${POSTGRES_DB:-postgres}"
+            psql -X -P pager=off -U "$user" -d "$db" -c "SELECT schema_name FROM information_schema.schemata WHERE schema_name LIKE ''v3_%'' ORDER BY schema_name;"
+            psql -X -P pager=off -U "$user" -d "$db" -c "SELECT table_schema, table_name FROM information_schema.tables WHERE table_schema IN (''v3_identity'',''v3_private'',''v3_source'',''v3_meta'',''v3_async'') ORDER BY table_schema, table_name;"
+            psql -X -P pager=off -U "$user" -d "$db" -c "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns WHERE table_schema = ''v3_identity'' ORDER BY table_name, ordinal_position;"
+            psql -X -P pager=off -U "$user" -d "$db" -c "SELECT table_schema, table_name FROM information_schema.tables WHERE lower(table_name) LIKE ''%oauth%'' OR lower(table_name) LIKE ''%account%'' OR lower(table_name) LIKE ''%session%'' ORDER BY table_schema, table_name;"
+          ' || true
+
+          section 'PUBLIC-SERVICE READINESS'
+          ss -lntup || true
+          echo '-- locally reachable HTTP candidates --'
+          for url in http://127.0.0.1:80/ http://127.0.0.1:8000/health http://127.0.0.1:8080/health http://127.0.0.1:8765/; do
+            code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 2 "$url" 2>/dev/null || true)"
+            echo "$url code=${code:-unreachable}"
+          done
+          echo '-- systemd services relevant to public cutover --'
+          systemctl --no-pager list-unit-files | grep -Ei 'nginx|caddy|traefik|ed-finder|cloudflared|tunnel|docker|rclone' || true
+          echo '-- firewall posture --'
+          if command -v ufw >/dev/null 2>&1; then ufw status verbose || true; fi
+          if command -v nft >/dev/null 2>&1; then nft list ruleset 2>/dev/null | sed -n '1,180p' || true; fi
+
+          section 'DOMAIN POINTERS FROM V3 HOST'
+          for name in ed-finder.app www.ed-finder.app api.ed-finder.app review.ed-finder.app; do
+            echo "name=$name"
+            getent ahostsv4 "$name" 2>/dev/null | awk '{print $1}' | sort -u || true
+            getent ahostsv6 "$name" 2>/dev/null | awk '{print $1}' | sort -u || true
+          done
+          curl -sSIk --max-time 8 https://ed-finder.app/ | sed -n '1,25p' || true
+
+          section 'V3 CUTOVER BLOCKERS'
+          api_status="$(docker inspect edfinder-v3-phase4c-full-20260827_r5-api --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+          worker_status="$(docker inspect edfinder-v3-phase4c-full-20260827_r5-worker --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+          redis_status="$(docker inspect edfinder-v3-phase4c-full-20260827_r5-redis --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+          nats_status="$(docker inspect edfinder-v3-phase4c-full-20260827_r5-nats --format '{{.State.Status}}' 2>/dev/null || echo missing)"
+          echo "api_status=$api_status"
+          echo "worker_status=$worker_status"
+          echo "redis_status=$redis_status"
+          echo "nats_status=$nats_status"
+          [ "$api_status" = running ] && echo api_running=true || echo api_running=false
+          ss -lnt | awk '$4 ~ /:80$|:443$/ {found=1} END {print "public_http_listener=" (found ? "true" : "false")}'
+          echo read_only=true
+          REMOTE
