@@ -110,7 +110,7 @@ services:
       context: ../..
       dockerfile: apps/maintenance/Dockerfile
     environment:
-      DATABASE_URL: ${V3_DATABASE_MAINTENANCE_URL:-disabled; set an external PG18 maintenance-role URL before enabling this profile}
+      DATABASE_URL: ${V3_DATABASE_MAINTENANCE_URL:-disabled}
       DATA_INVARIANTS_DATABASE_URL: ${V3_DATABASE_READONLY_URL:?set V3_DATABASE_READONLY_URL}
       LOG_FILE: /data/logs/maintenance.log
       TZ: UTC
