@@ -1,0 +1,179 @@
+name: ed-new V3 Backup Schedule
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-backup-schedule-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install guarded V3 backup and verify timers
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-backup-schedule-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {"operation":"install-v3-backup-schedule"}:
+              raise SystemExit(64)
+          PY
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Install future-only backup timers
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          runtime='/opt/ed-finder-v3-runtime'
+          mkdir -p "$runtime"
+          chmod 700 "$runtime"
+
+          cat > "$runtime/pgbackrest-operation.sh" <<'SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          op="${1:?operation required}"
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          mount='/mnt/ed-storagebox'
+          lock='/run/lock/edfinder-v3-pgbackrest-schedule.lock'
+
+          case "$op" in full|diff|verify) ;; *) echo "unsupported pgBackRest operation: $op" >&2; exit 64 ;; esac
+
+          # Never fall back to the underlying local mount directory.
+          mountpoint -q "$mount" || { echo 'SKIP: Storage Box is not mounted' >&2; exit 0; }
+          fstype="$(findmnt -n -o FSTYPE -T "$mount" || true)"
+          [ "$fstype" = 'fuse.rclone' ] || { echo "SKIP: unexpected Storage Box filesystem: $fstype" >&2; exit 0; }
+          docker inspect "$c" >/dev/null 2>&1 || { echo 'SKIP: PG18 container missing' >&2; exit 0; }
+
+          exec 9>"$lock"
+          flock -n 9 || { echo 'SKIP: another scheduled pgBackRest operation owns the host lock'; exit 0; }
+
+          # Also respect manually-started or externally-tracked operations.
+          active="$(docker top "$c" -eo args 2>/dev/null | awk 'tolower($0) ~ /pgbackrest/ && tolower($0) ~ /(backup|verify)/ {n++} END {print n+0}')"
+          if [ "$active" -gt 0 ]; then
+            echo "SKIP: $active pgBackRest backup/verify process(es) already active"
+            exit 0
+          fi
+
+          info="$(docker exec -u postgres "$c" pgbackrest --stanza=edfinder_v3 --log-level-console=off --output=json info)"
+          python3 -c 'import json,sys; d=json.load(sys.stdin); assert len(d)==1 and d[0].get("status",{}).get("message")=="ok"' <<<"$info"
+
+          echo "START: pgBackRest $op"
+          if [ "$op" = verify ]; then
+            nice -n 10 ionice -c2 -n7 docker exec -u postgres "$c" \
+              pgbackrest --stanza=edfinder_v3 --log-level-console=info verify
+          else
+            nice -n 10 ionice -c2 -n7 docker exec -u postgres "$c" \
+              pgbackrest --stanza=edfinder_v3 --type="$op" --log-level-console=info backup
+          fi
+          echo "PASS: pgBackRest $op"
+          SCRIPT
+          chmod 700 "$runtime/pgbackrest-operation.sh"
+
+          cat > /etc/systemd/system/edfinder-v3-pgbackrest@.service <<'UNIT'
+          [Unit]
+          Description=ED-Finder V3 pgBackRest %i operation
+          Requires=docker.service
+          After=docker.service network-online.target
+          Wants=network-online.target
+          ConditionPathIsMountPoint=/mnt/ed-storagebox
+
+          [Service]
+          Type=oneshot
+          ExecStart=/opt/ed-finder-v3-runtime/pgbackrest-operation.sh %i
+          Nice=10
+          IOSchedulingClass=best-effort
+          IOSchedulingPriority=7
+          TimeoutStartSec=infinity
+          UNIT
+
+          cat > /etc/systemd/system/edfinder-v3-backup-diff.timer <<'UNIT'
+          [Unit]
+          Description=ED-Finder V3 differential backup Monday-Saturday
+
+          [Timer]
+          OnCalendar=Mon..Sat *-*-* 02:30:00 UTC
+          RandomizedDelaySec=10min
+          AccuracySec=2min
+          Persistent=false
+          Unit=edfinder-v3-pgbackrest@diff.service
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          cat > /etc/systemd/system/edfinder-v3-backup-full.timer <<'UNIT'
+          [Unit]
+          Description=ED-Finder V3 weekly full backup
+
+          [Timer]
+          OnCalendar=Sun *-*-* 02:30:00 UTC
+          RandomizedDelaySec=10min
+          AccuracySec=2min
+          Persistent=false
+          Unit=edfinder-v3-pgbackrest@full.service
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          cat > /etc/systemd/system/edfinder-v3-backup-verify.timer <<'UNIT'
+          [Unit]
+          Description=ED-Finder V3 weekly backup repository verification
+
+          [Timer]
+          OnCalendar=Sun *-*-* 12:00:00 UTC
+          RandomizedDelaySec=15min
+          AccuracySec=5min
+          Persistent=false
+          Unit=edfinder-v3-pgbackrest@verify.service
+
+          [Install]
+          WantedBy=timers.target
+          UNIT
+
+          systemctl daemon-reload
+          systemctl enable --now edfinder-v3-backup-diff.timer edfinder-v3-backup-full.timer edfinder-v3-backup-verify.timer >/dev/null
+
+          echo 'backup_schedule|PASS'
+          echo "diff_timer|$(systemctl is-enabled edfinder-v3-backup-diff.timer)|$(systemctl is-active edfinder-v3-backup-diff.timer)"
+          echo "full_timer|$(systemctl is-enabled edfinder-v3-backup-full.timer)|$(systemctl is-active edfinder-v3-backup-full.timer)"
+          echo "verify_timer|$(systemctl is-enabled edfinder-v3-backup-verify.timer)|$(systemctl is-active edfinder-v3-backup-verify.timer)"
+          echo 'backup_started_now|false'
+          echo 'db_write_route_called|false'
+          REMOTE
