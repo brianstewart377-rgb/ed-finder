@@ -1,0 +1,269 @@
+name: One-shot Hetzner Preserve and DB Snapshot
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/workflows/one-shot-hetzner-preserve-and-db-snapshot.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hetzner-retirement-preservation
+  cancel-in-progress: false
+
+jobs:
+  preserve:
+    name: Archive V2 reference and start durable DB snapshot
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 120
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Preserve reviewed reference estate and launch consistent logical snapshot
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C
+          stamp=20260830
+          repo=/opt/ed-finder
+          archive_root="/data/backups/hetzner-retirement-$stamp"
+          reference="$archive_root/reference"
+          database="$archive_root/database"
+          unit="edfinder-hetzner-final-db-preservation-$stamp"
+
+          mkdir -p "$reference" "$database"
+          chmod 700 "$archive_root" "$reference" "$database"
+
+          echo '===== OFFSITE PREFLIGHT ====='
+          docker exec ed-maintenance bash -lc '
+            set -euo pipefail
+            : "${BACKUP_OFFSITE_REMOTE:?BACKUP_OFFSITE_REMOTE is required}"
+            command -v rclone >/dev/null
+            remote_name="${BACKUP_OFFSITE_REMOTE%%:*}:"
+            rclone listremotes | grep -Fxq "$remote_name"
+            rclone mkdir "$BACKUP_OFFSITE_REMOTE/hetzner-retirement-20260830/reference"
+            rclone mkdir "$BACKUP_OFFSITE_REMOTE/hetzner-retirement-20260830/database"
+            printf "offsite_remote_identity_sha256="
+            printf "%s" "$BACKUP_OFFSITE_REMOTE" | sha256sum | awk "{print \$1}"
+            echo offsite_preflight=true
+          '
+
+          echo '===== REFERENCE MANIFEST ====='
+          manifest="$reference/MANIFEST.txt"
+          {
+            echo 'classification=V2_IMMUTABLE_REFERENCE_NOT_FOR_MERGE'
+            echo 'created_at_utc='"$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo 'source_hostname='"$(hostname)"
+            echo 'source_repo='"$repo"
+            echo 'source_branch='"$(git -C "$repo" branch --show-current)"
+            echo 'source_head='"$(git -C "$repo" rev-parse HEAD)"
+            echo 'source_postgres_version='"$(docker exec ed-postgres postgres --version)"
+            echo 'source_database_size='"$(docker exec ed-postgres sh -lc 'psql -X -At -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" -c "SELECT pg_size_pretty(pg_database_size(current_database()))"')"
+            echo 'restore_intent=reference_only'
+            echo 'v3_import_authorized=false'
+            echo 'dns_cutover_authorized=false'
+            echo 'contents=git_all_refs,git_directory,host_runtime_config,receipts_logs_dumps,octopus_reference,custom_images,db_globals,db_schema,full_parallel_logical_dump'
+          } > "$manifest"
+
+          git -C "$repo" status --short > "$reference/git-status.txt"
+          git -C "$repo" for-each-ref --format='%(refname) %(objectname) %(committerdate:iso8601)' > "$reference/git-refs.txt"
+          git -C "$repo" reflog show --all --date=iso > "$reference/git-reflogs.txt" || true
+          git -C "$repo" fsck --full --no-progress > "$reference/git-fsck.txt" 2>&1 || true
+
+          echo '===== GIT PRESERVATION ====='
+          git -C "$repo" bundle create "$reference/ed-finder-all-refs.bundle" --all
+          git -C "$repo" bundle verify "$reference/ed-finder-all-refs.bundle" > "$reference/git-bundle-verify.txt" 2>&1
+          tar -C "$repo" --zstd --numeric-owner -cpf "$reference/ed-finder-dot-git.tar.zst" .git
+
+          echo '===== HOST AND RUNTIME REFERENCE ARCHIVE ====='
+          mapfile -d '' extra_repo_files < <(git -C "$repo" ls-files --others --exclude-standard -z)
+          paths=(
+            opt/ed-finder/.env
+            opt/ed-finder/docker-compose.override.yml
+            opt/ed-finder/maintenance-crontab
+            opt/ed-finder/maintenance-crontab.orig
+            opt/ed-finder/Dockerfile.postgres
+            opt/ed-finder/docker-compose.yml.pre-v2-retirement.20260829
+            opt/ed-finder/.operator-backups
+            opt/ed-finder-review
+            opt/octopus
+            srv/octopus
+            data/receipts
+            data/logs
+            data/dumps
+            etc/nginx
+            etc/letsencrypt
+            var/lib/letsencrypt
+            etc/systemd/system
+            etc/cron.d
+            etc/cron.daily
+            etc/cron.hourly
+            etc/cron.weekly
+            etc/cron.monthly
+            etc/docker
+            etc/fail2ban
+            etc/ssh/sshd_config
+            etc/ssh/sshd_config.d
+            var/log/nginx
+            root
+          )
+          for item in "${extra_repo_files[@]}"; do
+            paths+=("opt/ed-finder/$item")
+          done
+          existing=()
+          for item in "${paths[@]}"; do
+            [ -e "/$item" ] && existing+=("$item")
+          done
+          tar -C / \
+            --zstd --numeric-owner --xattrs --acls \
+            --exclude='root/.ssh' \
+            --exclude='root/.cache' \
+            --exclude='root/.local/share/Trash' \
+            --exclude='root/.npm' \
+            --exclude='root/.cargo/registry' \
+            --exclude='root/.rustup' \
+            --exclude='opt/ed-finder-review/node_modules' \
+            --exclude='opt/ed-finder-review/frontend/node_modules' \
+            --exclude='opt/ed-finder-review/.venv' \
+            --exclude='opt/ed-finder/apps/api/venv' \
+            -cpf "$reference/host-runtime-reference.tar.zst" "${existing[@]}"
+
+          echo '===== DATABASE SCHEMA AND ROLE REFERENCE ====='
+          docker exec ed-postgres sh -lc 'pg_dumpall -U "${POSTGRES_USER:-postgres}" --globals-only --no-role-passwords' \
+            | zstd -T0 -6 -o "$reference/postgres-globals.sql.zst"
+          docker exec ed-postgres sh -lc 'pg_dump -U "${POSTGRES_USER:-postgres}" -d "${POSTGRES_DB:-postgres}" --schema-only --no-owner --no-privileges' \
+            | zstd -T0 -6 -o "$reference/postgres-schema.sql.zst"
+
+          echo '===== CONTAINER AND IMAGE REFERENCE ====='
+          docker ps -a --no-trunc --format '{{json .}}' > "$reference/docker-containers.ndjson"
+          docker images --digests --no-trunc --format '{{json .}}' > "$reference/docker-images.ndjson"
+          docker volume ls --format '{{json .}}' > "$reference/docker-volumes.ndjson"
+          docker network ls --format '{{json .}}' > "$reference/docker-networks.ndjson"
+          for id in $(docker ps -aq); do docker inspect "$id"; done > "$reference/docker-container-inspect.json"
+          for volume in $(docker volume ls -q); do docker volume inspect "$volume"; done > "$reference/docker-volume-inspect.json"
+          mapfile -t custom_images < <(
+            for container in ed-api ed-eddn ed-maintenance; do
+              docker inspect "$container" --format '{{.Image}}' 2>/dev/null || true
+            done | sort -u
+          )
+          if [ "${#custom_images[@]}" -gt 0 ]; then
+            docker save "${custom_images[@]}" | zstd -T0 -3 -o "$reference/ed-finder-custom-images.tar.zst"
+          fi
+
+          echo '===== CHECKSUM AND OFFSITE COPY ====='
+          find "$reference" -maxdepth 1 -type f ! -name SHA256SUMS -print0 \
+            | sort -z | xargs -0 sha256sum > "$reference/SHA256SUMS"
+          (cd "$reference" && sha256sum -c SHA256SUMS)
+          docker exec ed-maintenance bash -lc '
+            set -euo pipefail
+            remote="$BACKUP_OFFSITE_REMOTE/hetzner-retirement-20260830/reference"
+            rclone copy /data/backups/hetzner-retirement-20260830/reference "$remote" \
+              --transfers 6 --checkers 12 --metadata --create-empty-src-dirs
+            rclone check /data/backups/hetzner-retirement-20260830/reference "$remote" \
+              --one-way --checkers 12
+            echo reference_offsite_verified=true
+          '
+
+          echo '===== DURABLE FULL DATABASE SNAPSHOT ====='
+          db_script="$archive_root/run-final-logical-snapshot.sh"
+          cat > "$db_script" <<'SCRIPT'
+          #!/bin/bash
+          set -euo pipefail
+          archive_root=/data/backups/hetzner-retirement-20260830
+          database="$archive_root/database"
+          state="$database/STATE.txt"
+          tmp="$database/edfinder-pg16-directory.tmp"
+          final="$database/edfinder-pg16-directory"
+          log="$database/final-logical-snapshot.log"
+          exec >>"$log" 2>&1
+          echo "started_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$state"
+          echo 'status=running' >> "$state"
+          rm -rf "$tmp"
+          docker exec ed-maintenance bash -lc '
+            set -euo pipefail
+            tmp=/data/backups/hetzner-retirement-20260830/database/edfinder-pg16-directory.tmp
+            pg_dump "$DATABASE_URL" \
+              --format=directory \
+              --jobs=6 \
+              --compress=gzip:1 \
+              --no-owner \
+              --no-privileges \
+              --file="$tmp"
+            pg_restore --list "$tmp" > /data/backups/hetzner-retirement-20260830/database/pg-restore-catalog.txt
+          '
+          mv "$tmp" "$final"
+          find "$final" -type f -print0 | sort -z | xargs -0 sha256sum > "$database/edfinder-pg16-directory.SHA256SUMS"
+          du -sb "$final" > "$database/edfinder-pg16-directory.SIZE"
+          echo "dump_completed_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$state"
+          echo 'status=uploading' >> "$state"
+          docker exec ed-maintenance bash -lc '
+            set -euo pipefail
+            local_root=/data/backups/hetzner-retirement-20260830/database
+            remote="$BACKUP_OFFSITE_REMOTE/hetzner-retirement-20260830/database"
+            rclone copy "$local_root/edfinder-pg16-directory" "$remote/edfinder-pg16-directory" \
+              --transfers 12 --checkers 24 --metadata --create-empty-src-dirs
+            rclone copy "$local_root" "$remote" \
+              --include "STATE.txt" \
+              --include "pg-restore-catalog.txt" \
+              --include "edfinder-pg16-directory.SHA256SUMS" \
+              --include "edfinder-pg16-directory.SIZE" \
+              --include "final-logical-snapshot.log" \
+              --exclude "**"
+            rclone check "$local_root/edfinder-pg16-directory" "$remote/edfinder-pg16-directory" \
+              --one-way --checkers 24
+          '
+          echo "completed_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$state"
+          echo 'status=complete' >> "$state"
+          docker exec ed-maintenance bash -lc '
+            remote="$BACKUP_OFFSITE_REMOTE/hetzner-retirement-20260830/database"
+            rclone copyto /data/backups/hetzner-retirement-20260830/database/STATE.txt "$remote/STATE.txt"
+          '
+          SCRIPT
+          chmod 700 "$db_script"
+
+          if systemctl is-active --quiet "$unit.service"; then
+            echo db_snapshot_already_running=true
+          elif [ -f "$database/STATE.txt" ] && grep -q '^status=complete$' "$database/STATE.txt"; then
+            echo db_snapshot_already_complete=true
+          else
+            rm -f "$database/STATE.txt"
+            systemd-run \
+              --unit="$unit" \
+              --description='Final consistent ED-Finder V2 logical reference snapshot' \
+              --property=Nice=10 \
+              --property=IOSchedulingClass=best-effort \
+              --property=IOSchedulingPriority=7 \
+              /bin/bash "$db_script"
+            systemctl is-active --quiet "$unit.service"
+            echo db_snapshot_started=true
+          fi
+
+          echo '===== CURRENT RESULT ====='
+          ls -lh "$reference"
+          systemctl --no-pager status "$unit.service" | sed -n '1,30p' || true
+          [ -f "$database/STATE.txt" ] && cat "$database/STATE.txt" || true
+          echo v2_code_merged_into_v3=false
+          echo v2_database_imported_into_v3=false
+          echo public_routing_changed=false
+          REMOTE
