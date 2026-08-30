@@ -89,9 +89,9 @@ jobs:
           echo 'active_hetzner_tunnel|false'
 
           mountpoint -q /mnt/ed-storagebox
-          systemctl is-enabled edfinder-v3-pgbackrest@diff.timer >/dev/null
-          systemctl is-enabled edfinder-v3-pgbackrest@full.timer >/dev/null
-          systemctl is-enabled edfinder-v3-pgbackrest@verify.timer >/dev/null
+          systemctl is-enabled edfinder-v3-backup-diff.timer >/dev/null
+          systemctl is-enabled edfinder-v3-backup-full.timer >/dev/null
+          systemctl is-enabled edfinder-v3-backup-verify.timer >/dev/null
           echo 'backup_mount_and_timers|PASS'
 
           echo 'hetzner_independent_survival_path|PASS'
