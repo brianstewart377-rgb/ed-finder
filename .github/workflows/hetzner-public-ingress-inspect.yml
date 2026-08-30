@@ -1,0 +1,117 @@
+name: Hetzner Public Ingress Inspect
+
+on:
+  push:
+    branches:
+      - chatgpt-ops-requests
+    paths:
+      - '.github/hetzner-public-ingress-inspect-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect current public ingress safely
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/hetzner-public-ingress-inspect-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" > ~/.ssh/known_hosts
+      - name: Inspect listeners and proxy routes
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, pathlib, re, subprocess
+
+          print('hostname|' + subprocess.check_output(['hostname'],text=True).strip())
+          print('listeners:')
+          p=subprocess.run(['ss','-lntp'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          for line in p.stdout.splitlines():
+              if re.search(r':(80|443|8000|8080|3000|5000|58080|58095)\b',line):
+                  # Remove pid/process details; addresses/ports are enough.
+                  print(re.sub(r'users:\(.*','',line).strip())
+
+          print('docker_frontends:')
+          p=subprocess.run(['docker','ps','--format','{{.Names}}|{{.Image}}|{{.Ports}}'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          for line in p.stdout.splitlines():
+              low=line.lower()
+              if any(x in low for x in ('nginx','caddy','traefik','proxy','frontend','api')) or ':80->' in line or ':443->' in line:
+                  print(line)
+
+          candidates=[]
+          roots=[pathlib.Path('/opt/ed-finder'),pathlib.Path('/etc/nginx'),pathlib.Path('/etc/caddy'),pathlib.Path('/etc/traefik')]
+          for root in roots:
+              if not root.exists():
+                  continue
+              for path in root.rglob('*'):
+                  if not path.is_file() or path.stat().st_size > 2_000_000:
+                      continue
+                  if path.suffix.lower() not in {'.conf','.yml','.yaml','.json','.toml',''} and path.name not in {'Caddyfile','docker-compose.yml','compose.yml'}:
+                      continue
+                  try: text=path.read_text(errors='replace')
+                  except Exception: continue
+                  low=text.lower()
+                  if ('ed-finder.app' in low or 'proxy_pass' in low or 'reverse_proxy' in low) and ('api' in low or '443' in low):
+                      candidates.append((path,text))
+          print('ingress_config_files|' + str(len(candidates)))
+          for path,text in candidates[:20]:
+              print('CONFIG_BEGIN|' + str(path))
+              for raw in text.splitlines():
+                  line=raw.strip()
+                  low=line.lower()
+                  # Print only routing/listen/server/path/proxy directives. Suppress credential-ish lines.
+                  if any(s in low for s in ('password','secret','token','authorization','client_secret','api_key','private_key')):
+                      continue
+                  if any(k in low for k in ('server_name','listen ','location ','proxy_pass','reverse_proxy','handle_path','route ','upstream ','proxy_set_header host','proxy_set_header x-forwarded','ssl_certificate')):
+                      # Certificate paths are not secret material, but redact exact filesystem path anyway.
+                      if 'ssl_certificate' in low:
+                          print(line.split()[0] + ' <configured>')
+                      else:
+                          print(line[:1000])
+              print('CONFIG_END|' + str(path))
+
+          # Inspect compose service names/ports only, no environment values.
+          for f in ['/opt/ed-finder/docker-compose.yml','/opt/ed-finder/compose.yml']:
+              path=pathlib.Path(f)
+              if not path.is_file(): continue
+              try:
+                  import yaml
+                  data=yaml.safe_load(path.read_text()) or {}
+              except Exception:
+                  continue
+              print('compose_file|' + f)
+              for name,svc in (data.get('services') or {}).items():
+                  ports=svc.get('ports') or []
+                  if ports or name.lower() in {'nginx','proxy','api','frontend','web'}:
+                      print('compose_service|' + name + '|ports=' + json.dumps(ports,separators=(',',':')))
+          print('mutations_performed|false')
+          PY
