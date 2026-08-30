@@ -1,0 +1,106 @@
+name: ed-new V3 Live Auth Contract
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-live-auth-contract-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect retained API auth schema contract
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-live-auth-contract-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect API code and DB metadata read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess
+          api='edfinder-v3-api'
+          pg='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          db='edfinder_v3_phase4c_full_20260827_r5'
+
+          # Search only source text in the running API image. Never print env/config values.
+          find_cmd=r'''set -eu
+          roots="/app /opt /usr/local/lib/python3.*/site-packages"
+          for root in $roots; do
+            for d in $root; do
+              [ -e "$d" ] || continue
+              grep -RIl --include='*.py' -E 'frontier/login|external_identities|oauth_login_states|auth_login|web_sessions|app_users' "$d" 2>/dev/null || true
+            done
+          done | sort -u | head -80'''
+          p=subprocess.run(['docker','exec',api,'sh','-lc',find_cmd],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          files=[x.strip() for x in p.stdout.splitlines() if x.strip()]
+          print('auth_source_file_count|'+str(len(files)))
+          for f in files:
+              print('auth_source_file|'+f)
+
+          # Print only auth-related source lines/SQL identifiers, capped; no secrets expected in code.
+          for f in files[:20]:
+              cmd=f"grep -nE 'APIRouter|frontier/login|frontier/callback|frontier/link|external_identities|oauth_login_states|web_sessions|app_users|INSERT INTO|DELETE FROM|SELECT .* FROM|UPDATE ' {f!r} 2>/dev/null | head -120"
+              q=subprocess.run(['docker','exec',api,'sh','-lc',cmd],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+              if q.stdout.strip():
+                  print('SOURCE_BEGIN|'+f)
+                  for line in q.stdout.splitlines():
+                      print(line[:1000])
+                  print('SOURCE_END|'+f)
+
+          def sql(query):
+              cmd='PGPASSWORD="$POSTGRES_PASSWORD" exec psql -h 127.0.0.1 -U "$POSTGRES_USER" -d '+db+' -At -F "|" -c "$1"'
+              return subprocess.check_output(['docker','exec','-u','postgres',pg,'sh','-lc',cmd,'sh',query],text=True).strip()
+
+          tables=sql("SELECT table_schema,table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') AND (table_name ILIKE '%auth%' OR table_name ILIKE '%user%' OR table_name ILIKE '%session%' OR table_name ILIKE '%identity%' OR table_name ILIKE '%frontier%' OR table_name ILIKE '%account%') ORDER BY 1,2")
+          print('db_auth_related_tables:')
+          print(tables or '<none>')
+
+          # Discover migration/ledger tables without assuming their names.
+          ledgers=sql("SELECT table_schema,table_name FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema') AND (table_name ILIKE '%migration%' OR table_name ILIKE '%schema%version%' OR table_name ILIKE '%version%') ORDER BY 1,2")
+          print('db_migration_ledgers:')
+          print(ledgers or '<none>')
+
+          # List public table names near the end alphabetically to make missing auth tables obvious, but no row data.
+          all_public=sql("SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
+          names=[x for x in all_public.splitlines() if x]
+          print('public_table_count|'+str(len(names)))
+          print('public_tables_tail|'+','.join(names[-60:]))
+          print('db_writes_performed|false')
+          PY
