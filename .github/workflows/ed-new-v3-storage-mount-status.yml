@@ -1,0 +1,103 @@
+name: ed-new V3 Backup Storage Mount Status
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-v3-storage-mount-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Inspect V3 backup storage mount persistence
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/ed-new-v3-storage-mount-requests/*.json) ;; *) exit 64 ;; esac
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Inspect mount and boot configuration safely
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, pathlib, subprocess
+          c='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          target='/mnt/ed-storagebox'
+          p=subprocess.run(['findmnt','-J','-T',target],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+          print('findmnt_exit|' + str(p.returncode))
+          if p.returncode==0:
+              d=json.loads(p.stdout)
+              fs=(d.get('filesystems') or [{}])[0]
+              print('mount_target|' + str(fs.get('target','')))
+              print('mount_fstype|' + str(fs.get('fstype','')))
+              source=str(fs.get('source',''))
+              # Do not expose remote host/user details; only local-vs-remote classification.
+              remote = ':' in source or str(fs.get('fstype','')).lower() in {'fuse.sshfs','cifs','nfs','nfs4'}
+              print('mount_is_remote|' + str(remote).lower())
+          else:
+              print('mount_target|missing')
+
+          ins=json.loads(subprocess.check_output(['docker','inspect',c],text=True))[0]
+          matches=[]
+          for m in ins.get('Mounts',[]):
+              dst=str(m.get('Destination',''))
+              src=str(m.get('Source',''))
+              if 'ed-storagebox' in dst or 'ed-storagebox' in src or 'pgbackrest' in dst.lower():
+                  matches.append((m.get('Type',''),src,dst,m.get('RW',False)))
+          print('candidate_backup_mount_count|' + str(len(matches)))
+          for typ,src,dst,rw in matches:
+              # Local path is safe; suppress remote-like source text.
+              safe_src = src if src.startswith('/') else '<non-local-source>'
+              print(f'container_mount|type={typ}|source={safe_src}|dest={dst}|rw={str(bool(rw)).lower()}')
+
+          fstab=pathlib.Path('/etc/fstab')
+          fstab_match=False
+          if fstab.is_file():
+              for raw in fstab.read_text(errors='replace').splitlines():
+                  line=raw.strip()
+                  if line and not line.startswith('#') and target in line:
+                      fstab_match=True
+                      break
+          print('fstab_has_storagebox_mount|' + str(fstab_match).lower())
+
+          unit='mnt-ed\\x2dstoragebox.mount'
+          units=subprocess.run(['systemctl','list-unit-files','--no-legend'],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False).stdout
+          systemd_match=any(('ed-storagebox' in line.lower() or 'ed\\x2dstoragebox' in line.lower()) and '.mount' in line for line in units.splitlines())
+          print('systemd_mount_unit_present|' + str(systemd_match).lower())
+          print('mountpoint_live|' + str(subprocess.run(['mountpoint','-q',target]).returncode==0).lower())
+          print('db_writes_performed|false')
+          PY
