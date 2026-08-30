@@ -1,0 +1,200 @@
+name: One-shot ed-new Preservation Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/workflows/one-shot-ed-new-preservation-inventory.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    name: Read-only V3 target inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 25
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$SSH_HOST"
+          test -n "$SSH_PORT"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Inventory ed-new without changing it
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" 'bash -s --' <<'REMOTE'
+          set -euo pipefail
+          export LC_ALL=C
+          repo=/opt/ed-finder
+
+          section() { printf '\n===== %s =====\n' "$*"; }
+          size_path() {
+            path="$1"
+            if [ -e "$path" ]; then
+              timeout 180 du -smx "$path" 2>/dev/null | awk '{printf "%s MiB\t%s\n", $1, $2}' || echo "size_timeout $path"
+            fi
+          }
+
+          section 'HOST AND STORAGE'
+          printf 'utc='; date -u +%Y-%m-%dT%H:%M:%SZ
+          printf 'hostname='; hostname
+          printf 'fqdn='; hostname -f 2>/dev/null || true
+          printf 'kernel='; uname -sr
+          printf 'uptime='; uptime -p || true
+          df -hT
+          df -ih
+          lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINTS
+
+          section 'TOP-LEVEL SIZE MAP'
+          for path in "$repo" /root/pg18-migration-rehearsal /var/lib/docker /var/lib/postgresql /data /var/log /root /srv /home /var/backups; do
+            size_path "$path"
+          done
+
+          section 'V3 REPOSITORY AND MIGRATION WORKSPACE'
+          if [ -d "$repo/.git" ]; then
+            cd "$repo"
+            printf 'repo_branch='; git branch --show-current
+            printf 'repo_head='; git rev-parse HEAD
+            git status --short
+            echo '-- untracked files --'
+            git ls-files --others --exclude-standard -z | while IFS= read -r -d '' path; do
+              [ -e "$path" ] && stat -c '%s\t%y\t%n' "$path"
+            done | sort -nr || true
+          fi
+          if [ -d /root/pg18-migration-rehearsal ]; then
+            echo '-- pg18 migration rehearsal files --'
+            find /root/pg18-migration-rehearsal -xdev -maxdepth 4 -type f \
+              -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort -nr | head -200
+            if [ -f /root/pg18-migration-rehearsal/PG16_TO_PG18_COMPATIBILITY_AUDIT.md ]; then
+              sha256sum /root/pg18-migration-rehearsal/PG16_TO_PG18_COMPATIBILITY_AUDIT.md
+              sed -n '1,80p' /root/pg18-migration-rehearsal/PG16_TO_PG18_COMPATIBILITY_AUDIT.md
+            fi
+          fi
+
+          section 'DOCKER ESTATE'
+          docker version --format 'server={{.Server.Version}} client={{.Client.Version}}' || true
+          docker compose version || true
+          docker ps -a --no-trunc --format '{{.Names}}\t{{.Status}}\t{{.Image}}'
+          echo '-- images --'
+          docker images --digests --format '{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Digest}}\t{{.Size}}' | sort
+          echo '-- volumes --'
+          docker volume ls --format '{{.Name}}\t{{.Driver}}' | sort
+          echo '-- container mounts --'
+          for id in $(docker ps -aq); do
+            docker inspect "$id" --format '{{.Name}}{{range .Mounts}}\t{{.Type}}\t{{.Source}}\t{{.Destination}}\t{{.RW}}{{end}}'
+          done
+          docker system df -v || true
+
+          section 'POSTGRES CONTAINER INVENTORIES'
+          mapfile -t pg_containers < <(docker ps --format '{{.Names}}\t{{.Image}}' | awk 'tolower($0) ~ /postgres|postgis|pgbackrest/ {print $1}')
+          if [ "${#pg_containers[@]}" -eq 0 ]; then
+            echo 'postgres_containers=none'
+          fi
+          for container in "${pg_containers[@]}"; do
+            echo "-- container=$container --"
+            docker exec "$container" sh -lc '
+              set -eu
+              if ! command -v psql >/dev/null 2>&1; then
+                echo psql_unavailable=true
+                exit 0
+              fi
+              user="${POSTGRES_USER:-postgres}"
+              db="${POSTGRES_DB:-postgres}"
+              psql -X -v ON_ERROR_STOP=1 -U "$user" -d "$db" <<"SQL"
+              SELECT version();
+              SELECT current_database(), current_user, pg_postmaster_start_time();
+              SELECT extname, extversion FROM pg_extension ORDER BY extname;
+              SELECT datname, pg_size_pretty(pg_database_size(datname)) AS size
+              FROM pg_database WHERE datallowconn ORDER BY pg_database_size(datname) DESC;
+              SELECT pg_size_pretty(sum(pg_database_size(datname))) AS total_database_size
+              FROM pg_database WHERE datallowconn;
+              SELECT count(*) AS user_tables FROM pg_stat_user_tables;
+              SELECT schemaname, relname, n_live_tup, n_dead_tup,
+                     pg_size_pretty(pg_total_relation_size(relid)) AS total_size
+              FROM pg_stat_user_tables
+              ORDER BY pg_total_relation_size(relid) DESC
+              LIMIT 40;
+              SELECT pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn());
+              SQL
+            ' || echo "postgres_inventory_failed=$container"
+            docker inspect "$container" --format 'image={{.Config.Image}} created={{.Created}} restart={{.HostConfig.RestartPolicy.Name}}'
+          done
+
+          section 'PGBACKREST AND BACKUP POSTURE'
+          if command -v pgbackrest >/dev/null 2>&1; then
+            pgbackrest version || true
+            pgbackrest info --output=json 2>/dev/null || true
+          fi
+          for container in "${pg_containers[@]}"; do
+            if docker exec "$container" sh -lc 'command -v pgbackrest >/dev/null 2>&1'; then
+              echo "-- pgbackrest container=$container --"
+              docker exec "$container" sh -lc 'pgbackrest version; pgbackrest info --output=json 2>/dev/null || true'
+            fi
+          done
+          if command -v rclone >/dev/null 2>&1; then
+            echo 'rclone_installed=true'
+            rclone version | head -2
+            if [ -f /root/.config/rclone/rclone.conf ]; then
+              printf 'rclone_config_present=true sha256='; sha256sum /root/.config/rclone/rclone.conf | awk '{print $1}'
+              echo 'rclone_remotes:'
+              rclone listremotes 2>/dev/null | sed 's/:$//' || true
+            else
+              echo 'rclone_config_present=false'
+            fi
+          else
+            echo 'rclone_installed=false'
+          fi
+          for path in /data/backups /data/receipts /data/logs /root/pg18-migration-rehearsal; do
+            if [ -e "$path" ]; then
+              echo "-- $path --"
+              timeout 180 du -smx "$path" 2>/dev/null || true
+              find "$path" -xdev -maxdepth 4 -type f \
+                -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort -nr | head -100
+            fi
+          done
+
+          section 'CONFIGURATION AND SERVICE INVENTORY'
+          if [ -f "$repo/.env" ]; then
+            printf '.env_sha256='; sha256sum "$repo/.env" | awk '{print $1}'
+            echo '.env_keys:'
+            sed -n -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*)=.*/\1/p' "$repo/.env" | sort -u
+          fi
+          find /etc/systemd/system -maxdepth 3 -type f -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort
+          find /etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly -maxdepth 1 -type f \
+            -printf '%s\t%TY-%Tm-%TdT%TH:%TM:%TSZ\t%p\n' 2>/dev/null | sort || true
+          ss -lntup || true
+          systemctl --no-pager --type=service --state=running | grep -Ei 'docker|postgres|nginx|cron|ssh|fail2ban|rclone|ed[-_]?finder' || true
+
+          section 'TARGET CAPACITY SUMMARY'
+          available_bytes="$(df -B1 --output=avail / | tail -1 | tr -d ' ')"
+          echo "root_available_bytes=$available_bytes"
+          echo 'read_only_inventory=true'
+          echo 'database_writes=false'
+          echo 'files_modified=false'
+          echo 'services_restarted=false'
+          REMOTE
