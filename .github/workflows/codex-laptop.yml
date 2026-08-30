@@ -26,10 +26,6 @@ permissions:
   contents: write
   pull-requests: write
 
-concurrency:
-  group: codex-worker
-  cancel-in-progress: false
-
 jobs:
   codex:
     runs-on: [self-hosted, Linux, X64]
