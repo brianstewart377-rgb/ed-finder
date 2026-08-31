@@ -22,9 +22,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync and update it after any major roadmap change such as a stage completion, cutover, or lane shift):** Stages 25A–25H and **26A–26E are complete**. The R3F/Three.js desktop map (commit `3b53477`) is being **replaced with Babylon.js renderer (2026-08-16 redesign plan)** incorporating Stellar Forge-inspired galactic density model; prior renderer remains rollback option (`VITE_STAGE26E_PRODUCTION_MAP=disabled`). Foundation-finishing work (archetype-scoring cleanup ✓, CRE confidence-vocabulary reconciliation ✓, data-trust hardening ✓) is mostly complete; accounts/auth, journal `A-2`/`A-3`, score-weighted corridor routing, and real-star LOD streaming (Phase 2) remain deferred/gated. Product journey: **Explore → Inspect → Plan → Simulate/Sequence → Review Evidence → Export/Share**. The **Colony Cockpit** (Plan workspace) is the canonical live planning surface; the galaxy Map is a secondary Explore surface only, not a planning workspace.
+ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync after every lane change):** Stages 25A–25H and **26A–26E are complete**. **Stage 27A Spatial Platform Contract and Audit is current and documentation-only; no Babylon runtime implementation is authorized.** The Stage 26 R3F/Three.js desktop map (cutover commit `3b53477`) remains production and rollback (`VITE_STAGE26E_PRODUCTION_MAP=disabled`) until a later Stage 27 bakeoff explicitly earns cutover. Stage 27 may support **Explore → Inspect → Plan → Review** spatially, but Colony Planner/Cockpit remains the canonical detailed Build Plan workspace/persistence owner. No renderer owns planning logic or mechanics, and no map action may silently mutate a Build Plan or execute Preview.
 
-`ed-finder` is one of **three repos** in this workspace, and it is the app-only one:
+`ed-finder` is one of **three collaborating repositories**, and it is the app-only one (siblings may not be mounted in every checkout):
 - `ed-finder` (this repo) — runnable product app, frontend, API, local dev stack. Nothing here should invent new colonisation mechanics truth.
 - `colonisation-research-engine` — mechanics/evidence/ontology source of truth (sibling repo, cloned alongside this checkout; not yet wired into ed-finder at runtime).
 - `colony-planning-engine` — planning-engine boundary/contracts (sibling repo, cloned alongside this checkout; documentation-only, implementation pending).
@@ -39,13 +39,27 @@ Historical context: `docs/colonisation-redesign/stage-N-*.md` files contain rati
 
 ## Current Lane
 
-**Current lane:** Babylon.js map redesign (replacing Three.js renderer with Stellar Forge-inspired galactic density model).
+**Current lane:** Stage 27A Spatial Platform Contract and Audit, including the
+cross-cutting Commander History / Journal product contract.
 
-**Active focus:** Complete 5-task implementation: scene foundation + coordinate transforms + galactic density + stars layer + camera controls + E2E testing. Real-star LOD streaming deferred to Phase 2.
+**Active focus:** Authoritative product, architecture, data-readiness,
+migration, governance and cross-repo contracts. Stage 27A authorizes Stage 27B
+only; do not implement or wire a Babylon runtime in 27A.
 
-**Deferred work:** Accounts/auth, journal A-2/A-3, score-weighted corridor routing, real-star LOD streaming (Phase 2).
+Commander History is not merely Exploration ingestion: its future Journal page
+owns personal history/statistics/records/filters/expeditions, while shared facts
+can project to Galaxy/System maps and compose with Finder. Exploration remains
+a first-class goal. Stage 27A does not authorize Journal ingestion activation,
+Journal UI, analytics runtime, canonical promotion, or production data work.
 
-**Next map project:** Real-star LOD streaming (Phase 2) — design complete, implementation queued after Babylon.js foundation.
+**Historical/deferred lanes, not competing current authority:** the old journal
+`A-2`/`A-3` labels and real-star LOD Phase 2 plan remain useful provenance, but
+their work is governed by the staged Commander History and real-system slices
+of Stage 27. Score-weighted corridor routing and broader account expansion also
+remain separately gated. Do not start any of them from their older plans.
+
+**Next map stage:** Stage 27B Babylon 9 Runtime Workbench, only after Stage 27A
+acceptance and in isolation from the production route.
 
 **Critical context:** Repo is mid-response to external adversarial audit. Foundation-safety prioritization order:
 1. Ratings rebaseline / body-data contract drift
@@ -63,7 +77,9 @@ Option 2: CRE produces research truth, ed-finder consumes it. CPE owns plan cons
 
 Do not extend ed-finder's evidence/confidence model without checking CRE's model first. CRE's SA-register and confidence vocabulary are more rigorous and should become canonical.
 
-**Current integration gap:** confidence vocabularies are incompatible. Resolve this before any evidence-layer integration work begins.
+**Current integration gap:** the ED-Finder reconciliation document exists, but
+there is no released CRE runtime/publication bridge and confidence remains
+layer-specific. Do not map labels by spelling or claim live integration.
 
 For mechanics-affecting work specifically, also read `docs/reference/colonisation/source-priority.md` first — it defines the source-authority hierarchy (Mega Guide > user empirical findings > DaftMav spreadsheet > OASIS Guide > forum/PDF sources > "reference planner" [RavenColonial] screenshots as UI inspiration only, never mechanics authority > future external data feeds as evidence, not automatic truth). Conflicts must be recorded explicitly, never silently merged/averaged.
 
@@ -73,11 +89,12 @@ For mechanics-affecting work specifically, also read `docs/reference/colonisatio
 - No hidden scoring/CP/economy/service/optimiser changes.
 - No canonical database write lane unless a stage explicitly authorizes it.
 - No scheduler/service/timer activation for import automation by default — one deliberate, named exception: the EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, `EDDN_SIMULATION_INGEST_ENABLED`, defaults **on** as of 2026-08-07). It feeds `journal_events`/`body_scan_facts` from the live public EDDN relay for the simulation/buildability engine — the same relay `apps/eddn/eddn_listener.py` already consumes continuously for `systems`/`bodies`/`stations`, just a narrower slice of events into different tables — as an always-fresh complement to the client-side journal-import lane, which only covers systems a user has actually uploaded a journal for. This is a live network feed, not the deferred journal-import work below; see that bullet for the distinction. Any *other* new scheduler/service/timer still needs an explicit roadmap update.
-- Map redesign is authorized only through
-  `docs/colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`:
-  Stage 26A is docs-only, Stage 26B is isolated artifact-backed research and a
-  three-renderer bake-off, and no production renderer or cutover is authorized
-  before those gates. Planner-map fusion remains prohibited.
+- Spatial-platform work is authorized only through `docs/ROADMAP.md` and the
+  Stage 27 contracts. Stage 27A is docs/audit only and authorizes 27B only.
+  The old global “secondary Explore only / planner-map fusion prohibited” rule
+  is superseded: spatial interaction may support Explore → Inspect → Plan →
+  Review, but Colony Planner owns detailed plan persistence, actions are
+  explicit, and planned/inferred/schematic state never appears as existing fact.
 - No visual cloning, asset copying, or code copying from external planner references (RavenColonial).
 - Accounts/OAuth/collaboration/plan-sync, journal-import canonical promotion, and score-weighted colonisation-corridor routing are all explicitly **deferred** pending the foundation work below — don't start them opportunistically. "journal-import canonical promotion" here means promoting *client-uploaded* journal-import staging data (`journal_import/store.py`, the bounded A-1 staging lane) to canonical/trusted status — a decision about trusting user-submitted evidence. That is a different question from the EDDN simulation ingest exception above, which is a live network feed with no user-upload trust decision involved.
 
