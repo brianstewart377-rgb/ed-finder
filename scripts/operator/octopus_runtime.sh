@@ -3,6 +3,7 @@ set -euo pipefail
 readonly DIR=/opt/octopus
 readonly UPSTREAM_COMMIT=55583ac832472ad8b535f1f678f9c11837f7cfdb
 readonly VERSION=1.0.122
+readonly PUBLIC_URL=https://octopus.ed-finder.app
 die(){ printf 'error: %s\n' "$*" >&2; exit 64; }
 dc(){ docker compose --project-name octopus-selfhost --env-file "$DIR/octopus.env" -f "$DIR/compose.yaml" "$@"; }
 wait_healthy(){
@@ -21,13 +22,19 @@ wait_healthy(){
 env_value(){ sed -n "s/^$1=//p" "$DIR/octopus.env" | tail -1; }
 workers_false(){ [[ $(env_value ENABLE_REVIEW_WORKERS) == false ]] || die 'ENABLE_REVIEW_WORKERS must be false'; }
 receipt(){ [[ -f "$DIR/receipts/$1" ]] || die "required receipt missing: $1"; }
-set_workers_file(){
-  local path=$1 value=$2 tmp
-  [[ $value == true || $value == false ]] || die 'invalid worker value'
-  [[ -f $path ]] || die 'worker environment file is absent'
+set_env_literal_file(){
+  local path=$1 key=$2 value=$3 tmp
+  [[ $key =~ ^[A-Z][A-Z0-9_]*$ ]] || die 'invalid environment key'
+  [[ $value != *$'\n'* && $value != *$'\r'* ]] || die 'invalid environment value'
+  [[ -f $path ]] || die 'environment file is absent'
   tmp=$(mktemp "$(dirname "$path")/.octopus-env.XXXXXX")
-  awk -v value="$value" 'BEGIN{found=0} /^ENABLE_REVIEW_WORKERS=/{if(!found) print "ENABLE_REVIEW_WORKERS=" value; found=1; next} {print} END{if(!found) print "ENABLE_REVIEW_WORKERS=" value}' "$path" > "$tmp"
+  awk -v key="$key" -v value="$value" 'BEGIN{found=0} $0 ~ ("^" key "="){if(!found) print key "=" value; found=1; next} {print} END{if(!found) print key "=" value}' "$path" > "$tmp"
   chmod 0600 "$tmp"; mv "$tmp" "$path"
+}
+set_workers_file(){
+  local path=$1 value=$2
+  [[ $value == true || $value == false ]] || die 'invalid worker value'
+  set_env_literal_file "$path" ENABLE_REVIEW_WORKERS "$value"
 }
 set_workers(){ set_workers_file "$DIR/octopus.env" "$1"; }
 legacy_env_path(){
@@ -92,9 +99,20 @@ case "${1:-}" in
   status)
     printf 'workers_enabled: %s\n' "$(env_value ENABLE_REVIEW_WORKERS)"; [[ -f "$DIR/receipts/private-proof" ]] && printf 'private_proof: true\n' || printf 'private_proof: false\n'
     ;;
+  set-public-url)
+    receipt private-proof; receipt public-edge-proof; workers_false
+    set_env_literal_file "$DIR/octopus.env" BETTER_AUTH_URL "$PUBLIC_URL"
+    set_env_literal_file "$DIR/octopus.env" NEXT_PUBLIC_APP_URL "$PUBLIC_URL"
+    cd "$DIR"; dc up -d --no-deps web; wait_healthy web
+    [[ $(env_value BETTER_AUTH_URL) == "$PUBLIC_URL" ]] || die 'BETTER_AUTH_URL transition failed'
+    [[ $(env_value NEXT_PUBLIC_APP_URL) == "$PUBLIC_URL" ]] || die 'NEXT_PUBLIC_APP_URL transition failed'
+    printf 'public_auth_url_configured: true\nworkers_enabled: false\n'
+    ;;
   cutover-verify)
     receipt private-proof; receipt public-edge-proof
     [[ $(env_value ENABLE_REVIEW_WORKERS) == true ]] || die 'new review worker is not enabled'
+    [[ $(env_value BETTER_AUTH_URL) == "$PUBLIC_URL" ]] || die 'public BETTER_AUTH_URL is not configured'
+    [[ $(env_value NEXT_PUBLIC_APP_URL) == "$PUBLIC_URL" ]] || die 'public NEXT_PUBLIC_APP_URL is not configured'
     curl --fail --silent http://127.0.0.1:43300/api/health >/dev/null
     [[ $(curl --fail --silent http://127.0.0.1:43300/api/version | tr -d '"[:space:]') == "$VERSION" ]] || die 'unexpected private Octopus version'
     code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --resolve octopus.ed-finder.app:443:127.0.0.1 https://octopus.ed-finder.app/)
@@ -120,14 +138,12 @@ case "${1:-}" in
     [[ -f "$DIR/receipts/old-quiesced" ]] && printf 'old_quiesce_receipt: true\n' || printf 'old_quiesce_receipt: false\n'
     ;;
   quiesce-old)
-    # Legacy deployment path is explicit; preserve web, databases, volumes and files.
     env_file=$(legacy_env_path); cd /opt/octopus; set_workers_file "$env_file" false
     legacy_dc up -d --no-deps web
     [[ $(legacy_worker_state) == false ]] || die 'legacy worker did not quiesce'
     install -d -m 0700 receipts; printf 'workers=false\nlegacy_preserved=true\n' | install -m 0600 /dev/stdin receipts/old-quiesced
     ;;
   restore-old)
-    # Rollback operation: restore the legacy worker and invalidate stale quiesce proof.
     env_file=$(legacy_env_path); cd /opt/octopus; set_workers_file "$env_file" true
     legacy_dc up -d --no-deps web
     [[ $(legacy_worker_state) == true ]] || die 'legacy worker did not restore'
@@ -136,8 +152,8 @@ case "${1:-}" in
     ;;
   enable-worker)
     receipt private-proof; receipt old-quiesced; receipt public-edge-proof
-    [[ $(env_value BETTER_AUTH_URL) == https://octopus.ed-finder.app ]] || die 'final BETTER_AUTH_URL required'
-    [[ $(env_value NEXT_PUBLIC_APP_URL) == https://octopus.ed-finder.app ]] || die 'final NEXT_PUBLIC_APP_URL required'
+    [[ $(env_value BETTER_AUTH_URL) == "$PUBLIC_URL" ]] || die 'final BETTER_AUTH_URL required'
+    [[ $(env_value NEXT_PUBLIC_APP_URL) == "$PUBLIC_URL" ]] || die 'final NEXT_PUBLIC_APP_URL required'
     set_workers true; cd "$DIR"; dc up -d --no-deps web
     ;;
   disable-worker)
