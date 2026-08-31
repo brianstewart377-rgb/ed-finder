@@ -5,7 +5,7 @@ on:
       operation:
         type: choice
         required: true
-        options: [preflight, export-ciphertext, status, quiesce-old]
+        options: [preflight, export-ciphertext, status, quiesce-old, restore-old]
       recipient:
         description: Public age recipient emitted by the new host
         required: false
@@ -31,13 +31,13 @@ jobs:
           KNOWN: ${{ secrets.HETZNER_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
+          test -n "$KEY"; test -n "$HOST"; test -n "$PORT"
           if [ -z "$KNOWN" ]; then echo 'legacy_known_hosts_configured: false'; exit 64; fi
           echo 'legacy_known_hosts_configured: true'
           install -d -m 0700 ~/.ssh; printf '%s\n' "$KEY" > ~/.ssh/key; printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts; chmod 0600 ~/.ssh/{key,known_hosts}
           lookup="$HOST"; [ "$PORT" = 22 ] || lookup="[$HOST]:$PORT"
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo 'Pinned known-host trust does not cover the configured host and port' >&2; exit 64; }
       - name: Run legacy operation
-        if: inputs.operation != 'preflight'
         env:
           HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
           PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
@@ -46,20 +46,32 @@ jobs:
           RECIPIENT: ${{ inputs.recipient }}
         run: |
           set -euo pipefail
+          test -n "$USER"
           ssh_base=(ssh -i ~/.ssh/key -p "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$USER@$HOST")
           scp_base=(scp -i ~/.ssh/key -P "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts)
           "${scp_base[@]}" trusted-main/scripts/operator/{octopus_handoff.sh,octopus_credentials.py,octopus_runtime.sh} "$USER@$HOST:/tmp/"
-          if [ "$OP" = export-ciphertext ]; then
-            [[ "$RECIPIENT" =~ ^age1[0-9a-z]{58}$ ]] || { echo 'A valid public recipient is required' >&2; exit 64; }
-            "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh; /tmp/octopus_handoff.sh export '$RECIPIENT' /opt/octopus/octopus.env /tmp/octopus-transfer.age /opt/octopus/ui.htpasswd; rm -f /tmp/octopus_credentials.py"
-            "${scp_base[@]}" "$USER@$HOST:/tmp/octopus-transfer.age" "${RUNNER_TEMP}/octopus-transfer.age"
-            "${ssh_base[@]}" 'rm -f /tmp/octopus-transfer.age /tmp/octopus_handoff.sh /tmp/octopus_runtime.sh'
-          elif [ "$OP" = quiesce-old ]; then
-            "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh quiesce-old; rm -f /tmp/octopus_*'
-            "${scp_base[@]}" "$USER@$HOST:/opt/octopus/receipts/old-quiesced" "${RUNNER_TEMP}/old-quiesced"
-          else
-            "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh status; rm -f /tmp/octopus_*'
-          fi
+          case "$OP" in
+            preflight)
+              "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh legacy-preflight; rm -f /tmp/octopus_*'
+              ;;
+            status)
+              "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh legacy-status; rm -f /tmp/octopus_*'
+              ;;
+            export-ciphertext)
+              [[ "$RECIPIENT" =~ ^age1[0-9a-z]{58}$ ]] || { echo 'A valid public recipient is required' >&2; exit 64; }
+              "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh legacy-preflight; env_path=\$(/tmp/octopus_runtime.sh legacy-env-path); /tmp/octopus_handoff.sh export '$RECIPIENT' \"\$env_path\" /tmp/octopus-transfer.age /opt/octopus/ui.htpasswd; rm -f /tmp/octopus_credentials.py"
+              "${scp_base[@]}" "$USER@$HOST:/tmp/octopus-transfer.age" "${RUNNER_TEMP}/octopus-transfer.age"
+              "${ssh_base[@]}" 'rm -f /tmp/octopus-transfer.age /tmp/octopus_handoff.sh /tmp/octopus_runtime.sh'
+              ;;
+            quiesce-old)
+              "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh quiesce-old; rm -f /tmp/octopus_*'
+              "${scp_base[@]}" "$USER@$HOST:/opt/octopus/receipts/old-quiesced" "${RUNNER_TEMP}/old-quiesced"
+              ;;
+            restore-old)
+              "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh restore-old; rm -f /tmp/octopus_*'
+              ;;
+            *) echo 'unsupported legacy operation' >&2; exit 64 ;;
+          esac
       - name: Upload ciphertext only
         if: inputs.operation == 'export-ciphertext'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
