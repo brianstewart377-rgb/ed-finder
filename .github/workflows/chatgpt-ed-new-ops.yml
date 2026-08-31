@@ -121,18 +121,23 @@ jobs:
               'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
 
       - name: Recover retained V3 runtime contract
+        id: recovery
         if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
-          RECOVERY_DIR: ${{ runner.temp }}/edfinder-v3-runtime-recovery
+          RECOVERY_ROOT: ${{ runner.temp }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          mkdir -p "$RECOVERY_DIR"
-          archive="$RECOVERY_DIR/edfinder-v3-phase4c-r5-runtime-contract.tar.gz"
+          staging_dir="$(mktemp -d "$RECOVERY_ROOT/edfinder-v3-runtime-recovery.staging.XXXXXX")"
+          cleanup() {
+            [ -z "$staging_dir" ] || rm -rf -- "$staging_dir"
+          }
+          trap cleanup EXIT
+          archive="$staging_dir/edfinder-v3-phase4c-r5-runtime-contract.tar.gz"
           ssh -i ~/.ssh/ed_new_operator_key \
               -p "$SSH_PORT" \
               -o IdentitiesOnly=yes \
@@ -143,7 +148,7 @@ jobs:
               < trusted-main/scripts/operator/recover_v3_runtime_contract.py \
               > "$archive"
           test -s "$archive"
-          (cd "$RECOVERY_DIR" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
+          (cd "$staging_dir" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
           python3 - "$archive" <<'PY'
           import pathlib
           import shutil
@@ -165,17 +170,22 @@ jobs:
                   with source, (output / name).open("wb") as target:
                       shutil.copyfileobj(source, target)
           PY
+          artifact_dir="$(mktemp -d "$RECOVERY_ROOT/edfinder-v3-runtime-recovery.publish.XXXXXX")"
+          rmdir "$artifact_dir"
+          mv "$staging_dir" "$artifact_dir"
+          staging_dir=""
+          printf 'artifact_dir=%s\n' "$artifact_dir" >> "$GITHUB_OUTPUT"
         working-directory: ${{ github.workspace }}
 
       - name: Upload retained V3 runtime recovery
-        if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
+        if: success() && steps.request.outputs.operation == 'recover-v3-runtime-contract'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: edfinder-v3-phase4c-r5-runtime-contract
           path: |
-            ${{ runner.temp }}/edfinder-v3-runtime-recovery/edfinder-v3-phase4c-r5-runtime-contract.tar.gz
-            ${{ runner.temp }}/edfinder-v3-runtime-recovery/edfinder-v3-phase4c-r5-runtime-contract.tar.gz.sha256
-            ${{ runner.temp }}/edfinder-v3-runtime-recovery/recovery-manifest.json
-            ${{ runner.temp }}/edfinder-v3-runtime-recovery/recovery-receipt.json
+            ${{ steps.recovery.outputs.artifact_dir }}/edfinder-v3-phase4c-r5-runtime-contract.tar.gz
+            ${{ steps.recovery.outputs.artifact_dir }}/edfinder-v3-phase4c-r5-runtime-contract.tar.gz.sha256
+            ${{ steps.recovery.outputs.artifact_dir }}/recovery-manifest.json
+            ${{ steps.recovery.outputs.artifact_dir }}/recovery-receipt.json
           if-no-files-found: error
           retention-days: 14

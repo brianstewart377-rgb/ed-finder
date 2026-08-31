@@ -81,6 +81,19 @@ Every run should record at least:
 
 Receipts should be retained as Actions artifacts and/or in the existing operations receipt format.
 
+Receipt success proves only the checks named by that operation. In particular,
+workflow success and byte-for-byte manifest integrity do not prove that a
+recovery archive contains no secrets. Recovery operations must complete a
+bounded content preflight and post-transformation scan before producing an
+uploadable archive; receipts must distinguish live Docker metadata queried from
+environment-bearing source files found and sanitized or excluded.
+
+The structurally intact recovery artifact from 2026-08-31 failed this content
+safety boundary and is not operational authority. Artifact deletion and the
+credential active-use/rotation disposition remain separate owner containment
+actions tracked in #537. Issue #527 stays blocked until a fresh artifact is
+independently verified safe.
+
 ## Permission boundary
 
 The control plane is intended to let ChatGPT execute routine operational tasks directly through GitHub. Production cutover, destructive storage/database actions, and other explicitly high-risk operations remain separate owner-authorized procedures unless a later authority decision adds narrowly-scoped actions for them.
