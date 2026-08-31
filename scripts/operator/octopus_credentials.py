@@ -133,6 +133,15 @@ def atomic_write(path: Path, data: bytes) -> None:
             os.unlink(temporary)
 
 
+def check(source: Path) -> None:
+    """Validate the reusable integration credential contract without emitting values."""
+    values = parse_dotenv(source)
+    validate(values)
+    print("integration_credentials_valid: true")
+    print(f"provider_openai_present: {'true' if 'OPENAI_API_KEY' in values else 'false'}")
+    print(f"provider_anthropic_present: {'true' if 'ANTHROPIC_API_KEY' in values else 'false'}")
+
+
 def export(source: Path, output: Path, htpasswd: Path | None) -> None:
     values = parse_dotenv(source)
     validate(values)
@@ -189,6 +198,8 @@ def merge(payload: Path, env_path: Path, htpasswd_path: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
+    chk = sub.add_parser("check")
+    chk.add_argument("--source", type=Path, required=True)
     exp = sub.add_parser("export")
     exp.add_argument("--source", type=Path, required=True)
     exp.add_argument("--output", type=Path, required=True)
@@ -199,7 +210,9 @@ def main() -> None:
     mer.add_argument("--htpasswd", type=Path, required=True)
     args = parser.parse_args()
     try:
-        if args.command == "export":
+        if args.command == "check":
+            check(args.source)
+        elif args.command == "export":
             export(args.source, args.output, args.htpasswd)
         else:
             merge(args.payload, args.env, args.htpasswd)
