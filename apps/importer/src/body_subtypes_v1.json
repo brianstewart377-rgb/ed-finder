@@ -1,0 +1,577 @@
+{
+  "manifest_revision": "v3-body-subtype-map-1",
+  "canonical_entries": [
+    {
+      "body_subtype_id": 1001,
+      "body_type_code": "planet",
+      "public_code": "metal_rich_body",
+      "display_name": "Metal-rich body",
+      "aliases": [
+        "Metal-rich body",
+        "Metal rich body"
+      ]
+    },
+    {
+      "body_subtype_id": 1002,
+      "body_type_code": "planet",
+      "public_code": "high_metal_content_world",
+      "display_name": "High metal content world",
+      "aliases": [
+        "High metal content world",
+        "High metal content body"
+      ]
+    },
+    {
+      "body_subtype_id": 1003,
+      "body_type_code": "planet",
+      "public_code": "rocky_body",
+      "display_name": "Rocky body",
+      "aliases": [
+        "Rocky body"
+      ]
+    },
+    {
+      "body_subtype_id": 1004,
+      "body_type_code": "planet",
+      "public_code": "rocky_ice_world",
+      "display_name": "Rocky ice world",
+      "aliases": [
+        "Rocky Ice world",
+        "Rocky ice body"
+      ]
+    },
+    {
+      "body_subtype_id": 1005,
+      "body_type_code": "planet",
+      "public_code": "icy_body",
+      "display_name": "Icy body",
+      "aliases": [
+        "Icy body"
+      ]
+    },
+    {
+      "body_subtype_id": 1006,
+      "body_type_code": "planet",
+      "public_code": "water_world",
+      "display_name": "Water world",
+      "aliases": [
+        "Water world"
+      ]
+    },
+    {
+      "body_subtype_id": 1007,
+      "body_type_code": "planet",
+      "public_code": "earth_like_world",
+      "display_name": "Earth-like world",
+      "aliases": [
+        "Earth-like world",
+        "Earthlike body"
+      ]
+    },
+    {
+      "body_subtype_id": 1008,
+      "body_type_code": "planet",
+      "public_code": "ammonia_world",
+      "display_name": "Ammonia world",
+      "aliases": [
+        "Ammonia world"
+      ]
+    },
+    {
+      "body_subtype_id": 1009,
+      "body_type_code": "planet",
+      "public_code": "water_giant",
+      "display_name": "Water giant",
+      "aliases": [
+        "Water giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1010,
+      "body_type_code": "planet",
+      "public_code": "class_i_gas_giant",
+      "display_name": "Class I gas giant",
+      "aliases": [
+        "Class I gas giant",
+        "Sudarsky class I gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1011,
+      "body_type_code": "planet",
+      "public_code": "class_ii_gas_giant",
+      "display_name": "Class II gas giant",
+      "aliases": [
+        "Class II gas giant",
+        "Sudarsky class II gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1012,
+      "body_type_code": "planet",
+      "public_code": "class_iii_gas_giant",
+      "display_name": "Class III gas giant",
+      "aliases": [
+        "Class III gas giant",
+        "Sudarsky class III gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1013,
+      "body_type_code": "planet",
+      "public_code": "class_iv_gas_giant",
+      "display_name": "Class IV gas giant",
+      "aliases": [
+        "Class IV gas giant",
+        "Sudarsky class IV gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1014,
+      "body_type_code": "planet",
+      "public_code": "class_v_gas_giant",
+      "display_name": "Class V gas giant",
+      "aliases": [
+        "Class V gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1015,
+      "body_type_code": "planet",
+      "public_code": "gas_giant_water_life",
+      "display_name": "Gas giant with water-based life",
+      "aliases": [
+        "Gas giant with water-based life",
+        "Gas giant with water based life"
+      ]
+    },
+    {
+      "body_subtype_id": 1016,
+      "body_type_code": "planet",
+      "public_code": "gas_giant_ammonia_life",
+      "display_name": "Gas giant with ammonia-based life",
+      "aliases": [
+        "Gas giant with ammonia-based life",
+        "Gas giant with ammonia based life"
+      ]
+    },
+    {
+      "body_subtype_id": 1017,
+      "body_type_code": "planet",
+      "public_code": "helium_gas_giant",
+      "display_name": "Helium gas giant",
+      "aliases": [
+        "Helium gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 1018,
+      "body_type_code": "planet",
+      "public_code": "helium_rich_gas_giant",
+      "display_name": "Helium-rich gas giant",
+      "aliases": [
+        "Helium-rich gas giant",
+        "Helium rich gas giant"
+      ]
+    },
+    {
+      "body_subtype_id": 2001,
+      "body_type_code": "star",
+      "public_code": "o_star",
+      "display_name": "O (Blue-White) Star",
+      "aliases": [
+        "O (Blue-White) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2002,
+      "body_type_code": "star",
+      "public_code": "b_star",
+      "display_name": "B (Blue-White) Star",
+      "aliases": [
+        "B (Blue-White) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2003,
+      "body_type_code": "star",
+      "public_code": "a_star",
+      "display_name": "A (Blue-White) Star",
+      "aliases": [
+        "A (Blue-White) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2004,
+      "body_type_code": "star",
+      "public_code": "f_star",
+      "display_name": "F (White) Star",
+      "aliases": [
+        "F (White) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2005,
+      "body_type_code": "star",
+      "public_code": "g_star",
+      "display_name": "G (White-Yellow) Star",
+      "aliases": [
+        "G (White-Yellow) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2006,
+      "body_type_code": "star",
+      "public_code": "k_star",
+      "display_name": "K (Yellow-Orange) Star",
+      "aliases": [
+        "K (Yellow-Orange) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2007,
+      "body_type_code": "star",
+      "public_code": "m_red_dwarf",
+      "display_name": "M (Red dwarf) Star",
+      "aliases": [
+        "M (Red dwarf) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2008,
+      "body_type_code": "star",
+      "public_code": "l_brown_dwarf",
+      "display_name": "L (Brown dwarf) Star",
+      "aliases": [
+        "L (Brown dwarf) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2009,
+      "body_type_code": "star",
+      "public_code": "t_brown_dwarf",
+      "display_name": "T (Brown dwarf) Star",
+      "aliases": [
+        "T (Brown dwarf) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2010,
+      "body_type_code": "star",
+      "public_code": "y_brown_dwarf",
+      "display_name": "Y (Brown dwarf) Star",
+      "aliases": [
+        "Y (Brown dwarf) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2011,
+      "body_type_code": "star",
+      "public_code": "t_tauri_star",
+      "display_name": "T Tauri Star",
+      "aliases": [
+        "T Tauri Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2012,
+      "body_type_code": "star",
+      "public_code": "herbig_ae_be_star",
+      "display_name": "Herbig Ae/Be Star",
+      "aliases": [
+        "Herbig Ae/Be Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2013,
+      "body_type_code": "star",
+      "public_code": "m_red_giant",
+      "display_name": "M (Red giant) Star",
+      "aliases": [
+        "M (Red giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2014,
+      "body_type_code": "star",
+      "public_code": "m_red_supergiant",
+      "display_name": "M (Red super giant) Star",
+      "aliases": [
+        "M (Red super giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2015,
+      "body_type_code": "star",
+      "public_code": "k_yellow_orange_giant",
+      "display_name": "K (Yellow-Orange giant) Star",
+      "aliases": [
+        "K (Yellow-Orange giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2016,
+      "body_type_code": "star",
+      "public_code": "a_blue_white_supergiant",
+      "display_name": "A (Blue-White super giant) Star",
+      "aliases": [
+        "A (Blue-White super giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2017,
+      "body_type_code": "star",
+      "public_code": "b_blue_white_supergiant",
+      "display_name": "B (Blue-White super giant) Star",
+      "aliases": [
+        "B (Blue-White super giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2018,
+      "body_type_code": "star",
+      "public_code": "f_white_supergiant",
+      "display_name": "F (White super giant) Star",
+      "aliases": [
+        "F (White super giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2019,
+      "body_type_code": "star",
+      "public_code": "g_white_yellow_supergiant",
+      "display_name": "G (White-Yellow super giant) Star",
+      "aliases": [
+        "G (White-Yellow super giant) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2020,
+      "body_type_code": "star",
+      "public_code": "c_star",
+      "display_name": "C Star",
+      "aliases": [
+        "C Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2021,
+      "body_type_code": "star",
+      "public_code": "cj_star",
+      "display_name": "CJ Star",
+      "aliases": [
+        "CJ Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2022,
+      "body_type_code": "star",
+      "public_code": "cn_star",
+      "display_name": "CN Star",
+      "aliases": [
+        "CN Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2023,
+      "body_type_code": "star",
+      "public_code": "s_type_star",
+      "display_name": "S-type Star",
+      "aliases": [
+        "S-type Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2024,
+      "body_type_code": "star",
+      "public_code": "ms_type_star",
+      "display_name": "MS-type Star",
+      "aliases": [
+        "MS-type Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2025,
+      "body_type_code": "star",
+      "public_code": "wolf_rayet_star",
+      "display_name": "Wolf-Rayet Star",
+      "aliases": [
+        "Wolf-Rayet Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2026,
+      "body_type_code": "star",
+      "public_code": "wolf_rayet_n",
+      "display_name": "Wolf-Rayet N Star",
+      "aliases": [
+        "Wolf-Rayet N Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2027,
+      "body_type_code": "star",
+      "public_code": "wolf_rayet_nc",
+      "display_name": "Wolf-Rayet NC Star",
+      "aliases": [
+        "Wolf-Rayet NC Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2028,
+      "body_type_code": "star",
+      "public_code": "wolf_rayet_c",
+      "display_name": "Wolf-Rayet C Star",
+      "aliases": [
+        "Wolf-Rayet C Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2029,
+      "body_type_code": "star",
+      "public_code": "wolf_rayet_o",
+      "display_name": "Wolf-Rayet O Star",
+      "aliases": [
+        "Wolf-Rayet O Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2030,
+      "body_type_code": "star",
+      "public_code": "neutron_star",
+      "display_name": "Neutron Star",
+      "aliases": [
+        "Neutron Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2031,
+      "body_type_code": "star",
+      "public_code": "black_hole",
+      "display_name": "Black Hole",
+      "aliases": [
+        "Black Hole"
+      ]
+    },
+    {
+      "body_subtype_id": 2032,
+      "body_type_code": "star",
+      "public_code": "supermassive_black_hole",
+      "display_name": "Supermassive Black Hole",
+      "aliases": [
+        "Supermassive Black Hole"
+      ]
+    },
+    {
+      "body_subtype_id": 2033,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_d",
+      "display_name": "White Dwarf (D) Star",
+      "aliases": [
+        "White Dwarf (D) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2034,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_da",
+      "display_name": "White Dwarf (DA) Star",
+      "aliases": [
+        "White Dwarf (DA) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2035,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dab",
+      "display_name": "White Dwarf (DAB) Star",
+      "aliases": [
+        "White Dwarf (DAB) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2036,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dav",
+      "display_name": "White Dwarf (DAV) Star",
+      "aliases": [
+        "White Dwarf (DAV) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2037,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_daz",
+      "display_name": "White Dwarf (DAZ) Star",
+      "aliases": [
+        "White Dwarf (DAZ) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2038,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_db",
+      "display_name": "White Dwarf (DB) Star",
+      "aliases": [
+        "White Dwarf (DB) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2039,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dbv",
+      "display_name": "White Dwarf (DBV) Star",
+      "aliases": [
+        "White Dwarf (DBV) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2040,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dbz",
+      "display_name": "White Dwarf (DBZ) Star",
+      "aliases": [
+        "White Dwarf (DBZ) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2041,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dc",
+      "display_name": "White Dwarf (DC) Star",
+      "aliases": [
+        "White Dwarf (DC) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2042,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dcv",
+      "display_name": "White Dwarf (DCV) Star",
+      "aliases": [
+        "White Dwarf (DCV) Star"
+      ]
+    },
+    {
+      "body_subtype_id": 2043,
+      "body_type_code": "star",
+      "public_code": "white_dwarf_dq",
+      "display_name": "White Dwarf (DQ) Star",
+      "aliases": [
+        "White Dwarf (DQ) Star"
+      ]
+    }
+  ],
+  "explicit_unresolved": {
+    "spansh_subtype": [
+      "M",
+      "N",
+      "Y"
+    ],
+    "legacy_subtype_inventory": [
+      "M",
+      "N",
+      "Y"
+    ]
+  }
+}
