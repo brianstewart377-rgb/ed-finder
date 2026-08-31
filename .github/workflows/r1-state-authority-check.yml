@@ -31,6 +31,11 @@ jobs:
           if d != {'operation':'r1-project-state-check'}:
               raise SystemExit('unsupported request')
           PY
+      - name: Fetch state-authority baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
       - name: Resolve project state strictly
         shell: bash
         run: |
