@@ -9,6 +9,7 @@ from .types import SnapshotBundle,SnapshotSelector
 MAX_SYSTEMS=20
 SHOW_READ_ONLY_SQL='SHOW transaction_read_only'
 DB_IDENTITY_SQL='SELECT current_database() AS current_database, current_user AS current_user'
+RING_SOURCE_SQL="SELECT to_regclass('public.body_rings') IS NOT NULL AS body_rings_present"
 SYSTEMS_SQL='''SELECT id64::text AS id64, name, has_body_data, body_count, updated_at::text AS updated_at FROM systems WHERE id64 = ANY(%s::bigint[]) OR name = ANY(%s::text[]) ORDER BY id64'''
 BODIES_SQL='''SELECT id::text AS id, system_id64::text AS system_id64, name, body_type::text AS body_type, subtype, distance_from_star, is_tidal_lock, radius, gravity, surface_temp, atmosphere_type, volcanism, terraforming_state, is_terraformable, is_landable, bio_signal_count, geo_signal_count, updated_at::text AS updated_at, is_ammonia_world FROM bodies WHERE system_id64 = ANY(%s::bigint[]) ORDER BY system_id64, id'''
 RINGS_SQL='''SELECT body_id::text AS body_id, source_body_id::text AS source_body_id, body_name, ring_name, source, confidence, association_status, updated_at::text AS updated_at, system_id64::text AS system_id64 FROM body_rings WHERE system_id64 = ANY(%s::bigint[]) ORDER BY system_id64, body_id NULLS LAST, ring_name NULLS LAST, source'''
@@ -25,6 +26,10 @@ def read_db_identity(conn):
         cur.execute(DB_IDENTITY_SQL); row=cur.fetchone()
     if isinstance(row,Mapping): return {'current_database':str(row['current_database']),'current_user':str(row['current_user'])}
     return {'current_database':str(row[0]),'current_user':str(row[1])}
+def read_ring_source_available(conn):
+    with conn.cursor() as cur:
+        cur.execute(RING_SOURCE_SQL); row=cur.fetchone()
+    return bool(_row_value(row,'body_rings_present'))
 def _normalize_selectors(selectors):
     selectors=tuple(selectors)
     if not selectors: raise ValueError('at least one explicit selector is required')
@@ -40,18 +45,21 @@ def load_snapshots(conn,selectors):
     if len(systems)>MAX_SYSTEMS: raise SnapshotSafetyError('selector result exceeded bounded system limit')
     system_ids=tuple(s.id64 for s in systems)
     if not system_ids:return ()
+    ring_source_available=read_ring_source_available(conn)
     with conn.cursor() as cur:
         cur.execute(BODIES_SQL,(list(system_ids),)); bodies=tuple(_body(r) for r in cur.fetchall())
-    with conn.cursor() as cur:
-        cur.execute(RINGS_SQL,(list(system_ids),)); ring_rows=tuple((str(r['system_id64']),_ring(r)) for r in cur.fetchall())
+    ring_rows=()
+    if ring_source_available:
+        with conn.cursor() as cur:
+            cur.execute(RINGS_SQL,(list(system_ids),)); ring_rows=tuple((str(r['system_id64']),_ring(r)) for r in cur.fetchall())
     out=[]
     for s in systems:
         sb=tuple(b for b in bodies if b.system_id64==s.id64); sr=tuple(r for sid,r in ring_rows if sid==s.id64)
         projected=project_system(s,sb,sr,()); candidate=project_candidate(projected)
-        digest=sha256_id({'system':asdict(s),'bodies':[asdict(b) for b in sb],'rings':[asdict(r) for r in sr],'projection_revision':projected.projection_revision})
-        out.append(SnapshotBundle(s,sb,sr,projected,candidate,digest))
+        digest=sha256_id({'system':asdict(s),'bodies':[asdict(b) for b in sb],'rings':[asdict(r) for r in sr],'ring_source_available':ring_source_available,'projection_revision':projected.projection_revision})
+        out.append(SnapshotBundle(s,sb,sr,ring_source_available,projected,candidate,digest))
     return tuple(sorted(out,key=lambda x:(x.system.name,x.system.id64)))
 def sql_is_select_only():
-    allowed=(SHOW_READ_ONLY_SQL,DB_IDENTITY_SQL,SYSTEMS_SQL,BODIES_SQL,RINGS_SQL)
+    allowed=(SHOW_READ_ONLY_SQL,DB_IDENTITY_SQL,RING_SOURCE_SQL,SYSTEMS_SQL,BODIES_SQL,RINGS_SQL)
     forbidden=re.compile(r'\b(INSERT|UPDATE|DELETE|ALTER|DROP|CREATE|TRUNCATE|COPY)\b',re.IGNORECASE)
     return all(q.lstrip().upper().startswith(('SELECT','SHOW')) and forbidden.search(q) is None for q in allowed)
