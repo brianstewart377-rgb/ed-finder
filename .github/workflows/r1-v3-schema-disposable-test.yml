@@ -1,0 +1,163 @@
+name: R1 V3 Structural Schema Disposable Test
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-v3-schema-test-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  test_schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: r1test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d r1test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob,json
+          paths=glob.glob('.github/r1-v3-schema-test-requests/*.json')
+          if not paths:
+              raise SystemExit('missing schema-test request')
+          d=json.load(open(sorted(paths)[-1],encoding='utf-8'))
+          if d != {'operation':'r1-v3-schema-disposable-test'}:
+              raise SystemExit('unsupported schema-test request')
+          PY
+
+      - name: Install focused test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet pytest==8.3.5 psycopg2-binary==2.9.12
+
+      - name: Run static schema contract tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pytest tests/test_r1_v3_schema_contract.py -q
+
+      - name: Apply exact structural migration to disposable PostgreSQL 18
+        shell: bash
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/r1test
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import psycopg2
+
+          dsn=os.environ['DATABASE_URL']
+          migration=Path('sql/r1_v3/001_structural_shell.sql').read_text(encoding='utf-8')
+          conn=psycopg2.connect(dsn)
+          conn.autocommit=True
+          with conn.cursor() as cur:
+              cur.execute('CREATE SCHEMA v3_meta')
+              cur.execute('CREATE TABLE v3_meta.canonical_generation (generation_id UUID PRIMARY KEY)')
+              cur.execute('CREATE SCHEMA v3_identity')
+              cur.execute('CREATE TABLE v3_identity.account (account_id UUID PRIMARY KEY)')
+              cur.execute(migration)
+          conn.close()
+          PY
+
+      - name: Exercise relational invariants on disposable PostgreSQL
+        shell: bash
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/r1test
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import psycopg2
+          from psycopg2 import errors
+
+          conn=psycopg2.connect(os.environ['DATABASE_URL'])
+          conn.autocommit=True
+          with conn.cursor() as cur:
+              cur.execute("SELECT count(*) FROM r1_cache.system_capability_current")
+              assert cur.fetchone()[0] == 0
+              cur.execute("SELECT data_type FROM information_schema.columns WHERE table_schema='r1_meta' AND table_name='capability_generation' AND column_name='canonical_generation_id'")
+              assert cur.fetchone()[0] == 'uuid'
+              cur.execute("SELECT data_type FROM information_schema.columns WHERE table_schema='r1_plan' AND table_name='saved_plan' AND column_name='owner_account_id'")
+              assert cur.fetchone()[0] == 'uuid'
+
+              account='00000000-0000-0000-0000-000000000001'
+              generation='00000000-0000-0000-0000-000000000002'
+              cur.execute('INSERT INTO v3_identity.account(account_id) VALUES (%s)',(account,))
+              cur.execute('INSERT INTO v3_meta.canonical_generation(generation_id) VALUES (%s)',(generation,))
+              cur.execute("INSERT INTO r1_meta.mechanics_revision(mechanics_revision_id,friendly_version,rules_sha256,status) VALUES ('mech-v1','Mechanics v1',%s,'active')",('a'*64,))
+              cur.execute("INSERT INTO r1_meta.model_revision(model_revision_id,friendly_version,code_commit_sha,model_sha256,canonical_contract_revision,capability_revision,candidate_generator_revision,fit_policy_revision,status) VALUES ('model-v1','Model v1',%s,%s,'canon-v1','cap-v1','gen-v1','fit-v1','active')",('b'*40,'c'*64))
+              cur.execute("INSERT INTO r1_meta.programme_revision(programme_id,programme_revision,programme_name,definition_sha256,definition_json,status) VALUES ('P-ER-01','v1','Extraction Refinery',%s,'{}'::jsonb,'active')",('d'*64,))
+
+          conn.autocommit=False
+          with conn.cursor() as cur:
+              cur.execute('SET CONSTRAINTS ALL DEFERRED')
+              plan='00000000-0000-0000-0000-000000000010'
+              rev='00000000-0000-0000-0000-000000000011'
+              node='00000000-0000-0000-0000-000000000012'
+              allocation='00000000-0000-0000-0000-000000000013'
+              candidate='f'*64
+              cur.execute("INSERT INTO r1_plan.saved_plan(plan_id,owner_account_id,system_id64,plan_name,plan_state,current_revision_number) VALUES (%s,%s,151634568364,'HR 1188 ER','selected',1)",(plan,account))
+              cur.execute("INSERT INTO r1_plan.plan_revision(plan_revision_id,plan_id,revision_number,programme_id,programme_revision,carrier_mode,created_from_model_revision_id,created_from_mechanics_revision_id,created_from_canonical_generation_id,created_from_evidence_snapshot_sha256,candidate_plan_sha256,change_kind) VALUES (%s,%s,1,'P-ER-01','v1','no_carrier','model-v1','mech-v1',%s,%s,%s,'finder_generated')",(rev,plan,generation,'e'*64,candidate))
+              cur.execute("INSERT INTO r1_plan.plan_node(plan_node_id,plan_revision_id,node_key,node_kind,facility_type_code,host_body_source_id64,host_body_name_snapshot,ordinal) VALUES (%s,%s,'extractor-1','surface_facility','extraction_facility',123456789,'HR 1188 3',0)",(node,rev))
+              cur.execute("INSERT INTO r1_plan.plan_allocation(allocation_id,plan_revision_id,requirement_id,resource_kind,resource_key,plan_node_id,allocation_mode,ordinal) VALUES (%s,%s,'extract-role','body','body:123456789',%s,'exclusive',0)",(allocation,rev,node))
+          conn.commit()
+
+          # Double-crediting the same exclusive resource must fail.
+          conn.autocommit=False
+          try:
+              with conn.cursor() as cur:
+                  cur.execute("INSERT INTO r1_plan.plan_allocation(allocation_id,plan_revision_id,requirement_id,resource_kind,resource_key,allocation_mode,ordinal) VALUES ('00000000-0000-0000-0000-000000000014',%s,'refinery-role','body','body:123456789','exclusive',1)",(rev,))
+              conn.commit()
+              raise AssertionError('exclusive double-credit unexpectedly succeeded')
+          except errors.UniqueViolation:
+              conn.rollback()
+
+          # Unsupported/Not Assessable cannot receive a numeric Plan Fit.
+          try:
+              with conn.cursor() as cur:
+                  cur.execute("INSERT INTO r1_plan.plan_assessment(assessment_id,plan_revision_id,assessment_kind,system_id64,programme_id,programme_revision,model_revision_id,mechanics_revision_id,canonical_generation_id,evidence_snapshot_sha256,candidate_plan_sha256,carrier_mode,assessment_state,evidence_disposition,plan_fit,result_sha256,trace_json) VALUES ('00000000-0000-0000-0000-000000000015',%s,'saved_plan',151634568364,'P-ER-01','v1','model-v1','mech-v1',%s,%s,%s,'no_carrier','not_supported','sufficient',99,%s,'{}'::jsonb)",(rev,generation,'e'*64,candidate,'1'*64))
+              conn.commit()
+              raise AssertionError('not_supported numeric Plan Fit unexpectedly succeeded')
+          except errors.CheckViolation:
+              conn.rollback()
+
+          # A valid Supported assessment is persisted and bound to the exact plan revision.
+          with conn.cursor() as cur:
+              cur.execute("INSERT INTO r1_plan.plan_assessment(assessment_id,plan_revision_id,assessment_kind,system_id64,programme_id,programme_revision,model_revision_id,mechanics_revision_id,canonical_generation_id,evidence_snapshot_sha256,candidate_plan_sha256,carrier_mode,assessment_state,evidence_disposition,reserve_capacity,logistics_state,plan_pair_resilience,plan_fit,fit_policy_revision,result_sha256,trace_json) VALUES ('00000000-0000-0000-0000-000000000016',%s,'saved_plan',151634568364,'P-ER-01','v1','model-v1','mech-v1',%s,%s,%s,'no_carrier','supported','sufficient','sufficient','compact','robust',85,'fit-v1',%s,'{}'::jsonb)",(rev,generation,'e'*64,candidate,'2'*64))
+          conn.commit()
+
+          # Deleting the private saved plan must remove its durable child state.
+          with conn.cursor() as cur:
+              cur.execute('DELETE FROM r1_plan.saved_plan WHERE plan_id=%s',(plan,))
+          conn.commit()
+          with conn.cursor() as cur:
+              for table in ('plan_revision','plan_node','plan_allocation','plan_assessment'):
+                  cur.execute(f'SELECT count(*) FROM r1_plan.{table}')
+                  assert cur.fetchone()[0] == 0, table
+          conn.close()
+          print('disposable_r1_schema_invariants: passed')
+          PY
