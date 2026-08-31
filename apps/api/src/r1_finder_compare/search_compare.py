@@ -4,12 +4,13 @@ from dataclasses import asdict
 
 from .evidence import canonical_json, evidence_snapshot_id, sha256_id, body_is_hmc, body_is_metal_rich
 from .evaluator import evaluate_extraction_role, evaluate_p_er_01
-from .fixtures import CANDIDATES
+from .fixtures import CANDIDATES, get_p_er_01_plan
 from .programmes import PROGRAMME_ID, STRATEGY_ID, TEMPLATE_REVISION
 from .types import (
     CandidateHandoff,
     CandidateAssessment,
     CandidateEvidence,
+    CandidateProgrammePlan,
     FactualFilters,
     FixtureSearchRequest,
     ScenarioSearchResult,
@@ -43,13 +44,15 @@ def _matches(candidate: CandidateEvidence, request: FixtureSearchRequest) -> boo
     return True
 
 
-def _candidate_plan_id(candidate: CandidateEvidence, carrier_mode: str, assessment: CandidateAssessment) -> str:
+def candidate_plan_id(candidate: CandidateEvidence, carrier_mode: str, plan: CandidateProgrammePlan) -> str:
     payload = {
         'system_id64': candidate.system_id64,
-        'programme_id': PROGRAMME_ID,
-        'template_revision': TEMPLATE_REVISION,
+        'programme_id': plan.programme_id,
+        'template_revision': plan.template_revision,
         'carrier_mode': carrier_mode,
-        'allocation_trace_ids': assessment.allocation_trace_ids,
+        'allocation_trace_ids': plan.allocation_trace_ids,
+        'pair_resilience': plan.pair_resilience,
+        'resilience_evidence_refs': plan.resilience_evidence_refs,
     }
     return sha256_id(payload)
 
@@ -62,8 +65,9 @@ def _make_result(candidate: CandidateEvidence, request: FixtureSearchRequest, ca
         assessment = evaluate_extraction_role(candidate, carrier_mode, request.strategy_id)  # type: ignore[arg-type]
         return SearchCandidateResult(candidate.system_id64, candidate.system_name, candidate.distance_ly, request.comparison_context_id, assessment.state, assessment.conditions, assessment.reserve_capacity, assessment.logistics, assessment.evidence_disposition, assessment.plan_fit, snapshot, None, assessment.allocation_trace_ids, assessment.requirement_trace_ids)
     if request.comparison_context_id == 'programme_p_er_01_v1':
-        assessment = evaluate_p_er_01(candidate, carrier_mode, request.strategy_id)  # type: ignore[arg-type]
-        plan_id = _candidate_plan_id(candidate, carrier_mode, assessment)
+        plan = get_p_er_01_plan(candidate.fixture_id)
+        assessment = evaluate_p_er_01(candidate, plan, carrier_mode, request.strategy_id)  # type: ignore[arg-type]
+        plan_id = candidate_plan_id(candidate, carrier_mode, plan)
         return SearchCandidateResult(candidate.system_id64, candidate.system_name, candidate.distance_ly, request.comparison_context_id, assessment.state, assessment.conditions, assessment.reserve_capacity, assessment.logistics, assessment.evidence_disposition, assessment.plan_fit, snapshot, plan_id, assessment.allocation_trace_ids, assessment.requirement_trace_ids)
     raise ValueError(f'unsupported comparison context: {request.comparison_context_id}')
 
@@ -88,11 +92,29 @@ def search_fixture_candidates(request: FixtureSearchRequest) -> tuple[ScenarioSe
 def make_handoff(result: SearchCandidateResult, carrier_mode: str) -> CandidateHandoff:
     if result.comparison_context_id != 'programme_p_er_01_v1' or not result.candidate_plan_id:
         raise ValueError('handoff is only available for P-ER-01 results')
-    return CandidateHandoff(result.system_id64, result.comparison_context_id, PROGRAMME_ID, TEMPLATE_REVISION, carrier_mode, result.evidence_snapshot_id, result.candidate_plan_id, result.allocation_trace_ids, result.requirement_trace_ids)
+    candidate = next(c for c in CANDIDATES if c.system_id64 == result.system_id64)
+    plan = get_p_er_01_plan(candidate.fixture_id)
+    return CandidateHandoff(
+        result.system_id64,
+        result.comparison_context_id,
+        PROGRAMME_ID,
+        TEMPLATE_REVISION,
+        carrier_mode,
+        result.evidence_snapshot_id,
+        result.candidate_plan_id,
+        plan.pair_resilience,
+        result.allocation_trace_ids,
+        result.requirement_trace_ids,
+    )
 
 
 def reevaluate_handoff(handoff: CandidateHandoff, strategy_id: str | None = None) -> SearchCandidateResult:
     candidate = next(c for c in CANDIDATES if c.system_id64 == handoff.system_id64)
+    plan = get_p_er_01_plan(candidate.fixture_id)
+    if plan.pair_resilience != handoff.plan_pair_resilience:
+        raise ValueError('handoff plan resilience no longer matches the generated plan')
+    if candidate_plan_id(candidate, handoff.carrier_mode, plan) != handoff.candidate_plan_id:
+        raise ValueError('handoff candidate plan identity no longer matches')
     request = FixtureSearchRequest(factual_filters=FactualFilters(), comparison_context_id='programme_p_er_01_v1', carrier_mode=handoff.carrier_mode, strategy_id=strategy_id)  # type: ignore[arg-type]
     return _make_result(candidate, request, handoff.carrier_mode)
 
