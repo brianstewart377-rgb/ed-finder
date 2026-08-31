@@ -15,10 +15,9 @@ POLICY_PATH = Path("docs/development/pull-request-acceptance-policy.md")
 FORMER_AUTO_MERGE_WORKFLOW = Path(".github/workflows/dependabot-auto-merge.yml")
 _SHELL_BOUNDARY_CHARS = frozenset(";&|()\n")
 _ASSIGNMENT_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
-_ENV_OPTIONS_WITH_VALUE = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})
+_ENV_OPTIONS_WITH_VALUE = frozenset({"-u", "--unset", "-C", "--chdir"})
 _ENV_SWITCHES = frozenset({"-i", "--ignore-environment", "-0", "--null"})
 _GH_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-R", "--repo", "--hostname"})
-_FALSE_AUTO_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -62,17 +61,27 @@ def _tracked_workflows() -> list[Path]:
     return [Path(line) for line in result.stdout.splitlines() if (ROOT / line).is_file()]
 
 
-def _run_strings(value: object) -> Iterator[str]:
-    """Yield run strings recursively from the parsed jobs tree."""
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if key == "run" and isinstance(child, str):
-                yield child
-            else:
-                yield from _run_strings(child)
-    elif isinstance(value, list):
-        for child in value:
-            yield from _run_strings(child)
+def _step_run_strings(jobs: object) -> Iterator[str]:
+    """Yield only executable ``jobs.<job>.steps[].run`` strings.
+
+    Mappings named ``run`` under job environments, action inputs, services, or
+    arbitrary nested configuration are not shell steps and must not be treated
+    as executable workflow commands.
+    """
+    if not isinstance(jobs, dict):
+        return
+    for job in jobs.values():
+        if not isinstance(job, dict):
+            continue
+        steps = job.get("steps", [])
+        if not isinstance(steps, list):
+            continue
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            run = step.get("run")
+            if isinstance(run, str):
+                yield run
 
 
 def _simple_commands(run: str) -> Iterator[list[str]]:
@@ -81,8 +90,8 @@ def _simple_commands(run: str) -> Iterator[list[str]]:
     Shell backslash-newline continuations are removed first. Physical newlines
     and common control operators then delimit simple commands. POSIX shlex
     handles whitespace, quoting, assignments, and comments; this deliberately
-    does not try to resolve aliases, functions, eval, or dynamically generated
-    commands.
+    does not try to resolve aliases, functions, eval, shell ``-c`` payloads, or
+    dynamically generated commands.
     """
     logical_source = re.sub(r"\\\r?\n", "", run)
     lexer = shlex.shlex(logical_source, posix=True, punctuation_chars=";&|()\n")
@@ -106,50 +115,78 @@ def _strip_assignment_words(tokens: list[str]) -> None:
         tokens.pop(0)
 
 
+def _split_env_payload(payload: str) -> list[str]:
+    """Apply GNU ``env -S`` splitting, failing closed on malformed quoting."""
+    try:
+        return shlex.split(payload, posix=True)
+    except ValueError:
+        # A malformed split-string cannot be understood safely by this bounded
+        # detector. Return a prohibited sentinel so the workflow guard fails
+        # closed instead of silently allowing an unclassified command.
+        return ["gh", "pr", "merge"]
+
+
 def _unwrap_direct_command(command: list[str]) -> list[str]:
-    """Remove ordinary POSIX assignment, env, and command prefixes.
+    """Remove ordinary POSIX assignment, ``env``, and ``command`` prefixes.
 
     These prefixes still execute the following command directly, so allowing
-    them to hide ``gh pr merge --auto`` would make the guard bypassable. More
-    dynamic wrappers such as aliases, functions, eval, or shell-generated
-    command strings remain deliberately outside this bounded parser.
+    them to hide ``gh pr merge`` would make the guard bypassable. Prefixes may
+    be nested in ordinary combinations. More dynamic wrappers such as aliases,
+    functions, eval, shell ``-c`` payloads, or generated command strings remain
+    deliberately outside this bounded parser.
     """
     tokens = list(command)
-    _strip_assignment_words(tokens)
-
-    if tokens and PurePosixPath(tokens[0]).name == "env":
-        tokens.pop(0)
-        while tokens:
-            token = tokens[0]
-            if token == "--":
-                tokens.pop(0)
-                break
-            if token in _ENV_SWITCHES:
-                tokens.pop(0)
-                continue
-            if token in _ENV_OPTIONS_WITH_VALUE:
-                if len(tokens) < 2:
-                    return []
-                del tokens[:2]
-                continue
-            if token.startswith(("--unset=", "--chdir=", "--split-string=")):
-                tokens.pop(0)
-                continue
-            if token.startswith("-u") and token != "-u":
-                tokens.pop(0)
-                continue
-            if _ASSIGNMENT_WORD.fullmatch(token):
-                tokens.pop(0)
-                continue
-            break
+    while tokens:
         _strip_assignment_words(tokens)
-
-    if tokens and tokens[0] == "command":
-        tokens.pop(0)
-        while tokens and tokens[0] in {"-p", "--"}:
-            tokens.pop(0)
-        if tokens and tokens[0] in {"-v", "-V"}:
+        if not tokens:
             return []
+
+        if PurePosixPath(tokens[0]).name == "env":
+            tokens.pop(0)
+            while tokens:
+                token = tokens[0]
+                if token == "--":
+                    tokens.pop(0)
+                    break
+                if token in _ENV_SWITCHES:
+                    tokens.pop(0)
+                    continue
+                if token in {"-S", "--split-string"}:
+                    if len(tokens) < 2:
+                        return []
+                    payload = tokens[1]
+                    tokens = _split_env_payload(payload) + tokens[2:]
+                    continue
+                if token.startswith("--split-string="):
+                    payload = token.partition("=")[2]
+                    tokens = _split_env_payload(payload) + tokens[1:]
+                    continue
+                if token in _ENV_OPTIONS_WITH_VALUE:
+                    if len(tokens) < 2:
+                        return []
+                    del tokens[:2]
+                    continue
+                if token.startswith(("--unset=", "--chdir=")):
+                    tokens.pop(0)
+                    continue
+                if token.startswith("-u") and token != "-u":
+                    tokens.pop(0)
+                    continue
+                if _ASSIGNMENT_WORD.fullmatch(token):
+                    tokens.pop(0)
+                    continue
+                break
+            continue
+
+        if tokens[0] == "command":
+            tokens.pop(0)
+            while tokens and tokens[0] in {"-p", "--"}:
+                tokens.pop(0)
+            if tokens and tokens[0] in {"-v", "-V"}:
+                return []
+            continue
+
+        break
 
     return tokens
 
@@ -178,21 +215,17 @@ def _gh_pr_merge_arguments(command: list[str]) -> list[str] | None:
     return tokens[index + 2 :]
 
 
-def _run_enables_pr_auto_merge(run: str) -> bool:
-    for command in _simple_commands(run):
-        arguments = _gh_pr_merge_arguments(command)
-        if arguments is None:
-            continue
-        for argument in arguments:
-            if argument == "--":
-                break
-            if argument == "--auto":
-                return True
-            if argument.startswith("--auto="):
-                value = argument.partition("=")[2].strip().lower()
-                if value not in _FALSE_AUTO_VALUES:
-                    return True
-    return False
+def _run_invokes_pr_merge(run: str) -> bool:
+    """Return whether a bounded direct command invokes ``gh pr merge``.
+
+    Any executable PR-merge command is prohibited. GitHub CLI may queue or
+    enable auto-merge on merge-queue branches even without an explicit
+    ``--auto`` flag, so argument-specific detection is not sufficient.
+    """
+    return any(
+        _gh_pr_merge_arguments(command) is not None
+        for command in _simple_commands(run)
+    )
 
 
 def test_canonical_policy_requires_both_reviewers_on_latest_head():
@@ -254,7 +287,8 @@ def test_auto_merge_transition_rule_and_historical_receipt_are_documented():
     assert "cancel every pre-existing server-side auto-merge request" in policy
     assert "no open pr with auto-merge enabled" in policy
     assert "historical transition evidence (2026-08-31)" in policy
-    assert "resulting audit found no open dependabot pr with auto-merge enabled" in policy
+    assert "repository-wide event-history audit covered every then-open pr" in policy
+    assert "no open pr had auto-merge enabled" in policy
 
 
 def test_claude_links_to_canonical_policy_without_allowing_ci_only_acceptance():
@@ -282,25 +316,36 @@ def test_pr_template_records_complete_latest_head_acceptance_evidence():
     assert "unresolved review conversations/threads" in template
     assert "every substantive finding has an explicit recorded disposition" in template
     assert "no substantive unresolved thread remains" in template
+    assert (
+        "[pull request acceptance policy]"
+        "(../blob/main/docs/development/pull-request-acceptance-policy.md)"
+        in template
+    )
 
 
 @pytest.mark.parametrize(
     "run",
     [
+        'gh pr merge "$PR_URL"',
+        'gh pr merge "$PR_URL" --squash',
         'gh pr merge --auto "$PR_URL"',
-        'gh pr merge "$PR_URL" --auto',
+        'gh pr merge "$PR_URL" --auto=false',
+        'gh pr merge -- "$PR_URL" --auto',
         "gh   pr   merge \\\n"
         "  \"$PR_URL\" \\\n"
-        "  --auto",
+        "  --merge",
         "echo ready && gh pr merge '$PR_URL' '--auto'",
         'GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto',
         'env GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto',
+        'env -S \'GH_TOKEN="$TOKEN" /usr/bin/gh pr merge "$PR_URL" --squash\'',
+        'env --split-string=\'gh --repo owner/repo pr merge "$PR_URL" --merge\'',
+        'command env -S \'/usr/bin/gh pr merge "$PR_URL"\'',
         'command /usr/bin/gh pr merge "$PR_URL" --auto',
         'gh --repo owner/repo pr merge "$PR_URL" --auto=true',
     ],
 )
-def test_shell_detector_rejects_real_auto_merge_invocations(run: str):
-    assert _run_enables_pr_auto_merge(run)
+def test_shell_detector_rejects_pr_merge_invocations(run: str):
+    assert _run_invokes_pr_merge(run)
 
 
 @pytest.mark.parametrize(
@@ -313,35 +358,41 @@ def test_shell_detector_rejects_real_auto_merge_invocations(run: str):
         "gh pr view --auto '$PR_URL'",
         'GH_TOKEN="$TOKEN" echo gh pr merge "$PR_URL" --auto',
         'env GH_TOKEN="$TOKEN" echo "gh pr merge --auto"',
+        'env -S \'echo gh pr merge --auto\'',
+        'env --split-string=\'gh pr view --auto\'',
         'command -v gh && echo "pr merge --auto"',
-        'gh pr merge "$PR_URL" --auto=false',
-        'gh pr merge -- "$PR_URL" --auto',
     ],
 )
 def test_shell_detector_ignores_non_invocations(run: str):
-    assert not _run_enables_pr_auto_merge(run)
+    assert not _run_invokes_pr_merge(run)
 
 
-def test_yaml_inspection_recurses_through_job_steps_and_ignores_prose():
+def test_yaml_inspection_is_limited_to_executable_step_runs():
     workflow = _yaml_load(
         """
 jobs:
   guard:
+    env:
+      run: gh pr merge 1 --squash
     steps:
       # gh pr merge --auto is only a YAML comment.
       - name: "quoted prose: gh pr merge --auto"
+        env:
+          run: gh pr merge 2 --squash
+        with:
+          run: gh pr merge 3 --squash
         run: echo "gh pr merge --auto"
+      - run: |
+          env -S 'GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --squash'
       - nested:
-          run: |
-            GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" \\
-              --auto
+          run: gh pr merge 4 --squash
 """
     )
     assert isinstance(workflow, dict)
 
-    runs = list(_run_strings(workflow["jobs"]))
+    runs = list(_step_run_strings(workflow["jobs"]))
     assert len(runs) == 2
-    assert [_run_enables_pr_auto_merge(run) for run in runs] == [False, True]
+    assert [_run_invokes_pr_merge(run) for run in runs] == [False, True]
 
 
 def test_yaml_loader_preserves_boolean_like_job_ids_and_hidden_commands():
@@ -350,7 +401,7 @@ def test_yaml_loader_preserves_boolean_like_job_ids_and_hidden_commands():
 jobs:
   on:
     steps:
-      - run: GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto
+      - run: GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --squash
   yes:
     steps:
       - run: echo safe
@@ -361,22 +412,22 @@ jobs:
     jobs = workflow["jobs"]
     assert isinstance(jobs, dict)
     assert set(jobs) == {"on", "yes"}
-    runs = list(_run_strings(jobs))
-    assert [_run_enables_pr_auto_merge(run) for run in runs] == [True, False]
+    runs = list(_step_run_strings(jobs))
+    assert [_run_invokes_pr_merge(run) for run in runs] == [True, False]
 
 
-def test_no_tracked_workflow_enables_auto_merge():
+def test_no_tracked_workflow_invokes_pr_merge():
     offenders: list[str] = []
     workflows = _tracked_workflows()
     assert workflows, "no tracked .yml or .yaml workflow files found"
     for path in workflows:
         workflow = _yaml_load((ROOT / path).read_text(encoding="utf-8"))
         assert isinstance(workflow, dict), f"{path}: workflow root must be a mapping"
-        for run in _run_strings(workflow.get("jobs", {})):
-            if _run_enables_pr_auto_merge(run):
+        for run in _step_run_strings(workflow.get("jobs", {})):
+            if _run_invokes_pr_merge(run):
                 offenders.append(str(path))
 
-    assert not offenders, f"tracked workflows enabling PR auto-merge: {sorted(set(offenders))}"
+    assert not offenders, f"tracked workflows invoking gh pr merge: {sorted(set(offenders))}"
 
 
 def test_dependabot_auto_merge_workflow_remains_deleted_fail_closed():
