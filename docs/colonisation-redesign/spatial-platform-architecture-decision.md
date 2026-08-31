@@ -1,8 +1,9 @@
 # Spatial Platform Architecture Decision
 
 **Decision:** Stage 27A, 2026-08-31
-**Implementation status:** contract only; Babylon runtime is not authorized in
-this stage.
+**Implementation status:** Stage 27A contract accepted; Stage 27B implements
+only the isolated workbench authorized by this decision. No production wiring
+or later Stage 27 work is authorized.
 
 ## Context and historically accurate decision
 
@@ -28,7 +29,8 @@ replacement path are superseded.
 ## One platform and dependency rule
 
 ```text
-Finder / CRE / CPE / Commander History (Exploration) / Powerplay / Routes
+ED-Finder Base / Finder / Colonisation / CRE / CPE /
+Commander History (Exploration) / Powerplay / Routes
                          |
               SpatialContribution adapters
                          |
@@ -49,8 +51,10 @@ Domain and feature code **must not import Babylon**. React owns app/domain
 orchestration, routing, panels, accessible DOM UI, keyboard and text. The
 runtime owns the long-lived spatial scene, GPU resources, layers, camera
 implementation, picking/projection and transitions. CRE owns mechanics and
-Digital Twin reasoning. CPE owns plan construction/persistence. ED-Finder owns
-orchestration/presentation. Babylon renders.
+Digital Twin reasoning. CPE is the future plan-construction boundary, but no
+current CPE persistence implementation exists: ED-Finder's Colony Planner owns
+today's Build Plan construction and persistence until an explicit migration is
+authorized. ED-Finder owns orchestration/presentation. Babylon renders.
 
 Dependency enforcement in 27B must include import-boundary tests and a single
 renderer adapter package. No `@babylonjs/*` type may leak into public contracts.
@@ -84,6 +88,7 @@ type SpatialTarget =
   | Readonly<{ kind: "body"; ref: BodyRef }>
   | Readonly<{ kind: "facility"; ref: FacilityRef }>
   | Readonly<{ kind: "region" | "route" | "cluster"; id: string }>;
+type PickCandidate = Readonly<{ target: SpatialTarget; distancePx: number }>;
 
 type CameraState = Readonly<{
   focusLy: Vec3Ly; distanceLy: number; bearingRad: number; pitchRad: number;
@@ -101,12 +106,14 @@ type OrbitalDescriptor = Readonly<{
   meanAnomalyDeg?: Truth<number>; epoch?: Truth<string>;
   placement: "OBSERVED_PHASE" | "COMPUTED_PHASE" | "DETERMINISTIC_SCHEMATIC";
 }>;
-type RingDescriptor = Readonly<{
-  state: "PRESENT" | "ABSENT" | "UNKNOWN"; bands: ReadonlyArray<{
+type RingBand = Readonly<{
     id: string; ringClass?: Truth<string>; innerRadiusM?: Truth<number>;
     outerRadiusM?: Truth<number>;
-  }>;
 }>;
+type RingDescriptor =
+  | Readonly<{ state: "UNKNOWN" }>
+  | Readonly<{ state: "ABSENT" }>
+  | Readonly<{ state: "PRESENT"; bands: readonly [RingBand, ...RingBand[]] }>;
 type BodyVisualDescriptor = Readonly<{
   ref: BodyRef; parent?: BodyRef; class?: Truth<string>;
   physicalRadiusM?: Truth<number>; displayRadius: number;
@@ -122,7 +129,8 @@ interface LayerContract<TPayload = unknown> {
   payload: TPayload; bounds?: unknown; targetCount: number; truncated: boolean;
 }
 interface SpatialContribution {
-  id: string; owner: "FINDER" | "CRE" | "CPE" | "COMMANDER_HISTORY" | "POWERPLAY" | "ROUTES";
+  id: string; owner: "ED_FINDER_BASE" | "FINDER" | "COLONISATION" | "CRE" | "CPE"
+    | "COMMANDER_HISTORY" | "POWERPLAY" | "ROUTES";
   revision: number; layers: readonly LayerContract[];
 }
 interface GalaxySceneContract {
@@ -131,7 +139,8 @@ interface GalaxySceneContract {
 }
 interface SystemSceneContract {
   kind: "system"; revision: number; systemId64: string; fidelity: "S0"|"S1"|"S2"|"S3"|"S4"|"S5";
-  camera: SystemCameraState; bodies: readonly BodyVisualDescriptor[];
+  camera: SystemCameraState; selection: readonly SpatialTarget[];
+  bodies: readonly BodyVisualDescriptor[];
   infrastructure: readonly InfrastructureAttachment[];
   contributions: readonly SpatialContribution[];
 }
@@ -142,17 +151,38 @@ type RuntimeCommand =
   | { type: "PATCH_CONTRIBUTION"; contribution: SpatialContribution }
   | { type: "SET_CAMERA"; camera: CameraState | SystemCameraState }
   | { type: "FLY_TO"; target: SpatialTarget; reducedMotion: boolean }
-  | { type: "PICK"; screenX: number; screenY: number }
+  | { type: "PICK"; screenX: number; screenY: number; maxCandidates: number }
   | { type: "RESIZE"; width: number; height: number; dpr: number }
   | { type: "REBUILD_RESOURCES"; reason: "backend-change" | "device-loss" | "context-loss" };
+type PickCandidate = Readonly<{
+  target: SpatialTarget; distancePx: number;
+}>;
 type RuntimeEvent =
   | { type: "READY"; backend: "WEBGPU" | "WEBGL2" }
   | { type: "CAMERA_CHANGED"; camera: CameraState | SystemCameraState }
-  | { type: "TARGET_PICKED"; target?: SpatialTarget }
+  | { type: "PICK_RESULT"; candidates: readonly PickCandidate[];
+      truncated: boolean; totalCandidates?: number; latencyMs: number }
   | { type: "TRANSITION_FINISHED"; target: SpatialTarget }
-  | { type: "RESOURCE_LOST" | "RECOVERED"; detail: string }
-  | { type: "METRICS"; frameMs: number; visible: number; drawCalls: number; resources: number; bufferBytes: number };
+  | { type: "RESOURCE_LOST"; detail: string }
+  | { type: "RECOVERY_RESULT"; outcome: "RECOVERED" | "FALLBACK" | "FAILED";
+      detail: string; latencyMs: number }
+  | { type: "STREAMING_METRICS"; latencyMs: number; requested: number;
+      delivered: number; truncated: boolean }
+  | { type: "METRICS"; cpuFrameMs: number | null; gpuFrameMs: number | null;
+      visibleCount: number; drawCalls: number; resources: number; bufferBytes: number };
 ```
+
+Contribution ownership names the product/source adapter, never the renderer or
+an inferred mechanics owner. `ED_FINDER_BASE` supplies the useful unlayered
+catalogue scene; `COLONISATION` supplies ED-Finder's current colonisation
+experience explicitly. Neither is mislabeled as Finder, CRE, or CPE.
+
+`PICK_RESULT.candidates` is the complete stable-order overlap set up to the
+command's positive `maxCandidates` bound. `truncated` is true whenever more
+candidates existed; `totalCandidates` is present only when the picking strategy
+can determine it honestly. React, not the runtime, resolves ambiguity. GPU
+duration remains `null` when no trustworthy hardware timer is available; no CPU
+proxy may be reported as GPU time.
 
 `COMMANDER_HISTORY` includes Exploration projections but is not limited to
 them. Journal page analytics, Finder predicates, Galaxy overlays and System

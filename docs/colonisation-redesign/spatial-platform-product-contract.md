@@ -48,8 +48,9 @@ verified repository evidence.
 | Digital Twin | CRE-owned state, reasoning, evidence, history and uncertainty projected onto System spatial truth | It is a layer/mode of the same System scene, never a competing map or mechanics engine. |
 
 The spatial platform may assist **Explore → Inspect → Plan → Review** wherever
-spatial interaction is useful. Colony Planner/Cockpit remains the canonical
-detailed Build Plan workspace and persistence owner. A map may compare plans,
+spatial interaction is useful. ED-Finder's Colony Planner/Cockpit remains the
+canonical detailed Build Plan workspace and current persistence owner. A map
+may compare plans,
 select a proposed location, or initiate an explicit planning action. It must
 never silently mutate a Build Plan, execute Preview, or portray planned,
 inferred, or schematic state as existing fact.
@@ -127,6 +128,9 @@ Reference**, **Find Around Here**, **Colonisation Analysis**, **Compare**,
 **Plan From Here**, **Systems Within…**, **Show Cluster**, and **Plot Route**.
 Multi-select and spatial queries operate on stable target identities, provide a
 bounded result count/truncation state, and remain keyboard and text accessible.
+Pointer picking likewise returns the complete stable-order overlap candidate
+set up to an explicit positive bound, plus an explicit truncation flag; the
+runtime must not discard overlap by choosing one arbitrary target for React.
 
 ## Commander History / Journal product contract
 
@@ -218,10 +222,14 @@ association remains schematic or unresolved.
 
 CRE owns mechanics, ontology, evidence interpretation and Digital Twin state.
 System Map owns spatial orientation and presentation. ED-Finder orchestrates and
-presents; Babylon eventually renders. CPE owns plan construction, alternatives,
-sequencing, validation and plan persistence. Spatial contributions can carry a
-chosen plan, proposed facilities, alternatives, rejected/blocked options and
-dependencies only when the owning CPE contract supplies them.
+presents; Babylon eventually renders. Today, ED-Finder's Colony Planner owns
+Build Plan construction and persistence. CPE is the intended future owner of
+plan construction, alternatives, sequencing, validation and persistence only
+after an explicit migration is designed, implemented and authorized; this
+contract does not claim that migration has happened. Spatial contributions can
+carry current ED-Finder plan state, or future chosen plans, proposed facilities,
+alternatives, rejected/blocked options and dependencies when their actual
+owning contract supplies them.
 
 ## Accessibility, reliability and performance
 
@@ -232,12 +240,17 @@ nonessential animation and makes fly-to/transitions bounded and interruptible.
 
 The runtime must survive resize/DPR changes, stale/empty/truncated/error data,
 backend initialization failure, context/device loss and resource rebuild.
-Selection and camera state are restorable. Performance acceptance is measured
+Selection and camera state are independent and restorable: System selection
+continuity must not be inferred from, or collapsed into, camera focus.
+Performance acceptance is measured
 with production-like 20k and 40k stars, 100k stress, 500k torture, and 1m
 extreme diagnostic scenes, in top-down and pitched views. The 1m case is a
 diagnostic, not a blanket supported-device promise. WebGPU and WebGL2 results
-are reported separately with visible count, frame timing, draw calls, resources
-and buffer bytes.
+are reported separately with CPU frame duration, GPU frame duration where a
+trustworthy hardware timer exists, streaming latency and truncation, pick
+latency, recovery outcome, visible count, draw calls, resources and buffer
+bytes. Unavailable GPU timing is reported as unavailable/null, never estimated
+from CPU frame duration.
 
 ## Deterministic fixture contract
 
