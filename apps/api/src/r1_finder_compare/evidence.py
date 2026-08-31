@@ -30,6 +30,11 @@ def sha256_id(value) -> str:
 
 
 def evidence_snapshot_id(candidate: CandidateEvidence) -> str:
+    """Hash frozen system/candidate evidence only.
+
+    Programme choices such as pair resilience are deliberately excluded: the
+    same system evidence may be evaluated by multiple explicit plans.
+    """
     payload = {
         'fixture_id': candidate.fixture_id,
         'fixture_revision': candidate.fixture_revision,
@@ -37,7 +42,6 @@ def evidence_snapshot_id(candidate: CandidateEvidence) -> str:
         'physical_capacity': asdict(candidate.physical_capacity),
         'extraction_evidence': asdict(candidate.extraction_evidence),
         'refinery_evidence': asdict(candidate.refinery_evidence),
-        'pair_stability': candidate.pair_stability,
         'logistics_no_carrier': candidate.logistics_no_carrier,
         'logistics_carrier': candidate.logistics_carrier,
         'evidence_disposition': candidate.evidence_disposition,
