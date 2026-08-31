@@ -83,14 +83,21 @@ def parse_dotenv(path: Path) -> dict[str, str]:
         key, raw_value = line.split("=", 1)
         if not NAME.fullmatch(key):
             raise Invalid(f"invalid variable name on line {i}")
+        allowlisted = key in ALLOWLIST
         if raw_value.startswith(("'", '"')):
             value, end = _quoted(lines, i - 1, raw_value, raw_value[0])
             i = end + 1
         else:
-            if raw_value != raw_value.strip() or any(c in raw_value for c in "`$"):
+            # Non-allowlisted settings are deliberately ignored rather than
+            # interpreted. They may legitimately contain Compose/shell-style
+            # template syntax; only copied credential values must be strict
+            # non-executing literals.
+            if allowlisted and (
+                raw_value != raw_value.strip() or any(c in raw_value for c in "`$")
+            ):
                 raise Invalid(f"unsafe unquoted value for key {key}")
             value = raw_value
-        if key in ALLOWLIST:
+        if allowlisted:
             if key in result:
                 raise Invalid(f"duplicate allowlisted key: {key}")
             if not value:
