@@ -179,9 +179,10 @@ Stage 25 has exactly one primary objective:
 8. Use the external adversarial audit as an execution-order correction, not as
    a parallel roadmap: preserve the now-closed ratings, migration, backup, and
    CI foundations before opening new product lanes like accounts.
-9. Incubate only the safe slices of the next two opportunity lanes:
-   `B-1` nearest-colonised proximity in Inspect, then `A-1` journal import as
-   staging/evidence ingestion only, with no new canonical write shortcut.
+9. Preserve `B-1` nearest-colonised proximity and the bounded `A-1` journal
+   staging/evidence lane as Stage 25 foundation/history, not as current
+   sequencing or authorization. Current Commander History / Journal work is
+   defined by 27F, 27H, and 27L; Stage 27A still authorizes only 27B.
 
 ## Audit Response
 
@@ -577,11 +578,13 @@ It is not a current queue; the Stage 27 programme above is current authority.
 - Frontier OAuth identity and owner-only operational access are authorized by
   the 2026-08-22 product/identity decision. Collaboration and plan sync remain
   deferred as separate expansion lanes.
-- Journal `A-2` canonical promotion remains deferred pending a separately
-  reviewed write-lane authorization; its former migration and restore
-  prerequisites are now complete.
-- Journal `A-3` personal telemetry remains deferred until identity continuity is
-  authorised through the existing sync/accounts direction.
+- The historical Journal `A-2` canonical-promotion label remains deferred
+  pending a separately reviewed write-lane authorization; its former migration
+  and restore prerequisites are now complete. Any future promotion work must
+  be authorized through the applicable Stage 27 contract.
+- The historical Journal `A-3` personal-telemetry label grants no current
+  authorization. Commander History ownership and sequencing now live in 27F,
+  27H, and 27L, including their identity and privacy gates.
 - Score-weighted colonisation corridor recommendations remain deferred until the
   archetype-scoring cleanup and CRE confidence reconciliation are complete.
 - Broad facility-browser work remains deferred until the cockpit is coherent.
