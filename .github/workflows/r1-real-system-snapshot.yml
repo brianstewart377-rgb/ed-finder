@@ -64,7 +64,6 @@ jobs:
               clean.append(value)
           if len(clean) != len(set(clean)):
               raise SystemExit('selectors must be unique after trimming')
-          # Rewrite canonical validated payload so remote execution consumes exactly what was checked.
           path.write_text(json.dumps({'operation':'r1-real-system-snapshot','selectors':clean}, separators=(',',':')), encoding='utf-8')
           print(f'validated_selectors={len(clean)}')
           PY
@@ -76,6 +75,12 @@ jobs:
           ref: 6d1cb6a13f6c118f5f61fde550c6dde09e19690b
           path: trusted-snapshot
           persist-credentials: false
+
+      - name: Install pinned snapshot dependency
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --quiet psycopg2-binary==2.9.12
 
       - name: Prepare pinned SSH trust
         shell: bash
@@ -102,108 +107,191 @@ jobs:
             exit 1
           }
 
-      - name: Build reviewed snapshot bundle
-        id: bundle
-        shell: bash
-        env:
-          REQUEST_PATH: ${{ steps.request.outputs.path }}
-        run: |
-          set -euo pipefail
-          bundle="$RUNNER_TEMP/r1-real-system-snapshot-$GITHUB_RUN_ID.tar.gz"
-          work="$RUNNER_TEMP/r1-snapshot-bundle"
-          rm -rf "$work"
-          mkdir -p "$work/repo/scripts/operator/actions" "$work/repo/apps/api/src"
-          cp -R trusted-snapshot/apps/api/src/r1_finder_compare "$work/repo/apps/api/src/"
-          cp -R trusted-snapshot/apps/api/src/r1_evidence_bridge "$work/repo/apps/api/src/"
-          cp -R trusted-snapshot/apps/api/src/r1_real_snapshot "$work/repo/apps/api/src/"
-          cp trusted-snapshot/scripts/operator/actions/r1-real-system-snapshot.py "$work/repo/scripts/operator/actions/"
-          cp "$REQUEST_PATH" "$work/request.json"
-          cat > "$work/remote_runner.py" <<'PY'
-          import json, os, pathlib, subprocess, sys
-          root = pathlib.Path(sys.argv[1]).resolve()
-          request = json.loads((root / 'request.json').read_text(encoding='utf-8'))
-          selectors = request['selectors']
-          script = root / 'repo' / 'scripts' / 'operator' / 'actions' / 'r1-real-system-snapshot.py'
-          env = dict(os.environ)
-          proc = subprocess.run([sys.executable, str(script), *selectors], cwd=str(root / 'repo'), env=env, text=True, stdout=subprocess.PIPE)
-          sys.stdout.write(proc.stdout)
-          raise SystemExit(proc.returncode)
-          PY
-          tar -czf "$bundle" -C "$work" .
-          test -s "$bundle"
-          echo "path=$bundle" >> "$GITHUB_OUTPUT"
-
-      - name: Execute bounded snapshot on operator host
+      - name: Discover retained ED-Finder PostgreSQL database
+        id: discover
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
-          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
-          BUNDLE: ${{ steps.bundle.outputs.path }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
-          test -n "$CANDIDATE_DATABASE_URL" || { echo 'Missing ED_NEW_CANDIDATE_DATABASE_URL' >&2; exit 1; }
-          echo "::add-mask::$CANDIDATE_DATABASE_URL"
-          remote_bundle="/tmp/r1-real-system-snapshot-$GITHUB_RUN_ID.tar.gz"
-          scp -q -i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" \
+          umask 077
+          meta="$RUNNER_TEMP/r1-retained-pg18.json"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
-            "$BUNDLE" "$SSH_USER@$SSH_HOST:$remote_bundle"
-          printf '%s\n' "$CANDIDATE_DATABASE_URL" | ssh \
-            -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > "$meta" <<'PY'
+          import json
+          import subprocess
+
+          container = 'edfinder-v3-phase4c-full-20260827_r5-postgres'
+          inspect = json.loads(subprocess.check_output(['docker', 'inspect', container], text=True))[0]
+          env = {}
+          for item in inspect.get('Config', {}).get('Env', []):
+              if '=' in item:
+                  key, value = item.split('=', 1)
+                  env[key] = value
+          user = env.get('POSTGRES_USER') or 'postgres'
+          password = env.get('POSTGRES_PASSWORD') or ''
+          docker_base = ['docker', 'exec']
+          if password:
+              docker_base += ['-e', f'PGPASSWORD={password}']
+          docker_base += [container, 'psql', '-h', '127.0.0.1', '-U', user, '-At']
+          db_names = subprocess.check_output(
+              docker_base + ['-d', 'postgres', '-c', 'SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname'],
+              text=True,
+          ).splitlines()
+          rows = []
+          for db in db_names:
+              q = "SELECT to_regclass('public.systems') IS NOT NULL, to_regclass('public.bodies') IS NOT NULL, to_regclass('public.body_rings') IS NOT NULL, to_regclass('public.ratings') IS NOT NULL"
+              raw = subprocess.check_output(docker_base + ['-d', db, '-F', '|', '-c', q], text=True).strip()
+              systems, bodies, rings, ratings = raw.split('|')
+              rows.append({
+                  'database': db,
+                  'systems': systems == 't',
+                  'bodies': bodies == 't',
+                  'body_rings': rings == 't',
+                  'ratings': ratings == 't',
+              })
+          matches = [r for r in rows if r['systems'] and r['bodies'] and r['body_rings']]
+          if len(matches) != 1:
+              raise SystemExit(f'Expected exactly one retained ED-Finder DB with systems+bodies+body_rings, found {len(matches)}')
+          ports = (inspect.get('NetworkSettings', {}).get('Ports', {}) or {}).get('5432/tcp') or []
+          if ports and ports[0].get('HostPort'):
+              target_host = '127.0.0.1'
+              target_port = int(ports[0]['HostPort'])
+          else:
+              networks = inspect.get('NetworkSettings', {}).get('Networks', {}) or {}
+              target_host = next((v.get('IPAddress') for v in networks.values() if v.get('IPAddress')), '')
+              target_port = 5432
+          if not target_host:
+              raise SystemExit('retained PostgreSQL container has no reachable address')
+          print(json.dumps({
+              'container': container,
+              'database': matches[0]['database'],
+              'ratings_present': matches[0]['ratings'],
+              'user': user,
+              'password': password,
+              'target_host': target_host,
+              'target_port': target_port,
+          }))
+          PY
+          python3 - "$meta" <<'PY'
+          import json, pathlib, sys
+          d = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print('retained_database:', d['database'])
+          print('ratings_table_present:', str(d['ratings_present']).lower())
+          print('snapshot_tables_present: true')
+          PY
+          echo "meta=$meta" >> "$GITHUB_OUTPUT"
+
+      - name: Execute bounded snapshot through SSH tunnel
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          META: ${{ steps.discover.outputs.meta }}
+          REQUEST_PATH: ${{ steps.request.outputs.path }}
+        run: |
+          set -euo pipefail
+          local_port="$(python3 - <<'PY'
+          import socket
+          s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()
+          PY
+          )"
+          mapfile -t target < <(python3 - "$META" <<'PY'
+          import json, pathlib, sys
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print(d['target_host'])
+          print(d['target_port'])
+          PY
+          )
+          target_host="${target[0]}"
+          target_port="${target[1]}"
+          ssh -N -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
-            "$SSH_USER@$SSH_HOST" \
-            "set -eu; bundle='$remote_bundle'; workdir=\"\$(mktemp -d)\"; trap 'rm -rf \"\$workdir\"; rm -f \"\$bundle\"' EXIT; tar -xzf \"\$bundle\" -C \"\$workdir\"; IFS= read -r R1_READONLY_DATABASE_URL; test -n \"\$R1_READONLY_DATABASE_URL\"; export R1_READONLY_DATABASE_URL; python3 \"\$workdir/remote_runner.py\" \"\$workdir\"" \
-            > r1-real-system-snapshot.json
+            -o ExitOnForwardFailure=yes \
+            -L "127.0.0.1:${local_port}:${target_host}:${target_port}" \
+            "$SSH_USER@$SSH_HOST" &
+          tunnel_pid=$!
+          trap 'kill "$tunnel_pid" 2>/dev/null || true' EXIT
+          python3 - "$local_port" <<'PY'
+          import socket, sys, time
+          port=int(sys.argv[1])
+          for _ in range(60):
+              try:
+                  with socket.create_connection(('127.0.0.1', port), timeout=.2):
+                      raise SystemExit(0)
+              except OSError:
+                  time.sleep(.1)
+          raise SystemExit('SSH PostgreSQL tunnel did not become ready')
+          PY
+          python3 - "$META" "$REQUEST_PATH" "$local_port" <<'PY'
+          import json, os, pathlib, subprocess, sys, urllib.parse
+          meta=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          request=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
+          port=int(sys.argv[3])
+          user=urllib.parse.quote(str(meta['user']), safe='')
+          password=urllib.parse.quote(str(meta['password']), safe='')
+          database=urllib.parse.quote(str(meta['database']), safe='')
+          auth=user if not password else f'{user}:{password}'
+          dsn=f'postgresql://{auth}@127.0.0.1:{port}/{database}'
+          print(f'::add-mask::{dsn}')
+          if meta.get('password'):
+              print(f"::add-mask::{meta['password']}")
+          env=dict(os.environ)
+          env['R1_READONLY_DATABASE_URL']=dsn
+          script=pathlib.Path('trusted-snapshot/scripts/operator/actions/r1-real-system-snapshot.py').resolve()
+          with open('r1-real-system-snapshot.json','w',encoding='utf-8') as out:
+              proc=subprocess.run([sys.executable,str(script),*request['selectors']],cwd='trusted-snapshot',env=env,text=True,stdout=out)
+          raise SystemExit(proc.returncode)
+          PY
           test -s r1-real-system-snapshot.json
 
       - name: Validate snapshot and print bounded summary
         shell: bash
         env:
           REQUEST_PATH: ${{ steps.request.outputs.path }}
-          CANDIDATE_DATABASE_URL: ${{ secrets.ED_NEW_CANDIDATE_DATABASE_URL }}
+          META: ${{ steps.discover.outputs.meta }}
         run: |
           set -euo pipefail
-          python3 - "$REQUEST_PATH" r1-real-system-snapshot.json <<'PY'
-          import json, os, pathlib, sys
-          request = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
-          artifact_path = pathlib.Path(sys.argv[2])
-          raw = artifact_path.read_text(encoding='utf-8')
-          payload = json.loads(raw)
+          python3 - "$REQUEST_PATH" "$META" r1-real-system-snapshot.json <<'PY'
+          import json, pathlib, sys
+          request=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          meta=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
+          artifact_path=pathlib.Path(sys.argv[3])
+          raw=artifact_path.read_text(encoding='utf-8')
+          payload=json.loads(raw)
           if payload.get('transaction_read_only') != 'on':
               raise SystemExit('snapshot did not prove transaction_read_only=on')
-          safety = payload.get('safety') or {}
-          expected = {
-              'db_access_performed': True,
-              'db_read_only_confirmed': True,
-              'db_writes_performed': False,
-              'migrations_performed': False,
-          }
-          for key, value in expected.items():
+          safety=payload.get('safety') or {}
+          expected={'db_access_performed':True,'db_read_only_confirmed':True,'db_writes_performed':False,'migrations_performed':False}
+          for key,value in expected.items():
               if safety.get(key) is not value:
                   raise SystemExit(f'invalid safety flag {key}: {safety.get(key)!r}')
-          snapshots = payload.get('snapshots')
-          if not isinstance(snapshots, list) or len(snapshots) > 20:
+          snapshots=payload.get('snapshots')
+          if not isinstance(snapshots,list) or len(snapshots)>20:
               raise SystemExit('snapshot result is not a bounded list')
-          secret = os.environ.get('CANDIDATE_DATABASE_URL', '')
-          if secret and secret in raw:
-              raise SystemExit('snapshot artifact contains candidate database URL')
-          requested = request['selectors']
-          returned_keys = set()
+          password=str(meta.get('password') or '')
+          if password and password in raw:
+              raise SystemExit('snapshot artifact contains PostgreSQL password')
+          requested=request['selectors']
+          returned_keys=set()
           print(f'requested_systems: {len(requested)}')
           print(f'returned_systems: {len(snapshots)}')
           for row in snapshots:
-              name = str(row.get('system_name'))
-              id64 = str(row.get('system_id64'))
-              returned_keys.update((name, id64, f'id:{id64}'))
-              digest = str(row.get('snapshot_digest') or '')
+              name=str(row.get('system_name'))
+              id64=str(row.get('system_id64'))
+              returned_keys.update((name,id64,f'id:{id64}'))
+              digest=str(row.get('snapshot_digest') or '')
               print(
                   f"- {name} [{id64}] bodies={row.get('projected_body_rows')}/{row.get('declared_body_count')} "
                   f"completeness={row.get('body_data_completeness')} "
@@ -213,8 +301,8 @@ jobs:
                   f"surface_slots_unknown={row.get('unknown_surface_slot_predictions')} "
                   f"digest={digest[:20]}"
               )
-          not_found = [s for s in requested if s not in returned_keys]
-          print('not_found:', json.dumps(not_found, ensure_ascii=True))
+          not_found=[s for s in requested if s not in returned_keys]
+          print('not_found:',json.dumps(not_found,ensure_ascii=True))
           print('db_read_only_confirmed: true')
           print('db_writes_performed: false')
           print('migrations_performed: false')
