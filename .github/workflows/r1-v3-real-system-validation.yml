@@ -81,20 +81,23 @@ jobs:
           REQUEST_PATH: ${{ steps.request.outputs.path }}
         run: |
           set -euo pipefail
-          selectors_json="$(python3 - "$REQUEST_PATH" <<'PY'
-          import json,pathlib,sys
-          print(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_text())['selectors'],separators=(',',':')))
+          selectors_b64="$(python3 - "$REQUEST_PATH" <<'PY'
+          import base64,json,pathlib,sys
+          raw=json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_text())['selectors'],separators=(',',':')).encode('utf-8')
+          print(base64.urlsafe_b64encode(raw).decode('ascii').rstrip('='))
           PY
           )"
-          printf '%s\n' "$selectors_json" | ssh \
+          ssh \
             -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
-            "$SSH_USER@$SSH_HOST" 'python3 -' > r1-v3-real-system-validation.json <<'PY'
-          import json,subprocess,sys
-          selectors=json.loads(sys.stdin.readline())
+            "$SSH_USER@$SSH_HOST" "python3 - '$selectors_b64'" > r1-v3-real-system-validation.json <<'PY'
+          import base64,json,subprocess,sys
+          encoded=sys.argv[1]
+          encoded += '=' * (-len(encoded) % 4)
+          selectors=json.loads(base64.urlsafe_b64decode(encoded.encode('ascii')).decode('utf-8'))
           container='edfinder-v3-phase4c-full-20260827_r5-postgres'
           database='edfinder_v3_phase4c_full_20260827_r5'
           schema='v3_gen_phase4c_full_20260827_r5'
