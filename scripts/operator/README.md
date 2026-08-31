@@ -16,6 +16,10 @@ does not touch the database.
 
 Current scripts:
 
+- `octopus_selfhost.sh`: read-only host preflight, fail-closed preparation of
+  an isolated Octopus `1.0.122` package, and static/Compose validation. Prepare
+  never starts containers, migrates data, or changes nginx/DNS; production
+  `/opt/octopus` requires root and an exact confirmation phrase.
 - `require_hetzner_operator_env.sh`: reusable fail-fast guard for
   Hetzner-only commands.
 - `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
