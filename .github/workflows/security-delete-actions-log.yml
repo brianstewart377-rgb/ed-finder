@@ -1,0 +1,62 @@
+name: Security - Delete Leaked Actions Log
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/security-log-cleanup-requests/*.json'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate exact cleanup request
+        id: req
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected one cleanup request' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/security-log-cleanup-requests/*.json) ;;
+            *) echo 'Path outside cleanup allowlist' >&2; exit 64 ;;
+          esac
+          run_id="$(python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if set(d)!={'operation','run_id'} or d.get('operation')!='delete-workflow-run-logs':
+              raise SystemExit('Invalid cleanup request')
+          run_id=int(d['run_id'])
+          if run_id != 33399819077:
+              raise SystemExit('Only the known leaked run is allowlisted')
+          print(run_id)
+          PY
+          )"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Delete leaked workflow logs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.req.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          status="$(curl --silent --show-error --output /tmp/delete-body.txt --write-out '%{http_code}' \
+            --request DELETE \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/logs")"
+          [ "$status" = 204 ] || { echo "Log deletion failed with HTTP $status" >&2; cat /tmp/delete-body.txt >&2; exit 1; }
+          echo "deleted_workflow_run_logs: $RUN_ID"
