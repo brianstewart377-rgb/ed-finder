@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from .programmes import PROGRAMME_ID, TEMPLATE_REVISION
 from .types import (
     AllocationClaim,
     BodyFact,
     CandidateEvidence,
+    CandidateProgrammePlan,
     CapacityEvidence,
     RequirementEvidence,
 )
@@ -75,7 +77,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=(body('c1', 'High metal content world', distance_ls=600), body('c2', 'Metal-rich body', distance_ls=900), body('c3', 'Rocky body', distance_ls=1200, rings=True)),
         physical_capacity=cap('cap-compact', 0.95, 'resilient'),
         extraction_evidence=req('ext-compact', 1.0), refinery_evidence=req('ref-compact', 0.92),
-        pair_stability='robust', logistics_no_carrier='compact', logistics_carrier='compact',
+        logistics_no_carrier='compact', logistics_carrier='compact',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:compact:1',),
     ),
     CandidateEvidence(
@@ -84,7 +86,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=tuple(body(f'r{i}', 'High metal content world' if i < 5 else 'Metal-rich body', distance_ls=110000 + i * 5000, geo=i % 2 == 0) for i in range(1, 8)),
         physical_capacity=cap('cap-remote', 1.0, 'expandable'),
         extraction_evidence=req('ext-remote', 1.0), refinery_evidence=req('ref-remote', 0.95),
-        pair_stability='robust', logistics_no_carrier='extreme', logistics_carrier='moderate',
+        logistics_no_carrier='extreme', logistics_carrier='moderate',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:remote:1',),
     ),
     CandidateEvidence(
@@ -93,7 +95,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=(body('g1', 'High metal content world', distance_ls=1800, geo=True), body('g2', 'Rocky body', distance_ls=2200, rings=True)),
         physical_capacity=cap('cap-geo', 1.0, 'sufficient'),
         extraction_evidence=req('ext-geo', 0.93), refinery_evidence=req('ref-geo', 0.70),
-        pair_stability='robust', logistics_no_carrier='compact', logistics_carrier='compact',
+        logistics_no_carrier='compact', logistics_carrier='compact',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:geo:1',),
     ),
     CandidateEvidence(
@@ -102,7 +104,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=(body('f1', 'Rocky body', distance_ls=500), body('f2', 'Rocky body', distance_ls=700), body('f3', 'Rocky body', distance_ls=900)),
         physical_capacity=cap('cap-refinery', 0.9, 'resilient'),
         extraction_evidence=req('ext-refinery', 0.25, satisfied=False), refinery_evidence=req('ref-refinery', 1.0),
-        pair_stability='mixed', logistics_no_carrier='compact', logistics_carrier='compact',
+        logistics_no_carrier='compact', logistics_carrier='compact',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:refinery:1',),
     ),
     CandidateEvidence(
@@ -111,7 +113,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=(body('i1', 'High metal content world', distance_ls=1000), body('i2', 'Rocky body', distance_ls=1300, rings=True)),
         physical_capacity=cap('cap-incomplete', 0.9, 'sufficient', disposition='missing'),
         extraction_evidence=req('ext-incomplete', 0.9), refinery_evidence=req('ref-incomplete', 0.9),
-        pair_stability='unknown', logistics_no_carrier=None, logistics_carrier=None,
+        logistics_no_carrier=None, logistics_carrier=None,
         evidence_disposition='conflicting', ambiguity_flags=('capacity_unknown',), conflict_flags=('pair_conflict',), provenance_ids=('fixture:incomplete:1',),
     ),
     CandidateEvidence(
@@ -120,7 +122,7 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         bodies=(body('p30-1', 'High metal content world', distance_ls=800), body('p30-2', 'Metal-rich body', distance_ls=1000), body('p30-3', 'Rocky body', distance_ls=1200, rings=True)),
         physical_capacity=cap('cap-p30', 1.0, 'sufficient'),
         extraction_evidence=req('ext-p30', 1.0), refinery_evidence=req('ref-p30', 1.0),
-        pair_stability='robust', logistics_no_carrier='moderate', logistics_carrier='compact',
+        logistics_no_carrier='moderate', logistics_carrier='compact',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:p30:1',),
     ),
     CandidateEvidence(
@@ -132,10 +134,31 @@ CANDIDATES: tuple[CandidateEvidence, ...] = (
         ),
         physical_capacity=cap('cap-p60', 1.0, 'expandable'),
         extraction_evidence=req('ext-p60', 1.0), refinery_evidence=req('ref-p60', 1.0),
-        pair_stability='robust', logistics_no_carrier='moderate', logistics_carrier='compact',
+        logistics_no_carrier='moderate', logistics_carrier='compact',
         evidence_disposition='sufficient', ambiguity_flags=(), conflict_flags=(), provenance_ids=('fixture:p60:1',),
     ),
 )
+
+
+def _plan(resilience: str, *refs: str) -> CandidateProgrammePlan:
+    return CandidateProgrammePlan(
+        programme_id=PROGRAMME_ID,
+        template_revision=TEMPLATE_REVISION,
+        pair_resilience=resilience,  # type: ignore[arg-type]
+        allocation_trace_ids=('alloc-extraction', 'alloc-refinery'),
+        resilience_evidence_refs=tuple(sorted(refs)),
+    )
+
+
+P_ER_01_PLANS: dict[str, CandidateProgrammePlan] = {
+    'compact_extraction_specialist': _plan('robust', 'plan:compact:pair'),
+    'remote_extraction_abundance': _plan('robust', 'plan:remote:pair'),
+    'geo_hmc_composable': _plan('robust', 'plan:geo:pair'),
+    'refinery_heavy_weak_extraction': _plan('mixed', 'plan:refinery:pair'),
+    'incomplete_material_evidence': _plan('unknown', 'plan:incomplete:pair'),
+    'plateau_sufficient_30': _plan('robust', 'plan:p30:pair'),
+    'plateau_surplus_60': _plan('robust', 'plan:p60:pair'),
+}
 
 
 def get_candidate(fixture_id: str) -> CandidateEvidence:
@@ -143,3 +166,10 @@ def get_candidate(fixture_id: str) -> CandidateEvidence:
         if candidate.fixture_id == fixture_id:
             return candidate
     raise KeyError(fixture_id)
+
+
+def get_p_er_01_plan(fixture_id: str) -> CandidateProgrammePlan:
+    try:
+        return P_ER_01_PLANS[fixture_id]
+    except KeyError as exc:
+        raise KeyError(f'no P-ER-01 plan fixture for {fixture_id}') from exc
