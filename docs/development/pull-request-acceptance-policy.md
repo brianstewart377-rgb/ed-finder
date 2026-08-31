@@ -69,10 +69,14 @@ maintainers must complete a one-time audit of all open PRs and cancel every
 pre-existing server-side auto-merge request. The fail-closed steady state is no
 open PR with auto-merge enabled.
 
-Historical transition evidence (2026-08-31): open Dependabot PRs #513 and #505
-had `auto_merge: null`. PRs #492 and #502 had legacy requests from
-`github-actions[bot]` and were closed fail-closed to cancel them. The resulting
-audit found no open Dependabot PR with auto-merge enabled.
+Historical transition evidence (2026-08-31): a repository-wide event-history
+audit covered every then-open PR: #454, #505, #513, #515, #526, #527, #534,
+and #536. PR #515 retained a legacy `auto_squash_enabled` request; it was closed
+and immediately reopened solely to produce `auto_merge_disabled` without
+changing its head. None of the other then-open PR event histories contained an
+auto-merge enable event. Earlier PRs #492 and #502 also had legacy requests and
+were closed fail-closed to cancel them. After those cancellations, no open PR
+had auto-merge enabled.
 
 ## Findings after merge
 
