@@ -23,7 +23,7 @@
 Any new commit invalidates all prior CI and reviewer evidence. A pending or
 still-reviewing service must be triggered when needed and awaited; ordinary
 pending/in-progress review cannot be waived. All other safeguards in the
-canonical [Pull Request Acceptance Policy](../docs/development/pull-request-acceptance-policy.md)
+canonical [Pull Request Acceptance Policy](../blob/main/docs/development/pull-request-acceptance-policy.md)
 continue to apply when an owner waiver is used.
 
 ## Repo Hygiene
