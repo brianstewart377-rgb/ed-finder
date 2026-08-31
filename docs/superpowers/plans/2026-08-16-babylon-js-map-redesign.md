@@ -1,5 +1,17 @@
 # Babylon.js Map Redesign Implementation Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE WHOLESALE**
+>
+> This 2026-08-16 plan predates Stage 27A. Its Babylon 6 assumption, monolithic
+> `babylonjs` imports, arbitrary application `worldScale`, point-cloud star
+> direction, narrow R3F replacement, and immediate file-deletion steps are no
+> longer authoritative. It remains unchanged below as historical evidence.
+> Current authority is `docs/ROADMAP.md`,
+> `docs/colonisation-redesign/spatial-platform-product-contract.md`, and
+> `docs/colonisation-redesign/spatial-platform-architecture-decision.md`.
+> Stage 27A authorizes no runtime work; do not restore the deleted/unreviewed
+> attempt or remove the production R3F map.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace broken Three.js volumetric rendering with a correct Babylon.js-based map that displays real stars at accurate game-world coordinates and a particle-based galaxy background.
