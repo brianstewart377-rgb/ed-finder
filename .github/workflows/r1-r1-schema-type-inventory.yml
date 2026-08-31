@@ -1,0 +1,119 @@
+name: R1 Schema FK Type Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-schema-type-inventory-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-schema-type-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Metadata-only R1 foreign-key type inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one type-inventory request' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/r1-schema-type-inventory-requests/*.json) ;;
+            *) echo 'Changed path outside type-inventory allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {'operation':'r1-schema-type-inventory'}:
+              raise SystemExit('Unsupported type-inventory request')
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"; test -n "$SSH_HOST"; test -n "$SSH_PORT"; test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo 'Pinned host trust mismatch' >&2; exit 1; }
+
+      - name: Read PostgreSQL catalog types only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > r1-schema-type-inventory.json <<'PY'
+          import json, subprocess
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'; password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At','-F','|']
+          sql="""
+          SELECT n.nspname,c.relname,a.attname,
+                 format_type(a.atttypid,a.atttypmod),
+                 a.attnotnull
+          FROM pg_attribute a
+          JOIN pg_class c ON c.oid=a.attrelid
+          JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE a.attnum>0 AND NOT a.attisdropped
+            AND ((n.nspname='v3_identity' AND c.relname='account' AND a.attname='account_id')
+              OR (n.nspname='v3_meta' AND c.relname='canonical_generation' AND a.attname='generation_id')
+              OR (n.nspname='v3_vocab' AND c.relname='body_type' AND a.attname='body_type_id'))
+          ORDER BY n.nspname,c.relname,a.attname
+          """
+          lines=subprocess.check_output(base+['-c',sql],text=True,stderr=subprocess.STDOUT).splitlines()
+          rows=[]
+          for line in lines:
+              schema,relation,column,pg_type,not_null=line.split('|')
+              rows.append({'schema':schema,'relation':relation,'column':column,'postgres_type':pg_type,'not_null':not_null=='t'})
+          print(json.dumps({'rows':rows},separators=(',',':')))
+          PY
+
+      - name: Validate inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          d=json.load(open('r1-schema-type-inventory.json'))
+          if len(d.get('rows',[])) != 3:
+              raise SystemExit(f"expected 3 catalog rows, got {len(d.get('rows',[]))}")
+          for row in d['rows']:
+              print(f"{row['schema']}.{row['relation']}.{row['column']}: {row['postgres_type']} not_null={str(row['not_null']).lower()}")
+          PY
