@@ -55,7 +55,21 @@ The long-running self-hosted job is a separate workflow run. Its run name includ
 
 ChatGPT clients should therefore report the dispatch acknowledgement/run ID immediately. A later turn may query the worker run for progress or results. A client-side timeout must not be treated as evidence that Codex failed unless the GitHub worker run itself failed or timed out.
 
-The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
+The Codex Worker retains its 120-minute execution limit, repository state gate,
+investigation immutability check, and isolated implementation-branch behavior.
+The self-hosted runner pool processes independent worker runs in parallel; the
+workflow deliberately has no global concurrency group.
+
+After the clean checkout, the worker selects Python 3.12 through the same pinned
+setup action used by CI, verifies the exact interpreter version or fails closed,
+creates the repo-local `.venv`, and runs the strict repository state gate before
+installing dependencies. Only after that gate passes does it
+install the existing pinned `tests/requirements-ci.txt` authority with the venv
+interpreter. It then exports `VIRTUAL_ENV` and prepends `.venv/bin` for all later
+steps, and verifies the bootstrap with `python -m pip check`,
+`python -m pytest --version`, and `python -m ruff --version`. Thus Codex commands
+documented with `python -m pytest` or `python -m ruff` use the deterministic
+worker environment rather than packages left on the runner host.
 
 ### Codex implementation push credential
 
