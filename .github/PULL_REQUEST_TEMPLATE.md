@@ -9,6 +9,21 @@
 - [ ] CI/local parity impact was considered
 - [ ] Docs were updated if behavior or workflow changed
 
+## Merge Acceptance
+
+- Latest PR head SHA: `________________________`
+- [ ] All required CI/security/coverage/status checks passed for that head
+- [ ] Codex Review (`chatgpt-codex-connector`) completed — status: `________`; reviewed SHA: `________________________`
+- [ ] Octopus Review completed — status: `________`; reviewed SHA: `________________________`
+- [ ] Paginated top-level conversation comments, formal review bodies, inline review comments, and unresolved review conversations were inspected
+- [ ] Every substantive finding has a recorded disposition and no substantive unresolved conversation remains
+- Finding dispositions/evidence: `____________________________________________________________`
+- Explicit owner waiver (normally `none`; if used, name unavailable reviewer, replacement manual review/evidence, and accepted risk): `none`
+
+Any new commit invalidates older review evidence. Pending, still-reviewing, or
+errored reviewers are fail-closed unless the repository owner records the
+explicit written waiver above.
+
 ## Repo Hygiene
 
 - [ ] This change does not introduce a new visible repo-root file without an explicit reason
