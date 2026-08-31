@@ -1,0 +1,184 @@
+name: R1 PostgreSQL Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-postgres-inventory-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-postgres-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Metadata-only PostgreSQL inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one PostgreSQL inventory request' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/r1-postgres-inventory-requests/*.json) ;;
+            *) echo 'Changed path is outside inventory request allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          if data != {'operation':'r1-postgres-inventory'}:
+              raise SystemExit('Unsupported inventory request')
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo 'Missing ED_NEW_OPERATOR_SSH_KEY' >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo 'Missing ED_NEW_OPERATOR_HOST' >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo 'Missing ED_NEW_OPERATOR_PORT' >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo 'Missing pinned known-hosts secret' >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo 'Pinned known-host trust does not cover configured host/port' >&2
+            exit 1
+          }
+
+      - name: Inventory PostgreSQL containers and databases
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo 'Missing ED_NEW_OPERATOR_USER' >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > r1-postgres-inventory.json <<'PY'
+          import json
+          import subprocess
+
+          def check_output(args):
+              return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT)
+
+          raw = check_output(['docker','ps','-a','--format','{{json .}}']).splitlines()
+          containers=[]
+          for line in raw:
+              if not line.strip():
+                  continue
+              row=json.loads(line)
+              name=row.get('Names') or ''
+              image=row.get('Image') or ''
+              state=row.get('State') or ''
+              status=row.get('Status') or ''
+              if 'postgres' not in (name+' '+image).lower():
+                  continue
+              entry={'container':name,'image':image,'state':state,'status':status,'databases':[]}
+              if state.lower()!='running':
+                  containers.append(entry)
+                  continue
+              try:
+                  inspect=json.loads(check_output(['docker','inspect',name]))[0]
+                  env={}
+                  for item in inspect.get('Config',{}).get('Env',[]):
+                      if '=' in item:
+                          k,v=item.split('=',1); env[k]=v
+                  user=env.get('POSTGRES_USER') or 'postgres'
+                  password=env.get('POSTGRES_PASSWORD') or ''
+                  base=['docker','exec']
+                  if password:
+                      base += ['-e',f'PGPASSWORD={password}']
+                  base += [name,'psql','-h','127.0.0.1','-U',user,'-At']
+                  dbs=check_output(base+['-d','postgres','-c','SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname']).splitlines()
+                  for db in dbs:
+                      q=("SELECT pg_database_size(current_database()), "
+                         "to_regclass('public.systems') IS NOT NULL, "
+                         "to_regclass('public.bodies') IS NOT NULL, "
+                         "to_regclass('public.body_rings') IS NOT NULL, "
+                         "to_regclass('public.ratings') IS NOT NULL, "
+                         "to_regclass('public.stations') IS NOT NULL")
+                      value=check_output(base+['-d',db,'-F','|','-c',q]).strip()
+                      size,systems,bodies,rings,ratings,stations=value.split('|')
+                      entry['databases'].append({
+                          'database':db,
+                          'size_bytes':int(size),
+                          'systems':systems=='t',
+                          'bodies':bodies=='t',
+                          'body_rings':rings=='t',
+                          'ratings':ratings=='t',
+                          'stations':stations=='t',
+                      })
+                  ports=(inspect.get('NetworkSettings',{}).get('Ports',{}) or {}).get('5432/tcp') or []
+                  entry['host_port_published']=bool(ports and ports[0].get('HostPort'))
+                  networks=inspect.get('NetworkSettings',{}).get('Networks',{}) or {}
+                  entry['docker_network_address_available']=any(bool(v.get('IPAddress')) for v in networks.values())
+              except Exception as exc:
+                  # Deliberately do not include command output because it may contain sensitive details.
+                  entry['discovery_error']=type(exc).__name__
+              containers.append(entry)
+
+          candidates=[]
+          for c in containers:
+              for db in c.get('databases',[]):
+                  if db.get('systems') and db.get('bodies'):
+                      candidates.append({'container':c['container'],'database':db['database'],'body_rings':db['body_rings'],'ratings':db['ratings'],'stations':db['stations'],'size_bytes':db['size_bytes']})
+          payload={'postgres_containers':containers,'systems_bodies_candidates':candidates,'candidate_count':len(candidates)}
+          print(json.dumps(payload,separators=(',',':')))
+          PY
+
+      - name: Validate and summarize safe inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('r1-postgres-inventory.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          print(f"postgres_containers: {len(d.get('postgres_containers',[]))}")
+          for c in d.get('postgres_containers',[]):
+              print(f"- container={c.get('container')} image={c.get('image')} state={c.get('state')} host_port={c.get('host_port_published',False)} network_ip={c.get('docker_network_address_available',False)}")
+              for db in sorted(c.get('databases',[]), key=lambda x:x.get('size_bytes',0), reverse=True):
+                  gib=db['size_bytes']/(1024**3)
+                  print(f"  db={db['database']} size_gib={gib:.2f} systems={db['systems']} bodies={db['bodies']} body_rings={db['body_rings']} ratings={db['ratings']} stations={db['stations']}")
+              if c.get('discovery_error'):
+                  print(f"  discovery_error={c['discovery_error']}")
+          print(f"systems_bodies_candidates: {d.get('candidate_count',0)}")
+          for row in d.get('systems_bodies_candidates',[]):
+              print(f"- candidate container={row['container']} db={row['database']} body_rings={row['body_rings']} ratings={row['ratings']} stations={row['stations']}")
+          PY
+
+      - name: Upload safe inventory artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r1-postgres-inventory-${{ github.run_id }}
+          path: r1-postgres-inventory.json
+          if-no-files-found: error
+          retention-days: 30
