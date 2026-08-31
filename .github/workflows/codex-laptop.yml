@@ -23,8 +23,7 @@ on:
         type: string
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   codex:
@@ -87,6 +86,10 @@ jobs:
           set -euo pipefail
           echo "runner=$RUNNER_NAME"
           echo "workspace=$GITHUB_WORKSPACE"
+          case "$RUNNER_NAME" in
+            contabo-codex-worker|contabo-codex-worker-2|contabo-codex-worker-3) ;;
+            *) echo "::error::Refusing to run Codex on unapproved runner: $RUNNER_NAME"; exit 43 ;;
+          esac
           id
           uname -a
           if ! command -v codex >/dev/null 2>&1; then
@@ -94,6 +97,13 @@ jobs:
             exit 42
           fi
           codex --version
+          codex_help="$(codex exec --help)"
+          for required_option in --ignore-user-config --ignore-rules --ephemeral; do
+            grep -F -- "$required_option" <<< "$codex_help" >/dev/null || {
+              echo "::error::Installed Codex CLI lacks required automation isolation option: $required_option"
+              exit 44
+            }
+          done
 
       - name: Run Codex investigation
         if: steps.request.outputs.mode == 'investigate'
@@ -104,8 +114,10 @@ jobs:
           set -euo pipefail
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
-          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          {
+            printf '%s\n\n' "You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings."
+            printf 'TASK:\n%s\n' "$CODEX_TASK"
+          } | codex exec --sandbox danger-full-access --ignore-user-config --ignore-rules --ephemeral --disable apps --disable hooks --disable plugins -
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
             echo "Investigation modified the workspace; failing closed." >&2
@@ -127,8 +139,10 @@ jobs:
           git checkout -B "$branch" refs/remotes/origin/main
           git config user.name "codex-worker"
           git config user.email "codex-worker@users.noreply.github.com"
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before creating this isolated implementation branch; do not rerun that gate merely because the branch name is now different. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          {
+            printf '%s\n\n' "You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before creating this isolated implementation branch; do not rerun that gate merely because the branch name is now different. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks."
+            printf 'TASK:\n%s\n' "$CODEX_TASK"
+          } | codex exec --sandbox danger-full-access --ignore-user-config --ignore-rules --ephemeral --disable apps --disable hooks --disable plugins -
           git diff --check
           changes="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
@@ -142,28 +156,116 @@ jobs:
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "CODEX_BRANCH_LOCAL=$branch"
 
-      - name: Push implementation branch
+      - name: Prepare implementation payload
         if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+        id: push_payload
         shell: bash
         env:
           CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
-          CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          workflow_changes="$(git diff --name-only refs/remotes/origin/main...HEAD | grep -E '^\.github/workflows/' || true)"
-          if [ -n "$workflow_changes" ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
-            echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured. Add that repository secret using a fine-grained personal access token limited to this repository with Contents: read/write and Workflows: read/write."
-            printf 'Workflow files requiring privileged push:\n%s\n' "$workflow_changes"
-            exit 68
+          case "$CODEX_BRANCH" in
+            codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}) ;;
+            *) echo "::error::Unexpected implementation branch: $CODEX_BRANCH"; exit 68 ;;
+          esac
+
+          payload="$RUNNER_TEMP/codex-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.patch"
+          rm -f "$payload"
+          git diff --binary --full-index refs/remotes/origin/main...HEAD > "$payload"
+          [ -s "$payload" ] || { echo "::error::Implementation patch is empty"; exit 69; }
+          chmod 600 "$payload"
+          echo "payload=$payload" >> "$GITHUB_OUTPUT"
+
+      - name: Upload implementation payload
+        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: codex-push-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.push_payload.outputs.payload }}
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    needs: codex
+    if: inputs.mode == 'implement' && needs.codex.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download implementation payload
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: codex-push-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codex-payload
+
+      - name: Reconstruct and inspect trusted push
+        id: trusted
+        shell: bash
+        env:
+          FETCH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [ "$GITHUB_SERVER_URL" = "https://github.com" ] || { echo "::error::Unexpected GitHub server"; exit 70; }
+          [[ "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "::error::Invalid GITHUB_REPOSITORY"; exit 70; }
+          branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mapfile -t patches < <(find "$RUNNER_TEMP/codex-payload" -maxdepth 1 -type f -name '*.patch' -print)
+          [ "${#patches[@]}" -eq 1 ] || { echo "::error::Expected exactly one implementation patch"; exit 70; }
+
+          trusted_root="$(mktemp -d "$RUNNER_TEMP/codex-trusted-push.XXXXXX")"
+          trap 'rm -rf "$trusted_root"' EXIT
+          mkdir -m 700 "$trusted_root/home" "$trusted_root/xdg"
+          export HOME="$trusted_root/home" XDG_CONFIG_HOME="$trusted_root/xdg"
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_NO_REPLACE_OBJECTS=1
+          canonical_remote="https://github.com/${GITHUB_REPOSITORY}.git"
+          git -c core.hooksPath=/dev/null init "$trusted_root/repo"
+
+          fetch_askpass="$trusted_root/fetch-askpass"
+          cat > "$fetch_askpass" <<'EOF'
+          #!/usr/bin/env sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$FETCH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$fetch_askpass"
+          GIT_ASKPASS="$fetch_askpass" git -C "$trusted_root/repo" -c core.hooksPath=/dev/null -c credential.helper= fetch --no-tags --depth=10 "$canonical_remote" '+refs/heads/main:refs/remotes/trusted/main'
+          git -C "$trusted_root/repo" -c core.hooksPath=/dev/null checkout --detach refs/remotes/trusted/main
+          git -C "$trusted_root/repo" -c core.hooksPath=/dev/null apply --check --index "${patches[0]}"
+          git -C "$trusted_root/repo" -c core.hooksPath=/dev/null apply --index "${patches[0]}"
+          git -C "$trusted_root/repo" -c core.hooksPath=/dev/null -c user.name=codex-worker -c user.email=codex-worker@users.noreply.github.com commit -m "Codex implementation run ${GITHUB_RUN_ID}"
+          implementation_commit="$(git -C "$trusted_root/repo" rev-parse --verify 'HEAD^{commit}')"
+
+          changed_files="$trusted_root/changed-files"
+          if ! git -C "$trusted_root/repo" diff --name-only refs/remotes/trusted/main..."$implementation_commit" > "$changed_files"; then
+            echo "::error::Unable to determine whether workflow files changed; refusing push."
+            exit 72
           fi
+          workflow_changes=false
+          if grep -E '^\.github/workflows/' "$changed_files" > "$trusted_root/workflow-files"; then
+            workflow_changes=true
+          else
+            grep_status=$?
+            [ "$grep_status" -eq 1 ] || { echo "::error::Unable to inspect changed paths; refusing push."; exit 72; }
+          fi
+          mv "$trusted_root/repo" "$RUNNER_TEMP/codex-trusted-repo"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "commit=$implementation_commit" >> "$GITHUB_OUTPUT"
+          echo "workflow_changes=$workflow_changes" >> "$GITHUB_OUTPUT"
 
-          push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
-
-          # Checkout deliberately does not persist credentials. Authenticate only this
-          # wrapper-owned push through GIT_ASKPASS so the selected token is never present
-          # in argv, a remote URL, repository config, or the Codex process environment.
-          askpass="$(mktemp)"
+      - name: Push ordinary implementation branch
+        if: steps.trusted.outputs.workflow_changes == 'false'
+        shell: bash
+        env:
+          CODEX_PUSH_TOKEN: ${{ github.token }}
+          CODEX_BRANCH: ${{ steps.trusted.outputs.branch }}
+          IMPLEMENTATION_COMMIT: ${{ steps.trusted.outputs.commit }}
+        run: |
+          set -euo pipefail
+          canonical_remote="https://github.com/${GITHUB_REPOSITORY}.git"
+          askpass="$(mktemp "$RUNNER_TEMP/codex-askpass.XXXXXX")"
           trap 'rm -f "$askpass"' EXIT
           cat > "$askpass" <<'EOF'
           #!/usr/bin/env sh
@@ -174,17 +276,43 @@ jobs:
           esac
           EOF
           chmod 700 "$askpass"
-          export CODEX_PUSH_TOKEN="$push_token"
-          export GIT_ASKPASS="$askpass"
-          export GIT_TERMINAL_PROMPT=0
-          git -c credential.helper= push --force-with-lease origin "$CODEX_BRANCH"
-          echo "CODEX_BRANCH=$CODEX_BRANCH"
+          export HOME="$RUNNER_TEMP/codex-push-home" XDG_CONFIG_HOME="$RUNNER_TEMP/codex-push-xdg"
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$askpass" GIT_NO_REPLACE_OBJECTS=1
+          mkdir -m 700 "$HOME" "$XDG_CONFIG_HOME"
+          git -C "$RUNNER_TEMP/codex-trusted-repo" -c core.hooksPath=/dev/null -c credential.helper= push "$canonical_remote" "$IMPLEMENTATION_COMMIT:refs/heads/$CODEX_BRANCH"
 
-      - name: Implementation branch summary
-        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+      - name: Push workflow implementation branch
+        if: steps.trusted.outputs.workflow_changes == 'true'
         shell: bash
         env:
-          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_PUSH_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
+          CODEX_BRANCH: ${{ steps.trusted.outputs.branch }}
+          IMPLEMENTATION_COMMIT: ${{ steps.trusted.outputs.commit }}
+        run: |
+          set -euo pipefail
+          [ -n "$CODEX_PUSH_TOKEN" ] || { echo "::error::Workflow changes require CODEX_WORKER_GIT_TOKEN (fine-grained Contents and Workflows write)."; exit 68; }
+          canonical_remote="https://github.com/${GITHUB_REPOSITORY}.git"
+
+          askpass="$(mktemp "$RUNNER_TEMP/codex-askpass.XXXXXX")"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'EOF'
+          #!/usr/bin/env sh
+          case "$1" in
+            *Username*) printf '%s\n' 'x-access-token' ;;
+            *Password*) printf '%s\n' "$CODEX_PUSH_TOKEN" ;;
+            *) exit 1 ;;
+          esac
+          EOF
+          chmod 700 "$askpass"
+          export HOME="$RUNNER_TEMP/codex-push-home" XDG_CONFIG_HOME="$RUNNER_TEMP/codex-push-xdg"
+          export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 GIT_ASKPASS="$askpass" GIT_NO_REPLACE_OBJECTS=1
+          mkdir -m 700 "$HOME" "$XDG_CONFIG_HOME"
+          git -C "$RUNNER_TEMP/codex-trusted-repo" -c core.hooksPath=/dev/null -c credential.helper= push "$canonical_remote" "$IMPLEMENTATION_COMMIT:refs/heads/$CODEX_BRANCH"
+
+      - name: Implementation branch summary
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ steps.trusted.outputs.branch }}
         run: |
           set -euo pipefail
           echo "Implementation branch pushed: $CODEX_BRANCH"

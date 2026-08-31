@@ -55,7 +55,12 @@ The long-running self-hosted job is a separate workflow run. Its run name includ
 
 ChatGPT clients should therefore report the dispatch acknowledgement/run ID immediately. A later turn may query the worker run for progress or results. A client-side timeout must not be treated as evidence that Codex failed unless the GitHub worker run itself failed or timed out.
 
-The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
+The Codex Worker retains its 120-minute execution limit, repository state gate,
+investigation immutability check, and isolated implementation-branch behavior.
+It has no workflow-level concurrency group: the three dedicated workers
+(`contabo-codex-worker`, `contabo-codex-worker-2`, and
+`contabo-codex-worker-3`) form a bounded parallel pool, while each runner still
+executes at most one job at a time.
 
 ### Codex implementation push credential
 
@@ -63,7 +68,29 @@ Ordinary Codex implementation branches may be pushed with the workflow's normal 
 
 `CODEX_WORKER_GIT_TOKEN` should contain a fine-grained personal access token limited to this repository with `Contents: read/write` and `Workflows: read/write`. A broad classic token is not preferred. A GitHub App can be adopted later, but the workflow would need to generate a fresh installation token at runtime rather than storing a short-lived installation token as this repository secret.
 
-The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, or the Codex execution environment. Codex finishes first using the ordinary worker environment. The wrapper then inspects the resulting commit and exposes `CODEX_WORKER_GIT_TOKEN` only to the final branch-push step. Authentication is provided through a temporary `GIT_ASKPASS` helper so the token is not embedded in command arguments, remote URLs, or repository configuration.
+The privileged credential is intentionally not passed to `actions/checkout`,
+the Codex CLI, the task prompt, the Codex execution environment, ordinary
+implementation pushes, or push-payload preparation. After Codex exits, the
+self-hosted job creates a credential-free full-index binary patch artifact. A separate
+GitHub-hosted job reconstructs the commit, detects workflow changes fail-closed,
+and performs the push. A workflow-changing branch alone enters the PAT-backed
+push step; an ordinary branch enters a separate `GITHUB_TOKEN` step.
+
+The GitHub-hosted job applies the patch to a fresh checkout of canonical `main`,
+creates a wrapper-owned commit, disables system/global config,
+credential helpers, replacement objects, terminal prompts, and hooks, and
+pushes to the canonical HTTPS URL derived from `GITHUB_REPOSITORY`.
+Authentication uses a temporary `GIT_ASKPASS` helper. The credential-bearing
+process therefore never runs on the danger-full-access host, and
+Codex-controlled repository remotes, includes, helpers, hooks, background
+processes, and host tooling cannot observe the selected token.
+
+Codex prompts are streamed on stdin. Unattended invocations use the CLI's
+`--ignore-user-config`, `--ignore-rules`, and `--ephemeral` modes: authentication
+continues to use the runner's Codex home, but interactive user MCP servers,
+hooks, plugins, rules, and session persistence are not inherited. Before either
+Codex invocation, the workflow also requires the runner name to match one of the
+three dedicated pool hosts above.
 
 If a Codex implementation changes `.github/workflows/*` while `CODEX_WORKER_GIT_TOKEN` is absent, the worker fails closed before attempting the push and reports the missing secret explicitly. Implementations that do not change workflow files continue to fall back to the normal `GITHUB_TOKEN`.
 
