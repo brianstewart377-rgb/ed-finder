@@ -72,15 +72,21 @@ jobs:
       - name: Checkout immutable reviewed snapshot implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: 6d1cb6a13f6c118f5f61fde550c6dde09e19690b
+          ref: 8b2e91a12a2fed3eb590dcf63f72a3ddbface9a9
           path: trusted-snapshot
           persist-credentials: false
 
-      - name: Install pinned snapshot dependency
+      - name: Install pinned snapshot test/runtime dependencies
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install --disable-pip-version-check --quiet psycopg2-binary==2.9.12
+          python3 -m pip install --disable-pip-version-check --quiet psycopg2-binary==2.9.12 pytest==8.3.5
+
+      - name: Run immutable snapshot safety tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH="$PWD/trusted-snapshot/apps/api/src" python3 -m pytest trusted-snapshot/tests/test_r1_real_snapshot.py -q
 
       - name: Prepare pinned SSH trust
         shell: bash
@@ -150,16 +156,11 @@ jobs:
               q = "SELECT to_regclass('public.systems') IS NOT NULL, to_regclass('public.bodies') IS NOT NULL, to_regclass('public.body_rings') IS NOT NULL, to_regclass('public.ratings') IS NOT NULL"
               raw = subprocess.check_output(docker_base + ['-d', db, '-F', '|', '-c', q], text=True).strip()
               systems, bodies, rings, ratings = raw.split('|')
-              rows.append({
-                  'database': db,
-                  'systems': systems == 't',
-                  'bodies': bodies == 't',
-                  'body_rings': rings == 't',
-                  'ratings': ratings == 't',
-              })
-          matches = [r for r in rows if r['systems'] and r['bodies'] and r['body_rings']]
+              rows.append({'database':db,'systems':systems=='t','bodies':bodies=='t','body_rings':rings=='t','ratings':ratings=='t'})
+          matches = [r for r in rows if r['systems'] and r['bodies']]
           if len(matches) != 1:
-              raise SystemExit(f'Expected exactly one retained ED-Finder DB with systems+bodies+body_rings, found {len(matches)}')
+              raise SystemExit(f'Expected exactly one retained ED-Finder DB with systems+bodies, found {len(matches)}')
+          selected = matches[0]
           ports = (inspect.get('NetworkSettings', {}).get('Ports', {}) or {}).get('5432/tcp') or []
           if ports and ports[0].get('HostPort'):
               target_host = '127.0.0.1'
@@ -170,22 +171,15 @@ jobs:
               target_port = 5432
           if not target_host:
               raise SystemExit('retained PostgreSQL container has no reachable address')
-          print(json.dumps({
-              'container': container,
-              'database': matches[0]['database'],
-              'ratings_present': matches[0]['ratings'],
-              'user': user,
-              'password': password,
-              'target_host': target_host,
-              'target_port': target_port,
-          }))
+          print(json.dumps({'container':container,'database':selected['database'],'ratings_present':selected['ratings'],'ring_source_present':selected['body_rings'],'user':user,'password':password,'target_host':target_host,'target_port':target_port}))
           PY
           python3 - "$meta" <<'PY'
           import json, pathlib, sys
-          d = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
-          print('retained_database:', d['database'])
-          print('ratings_table_present:', str(d['ratings_present']).lower())
-          print('snapshot_tables_present: true')
+          d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          print('retained_database:',d['database'])
+          print('ratings_table_present:',str(d['ratings_present']).lower())
+          print('canonical_ring_source_present:',str(d['ring_source_present']).lower())
+          print('required_snapshot_tables_present: true')
           PY
           echo "meta=$meta" >> "$GITHUB_OUTPUT"
 
@@ -207,12 +201,10 @@ jobs:
           mapfile -t target < <(python3 - "$META" <<'PY'
           import json, pathlib, sys
           d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
-          print(d['target_host'])
-          print(d['target_port'])
+          print(d['target_host']); print(d['target_port'])
           PY
           )
-          target_host="${target[0]}"
-          target_port="${target[1]}"
+          target_host="${target[0]}"; target_port="${target[1]}"
           ssh -N -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
             -o IdentitiesOnly=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
@@ -228,10 +220,8 @@ jobs:
           port=int(sys.argv[1])
           for _ in range(60):
               try:
-                  with socket.create_connection(('127.0.0.1', port), timeout=.2):
-                      raise SystemExit(0)
-              except OSError:
-                  time.sleep(.1)
+                  with socket.create_connection(('127.0.0.1',port),timeout=.2): raise SystemExit(0)
+              except OSError: time.sleep(.1)
           raise SystemExit('SSH PostgreSQL tunnel did not become ready')
           PY
           python3 - "$META" "$REQUEST_PATH" "$local_port" <<'PY'
@@ -239,16 +229,12 @@ jobs:
           meta=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
           request=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
           port=int(sys.argv[3])
-          user=urllib.parse.quote(str(meta['user']), safe='')
-          password=urllib.parse.quote(str(meta['password']), safe='')
-          database=urllib.parse.quote(str(meta['database']), safe='')
+          user=urllib.parse.quote(str(meta['user']),safe=''); password=urllib.parse.quote(str(meta['password']),safe=''); database=urllib.parse.quote(str(meta['database']),safe='')
           auth=user if not password else f'{user}:{password}'
           dsn=f'postgresql://{auth}@127.0.0.1:{port}/{database}'
           print(f'::add-mask::{dsn}')
-          if meta.get('password'):
-              print(f"::add-mask::{meta['password']}")
-          env=dict(os.environ)
-          env['R1_READONLY_DATABASE_URL']=dsn
+          if meta.get('password'): print(f"::add-mask::{meta['password']}")
+          env=dict(os.environ); env['R1_READONLY_DATABASE_URL']=dsn
           script=pathlib.Path('trusted-snapshot/scripts/operator/actions/r1-real-system-snapshot.py').resolve()
           with open('r1-real-system-snapshot.json','w',encoding='utf-8') as out:
               proc=subprocess.run([sys.executable,str(script),*request['selectors']],cwd='trusted-snapshot',env=env,text=True,stdout=out)
@@ -267,45 +253,22 @@ jobs:
           import json, pathlib, sys
           request=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
           meta=json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8'))
-          artifact_path=pathlib.Path(sys.argv[3])
-          raw=artifact_path.read_text(encoding='utf-8')
-          payload=json.loads(raw)
-          if payload.get('transaction_read_only') != 'on':
-              raise SystemExit('snapshot did not prove transaction_read_only=on')
-          safety=payload.get('safety') or {}
-          expected={'db_access_performed':True,'db_read_only_confirmed':True,'db_writes_performed':False,'migrations_performed':False}
+          raw=pathlib.Path(sys.argv[3]).read_text(encoding='utf-8'); payload=json.loads(raw)
+          if payload.get('transaction_read_only')!='on': raise SystemExit('snapshot did not prove transaction_read_only=on')
+          safety=payload.get('safety') or {}; expected={'db_access_performed':True,'db_read_only_confirmed':True,'db_writes_performed':False,'migrations_performed':False}
           for key,value in expected.items():
-              if safety.get(key) is not value:
-                  raise SystemExit(f'invalid safety flag {key}: {safety.get(key)!r}')
+              if safety.get(key) is not value: raise SystemExit(f'invalid safety flag {key}: {safety.get(key)!r}')
           snapshots=payload.get('snapshots')
-          if not isinstance(snapshots,list) or len(snapshots)>20:
-              raise SystemExit('snapshot result is not a bounded list')
+          if not isinstance(snapshots,list) or len(snapshots)>20: raise SystemExit('snapshot result is not a bounded list')
           password=str(meta.get('password') or '')
-          if password and password in raw:
-              raise SystemExit('snapshot artifact contains PostgreSQL password')
-          requested=request['selectors']
-          returned_keys=set()
-          print(f'requested_systems: {len(requested)}')
-          print(f'returned_systems: {len(snapshots)}')
+          if password and password in raw: raise SystemExit('snapshot artifact contains PostgreSQL password')
+          requested=request['selectors']; returned_keys=set()
+          print(f'requested_systems: {len(requested)}'); print(f'returned_systems: {len(snapshots)}')
           for row in snapshots:
-              name=str(row.get('system_name'))
-              id64=str(row.get('system_id64'))
-              returned_keys.update((name,id64,f'id:{id64}'))
-              digest=str(row.get('snapshot_digest') or '')
-              print(
-                  f"- {name} [{id64}] bodies={row.get('projected_body_rows')}/{row.get('declared_body_count')} "
-                  f"completeness={row.get('body_data_completeness')} "
-                  f"extraction={row.get('extraction_satisfied')}/{row.get('extraction_disposition')} "
-                  f"refinery={row.get('refinery_satisfied')}/{row.get('refinery_disposition')} "
-                  f"surface_slots_known={row.get('known_surface_slot_predictions')} "
-                  f"surface_slots_unknown={row.get('unknown_surface_slot_predictions')} "
-                  f"digest={digest[:20]}"
-              )
-          not_found=[s for s in requested if s not in returned_keys]
-          print('not_found:',json.dumps(not_found,ensure_ascii=True))
-          print('db_read_only_confirmed: true')
-          print('db_writes_performed: false')
-          print('migrations_performed: false')
+              name=str(row.get('system_name')); id64=str(row.get('system_id64')); returned_keys.update((name,id64,f'id:{id64}')); digest=str(row.get('snapshot_digest') or '')
+              print(f"- {name} [{id64}] bodies={row.get('supplied_body_count')}/{row.get('declared_body_count')} completeness={row.get('body_data_completeness')} ring_source={row.get('ring_source_available')} extraction={row.get('extraction_satisfied')}/{row.get('extraction_disposition')} refinery={row.get('refinery_satisfied')}/{row.get('refinery_disposition')} surface_slots_known={row.get('surface_slots_known')} surface_slots_unknown={row.get('surface_slots_unknown')} digest={digest[:20]}")
+          print('not_found:',json.dumps([s for s in requested if s not in returned_keys],ensure_ascii=True))
+          print('db_read_only_confirmed: true'); print('db_writes_performed: false'); print('migrations_performed: false')
           PY
 
       - name: Upload R1 snapshot artifact
