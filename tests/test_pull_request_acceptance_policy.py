@@ -4,7 +4,7 @@ import re
 import shlex
 import subprocess
 from collections.abc import Iterator
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 import yaml
@@ -14,6 +14,11 @@ ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = Path("docs/development/pull-request-acceptance-policy.md")
 FORMER_AUTO_MERGE_WORKFLOW = Path(".github/workflows/dependabot-auto-merge.yml")
 _SHELL_BOUNDARY_CHARS = frozenset(";&|()\n")
+_ASSIGNMENT_WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.DOTALL)
+_ENV_OPTIONS_WITH_VALUE = frozenset({"-u", "--unset", "-C", "--chdir", "-S", "--split-string"})
+_ENV_SWITCHES = frozenset({"-i", "--ignore-environment", "-0", "--null"})
+_GH_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-R", "--repo", "--hostname"})
+_FALSE_AUTO_VALUES = frozenset({"0", "false", "no", "off"})
 
 
 def _normalized(path: Path) -> str:
@@ -46,12 +51,13 @@ def _run_strings(value: object) -> Iterator[str]:
 
 
 def _simple_commands(run: str) -> Iterator[list[str]]:
-    """Tokenize direct shell commands with intentionally bounded semantics.
+    """Tokenize shell commands with intentionally bounded semantics.
 
     Shell backslash-newline continuations are removed first. Physical newlines
     and common control operators then delimit simple commands. POSIX shlex
-    handles whitespace, quoting, and comments; this deliberately does not try
-    to resolve aliases, functions, eval, or dynamically generated commands.
+    handles whitespace, quoting, assignments, and comments; this deliberately
+    does not try to resolve aliases, functions, eval, or dynamically generated
+    commands.
     """
     logical_source = re.sub(r"\\\r?\n", "", run)
     lexer = shlex.shlex(logical_source, posix=True, punctuation_chars=";&|()\n")
@@ -70,12 +76,97 @@ def _simple_commands(run: str) -> Iterator[list[str]]:
         yield command
 
 
+def _strip_assignment_words(tokens: list[str]) -> None:
+    while tokens and _ASSIGNMENT_WORD.fullmatch(tokens[0]):
+        tokens.pop(0)
+
+
+def _unwrap_direct_command(command: list[str]) -> list[str]:
+    """Remove ordinary POSIX assignment, env, and command prefixes.
+
+    These prefixes still execute the following command directly, so allowing
+    them to hide ``gh pr merge --auto`` would make the guard bypassable. More
+    dynamic wrappers such as aliases, functions, eval, or shell-generated
+    command strings remain deliberately outside this bounded parser.
+    """
+    tokens = list(command)
+    _strip_assignment_words(tokens)
+
+    if tokens and PurePosixPath(tokens[0]).name == "env":
+        tokens.pop(0)
+        while tokens:
+            token = tokens[0]
+            if token == "--":
+                tokens.pop(0)
+                break
+            if token in _ENV_SWITCHES:
+                tokens.pop(0)
+                continue
+            if token in _ENV_OPTIONS_WITH_VALUE:
+                if len(tokens) < 2:
+                    return []
+                del tokens[:2]
+                continue
+            if token.startswith(("--unset=", "--chdir=", "--split-string=")):
+                tokens.pop(0)
+                continue
+            if token.startswith("-u") and token != "-u":
+                tokens.pop(0)
+                continue
+            if _ASSIGNMENT_WORD.fullmatch(token):
+                tokens.pop(0)
+                continue
+            break
+        _strip_assignment_words(tokens)
+
+    if tokens and tokens[0] == "command":
+        tokens.pop(0)
+        while tokens and tokens[0] in {"-p", "--"}:
+            tokens.pop(0)
+        if tokens and tokens[0] in {"-v", "-V"}:
+            return []
+
+    return tokens
+
+
+def _gh_pr_merge_arguments(command: list[str]) -> list[str] | None:
+    tokens = _unwrap_direct_command(command)
+    if not tokens or PurePosixPath(tokens[0]).name != "gh":
+        return None
+
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _GH_GLOBAL_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if token.startswith(("--repo=", "--hostname=")):
+            index += 1
+            continue
+        if token.startswith("-R") and token != "-R":
+            index += 1
+            continue
+        break
+
+    if tokens[index : index + 2] != ["pr", "merge"]:
+        return None
+    return tokens[index + 2 :]
+
+
 def _run_enables_pr_auto_merge(run: str) -> bool:
     for command in _simple_commands(run):
-        # Only a direct gh invocation is in scope. Requiring command position
-        # prevents prose such as `echo gh pr merge --auto` from matching.
-        if command[:3] == ["gh", "pr", "merge"] and "--auto" in command[3:]:
-            return True
+        arguments = _gh_pr_merge_arguments(command)
+        if arguments is None:
+            continue
+        for argument in arguments:
+            if argument == "--":
+                break
+            if argument == "--auto":
+                return True
+            if argument.startswith("--auto="):
+                value = argument.partition("=")[2].strip().lower()
+                if value not in _FALSE_AUTO_VALUES:
+                    return True
     return False
 
 
@@ -177,6 +268,10 @@ def test_pr_template_records_complete_latest_head_acceptance_evidence():
         "  \"$PR_URL\" \\\n"
         "  --auto",
         "echo ready && gh pr merge '$PR_URL' '--auto'",
+        'GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto',
+        'env GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto',
+        'command /usr/bin/gh pr merge "$PR_URL" --auto',
+        'gh --repo owner/repo pr merge "$PR_URL" --auto=true',
     ],
 )
 def test_shell_detector_rejects_real_auto_merge_invocations(run: str):
@@ -191,6 +286,11 @@ def test_shell_detector_rejects_real_auto_merge_invocations(run: str):
         "echo \"gh pr merge --auto '$PR_URL'\"",
         "echo gh pr merge --auto",
         "gh pr view --auto '$PR_URL'",
+        'GH_TOKEN="$TOKEN" echo gh pr merge "$PR_URL" --auto',
+        'env GH_TOKEN="$TOKEN" echo "gh pr merge --auto"',
+        'command -v gh && echo "pr merge --auto"',
+        'gh pr merge "$PR_URL" --auto=false',
+        'gh pr merge -- "$PR_URL" --auto',
     ],
 )
 def test_shell_detector_ignores_non_invocations(run: str):
@@ -208,7 +308,7 @@ jobs:
         run: echo "gh pr merge --auto"
       - nested:
           run: |
-            gh pr merge "$PR_URL" \\
+            GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" \\
               --auto
 """
     )
