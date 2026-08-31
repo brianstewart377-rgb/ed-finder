@@ -279,13 +279,56 @@ def test_runbook_records_install_cutover_backup_and_separation_contracts() -> No
     assert "No legacy Octopus PostgreSQL" in text
 
 
+def _available_main_ref() -> str | None:
+    for ref in ("origin/main", "main"):
+        probe = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if probe.returncode == 0:
+            return ref
+
+    # GitHub pull_request checks commonly use a depth-1 synthetic merge ref.
+    # If the first-parent object is present, it is the exact base tree.
+    parents = subprocess.run(
+        ["git", "show", "-s", "--format=%P", "HEAD"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if parents.returncode == 0:
+        parent_list = parents.stdout.split()
+        if len(parent_list) >= 2:
+            parent = parent_list[0]
+            probe = subprocess.run(
+                ["git", "cat-file", "-e", f"{parent}^{{commit}}"],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            if probe.returncode == 0:
+                return parent
+    return None
+
+
 def test_current_production_compose_and_nginx_are_not_changed() -> None:
+    base = _available_main_ref()
+    if base is None:
+        pytest.skip(
+            "main/base object unavailable in this intentionally shallow checkout; "
+            "the PR changed-file surface remains an exact-head review requirement"
+        )
     result = subprocess.run(
         [
             "git",
             "diff",
             "--exit-code",
-            "origin/main",
+            base,
             "--",
             "docker-compose.yml",
             "config/nginx.conf",
