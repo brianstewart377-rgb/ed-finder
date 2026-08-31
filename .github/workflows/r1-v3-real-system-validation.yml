@@ -1,0 +1,237 @@
+name: R1 V3 Real-System Validation
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-v3-real-system-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-v3-real-system-validation
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Read-only normalized V3 real-system validation
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 25
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        id: request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one V3 real-system request' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/r1-v3-real-system-requests/*.json) ;;
+            *) echo 'Changed path outside V3 real-system request allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          path=pathlib.Path(sys.argv[1]); data=json.loads(path.read_text())
+          if set(data)!={'operation','selectors'} or data.get('operation')!='r1-v3-real-system-validation':
+              raise SystemExit('Invalid V3 real-system request')
+          values=data.get('selectors')
+          if not isinstance(values,list) or not 1<=len(values)<=20: raise SystemExit('selectors must contain 1-20 names')
+          clean=[]
+          for value in values:
+              if not isinstance(value,str): raise SystemExit('selector must be string')
+              value=value.strip()
+              if not value or len(value)>128: raise SystemExit('invalid selector')
+              clean.append(value)
+          if len(clean)!=len(set(clean)): raise SystemExit('selectors must be unique')
+          path.write_text(json.dumps({'operation':'r1-v3-real-system-validation','selectors':clean},separators=(',',':')))
+          print(f'validated_selectors={len(clean)}')
+          PY
+          echo "path=${changed[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"; test -n "$SSH_HOST"; test -n "$SSH_PORT"; test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo 'Pinned host trust mismatch' >&2; exit 1; }
+
+      - name: Execute normalized V3 read-only validation
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          REQUEST_PATH: ${{ steps.request.outputs.path }}
+        run: |
+          set -euo pipefail
+          selectors_json="$(python3 - "$REQUEST_PATH" <<'PY'
+          import json,pathlib,sys
+          print(json.dumps(json.loads(pathlib.Path(sys.argv[1]).read_text())['selectors'],separators=(',',':')))
+          PY
+          )"
+          printf '%s\n' "$selectors_json" | ssh \
+            -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > r1-v3-real-system-validation.json <<'PY'
+          import json,subprocess,sys
+          selectors=json.loads(sys.stdin.readline())
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          schema='v3_gen_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'; password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          # Force every psql session into read-only mode at connection startup.
+          base += ['-e','PGOPTIONS=-c default_transaction_read_only=on',container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At']
+          def psql(sql,vars=None):
+              args=base[:]
+              for key,value in (vars or {}).items(): args += ['-v',f'{key}={value}']
+              args += ['-c',sql]
+              return subprocess.check_output(args,text=True,stderr=subprocess.STDOUT)
+          ro=psql('SHOW transaction_read_only').strip().lower()
+          if ro!='on': raise SystemExit('STOP: PostgreSQL session is not read-only')
+          seljson=json.dumps(selectors,separators=(',',':'))
+          systems_sql=f"""
+          WITH requested(name) AS (SELECT jsonb_array_elements_text(:'seljson'::jsonb))
+          SELECT row_to_json(x)::text FROM (
+            SELECT s.id64::text AS id64,s.name,s.source_body_count,s.loaded_body_count,
+                   s.source_id,s.source_run_id,s.source_updated_at::text,s.freshness_checked_at::text,
+                   s.lifecycle_state,s.retired_at::text
+            FROM {schema}.systems s JOIN requested r ON r.name=s.name
+            ORDER BY s.name,s.id64
+          ) x
+          """
+          systems=[json.loads(line) for line in psql(systems_sql,{'seljson':seljson}).splitlines() if line.strip()]
+          bodies_sql=f"""
+          WITH requested(name) AS (SELECT jsonb_array_elements_text(:'seljson'::jsonb)),
+          ss AS (SELECT s.id64 FROM {schema}.systems s JOIN requested r ON r.name=s.name),
+          sig AS (
+            SELECT bs.body_pk,
+                   MAX(CASE WHEN st.public_code='saa_signaltype_biological' THEN bs.signal_count END) AS bio_count,
+                   MAX(CASE WHEN st.public_code='saa_signaltype_geological' THEN bs.signal_count END) AS geo_count
+            FROM {schema}.body_signal_current bs
+            JOIN v3_vocab.signal_type st ON st.signal_type_id=bs.signal_type_id
+            JOIN {schema}.bodies bx ON bx.body_pk=bs.body_pk JOIN ss ON ss.id64=bx.system_id64
+            WHERE st.public_code IN ('saa_signaltype_biological','saa_signaltype_geological')
+            GROUP BY bs.body_pk
+          ),
+          ring AS (
+            SELECT r.body_pk,COUNT(*)::int AS active_ring_count,
+                   array_agg(DISTINCT rt.public_code ORDER BY rt.public_code) AS ring_types,
+                   array_agg(DISTINCT rv.public_code ORDER BY rv.public_code) FILTER (WHERE rv.public_code IS NOT NULL) AS reserve_types
+            FROM {schema}.rings r JOIN ss ON ss.id64=r.system_id64
+            LEFT JOIN v3_vocab.ring_type rt ON rt.ring_type_id=r.ring_type_id
+            LEFT JOIN v3_vocab.reserve_type rv ON rv.reserve_type_id=r.reserve_type_id
+            WHERE r.retired_at IS NULL
+            GROUP BY r.body_pk
+          )
+          SELECT row_to_json(x)::text FROM (
+            SELECT b.system_id64::text AS system_id64,b.body_pk::text AS body_pk,b.source_body_id64::text AS source_body_id64,
+                   b.frontier_body_id,b.name,
+                   bt.public_code AS generic_body_type,bt.display_name AS generic_body_type_name,
+                   ac.public_code AS atmosphere_code,ac.display_name AS atmosphere_name,
+                   tf.public_code AS terraforming_code,tf.display_name AS terraforming_name,
+                   vt.public_code AS volcanism_code,vt.display_name AS volcanism_name,
+                   b.is_landable,b.is_tidally_locked,b.is_main_star,b.spectral_class,b.luminosity_class,
+                   b.radius_km,b.surface_gravity_g,b.surface_temperature_k,b.distance_from_arrival_ls,
+                   b.signals_complete,b.genera_complete,sig.bio_count,sig.geo_count,
+                   COALESCE(ring.active_ring_count,0) AS active_ring_count,ring.ring_types,ring.reserve_types,
+                   b.source_id,b.source_run_id,b.source_updated_at::text,b.freshness_checked_at::text,b.lifecycle_state,b.retired_at::text
+            FROM {schema}.bodies b JOIN ss ON ss.id64=b.system_id64
+            LEFT JOIN v3_vocab.body_type bt ON bt.body_type_id=b.body_type_id
+            LEFT JOIN v3_vocab.atmosphere_classification ac ON ac.atmosphere_classification_id=b.atmosphere_classification_id
+            LEFT JOIN v3_vocab.terraforming_state tf ON tf.terraforming_state_id=b.terraforming_state_id
+            LEFT JOIN v3_vocab.volcanism_type vt ON vt.volcanism_type_id=b.volcanism_type_id
+            LEFT JOIN sig ON sig.body_pk=b.body_pk LEFT JOIN ring ON ring.body_pk=b.body_pk
+            ORDER BY b.system_id64,b.body_pk
+          ) x
+          """
+          bodies=[json.loads(line) for line in psql(bodies_sql,{'seljson':seljson}).splitlines() if line.strip()]
+
+          by_system={s['id64']:[] for s in systems}
+          for b in bodies: by_system.setdefault(b['system_id64'],[]).append(b)
+          summaries=[]
+          for s in systems:
+              rows=by_system.get(s['id64'],[])
+              def count(pred): return sum(1 for b in rows if pred(b))
+              generic={}
+              for b in rows: generic[b.get('generic_body_type') or 'unknown']=generic.get(b.get('generic_body_type') or 'unknown',0)+1
+              tf={'terraformable':count(lambda b:b.get('terraforming_code')=='terraformable'),'not_terraformable':count(lambda b:b.get('terraforming_code')=='not_terraformable'),'other':count(lambda b:b.get('terraforming_code') not in (None,'terraformable','not_terraformable')),'unknown':count(lambda b:b.get('terraforming_code') is None)}
+              bio_pos=count(lambda b:(b.get('bio_count') or 0)>0)
+              geo_pos=count(lambda b:(b.get('geo_count') or 0)>0)
+              bio_neg=count(lambda b:b.get('signals_complete') is True and b.get('bio_count') is None)
+              geo_neg=count(lambda b:b.get('signals_complete') is True and b.get('geo_count') is None)
+              bio_unk=len(rows)-bio_pos-bio_neg; geo_unk=len(rows)-geo_pos-geo_neg
+              metrics={
+                'system_id64':s['id64'],'system_name':s['name'],'source_body_count':s.get('source_body_count'),'loaded_body_count':s.get('loaded_body_count'),'returned_body_rows':len(rows),
+                'body_completeness':'exact' if s.get('loaded_body_count')==len(rows) and (s.get('source_body_count') in (None,len(rows)) or s.get('source_body_count')==s.get('loaded_body_count')) else 'mismatch',
+                'generic_body_types':generic,'subtype_known_count':0,
+                'landable_true':count(lambda b:b.get('is_landable') is True),'landable_false':count(lambda b:b.get('is_landable') is False),'landable_null':count(lambda b:b.get('is_landable') is None),
+                'terraforming':tf,
+                'atmosphere_known':count(lambda b:b.get('atmosphere_code') is not None),'atmosphere_unknown':count(lambda b:b.get('atmosphere_code') is None),
+                'volcanism_known':count(lambda b:b.get('volcanism_code') is not None),'volcanism_unknown':count(lambda b:b.get('volcanism_code') is None),'no_volcanism':count(lambda b:b.get('volcanism_code')=='no_volcanism'),
+                'radius_known':count(lambda b:b.get('radius_km') is not None),'gravity_known':count(lambda b:b.get('surface_gravity_g') is not None),'temperature_known':count(lambda b:b.get('surface_temperature_k') is not None),'distance_known':count(lambda b:b.get('distance_from_arrival_ls') is not None),
+                'signals_complete_true':count(lambda b:b.get('signals_complete') is True),'signals_complete_false_or_null':count(lambda b:b.get('signals_complete') is not True),
+                'biological_positive':bio_pos,'biological_known_negative':bio_neg,'biological_unknown':bio_unk,
+                'geological_positive':geo_pos,'geological_known_negative':geo_neg,'geological_unknown':geo_unk,
+                'active_ring_body_count':count(lambda b:(b.get('active_ring_count') or 0)>0),
+                'exact_surface_slot_predictable_count':0,'surface_slot_blocked_by_subtype_count':count(lambda b:b.get('generic_body_type')=='planet'),
+                'source_updated_at':s.get('source_updated_at'),'freshness_checked_at':s.get('freshness_checked_at'),'lifecycle_state':s.get('lifecycle_state')
+              }
+              summaries.append(metrics)
+          found_names={s['name'] for s in systems}
+          payload={'transaction_read_only':ro,'schema':schema,'body_subtype_available':False,'requested':selectors,'not_found':[x for x in selectors if x not in found_names],'systems':summaries,'bodies':bodies,'safety':{'db_access_performed':True,'db_read_only_confirmed':True,'db_writes_performed':False,'migrations_performed':False}}
+          print(json.dumps(payload,separators=(',',':')))
+          PY
+
+      - name: Validate artifact and print bounded summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,pathlib
+          d=json.loads(pathlib.Path('r1-v3-real-system-validation.json').read_text())
+          if d.get('transaction_read_only')!='on': raise SystemExit('read-only proof missing')
+          if d.get('body_subtype_available') is not False: raise SystemExit('subtype gap not declared')
+          s=d.get('safety') or {}
+          if not (s.get('db_access_performed') is True and s.get('db_read_only_confirmed') is True and s.get('db_writes_performed') is False and s.get('migrations_performed') is False): raise SystemExit('invalid safety flags')
+          if len(d.get('systems',[]))>20: raise SystemExit('unbounded result')
+          print('requested:',len(d.get('requested',[])),'found:',len(d.get('systems',[])),'not_found:',json.dumps(d.get('not_found',[])))
+          for r in d.get('systems',[]):
+              print(f"- {r['system_name']} [{r['system_id64']}] bodies={r['returned_body_rows']}/{r['source_body_count']} completeness={r['body_completeness']} landable+={r['landable_true']} tf={r['terraforming']['terraformable']} geo+={r['geological_positive']} bio+={r['biological_positive']} ring_bodies={r['active_ring_body_count']} subtype_known={r['subtype_known_count']} exact_slots={r['exact_surface_slot_predictable_count']}")
+          print('transaction_read_only: on')
+          print('db_writes_performed: false')
+          PY
+
+      - name: Upload V3 real-system artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r1-v3-real-system-validation-${{ github.run_id }}
+          path: r1-v3-real-system-validation.json
+          if-no-files-found: error
+          retention-days: 30
