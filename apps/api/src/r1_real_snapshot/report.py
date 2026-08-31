@@ -7,5 +7,6 @@ def build_report(bundle):
     gg=tuple(sorted((p.body.body_id,predict_orbital_capacity(p).slots) for p in bundle.projected_system.bodies if predict_orbital_capacity(p).availability=='known_prediction'))
     caveats=[]
     if bundle.projected_system.body_data_completeness!='known_present': caveats.append('body inventory is not confirmed complete')
+    if not bundle.ring_source_available: caveats.append('canonical body_rings source unavailable in this database snapshot; ring facts remain Unknown')
     if unknown:caveats.append(f'{unknown} body slot predictions remain Unknown')
-    return SnapshotReport(bundle.system.id64,bundle.system.name,bundle.projected_system.body_data_completeness,bundle.system.body_count,len(bundle.bodies),tuple(sorted(counts.items())),known,unknown,gg,bundle.candidate.extraction_evidence.satisfied,bundle.candidate.extraction_evidence.disposition,bundle.candidate.refinery_evidence.satisfied,bundle.candidate.refinery_evidence.disposition,bundle.snapshot_digest,tuple(caveats))
+    return SnapshotReport(bundle.system.id64,bundle.system.name,bundle.projected_system.body_data_completeness,bundle.system.body_count,len(bundle.bodies),bundle.ring_source_available,tuple(sorted(counts.items())),known,unknown,gg,bundle.candidate.extraction_evidence.satisfied,bundle.candidate.extraction_evidence.disposition,bundle.candidate.refinery_evidence.satisfied,bundle.candidate.refinery_evidence.disposition,bundle.snapshot_digest,tuple(caveats))
