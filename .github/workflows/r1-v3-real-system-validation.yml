@@ -101,26 +101,31 @@ jobs:
           container='edfinder-v3-phase4c-full-20260827_r5-postgres'
           database='edfinder_v3_phase4c_full_20260827_r5'
           schema='v3_gen_phase4c_full_20260827_r5'
-          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
-          env={}
-          for item in inspect.get('Config',{}).get('Env',[]):
-              if '=' in item:
-                  k,v=item.split('=',1); env[k]=v
-          user=env.get('POSTGRES_USER') or 'postgres'; password=env.get('POSTGRES_PASSWORD') or ''
-          base=['docker','exec']
-          if password: base += ['-e',f'PGPASSWORD={password}']
-          # Force every psql session into read-only mode at connection startup.
-          base += ['-e','PGOPTIONS=-c default_transaction_read_only=on',container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At']
-          def psql(sql,vars=None):
-              args=base[:]
-              for key,value in (vars or {}).items(): args += ['-v',f'{key}={value}']
-              args += ['-c',sql]
-              return subprocess.check_output(args,text=True,stderr=subprocess.STDOUT)
+
+          # No database password is read or transported. Execute psql as the
+          # PostgreSQL OS account over the container-local Unix socket.
+          base=[
+              'docker','exec','-u','postgres',
+              '-e','PGOPTIONS=-c default_transaction_read_only=on',
+              container,'psql','-X','-d',database,'-At','-v','ON_ERROR_STOP=1'
+          ]
+          def psql(sql):
+              proc=subprocess.run(base+['-c',sql],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+              if proc.returncode:
+                  # Do not expose subprocess args or container environment on error.
+                  detail=(proc.stderr or proc.stdout or 'unknown PostgreSQL error').strip()
+                  raise SystemExit('read-only PostgreSQL query failed: '+detail[:1200])
+              return proc.stdout
+
           ro=psql('SHOW transaction_read_only').strip().lower()
           if ro!='on': raise SystemExit('STOP: PostgreSQL session is not read-only')
-          seljson=json.dumps(selectors,separators=(',',':'))
+
+          raw_selectors=json.dumps(selectors,separators=(',',':')).encode('utf-8')
+          selb64=base64.b64encode(raw_selectors).decode('ascii')
+          requested=f"jsonb_array_elements_text(convert_from(decode('{selb64}','base64'),'UTF8')::jsonb)"
+
           systems_sql=f"""
-          WITH requested(name) AS (SELECT jsonb_array_elements_text(:'seljson'::jsonb))
+          WITH requested(name) AS (SELECT {requested})
           SELECT row_to_json(x)::text FROM (
             SELECT s.id64::text AS id64,s.name,s.source_body_count,s.loaded_body_count,
                    s.source_id,s.source_run_id,s.source_updated_at::text,s.freshness_checked_at::text,
@@ -129,9 +134,10 @@ jobs:
             ORDER BY s.name,s.id64
           ) x
           """
-          systems=[json.loads(line) for line in psql(systems_sql,{'seljson':seljson}).splitlines() if line.strip()]
+          systems=[json.loads(line) for line in psql(systems_sql).splitlines() if line.strip()]
+
           bodies_sql=f"""
-          WITH requested(name) AS (SELECT jsonb_array_elements_text(:'seljson'::jsonb)),
+          WITH requested(name) AS (SELECT {requested}),
           ss AS (SELECT s.id64 FROM {schema}.systems s JOIN requested r ON r.name=s.name),
           sig AS (
             SELECT bs.body_pk,
@@ -174,7 +180,7 @@ jobs:
             ORDER BY b.system_id64,b.body_pk
           ) x
           """
-          bodies=[json.loads(line) for line in psql(bodies_sql,{'seljson':seljson}).splitlines() if line.strip()]
+          bodies=[json.loads(line) for line in psql(bodies_sql).splitlines() if line.strip()]
 
           by_system={s['id64']:[] for s in systems}
           for b in bodies: by_system.setdefault(b['system_id64'],[]).append(b)
