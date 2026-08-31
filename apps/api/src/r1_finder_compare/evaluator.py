@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from .evidence import bounded_geometric, extraction_source_units
-from .programmes import ER_REQUIREMENTS, STRATEGY_ID
+from .programmes import ER_REQUIREMENTS, PROGRAMME_ID, STRATEGY_ID, TEMPLATE_REVISION
 from .types import (
     AssessmentCondition,
     CandidateAssessment,
     CandidateEvidence,
+    CandidateProgrammePlan,
     CarrierMode,
     RequirementTrace,
 )
@@ -24,8 +25,11 @@ def _trace(requirement_id: str, outcome: str, *refs: str) -> RequirementTrace:
     return RequirementTrace(requirement_id, outcome, tuple(sorted(refs)))  # type: ignore[arg-type]
 
 
-def _allocation_valid(candidate: CandidateEvidence) -> bool:
-    resources = [claim.resource_id for claim in candidate.physical_capacity.allocations]
+def _plan_allocation_valid(candidate: CandidateEvidence, plan: CandidateProgrammePlan) -> bool:
+    claims = {claim.allocation_id: claim for claim in candidate.physical_capacity.allocations}
+    if any(allocation_id not in claims for allocation_id in plan.allocation_trace_ids):
+        return False
+    resources = [claims[allocation_id].resource_id for allocation_id in plan.allocation_trace_ids]
     return len(resources) == len(set(resources))
 
 
@@ -80,9 +84,17 @@ def evaluate_extraction_role(candidate: CandidateEvidence, carrier_mode: Carrier
     return CandidateAssessment('supported', _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, dims, _fit_if_requested(dims, strategy_id), (), tuple(traces))
 
 
-def evaluate_p_er_01(candidate: CandidateEvidence, carrier_mode: CarrierMode, strategy_id: str | None) -> CandidateAssessment:
+def evaluate_p_er_01(
+    candidate: CandidateEvidence,
+    plan: CandidateProgrammePlan,
+    carrier_mode: CarrierMode,
+    strategy_id: str | None,
+) -> CandidateAssessment:
     if carrier_mode == 'compare_both':
         raise ValueError('evaluate one carrier scenario at a time')
+    if plan.programme_id != PROGRAMME_ID or plan.template_revision != TEMPLATE_REVISION:
+        raise ValueError('plan does not match P-ER-01 contract revision')
+
     logistics = _logistics(candidate, carrier_mode)
     conditions: list[AssessmentCondition] = []
     traces: list[RequirementTrace] = []
@@ -90,16 +102,16 @@ def evaluate_p_er_01(candidate: CandidateEvidence, carrier_mode: CarrierMode, st
     material_unknown = (
         candidate.evidence_disposition in ('missing', 'ambiguous', 'conflicting')
         or candidate.physical_capacity.disposition in ('missing', 'ambiguous', 'conflicting')
-        or candidate.pair_stability == 'unknown'
+        or plan.pair_resilience == 'unknown'
         or candidate.extraction_evidence.satisfied is None
         or candidate.refinery_evidence.satisfied is None
     )
     if material_unknown:
-        conditions.append(AssessmentCondition('ER-EVID-UNKNOWN', 'blocker', 'Resolve missing or conflicting programme evidence.', 'A material P-ER-01 requirement cannot be evaluated.', tuple(sorted(set(candidate.extraction_evidence.evidence_refs + candidate.refinery_evidence.evidence_refs + (candidate.physical_capacity.evidence_id,)))), ('ER-EVID-01', 'ER-PLACE-01', 'ER-PAIR-01')))
+        conditions.append(AssessmentCondition('ER-EVID-UNKNOWN', 'blocker', 'Resolve missing or conflicting programme evidence.', 'A material P-ER-01 requirement or plan outcome cannot be evaluated.', tuple(sorted(set(candidate.extraction_evidence.evidence_refs + candidate.refinery_evidence.evidence_refs + plan.resilience_evidence_refs + (candidate.physical_capacity.evidence_id,)))), ('ER-EVID-01', 'ER-PLACE-01', 'ER-PAIR-01')))
         traces.extend(_trace(rid, 'unknown') for rid in ER_REQUIREMENTS)
-        return CandidateAssessment('not_assessable', _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, (), None, tuple(a.allocation_id for a in candidate.physical_capacity.allocations), tuple(traces))
+        return CandidateAssessment('not_assessable', _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, (), None, plan.allocation_trace_ids, tuple(traces))
 
-    allocation_ok = _allocation_valid(candidate)
+    allocation_ok = _plan_allocation_valid(candidate, plan)
     hard_failures: list[str] = []
     if candidate.physical_capacity.sufficient is False:
         hard_failures.append('ER-PLACE-01')
@@ -107,21 +119,21 @@ def evaluate_p_er_01(candidate: CandidateEvidence, carrier_mode: CarrierMode, st
         hard_failures.append('ER-EXT-01')
     if candidate.refinery_evidence.satisfied is False:
         hard_failures.append('ER-REF-01')
-    if candidate.pair_stability == 'mixed':
+    if plan.pair_resilience == 'mixed':
         hard_failures.append('ER-PAIR-01')
     if not allocation_ok:
         hard_failures.append('ER-ALLOC-01')
 
     if hard_failures:
-        conditions.append(AssessmentCondition('ER-HARD-FAIL', 'requirement', 'Choose a candidate/allocation that satisfies every P-ER-01 hard requirement.', 'One or more P-ER-01 hard requirements fail.', tuple(sorted(candidate.extraction_evidence.evidence_refs + candidate.refinery_evidence.evidence_refs)), tuple(sorted(hard_failures)), tuple(a.allocation_id for a in candidate.physical_capacity.allocations)))
+        conditions.append(AssessmentCondition('ER-HARD-FAIL', 'requirement', 'Choose a candidate/plan that satisfies every P-ER-01 hard requirement.', 'One or more P-ER-01 hard requirements fail for this candidate plan.', tuple(sorted(candidate.extraction_evidence.evidence_refs + candidate.refinery_evidence.evidence_refs + plan.resilience_evidence_refs)), tuple(sorted(hard_failures)), plan.allocation_trace_ids))
         for rid in ER_REQUIREMENTS:
             traces.append(_trace(rid, 'unmet' if rid in hard_failures else 'met'))
-        return CandidateAssessment('not_supported', _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, (), None, tuple(a.allocation_id for a in candidate.physical_capacity.allocations), tuple(traces))
+        return CandidateAssessment('not_supported', _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, (), None, plan.allocation_trace_ids, tuple(traces))
 
     conditional = False
-    if candidate.pair_stability == 'fragile':
+    if plan.pair_resilience == 'fragile':
         conditional = True
-        conditions.append(AssessmentCondition('ER-PAIR-FRAGILE', 'requirement', 'Verify pair resilience before committing.', 'Extraction/Refinery is top-two only under the fragile fixture state.', (), ('ER-PAIR-01',), affected_dimensions=('pair_resilience',)))
+        conditions.append(AssessmentCondition('ER-PAIR-FRAGILE', 'requirement', 'Verify the proposed plan resilience before committing.', 'The proposed Extraction/Refinery plan is top-two only under a fragile plan outcome.', plan.resilience_evidence_refs, ('ER-PAIR-01',), affected_dimensions=('pair_resilience',)))
     if carrier_mode == 'no_carrier' and logistics == 'extreme' and candidate.logistics_carrier in ('compact', 'moderate'):
         conditional = True
         conditions.append(AssessmentCondition('ER-CARRIER-DEPENDENCY', 'requirement', 'Use a Fleet Carrier or resolve the remote logistics constraint.', 'Programme support is carrier-dependent in this fixture.', (), ('ER-LOG-01',), affected_dimensions=('logistics_practicality',)))
@@ -132,17 +144,17 @@ def evaluate_p_er_01(candidate: CandidateEvidence, carrier_mode: CarrierMode, st
         ('extraction_support', min(float(candidate.extraction_evidence.support or 0), 1.0)),
         ('refinery_support', min(float(candidate.refinery_evidence.support or 0), 1.0)),
         ('allocated_capacity', min(float(candidate.physical_capacity.usable_capacity or 0), 1.0)),
-        ('pair_resilience', _PAIR_FIT[candidate.pair_stability]),
+        ('pair_resilience', _PAIR_FIT[plan.pair_resilience]),
         ('logistics_practicality', _LOGISTICS_FIT[logistics] if logistics else 0.0),
         ('evidence_quality', _EVIDENCE_FIT[candidate.evidence_disposition]),
     )
     state = 'conditionally_supported' if conditional else 'supported'
     for rid in ER_REQUIREMENTS:
-        if rid == 'ER-PAIR-01' and candidate.pair_stability == 'fragile':
+        if rid == 'ER-PAIR-01' and plan.pair_resilience == 'fragile':
             outcome = 'conditional'
         elif rid == 'ER-LOG-01' and conditional and logistics == 'extreme':
             outcome = 'conditional'
         else:
             outcome = 'met'
         traces.append(_trace(rid, outcome))
-    return CandidateAssessment(state, _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, dims, _fit_if_requested(dims, strategy_id), tuple(a.allocation_id for a in candidate.physical_capacity.allocations), tuple(traces))
+    return CandidateAssessment(state, _sorted_conditions(conditions), candidate.physical_capacity.reserve_capacity, logistics, candidate.evidence_disposition, dims, _fit_if_requested(dims, strategy_id), plan.allocation_trace_ids, tuple(traces))
