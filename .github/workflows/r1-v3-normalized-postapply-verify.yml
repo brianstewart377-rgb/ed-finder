@@ -1,0 +1,107 @@
+name: R1 V3 Normalized Post-Apply Verify
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-v3-normalized-postapply-verify-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate verification request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected one post-apply verification request' >&2; exit 64; }
+          case "${changed[0]}" in .github/r1-v3-normalized-postapply-verify-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          expected={'operation':'r1-v3-normalized-postapply-verify','migration_name':'r1_v3/001_structural_shell.sql'}
+          if json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8')) != expected:
+              raise SystemExit('unsupported post-apply verification request')
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"; test -n "$SSH_HOST"; test -n "$SSH_PORT"; test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Verify live state read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, subprocess
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-X','-h','127.0.0.1','-U',user,'-d',database,'-v','ON_ERROR_STOP=1','-At','-F','|']
+          def q(sql):
+              wrapped='BEGIN READ ONLY; '+sql.rstrip().rstrip(';')+'; COMMIT;'
+              rows=subprocess.check_output(base+['-c',wrapped],text=True,stderr=subprocess.STDOUT).splitlines()
+              return [r for r in rows if r not in ('BEGIN','COMMIT')]
+
+          ident=q("SELECT current_database(),current_user,pg_is_in_recovery(),pg_size_pretty(pg_database_size(current_database()))")
+          schemas=q("SELECT nspname FROM pg_namespace WHERE nspname IN ('r1_meta','r1_cache','r1_plan') ORDER BY nspname")
+          relations=q("SELECT n.nspname,c.relname,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('r1_meta','r1_cache','r1_plan') AND c.relkind IN ('r','v') ORDER BY n.nspname,c.relname")
+          ledger=q("SELECT encode(migration_sha256,'hex'),applied_at::text FROM v3_meta.schema_migration WHERE migration_name='r1_v3/001_structural_shell.sql'")
+          if len(ledger) != 1: raise SystemExit('STOP: expected exactly one R1 ledger row')
+          digest, applied_at = ledger[0].split('|',1)
+          print('target_identity:', ident)
+          print('r1_schemas:', schemas)
+          print('r1_relation_count:', len(relations))
+          print('ledger_row_count_total:', q('SELECT count(*) FROM v3_meta.schema_migration'))
+          print('ledger_migration_sha256_bytes:', ':'.join(digest[i:i+2] for i in range(0,len(digest),2)))
+          print('ledger_applied_at:', applied_at)
+          print('canonical_generation_count:', q('SELECT count(*) FROM v3_meta.canonical_generation'))
+          print('account_count:', q('SELECT count(*) FROM v3_identity.account'))
+          for rel in ['r1_meta.mechanics_revision','r1_meta.model_revision','r1_meta.programme_revision','r1_meta.capability_generation','r1_meta.current_capability_generation','r1_plan.saved_plan','r1_plan.plan_revision','r1_plan.plan_node','r1_plan.plan_allocation','r1_plan.plan_assessment','r1_cache.system_capability_current']:
+              rows=q(f'SELECT count(*) FROM {rel}')
+              if rows != ['0']: raise SystemExit(f'STOP: {rel} is not empty: {rows}')
+          cap=q("SELECT nspname FROM pg_namespace WHERE nspname LIKE 'r1_cap_%' ORDER BY nspname")
+          if cap: raise SystemExit(f'STOP: unexpected capability generation schemas: {cap}')
+          if schemas != ['r1_cache','r1_meta','r1_plan'] or len(relations) != 11:
+              raise SystemExit('STOP: R1 structural relation set is incomplete')
+          print('all_r1_relations_empty: true')
+          print('capability_generation_built: false')
+          print('postapply_readonly_verification: passed')
+          PY
