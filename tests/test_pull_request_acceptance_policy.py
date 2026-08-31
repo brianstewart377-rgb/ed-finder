@@ -21,6 +21,31 @@ _GH_GLOBAL_OPTIONS_WITH_VALUE = frozenset({"-R", "--repo", "--hostname"})
 _FALSE_AUTO_VALUES = frozenset({"0", "false", "no", "off"})
 
 
+class _NoBoolCoercionLoader(yaml.SafeLoader):
+    """SafeLoader with YAML 1.1 boolean coercion disabled.
+
+    GitHub Actions accepts bare mapping keys such as ``on`` and ``yes`` as
+    distinct identifiers. PyYAML's default YAML 1.1 resolver converts both to
+    ``True`` and silently overwrites the earlier mapping entry, which could
+    hide a prohibited command before this contract inspects it.
+    """
+
+
+_NoBoolCoercionLoader.yaml_implicit_resolvers = {
+    first_char: [
+        (tag, regexp)
+        for tag, regexp in resolvers
+        if tag != "tag:yaml.org,2002:bool"
+    ]
+    for first_char, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+
+
+def _yaml_load(text: str) -> object:
+    """Parse through SafeLoader while retaining GitHub Actions key identity."""
+    return yaml.load(text, Loader=_NoBoolCoercionLoader)
+
+
 def _normalized(path: Path) -> str:
     source = (ROOT / path).read_text(encoding="utf-8")
     return " ".join(source.lower().split())
@@ -298,7 +323,7 @@ def test_shell_detector_ignores_non_invocations(run: str):
 
 
 def test_yaml_inspection_recurses_through_job_steps_and_ignores_prose():
-    workflow = yaml.safe_load(
+    workflow = _yaml_load(
         """
 jobs:
   guard:
@@ -312,10 +337,32 @@ jobs:
               --auto
 """
     )
+    assert isinstance(workflow, dict)
 
     runs = list(_run_strings(workflow["jobs"]))
     assert len(runs) == 2
     assert [_run_enables_pr_auto_merge(run) for run in runs] == [False, True]
+
+
+def test_yaml_loader_preserves_boolean_like_job_ids_and_hidden_commands():
+    workflow = _yaml_load(
+        """
+jobs:
+  on:
+    steps:
+      - run: GH_TOKEN="$TOKEN" gh pr merge "$PR_URL" --auto
+  yes:
+    steps:
+      - run: echo safe
+"""
+    )
+    assert isinstance(workflow, dict)
+
+    jobs = workflow["jobs"]
+    assert isinstance(jobs, dict)
+    assert set(jobs) == {"on", "yes"}
+    runs = list(_run_strings(jobs))
+    assert [_run_enables_pr_auto_merge(run) for run in runs] == [True, False]
 
 
 def test_no_tracked_workflow_enables_auto_merge():
@@ -323,7 +370,7 @@ def test_no_tracked_workflow_enables_auto_merge():
     workflows = _tracked_workflows()
     assert workflows, "no tracked .yml or .yaml workflow files found"
     for path in workflows:
-        workflow = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+        workflow = _yaml_load((ROOT / path).read_text(encoding="utf-8"))
         assert isinstance(workflow, dict), f"{path}: workflow root must be a mapping"
         for run in _run_strings(workflow.get("jobs", {})):
             if _run_enables_pr_auto_merge(run):
