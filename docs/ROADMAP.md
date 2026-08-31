@@ -5,8 +5,11 @@ document that should answer "what next?".
 
 ## Current State
 
-- Programme: Stage 25 product scope is complete; Stage 26 opens the bounded
-  next-generation map replacement lane without reopening planner scope.
+- Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
+  scope and Stage 26's R3F map programme are complete historical foundations.
+- Current authorization: **27A Spatial Platform Contract and Audit only**.
+  Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
+  runtime, production map change, or any later Stage 27 slice.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E production cutover is complete and in observation:
   browser, accessibility, visual,
@@ -31,19 +34,20 @@ document that should answer "what next?".
   a separately staged follow-up.
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
-- Map posture: Map remains a secondary Explore surface, not the primary
-  planning workspace. Stage 26E R3F/Three.js map (commit `3b53477`) is being replaced
-  with a Babylon.js-based renderer (2026-08-16 redesign plan) incorporating
-  Stellar Forge-inspired galactic density model. Prior renderer remains rollback
-  option. Real-star LOD streaming (Phase 2) is deferred post-foundation.
+- Map posture: Stage 26E R3F/Three.js (cutover commit `3b53477`) remains the
+  production baseline and rollback until a Stage 27 Babylon renderer earns a
+  later explicit bakeoff/cutover. Stage 27 deliberately allows the spatial
+  platform to assist Explore → Inspect → Plan → Review, while Colony Planner
+  remains the canonical detailed Build Plan workspace/persistence owner. No
+  silent plan mutation or Preview execution is allowed.
 - Map layer posture (2026-08-08): the map's typed `MapSceneDescriptor` layer/adapter
   boundary (Stage 26D) is the standing, documented pattern for any Explore-journey
   feature that wants map presence — not a closed list limited to Finder, Compare,
   System Detail, Cluster Search, and Planner hand-off. The first new consumer of
   this pattern is a personal exploration data layer (own design doc:
-  `docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md`). This does
-  not change "Map remains a secondary Explore surface" or Colony Cockpit's role as
-  the sole canonical planning workspace, and does not authorize planner-map fusion.
+  `docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md`). This is
+  retained as Stage 26 history. Stage 27 supersedes its global Explore-only
+  restriction while preserving explicit ownership and truth boundaries.
 - Scoring posture: player-facing UI continues to speak in **Development
   Score**, API rerank helpers stay under **archetypes**, and the current DB
   implementation still runs on the **Ratings v3.4** scorer/tables. The full
@@ -122,7 +126,7 @@ and leaving 749 GB disk free. Preserve this baseline: do not write
 5. Features (corridor routing, journal Lane 2, accounts) build on this
    foundation.
 
-## Stage 25 Objective
+## Stage 25 Objective (historical)
 
 Stage 25 has exactly one primary objective:
 
@@ -131,7 +135,7 @@ Stage 25 has exactly one primary objective:
 > and keep all deeper planner integration, write-capable lanes, and operational
 > work explicitly unauthorized.
 
-## Frozen Product Facts
+## Frozen Stage 25 Product Facts (historical)
 
 - Stage 25A is complete.
 - Stage 25B is complete and merged.
@@ -141,7 +145,8 @@ Stage 25 has exactly one primary objective:
 - Stage 25F is complete.
 - Stage 25G is complete.
 - Stage 25H is complete.
-- The map is retained as a secondary Explore surface only.
+- At Stage 25, the map was retained as a secondary Explore surface only; Stage
+  27 supersedes that global restriction without changing planner ownership.
 - Colony Planner: `canonical_live`.
 - simulation-preview: `integrated_into_stage25d_cockpit`.
 - map: `canonical_live` as a secondary Explore surface.
@@ -155,9 +160,8 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Execute Stage 26A as a documentation-only authorization, then use
-   artifact-backed research and an equal three-renderer bake-off before any
-   production map implementation or renderer choice.
+1. Complete Stage 27A's product, architecture, data-readiness, migration and
+   governance contracts before any new Babylon runtime implementation.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -199,7 +203,11 @@ competing roadmap source.
 - Keep Stage 25 shell/context work closed and stable while the audit-response
   foundation follow-through finishes.
 
-### Do Next
+### Current audit-response follow-through
+
+Stage 27A and the Stage 27 programme above govern spatial work. The items in
+this subsection are non-spatial foundation follow-through unless explicitly
+identified as historical evidence.
 
 - Complete bounded documentation triage using dependency-aware evidence; do
   not mass-archive stage documents that are still consumed by tests or active
@@ -221,14 +229,13 @@ competing roadmap source.
   coverage, and related trust signals.
 - Harden the `systems.has_body_data` / `systems.body_count` contract so rating
   eligibility cannot drift away from actual `bodies` rows under live ingest.
-- Real-star viewport streaming on the Explore map: a three-phase project to stream
-  individual star systems on zoom-in, replacing the aggregate heatmap with a
-  spectral-colored point cloud. **Read-only, Explore-only, no planner fusion.**
-  Rides existing `systems` spatial indexes; precomputed tiles deferred to Phase 3
-  if measured perf requires it. See `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
-  - Phase 1 (Backend): `/api/map/systems` endpoint with bbox query, importance ranking, 40k cap. (In progress, 2026-08-15)
-  - Phase 2 (Client LOD): Viewport hook + RealStarLayer rendering + LOD switch. (Pending Phase 1)
-  - Phase 3 (Polish): Hysteresis fade + truncated affordance. (Pending Phase 2)
+- **Stage 26-era reusable evidence, not current sequencing:** the bounded
+  `/api/map/systems` viewport work, spatial-index findings, importance ranking,
+  response cap, client LOD experiments, hysteresis and truncation affordance in
+  `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md` remain useful
+  inputs. Its former Explore-only Phase 1/2/3 programme is superseded; Stage
+  27D owns real-system streaming and interaction, and Stage 27E owns inherited
+  Stage 26 capability parity. Neither stage is authorized by 27A.
 
 ### Deferred Product Expansion
 
@@ -259,7 +266,59 @@ competing roadmap source.
   process residue should be executed as a bounded hygiene pass after the
   foundation risks above, not as a substitute for them.
 
-## Current Next Steps
+## Stage 27 Programme (current authority)
+
+The programme implements one renderer-neutral platform for Finder, CRE, CPE,
+Commander History/Exploration, Powerplay and Routes across Galaxy and System
+scales. Commander History is a cross-cutting personal-history backbone with its
+own Journal page; Exploration remains a first-class interpretation and goal.
+Journal, Galaxy and System surfaces share facts rather than databases. The product
+north star and ownership rules are normative in
+[`spatial-platform-product-contract.md`](./colonisation-redesign/spatial-platform-product-contract.md)
+and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatial-platform-architecture-decision.md).
+
+| Stage | Scope | Authorization |
+|---|---|---|
+| **27A** | Spatial Platform Contract and Audit | **CURRENT**; docs/audit/contracts only |
+| 27B | Babylon 9 Runtime Workbench | Authorized only after 27A acceptance; isolated, no production wiring |
+| 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27A |
+| 27D | Real-System Streaming and Interaction | Not authorized by 27A |
+| 27E | Stage 26 Capability Parity | Not authorized by 27A |
+| 27F | Commander History contract/import readiness; Journal page/analytics; Galaxy contributions, reverse spatial queries and Finder predicates | Not authorized by 27A |
+| 27G | Galaxy Bakeoff and Cutover | Not authorized by 27A; explicit cutover decision required |
+| 27H | System Scene Data, BodyRef and Commander History body-contribution contract | Not authorized by 27A |
+| 27I | 3D System Map | Not authorized by 27A |
+| 27J | Colonised-System Infrastructure | Not authorized by 27A |
+| 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
+| 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27A |
+
+Stage 27A's only follow-on authorization is 27B. The R3F production map stays
+in place throughout workbench/foundation stages. Mechanics remain CRE-owned,
+planning remains CPE-owned, ED-Finder orchestrates/presents, and the renderer
+owns neither.
+
+Stage ownership is deliberate: 27F defines account/commander/sync scope,
+privacy-filtered raw retention, normalized facts, provenance, source-aware
+dedupe/idempotent replay, expedition association, the non-map Journal page and
+analytics, Galaxy projection/reverse queries, and Finder composition. 27H owns
+System/body identity and personal body contributions. 27L owns historical
+views, timeline and expedition playback, strictly from retained timestamped
+facts. Current catalogue knowledge must never be presented as historical
+personal knowledge. Personal `CodexEntry` observations remain separate from
+authoritative global/game Codex catalogue knowledge. Elite Journal, EDDN/public
+catalogue and CAPI sources may be compared but not silently merged.
+
+Synthetic deterministic Journal fixtures remain required. Optional real
+commander logs may supplement importer/replay/body-identity/timestamp/exobio/
+Codex validation only when opt-in, privacy-safe/redacted as appropriate, never
+committed publicly without explicit approval, and never the sole test corpus.
+EDSM/EDSM-NET is product/research inspiration for commander-history/statistics
+and event breadth only—not mechanics authority or a code, asset or UI source.
+
+## Stage 25/26 historical next steps
+
+The material below preserves completed-stage decisions and evidence. It is not
+authority for what begins after Stage 27A.
 
 - Stage 25 product work is complete and promoted. Preserve its shell/context
   baseline while documentation triage, scoring cleanup, and CRE contract work
@@ -476,20 +535,22 @@ competing roadmap source.
 
 ## Active Priorities
 
-1. Observe the deployed Stage 26E post-cutover boundary/projection polish, then
-   continue bounded orientation and interaction follow-ups on the real route
-   while retaining the explicit disabled build as immediate rollback until a
-   later removal decision.
-2. Preserve production data-integrity receipts and the bounded rerating cadence.
-3. Complete dependency-aware documentation triage and historical archiving.
-4. Finish the archetype-scoring pivot and retire legacy score storage safely.
-5. Reconcile CRE confidence/source-authority contracts before runtime integration.
-6. Maintain all ten protected CI checks, reproducible release artifacts, local
+1. Complete and accept Stage 27A's spatial product, architecture,
+   data-readiness, migration and governance contracts. Its only follow-on
+   authorization is isolated Stage 27B; do not begin 27B in 27A.
+2. Keep the deployed Stage 26E R3F map stable as the current production
+   baseline, maintenance reference, inheritance source and rollback while a
+   later Stage 27 bakeoff/cutover remains unearned.
+3. Preserve production data-integrity receipts and the bounded rerating cadence.
+4. Complete dependency-aware documentation triage and historical archiving.
+5. Finish the archetype-scoring pivot and retire legacy score storage safely.
+6. Reconcile CRE confidence/source-authority contracts before runtime integration.
+7. Maintain all ten protected CI checks, reproducible release artifacts, local
    parity, and the green isolated Review Lab browser workflow.
-7. Preserve the reviewed database-operator secret channels, finite migration
+8. Preserve the reviewed database-operator secret channels, finite migration
    timeout policy, and explicit exceptional-run opt-in.
-8. Continue planner trust, evidence clarity, and operator reviewability.
-9. Keep product-shell and selected-system continuity stable while foundations
+9. Continue planner trust, evidence clarity, and operator reviewability.
+10. Keep product-shell and selected-system continuity stable while foundations
    evolve.
 
 ## Boundaries
@@ -500,11 +561,17 @@ competing roadmap source.
 - No hidden scoring, CP, economy, service, or optimiser changes.
 - No canonical database write lane unless a future stage explicitly authorizes it.
 - No scheduler, service, or timer activation for import automation by default.
-- Map redesign is authorized only through the Stage 26 sequence. Stage 26A is
-  documentation-only; Stage 26B is isolated research and measurement. No
-  production renderer choice or route cutover occurs before its recorded gates.
-- No planner-map fusion. Map may hand selected context into Plan but must not
-  mutate Build Plan, execute Preview, or become a planning workspace.
+- Spatial-platform work is authorized only through the current Stage 27
+  sequence and contracts. In that sequence it may participate explicitly
+  across Explore -> Inspect -> Plan -> Review. Colony Planner/Cockpit remains
+  the canonical detailed Build Plan workspace and persistence owner; the
+  renderer owns no mechanics or planning logic.
+- Spatial handoffs and explicit map actions authorized by a Stage 27 slice are
+  allowed. No map action may silently mutate a Build Plan or execute Preview,
+  and planned, inferred, or schematic state must never masquerade as existing
+  fact. Detailed plan persistence, mutation and automation remain outside the
+  renderer and may be implemented only in the authorized later stage that owns
+  them.
 - No visual cloning, asset copying, or derivative workflow shortcuts from
   external planner references.
 
@@ -530,10 +597,20 @@ competing roadmap source.
 
 Read these when a task needs more detail than this roadmap provides:
 
+- [`colonisation-redesign/spatial-platform-product-contract.md`](./colonisation-redesign/spatial-platform-product-contract.md):
+  current Stage 27 spatial product, truth, workflow and Commander
+  History/Journal authority once Stage 27A is accepted.
+- [`colonisation-redesign/spatial-platform-architecture-decision.md`](./colonisation-redesign/spatial-platform-architecture-decision.md):
+  current Stage 27 renderer-neutral ownership and architecture authority once
+  Stage 27A is accepted.
 - [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md):
-  active authorization, non-negotiable region and feature-integration contract,
-  artifact requirements, renderer bake-off, and staged cutover sequence for the
-  next-generation desktop map.
+  historical Stage 26 authorization and requirements evidence.
+- [`colonisation-redesign/stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md),
+  [`colonisation-redesign/stage-26c-region-first-foundation-contract.md`](./colonisation-redesign/stage-26c-region-first-foundation-contract.md),
+  [`colonisation-redesign/stage-26d-feature-handoff-contract.md`](./colonisation-redesign/stage-26d-feature-handoff-contract.md), and
+  [`colonisation-redesign/stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md):
+  historical Stage 26 renderer decision, implementation contracts and stable
+  production-baseline/cutover evidence. Babylon did not win Stage 26.
 - `docs/colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md`:
   Stage 24A contract checkpoint and evidence-surface ownership baseline.
 - `docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md`:
@@ -559,11 +636,11 @@ Read these when a task needs more detail than this roadmap provides:
   bounded implementation brief for the `A-1` journal import staging/evidence
   slice.
 - [`colonisation-redesign/stage-25c-product-shell-shared-context-contract.md`](./colonisation-redesign/stage-25c-product-shell-shared-context-contract.md):
-  active implementation contract for the current slice.
+  settled historical product-shell and shared-context baseline.
 - [`colonisation-redesign/stage-25b-evidence-language-visual-primitives.md`](./colonisation-redesign/stage-25b-evidence-language-visual-primitives.md):
-  current evidence-language and visual-system baseline.
+  settled historical evidence-language and visual-system baseline.
 - [`colonisation-redesign/stage-25a-current-state-map-product-visual-baseline.md`](./colonisation-redesign/stage-25a-current-state-map-product-visual-baseline.md):
-  current-state audit and map product baseline.
+  historical current-state audit and map product baseline from Stage 25.
 - [`colonisation-redesign/stage-17p-current-state-forward-plan.md`](./colonisation-redesign/stage-17p-current-state-forward-plan.md):
   planner truth, source authority, and non-negotiable product boundaries.
 - [`colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md`](./colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md):
