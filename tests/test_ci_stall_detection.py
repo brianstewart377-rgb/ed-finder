@@ -48,6 +48,8 @@ CHECKED_WORKFLOWS = (
     'cypress-parity.yml',
     'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
+    'octopus-legacy-handoff.yml',
+    'octopus-new-ops.yml',
     'review-lab.yml',
     'semgrep.yml',
 )

@@ -1,0 +1,80 @@
+name: Octopus new host operations
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [preflight, handoff-init, handoff-import, prepare, private-install, private-verify, edge-topology, edge-install, enable-worker, cutover-verify, rollback]
+      transfer_id: {description: '32 lowercase hex transfer id', required: false, type: string}
+      artifact_run_id: {description: 'Legacy handoff Actions run id', required: false, type: string}
+      admin_email: {description: 'Octopus admin email', required: false, type: string}
+      edge_config_sha256: {description: 'Exact topology receipt config SHA-256', required: false, type: string}
+      old_quiesce_run_id: {description: 'Successful legacy quiesce Actions run id', required: false, type: string}
+permissions:
+  actions: read
+  contents: read
+concurrency:
+  group: octopus-new-control
+  cancel-in-progress: false
+jobs:
+  operate:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {ref: main, path: trusted-main, persist-credentials: false}
+      - name: Prepare pinned new-host SSH trust
+        env:
+          KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          KNOWN: ${{ secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail; test -n "$KEY"; test -n "$HOST"; test -n "$PORT"; test -n "$KNOWN"
+          install -d -m 0700 ~/.ssh; printf '%s\n' "$KEY" > ~/.ssh/key; printf '%s\n' "$KNOWN" > ~/.ssh/known_hosts; chmod 0600 ~/.ssh/{key,known_hosts}
+          lookup="$HOST"; [ "$PORT" = 22 ] || lookup="[$HOST]:$PORT"; ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Download encrypted handoff
+        if: inputs.operation == 'handoff-import'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: octopus-encrypted-handoff
+          path: ${{ runner.temp }}/handoff
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - name: Download old-worker quiesce receipt
+        if: inputs.operation == 'enable-worker'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: octopus-old-quiesced
+          path: ${{ runner.temp }}/quiesce
+          run-id: ${{ inputs.old_quiesce_run_id }}
+          github-token: ${{ github.token }}
+      - name: Run bounded new-host operation
+        env:
+          HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+          OP: ${{ inputs.operation }}
+          TRANSFER: ${{ inputs.transfer_id }}
+          EMAIL: ${{ inputs.admin_email }}
+          EDGE_SHA: ${{ inputs.edge_config_sha256 }}
+        run: |
+          set -euo pipefail
+          ssh_base=(ssh -i ~/.ssh/key -p "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$USER@$HOST")
+          scp_base=(scp -i ~/.ssh/key -P "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts)
+          "${scp_base[@]}" trusted-main/scripts/operator/{octopus_handoff.sh,octopus_credentials.py,octopus_runtime.sh,octopus_edge.sh,octopus_selfhost.sh} "$USER@$HOST:/tmp/"
+          case "$OP" in
+            preflight) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_selfhost.sh; /tmp/octopus_selfhost.sh preflight' ;;
+            handoff-init) [[ "$TRANSFER" =~ ^[a-f0-9]{32}$ ]]; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh; /tmp/octopus_handoff.sh init '$TRANSFER'" ;;
+            handoff-import) [[ "$TRANSFER" =~ ^[a-f0-9]{32}$ ]]; "${scp_base[@]}" "$RUNNER_TEMP/handoff/octopus-transfer.age" "$USER@$HOST:/tmp/octopus-transfer.age"; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh; /tmp/octopus_handoff.sh import '$TRANSFER' /tmp/octopus-transfer.age; rm -f /tmp/octopus-transfer.age" ;;
+            prepare) [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; "${scp_base[@]}" -r trusted-main/deploy/octopus-selfhost "$USER@$HOST:/tmp/octopus-package"; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_selfhost.sh; OCTOPUS_PACKAGE_DIR=/tmp/octopus-package /tmp/octopus_selfhost.sh prepare --target-root / --admin-email '$EMAIL' --confirm 'PREPARE FRESH OCTOPUS ON ED-FINDER-PROD'" ;;
+            private-install|private-verify) "${ssh_base[@]}" "chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh '$OP'" ;;
+            enable-worker) "${scp_base[@]}" "$RUNNER_TEMP/quiesce/old-quiesced" "$USER@$HOST:/tmp/old-quiesced"; "${ssh_base[@]}" 'install -m 0600 /tmp/old-quiesced /opt/octopus/receipts/old-quiesced; rm -f /tmp/old-quiesced; chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh enable-worker' ;;
+            edge-topology) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh topology' ;;
+            edge-install) [[ "$EDGE_SHA" =~ ^[a-f0-9]{64}$ ]]; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh install '$EDGE_SHA'" ;;
+            cutover-verify) "${ssh_base[@]}" "curl --fail --silent https://octopus.ed-finder.app/api/health >/dev/null; test \"\$(curl --fail --silent https://octopus.ed-finder.app/api/version | tr -d '\"[:space:]')\" = 1.0.122; /tmp/octopus_runtime.sh status" ;;
+            rollback) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh /tmp/octopus_edge.sh; /tmp/octopus_runtime.sh disable-worker; /tmp/octopus_edge.sh rollback' ;;
+          esac
+          "${ssh_base[@]}" 'rm -f /tmp/octopus_*.sh /tmp/octopus_credentials.py; rm -rf /tmp/octopus-package'
