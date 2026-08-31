@@ -102,17 +102,17 @@ jobs:
           database='edfinder_v3_phase4c_full_20260827_r5'
           schema='v3_gen_phase4c_full_20260827_r5'
 
-          # No database password is read or transported. Execute psql as the
-          # PostgreSQL OS account over the container-local Unix socket.
+          # No database password is read or transported. Execute psql over
+          # the container-local Unix socket and explicitly select the actual
+          # ED-Finder database role.
           base=[
               'docker','exec','-u','postgres',
               '-e','PGOPTIONS=-c default_transaction_read_only=on',
-              container,'psql','-X','-d',database,'-At','-v','ON_ERROR_STOP=1'
+              container,'psql','-X','-U','edfinder_v3','-d',database,'-At','-v','ON_ERROR_STOP=1'
           ]
           def psql(sql):
               proc=subprocess.run(base+['-c',sql],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
               if proc.returncode:
-                  # Do not expose subprocess args or container environment on error.
                   detail=(proc.stderr or proc.stdout or 'unknown PostgreSQL error').strip()
                   raise SystemExit('read-only PostgreSQL query failed: '+detail[:1200])
               return proc.stdout
