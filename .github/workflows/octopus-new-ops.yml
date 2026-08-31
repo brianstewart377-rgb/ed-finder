@@ -70,13 +70,10 @@ jobs:
             handoff-init) [[ "$TRANSFER" =~ ^[a-f0-9]{32}$ ]]; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh; /tmp/octopus_handoff.sh init '$TRANSFER'" ;;
             handoff-import) [[ "$TRANSFER" =~ ^[a-f0-9]{32}$ ]]; "${scp_base[@]}" "$RUNNER_TEMP/handoff/octopus-transfer.age" "$USER@$HOST:/tmp/octopus-transfer.age"; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_handoff.sh; /tmp/octopus_handoff.sh import '$TRANSFER' /tmp/octopus-transfer.age; rm -f /tmp/octopus-transfer.age" ;;
             prepare) [[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; "${scp_base[@]}" -r trusted-main/deploy/octopus-selfhost "$USER@$HOST:/tmp/octopus-package"; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_selfhost.sh; OCTOPUS_PACKAGE_DIR=/tmp/octopus-package /tmp/octopus_selfhost.sh prepare --target-root / --admin-email '$EMAIL' --confirm 'PREPARE FRESH OCTOPUS ON ED-FINDER-PROD'" ;;
-            private-install|private-verify) "${ssh_base[@]}" "chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh '$OP'" ;;
+            private-install|private-verify|cutover-verify) "${ssh_base[@]}" "chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh '$OP'" ;;
             enable-worker) "${scp_base[@]}" "$RUNNER_TEMP/quiesce/old-quiesced" "$USER@$HOST:/tmp/old-quiesced"; "${ssh_base[@]}" 'install -m 0600 /tmp/old-quiesced /opt/octopus/receipts/old-quiesced; rm -f /tmp/old-quiesced; chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh enable-worker' ;;
             edge-topology) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh topology' ;;
             edge-install) [[ "$EDGE_SHA" =~ ^[a-f0-9]{64}$ ]]; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh install '$EDGE_SHA'" ;;
-            cutover-verify)
-              "${ssh_base[@]}" 'set -euo pipefail; chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh status; curl --fail --silent http://127.0.0.1:43300/api/health >/dev/null; test "$(curl --fail --silent http://127.0.0.1:43300/api/version | tr -d '\''"[:space:]'\'')" = 1.0.122; code=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --resolve octopus.ed-finder.app:443:127.0.0.1 https://octopus.ed-finder.app/); test "$code" = 401; printf "local_edge_tls_routes_to_new_octopus: true\nexternal_dns_webhook_proof_pending: true\n"'
-              ;;
             rollback) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh /tmp/octopus_edge.sh; /tmp/octopus_runtime.sh disable-worker; /tmp/octopus_edge.sh rollback' ;;
             *) echo 'unsupported new-host operation' >&2; exit 64 ;;
           esac
