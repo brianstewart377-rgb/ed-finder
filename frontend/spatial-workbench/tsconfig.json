@@ -1,0 +1,1 @@
+{"extends":"../tsconfig.json","compilerOptions":{"noEmit":true,"types":["vite/client"]},"include":["./**/*.ts","./**/*.tsx","../src/features/spatial-runtime/**/*.ts","../src/features/spatial-runtime/**/*.tsx","../vite.spatial-workbench.config.ts"]}
