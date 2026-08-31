@@ -71,6 +71,13 @@ document that should answer "what next?".
   **Pre-v3.4 Unversioned Ratings**, not as one coherent legacy type. They may
   span multiple historical scorer generations and must be rebaselined before
   the ratings migration can be considered operationally complete.
+- Recovery containment posture (2026-08-31): the retained-V3 recovery artifact
+  was structurally intact but unsafe because literal database credentials were
+  present in selected historical source content. It is not authority. Artifact
+  deletion and credential active-use/rotation disposition are separate owner
+  actions tracked in #537; a successful workflow or matching manifest alone is
+  not proof of content safety. Issue #527 remains blocked until a fresh archive
+  made under the bounded content-preflight contract is independently verified.
 
 ## Architectural Decisions — 2026-07-12
 
