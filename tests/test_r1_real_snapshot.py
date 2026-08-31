@@ -9,6 +9,7 @@ class Cur:
         self.c.calls.append((sql,params)); u=sql.upper()
         if u.startswith('SHOW'):self.rows=[{'transaction_read_only':self.c.readonly}]
         elif 'CURRENT_DATABASE()' in u:self.rows=[{'current_database':'edfinder','current_user':'readonly'}]
+        elif "TO_REGCLASS('PUBLIC.BODY_RINGS')" in u:self.rows=[{'body_rings_present':self.c.ring_table}]
         elif 'FROM SYSTEMS' in u:self.rows=self.c.systems
         elif 'FROM BODIES' in u:self.rows=self.c.bodies
         elif 'FROM BODY_RINGS' in u:self.rows=self.c.rings
@@ -16,7 +17,7 @@ class Cur:
     def fetchone(self):return self.rows[0] if self.rows else None
     def fetchall(self):return list(self.rows)
 class Conn:
-    def __init__(self,readonly='on',systems=None,bodies=None,rings=None):self.readonly=readonly;self.systems=systems or [];self.bodies=bodies or [];self.rings=rings or [];self.calls=[]
+    def __init__(self,readonly='on',systems=None,bodies=None,rings=None,ring_table=True):self.readonly=readonly;self.systems=systems or [];self.bodies=bodies or [];self.rings=rings or [];self.ring_table=ring_table;self.calls=[]
     def cursor(self):return Cur(self)
 def sysrow(id='1',name='Alpha',count=1,has=True):return {'id64':id,'name':name,'has_body_data':has,'body_count':count,'updated_at':'2026-08-31'}
 def brow(id='10',sid='1',name='Alpha 1',sub='High metal content world',**kw):
@@ -36,7 +37,18 @@ def test_deterministic_system_order():
 def test_maps_default_false_to_unknown_via_bridge():
     b=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()]),[SnapshotSelector('id64','1')])[0];p=b.projected_system.bodies[0];assert p.body.is_landable is None and p.body.has_geologicals is None
 def test_ring_association_preserved():
-    b=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()],rings=[rrow()]),[SnapshotSelector('id64','1')])[0];assert b.projected_system.bodies[0].body.has_rings is True
+    b=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()],rings=[rrow()]),[SnapshotSelector('id64','1')])[0];assert b.ring_source_available is True and b.projected_system.bodies[0].body.has_rings is True
+def test_missing_ring_table_does_not_block_snapshot_and_keeps_ring_unknown():
+    c=Conn(systems=[sysrow()],bodies=[brow()],ring_table=False);b=load_snapshots(c,[SnapshotSelector('id64','1')])[0]
+    assert b.ring_source_available is False and b.projected_system.bodies[0].body.has_rings is None
+    assert not any('FROM BODY_RINGS' in q.upper() for q,_ in c.calls)
+def test_missing_ring_table_is_reported_as_caveat():
+    b=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()],ring_table=False),[SnapshotSelector('id64','1')])[0];r=build_report(b)
+    assert r.ring_source_available is False and any('body_rings source unavailable' in x for x in r.caveats)
+def test_ring_source_availability_changes_digest():
+    a=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()],ring_table=True),[SnapshotSelector('id64','1')])[0]
+    b=load_snapshots(Conn(systems=[sysrow()],bodies=[brow()],ring_table=False),[SnapshotSelector('id64','1')])[0]
+    assert a.snapshot_digest!=b.snapshot_digest
 def test_snapshot_digest_deterministic():
     c1=Conn(systems=[sysrow()],bodies=[brow()]);c2=Conn(systems=[sysrow()],bodies=[brow()]);assert load_snapshots(c1,[SnapshotSelector('id64','1')])[0].snapshot_digest==load_snapshots(c2,[SnapshotSelector('id64','1')])[0].snapshot_digest
 def test_no_plan_resilience_or_fit_emitted():
