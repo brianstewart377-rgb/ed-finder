@@ -1,0 +1,165 @@
+name: R1 PostgreSQL Schema Inventory
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-pg-schema-inventory-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-pg-schema-inventory
+  cancel-in-progress: false
+
+jobs:
+  inventory:
+    name: Metadata-only retained DB schema inventory
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 15
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one schema inventory request' >&2; exit 64; }
+          case "${changed[0]}" in
+            .github/r1-pg-schema-inventory-requests/*.json) ;;
+            *) echo 'Changed path is outside schema inventory allowlist' >&2; exit 64 ;;
+          esac
+          python3 - "${changed[0]}" <<'PY'
+          import json, pathlib, sys
+          data=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          if data != {'operation':'r1-pg-schema-inventory'}:
+              raise SystemExit('Unsupported schema inventory request')
+          PY
+
+      - name: Prepare pinned SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"; test -n "$SSH_HOST"; test -n "$SSH_PORT"; test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key; chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo 'Pinned host trust mismatch' >&2; exit 1; }
+
+      - name: Inspect retained database catalogs only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" \
+            -o IdentitiesOnly=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o GlobalKnownHostsFile=/dev/null \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" 'python3 -' > r1-pg-schema-inventory.json <<'PY'
+          import json
+          import subprocess
+
+          container='edfinder-v3-phase4c-full-20260827_r5-postgres'
+          database='edfinder_v3_phase4c_full_20260827_r5'
+          inspect=json.loads(subprocess.check_output(['docker','inspect',container],text=True))[0]
+          env={}
+          for item in inspect.get('Config',{}).get('Env',[]):
+              if '=' in item:
+                  k,v=item.split('=',1); env[k]=v
+          user=env.get('POSTGRES_USER') or 'postgres'
+          password=env.get('POSTGRES_PASSWORD') or ''
+          base=['docker','exec']
+          if password: base += ['-e',f'PGPASSWORD={password}']
+          base += [container,'psql','-h','127.0.0.1','-U',user,'-d',database,'-At']
+
+          def psql(sql, field_sep='|'):
+              return subprocess.check_output(base+['-F',field_sep,'-c',sql],text=True,stderr=subprocess.STDOUT).splitlines()
+
+          schema_rows=psql("""
+            SELECT n.nspname, COUNT(c.oid)
+            FROM pg_namespace n
+            LEFT JOIN pg_class c ON c.relnamespace=n.oid AND c.relkind IN ('r','p','v','m')
+            WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND n.nspname NOT LIKE 'pg_toast%'
+            GROUP BY n.nspname ORDER BY n.nspname
+          """)
+          schemas=[]
+          for line in schema_rows:
+              schema,count=line.split('|',1); schemas.append({'schema':schema,'relation_count':int(count)})
+
+          rel_rows=psql("""
+            SELECT n.nspname, c.relname, c.relkind, COALESCE(c.reltuples::bigint,0)
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE c.relkind IN ('r','p','v','m')
+              AND n.nspname NOT IN ('pg_catalog','information_schema')
+              AND n.nspname NOT LIKE 'pg_toast%'
+              AND (
+                lower(c.relname) LIKE '%system%' OR lower(c.relname) LIKE '%bod%' OR
+                lower(c.relname) LIKE '%rating%' OR lower(c.relname) LIKE '%station%' OR
+                lower(c.relname) LIKE '%ring%'
+              )
+            ORDER BY n.nspname,c.relname
+          """)
+          relations=[]
+          for line in rel_rows:
+              schema,name,kind,estimate=line.split('|',3)
+              relations.append({'schema':schema,'name':name,'kind':kind,'row_estimate':int(estimate)})
+
+          for relation in relations:
+              schema=relation['schema'].replace("'","''")
+              name=relation['name'].replace("'","''")
+              col_rows=psql(f"""
+                SELECT a.attname
+                FROM pg_attribute a
+                JOIN pg_class c ON c.oid=a.attrelid
+                JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE n.nspname='{schema}' AND c.relname='{name}' AND a.attnum>0 AND NOT a.attisdropped
+                ORDER BY a.attnum
+              """)
+              relation['columns']=[x for x in col_rows if x]
+
+          print(json.dumps({'database':database,'schemas':schemas,'relations':relations},separators=(',',':')))
+          PY
+
+      - name: Summarize schema inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, pathlib
+          d=json.loads(pathlib.Path('r1-pg-schema-inventory.json').read_text(encoding='utf-8'))
+          print('database:',d['database'])
+          print('schemas:')
+          for row in d['schemas']:
+              print(f"- {row['schema']}: relations={row['relation_count']}")
+          print('candidate_relations:')
+          for row in d['relations']:
+              cols=','.join(row['columns'][:30])
+              more='...' if len(row['columns'])>30 else ''
+              print(f"- {row['schema']}.{row['name']} kind={row['kind']} row_estimate={row['row_estimate']} columns={cols}{more}")
+          PY
+
+      - name: Upload schema inventory artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r1-pg-schema-inventory-${{ github.run_id }}
+          path: r1-pg-schema-inventory.json
+          if-no-files-found: error
+          retention-days: 30
