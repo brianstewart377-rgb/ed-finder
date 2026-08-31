@@ -48,7 +48,9 @@ jobs:
           PY
           actual_blob="$(git hash-object sql/r1_v3/001_structural_shell.sql)"
           [ "$actual_blob" = '26d1ef3d4ae343159ba62281102f2143ccff7fb8' ] || { echo "STOP: migration blob mismatch: $actual_blob" >&2; exit 1; }
-          python3 -m py_compile scripts/operator/actions/r1_v3_normalized_live_structural_apply.py
+          python3 -m py_compile \
+            scripts/operator/actions/r1_v3_normalized_live_structural_apply.py \
+            scripts/operator/actions/r1_v3_normalized_live_structural_apply_v2.py
           migration_sha256="$(sha256sum sql/r1_v3/001_structural_shell.sql | awk '{print $1}')"
           [[ "$migration_sha256" =~ ^[0-9a-f]{64}$ ]] || { echo 'STOP: invalid migration SHA256' >&2; exit 1; }
           echo "migration_blob_verified=$actual_blob"
@@ -84,20 +86,10 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$SSH_USER"
-          scp -i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" \
-            -o IdentitiesOnly=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -o GlobalKnownHostsFile=/dev/null \
-            -o StrictHostKeyChecking=yes \
-            sql/r1_v3/001_structural_shell.sql \
-            "$SSH_USER@$SSH_HOST:/tmp/r1-v3-structural-$RUN_ID.sql"
-          scp -i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" \
-            -o IdentitiesOnly=yes \
-            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            -o GlobalKnownHostsFile=/dev/null \
-            -o StrictHostKeyChecking=yes \
-            scripts/operator/actions/r1_v3_normalized_live_structural_apply.py \
-            "$SSH_USER@$SSH_HOST:/tmp/r1-v3-structural-$RUN_ID.py"
+          common_scp=(-i ~/.ssh/ed_new_operator_key -P "$SSH_PORT" -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOME/.ssh/known_hosts" -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=yes)
+          scp "${common_scp[@]}" sql/r1_v3/001_structural_shell.sql "$SSH_USER@$SSH_HOST:/tmp/r1-v3-structural-$RUN_ID.sql"
+          scp "${common_scp[@]}" scripts/operator/actions/r1_v3_normalized_live_structural_apply.py "$SSH_USER@$SSH_HOST:/tmp/r1_v3_normalized_live_structural_apply.py"
+          scp "${common_scp[@]}" scripts/operator/actions/r1_v3_normalized_live_structural_apply_v2.py "$SSH_USER@$SSH_HOST:/tmp/r1-v3-structural-$RUN_ID.py"
 
       - name: Apply atomic R1 structural shell and verify
         shell: bash
@@ -115,4 +107,4 @@ jobs:
             -o GlobalKnownHostsFile=/dev/null \
             -o StrictHostKeyChecking=yes \
             "$SSH_USER@$SSH_HOST" \
-            "set -euo pipefail; trap 'rm -f /tmp/r1-v3-structural-$RUN_ID.sql /tmp/r1-v3-structural-$RUN_ID.py' EXIT; MIGRATION_SHA256='$MIGRATION_SHA256' python3 /tmp/r1-v3-structural-$RUN_ID.py /tmp/r1-v3-structural-$RUN_ID.sql"
+            "set -euo pipefail; trap 'rm -f /tmp/r1-v3-structural-$RUN_ID.sql /tmp/r1-v3-structural-$RUN_ID.py /tmp/r1_v3_normalized_live_structural_apply.py' EXIT; MIGRATION_SHA256='$MIGRATION_SHA256' python3 /tmp/r1-v3-structural-$RUN_ID.py /tmp/r1-v3-structural-$RUN_ID.sql"
