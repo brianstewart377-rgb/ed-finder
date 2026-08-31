@@ -78,9 +78,19 @@ The lane requires the environment secret `ED_NEW_OPERATOR_KNOWN_HOSTS` to hold
 the pinned OpenSSH known-host entry for `ED_NEW_OPERATOR_HOST` and
 `ED_NEW_OPERATOR_PORT`. Runtime host discovery (`ssh-keyscan`) is prohibited.
 
+Requests run in a separate non-secret push workflow and dispatch the
+secret-bearing executor at trusted `main`. The `ed-new-operator` environment
+must allow protected `main` only. The retained Compose project identity must
+exactly equal `edfinder-v3-phase4c-full-20260827_r5`.
+
 Recovery is limited to Compose YAML, Dockerfile/Containerfile build inputs,
 `.sql`, `.sh`, `.py`, and non-secret-name `.md`, `.txt`, and `.json` files.
 It fails closed on `.env` and secret/credential/token/key/certificate names,
 logs, backups, dumps, database data/volumes, pgBackRest or SSH material,
 symlinks, special files, paths outside the label-resolved source root, and
 file-count or byte limits. File contents are not printed to Actions logs.
+Allowed files are snapshotted through no-follow descriptors; the exact bytes
+validated are used for manifest checksums and archive members. The receipt
+records start/end UTC, target identity, outcome/exit status, trusted
+implementation commit/ref, source/container/project identity, and the existing
+no-database/no-host-mutation markers. Artifacts remain retained for 14 days.

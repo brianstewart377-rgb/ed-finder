@@ -1,0 +1,75 @@
+name: ChatGPT ed-new Ops Request
+run-name: ed-new request · ${{ github.sha }}
+
+on:
+  push:
+    branches: [chatgpt-ed-new-ops-requests]
+    paths: ['.github/ed-new-ops-requests/*.json']
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate the complete request history
+        id: request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          zero=0000000000000000000000000000000000000000
+          if [ -z "$BEFORE_SHA" ] || [ "$BEFORE_SHA" = "$zero" ]; then
+            base="$(git merge-base origin/main "$CURRENT_SHA")" || exit 64
+          else
+            git cat-file -e "$BEFORE_SHA^{commit}" || { echo "Before SHA unavailable" >&2; exit 64; }
+            git merge-base --is-ancestor "$BEFORE_SHA" "$CURRENT_SHA" || { echo "Non-forward request push rejected" >&2; exit 64; }
+            base="$BEFORE_SHA"
+          fi
+          mapfile -t changes < <(git log --format= --name-status "$base..$CURRENT_SHA")
+          declare -A request_files=()
+          request_file=""
+          for change in "${changes[@]}"; do
+            [ -n "$change" ] || continue
+            status="${change%%$'\t'*}"
+            file="${change#*$'\t'}"
+            case "$status:$file" in
+              [AM]:.github/ed-new-ops-requests/*.json) request_files["$file"]=1; request_file="$file" ;;
+              *) echo "Non-request change rejected: $change" >&2; exit 64 ;;
+            esac
+          done
+          mapfile -t branch_delta < <(git diff --name-status origin/main "$CURRENT_SHA")
+          for change in "${branch_delta[@]}"; do
+            case "$change" in [AM]$'\t'.github/ed-new-ops-requests/*.json) ;; *) echo "Request branch contains forbidden delta: $change" >&2; exit 64 ;; esac
+          done
+          [ "${#request_files[@]}" -eq 1 ] && [ -f "$request_file" ] || { echo "Expected exactly one final request file" >&2; exit 64; }
+          operation="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); set(d) <= {"operation"} or sys.exit("Unsupported keys"); op=d.get("operation"); op in {"host-status","recover-v3-runtime-contract"} or sys.exit("Unsupported operation"); print(op)' "$request_file")"
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+          echo "request_id=$(basename "$request_file" .json)-${CURRENT_SHA:0:8}" >> "$GITHUB_OUTPUT"
+      - name: Dispatch trusted-main executor
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+        run: |
+          set -euo pipefail
+          payload="$(python3 -c 'import json,os; print(json.dumps({"ref":"main","inputs":{"operation":os.environ["OPERATION"],"request_id":os.environ["REQUEST_ID"]}}))')"
+          code="$(curl --silent --show-error --location --output /tmp/response --write-out '%{http_code}' --request POST \
+            --header 'Accept: application/vnd.github+json' --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/chatgpt-ed-new-ops.yml/dispatches" --data "$payload")"
+          [ "$code" = 204 ] || { echo "Executor dispatch failed with HTTP $code" >&2; exit 68; }
+          echo "ED_NEW_DISPATCH_ACCEPTED=true"
+          echo "ED_NEW_REQUEST_ID=$REQUEST_ID"

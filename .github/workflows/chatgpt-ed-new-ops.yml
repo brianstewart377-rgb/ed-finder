@@ -1,20 +1,16 @@
 name: ChatGPT ed-new Ops
+run-name: ed-new ${{ inputs.operation }} · ${{ inputs.request_id || 'manual' }}
 
 on:
   workflow_dispatch:
     inputs:
       operation:
-        description: "Allowlisted ed-new operation"
         required: true
         type: choice
-        options:
-          - host-status
-          - recover-v3-runtime-contract
-  push:
-    branches:
-      - chatgpt-ed-new-ops-requests
-    paths:
-      - '.github/ed-new-ops-requests/*.json'
+        options: [host-status, recover-v3-runtime-contract]
+      request_id:
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -25,55 +21,16 @@ concurrency:
 
 jobs:
   execute:
-    name: Run allowlisted ed-new operation
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: ed-new-operator
     timeout-minutes: 10
     steps:
-      - name: Checkout request branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 2
-
-      - name: Resolve request
-        id: request
-        shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_OPERATION: ${{ inputs.operation }}
-          BEFORE_SHA: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            operation="$INPUT_OPERATION"
-          elif [ "$EVENT_NAME" = "push" ]; then
-            mapfile -t changed_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
-            [ "${#changed_files[@]}" -eq 1 ] || { echo "Expected exactly one changed ed-new request file" >&2; exit 64; }
-            case "${changed_files[0]}" in
-              .github/ed-new-ops-requests/*.json) ;;
-              *) echo "Push changed a path outside the request allowlist" >&2; exit 64 ;;
-            esac
-            request_files=("${changed_files[0]}")
-            operation="$(python -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text()); extra=set(d)-{"operation"}; extra and sys.exit(f"Unsupported request keys: {sorted(extra)}"); op=d.get("operation"); (isinstance(op,str) and op) or sys.exit("operation must be a non-empty string"); print(op)' "${request_files[0]}")"
-          else
-            echo "Unsupported event: $EVENT_NAME" >&2
-            exit 64
-          fi
-          case "$operation" in
-            host-status|recover-v3-runtime-contract) ;;
-            *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
-          esac
-          echo "operation=$operation" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout trusted operator implementation
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: main
-          path: trusted-main
+          ref: ${{ github.sha }}
           persist-credentials: false
-
-      - name: Prepare SSH
+      - name: Prepare pinned SSH trust
         shell: bash
         env:
           SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
@@ -82,28 +39,14 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
-          test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
-          test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
-          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing ED_NEW_OPERATOR_KNOWN_HOSTS" >&2; exit 1; }
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
-          chmod 600 ~/.ssh/ed_new_operator_key
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          if [ "$SSH_PORT" = "22" ]; then
-            known_host_lookup="$SSH_HOST"
-          else
-            known_host_lookup="[$SSH_HOST]:$SSH_PORT"
-          fi
-          ssh-keygen -F "$known_host_lookup" -f ~/.ssh/known_hosts >/dev/null || {
-            echo "Pinned known-host trust does not cover the configured host and port" >&2
-            exit 1
-          }
-
-      - name: Run bounded ed-new bootstrap status
-        if: steps.request.outputs.operation == 'host-status'
+          for value in SSH_KEY SSH_HOST SSH_PORT SSH_KNOWN_HOSTS; do [ -n "${!value}" ] || { echo "Missing $value" >&2; exit 1; }; done
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key && chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo "Pinned known-host trust mismatch" >&2; exit 1; }
+      - name: Run bounded host status
+        if: inputs.operation == 'host-status'
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
@@ -111,64 +54,42 @@ jobs:
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
         run: |
           set -euo pipefail
-          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
-
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; echo "== ed-new bootstrap status =="; hostname; hostname -f 2>/dev/null || true; uname -sr; df -hT /; if command -v docker >/dev/null 2>&1; then out=$(docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}") || exit; printf "%s\n" "$out" | head -50; else echo "docker: not installed"; fi; echo "db_access_performed: false"; echo "host_mutation_performed: false"'
       - name: Recover retained V3 runtime contract
-        if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
+        if: inputs.operation == 'recover-v3-runtime-contract'
         shell: bash
         env:
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECOVERY_DIR: ${{ runner.temp }}/edfinder-v3-runtime-recovery
+          TRUSTED_COMMIT: ${{ github.sha }}
+          TRUSTED_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
-          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
-          mkdir -p "$RECOVERY_DIR"
+          test -n "$SSH_USER" && mkdir -p "$RECOVERY_DIR"
           archive="$RECOVERY_DIR/edfinder-v3-phase4c-r5-runtime-contract.tar.gz"
-          ssh -i ~/.ssh/ed_new_operator_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'python3 - --container edfinder-v3-phase4c-full-20260827_r5-postgres' \
-              < trusted-main/scripts/operator/recover_v3_runtime_contract.py \
-              > "$archive"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "python3 - --container edfinder-v3-phase4c-full-20260827_r5-postgres --target-host-identity '$SSH_HOST' --trusted-commit '$TRUSTED_COMMIT' --trusted-ref '$TRUSTED_REF'" \
+            < scripts/operator/recover_v3_runtime_contract.py > "$archive"
           test -s "$archive"
           (cd "$RECOVERY_DIR" && sha256sum "$(basename "$archive")" > "$(basename "$archive").sha256")
           python3 - "$archive" <<'PY'
-          import pathlib
-          import shutil
-          import sys
-          import tarfile
-
+          import pathlib, shutil, sys, tarfile
           archive = pathlib.Path(sys.argv[1])
-          output = archive.parent
-          expected = ("recovery-manifest.json", "recovery-receipt.json")
           with tarfile.open(archive, "r:gz") as bundle:
-              members = {member.name: member for member in bundle.getmembers()}
-              for name in expected:
+              members = {m.name: m for m in bundle.getmembers()}
+              for name in ("recovery-manifest.json", "recovery-receipt.json"):
                   member = members.get(name)
-                  if member is None or not member.isfile():
-                      raise SystemExit(f"Missing required recovery metadata member: {name}")
+                  if member is None or not member.isfile(): raise SystemExit(f"Missing metadata: {name}")
                   source = bundle.extractfile(member)
-                  if source is None:
-                      raise SystemExit(f"Unable to read recovery metadata member: {name}")
-                  with source, (output / name).open("wb") as target:
-                      shutil.copyfileobj(source, target)
+                  if source is None: raise SystemExit(f"Unreadable metadata: {name}")
+                  with source, (archive.parent / name).open("wb") as target: shutil.copyfileobj(source, target)
           PY
-        working-directory: ${{ github.workspace }}
-
       - name: Upload retained V3 runtime recovery
-        if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
+        if: inputs.operation == 'recover-v3-runtime-contract'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: edfinder-v3-phase4c-r5-runtime-contract

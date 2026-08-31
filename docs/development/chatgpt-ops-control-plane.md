@@ -57,6 +57,18 @@ ChatGPT clients should therefore report the dispatch acknowledgement/run ID imme
 
 The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
 
+## ed-new request trust boundary
+
+The writable `chatgpt-ed-new-ops-requests` branch is a non-secret dispatch
+surface only. Its request workflow validates complete pushed history and the
+branch delta against `origin/main`, then dispatches the executor explicitly at
+`ref: main`. Only that trusted-main `workflow_dispatch` executor may use the
+`ed-new-operator` environment or read `ED_NEW_OPERATOR_*` secrets.
+
+The environment deployment-branch policy must remain restricted to protected
+`main`. The executor also checks `refs/heads/main` and checks out the exact
+workflow commit rather than a moving branch name.
+
 ### Codex implementation push credential
 
 Ordinary Codex implementation branches may be pushed with the workflow's normal `GITHUB_TOKEN`. GitHub refuses that token when a commit creates or modifies files under `.github/workflows/`, so workflow-file changes require the repository secret `CODEX_WORKER_GIT_TOKEN`.
