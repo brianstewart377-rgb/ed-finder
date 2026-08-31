@@ -23,6 +23,11 @@
     "map-foundation:test": "node scripts/run-vitest.mjs run src/features/map-foundation",
     "map-foundation:build": "vite build --config vite.map-foundation.config.ts",
     "map-foundation:e2e": "playwright test --config playwright.map-foundation.config.ts",
+    "spatial-workbench:dev": "vite --config vite.spatial-workbench.config.ts",
+    "spatial-workbench:typecheck": "tsc --noEmit -p spatial-workbench/tsconfig.json",
+    "spatial-workbench:test": "node scripts/run-vitest.mjs run src/features/spatial-runtime",
+    "spatial-workbench:build": "vite build --config vite.spatial-workbench.config.ts",
+    "spatial-workbench:e2e": "playwright test --config playwright.spatial-workbench.config.ts",
     "map-foundation:matrix": "playwright test --config playwright.map-foundation.matrix.config.ts",
     "map-foundation:visual": "playwright test --config playwright.map-foundation.visual.config.ts",
     "map-foundation:accessibility": "playwright test --config playwright.map-foundation.accessibility.config.ts",
@@ -50,6 +55,7 @@
     "types:gen": "node scripts/types-gen.mjs"
   },
   "dependencies": {
+    "@babylonjs/core": "9.23.0",
     "@deck.gl/core": "9.3.7",
     "@deck.gl/layers": "9.3.7",
     "@deck.gl/react": "9.3.7",
@@ -68,7 +74,6 @@
     "@sentry/react": "^10.69.0",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-query-devtools": "^5.101.4",
-    "babylonjs": "^6.39.0",
     "clsx": "^2.1.1",
     "json-with-bigint": "^3.5.10",
     "lucide-react": "^1.28.0",

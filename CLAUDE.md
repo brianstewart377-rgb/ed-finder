@@ -22,7 +22,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync after every lane change):** Stages 25A–25H and **26A–26E are complete**. **Stage 27A Spatial Platform Contract and Audit is current and documentation-only; no Babylon runtime implementation is authorized.** The Stage 26 R3F/Three.js desktop map (cutover commit `3b53477`) remains production and rollback (`VITE_STAGE26E_PRODUCTION_MAP=disabled`) until a later Stage 27 bakeoff explicitly earns cutover. Stage 27 may support **Explore → Inspect → Plan → Review** spatially, but Colony Planner/Cockpit remains the canonical detailed Build Plan workspace/persistence owner. No renderer owns planning logic or mechanics, and no map action may silently mutate a Build Plan or execute Preview.
+ED-Finder: an Elite Dangerous colonisation planner. **Stage status (this line is a summary of `docs/ROADMAP.md`, which is the authority — keep it in sync after every lane change):** Stages 25A–25H and **26A–26E are complete**. **Stage 27A Spatial Platform Contract and Audit is accepted/complete (PR #529, squash commit `fd64ef8e14b5b026cec2d14949115ab681fb0b7d`), and Stage 27B Babylon 9 Runtime Workbench is the current authorized lane in isolation; no production map wiring or cutover is authorized.** The Stage 26 R3F/Three.js desktop map (cutover commit `3b53477`) remains production and rollback (`VITE_STAGE26E_PRODUCTION_MAP=disabled`) until a later Stage 27 bakeoff explicitly earns cutover. Stage 27 may support **Explore → Inspect → Plan → Review** spatially, but Colony Planner/Cockpit remains the canonical detailed Build Plan workspace/persistence owner. No renderer owns planning logic or mechanics, and no map action may silently mutate a Build Plan or execute Preview.
 
 `ed-finder` is one of **three collaborating repositories**, and it is the app-only one (siblings may not be mounted in every checkout):
 - `ed-finder` (this repo) — runnable product app, frontend, API, local dev stack. Nothing here should invent new colonisation mechanics truth.
@@ -39,17 +39,22 @@ Historical context: `docs/colonisation-redesign/stage-N-*.md` files contain rati
 
 ## Current Lane
 
-**Current lane:** Stage 27A Spatial Platform Contract and Audit, including the
-cross-cutting Commander History / Journal product contract.
+**Current lane:** Stage 27B Babylon 9 Runtime Workbench.
 
-**Active focus:** Authoritative product, architecture, data-readiness,
-migration, governance and cross-repo contracts. Stage 27A authorizes Stage 27B
-only; do not implement or wire a Babylon runtime in 27A.
+**Accepted authority:** Stage 27A Spatial Platform Contract and Audit was
+accepted and completed in PR #529 (squash commit
+`fd64ef8e14b5b026cec2d14949115ab681fb0b7d`). Its accepted contracts govern
+this lane.
+
+**Active focus:** Implement the Babylon 9-class renderer as an isolated
+development workbench only. Do not wire it to the production route or alter the
+production R3F/Three.js map or rollback path. Stage 27B authorizes no
+27C-or-later work.
 
 Commander History is not merely Exploration ingestion: its future Journal page
 owns personal history/statistics/records/filters/expeditions, while shared facts
 can project to Galaxy/System maps and compose with Finder. Exploration remains
-a first-class goal. Stage 27A does not authorize Journal ingestion activation,
+a first-class goal. Stage 27B does not authorize Journal ingestion activation,
 Journal UI, analytics runtime, canonical promotion, or production data work.
 
 **Historical/deferred lanes, not competing current authority:** the old journal
@@ -57,9 +62,6 @@ Journal UI, analytics runtime, canonical promotion, or production data work.
 their work is governed by the staged Commander History and real-system slices
 of Stage 27. Score-weighted corridor routing and broader account expansion also
 remain separately gated. Do not start any of them from their older plans.
-
-**Next map stage:** Stage 27B Babylon 9 Runtime Workbench, only after Stage 27A
-acceptance and in isolation from the production route.
 
 **Critical context:** Repo is mid-response to external adversarial audit. Foundation-safety prioritization order:
 1. Ratings rebaseline / body-data contract drift
@@ -90,7 +92,8 @@ For mechanics-affecting work specifically, also read `docs/reference/colonisatio
 - No canonical database write lane unless a stage explicitly authorizes it.
 - No scheduler/service/timer activation for import automation by default — one deliberate, named exception: the EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, `EDDN_SIMULATION_INGEST_ENABLED`, defaults **on** as of 2026-08-07). It feeds `journal_events`/`body_scan_facts` from the live public EDDN relay for the simulation/buildability engine — the same relay `apps/eddn/eddn_listener.py` already consumes continuously for `systems`/`bodies`/`stations`, just a narrower slice of events into different tables — as an always-fresh complement to the client-side journal-import lane, which only covers systems a user has actually uploaded a journal for. This is a live network feed, not the deferred journal-import work below; see that bullet for the distinction. Any *other* new scheduler/service/timer still needs an explicit roadmap update.
 - Spatial-platform work is authorized only through `docs/ROADMAP.md` and the
-  Stage 27 contracts. Stage 27A is docs/audit only and authorizes 27B only.
+  Stage 27 contracts. Stage 27A is accepted/complete and Stage 27B is the sole
+  current lane; it authorizes neither production wiring nor later Stage 27 work.
   The old global “secondary Explore only / planner-map fusion prohibited” rule
   is superseded: spatial interaction may support Explore → Inspect → Plan →
   Review, but Colony Planner owns detailed plan persistence, actions are
