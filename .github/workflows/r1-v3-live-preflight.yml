@@ -1,0 +1,179 @@
+name: R1 V3 Live Structural Preflight
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-v3-live-preflight-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r1-v3-live-structural
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+
+      - name: Validate one-shot request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import glob, json
+          paths = glob.glob('.github/r1-v3-live-preflight-requests/*.json')
+          if not paths:
+              raise SystemExit('missing preflight request')
+          data = json.load(open(sorted(paths)[-1], encoding='utf-8'))
+          expected = {
+              'operation': 'r1-v3-live-structural-preflight',
+              'migration_commit': '3978b071d7f98b320c146e58a20b66c7f2845f86',
+              'migration_blob_sha': '26d1ef3d4ae343159ba62281102f2143ccff7fb8',
+          }
+          if data != expected:
+              raise SystemExit(f'unsupported preflight request: {data!r}')
+          PY
+
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo 'Missing HETZNER_OPERATOR_SSH_KEY' >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo 'Missing HETZNER_OPERATOR_HOST' >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo 'Missing HETZNER_OPERATOR_PORT' >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/hetzner_operator_key
+          chmod 600 ~/.ssh/hetzner_operator_key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Read-only normalized V3 target preflight
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+          TARGET_COMMIT: 3978b071d7f98b320c146e58a20b66c7f2845f86
+          TARGET_BLOB: 26d1ef3d4ae343159ba62281102f2143ccff7fb8
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo 'Missing HETZNER_OPERATOR_USER' >&2; exit 1; }
+          ssh -i ~/.ssh/hetzner_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              "TARGET_COMMIT='$TARGET_COMMIT' TARGET_BLOB='$TARGET_BLOB' bash -s" <<'REMOTE'
+          set -euo pipefail
+          cd /opt/ed-finder
+          git fetch --no-tags origin chatgpt-ed-new-ops-requests
+          git cat-file -e "${TARGET_COMMIT}^{commit}"
+          tmp_sql="$(mktemp)"
+          trap 'rm -f "$tmp_sql"' EXIT
+          git show "${TARGET_COMMIT}:sql/r1_v3/001_structural_shell.sql" > "$tmp_sql"
+          actual_blob="$(git hash-object "$tmp_sql")"
+          test "$actual_blob" = "$TARGET_BLOB" || {
+            echo "STOP: migration blob mismatch: $actual_blob" >&2
+            exit 1
+          }
+          echo "migration_blob_verified: $actual_blob"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+          import psycopg2
+
+          def parse_env(path):
+              out = {}
+              for raw in Path(path).read_text(encoding='utf-8').splitlines():
+                  line = raw.strip()
+                  if not line or line.startswith('#') or '=' not in line:
+                      continue
+                  key, value = line.split('=', 1)
+                  key = key.strip()
+                  value = value.strip()
+                  if len(value) >= 2 and value[0] == value[-1] and value[0] in ('\"', "'"):
+                      value = value[1:-1]
+                  out[key] = value
+              return out
+
+          env = parse_env('/opt/ed-finder/.env')
+          interesting_keys = sorted(k for k in env if any(token in k.upper() for token in ('POSTGRES', 'DATABASE', 'WAREHOUSE', 'V3')))
+          print('available_database_config_keys:', interesting_keys)
+
+          password = env.get('POSTGRES_PASSWORD')
+          if not password:
+              raise SystemExit('STOP: POSTGRES_PASSWORD unavailable')
+
+          base = dict(host='127.0.0.1', port=5432, user='edfinder', password=password, connect_timeout=3)
+          root = psycopg2.connect(dbname='edfinder', **base)
+          root.set_session(readonly=True, autocommit=True)
+          with root.cursor() as cur:
+              cur.execute("SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname")
+              database_names = [r[0] for r in cur.fetchall()]
+          root.close()
+
+          matches = []
+          for dbname in database_names:
+              try:
+                  conn = psycopg2.connect(dbname=dbname, **base)
+              except Exception as exc:
+                  print(f'database_probe: {dbname}: inaccessible ({type(exc).__name__})')
+                  continue
+              try:
+                  conn.set_session(readonly=True, autocommit=True)
+                  with conn.cursor() as cur:
+                      cur.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+                      size = cur.fetchone()[0]
+                      cur.execute("SELECT to_regclass('v3_meta.canonical_generation')::text, to_regclass('v3_identity.account')::text, to_regclass('v3_meta.schema_migration')::text")
+                      canonical, account, ledger = cur.fetchone()
+                      print(f'database_probe: {dbname}: size={size} canonical={canonical} account={account} ledger={ledger}')
+                      if canonical and account and ledger:
+                          matches.append(dbname)
+              finally:
+                  conn.close()
+
+          if len(matches) != 1:
+              raise SystemExit(f'STOP: expected exactly one normalized V3 database, found {matches!r}')
+
+          target = matches[0]
+          conn = psycopg2.connect(dbname=target, **base)
+          conn.set_session(readonly=True, autocommit=True)
+          try:
+              with conn.cursor() as cur:
+                  cur.execute("SELECT current_database(), current_user, current_setting('transaction_read_only')")
+                  print('target_identity:', cur.fetchone())
+                  cur.execute("""
+                      SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable, column_default
+                      FROM information_schema.columns
+                      WHERE (table_schema, table_name) IN (('v3_meta','schema_migration'), ('v3_meta','canonical_generation'), ('v3_identity','account'))
+                        AND (table_name = 'schema_migration' OR column_name IN ('generation_id','account_id'))
+                      ORDER BY table_schema, table_name, ordinal_position
+                  """)
+                  print('authority_columns:')
+                  for row in cur.fetchall():
+                      print(row)
+                  cur.execute("SELECT nspname FROM pg_namespace WHERE nspname IN ('r1_meta','r1_cache','r1_plan') ORDER BY nspname")
+                  print('existing_r1_schemas:', [r[0] for r in cur.fetchall()])
+                  cur.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+                  print('target_database_size:', cur.fetchone()[0])
+          finally:
+              conn.close()
+
+          print('preflight_result: passed_read_only')
+          print('db_writes_performed: false')
+          PY
+          REMOTE
