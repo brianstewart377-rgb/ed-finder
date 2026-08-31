@@ -83,7 +83,7 @@ jobs:
           print('canonical_generations:')
           for row in q("SELECT generation_id::text,generation_key,relation_schema,lifecycle_state FROM v3_meta.canonical_generation ORDER BY created_at"):
               print(row)
-          published=q("SELECT relation_schema FROM v3_meta.canonical_generation WHERE lifecycle_state='published' ORDER BY published_at DESC NULLS LAST LIMIT 1")
+          published=q("SELECT relation_schema FROM v3_meta.canonical_generation WHERE lower(lifecycle_state::text)='published' ORDER BY published_at DESC NULLS LAST LIMIT 1")
           if len(published)!=1: raise SystemExit(f'STOP: expected one published generation, got {published}')
           schema=published[0]
           print('published_schema:', schema)
