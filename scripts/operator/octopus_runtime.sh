@@ -21,22 +21,49 @@ wait_healthy(){
 env_value(){ sed -n "s/^$1=//p" "$DIR/octopus.env" | tail -1; }
 workers_false(){ [[ $(env_value ENABLE_REVIEW_WORKERS) == false ]] || die 'ENABLE_REVIEW_WORKERS must be false'; }
 receipt(){ [[ -f "$DIR/receipts/$1" ]] || die "required receipt missing: $1"; }
-set_workers(){
-  local value=$1 tmp; [[ $value == true || $value == false ]] || die 'invalid worker value'
-  tmp=$(mktemp "$DIR/.octopus.env.XXXXXX")
-  awk -v value="$value" 'BEGIN{found=0} /^ENABLE_REVIEW_WORKERS=/{if(!found) print "ENABLE_REVIEW_WORKERS=" value; found=1; next} {print} END{if(!found) print "ENABLE_REVIEW_WORKERS=" value}' "$DIR/octopus.env" > "$tmp"
-  chmod 0600 "$tmp"; mv "$tmp" "$DIR/octopus.env"
+set_workers_file(){
+  local path=$1 value=$2 tmp
+  [[ $value == true || $value == false ]] || die 'invalid worker value'
+  [[ -f $path ]] || die 'worker environment file is absent'
+  tmp=$(mktemp "$(dirname "$path")/.octopus-env.XXXXXX")
+  awk -v value="$value" 'BEGIN{found=0} /^ENABLE_REVIEW_WORKERS=/{if(!found) print "ENABLE_REVIEW_WORKERS=" value; found=1; next} {print} END{if(!found) print "ENABLE_REVIEW_WORKERS=" value}' "$path" > "$tmp"
+  chmod 0600 "$tmp"; mv "$tmp" "$path"
+}
+set_workers(){ set_workers_file "$DIR/octopus.env" "$1"; }
+legacy_env_path(){
+  local candidate found='' count=0
+  for candidate in "$DIR/octopus.env" "$DIR/.env"; do
+    if [[ -f $candidate ]]; then
+      found=$candidate
+      count=$((count + 1))
+    fi
+  done
+  [[ $count -eq 1 ]] || {
+    if [[ $count -eq 0 ]]; then
+      die 'no supported legacy env file found under /opt/octopus'
+    fi
+    die 'multiple supported legacy env files found under /opt/octopus'
+  }
+  printf '%s\n' "$found"
+}
+legacy_worker_state(){
+  docker inspect octopus-web >/dev/null 2>&1 || die 'legacy octopus-web container is absent'
+  local state
+  state=$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' octopus-web | sed -n 's/^ENABLE_REVIEW_WORKERS=//p' | tail -1)
+  [[ $state == true || $state == false ]] || die 'legacy worker state is not explicit'
+  printf '%s\n' "$state"
 }
 legacy_dc(){
-  local container=octopus-web project config workdir
+  local container=octopus-web project config workdir env_file
   docker inspect "$container" >/dev/null 2>&1 || die 'legacy octopus-web container is absent'
   project=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$container")
   config=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.config_files"}}' "$container")
   workdir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' "$container")
+  env_file=$(legacy_env_path)
   [[ $project =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || die 'invalid legacy Compose project label'
   [[ $config == /opt/octopus/* && $config != *,* && -f $config ]] || die 'legacy Compose config is not a single /opt/octopus file'
-  [[ $workdir == /opt/octopus && -f /opt/octopus/octopus.env ]] || die 'legacy Compose working directory/env mismatch'
-  docker compose --project-name "$project" --env-file /opt/octopus/octopus.env -f "$config" "$@"
+  [[ $workdir == /opt/octopus ]] || die 'legacy Compose working directory mismatch'
+  docker compose --project-name "$project" --env-file "$env_file" -f "$config" "$@"
 }
 case "${1:-}" in
   private-install)
@@ -65,12 +92,38 @@ case "${1:-}" in
   status)
     printf 'workers_enabled: %s\n' "$(env_value ENABLE_REVIEW_WORKERS)"; [[ -f "$DIR/receipts/private-proof" ]] && printf 'private_proof: true\n' || printf 'private_proof: false\n'
     ;;
+  legacy-env-path)
+    legacy_env_path
+    ;;
+  legacy-preflight)
+    env_file=$(legacy_env_path)
+    [[ $(dirname "$env_file") == /opt/octopus ]] || die 'legacy env escaped expected directory'
+    docker inspect octopus-web >/dev/null 2>&1 || die 'legacy octopus-web container is absent'
+    legacy_dc config --quiet
+    python3 "$(dirname "$0")/octopus_credentials.py" check --source "$env_file"
+    printf 'legacy_env_file: %s\n' "$(basename "$env_file")"
+    printf 'legacy_workers_enabled: %s\n' "$(legacy_worker_state)"
+    printf 'legacy_compose_valid: true\n'
+    ;;
+  legacy-status)
+    legacy_env_path >/dev/null
+    printf 'legacy_workers_enabled: %s\n' "$(legacy_worker_state)"
+    [[ -f "$DIR/receipts/old-quiesced" ]] && printf 'old_quiesce_receipt: true\n' || printf 'old_quiesce_receipt: false\n'
+    ;;
   quiesce-old)
     # Legacy deployment path is explicit; preserve web, databases, volumes and files.
-    cd /opt/octopus; set_workers false
+    env_file=$(legacy_env_path); cd /opt/octopus; set_workers_file "$env_file" false
     legacy_dc up -d --no-deps web
-    [[ $(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' octopus-web | sed -n 's/^ENABLE_REVIEW_WORKERS=//p' | tail -1) == false ]] || die 'legacy worker did not quiesce'
+    [[ $(legacy_worker_state) == false ]] || die 'legacy worker did not quiesce'
     install -d -m 0700 receipts; printf 'workers=false\nlegacy_preserved=true\n' | install -m 0600 /dev/stdin receipts/old-quiesced
+    ;;
+  restore-old)
+    # Rollback operation: restore the legacy worker and invalidate stale quiesce proof.
+    env_file=$(legacy_env_path); cd /opt/octopus; set_workers_file "$env_file" true
+    legacy_dc up -d --no-deps web
+    [[ $(legacy_worker_state) == true ]] || die 'legacy worker did not restore'
+    rm -f "$DIR/receipts/old-quiesced"
+    printf 'legacy_workers_restored: true\nold_quiesce_receipt_invalidated: true\n'
     ;;
   enable-worker)
     receipt private-proof; receipt old-quiesced; receipt public-edge-proof
