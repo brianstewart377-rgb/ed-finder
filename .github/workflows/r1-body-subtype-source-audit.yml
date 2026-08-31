@@ -1,0 +1,117 @@
+name: R1 Body Subtype Source Read-Only Audit
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-body-subtype-source-audit-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    environment: hetzner-operator
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ] || exit 64
+          case "${changed[0]}" in .github/r1-body-subtype-source-audit-requests/*.json) ;; *) exit 64 ;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          if json.loads(pathlib.Path(sys.argv[1]).read_text()) != {'operation':'r1-body-subtype-source-readonly-audit'}:
+              raise SystemExit('unsupported request')
+          PY
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.HETZNER_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"; test -n "$SSH_HOST"; test -n "$SSH_PORT"
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key; chmod 600 ~/.ssh/key
+          ssh-keyscan -p "$SSH_PORT" "$SSH_HOST" >> ~/.ssh/known_hosts
+      - name: Inspect explicit legacy subtype source read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.HETZNER_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.HETZNER_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.HETZNER_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" 'cd /opt/ed-finder && python3 -' <<'PY'
+          from pathlib import Path
+          import psycopg2
+
+          def env_value(key):
+              for raw in Path('/opt/ed-finder/.env').read_text(encoding='utf-8').splitlines():
+                  line=raw.strip()
+                  if not line or line.startswith('#') or '=' not in line: continue
+                  k,v=line.split('=',1)
+                  if k.strip()==key:
+                      v=v.strip()
+                      if len(v)>=2 and v[0]==v[-1] and v[0] in ('\"',"'"): v=v[1:-1]
+                      return v
+              return None
+
+          password=env_value('POSTGRES_PASSWORD')
+          if not password: raise SystemExit('STOP: POSTGRES_PASSWORD unavailable')
+          conn=psycopg2.connect(host='127.0.0.1',port=5432,dbname='edfinder',user='edfinder',password=password,sslmode='disable')
+          conn.set_session(readonly=True,autocommit=True)
+          try:
+              with conn.cursor() as cur:
+                  cur.execute('SHOW transaction_read_only'); print('transaction_read_only:',cur.fetchone()[0])
+                  cur.execute("SELECT current_database(),current_user,pg_size_pretty(pg_database_size(current_database()))")
+                  print('target:',cur.fetchone())
+                  cur.execute("""
+                    SELECT data_type,is_nullable
+                    FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='bodies' AND column_name='subtype'
+                  """)
+                  print('subtype_column:',cur.fetchone())
+                  cur.execute("""
+                    SELECT indexname,indexdef
+                    FROM pg_indexes
+                    WHERE schemaname='public' AND tablename='bodies'
+                      AND lower(indexdef) LIKE '%subtype%'
+                    ORDER BY indexname
+                  """)
+                  subtype_indexes=cur.fetchall(); print('subtype_indexes:',subtype_indexes)
+                  cur.execute("""
+                    SELECT null_frac,n_distinct,most_common_vals::text,most_common_freqs::text,histogram_bounds::text
+                    FROM pg_stats
+                    WHERE schemaname='public' AND tablename='bodies' AND attname='subtype'
+                  """)
+                  print('pg_stats_subtype:',cur.fetchone())
+                  cur.execute("""
+                    SELECT subtype, count(*)
+                    FROM bodies TABLESAMPLE SYSTEM (0.02)
+                    WHERE subtype IS NOT NULL AND btrim(subtype) <> ''
+                    GROUP BY subtype ORDER BY subtype
+                  """)
+                  sampled=cur.fetchall()
+                  print('sampled_distinct_count:',len(sampled))
+                  print('sampled_subtypes:')
+                  for row in sampled: print(row)
+                  if subtype_indexes:
+                      cur.execute("SELECT DISTINCT subtype FROM bodies WHERE subtype IS NOT NULL AND btrim(subtype)<>'' ORDER BY subtype")
+                      exact=cur.fetchall(); print('exact_distinct_count:',len(exact)); print('exact_subtypes:')
+                      for row in exact: print(row[0])
+                  else:
+                      print('exact_distinct_skipped: no subtype index; full scan not authorised')
+                  print('db_writes_performed: false')
+          finally:
+              conn.close()
+          PY
