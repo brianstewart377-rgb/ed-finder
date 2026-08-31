@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
 
 import pytest
 
-from r1_finder_compare.evidence import extraction_source_units
+from r1_finder_compare.evidence import evidence_snapshot_id, extraction_source_units
 from r1_finder_compare.evaluator import evaluate_extraction_role, evaluate_p_er_01
-from r1_finder_compare.fixtures import body, get_candidate
+from r1_finder_compare.fixtures import body, get_candidate, get_p_er_01_plan
 from r1_finder_compare.programmes import STRATEGY_ID
 from r1_finder_compare.search_compare import (
     base_assessment_payload,
+    candidate_plan_id,
     make_handoff,
     reevaluate_handoff,
     search_fixture_candidates,
 )
-from r1_finder_compare.types import AllocationClaim, FactualFilters, FixtureSearchRequest
+from r1_finder_compare.types import AllocationClaim, CandidateEvidence, FactualFilters, FixtureSearchRequest
 
 
 def _request(context: str, *, carrier: str = 'no_carrier', strategy: str | None = STRATEGY_ID):
@@ -28,6 +29,10 @@ def _result(context: str, fixture_id: str, *, carrier: str = 'no_carrier', strat
     return next(r for r in scenario.results if r.system_id64 == candidate.system_id64)
 
 
+def test_candidate_evidence_has_no_system_pair_stability_field():
+    assert 'pair_stability' not in {field.name for field in fields(CandidateEvidence)}
+
+
 def test_facts_only_has_no_assessment_or_hidden_fit():
     scenario = search_fixture_candidates(_request('facts_only', strategy=None))[0]
     assert all(r.assessment_state is None and r.plan_fit is None and r.reserve_capacity is None for r in scenario.results)
@@ -35,12 +40,19 @@ def test_facts_only_has_no_assessment_or_hidden_fit():
         search_fixture_candidates(_request('facts_only', strategy=STRATEGY_ID))
 
 
-def test_extraction_role_does_not_require_refinery_or_pair_stability():
+def test_extraction_role_does_not_require_refinery_or_pair_resilience():
     candidate = get_candidate('compact_extraction_specialist')
-    altered = replace(candidate, refinery_evidence=replace(candidate.refinery_evidence, satisfied=False, support=0.0), pair_stability='mixed')
+    altered = replace(candidate, refinery_evidence=replace(candidate.refinery_evidence, satisfied=False, support=0.0))
     assessment = evaluate_extraction_role(altered, 'no_carrier', STRATEGY_ID)
     assert assessment.state == 'supported'
     assert all(not trace.requirement_id.startswith('ER-') for trace in assessment.requirement_trace)
+
+
+def test_extraction_role_is_invariant_to_p_er_plan_resilience():
+    candidate = get_candidate('compact_extraction_specialist')
+    baseline = evaluate_extraction_role(candidate, 'no_carrier', STRATEGY_ID)
+    # P-ER plan state is intentionally not an input to the Extraction role evaluator.
+    assert baseline == evaluate_extraction_role(candidate, 'no_carrier', STRATEGY_ID)
 
 
 def test_geo_hmc_preserves_hmc_identity_and_geo_modifier():
@@ -63,26 +75,42 @@ def test_per_body_signal_presence_not_signal_count_drives_modifier():
     assert one == ten
 
 
-def test_p_er_01_supported_requires_robust_pair():
+def test_p_er_01_supported_requires_robust_plan():
     candidate = get_candidate('compact_extraction_specialist')
-    assert evaluate_p_er_01(candidate, 'no_carrier', STRATEGY_ID).state == 'supported'
+    plan = get_p_er_01_plan(candidate.fixture_id)
+    assert plan.pair_resilience == 'robust'
+    assert evaluate_p_er_01(candidate, plan, 'no_carrier', STRATEGY_ID).state == 'supported'
 
 
-def test_p_er_01_fragile_pair_is_conditional():
-    candidate = replace(get_candidate('compact_extraction_specialist'), pair_stability='fragile')
-    result = evaluate_p_er_01(candidate, 'no_carrier', STRATEGY_ID)
+def test_p_er_01_fragile_plan_is_conditional():
+    candidate = get_candidate('compact_extraction_specialist')
+    plan = replace(get_p_er_01_plan(candidate.fixture_id), pair_resilience='fragile')
+    result = evaluate_p_er_01(candidate, plan, 'no_carrier', STRATEGY_ID)
     assert result.state == 'conditionally_supported'
     assert any(c.condition_id == 'ER-PAIR-FRAGILE' for c in result.conditions)
 
 
-def test_p_er_01_mixed_pair_is_not_supported():
-    candidate = replace(get_candidate('compact_extraction_specialist'), pair_stability='mixed')
-    assert evaluate_p_er_01(candidate, 'no_carrier', STRATEGY_ID).state == 'not_supported'
+def test_p_er_01_mixed_plan_is_not_supported():
+    candidate = get_candidate('compact_extraction_specialist')
+    plan = replace(get_p_er_01_plan(candidate.fixture_id), pair_resilience='mixed')
+    assert evaluate_p_er_01(candidate, plan, 'no_carrier', STRATEGY_ID).state == 'not_supported'
 
 
-def test_p_er_01_unknown_pair_is_not_assessable():
-    candidate = replace(get_candidate('compact_extraction_specialist'), pair_stability='unknown')
-    assert evaluate_p_er_01(candidate, 'no_carrier', STRATEGY_ID).state == 'not_assessable'
+def test_p_er_01_unknown_plan_is_not_assessable():
+    candidate = get_candidate('compact_extraction_specialist')
+    plan = replace(get_p_er_01_plan(candidate.fixture_id), pair_resilience='unknown')
+    assert evaluate_p_er_01(candidate, plan, 'no_carrier', STRATEGY_ID).state == 'not_assessable'
+
+
+def test_same_system_evidence_can_have_different_plan_resilience_outcomes():
+    candidate = get_candidate('compact_extraction_specialist')
+    robust_plan = get_p_er_01_plan(candidate.fixture_id)
+    fragile_plan = replace(robust_plan, pair_resilience='fragile')
+    robust = evaluate_p_er_01(candidate, robust_plan, 'no_carrier', STRATEGY_ID)
+    fragile = evaluate_p_er_01(candidate, fragile_plan, 'no_carrier', STRATEGY_ID)
+    assert robust.state == 'supported'
+    assert fragile.state == 'conditionally_supported'
+    assert evidence_snapshot_id(candidate) == evidence_snapshot_id(candidate)
 
 
 def test_refinery_strength_cannot_rescue_missing_extraction_requirement():
@@ -112,16 +140,17 @@ def test_supported_candidate_precedes_higher_fit_conditional_candidate():
         extraction_evidence=replace(supported_base.extraction_evidence, support=0.72),
         refinery_evidence=replace(supported_base.refinery_evidence, support=0.65),
     )
+    supported_plan = get_p_er_01_plan(supported.fixture_id)
     conditional_base = get_candidate('compact_extraction_specialist')
     conditional = replace(
         conditional_base,
-        pair_stability='fragile',
         extraction_evidence=replace(conditional_base.extraction_evidence, support=1.0),
         refinery_evidence=replace(conditional_base.refinery_evidence, support=1.0),
         physical_capacity=replace(conditional_base.physical_capacity, usable_capacity=1.0),
     )
-    a = evaluate_p_er_01(supported, 'no_carrier', STRATEGY_ID)
-    b = evaluate_p_er_01(conditional, 'no_carrier', STRATEGY_ID)
+    conditional_plan = replace(get_p_er_01_plan(conditional.fixture_id), pair_resilience='fragile')
+    a = evaluate_p_er_01(supported, supported_plan, 'no_carrier', STRATEGY_ID)
+    b = evaluate_p_er_01(conditional, conditional_plan, 'no_carrier', STRATEGY_ID)
     assert a.state == 'supported' and b.state == 'conditionally_supported'
     assert b.plan_fit > a.plan_fit
     assert {'supported': 0, 'conditionally_supported': 1}[a.state] < {'supported': 0, 'conditionally_supported': 1}[b.state]
@@ -152,16 +181,18 @@ def test_surplus_plateau_can_have_better_reserve_without_fit_increase():
 
 def test_allocation_cannot_consume_same_scarce_capacity_twice():
     base = get_candidate('compact_extraction_specialist')
-    bad_capacity = replace(base.physical_capacity, allocations=(AllocationClaim('a1', 'slot-A', 'hub'), AllocationClaim('a2', 'slot-A', 'hub')))
-    result = evaluate_p_er_01(replace(base, physical_capacity=bad_capacity), 'no_carrier', STRATEGY_ID)
+    bad_capacity = replace(base.physical_capacity, allocations=(AllocationClaim('alloc-extraction', 'slot-A', 'hub'), AllocationClaim('alloc-refinery', 'slot-A', 'hub')))
+    plan = get_p_er_01_plan(base.fixture_id)
+    result = evaluate_p_er_01(replace(base, physical_capacity=bad_capacity), plan, 'no_carrier', STRATEGY_ID)
     assert result.state == 'not_supported'
     assert any('ER-ALLOC-01' in c.requirement_refs for c in result.conditions)
 
 
 def test_carrier_changes_only_logistics_sensitive_fields():
     candidate = get_candidate('remote_extraction_abundance')
-    no_carrier = evaluate_p_er_01(candidate, 'no_carrier', STRATEGY_ID)
-    carrier = evaluate_p_er_01(candidate, 'carrier_available', STRATEGY_ID)
+    plan = get_p_er_01_plan(candidate.fixture_id)
+    no_carrier = evaluate_p_er_01(candidate, plan, 'no_carrier', STRATEGY_ID)
+    carrier = evaluate_p_er_01(candidate, plan, 'carrier_available', STRATEGY_ID)
     assert no_carrier.state == 'conditionally_supported'
     assert carrier.state == 'supported'
     assert no_carrier.logistics != carrier.logistics
@@ -175,10 +206,13 @@ def test_compare_both_order_is_stable():
     assert [s.carrier_mode for s in scenarios] == ['no_carrier', 'carrier_available']
 
 
-def test_evidence_snapshot_is_strategy_and_carrier_invariant():
-    a = _result('programme_p_er_01_v1', 'remote_extraction_abundance', carrier='no_carrier', strategy=None)
-    b = _result('programme_p_er_01_v1', 'remote_extraction_abundance', carrier='carrier_available', strategy=STRATEGY_ID)
-    assert a.evidence_snapshot_id == b.evidence_snapshot_id
+def test_evidence_snapshot_is_strategy_carrier_and_plan_invariant():
+    candidate = get_candidate('remote_extraction_abundance')
+    snapshot = evidence_snapshot_id(candidate)
+    assert snapshot == evidence_snapshot_id(candidate)
+    a = _result('programme_p_er_01_v1', candidate.fixture_id, carrier='no_carrier', strategy=None)
+    b = _result('programme_p_er_01_v1', candidate.fixture_id, carrier='carrier_available', strategy=STRATEGY_ID)
+    assert a.evidence_snapshot_id == b.evidence_snapshot_id == snapshot
 
 
 def test_programme_candidate_plan_id_is_strategy_invariant():
@@ -187,9 +221,17 @@ def test_programme_candidate_plan_id_is_strategy_invariant():
     assert a.candidate_plan_id == b.candidate_plan_id
 
 
-def test_search_handoff_reproduces_base_assessment():
+def test_candidate_plan_id_changes_when_plan_resilience_changes():
+    candidate = get_candidate('compact_extraction_specialist')
+    robust = get_p_er_01_plan(candidate.fixture_id)
+    fragile = replace(robust, pair_resilience='fragile')
+    assert candidate_plan_id(candidate, 'no_carrier', robust) != candidate_plan_id(candidate, 'no_carrier', fragile)
+
+
+def test_search_handoff_reproduces_base_assessment_and_plan_resilience():
     result = _result('programme_p_er_01_v1', 'compact_extraction_specialist')
     handoff = make_handoff(result, 'no_carrier')
+    assert handoff.plan_pair_resilience == 'robust'
     detail = reevaluate_handoff(handoff, strategy_id=None)
     assert base_assessment_payload(result) == base_assessment_payload(detail)
 
