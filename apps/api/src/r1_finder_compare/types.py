@@ -7,7 +7,7 @@ AssessmentState = Literal['not_assessable', 'not_supported', 'conditionally_supp
 EvidenceDisposition = Literal['sufficient', 'partial', 'missing', 'ambiguous', 'conflicting']
 CarrierMode = Literal['no_carrier', 'carrier_available', 'compare_both']
 ComparisonContextId = Literal['facts_only', 'role_extraction_v1', 'programme_p_er_01_v1']
-PairStability = Literal['robust', 'fragile', 'mixed', 'unknown']
+PlanPairResilience = Literal['robust', 'fragile', 'mixed', 'unknown']
 ReserveCapacity = Literal['tight', 'sufficient', 'resilient', 'expandable']
 LogisticsState = Literal['compact', 'moderate', 'spread', 'extreme']
 
@@ -57,6 +57,15 @@ class CapacityEvidence:
 
 
 @dataclass(frozen=True)
+class CandidateProgrammePlan:
+    programme_id: str
+    template_revision: str
+    pair_resilience: PlanPairResilience
+    allocation_trace_ids: tuple[str, ...]
+    resilience_evidence_refs: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class CandidateEvidence:
     fixture_id: str
     fixture_revision: str
@@ -67,7 +76,6 @@ class CandidateEvidence:
     physical_capacity: CapacityEvidence
     extraction_evidence: RequirementEvidence
     refinery_evidence: RequirementEvidence
-    pair_stability: PairStability
     logistics_no_carrier: LogisticsState | None
     logistics_carrier: LogisticsState | None
     evidence_disposition: EvidenceDisposition
@@ -138,6 +146,7 @@ class CandidateHandoff:
     carrier_mode: str
     evidence_snapshot_id: str
     candidate_plan_id: str
+    plan_pair_resilience: PlanPairResilience
     allocation_trace_ids: tuple[str, ...]
     requirement_trace_ids: tuple[str, ...]
 
