@@ -179,3 +179,47 @@ def test_age_contract_is_pinned_and_plaintext_never_uploaded() -> None:
     assert "age-keygen" in handoff and "chmod 0600" in handoff
     assert "one_time_identity_destroyed: true" in handoff
     assert "payload.json" not in OLD.read_text()
+
+
+def test_non_secret_credential_check_reports_presence_not_values(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.env"
+    source.write_text(
+        dotenv(
+            {
+                **REQUIRED,
+                "OPENAI_API_KEY": "synthetic-openai-value",
+                "ANTHROPIC_API_KEY": "synthetic-anthropic-value",
+            }
+        )
+    )
+    result = run("check", "--source", str(source))
+    assert result.returncode == 0, result.stderr
+    assert "integration_credentials_valid: true" in result.stdout
+    assert "provider_openai_present: true" in result.stdout
+    assert "provider_anthropic_present: true" in result.stdout
+    assert "synthetic-openai-value" not in result.stdout + result.stderr
+    assert "synthetic-anthropic-value" not in result.stdout + result.stderr
+
+
+def test_legacy_preflight_discovers_bounded_env_and_rollback_restores_old_worker() -> None:
+    old = OLD.read_text()
+    runtime = (ROOT / "scripts/operator/octopus_runtime.sh").read_text()
+
+    assert "if: inputs.operation != 'preflight'" not in old
+    assert "legacy-preflight" in old
+    assert "legacy-status" in old
+    assert "legacy-env-path" in old
+    assert "restore-old" in old
+    assert "/tmp/octopus_handoff.sh export '$RECIPIENT' /opt/octopus/octopus.env" not in old
+
+    assert '"$DIR/octopus.env" "$DIR/.env"' in runtime
+    assert "no supported legacy env file found" in runtime
+    assert "multiple supported legacy env files found" in runtime
+    preflight = runtime[runtime.index("legacy-preflight)") : runtime.index("legacy-status)")]
+    assert "octopus_credentials.py\" check --source" in preflight
+    assert "legacy_dc config --quiet" in preflight
+
+    restore = runtime[runtime.index("restore-old)") : runtime.index("enable-worker)")]
+    assert "set_workers_file \"$env_file\" true" in restore
+    assert "legacy_worker_state) == true" in restore
+    assert 'rm -f "$DIR/receipts/old-quiesced"' in restore
