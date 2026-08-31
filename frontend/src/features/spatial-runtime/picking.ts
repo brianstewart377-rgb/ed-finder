@@ -1,5 +1,6 @@
 import type { CompactSceneBuffers } from './scene-data';
 import type { PickCandidate, PickStrategy } from './contracts';
+import { spatialTargetId } from './contracts';
 
 export function cpuSpatialCandidates(buffers: CompactSceneBuffers, xLy: number, zLy: number, radiusLy: number): PickCandidate[] {
   const result: PickCandidate[] = [];
@@ -7,10 +8,10 @@ export function cpuSpatialCandidates(buffers: CompactSceneBuffers, xLy: number, 
     const dx = buffers.positionsLy[index * 3]! - xLy;
     const dz = buffers.positionsLy[index * 3 + 2]! - zLy;
     const distance = Math.hypot(dx, dz);
-    const targetId = buffers.targetIds[index];
-    if (targetId && distance <= radiusLy) result.push({ targetId, distancePx: distance });
+    const target = buffers.targets[index];
+    if (target && distance <= radiusLy) result.push({ target, distancePx: distance });
   }
-  return result.sort((a, b) => a.distancePx - b.distancePx || a.targetId.localeCompare(b.targetId));
+  return result.sort((a, b) => a.distancePx - b.distancePx || spatialTargetId(a.target).localeCompare(spatialTargetId(b.target)));
 }
 
 export type PickingEvidence = Readonly<{ strategy: PickStrategy; samples: number; medianMs: number | null; limitation: string | null }>;

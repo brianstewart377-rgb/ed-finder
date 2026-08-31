@@ -11,9 +11,13 @@ function sources(root: string): string[] {
 
 describe('renderer adapter import boundary', () => {
   it('contains every Babylon import in the one renderer adapter directory', () => {
-    const root = resolve(process.cwd(), 'src/features/spatial-runtime');
-    const offenders = sources(root).filter((path) => !path.includes('/babylon/')).filter((path) => /from ['"](?:@babylonjs|babylonjs)/.test(readFileSync(path, 'utf8')));
+    const root = resolve(process.cwd(), 'src');
+    const offenders = sources(root).filter((path) => !path.replaceAll('\\', '/').includes('/features/spatial-runtime/babylon/')).filter((path) => /(?:from\s*|import\s*\(|import\s*)['"](?:@babylonjs|babylonjs)/.test(readFileSync(path, 'utf8')));
     expect(offenders.map((path) => relative(root, path))).toEqual([]);
+  });
+
+  it('keeps Babylon names and types out of the public renderer-neutral contract', () => {
+    expect(readFileSync(resolve(process.cwd(), 'src/features/spatial-runtime/contracts.ts'), 'utf8')).not.toMatch(/(?:import|from)[^\n]*babylon/i);
   });
 
   it('does not activate Babylon from the production application entry', () => {
