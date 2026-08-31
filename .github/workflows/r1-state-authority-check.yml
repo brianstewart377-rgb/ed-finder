@@ -1,0 +1,38 @@
+name: R1 Project State Authority Check
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/r1-state-check-requests/*.json'
+
+permissions:
+  contents: read
+
+jobs:
+  state_check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 1
+      - name: Validate request
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json,glob
+          paths=glob.glob('.github/r1-state-check-requests/*.json')
+          if not paths:
+              raise SystemExit('missing state-check request')
+          d=json.load(open(sorted(paths)[-1],encoding='utf-8'))
+          if d != {'operation':'r1-project-state-check'}:
+              raise SystemExit('unsupported request')
+          PY
+      - name: Resolve project state strictly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B scripts/dev/resolve_project_state.py --strict
