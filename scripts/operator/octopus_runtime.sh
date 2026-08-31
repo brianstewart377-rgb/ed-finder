@@ -92,6 +92,15 @@ case "${1:-}" in
   status)
     printf 'workers_enabled: %s\n' "$(env_value ENABLE_REVIEW_WORKERS)"; [[ -f "$DIR/receipts/private-proof" ]] && printf 'private_proof: true\n' || printf 'private_proof: false\n'
     ;;
+  cutover-verify)
+    receipt private-proof; receipt public-edge-proof
+    [[ $(env_value ENABLE_REVIEW_WORKERS) == true ]] || die 'new review worker is not enabled'
+    curl --fail --silent http://127.0.0.1:43300/api/health >/dev/null
+    [[ $(curl --fail --silent http://127.0.0.1:43300/api/version | tr -d '"[:space:]') == "$VERSION" ]] || die 'unexpected private Octopus version'
+    code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --resolve octopus.ed-finder.app:443:127.0.0.1 https://octopus.ed-finder.app/)
+    [[ $code == 401 ]] || die 'local TLS edge did not route to the protected Octopus origin'
+    printf 'local_edge_tls_routes_to_new_octopus: true\nexternal_dns_webhook_proof_pending: true\n'
+    ;;
   legacy-env-path)
     legacy_env_path
     ;;
