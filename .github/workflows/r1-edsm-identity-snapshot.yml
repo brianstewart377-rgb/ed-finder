@@ -1,0 +1,74 @@
+name: R1 EDSM Identity Snapshot
+
+on:
+  push:
+    branches: [chatgpt-ed-new-ops-requests]
+    paths: ['.github/r1-edsm-identity-requests/*.json']
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with: {fetch-depth: 2}
+      - name: Validate request
+        id: req
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only '${{ github.event.before }}' '${{ github.sha }}')
+          [ "${#changed[@]}" -eq 1 ]
+          case "${changed[0]}" in .github/r1-edsm-identity-requests/*.json) ;; *) exit 64;; esac
+          python3 - "${changed[0]}" <<'PY'
+          import json,pathlib,sys
+          p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text())
+          if set(d)!={'operation','systems'} or d['operation']!='r1-edsm-identity-snapshot': raise SystemExit('bad request')
+          xs=d['systems']
+          if not isinstance(xs,list) or not 1<=len(xs)<=20 or any(not isinstance(x,str) or not x.strip() or len(x)>128 for x in xs): raise SystemExit('systems must be 1-20 names')
+          clean=[x.strip() for x in xs]
+          if len(clean)!=len(set(clean)): raise SystemExit('duplicate system names')
+          p.write_text(json.dumps({'operation':d['operation'],'systems':clean},separators=(',',':')))
+          PY
+          echo "path=${changed[0]}" >> "$GITHUB_OUTPUT"
+      - name: Fetch explicit identity data from EDSM
+        env:
+          REQUEST_PATH: ${{ steps.req.outputs.path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - "$REQUEST_PATH" <<'PY' > r1-edsm-identity-snapshot.json
+          import hashlib,json,pathlib,sys,time,urllib.parse,urllib.request
+          request=json.loads(pathlib.Path(sys.argv[1]).read_text())
+          out=[]
+          for name in request['systems']:
+              url='https://www.edsm.net/api-system-v1/bodies?'+urllib.parse.urlencode({'systemName':name})
+              req=urllib.request.Request(url,headers={'User-Agent':'ED-Finder-R1-research/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=30) as r: raw=r.read()
+                  payload=json.loads(raw)
+                  bodies=[]
+                  for b in payload.get('bodies') or []:
+                      bodies.append({'id':b.get('id'),'id64':b.get('id64'),'name':b.get('name'),'type':b.get('type'),'subType':b.get('subType'),'distanceToArrival':b.get('distanceToArrival')})
+                  out.append({'requested_name':name,'status':'ok','edsm_id':payload.get('id'),'system_id64':payload.get('id64'),'system_name':payload.get('name'),'payload_sha256':hashlib.sha256(raw).hexdigest(),'bodies':bodies})
+              except Exception as exc:
+                  out.append({'requested_name':name,'status':'error','error_type':type(exc).__name__})
+              time.sleep(0.1)
+          print(json.dumps({'source':'edsm_api_system_v1_bodies','records':out},sort_keys=True,separators=(',',':')))
+          PY
+      - name: Summary
+        run: |
+          python3 - <<'PY'
+          import json
+          d=json.load(open('r1-edsm-identity-snapshot.json'))
+          for r in d['records']:
+              if r['status']=='ok':
+                  print(f"{r['requested_name']}: id64={r.get('system_id64')} bodies={len(r['bodies'])} identity_hash={r['payload_sha256'][:16]}")
+              else: print(f"{r['requested_name']}: ERROR {r.get('error_type')}")
+          PY
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: r1-edsm-identity-snapshot-${{ github.run_id }}
+          path: r1-edsm-identity-snapshot.json
+          retention-days: 30
