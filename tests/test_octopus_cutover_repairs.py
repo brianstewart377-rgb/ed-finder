@@ -31,17 +31,37 @@ def test_legacy_control_plane_executes_real_preflight_and_has_restore() -> None:
     assert 'rm -f "$DIR/receipts/old-quiesced"' in restore
 
 
+def test_public_url_transition_is_explicit_and_workers_stay_disabled() -> None:
+    workflow = NEW_WORKFLOW.read_text(encoding="utf-8")
+    runtime = RUNTIME.read_text(encoding="utf-8")
+
+    assert "set-public-url" in workflow
+    assert "private-install|private-verify|set-public-url|cutover-verify" in workflow
+    transition = runtime[runtime.index("set-public-url)") : runtime.index("cutover-verify)")]
+    assert "receipt private-proof" in transition
+    assert "receipt public-edge-proof" in transition
+    assert "workers_false" in transition
+    assert 'BETTER_AUTH_URL "$PUBLIC_URL"' in transition
+    assert 'NEXT_PUBLIC_APP_URL "$PUBLIC_URL"' in transition
+    assert "dc up -d --no-deps web" in transition
+    assert "wait_healthy web" in transition
+    assert "public_auth_url_configured: true" in transition
+    assert "workers_enabled: false" in transition
+
+
 def test_cutover_verify_is_pinned_to_new_local_origin_before_external_webhook_proof() -> None:
     workflow = NEW_WORKFLOW.read_text(encoding="utf-8")
     runtime = RUNTIME.read_text(encoding="utf-8")
 
-    assert "private-install|private-verify|cutover-verify" in workflow
+    assert "private-install|private-verify|set-public-url|cutover-verify" in workflow
     assert "https://octopus.ed-finder.app/api/health" not in workflow
 
     verify = runtime[runtime.index("cutover-verify)") : runtime.index("legacy-env-path)")]
     assert "receipt private-proof" in verify
     assert "receipt public-edge-proof" in verify
     assert "ENABLE_REVIEW_WORKERS) == true" in verify
+    assert "BETTER_AUTH_URL) == \"$PUBLIC_URL\"" in verify
+    assert "NEXT_PUBLIC_APP_URL) == \"$PUBLIC_URL\"" in verify
     assert "http://127.0.0.1:43300/api/health" in verify
     assert "--resolve octopus.ed-finder.app:443:127.0.0.1" in verify
     assert "local_edge_tls_routes_to_new_octopus: true" in verify
