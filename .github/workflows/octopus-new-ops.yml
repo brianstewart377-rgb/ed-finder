@@ -74,7 +74,10 @@ jobs:
             enable-worker) "${scp_base[@]}" "$RUNNER_TEMP/quiesce/old-quiesced" "$USER@$HOST:/tmp/old-quiesced"; "${ssh_base[@]}" 'install -m 0600 /tmp/old-quiesced /opt/octopus/receipts/old-quiesced; rm -f /tmp/old-quiesced; chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh enable-worker' ;;
             edge-topology) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh topology' ;;
             edge-install) [[ "$EDGE_SHA" =~ ^[a-f0-9]{64}$ ]]; "${ssh_base[@]}" "chmod 0700 /tmp/octopus_edge.sh; /tmp/octopus_edge.sh install '$EDGE_SHA'" ;;
-            cutover-verify) "${ssh_base[@]}" "curl --fail --silent https://octopus.ed-finder.app/api/health >/dev/null; test \"\$(curl --fail --silent https://octopus.ed-finder.app/api/version | tr -d '\"[:space:]')\" = 1.0.122; /tmp/octopus_runtime.sh status" ;;
+            cutover-verify)
+              "${ssh_base[@]}" 'set -euo pipefail; chmod 0700 /tmp/octopus_runtime.sh; /tmp/octopus_runtime.sh status; curl --fail --silent http://127.0.0.1:43300/api/health >/dev/null; test "$(curl --fail --silent http://127.0.0.1:43300/api/version | tr -d '\''"[:space:]'\'')" = 1.0.122; code=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --resolve octopus.ed-finder.app:443:127.0.0.1 https://octopus.ed-finder.app/); test "$code" = 401; printf "local_edge_tls_routes_to_new_octopus: true\nexternal_dns_webhook_proof_pending: true\n"'
+              ;;
             rollback) "${ssh_base[@]}" 'chmod 0700 /tmp/octopus_runtime.sh /tmp/octopus_edge.sh; /tmp/octopus_runtime.sh disable-worker; /tmp/octopus_edge.sh rollback' ;;
+            *) echo 'unsupported new-host operation' >&2; exit 64 ;;
           esac
           "${ssh_base[@]}" 'rm -f /tmp/octopus_*.sh /tmp/octopus_credentials.py; rm -rf /tmp/octopus-package'
