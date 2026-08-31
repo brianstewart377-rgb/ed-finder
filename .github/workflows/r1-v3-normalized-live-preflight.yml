@@ -45,8 +45,7 @@ jobs:
           if data != expected:
               raise SystemExit(f'Unsupported normalized-V3 preflight request: {data!r}')
           PY
-          git cat-file -e '3978b071d7f98b320c146e58a20b66c7f2845f86^{commit}'
-          actual="$(git show '3978b071d7f98b320c146e58a20b66c7f2845f86:sql/r1_v3/001_structural_shell.sql' | git hash-object --stdin)"
+          actual="$(git hash-object sql/r1_v3/001_structural_shell.sql)"
           [ "$actual" = '26d1ef3d4ae343159ba62281102f2143ccff7fb8' ] || { echo "Migration blob mismatch: $actual" >&2; exit 1; }
           echo "migration_blob_verified: $actual"
 
