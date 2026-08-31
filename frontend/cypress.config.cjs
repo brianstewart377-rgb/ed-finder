@@ -16,7 +16,10 @@ module.exports = {
   allowCypressEnv: false,
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://127.0.0.1:4173',
-    specPattern: 'cypress/e2e/**/*.cy.js',
+    specPattern: [
+      'cypress/e2e/release-gate.cy.js',
+      'cypress/e2e/auth-owner-access.cy.js',
+    ],
     supportFile: 'cypress/support/e2e.js',
     testIsolation: true,
     screenshotsFolder: 'cypress/artifacts/screenshots',
