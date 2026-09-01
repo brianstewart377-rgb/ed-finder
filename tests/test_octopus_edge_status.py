@@ -25,6 +25,7 @@ def test_ed_new_workflow_and_dispatch_allowlist_dedicated_action():
     assert f"host-status|{OPERATION}|recover-v3-runtime-contract" in workflow
     assert f"steps.request.outputs.operation == '{OPERATION}'" in workflow
     assert f"trusted-main/scripts/operator/actions/{OPERATION}.sh" in workflow
+    assert "ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS" in workflow
     assert f"{OPERATION})" in dispatch
     assert f"exec bash scripts/operator/actions/{OPERATION}.sh" in dispatch
 
@@ -91,17 +92,34 @@ def test_version_requires_exact_expected_release_not_http_success_or_substring()
     assert matches("x" * 4097 + "1.0.122") is False
 
 
-def test_proxy_inspection_failure_is_explicit_and_fail_closed():
+def test_multi_proxy_topology_inspects_every_candidate_and_route_can_exist_in_any():
     source = ACTION.read_text(encoding="utf-8")
-    inspection = source.split('nginx_result = run(["docker", "exec"', 1)[1].split(
-        'receipt["proxy"] = proxy', 1
-    )[0]
-    assert 'proxy["inspection_succeeded"] = nginx_result.returncode == 0' in inspection
+    inspection = source.split("nginx_candidates =", 1)[1].split('receipt["proxy"] = proxy', 1)[0]
+    assert 'for candidate in nginx_candidates:' in inspection
+    assert 'nginx_candidates[:10]' not in inspection
+    assert 'run(["docker", "exec", candidate, "nginx", "-T"])' in inspection
+    assert 'route_found = route_found or item["route_present"]' in inspection
+    assert '"candidate_count": len(nginx_candidates)' in inspection
+    assert '"inspected_count": len(proxy_items)' in inspection
+    assert '"multi_proxy_topology_supported": True' in inspection
+    assert 'failures.append("proxy_container_missing")' in inspection
     assert 'failures.append("proxy_inspection_failed")' in inspection
-    assert "if nginx_result.returncode:" in inspection
-    assert "else:" in inspection
+    assert 'failures.append("octopus_route_missing")' in inspection
+    assert "proxy_container_not_unique" not in source
     assert "|| true" not in inspection
     assert "2>/dev/null" not in inspection
+
+
+def test_host_443_is_informational_when_public_tls_is_verified_separately():
+    source = ACTION.read_text(encoding="utf-8")
+    listener_block = source.split('listeners_result = run(["ss", "-H", "-lnt"])', 1)[1].split(
+        'docker_result = run(', 1
+    )[0]
+    assert '"required_origin_ports": [80, 43300]' in listener_block
+    assert '"host_tls_listener_required": False' in listener_block
+    assert '"tls_termination": "host" if 443 in ports else "external_or_container_edge"' in listener_block
+    assert 'all(port in ports for port in (80, 43300))' in listener_block
+    assert 'all(port in ports for port in (80, 443, 43300))' not in listener_block
 
 
 def test_served_certificate_is_independent_from_https_and_installed_certs():

@@ -156,10 +156,15 @@ if listeners_result.returncode == 0:
         if match:
             ports.add(int(match.group(1)))
 receipt["listeners"] = {str(port): port in ports for port in (80, 443, 43300)}
-receipt["listeners"]["inspection_succeeded"] = listeners_result.returncode == 0
+receipt["listeners"].update({
+    "inspection_succeeded": listeners_result.returncode == 0,
+    "required_origin_ports": [80, 43300],
+    "host_tls_listener_required": False,
+    "tls_termination": "host" if 443 in ports else "external_or_container_edge",
+})
 if listeners_result.returncode:
     failures.append("listener_inspection_failed")
-elif not all(port in ports for port in (80, 443, 43300)):
+elif not all(port in ports for port in (80, 43300)):
     failures.append("required_listener_missing")
 
 docker_result = run(["docker", "ps", "--format", "{{.Names}}\t{{.Image}}\t{{.Status}}"])
@@ -176,19 +181,39 @@ if docker_result.returncode:
 
 nginx_candidates = [item["name"] for item in containers
                     if re.search(r"nginx|proxy", item["name"] + " " + item["image"], re.I)]
-proxy = {"inspection_succeeded": False, "route_present": False, "directives": [], "resolved_proxy_targets": []}
-if len(nginx_candidates) != 1:
-    failures.append("proxy_container_not_unique")
-else:
-    nginx_result = run(["docker", "exec", nginx_candidates[0], "nginx", "-T"])
-    proxy["inspection_succeeded"] = nginx_result.returncode == 0
+proxy_items = []
+route_found = False
+all_inspected = bool(nginx_candidates)
+for candidate in nginx_candidates:
+    nginx_result = run(["docker", "exec", candidate, "nginx", "-T"])
+    item = {
+        "name": candidate,
+        "inspection_succeeded": nginx_result.returncode == 0,
+        "route_present": False,
+        "directives": [],
+        "resolved_proxy_targets": [],
+    }
     if nginx_result.returncode:
-        failures.append("proxy_inspection_failed")
+        all_inspected = False
     else:
         servers = parse_proxy_servers(nginx_result.stdout)
-        proxy["route_present"], proxy["resolved_proxy_targets"], proxy["directives"] = route_present(servers)
-        if not proxy["route_present"]:
-            failures.append("octopus_route_missing")
+        item["route_present"], item["resolved_proxy_targets"], item["directives"] = route_present(servers)
+        route_found = route_found or item["route_present"]
+    proxy_items.append(item)
+proxy = {
+    "inspection_succeeded": all_inspected,
+    "candidate_count": len(nginx_candidates),
+    "inspected_count": len(proxy_items),
+    "route_present": route_found,
+    "items": proxy_items,
+    "multi_proxy_topology_supported": True,
+}
+if not nginx_candidates:
+    failures.append("proxy_container_missing")
+elif not all_inspected:
+    failures.append("proxy_inspection_failed")
+if nginx_candidates and all_inspected and not route_found:
+    failures.append("octopus_route_missing")
 receipt["proxy"] = proxy
 
 health, _ = bounded_get("http://127.0.0.1:43300/api/health")

@@ -81,13 +81,13 @@ jobs:
           SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
           SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
           SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
-          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
           test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
           test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
-          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing ED_NEW_OPERATOR_KNOWN_HOSTS" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned ed-new known-hosts secret" >&2; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
