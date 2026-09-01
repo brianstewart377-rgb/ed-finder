@@ -179,9 +179,10 @@ Stage 25 has exactly one primary objective:
 8. Use the external adversarial audit as an execution-order correction, not as
    a parallel roadmap: preserve the now-closed ratings, migration, backup, and
    CI foundations before opening new product lanes like accounts.
-9. Incubate only the safe slices of the next two opportunity lanes:
-   `B-1` nearest-colonised proximity in Inspect, then `A-1` journal import as
-   staging/evidence ingestion only, with no new canonical write shortcut.
+9. Preserve the already-shipped bounded `B-1` nearest-colonised proximity and
+   `A-1` journal staging/evidence capabilities without expanding either from
+   its old lane. Any spatial or Commander History follow-on is governed only
+   by the Stage 27 programme and authorization table below.
 
 ## Audit Response
 
