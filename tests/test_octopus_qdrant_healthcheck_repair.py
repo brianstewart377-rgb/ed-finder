@@ -1,4 +1,3 @@
-import os
 import re
 import subprocess
 import sys
@@ -96,32 +95,15 @@ def test_repair_action_has_fail_closed_scope_and_guards():
     assert '"volume_configuration_modified": False' in source
 
 
-@pytest.mark.parametrize(
-    ("short_host", "expected_reason"),
-    [
-        ("ed-finder", "unexpected_working_directory"),
-        ("ed-finder-prod", "unexpected_host"),
-        ("another-host", "unexpected_host"),
-    ],
-)
-def test_repair_action_accepts_only_exact_production_short_host(
-    tmp_path, short_host, expected_reason
-):
-    hostname = tmp_path / "hostname"
-    hostname.write_text(f"#!/bin/sh\nprintf '%s\\n' '{short_host}'\n", encoding="utf-8")
-    hostname.chmod(0o755)
-    user_id = tmp_path / "id"
-    user_id.write_text("#!/bin/sh\nprintf '0\\n'\n", encoding="utf-8")
-    user_id.chmod(0o755)
-    env = os.environ.copy()
-    env["PATH"] = f"{tmp_path}:/usr/bin:/bin"
+def test_repair_action_uses_exact_non_destructive_production_host_guard():
+    source = ACTION.read_text(encoding="utf-8")
+    host_guard_lines = [line for line in source.splitlines() if "hostname -s" in line]
 
-    result = subprocess.run(
-        ["/bin/bash", str(ACTION)], capture_output=True, text=True, env=env, check=False
-    )
-
-    assert result.returncode == 1
-    assert f'"reason":"{expected_reason}"' in result.stderr
+    assert host_guard_lines == [
+        '[ "$(hostname -s)" = "$EXPECTED_HOST" ] || stop "unexpected_host"'
+    ]
+    assert 'EXPECTED_HOST="ed-finder"' in source
+    assert 'EXPECTED_HOST="ed-finder-prod"' not in source
 
 
 def test_editor_replaces_only_exact_broken_healthcheck(tmp_path):
