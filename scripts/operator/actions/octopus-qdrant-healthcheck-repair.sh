@@ -3,7 +3,7 @@ set -euo pipefail
 
 OCTOPUS_DIR="/opt/octopus"
 COMPOSE_FILE="$OCTOPUS_DIR/docker-compose.selfhost.yml"
-EXPECTED_HOST="ed-finder-prod"
+EXPECTED_HOST="ed-finder"
 EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"
 EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"
 BACKUP=""

@@ -67,7 +67,7 @@ def test_dispatcher_uses_dedicated_repair_action():
 def test_repair_action_has_fail_closed_scope_and_guards():
     source = ACTION.read_text(encoding="utf-8")
     required = (
-        'EXPECTED_HOST="ed-finder-prod"',
+        'EXPECTED_HOST="ed-finder"',
         'COMPOSE_FILE="$OCTOPUS_DIR/docker-compose.selfhost.yml"',
         'EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"',
         'EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"',
@@ -93,6 +93,17 @@ def test_repair_action_has_fail_closed_scope_and_guards():
     assert "password" not in source.lower()
     assert '"db_access_performed": False' in source
     assert '"volume_configuration_modified": False' in source
+
+
+def test_repair_action_uses_exact_non_destructive_production_host_guard():
+    source = ACTION.read_text(encoding="utf-8")
+    host_guard_lines = [line for line in source.splitlines() if "hostname -s" in line]
+
+    assert host_guard_lines == [
+        '[ "$(hostname -s)" = "$EXPECTED_HOST" ] || stop "unexpected_host"'
+    ]
+    assert 'EXPECTED_HOST="ed-finder"' in source
+    assert 'EXPECTED_HOST="ed-finder-prod"' not in source
 
 
 def test_editor_replaces_only_exact_broken_healthcheck(tmp_path):
