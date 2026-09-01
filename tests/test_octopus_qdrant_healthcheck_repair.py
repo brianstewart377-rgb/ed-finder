@@ -67,7 +67,7 @@ def test_dispatcher_uses_dedicated_repair_action():
 def test_repair_action_has_fail_closed_scope_and_guards():
     source = ACTION.read_text(encoding="utf-8")
     required = (
-        'EXPECTED_HOST="ed-finder"',
+        'EXPECTED_HOST="ed-finder-prod"',
         'COMPOSE_FILE="$OCTOPUS_DIR/docker-compose.selfhost.yml"',
         'EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"',
         'EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"',
@@ -97,13 +97,45 @@ def test_repair_action_has_fail_closed_scope_and_guards():
 
 def test_repair_action_uses_exact_non_destructive_production_host_guard():
     source = ACTION.read_text(encoding="utf-8")
-    host_guard_lines = [line for line in source.splitlines() if "hostname -s" in line]
+    guard = source.split("host_identity_matches() {", 1)[1].split(
+        'host_identity_matches "$(hostname -s)" || stop "unexpected_host"', 1
+    )[0]
 
-    assert host_guard_lines == [
-        '[ "$(hostname -s)" = "$EXPECTED_HOST" ] || stop "unexpected_host"'
-    ]
-    assert 'EXPECTED_HOST="ed-finder"' in source
-    assert 'EXPECTED_HOST="ed-finder-prod"' not in source
+    assert '[ "$1" = "$EXPECTED_HOST" ]' in guard
+    assert 'EXPECTED_HOST="ed-finder-prod"' in source
+    assert 'EXPECTED_HOST="ed-finder"' not in source
+
+
+@pytest.mark.parametrize(
+    ("hostname", "accepted"),
+    (("ed-finder-prod", True), ("ed-finder", False), ("another-host", False)),
+)
+def test_repair_host_identity_contract_isolated_from_production_actions(hostname, accepted):
+    source = ACTION.read_text(encoding="utf-8")
+    function = source.split("host_identity_matches() {", 1)[1].split("}\n", 1)[0]
+    harness = (
+        'EXPECTED_HOST="ed-finder-prod"\n'
+        "host_identity_matches() {" + function + "}\n"
+        'host_identity_matches "$1"\n'
+    )
+
+    result = subprocess.run(
+        ["bash", "-c", harness, "host-contract-test", hostname],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) is accepted
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+def test_repair_host_guard_precedes_filesystem_and_docker_actions():
+    source = ACTION.read_text(encoding="utf-8")
+    host_guard = source.index('host_identity_matches "$(hostname -s)" || stop "unexpected_host"')
+
+    assert host_guard < source.index('[ -d "$OCTOPUS_DIR" ]')
+    assert host_guard < source.index("command -v docker")
 
 
 def test_editor_replaces_only_exact_broken_healthcheck(tmp_path):

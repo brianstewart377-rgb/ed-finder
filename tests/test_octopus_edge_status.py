@@ -140,7 +140,7 @@ def test_served_certificate_is_independent_from_https_and_installed_certs():
 
 def test_action_command_surface_is_read_only_secret_safe_and_bounded():
     source = ACTION.read_text(encoding="utf-8")
-    assert 'EXPECTED_HOST = "ed-finder"' in source
+    assert 'EXPECTED_HOST = "ed-finder-prod"' in source
     assert 'EXPECTED_FQDN = "nb79a3d.mevnode.com"' in source
     assert "MAX_RESPONSE = 4096" in source
     forbidden = (
@@ -163,8 +163,8 @@ def test_action_command_surface_is_read_only_secret_safe_and_bounded():
 def test_host_identity_accepts_only_exact_short_host_and_fqdn():
     matches = _python_functions()["host_identity_matches"]
 
-    assert matches("ed-finder", "nb79a3d.mevnode.com", 0) is True
-    assert matches("ed-finder-prod", "nb79a3d.mevnode.com", 0) is False
+    assert matches("ed-finder-prod", "nb79a3d.mevnode.com", 0) is True
+    assert matches("ed-finder", "nb79a3d.mevnode.com", 0) is False
     assert matches("another-host", "nb79a3d.mevnode.com", 0) is False
-    assert matches("ed-finder", "another.example.com", 0) is False
-    assert matches("ed-finder", "nb79a3d.mevnode.com", 1) is False
+    assert matches("ed-finder-prod", "another.example.com", 0) is False
+    assert matches("ed-finder-prod", "nb79a3d.mevnode.com", 1) is False
