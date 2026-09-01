@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - host-status
+          - octopus-edge-status
           - recover-v3-runtime-contract
           - octopus-qdrant-healthcheck-repair
   push:
@@ -62,7 +63,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair) ;;
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -120,6 +121,25 @@ jobs:
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               "$SSH_USER@$SSH_HOST" \
               'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== repo candidates =="; for p in /opt/ed-finder /root/ed-finder /srv/ed-finder; do [ -d "$p" ] && echo "$p"; done; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"; echo "canonical_apply_performed: false"'
+
+      - name: Inspect Octopus edge status (read only)
+        if: steps.request.outputs.operation == 'octopus-edge-status'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'bash -s' \
+              < trusted-main/scripts/operator/actions/octopus-edge-status.sh
 
       - name: Repair Octopus Qdrant healthcheck and boot web
         if: steps.request.outputs.operation == 'octopus-qdrant-healthcheck-repair'
