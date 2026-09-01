@@ -28,6 +28,12 @@ Current scripts:
   public HTTP/HTTPS responses, and the certificate actually served for Octopus
   SNI. It does not read environment or private-key files, access a database,
   write files, or restart services.
+- `actions/octopus-edge-topology-detail.sh`: fail-closed, read-only topology
+  receipt for the two fixed live nginx containers on `ed-finder-prod`. It
+  reports selected Docker network/port/mount fields, sanitized nginx origins
+  and routing directives, and bounded Octopus health/version results. It does
+  not accept parameters, inspect container environments, read arbitrary files,
+  access a database, write files, or change runtime state.
 - `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
   `recover-v3-runtime-contract` operation. It identifies the retained Phase 4C
   R5 Compose source root from container labels, rejects secret-like and unsafe
