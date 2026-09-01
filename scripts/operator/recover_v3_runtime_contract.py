@@ -102,7 +102,16 @@ YAML_MAPPING_ENV_RE = re.compile(
 )
 CREDENTIALED_URI_RE = re.compile(
     r"(?i)\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|"
-    r"amqp|amqps)://[^/\s:@]+:(?P<password>[^@\s/]+)@",
+    r"amqp|amqps)://[^/\s:@]*:(?P<password>[^@\s/]+)@",
+)
+URI_QUERY_CREDENTIAL_RE = re.compile(
+    r"(?i)\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|"
+    r"amqp|amqps)://[^\s\"'<>]*[?&;]"
+    r"(?:password|passwd|pwd|secret|token|api_?key)=(?P<password>[^&#;\s\"'<>]+)",
+)
+DSN_CREDENTIAL_PARAM_RE = re.compile(
+    r"(?i)(?:^|[\s?&;])(?:password|passwd|pwd|secret|token|api_?key)\s*=\s*"
+    r"(?P<password>[^\s;&]+)",
 )
 TOKEN_PATTERNS = (
     (
@@ -269,10 +278,14 @@ def _assignment_value_is_safe(name: str, value: str) -> bool:
     if _placeholder_value(value):
         return True
     if name.upper() in URL_ENV_NAMES:
-        matches = list(CREDENTIALED_URI_RE.finditer(value.strip().strip("\"'")))
-        return not matches or all(
-            _placeholder_value(match.group("password")) for match in matches
+        candidate = value.strip().strip("\"'")
+        credential_values = [
+            match.group("password") for match in CREDENTIALED_URI_RE.finditer(candidate)
+        ]
+        credential_values.extend(
+            match.group("password") for match in DSN_CREDENTIAL_PARAM_RE.finditer(candidate)
         )
+        return not credential_values or all(_placeholder_value(item) for item in credential_values)
     return False
 
 
@@ -283,9 +296,10 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
         if pattern.search(text):
             findings.add(category)
 
-    for match in CREDENTIALED_URI_RE.finditer(text):
-        if not _placeholder_value(match.group("password")):
-            findings.add("credentialed-uri")
+    for pattern in (CREDENTIALED_URI_RE, URI_QUERY_CREDENTIAL_RE):
+        for match in pattern.finditer(text):
+            if not _placeholder_value(match.group("password")):
+                findings.add("credentialed-uri")
 
     relative_path = PurePosixPath(relative)
     assignment_scan = (
