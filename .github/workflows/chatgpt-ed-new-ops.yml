@@ -11,6 +11,7 @@ on:
           - host-status
           - recover-v3-runtime-contract
           - production-candidate-readiness
+          - octopus-qdrant-healthcheck-repair
   push:
     branches:
       - chatgpt-ed-new-ops-requests
@@ -61,7 +62,7 @@ jobs:
             exit 64
           fi
           case "$operation" in
-            host-status|recover-v3-runtime-contract|production-candidate-readiness) ;;
+            host-status|recover-v3-runtime-contract|production-candidate-readiness|octopus-qdrant-healthcheck-repair) ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
           echo "operation=$operation" >> "$GITHUB_OUTPUT"
@@ -72,6 +73,14 @@ jobs:
         with:
           ref: main
           path: trusted-main
+          persist-credentials: false
+
+      - name: Checkout trusted Octopus operator action
+        if: steps.request.outputs.operation == 'octopus-qdrant-healthcheck-repair'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-octopus
           persist-credentials: false
 
       - name: Checkout reviewed candidate audit
@@ -129,6 +138,26 @@ jobs:
               -o StrictHostKeyChecking=yes \
               "$SSH_USER@$SSH_HOST" \
               'set -eu; echo "== ed-new bootstrap status =="; printf "hostname: "; hostname; printf "fqdn: "; hostname -f 2>/dev/null || true; printf "kernel: "; uname -sr; echo "== filesystem =="; df -hT /; echo "== docker =="; if command -v docker >/dev/null 2>&1; then docker ps --format "{{.Names}}\t{{.Status}}\t{{.Image}}" | head -50; else echo "docker: not installed"; fi; echo "== safety =="; echo "db_access_performed: false"; echo "db_writes_performed: false"; echo "migrations_performed: false"'
+
+      - name: Repair Octopus Qdrant healthcheck and boot web
+        if: steps.request.outputs.operation == 'octopus-qdrant-healthcheck-repair'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              -o GlobalKnownHostsFile=/dev/null \
+              -o StrictHostKeyChecking=yes \
+              "$SSH_USER@$SSH_HOST" \
+              'cd /opt/ed-finder && bash -s' \
+              < trusted-octopus/scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh
 
       - name: Recover retained V3 runtime contract
         if: steps.request.outputs.operation == 'recover-v3-runtime-contract'
