@@ -12,6 +12,7 @@ on:
           - db-readonly-health
           - latest-artifacts
           - latest-artifact-summary
+          - octopus-qdrant-healthcheck-repair
       artifact_stage:
         description: "Artifact stage for artifact operations"
         required: false
@@ -32,7 +33,7 @@ concurrency:
 
 jobs:
   execute:
-    name: Run allowlisted production read operation
+    name: Run allowlisted production operation
     runs-on: ubuntu-latest
     environment: hetzner-operator
     timeout-minutes: 10
@@ -81,6 +82,7 @@ jobs:
             db-readonly-health) stage=db-readonly-health ;;
             latest-artifacts) stage=latest-artifacts ;;
             latest-artifact-summary) stage=latest-artifact-summary ;;
+            octopus-qdrant-healthcheck-repair) stage=octopus-qdrant-healthcheck-repair ;;
             *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
           esac
 
