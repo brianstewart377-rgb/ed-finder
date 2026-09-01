@@ -4,18 +4,20 @@ This folder contains the active contracts, closeout records, architecture notes,
 and historical implementation docs for ED-Finder's colonisation, planner,
 evidence, and enrichment work.
 
-## Active Stage 27A Control
+## Active Stage 27 Control
 
-**Stage 27A Spatial Platform Contract and Audit is current. It is
-documentation/audit work only and authorizes Stage 27B only; no Babylon runtime
-or production map change is authorized here.**
+**Stage 27A Spatial Platform Contract and Audit is COMPLETE / ACCEPTED. Its
+contracts remain active normative authority. Stage 27B Babylon 9 Runtime
+Workbench is CURRENT / AUTHORIZED, strictly as an isolated workbench with no
+production route, flag, cutover, database, V2, deployment, 27C, or later-stage
+authority.**
 
 Commander History / Journal is a first-class cross-cutting capability in these
 contracts: Journal page = history/statistics/records/filters/expeditions,
 Galaxy Map = where they happened, System Map = what happened at body level.
 Exploration remains a first-class goal and a major interpretation of the shared
-personal-history facts. No Journal ingestion, UI or runtime is implemented by
-27A.
+personal-history facts. Stage 27B does not authorize Journal ingestion, UI,
+analytics, canonical promotion, or other Commander History runtime work.
 
 - [`../ROADMAP.md`](../ROADMAP.md) is the single authority for programme order.
 - [`spatial-platform-product-contract.md`](./spatial-platform-product-contract.md)
@@ -28,10 +30,12 @@ personal-history facts. No Journal ingestion, UI or runtime is implemented by
   and [`stage-27a-system-map-data-readiness.md`](./stage-27a-system-map-data-readiness.md)
   are the evidence audits.
 
-Stage 26 remains accurate history: equal bakeoff selected R3F/Three.js, its
-foundation shipped, and production cutover completed. R3F remains production
-and rollback until Stage 27's later bakeoff/cutover. Babylon did not win Stage
-26 and the August 16 narrow replacement plan is not current authority.
+Stage 26 remains accurate history: its equal tested bakeoff selected
+R3F/Three.js, its foundation shipped, and production cutover completed. Babylon
+was selected later for the isolated Stage 27 workbench because product scope
+broadened; it did not win Stage 26. R3F remains the untouched production
+baseline and rollback until Stage 27G's measured bakeoff and explicit cutover.
+The August 16 narrow replacement plan is not current authority.
 
 ## Historical Stage 26 Control
 
@@ -63,7 +67,7 @@ product-shell and selected-system context baseline for this new lane.
 Use this order before changing planner, evidence, or enrichment behaviour:
 
 1. [`../ROADMAP.md`](../ROADMAP.md)
-2. The Stage 27A product and architecture contracts above for spatial work, or
+2. The accepted, normative Stage 27A product and architecture contracts above for spatial work, or
    [`stage-25c-product-shell-shared-context-contract.md`](./stage-25c-product-shell-shared-context-contract.md)
    for shell and planner-context work
 3. [`stage-25b-evidence-language-visual-primitives.md`](./stage-25b-evidence-language-visual-primitives.md)

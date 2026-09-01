@@ -5,6 +5,23 @@ lives at ed-finder.app (Hetzner/Docker). See `README.md` for deployment.
 
 ---
 
+## 2026-09-02 - Stage 27A acceptance and Stage 27B authority transition
+
+**Stage 27A is complete and accepted** - Its product, architecture,
+data-readiness, migration, governance, truth-class, Commander History / Journal,
+System Map, CRE/CPE ownership, and no-fabrication contracts remain active
+normative authority.
+
+**Stage 27B is the current authorized lane** - Authorization is limited to an
+isolated Babylon 9-class runtime workbench. It grants no production route or
+flag wiring, cutover, database or V2 work, deployment, 27C, or later-stage work.
+The R3F/Three production map remains the untouched production baseline and
+rollback until Stage 27G's measured bakeoff and explicit cutover decision.
+
+**Stage 26 history remains unchanged** - R3F won the tested Stage 26 bakeoff
+and shipped. Babylon was selected later for the isolated Stage 27 workbench
+because the product scope broadened, not because it won Stage 26.
+
 ## 2026-08-31 - Stage 27A spatial platform contracts and audit
 
 **Stage 27 now has an authoritative contract before runtime work** - Added the

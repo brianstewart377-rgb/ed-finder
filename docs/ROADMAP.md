@@ -7,9 +7,13 @@ document that should answer "what next?".
 
 - Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
   scope and Stage 26's R3F map programme are complete historical foundations.
-- Current authorization: **27A Spatial Platform Contract and Audit only**.
-  Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
-  runtime, production map change, or any later Stage 27 slice.
+- Current authorization: **27B Babylon 9 Runtime Workbench only**. Stage 27A
+  Spatial Platform Contract and Audit is complete and owner-accepted; its
+  product, architecture, data-readiness, migration, governance, truth-class,
+  Commander History / Journal, System Map, CRE/CPE ownership, and
+  no-fabrication contracts remain active normative authority. Stage 27B is an
+  isolated workbench lane: it authorizes no production route, flag, cutover,
+  database, V2, deployment, 27C, or later-stage work.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E production cutover is complete and in observation:
   browser, accessibility, visual,
@@ -160,8 +164,10 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Complete Stage 27A's product, architecture, data-readiness, migration and
-   governance contracts before any new Babylon runtime implementation.
+1. Build only the isolated Stage 27B Babylon 9-class runtime workbench against
+   Stage 27A's accepted product, architecture, data-readiness, migration and
+   governance contracts. Do not wire it to a production route or flag, cut
+   over production, or begin 27C.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -231,8 +237,8 @@ competing roadmap source.
   are retained as implementation evidence, not as an active or independent
   next lane. Its `/api/map/systems`, viewport LOD, hysteresis, and truncation
   findings may inform Stage 27, but real-system streaming is now owned by the
-  staged Stage 27 programme (principally 27D). Stage 27A authorizes only 27B;
-  no old Phase 2 work is currently authorized. See
+  staged Stage 27 programme (principally 27D). Stage 27B does not authorize
+  that work; no old Phase 2 work is currently authorized. See
   `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
 
 ### Deferred Product Expansion
@@ -277,23 +283,24 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 
 | Stage | Scope | Authorization |
 |---|---|---|
-| **27A** | Spatial Platform Contract and Audit | **CURRENT**; docs/audit/contracts only |
-| 27B | Babylon 9 Runtime Workbench | Authorized only after 27A acceptance; isolated, no production wiring |
-| 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27A |
-| 27D | Real-System Streaming and Interaction | Not authorized by 27A |
-| 27E | Stage 26 Capability Parity | Not authorized by 27A |
-| 27F | Commander History contract/import readiness; Journal page/analytics; Galaxy contributions, reverse spatial queries and Finder predicates | Not authorized by 27A |
-| 27G | Galaxy Bakeoff and Cutover | Not authorized by 27A; explicit cutover decision required |
-| 27H | System Scene Data, BodyRef and Commander History body-contribution contract | Not authorized by 27A |
-| 27I | 3D System Map | Not authorized by 27A |
-| 27J | Colonised-System Infrastructure | Not authorized by 27A |
-| 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
-| 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27A |
+| **27A** | Spatial Platform Contract and Audit | **COMPLETE / ACCEPTED**; contracts remain active normative authority |
+| **27B** | Babylon 9 Runtime Workbench | **CURRENT / AUTHORIZED**; isolated workbench only, no production wiring |
+| 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27B |
+| 27D | Real-System Streaming and Interaction | Not authorized by 27B |
+| 27E | Stage 26 Capability Parity | Not authorized by 27B |
+| 27F | Commander History contract/import readiness; Journal page/analytics; Galaxy contributions, reverse spatial queries and Finder predicates | Not authorized by 27B |
+| 27G | Galaxy Bakeoff and Cutover | Not authorized by 27B; explicit measured bakeoff and cutover decision required |
+| 27H | System Scene Data, BodyRef and Commander History body-contribution contract | Not authorized by 27B |
+| 27I | 3D System Map | Not authorized by 27B |
+| 27J | Colonised-System Infrastructure | Not authorized by 27B |
+| 27K | CPE Planning and CRE Digital Twin | Not authorized by 27B |
+| 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27B |
 
-Stage 27A's only follow-on authorization is 27B. The R3F production map stays
-in place throughout workbench/foundation stages. Mechanics remain CRE-owned,
-planning remains CPE-owned, ED-Finder orchestrates/presents, and the renderer
-owns neither.
+Owner acceptance closes 27A and authorizes only 27B. Stage 27B must stop before
+27C. The R3F/Three production map remains the production baseline and rollback,
+untouched by the isolated workbench, until the later Stage 27G measured bakeoff
+and explicit cutover. Mechanics remain CRE-owned, planning remains CPE-owned,
+ED-Finder orchestrates/presents, and the renderer owns neither.
 
 Stage ownership is deliberate: 27F defines account/commander/sync scope,
 privacy-filtered raw retention, normalized facts, provenance, source-aware
@@ -316,7 +323,7 @@ and event breadth only—not mechanics authority or a code, asset or UI source.
 ## Stage 25/26 historical next steps
 
 The material below preserves completed-stage decisions and evidence. It is not
-authority for what begins after Stage 27A.
+authority for the current or later Stage 27 programme.
 
 - Stage 25 product work is complete and promoted. Preserve its shell/context
   baseline while documentation triage, scoring cleanup, and CRE contract work
