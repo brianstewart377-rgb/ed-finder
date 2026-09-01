@@ -3,7 +3,11 @@
 
 This helper is intentionally read-only: Docker is queried only for selected
 Compose labels and every selected file is read from the resolved Compose source
-root.  The tar stream is written to stdout so the remote host is not mutated.
+root. The tar stream is written to stdout so the remote host is not mutated.
+
+Every candidate file is content-scanned before any archive bytes are emitted.
+Unsafe optional historical files are excluded with provenance-only metadata;
+unsafe required Compose files fail the whole recovery.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import subprocess
 import sys
@@ -70,7 +75,56 @@ FORBIDDEN_FRAGMENTS = (
 COMPOSE_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
 COMPOSE_CONFIG_FILES_LABEL = "com.docker.compose.project.config_files"
 COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
-SCHEMA = "edfinder-v3-runtime-recovery/v1"
+SCHEMA = "edfinder-v3-runtime-recovery/v2"
+
+SENSITIVE_ENV_NAME = (
+    r"(?:"
+    r"[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|PRIVATE_KEY|API_KEY|APIKEY)"
+    r"[A-Z0-9_]*"
+    r"|DATABASE_URL|REDIS_URL|CACHE_URL|CELERY_BROKER_URL"
+    r"|OCTOPUS_DATA_KEY|DATA_ENCRYPTION_KEY"
+    r")"
+)
+QUOTED_ENV_ASSIGNMENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
+    r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
+)
+BARE_ENV_ASSIGNMENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
+    r"(?P<value>[^\s,\"'\]\}]+)",
+)
+JSON_MAPPING_ENV_RE = re.compile(
+    rf'["\'](?P<name>{SENSITIVE_ENV_NAME})["\']\s*:\s*'
+    r'(?P<quote>["\'])(?P<value>.*?)(?P=quote)',
+)
+YAML_MAPPING_ENV_RE = re.compile(
+    rf"(?m)^\s*(?P<name>{SENSITIVE_ENV_NAME})\s*:\s*(?P<value>[^\r\n#]+)",
+)
+CREDENTIALED_URI_RE = re.compile(
+    r"(?i)\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|"
+    r"amqp|amqps)://[^/\s:@]+:(?P<password>[^@\s/]+)@",
+)
+TOKEN_PATTERNS = (
+    (
+        "private-key-material",
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+            re.IGNORECASE,
+        ),
+    ),
+    ("openai-api-token", re.compile(r"\bsk-(?!ant-)(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b")),
+    ("anthropic-api-token", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b")),
+    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
+    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
+    ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
+)
+CONTENT_SCAN_RULES = (
+    "private-key-material",
+    "recognized-api-token",
+    "credentialed-database-or-cache-uri",
+    "non-placeholder-sensitive-environment-assignment",
+)
 
 
 class RecoveryError(RuntimeError):
@@ -124,7 +178,10 @@ def _safe_name(relative: PurePosixPath) -> bool:
     return relative.suffix.lower() in ALLOWED_SUFFIXES or name.startswith(BUILD_FILE_PREFIXES)
 
 
-def collect_files(root: Path, required_configs: Iterable[Path]) -> list[tuple[Path, str, os.stat_result]]:
+def collect_files(
+    root: Path,
+    required_configs: Iterable[Path],
+) -> list[tuple[Path, str, os.stat_result]]:
     root = root.resolve(strict=True)
     required = {path.resolve(strict=True) for path in required_configs}
     selected: list[tuple[Path, str, os.stat_result]] = []
@@ -177,7 +234,130 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def build_manifest(files: Iterable[tuple[Path, str, os.stat_result]]) -> dict[str, object]:
+def _placeholder_value(value: str) -> bool:
+    candidate = value.strip().strip("\"'")
+    if not candidate:
+        return True
+    if re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::\?[^}]*)?\}", candidate):
+        return True
+    if re.fullmatch(r"\$[A-Za-z_][A-Za-z0-9_]*", candidate):
+        return True
+    if re.fullmatch(r"\{\{[^{}]+\}\}", candidate):
+        return True
+    if re.fullmatch(r"<(?:redacted|placeholder|secret|password|token|[^>]*_here)>", candidate, re.I):
+        return True
+    if candidate.upper() in {
+        "REDACTED",
+        "PLACEHOLDER",
+        "NOT_SET",
+        "UNSET",
+        "REPLACE_ME",
+        "YOUR_SECRET_HERE",
+        "YOUR_PASSWORD_HERE",
+        "YOUR_TOKEN_HERE",
+    }:
+        return True
+    if re.fullmatch(r"[*xX]{6,}", candidate):
+        return True
+    return False
+
+
+URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
+
+
+def _assignment_value_is_safe(name: str, value: str) -> bool:
+    if _placeholder_value(value):
+        return True
+    if name.upper() in URL_ENV_NAMES:
+        matches = list(CREDENTIALED_URI_RE.finditer(value.strip().strip("\"'")))
+        return not matches or all(
+            _placeholder_value(match.group("password")) for match in matches
+        )
+    return False
+
+
+def _scan_text(text: str, relative: str) -> tuple[str, ...]:
+    findings: set[str] = set()
+
+    for category, pattern in TOKEN_PATTERNS:
+        if pattern.search(text):
+            findings.add(category)
+
+    for match in CREDENTIALED_URI_RE.finditer(text):
+        if not _placeholder_value(match.group("password")):
+            findings.add("credentialed-uri")
+
+    relative_path = PurePosixPath(relative)
+    assignment_scan = (
+        relative_path.suffix.lower() in {".sh", ".yml", ".yaml", ".json", ".txt"}
+        or relative_path.name.lower().startswith(BUILD_FILE_PREFIXES)
+    )
+    if assignment_scan:
+        for pattern in (QUOTED_ENV_ASSIGNMENT_RE, BARE_ENV_ASSIGNMENT_RE):
+            for match in pattern.finditer(text):
+                if not _assignment_value_is_safe(
+                    match.group("name"), match.group("value")
+                ):
+                    findings.add("sensitive-environment-assignment")
+        if relative_path.suffix.lower() in {".yml", ".yaml", ".json"}:
+            mapping_patterns = [JSON_MAPPING_ENV_RE]
+            if relative_path.suffix.lower() in {".yml", ".yaml"}:
+                mapping_patterns.append(YAML_MAPPING_ENV_RE)
+            for pattern in mapping_patterns:
+                for match in pattern.finditer(text):
+                    if not _assignment_value_is_safe(
+                        match.group("name"), match.group("value")
+                    ):
+                        findings.add("sensitive-environment-assignment")
+
+    return tuple(sorted(findings))
+
+
+def scan_selected_files(
+    files: Iterable[tuple[Path, str, os.stat_result]],
+    required_configs: Iterable[Path],
+) -> tuple[
+    list[tuple[Path, str, os.stat_result]],
+    list[dict[str, object]],
+]:
+    required = {path.resolve(strict=True) for path in required_configs}
+    included: list[tuple[Path, str, os.stat_result]] = []
+    excluded: list[dict[str, object]] = []
+
+    for path, relative, metadata in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            raise RecoveryError(f"Selected text file is not valid UTF-8: {relative}") from exc
+
+        findings = _scan_text(text, relative)
+        if not findings:
+            included.append((path, relative, metadata))
+            continue
+
+        if path.resolve(strict=True) in required:
+            categories = ", ".join(findings)
+            raise RecoveryError(
+                f"Required Compose config contains sensitive content: {relative} ({categories})"
+            )
+
+        excluded.append(
+            {
+                "path": relative,
+                "size": metadata.st_size,
+                "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
+                "sha256": _sha256_file(path),
+                "findings": list(findings),
+            }
+        )
+
+    return included, excluded
+
+
+def build_manifest(
+    files: Iterable[tuple[Path, str, os.stat_result]],
+    excluded_sensitive_files: Iterable[dict[str, object]] = (),
+) -> dict[str, object]:
     entries = [
         {
             "path": relative,
@@ -187,15 +367,23 @@ def build_manifest(files: Iterable[tuple[Path, str, os.stat_result]]) -> dict[st
         }
         for path, relative, metadata in files
     ]
+    exclusions = list(excluded_sensitive_files)
     return {
         "schema": SCHEMA,
         "file_count": len(entries),
         "total_bytes": sum(int(entry["size"]) for entry in entries),
         "files": entries,
+        "excluded_sensitive_file_count": len(exclusions),
+        "excluded_sensitive_files": exclusions,
     }
 
 
-def _add_bytes(archive: tarfile.TarFile, name: str, payload: bytes, mode: int = 0o644) -> None:
+def _add_bytes(
+    archive: tarfile.TarFile,
+    name: str,
+    payload: bytes,
+    mode: int = 0o644,
+) -> None:
     info = tarfile.TarInfo(name)
     info.size = len(payload)
     info.mode = mode
@@ -204,38 +392,78 @@ def _add_bytes(archive: tarfile.TarFile, name: str, payload: bytes, mode: int = 
 
 
 def stream_archive(
-    root: Path, project: str, files: list[tuple[Path, str, os.stat_result]], output: BinaryIO
+    root: Path,
+    project: str,
+    files: list[tuple[Path, str, os.stat_result]],
+    output: BinaryIO,
+    required_configs: Iterable[Path] = (),
 ) -> None:
-    manifest = build_manifest(files)
+    included, excluded = scan_selected_files(files, required_configs)
+    manifest = build_manifest(included, excluded)
     receipt = {
         "schema": SCHEMA,
         "operation": "recover-v3-runtime-contract",
         "container": CONTAINER_NAME,
         "source_root": str(root),
         "compose_project": project,
-        "docker_metadata_fields": [COMPOSE_PROJECT_LABEL, COMPOSE_WORKING_DIR_LABEL, COMPOSE_CONFIG_FILES_LABEL],
+        "docker_metadata_fields": [
+            COMPOSE_PROJECT_LABEL,
+            COMPOSE_WORKING_DIR_LABEL,
+            COMPOSE_CONFIG_FILES_LABEL,
+        ],
         "docker_inspect_env": False,
+        "source_content_scan": {
+            "performed": True,
+            "mode": "fail-closed-before-stream",
+            "rules": list(CONTENT_SCAN_RULES),
+            "candidate_file_count": len(files),
+            "candidate_total_bytes": sum(metadata.st_size for _, _, metadata in files),
+            "included_file_count": manifest["file_count"],
+            "included_total_bytes": manifest["total_bytes"],
+            "excluded_sensitive_file_count": manifest["excluded_sensitive_file_count"],
+        },
         "db_access": False,
         "host_mutation": False,
         "file_count": manifest["file_count"],
         "total_bytes": manifest["total_bytes"],
-        "limits": {"max_files": MAX_FILES, "max_total_bytes": MAX_TOTAL_BYTES, "max_file_bytes": MAX_FILE_BYTES},
+        "limits": {
+            "max_files": MAX_FILES,
+            "max_total_bytes": MAX_TOTAL_BYTES,
+            "max_file_bytes": MAX_FILE_BYTES,
+        },
     }
+
     with tarfile.open(fileobj=output, mode="w|gz", format=tarfile.PAX_FORMAT) as archive:
-        for path, relative, metadata in files:
+        for path, relative, metadata in included:
             info = tarfile.TarInfo(f"source/{relative}")
             info.size = metadata.st_size
             info.mode = stat.S_IMODE(metadata.st_mode)
             info.mtime = 0
             with path.open("rb") as handle:
                 archive.addfile(info, handle)
-        _add_bytes(archive, "recovery-manifest.json", json.dumps(manifest, indent=2, sort_keys=True).encode() + b"\n")
-        _add_bytes(archive, "recovery-receipt.json", json.dumps(receipt, indent=2, sort_keys=True).encode() + b"\n")
+        _add_bytes(
+            archive,
+            "recovery-manifest.json",
+            json.dumps(manifest, indent=2, sort_keys=True).encode() + b"\n",
+        )
+        _add_bytes(
+            archive,
+            "recovery-receipt.json",
+            json.dumps(receipt, indent=2, sort_keys=True).encode() + b"\n",
+        )
 
 
 def docker_compose_labels(container: str) -> str:
     result = subprocess.run(
-        ["docker", "inspect", "--type", "container", "--format", "{{json .Config.Labels}}", container],
+        [
+            "docker",
+            "inspect",
+            "--type",
+            "container",
+            "--format",
+            "{{json .Config.Labels}}",
+            container,
+        ],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -254,11 +482,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root, configs, project = parse_compose_labels(docker_compose_labels(args.container))
         files = collect_files(root, configs)
-        stream_archive(root, project, files, sys.stdout.buffer)
+        stream_archive(root, project, files, sys.stdout.buffer, required_configs=configs)
     except (OSError, RecoveryError, subprocess.SubprocessError) as exc:
         print(f"STOP: V3 runtime recovery failed closed: {exc}", file=sys.stderr)
         return 1
-    print("V3 runtime recovery stream completed without DB access or host mutation", file=sys.stderr)
+    print(
+        "V3 runtime recovery stream completed without DB access or host mutation",
+        file=sys.stderr,
+    )
     return 0
 
 
