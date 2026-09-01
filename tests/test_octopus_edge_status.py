@@ -92,13 +92,15 @@ def test_version_requires_exact_expected_release_not_http_success_or_substring()
     assert matches("x" * 4097 + "1.0.122") is False
 
 
-def test_multi_proxy_topology_is_inspected_and_route_can_exist_in_any_candidate():
+def test_multi_proxy_topology_inspects_every_candidate_and_route_can_exist_in_any():
     source = ACTION.read_text(encoding="utf-8")
     inspection = source.split("nginx_candidates =", 1)[1].split('receipt["proxy"] = proxy', 1)[0]
-    assert 'for candidate in nginx_candidates[:10]:' in inspection
+    assert 'for candidate in nginx_candidates:' in inspection
+    assert 'nginx_candidates[:10]' not in inspection
     assert 'run(["docker", "exec", candidate, "nginx", "-T"])' in inspection
     assert 'route_found = route_found or item["route_present"]' in inspection
     assert '"candidate_count": len(nginx_candidates)' in inspection
+    assert '"inspected_count": len(proxy_items)' in inspection
     assert '"multi_proxy_topology_supported": True' in inspection
     assert 'failures.append("proxy_container_missing")' in inspection
     assert 'failures.append("proxy_inspection_failed")' in inspection
