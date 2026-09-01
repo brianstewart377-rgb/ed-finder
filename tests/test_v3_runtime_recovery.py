@@ -161,6 +161,9 @@ def test_safe_placeholders_remain_recoverable(tmp_path: Path):
             (
                 'OPENAI_API_KEY="${OPENAI_API_KEY}"',
                 'DATABASE_URL="postgresql://app:${POSTGRES_PASSWORD}@db/app"',
+                'REDIS_URL="redis://:${REDIS_PASSWORD}@cache/0"',
+                'CACHE_URL="host=cache password=${CACHE_PASSWORD}"',
+                'DATABASE_URL="postgresql://db/app?password=${POSTGRES_PASSWORD}"',
                 "",
             )
         ),
@@ -218,6 +221,54 @@ def test_optional_credentialed_uri_is_excluded_with_provenance_only(tmp_path: Pa
             if source is not None:
                 retained_payload += source.read()
     assert secret.encode() not in retained_payload
+
+
+def test_redis_uri_with_empty_username_is_excluded(tmp_path: Path):
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    secret = "redis-" + "credential-value"
+    unsafe = tmp_path / "legacy-cache.py"
+    unsafe.write_text(
+        "cache = " + repr("redis://:" + f"{secret}@cache/0") + "\n",
+        encoding="utf-8",
+    )
+    files = recovery.collect_files(tmp_path, [compose])
+    included, excluded = recovery.scan_selected_files(files, [compose])
+    assert [relative for _, relative, _ in included] == ["compose.yml"]
+    assert excluded[0]["path"] == "legacy-cache.py"
+    assert excluded[0]["findings"] == ["credentialed-uri"]
+
+
+def test_uri_query_credential_is_excluded(tmp_path: Path):
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    secret = "query-" + "credential-value"
+    unsafe = tmp_path / "legacy-query.py"
+    unsafe.write_text(
+        "dsn = " + repr("postgresql://db/app?sslmode=require&password=" + secret) + "\n",
+        encoding="utf-8",
+    )
+    files = recovery.collect_files(tmp_path, [compose])
+    included, excluded = recovery.scan_selected_files(files, [compose])
+    assert [relative for _, relative, _ in included] == ["compose.yml"]
+    assert excluded[0]["path"] == "legacy-query.py"
+    assert excluded[0]["findings"] == ["credentialed-uri"]
+
+
+def test_database_url_dsn_password_parameter_is_excluded(tmp_path: Path):
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    secret = "dsn-" + "credential-value"
+    unsafe = tmp_path / "legacy-start.sh"
+    unsafe.write_text(
+        'DATABASE_URL="host=db dbname=app user=app password=' + secret + '"\n',
+        encoding="utf-8",
+    )
+    files = recovery.collect_files(tmp_path, [compose])
+    included, excluded = recovery.scan_selected_files(files, [compose])
+    assert [relative for _, relative, _ in included] == ["compose.yml"]
+    assert excluded[0]["path"] == "legacy-start.sh"
+    assert excluded[0]["findings"] == ["sensitive-environment-assignment"]
 
 
 def test_historical_docker_env_json_is_excluded_without_secret_values(tmp_path: Path):
