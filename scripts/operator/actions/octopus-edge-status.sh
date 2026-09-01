@@ -184,7 +184,7 @@ nginx_candidates = [item["name"] for item in containers
 proxy_items = []
 route_found = False
 all_inspected = bool(nginx_candidates)
-for candidate in nginx_candidates[:10]:
+for candidate in nginx_candidates:
     nginx_result = run(["docker", "exec", candidate, "nginx", "-T"])
     item = {
         "name": candidate,
@@ -203,6 +203,7 @@ for candidate in nginx_candidates[:10]:
 proxy = {
     "inspection_succeeded": all_inspected,
     "candidate_count": len(nginx_candidates),
+    "inspected_count": len(proxy_items),
     "route_present": route_found,
     "items": proxy_items,
     "multi_proxy_topology_supported": True,
