@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 
@@ -26,6 +27,22 @@ def test_ed_new_workflow_and_dispatch_allowlist_dedicated_action():
     assert f"trusted-main/scripts/operator/actions/{OPERATION}.sh" in workflow
     assert f"{OPERATION})" in dispatch
     assert f"exec bash scripts/operator/actions/{OPERATION}.sh" in dispatch
+
+
+def test_missing_python_still_emits_structured_stopped_receipt():
+    result = subprocess.run(
+        ["/bin/bash", str(ACTION)],
+        capture_output=True,
+        text=True,
+        env={"PATH": "/definitely-missing"},
+    )
+    assert result.returncode == 1
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == "ed-finder/operator-operation-result/v1"
+    assert payload["operation"] == OPERATION
+    assert payload["status"] == "stopped"
+    assert payload["read_only"] is True
+    assert payload["failures"] == ["python3_unavailable"]
 
 
 def test_variable_docker_network_proxy_route_is_correlated_in_same_server():
