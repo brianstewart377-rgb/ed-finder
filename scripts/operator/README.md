@@ -18,6 +18,10 @@ Current scripts:
 
 - `require_hetzner_operator_env.sh`: reusable fail-fast guard for
   Hetzner-only commands.
+- `actions/octopus-qdrant-healthcheck-repair.sh`: narrowly repairs the known
+  broken `wget` healthcheck in Octopus v1.0.122's Qdrant Compose service,
+  recreates only Qdrant, and starts/verifies the blocked web service. It does
+  not read `.env`, access a database, or modify volumes.
 - `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
   `recover-v3-runtime-contract` operation. It identifies the retained Phase 4C
   R5 Compose source root from container labels, rejects secret-like and unsafe

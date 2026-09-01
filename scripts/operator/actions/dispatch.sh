@@ -20,6 +20,9 @@ case "$stage" in
   db-readonly-health)
     exec bash scripts/operator/actions/db-readonly-health.sh
     ;;
+  octopus-qdrant-healthcheck-repair)
+    exec bash scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh
+    ;;
   latest-stage18j-summary)
     exec bash scripts/operator/actions/latest-artifact-summary.sh "stage-18j"
     ;;
