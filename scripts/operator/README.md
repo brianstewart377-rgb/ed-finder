@@ -20,8 +20,10 @@ Current scripts:
   Hetzner-only commands.
 - `actions/octopus-qdrant-healthcheck-repair.sh`: narrowly repairs the known
   broken `wget` healthcheck in Octopus v1.0.122's Qdrant Compose service,
-  recreates only Qdrant, and starts/verifies the blocked web service. It does
-  not read `.env`, access a database, or modify volumes.
+  accepts the exact repaired state on a resumable rerun, recreates only Qdrant,
+  verifies the existing Postgres container is healthy without accessing it,
+  and starts/verifies web without managing its dependencies. It does not read
+  `.env`, access a database, or modify volumes.
 - `actions/octopus-edge-status.sh`: fail-closed, read-only status receipt for
   Octopus v1.0.122 on `ed-finder-prod`. It reports the bounded edge listeners,
   relevant containers, internal health/version, sanitized nginx routing, DNS,
