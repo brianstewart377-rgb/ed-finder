@@ -60,3 +60,4 @@
 046_powerplay_observations.sql
 047_routes.sql
 048_frontier_accounts.sql
+049_web_sessions_cleanup_indexes.sql

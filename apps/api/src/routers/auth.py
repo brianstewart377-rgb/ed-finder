@@ -95,9 +95,10 @@ def _oauth_client_address(request: Request) -> str:
         return peer or 'unknown'
 
     # The API port is host-loopback-only. Requests arriving from nginx use its
-    # private Docker address, and nginx overwrites X-Real-IP with $remote_addr.
-    # Never accept this header from direct/loopback clients, where it is
-    # caller-controlled.
+    # private Docker address, and nginx overwrites X-Real-IP with its resolved
+    # $remote_addr (CF-Connecting-IP only for a trusted Cloudflare peer; the
+    # socket address otherwise). Never accept this header from direct/loopback
+    # clients, where it is caller-controlled.
     if peer_ip.is_private and not peer_ip.is_loopback:
         forwarded = request.headers.get('x-real-ip', '').strip()
         try:
@@ -253,7 +254,10 @@ async def _upsert_user_and_session(
     )
     async with pool.acquire() as conn:
         async with conn.transaction():
-            await conn.execute('DELETE FROM web_sessions WHERE expires_at <= NOW() OR revoked_at IS NOT NULL')
+            await conn.execute(
+                'DELETE FROM web_sessions WHERE expires_at <= NOW() AND revoked_at IS NULL'
+            )
+            await conn.execute('DELETE FROM web_sessions WHERE revoked_at IS NOT NULL')
             record = await conn.fetchrow(
                 """
                 INSERT INTO app_users (

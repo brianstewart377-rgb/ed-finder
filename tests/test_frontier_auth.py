@@ -128,6 +128,34 @@ def test_oauth_rate_limit_ignores_forwarded_header_from_direct_client():
     assert auth_router._oauth_client_address(request) == '127.0.0.1'
 
 
+def test_nginx_only_resolves_cloudflare_visitor_ip_from_trusted_edge_networks():
+    nginx = (ROOT / 'config' / 'nginx.conf').read_text(encoding='utf-8')
+    trusted_networks = {
+        line.removeprefix('set_real_ip_from ').removesuffix(';')
+        for line in (line.strip() for line in nginx.splitlines())
+        if line.startswith('set_real_ip_from ')
+    }
+
+    assert 'real_ip_header CF-Connecting-IP;' in nginx
+    assert 'real_ip_recursive off;' in nginx
+    assert trusted_networks == {
+        '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22',
+        '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18',
+        '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22',
+        '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+        '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+        '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32',
+        '2405:b500::/32', '2405:8100::/32', '2a06:98c0::/29',
+        '2c0f:f248::/32',
+    }
+    assert 'proxy_set_header   X-Real-IP         $http_cf_connecting_ip;' not in nginx
+
+    # nginx's real-IP module rewrites $remote_addr only for trusted peers. The
+    # API therefore receives either the verified Cloudflare visitor address or
+    # the direct socket peer, never an unchecked client header.
+    assert 'proxy_set_header   X-Real-IP         $remote_addr;' in nginx
+
+
 @pytest.mark.asyncio
 async def test_frontier_login_canonicalizes_to_registered_callback_host(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, 'frontier_client_id', 'client-123')
@@ -360,3 +388,25 @@ def test_frontier_account_migration_is_manifested_and_does_not_store_oauth_token
     assert 'oauth_login_states' in migration
     assert 'access_token' not in migration
     assert 'refresh_token' not in migration
+
+
+def test_web_session_cleanup_uses_predicate_matched_indexes():
+    auth_source = (ROOT / 'apps' / 'api' / 'src' / 'routers' / 'auth.py').read_text(
+        encoding='utf-8'
+    )
+    migration = (ROOT / 'sql' / '049_web_sessions_cleanup_indexes.sql').read_text(
+        encoding='utf-8'
+    )
+    manifest = (ROOT / 'sql' / 'migration-manifest.txt').read_text(encoding='utf-8')
+
+    assert '049_web_sessions_cleanup_indexes.sql' in manifest
+    assert (
+        'DELETE FROM web_sessions WHERE expires_at <= NOW() AND revoked_at IS NULL'
+        in auth_source
+    )
+    assert 'DELETE FROM web_sessions WHERE revoked_at IS NOT NULL' in auth_source
+    assert 'expires_at <= NOW() OR revoked_at IS NOT NULL' not in auth_source
+    assert 'ON web_sessions (expires_at)' in migration
+    assert 'WHERE revoked_at IS NULL' in migration
+    assert 'ON web_sessions (revoked_at)' in migration
+    assert 'WHERE revoked_at IS NOT NULL' in migration
