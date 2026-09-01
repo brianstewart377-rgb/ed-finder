@@ -98,12 +98,17 @@ BARE_ENV_ASSIGNMENT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
     r"(?P<value>\$\{[^}\r\n]*\}|[^\s,\"'\]\}]+)",
 )
+# Mapping keys must be genuine line/flow-map keys. In particular, do not treat
+# the colon in shell/Compose interpolation (e.g. ${PASSWORD_FILE:-path}) as a
+# YAML mapping separator. The negative lookbehind on the flow-map opening brace
+# keeps `${...}` out while still accepting `{PASSWORD: value}` and comma keys.
+MAPPING_KEY_PREFIX = r"(?:^\s*|(?<!\$)[{,]\s*)"
 QUOTED_MAPPING_ENV_RE = re.compile(
-    rf"(?<![A-Za-z0-9_])(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
+    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
     r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote)",
 )
 BARE_MAPPING_ENV_RE = re.compile(
-    rf"(?<![A-Za-z0-9_])(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
+    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
     r"(?P=keyquote)\s*:\s*(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+)",
 )
 DOCKERFILE_ENV_SPACE_RE = re.compile(
