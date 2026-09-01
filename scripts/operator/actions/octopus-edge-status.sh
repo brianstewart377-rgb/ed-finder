@@ -18,7 +18,7 @@ import socket
 import subprocess
 import sys
 
-EXPECTED_HOST = "ed-finder"
+EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 PUBLIC_NAME = "octopus.ed-finder.app"
 EXPECTED_VERSION = "1.0.122"

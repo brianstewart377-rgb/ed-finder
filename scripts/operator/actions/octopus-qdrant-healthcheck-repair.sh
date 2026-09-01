@@ -3,7 +3,7 @@ set -euo pipefail
 
 OCTOPUS_DIR="/opt/octopus"
 COMPOSE_FILE="$OCTOPUS_DIR/docker-compose.selfhost.yml"
-EXPECTED_HOST="ed-finder"
+EXPECTED_HOST="ed-finder-prod"
 EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"
 EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"
 BACKUP=""
@@ -48,7 +48,11 @@ on_exit() {
 }
 trap on_exit EXIT
 
-[ "$(hostname -s)" = "$EXPECTED_HOST" ] || stop "unexpected_host"
+host_identity_matches() {
+  [ "$1" = "$EXPECTED_HOST" ]
+}
+
+host_identity_matches "$(hostname -s)" || stop "unexpected_host"
 [ "$(id -u)" -eq 0 ] || stop "root_required"
 [ "$(pwd -P)" = "/opt/ed-finder" ] || stop "unexpected_working_directory"
 [ -d "$OCTOPUS_DIR" ] || stop "octopus_directory_missing"

@@ -25,7 +25,7 @@ Current scripts:
   and starts/verifies web without managing its dependencies. It does not read
   `.env`, access a database, or modify volumes.
 - `actions/octopus-edge-status.sh`: fail-closed, read-only status receipt for
-  Octopus v1.0.122 on short host `ed-finder`. It reports the bounded edge listeners,
+  Octopus v1.0.122 on short host `ed-finder-prod`. It reports the bounded edge listeners,
   relevant containers, internal health/version, sanitized nginx routing, DNS,
   public HTTP/HTTPS responses, and the certificate actually served for Octopus
   SNI. It does not read environment or private-key files, access a database,
