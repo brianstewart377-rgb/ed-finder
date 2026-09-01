@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep the operation contract machine-readable even if the Python runtime is absent.
+if ! command -v python3 >/dev/null 2>&1; then
+    printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"octopus-edge-status","status":"stopped","read_only":true,"db_access_performed":false,"db_writes_performed":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false,"failures":["python3_unavailable"]}'
+    exit 1
+fi
+
 # This action deliberately delegates all inspection to a fixed Python program:
 # no caller-controlled command, path, hostname, or container name is accepted.
 exec python3 - <<'PY'
