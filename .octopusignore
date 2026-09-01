@@ -1,0 +1,42 @@
+# Octopus uses gitignore syntax. Keep this narrower than .gitignore because
+# matches are excluded from both repository indexing and pull-request review.
+
+# Reproducible dependency and local-environment content.
+/node_modules/
+/frontend/node_modules/
+/.venv/
+
+# Generated build, test, cache, and coverage outputs.
+**/__pycache__/
+/.pytest_cache/
+/.coverage
+/.coverage.*
+/coverage/
+/htmlcov/
+/build/
+/dist/
+/frontend/dist/
+/frontend/coverage/
+/frontend/.vite/
+/frontend/playwright-report/
+/frontend/test-results/
+
+# This client is regenerated from the API's OpenAPI schema; review the schema,
+# generator, and handwritten frontend API boundary instead.
+/frontend/src/types/api.gen.ts
+
+# Yarn v1 rewrites this large machine-managed dependency graph. Dependency
+# intent and reviewable version changes remain visible in package.json.
+/frontend/yarn.lock
+
+# Browser-validation screenshots are durable visual receipts, but their binary
+# contents provide no useful text context. Keep adjacent README/JSON evidence.
+/docs/development/evidence/**/*.png
+/docs/development/evidence/**/*.jpg
+/docs/development/evidence/**/*.jpeg
+/artifacts/**/*.png
+/artifacts/**/*.jpg
+/artifacts/**/*.jpeg
+
+# Historical root-level captured diffs are archived residue, not live source.
+/*.patch

@@ -1,5 +1,6 @@
 from pathlib import Path
 import subprocess
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,3 +55,51 @@ def test_repo_hygiene_policy_exists_and_names_the_machine_guards():
     assert 'tests/test_bounded_hygiene_pass.py' in source
     assert 'tests/test_repo_hygiene_contract.py' in source
     assert 'Repo root is allowlist-only for tracked visible files.' in source
+
+
+def _octopus_ignored_paths(paths: set[str]) -> set[str]:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        sandbox = Path(temp_dir)
+        subprocess.run(
+            ['git', 'init', '--quiet', str(sandbox)],
+            check=True,
+        )
+        (sandbox / '.gitignore').write_text(
+            (ROOT / '.octopusignore').read_text(encoding='utf-8'),
+            encoding='utf-8',
+        )
+        result = subprocess.run(
+            ['git', '-C', str(sandbox), 'check-ignore', '--no-index', *sorted(paths)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    assert result.returncode in {0, 1}
+    return set(result.stdout.splitlines())
+
+
+def test_octopus_ignore_excludes_only_review_noise():
+    expected_noise = {
+        'frontend/dist/assets/app.js',
+        'frontend/src/types/api.gen.ts',
+        'frontend/yarn.lock',
+        'docs/development/evidence/example/browser.png',
+        'artifacts/map-foundation/example/screenshot.jpg',
+        'captured-review.patch',
+    }
+    protected_review_targets = {
+        '.github/workflows/ci.yml',
+        'apps/api/src/main.py',
+        'config/grafana/provisioning/dashboards/default.yml',
+        'docker-compose.yml',
+        'env.example',
+        'frontend/package.json',
+        'frontend/public/assets/elite-dangerous-region-map.svg',
+        'scripts/apply_migrations.sh',
+        'sql/001_initial_schema.sql',
+        'tests/fixtures/edsm_body_ring_snapshot.json',
+        'tests/test_repo_hygiene_contract.py',
+    }
+
+    candidates = expected_noise | protected_review_targets
+    assert _octopus_ignored_paths(candidates) == expected_noise
