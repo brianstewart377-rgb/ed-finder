@@ -80,39 +80,34 @@ COMPOSE_CONFIG_FILES_LABEL = "com.docker.compose.project.config_files"
 COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
 SCHEMA = "edfinder-v3-runtime-recovery/v2"
 
-SENSITIVE_ENV_NAME = (
-    r"(?:"
-    r"[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|PRIVATE_KEY|API_KEY|APIKEY)"
-    r"[A-Z0-9_]*"
-    r"|[A-Z][A-Z0-9_]*_PASS(?:_[A-Z0-9_]+)*"
-    r"|PASSWORD|PASSWD|PASS|TOKEN|SECRET|PRIVATE_KEY|API_KEY|APIKEY"
-    r"|DATABASE_URL|REDIS_URL|CACHE_URL|CELERY_BROKER_URL"
-    r"|OCTOPUS_DATA_KEY|DATA_ENCRYPTION_KEY"
-    r")"
-)
+IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+MAPPING_KEY_PREFIX = r"(?:^\s*|(?<!\$)[{,]\s*)"
 QUOTED_ENV_ASSIGNMENT_RE = re.compile(
-    rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
+    rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
     r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)",
+    re.MULTILINE,
 )
 BARE_ENV_ASSIGNMENT_RE = re.compile(
-    rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
+    rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
     r"(?P<value>\$\{[^}\r\n]*\}|[^\s,\"'\]\}]+)",
+    re.MULTILINE,
 )
 # Mapping keys must be genuine line/flow-map keys. In particular, do not treat
 # the colon in shell/Compose interpolation (e.g. ${PASSWORD_FILE:-path}) as a
-# YAML mapping separator. The negative lookbehind on the flow-map opening brace
-# keeps `${...}` out while still accepting `{PASSWORD: value}` and comma keys.
-MAPPING_KEY_PREFIX = r"(?:^\s*|(?<!\$)[{,]\s*)"
+# YAML mapping separator. Bare values explicitly exclude quote-started scalars
+# so a quoted placeholder cannot be matched a second time as a truncated bare
+# value.
 QUOTED_MAPPING_ENV_RE = re.compile(
-    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
+    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
     r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote)",
 )
 BARE_MAPPING_ENV_RE = re.compile(
-    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
-    r"(?P=keyquote)\s*:\s*(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+)",
+    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
+    r"(?P=keyquote)\s*:(?![ \t]*[\"'])[ \t]*"
+    r"(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+)",
 )
 DOCKERFILE_ENV_SPACE_RE = re.compile(
-    rf"(?im)^\s*ENV\s+(?P<name>{SENSITIVE_ENV_NAME})\s+(?P<value>[^\r\n#]+)"
+    rf"(?im)^\s*ENV\s+(?P<name>{IDENTIFIER})\s+(?P<value>[^\r\n#]+)"
 )
 CREDENTIALED_URI_RE = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<password>[^@\s/]+)@"
@@ -129,6 +124,24 @@ DSN_CREDENTIAL_PARAM_RE = re.compile(
 SQL_PASSWORD_RE = re.compile(
     r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
     r"(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
+)
+AUTHORIZATION_RE = re.compile(
+    r"""(?im)[\"']?Authorization[\"']?\s*[:=]\s*"""
+    r"""(?P<quote>[\"']?)(?P<scheme>Bearer|Basic)\s+"""
+    r"""(?P<credential>[^\s\"',\]]+)"""
+)
+STRUCTURED_ENV_NAME_RE = re.compile(
+    rf"""^(?P<indent>[ \t]*)-\s*name\s*:\s*"""
+    rf"""(?P<quote>[\"']?)(?P<name>{IDENTIFIER})(?P=quote)\s*(?:#.*)?$""",
+    re.IGNORECASE,
+)
+STRUCTURED_ENV_VALUE_RE = re.compile(
+    r"""^(?P<indent>[ \t]*)value\s*:\s*(?P<value>.+?)\s*(?:#.*)?$""",
+    re.IGNORECASE,
+)
+STRUCTURED_ENV_VALUE_FROM_RE = re.compile(
+    r"""^(?P<indent>[ \t]*)valueFrom\s*:""",
+    re.IGNORECASE,
 )
 TOKEN_PATTERNS = (
     (
@@ -148,12 +161,45 @@ TOKEN_PATTERNS = (
 CONTENT_SCAN_RULES = (
     "private-key-material",
     "recognized-api-token",
+    "authorization-credential",
     "credentialed-uri-or-dsn",
     "non-placeholder-sensitive-assignment",
+    "structured-name-value-environment-entry",
     "sql-password-statement",
     "exact-scanned-bytes-archived",
+    "sensitive-file-digest-omitted",
 )
 URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
+TOKEN_METRIC_WORDS = {
+    "BUDGET",
+    "BUDGETS",
+    "CAP",
+    "CAPACITY",
+    "COUNT",
+    "COUNTS",
+    "EXPIRATION",
+    "EXPIRY",
+    "LENGTH",
+    "LENGTHS",
+    "LIMIT",
+    "LIMITS",
+    "MAX",
+    "MIN",
+    "RATE",
+    "RATES",
+    "SIZE",
+    "SIZES",
+    "TTL",
+    "WINDOW",
+    "WINDOWS",
+}
+NONSENSITIVE_REFERENCE_NAMES = {
+    "SECRETKEYREF",
+    "SECRETREF",
+    "SECRETNAME",
+    "SECRETKEYSELECTOR",
+    "SECRETSOURCE",
+}
 
 
 @dataclass(frozen=True)
@@ -263,11 +309,38 @@ def collect_files(
     return selected
 
 
+def _name_is_sensitive(name: str) -> bool:
+    upper = name.upper()
+    compact = upper.replace("_", "")
+    if compact in NONSENSITIVE_REFERENCE_NAMES:
+        return False
+    if upper in URL_ENV_NAMES or upper in {"OCTOPUS_DATA_KEY", "DATA_ENCRYPTION_KEY"}:
+        return True
+    if any(
+        marker in upper
+        for marker in ("PASSWORD", "PASSWD", "PRIVATE_KEY", "API_KEY", "APIKEY", "SECRET")
+    ):
+        return True
+    if upper == "PASS" or upper.endswith("_PASS") or "_PASS_" in upper:
+        return True
+
+    parts = [part for part in upper.split("_") if part]
+    for index, part in enumerate(parts):
+        if part != "TOKEN":
+            continue
+        previous = parts[index - 1] if index else None
+        following = parts[index + 1] if index + 1 < len(parts) else None
+        if previous in TOKEN_METRIC_WORDS or following in TOKEN_METRIC_WORDS:
+            continue
+        return True
+    return False
+
+
 def _placeholder_value(value: str) -> bool:
     candidate = value.strip().strip("\"'")
     if not candidate:
         return True
-    var_name = r"[A-Za-z_][A-Za-z0-9_]*"
+    var_name = IDENTIFIER
     if re.fullmatch(rf"\$\{{{var_name}\}}", candidate):
         return True
     if re.fullmatch(rf"\$\{{{var_name}(?::?\?[^}}]*)\}}", candidate):
@@ -276,9 +349,34 @@ def _placeholder_value(value: str) -> bool:
         return True
     if re.fullmatch(rf"\${var_name}", candidate):
         return True
-    if re.fullmatch(r"\{\{[^{}]+\}\}", candidate):
+
+    jinja = re.fullmatch(r"\{\{(?P<body>[^{}]+)\}\}", candidate)
+    if jinja:
+        body = jinja.group("body").strip()
+        direct_literal = re.fullmatch(r"""(?P<quote>['\"])(?P<literal>.*?)(?P=quote)""", body)
+        if direct_literal:
+            return not bool(direct_literal.group("literal"))
+        default_match = re.search(
+            r"\bdefault\s*\(\s*(?P<argument>.*?)\s*\)",
+            body,
+            re.IGNORECASE,
+        )
+        if default_match:
+            argument = default_match.group("argument").strip()
+            quoted_default = re.fullmatch(
+                r"""(?P<quote>['\"])(?P<literal>.*?)(?P=quote)""",
+                argument,
+            )
+            if quoted_default:
+                return not bool(quoted_default.group("literal"))
+            return bool(re.fullmatch(IDENTIFIER, argument))
         return True
-    if re.fullmatch(r"<(?:redacted|placeholder|secret|password|token|[^>]*_here)>", candidate, re.I):
+
+    if re.fullmatch(
+        r"<(?:redacted|placeholder|secret|password|token|[^>]*_here)>",
+        candidate,
+        re.IGNORECASE,
+    ):
         return True
     if candidate.upper() in {
         "REDACTED",
@@ -317,8 +415,74 @@ def _assignment_value_is_safe(name: str, value: str) -> bool:
     if upper_name in URL_ENV_NAMES:
         candidate = value.strip().strip("\"'")
         credential_values = _credential_values(candidate)
-        return not credential_values or all(_placeholder_value(item) for item in credential_values)
+        return not credential_values or all(
+            _placeholder_value(item) for item in credential_values
+        )
     return False
+
+
+def _scan_assignment_patterns(text: str, findings: set[str]) -> None:
+    for pattern in (
+        QUOTED_ENV_ASSIGNMENT_RE,
+        BARE_ENV_ASSIGNMENT_RE,
+        QUOTED_MAPPING_ENV_RE,
+        BARE_MAPPING_ENV_RE,
+    ):
+        for match in pattern.finditer(text):
+            name = match.group("name")
+            if not _name_is_sensitive(name):
+                continue
+            if not _assignment_value_is_safe(name, match.group("value")):
+                findings.add("sensitive-environment-assignment")
+
+
+def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        name_match = STRUCTURED_ENV_NAME_RE.match(line)
+        if not name_match:
+            continue
+        name = name_match.group("name")
+        if not _name_is_sensitive(name):
+            continue
+
+        base_indent = len(name_match.group("indent").expandtabs(4))
+        for next_line in lines[index + 1 : index + 8]:
+            stripped = next_line.lstrip(" \t")
+            next_indent = len(next_line[: len(next_line) - len(stripped)].expandtabs(4))
+            if stripped.startswith("-") and next_indent <= base_indent:
+                break
+            if STRUCTURED_ENV_VALUE_FROM_RE.match(next_line):
+                break
+            value_match = STRUCTURED_ENV_VALUE_RE.match(next_line)
+            if value_match:
+                if not _assignment_value_is_safe(name, value_match.group("value")):
+                    findings.add("sensitive-environment-assignment")
+                break
+
+
+def _scan_structured_json_environment(text: str, findings: set[str]) -> None:
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            name = value.get("name")
+            literal = value.get("value")
+            if isinstance(name, str) and _name_is_sensitive(name) and literal is not None:
+                if isinstance(literal, (str, int, float, bool)) and not _assignment_value_is_safe(
+                    name, str(literal)
+                ):
+                    findings.add("sensitive-environment-assignment")
+            for nested in value.values():
+                walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                walk(nested)
+
+    walk(document)
 
 
 def _scan_text(text: str, relative: str) -> tuple[str, ...]:
@@ -327,6 +491,10 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
     for category, pattern in TOKEN_PATTERNS:
         if pattern.search(text):
             findings.add(category)
+
+    for match in AUTHORIZATION_RE.finditer(text):
+        if not _placeholder_value(match.group("credential")):
+            findings.add("authorization-credential")
 
     for pattern in (CREDENTIALED_URI_RE, URI_QUERY_CREDENTIAL_RE):
         for match in pattern.finditer(text):
@@ -337,21 +505,21 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
         if not _placeholder_value(match.group("password")):
             findings.add("credentialed-dsn")
 
-    for pattern in (
-        QUOTED_ENV_ASSIGNMENT_RE,
-        BARE_ENV_ASSIGNMENT_RE,
-        QUOTED_MAPPING_ENV_RE,
-        BARE_MAPPING_ENV_RE,
-    ):
-        for match in pattern.finditer(text):
-            if not _assignment_value_is_safe(match.group("name"), match.group("value")):
-                findings.add("sensitive-environment-assignment")
+    _scan_assignment_patterns(text, findings)
 
     relative_path = PurePosixPath(relative)
     if relative_path.name.lower().startswith(BUILD_FILE_PREFIXES):
         for match in DOCKERFILE_ENV_SPACE_RE.finditer(text):
-            if not _assignment_value_is_safe(match.group("name"), match.group("value")):
+            name = match.group("name")
+            if _name_is_sensitive(name) and not _assignment_value_is_safe(
+                name, match.group("value")
+            ):
                 findings.add("sensitive-environment-assignment")
+
+    if relative_path.suffix.lower() in {".yml", ".yaml"}:
+        _scan_structured_yaml_environment(text, findings)
+    elif relative_path.suffix.lower() == ".json":
+        _scan_structured_json_environment(text, findings)
 
     if relative_path.suffix.lower() == ".sql":
         for match in SQL_PASSWORD_RE.finditer(text):
@@ -408,11 +576,15 @@ def scan_selected_files(
             raise RecoveryError(f"Selected text file is not valid UTF-8: {relative}") from exc
 
         findings = _scan_text(text, relative)
-        digest = hashlib.sha256(payload).hexdigest()
         mode = stat.S_IMODE(metadata.st_mode)
         if not findings:
             included.append(
-                ScannedFile(relative=relative, mode=mode, payload=payload, sha256=digest)
+                ScannedFile(
+                    relative=relative,
+                    mode=mode,
+                    payload=payload,
+                    sha256=hashlib.sha256(payload).hexdigest(),
+                )
             )
             continue
 
@@ -422,12 +594,14 @@ def scan_selected_files(
                 f"Required Compose config contains sensitive content: {relative} ({categories})"
             )
 
+        # Never publish a content digest for a file known to contain a secret.
+        # A whole-file digest can act as an offline oracle when the surrounding
+        # content is predictable and only the credential value varies.
         excluded.append(
             {
                 "path": relative,
                 "size": len(payload),
                 "mode": f"{mode:04o}",
-                "sha256": digest,
                 "findings": list(findings),
             }
         )
@@ -507,6 +681,7 @@ def stream_archive(
             "included_total_bytes": manifest["total_bytes"],
             "excluded_sensitive_file_count": manifest["excluded_sensitive_file_count"],
             "archive_uses_exact_scanned_bytes": True,
+            "excluded_sensitive_content_digests": False,
         },
         "db_access": False,
         "host_mutation": False,
