@@ -37,7 +37,9 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 # added here explicitly — a file silently excluded from this list would
 # defeat the point of the contract.
 CHECKED_WORKFLOWS = (
+    'chatgpt-ed-new-ops-dispatch.yml',
     'chatgpt-ed-new-ops.yml',
+    'chatgpt-ops-dispatch.yml',
     'chatgpt-ops.yml',
     'ci.yml',
     'codeql.yml',

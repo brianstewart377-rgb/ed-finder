@@ -1,0 +1,99 @@
+name: ChatGPT ed-new Ops Request Dispatch
+run-name: ChatGPT ed-new Ops Request Dispatch · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/ed-new-ops-requests/*.json'
+
+# The request branch controls this definition, so it deliberately has no
+# environment and no secret references. Privilege exists only on trusted main.
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout request revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve one bounded request
+        id: request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          zero_sha=0000000000000000000000000000000000000000
+          if [ "$BEFORE_SHA" = "$zero_sha" ]; then
+            base_sha="$(git merge-base origin/main "$CURRENT_SHA")"
+          else
+            git cat-file -e "$BEFORE_SHA^{commit}" 2>/dev/null || {
+              echo "Push before revision is unavailable; refusing a partial-range request" >&2
+              exit 64
+            }
+            base_sha="$BEFORE_SHA"
+          fi
+          mapfile -t changed_files < <(git diff --name-only "$base_sha" "$CURRENT_SHA")
+          [ "${#changed_files[@]}" -eq 1 ] || {
+            echo "Expected exactly one changed ed-new request JSON; found ${#changed_files[@]}" >&2
+            printf '%s\n' "${changed_files[@]:-}" >&2
+            exit 64
+          }
+          request_file="${changed_files[0]}"
+          case "$request_file" in
+            .github/ed-new-ops-requests/*.json) ;;
+            *) echo "Push changed a path outside the request allowlist" >&2; exit 64 ;;
+          esac
+          [ -f "$request_file" ] || { echo "Request must not be deleted" >&2; exit 64; }
+          operation="$(python3 -c 'import json,pathlib,sys; d=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")); extra=set(d)-{"operation"}; extra and sys.exit(f"Unsupported request keys: {sorted(extra)}"); op=d.get("operation"); (isinstance(op,str) and op) or sys.exit("operation must be a non-empty string"); print(op)' "$request_file")"
+          case "$operation" in
+            host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair) ;;
+            *) echo "Unsupported operation: $operation" >&2; exit 64 ;;
+          esac
+          request_id="$(basename "$request_file" .json)-${CURRENT_SHA:0:12}"
+          {
+            echo "operation=$operation"
+            echo "request_id=$request_id"
+            echo "request_file=$request_file"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch trusted executor on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          REQUEST_FILE: ${{ steps.request.outputs.request_file }}
+          REQUEST_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          payload="$(python3 - <<'PY'
+          import json, os
+          print(json.dumps({"ref": "main", "inputs": {
+              "operation": os.environ["OPERATION"],
+              "request_id": os.environ["REQUEST_ID"],
+              "request_file": os.environ["REQUEST_FILE"],
+              "request_sha": os.environ["REQUEST_SHA"],
+          }}))
+          PY
+          )"
+          code="$(curl --silent --show-error --location --output response.json --write-out '%{http_code}' \
+            --request POST --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/chatgpt-ed-new-ops.yml/dispatches" \
+            --data "$payload")"
+          [ "$code" = 204 ] || { echo "Trusted executor dispatch failed with HTTP $code" >&2; cat response.json >&2; exit 68; }
+          echo "CHATGPT_ED_NEW_OPS_DISPATCH_ACCEPTED=true"
+          echo "CHATGPT_ED_NEW_OPS_REQUEST_ID=$REQUEST_ID"
+          echo "CHATGPT_ED_NEW_OPS_REQUEST_FILE=$REQUEST_FILE"

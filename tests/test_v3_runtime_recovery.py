@@ -116,13 +116,15 @@ def test_archive_manifest_and_receipt_prove_no_db_and_no_mutation(tmp_path: Path
 
 def test_workflow_uses_exact_allowlist_pinned_trust_and_artifact_upload():
     workflow = (Path(__file__).parents[1] / ".github/workflows/chatgpt-ed-new-ops.yml").read_text()
+    request_dispatch = (Path(__file__).parents[1] / ".github/workflows/chatgpt-ed-new-ops-dispatch.yml").read_text()
     assert "recover-v3-runtime-contract" in workflow
     assert "ED_NEW_OPERATOR_KNOWN_HOSTS" in workflow
     assert "ssh-keyscan" not in workflow
     assert "StrictHostKeyChecking=yes" in workflow
     assert "ref: main" in workflow
     assert "trusted-main/scripts/operator/recover_v3_runtime_contract.py" in workflow
-    assert 'git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA"' in workflow
+    assert 'git diff --name-only "$base_sha" "$CURRENT_SHA"' in request_dispatch
+    assert "0000000000000000000000000000000000000000" in request_dispatch
     assert "{{json .Config.Labels}}" in (Path(__file__).parents[1] / "scripts/operator/recover_v3_runtime_contract.py").read_text()
     assert "Config.Env" not in (Path(__file__).parents[1] / "scripts/operator/recover_v3_runtime_contract.py").read_text()
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in workflow

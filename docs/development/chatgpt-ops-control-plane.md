@@ -6,17 +6,22 @@ Provide a small, auditable operations interface that lets ChatGPT manage routine
 
 This is deliberately **not** an unrestricted remote shell. It exposes named, fail-closed operations that wrap existing guarded scripts and runbooks.
 
-## Initial operation set
+## Current operation set
+
+The legacy Hetzner lane allows:
 
 - `production-status`
-- `backup-status`
-- `pgbackrest-check`
-- `api-smoke`
-- `collect-logs`
-- `restart-api`
-- `restart-worker`
-- `deploy-commit`
-- `run-governed-migrations`
+- `db-readonly-health`
+- `latest-artifacts`
+- `latest-artifact-summary`
+- `octopus-qdrant-healthcheck-repair`
+
+The ed-new lane allows:
+
+- `host-status`
+- `octopus-edge-status`
+- `recover-v3-runtime-contract`
+- `octopus-qdrant-healthcheck-repair`
 
 Destructive operations such as deleting volumes, pruning Docker data, dropping databases, reinitializing PostgreSQL, or rerunning Phase 4C are intentionally excluded.
 
@@ -35,9 +40,43 @@ The retained r5 production candidate remains protected by the existing `RETENTIO
 
 ## Delivery model
 
-The first implementation should use GitHub Actions `workflow_dispatch` as the control surface because ChatGPT already has direct GitHub access. Workflows should invoke a small allowlisted dispatcher and existing operator scripts.
+The production operations paths use a two-stage GitHub Actions control surface.
+A request workflow runs without an operator environment or operator secrets,
+validates one bounded request, and dispatches a separate privileged executor at
+`ref: main`. Only the executor may select an operator environment and invoke the
+existing allowlisted operator scripts.
 
-Server connectivity must use already-authorized deployment/SSH credentials if they exist in GitHub Actions. This repository change must not embed or create secrets in source control.
+The connector-friendly request paths are:
+
+- `.github/ops-requests/*.json` on `chatgpt-ops-requests` for the legacy
+  Hetzner lane, validated by `chatgpt-ops-dispatch.yml`;
+- `.github/ed-new-ops-requests/*.json` on
+  `chatgpt-ed-new-ops-requests` for the ed-new lane, validated by
+  `chatgpt-ed-new-ops-dispatch.yml`.
+
+Each push must introduce exactly one changed JSON request in the applicable
+directory and no other changed path. The dispatcher evaluates the complete push
+range, including multi-commit pushes and branch creation, rejects unsupported
+keys or operations, and sends only validated scalar inputs to the executor. A
+workflow file modified on either writable request branch therefore cannot gain
+an operator environment or consume operator secrets: the privileged workflow
+definition and implementation are both loaded from trusted `main`.
+
+The privileged `chatgpt-ops.yml` and `chatgpt-ed-new-ops.yml` executors retain
+their manual `workflow_dispatch` choices for the Actions UI. They have no push
+trigger. Branch-backed requests reach those same executor definitions through
+an explicit dispatch to trusted `main`.
+
+Each dispatch carries request ID, file, and commit metadata for correlation and
+receipts. Executors use workflow run IDs as a durable FIFO gate before the
+environment-bearing job. This preserves production serialization without a
+fixed Actions concurrency group that could replace a pending middle request.
+
+Server connectivity must use already-authorized deployment/SSH credentials if
+they exist in GitHub Actions. This repository change must not embed or create
+secrets in source control. The legacy executor uses exactly the
+`hetzner-operator` environment; the ed-new executor uses exactly the
+`ed-new-operator` environment. Request workflows use neither environment.
 
 If the repository does not already have suitable Actions credentials, the workflow may be merged in an inert state and the one remaining owner action is to add the required GitHub Actions secret/runner connection.
 

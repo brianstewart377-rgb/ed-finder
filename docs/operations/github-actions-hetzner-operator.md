@@ -2,7 +2,39 @@
 
 ## Purpose
 
-This manual workflow runs a small allowlisted set of operator checks on Hetzner without pasting large shell blocks into SSH.
+The Hetzner operator workflows run small allowlisted sets of operator checks
+without pasting large shell blocks into SSH. The ChatGPT paths accept both the
+existing manual Actions inputs and connector-friendly JSON requests, but
+request validation and privileged execution are separate workflow runs.
+
+## ChatGPT request trust boundary
+
+The writable request branches never run an environment-bearing job:
+
+- `chatgpt-ops-requests` accepts one changed
+  `.github/ops-requests/*.json` request through
+  `chatgpt-ops-dispatch.yml` and dispatches the legacy executor on trusted
+  `main`;
+- `chatgpt-ed-new-ops-requests` accepts one changed
+  `.github/ed-new-ops-requests/*.json` request through
+  `chatgpt-ed-new-ops-dispatch.yml` and dispatches the ed-new executor on
+  trusted `main`.
+
+The push range is resolved without assuming a two-commit checkout, so
+multi-commit pushes and the all-zero `before` SHA used for branch creation are
+validated across the full request. Any additional changed path, second request,
+unknown JSON key, or non-allowlisted operation fails closed before dispatch.
+
+The request workflows have no operator environment and no operator-secret
+references. Their dispatch always targets `ref: main`. The privileged
+executors are `workflow_dispatch` only: legacy selects `hetzner-operator`, and
+ed-new selects `ed-new-operator`. They never check out or execute code from the
+request ref.
+
+Each dispatch includes request ID, file, and commit metadata for correlation.
+The executors serialize production access with a FIFO gate ordered by workflow
+run ID. They do not use a fixed Actions concurrency group, whose single pending
+slot could replace a middle request when a newer request arrives.
 
 ## Current stages
 
@@ -43,12 +75,18 @@ Current stages do not perform:
 
 ## Required GitHub secrets
 
-Repository secrets:
+Environment secrets (`hetzner-operator`):
 
 - `HETZNER_OPERATOR_HOST`
 - `HETZNER_OPERATOR_PORT`
 - `HETZNER_OPERATOR_USER`
 - `HETZNER_OPERATOR_SSH_KEY`
+
+The legacy lane retains its existing runtime host-key discovery behavior. The
+repository does not currently define a pinned known-hosts secret contract for
+this environment, so this repair does not invent one or claim pinned host
+identity for the legacy connection. Replacing that behavior requires a
+separately provisioned, reviewed pinned-known-host contract.
 
 ## How to run
 
@@ -59,6 +97,11 @@ Repository secrets:
 5. Choose a stage.
 6. Enter an artifact stage if needed, for example `stage-18j`.
 7. Click **Run workflow**.
+
+The privileged ChatGPT executors expose equivalent operation choices in their
+manual **Run workflow** forms and are loaded from the selected protected
+`main` ref. Connector JSON requests instead produce a separate dispatcher run
+followed by the trusted-main environment-bearing executor run.
 
 ## Future stages
 
