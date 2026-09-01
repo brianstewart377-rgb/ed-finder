@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -67,7 +68,7 @@ def test_dispatcher_uses_dedicated_repair_action():
 def test_repair_action_has_fail_closed_scope_and_guards():
     source = ACTION.read_text(encoding="utf-8")
     required = (
-        'EXPECTED_HOST="ed-finder-prod"',
+        'EXPECTED_HOST="ed-finder"',
         'COMPOSE_FILE="$OCTOPUS_DIR/docker-compose.selfhost.yml"',
         'EXPECTED_IMAGE="qdrant/qdrant:v1.17.0"',
         'EXPECTED_POSTGRES_IMAGE="postgres:17-alpine"',
@@ -93,6 +94,34 @@ def test_repair_action_has_fail_closed_scope_and_guards():
     assert "password" not in source.lower()
     assert '"db_access_performed": False' in source
     assert '"volume_configuration_modified": False' in source
+
+
+@pytest.mark.parametrize(
+    ("short_host", "expected_reason"),
+    [
+        ("ed-finder", "unexpected_working_directory"),
+        ("ed-finder-prod", "unexpected_host"),
+        ("another-host", "unexpected_host"),
+    ],
+)
+def test_repair_action_accepts_only_exact_production_short_host(
+    tmp_path, short_host, expected_reason
+):
+    hostname = tmp_path / "hostname"
+    hostname.write_text(f"#!/bin/sh\nprintf '%s\\n' '{short_host}'\n", encoding="utf-8")
+    hostname.chmod(0o755)
+    user_id = tmp_path / "id"
+    user_id.write_text("#!/bin/sh\nprintf '0\\n'\n", encoding="utf-8")
+    user_id.chmod(0o755)
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}:/usr/bin:/bin"
+
+    result = subprocess.run(
+        ["/bin/bash", str(ACTION)], capture_output=True, text=True, env=env, check=False
+    )
+
+    assert result.returncode == 1
+    assert f'"reason":"{expected_reason}"' in result.stderr
 
 
 def test_editor_replaces_only_exact_broken_healthcheck(tmp_path):

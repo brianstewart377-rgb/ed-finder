@@ -18,7 +18,7 @@ import socket
 import subprocess
 import sys
 
-EXPECTED_HOST = "ed-finder-prod"
+EXPECTED_HOST = "ed-finder"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 PUBLIC_NAME = "octopus.ed-finder.app"
 EXPECTED_VERSION = "1.0.122"
@@ -64,6 +64,11 @@ def version_matches(body):
         candidates.extend(str(value.get(key, "")) for key in ("version", "release", "tag"))
     return any(re.search(r"(?:^|[^0-9])v?" + re.escape(EXPECTED_VERSION) + r"(?:$|[^0-9])", item)
                for item in candidates)
+
+
+def host_identity_matches(short_host, fqdn, fqdn_returncode):
+    return (short_host == EXPECTED_HOST and fqdn_returncode == 0 and
+            fqdn == EXPECTED_FQDN)
 
 
 def parse_proxy_servers(config):
@@ -139,7 +144,7 @@ host = socket.gethostname().split(".")[0]
 fqdn_result = run(["hostname", "-f"])
 fqdn = fqdn_result.stdout.strip()
 receipt["host"] = {"short": host, "fqdn": fqdn}
-if host != EXPECTED_HOST or fqdn_result.returncode or fqdn != EXPECTED_FQDN:
+if not host_identity_matches(host, fqdn, fqdn_result.returncode):
     failures.append("unexpected_host_identity")
 if run(["pwd", "-P"]).stdout.strip() != "/opt/ed-finder":
     failures.append("unexpected_working_directory")
