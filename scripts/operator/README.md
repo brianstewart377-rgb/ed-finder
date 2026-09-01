@@ -22,6 +22,12 @@ Current scripts:
   broken `wget` healthcheck in Octopus v1.0.122's Qdrant Compose service,
   recreates only Qdrant, and starts/verifies the blocked web service. It does
   not read `.env`, access a database, or modify volumes.
+- `actions/octopus-edge-status.sh`: fail-closed, read-only status receipt for
+  Octopus v1.0.122 on `ed-finder-prod`. It reports the bounded edge listeners,
+  relevant containers, internal health/version, sanitized nginx routing, DNS,
+  public HTTP/HTTPS responses, and the certificate actually served for Octopus
+  SNI. It does not read environment or private-key files, access a database,
+  write files, or restart services.
 - `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
   `recover-v3-runtime-contract` operation. It identifies the retained Phase 4C
   R5 Compose source root from container labels, rejects secret-like and unsafe

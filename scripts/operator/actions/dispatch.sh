@@ -23,6 +23,9 @@ case "$stage" in
   octopus-qdrant-healthcheck-repair)
     exec bash scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh
     ;;
+  octopus-edge-status)
+    exec bash scripts/operator/actions/octopus-edge-status.sh
+    ;;
   latest-stage18j-summary)
     exec bash scripts/operator/actions/latest-artifact-summary.sh "stage-18j"
     ;;
