@@ -7,12 +7,15 @@ root. The tar stream is written to stdout so the remote host is not mutated.
 
 Every candidate file is content-scanned before any archive bytes are emitted.
 Unsafe optional historical files are excluded with provenance-only metadata;
-unsafe required Compose files fail the whole recovery.
+unsafe required Compose files fail the whole recovery. The exact bytes that pass
+scanning are also the bytes hashed and archived, so a path cannot change between
+validation and export.
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import io
 import json
@@ -81,6 +84,8 @@ SENSITIVE_ENV_NAME = (
     r"(?:"
     r"[A-Z][A-Z0-9_]*(?:PASSWORD|PASSWD|TOKEN|SECRET|PRIVATE_KEY|API_KEY|APIKEY)"
     r"[A-Z0-9_]*"
+    r"|[A-Z][A-Z0-9_]*_PASS(?:_[A-Z0-9_]+)*"
+    r"|PASSWORD|PASSWD|PASS|TOKEN|SECRET|PRIVATE_KEY|API_KEY|APIKEY"
     r"|DATABASE_URL|REDIS_URL|CACHE_URL|CELERY_BROKER_URL"
     r"|OCTOPUS_DATA_KEY|DATA_ENCRYPTION_KEY"
     r")"
@@ -91,33 +96,40 @@ QUOTED_ENV_ASSIGNMENT_RE = re.compile(
 )
 BARE_ENV_ASSIGNMENT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<name>{SENSITIVE_ENV_NAME})\s*=\s*"
-    r"(?P<value>[^\s,\"'\]\}]+)",
+    r"(?P<value>\$\{[^}\r\n]*\}|[^\s,\"'\]\}]+)",
 )
-JSON_MAPPING_ENV_RE = re.compile(
-    rf'["\'](?P<name>{SENSITIVE_ENV_NAME})["\']\s*:\s*'
-    r'(?P<quote>["\'])(?P<value>.*?)(?P=quote)',
+QUOTED_MAPPING_ENV_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
+    r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote)",
 )
-YAML_MAPPING_ENV_RE = re.compile(
-    rf"(?m)^\s*(?P<name>{SENSITIVE_ENV_NAME})\s*:\s*(?P<value>[^\r\n#]+)",
+BARE_MAPPING_ENV_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<keyquote>[\"']?)(?P<name>{SENSITIVE_ENV_NAME})"
+    r"(?P=keyquote)\s*:\s*(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+)",
+)
+DOCKERFILE_ENV_SPACE_RE = re.compile(
+    rf"(?im)^\s*ENV\s+(?P<name>{SENSITIVE_ENV_NAME})\s+(?P<value>[^\r\n#]+)"
 )
 CREDENTIALED_URI_RE = re.compile(
-    r"(?i)\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|"
-    r"amqp|amqps)://[^/\s:@]*:(?P<password>[^@\s/]+)@",
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<password>[^@\s/]+)@"
 )
 URI_QUERY_CREDENTIAL_RE = re.compile(
-    r"(?i)\b(?:postgres(?:ql)?|mysql|mariadb|redis|rediss|mongodb(?:\+srv)?|"
-    r"amqp|amqps)://[^\s\"'<>]*[?&;]"
-    r"(?:password|passwd|pwd|secret|token|api_?key)=(?P<password>[^&#;\s\"'<>]+)",
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"'<>]*[?&;]"
+    r"(?:password|passwd|pwd|secret|token|api_?key)="
+    r"(?P<password>[^&#;\s\"'<>]+)"
 )
 DSN_CREDENTIAL_PARAM_RE = re.compile(
     r"(?i)(?:^|[\s?&;])(?:password|passwd|pwd|secret|token|api_?key)\s*=\s*"
-    r"(?P<password>[^\s;&]+)",
+    r"(?P<password>[^\s;&\"']+)"
+)
+SQL_PASSWORD_RE = re.compile(
+    r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
+    r"(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
 )
 TOKEN_PATTERNS = (
     (
         "private-key-material",
         re.compile(
-            r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+            r"-----BEGIN (?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
             re.IGNORECASE,
         ),
     ),
@@ -131,9 +143,20 @@ TOKEN_PATTERNS = (
 CONTENT_SCAN_RULES = (
     "private-key-material",
     "recognized-api-token",
-    "credentialed-database-or-cache-uri",
-    "non-placeholder-sensitive-environment-assignment",
+    "credentialed-uri-or-dsn",
+    "non-placeholder-sensitive-assignment",
+    "sql-password-statement",
+    "exact-scanned-bytes-archived",
 )
+URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
+
+
+@dataclass(frozen=True)
+class ScannedFile:
+    relative: str
+    mode: int
+    payload: bytes
+    sha256: str
 
 
 class RecoveryError(RuntimeError):
@@ -235,21 +258,18 @@ def collect_files(
     return selected
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _placeholder_value(value: str) -> bool:
     candidate = value.strip().strip("\"'")
     if not candidate:
         return True
-    if re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*(?::\?[^}]*)?\}", candidate):
+    var_name = r"[A-Za-z_][A-Za-z0-9_]*"
+    if re.fullmatch(rf"\$\{{{var_name}\}}", candidate):
         return True
-    if re.fullmatch(r"\$[A-Za-z_][A-Za-z0-9_]*", candidate):
+    if re.fullmatch(rf"\$\{{{var_name}(?::?\?[^}}]*)\}}", candidate):
+        return True
+    if re.fullmatch(rf"\$\{{{var_name}(?::-|-)\}}", candidate):
+        return True
+    if re.fullmatch(rf"\${var_name}", candidate):
         return True
     if re.fullmatch(r"\{\{[^{}]+\}\}", candidate):
         return True
@@ -271,20 +291,27 @@ def _placeholder_value(value: str) -> bool:
     return False
 
 
-URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
+def _secret_file_reference(value: str) -> bool:
+    candidate = value.strip().strip("\"'")
+    return candidate.startswith(("/", "./", "../"))
+
+
+def _credential_values(text: str) -> list[str]:
+    values = [match.group("password") for match in CREDENTIALED_URI_RE.finditer(text)]
+    values.extend(match.group("password") for match in URI_QUERY_CREDENTIAL_RE.finditer(text))
+    values.extend(match.group("password") for match in DSN_CREDENTIAL_PARAM_RE.finditer(text))
+    return values
 
 
 def _assignment_value_is_safe(name: str, value: str) -> bool:
     if _placeholder_value(value):
         return True
-    if name.upper() in URL_ENV_NAMES:
+    upper_name = name.upper()
+    if upper_name.endswith("_FILE") and _secret_file_reference(value):
+        return True
+    if upper_name in URL_ENV_NAMES:
         candidate = value.strip().strip("\"'")
-        credential_values = [
-            match.group("password") for match in CREDENTIALED_URI_RE.finditer(candidate)
-        ]
-        credential_values.extend(
-            match.group("password") for match in DSN_CREDENTIAL_PARAM_RE.finditer(candidate)
-        )
+        credential_values = _credential_values(candidate)
         return not credential_values or all(_placeholder_value(item) for item in credential_values)
     return False
 
@@ -301,55 +328,90 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
             if not _placeholder_value(match.group("password")):
                 findings.add("credentialed-uri")
 
+    for match in DSN_CREDENTIAL_PARAM_RE.finditer(text):
+        if not _placeholder_value(match.group("password")):
+            findings.add("credentialed-dsn")
+
+    for pattern in (
+        QUOTED_ENV_ASSIGNMENT_RE,
+        BARE_ENV_ASSIGNMENT_RE,
+        QUOTED_MAPPING_ENV_RE,
+        BARE_MAPPING_ENV_RE,
+    ):
+        for match in pattern.finditer(text):
+            if not _assignment_value_is_safe(match.group("name"), match.group("value")):
+                findings.add("sensitive-environment-assignment")
+
     relative_path = PurePosixPath(relative)
-    assignment_scan = (
-        relative_path.suffix.lower() in {".sh", ".yml", ".yaml", ".json", ".txt"}
-        or relative_path.name.lower().startswith(BUILD_FILE_PREFIXES)
-    )
-    if assignment_scan:
-        for pattern in (QUOTED_ENV_ASSIGNMENT_RE, BARE_ENV_ASSIGNMENT_RE):
-            for match in pattern.finditer(text):
-                if not _assignment_value_is_safe(
-                    match.group("name"), match.group("value")
-                ):
-                    findings.add("sensitive-environment-assignment")
-        if relative_path.suffix.lower() in {".yml", ".yaml", ".json"}:
-            mapping_patterns = [JSON_MAPPING_ENV_RE]
-            if relative_path.suffix.lower() in {".yml", ".yaml"}:
-                mapping_patterns.append(YAML_MAPPING_ENV_RE)
-            for pattern in mapping_patterns:
-                for match in pattern.finditer(text):
-                    if not _assignment_value_is_safe(
-                        match.group("name"), match.group("value")
-                    ):
-                        findings.add("sensitive-environment-assignment")
+    if relative_path.name.lower().startswith(BUILD_FILE_PREFIXES):
+        for match in DOCKERFILE_ENV_SPACE_RE.finditer(text):
+            if not _assignment_value_is_safe(match.group("name"), match.group("value")):
+                findings.add("sensitive-environment-assignment")
+
+    if relative_path.suffix.lower() == ".sql":
+        for match in SQL_PASSWORD_RE.finditer(text):
+            if not _placeholder_value(match.group("password")):
+                findings.add("sql-password-statement")
 
     return tuple(sorted(findings))
+
+
+def _read_scannable_bytes(
+    path: Path,
+    relative: str,
+    expected_metadata: os.stat_result,
+) -> tuple[bytes, os.stat_result]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise RecoveryError(f"Unable to open selected file safely: {relative}") from exc
+
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RecoveryError(f"Selected path is no longer a regular file: {relative}")
+        if (metadata.st_dev, metadata.st_ino) != (
+            expected_metadata.st_dev,
+            expected_metadata.st_ino,
+        ):
+            raise RecoveryError(f"Selected file identity changed during recovery: {relative}")
+        payload = handle.read(MAX_FILE_BYTES + 1)
+
+    if len(payload) > MAX_FILE_BYTES:
+        raise RecoveryError(f"Selected file exceeds per-file limit during scan: {relative}")
+    return payload, metadata
 
 
 def scan_selected_files(
     files: Iterable[tuple[Path, str, os.stat_result]],
     required_configs: Iterable[Path],
-) -> tuple[
-    list[tuple[Path, str, os.stat_result]],
-    list[dict[str, object]],
-]:
-    required = {path.resolve(strict=True) for path in required_configs}
-    included: list[tuple[Path, str, os.stat_result]] = []
+) -> tuple[list[ScannedFile], list[dict[str, object]]]:
+    required = {os.path.abspath(path) for path in required_configs}
+    included: list[ScannedFile] = []
     excluded: list[dict[str, object]] = []
+    scanned_total = 0
 
-    for path, relative, metadata in files:
+    for path, relative, expected_metadata in files:
+        payload, metadata = _read_scannable_bytes(path, relative, expected_metadata)
+        scanned_total += len(payload)
+        if scanned_total > MAX_TOTAL_BYTES:
+            raise RecoveryError("Selected files exceed total-size limit during scan")
         try:
-            text = path.read_text(encoding="utf-8")
+            text = payload.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise RecoveryError(f"Selected text file is not valid UTF-8: {relative}") from exc
 
         findings = _scan_text(text, relative)
+        digest = hashlib.sha256(payload).hexdigest()
+        mode = stat.S_IMODE(metadata.st_mode)
         if not findings:
-            included.append((path, relative, metadata))
+            included.append(
+                ScannedFile(relative=relative, mode=mode, payload=payload, sha256=digest)
+            )
             continue
 
-        if path.resolve(strict=True) in required:
+        if os.path.abspath(path) in required:
             categories = ", ".join(findings)
             raise RecoveryError(
                 f"Required Compose config contains sensitive content: {relative} ({categories})"
@@ -358,9 +420,9 @@ def scan_selected_files(
         excluded.append(
             {
                 "path": relative,
-                "size": metadata.st_size,
-                "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
-                "sha256": _sha256_file(path),
+                "size": len(payload),
+                "mode": f"{mode:04o}",
+                "sha256": digest,
                 "findings": list(findings),
             }
         )
@@ -369,17 +431,18 @@ def scan_selected_files(
 
 
 def build_manifest(
-    files: Iterable[tuple[Path, str, os.stat_result]],
+    files: Iterable[ScannedFile],
     excluded_sensitive_files: Iterable[dict[str, object]] = (),
 ) -> dict[str, object]:
+    file_list = list(files)
     entries = [
         {
-            "path": relative,
-            "size": metadata.st_size,
-            "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
-            "sha256": _sha256_file(path),
+            "path": item.relative,
+            "size": len(item.payload),
+            "mode": f"{item.mode:04o}",
+            "sha256": item.sha256,
         }
-        for path, relative, metadata in files
+        for item in file_list
     ]
     exclusions = list(excluded_sensitive_files)
     return {
@@ -414,6 +477,9 @@ def stream_archive(
 ) -> None:
     included, excluded = scan_selected_files(files, required_configs)
     manifest = build_manifest(included, excluded)
+    scanned_total = int(manifest["total_bytes"]) + sum(
+        int(entry["size"]) for entry in excluded
+    )
     receipt = {
         "schema": SCHEMA,
         "operation": "recover-v3-runtime-contract",
@@ -431,10 +497,11 @@ def stream_archive(
             "mode": "fail-closed-before-stream",
             "rules": list(CONTENT_SCAN_RULES),
             "candidate_file_count": len(files),
-            "candidate_total_bytes": sum(metadata.st_size for _, _, metadata in files),
+            "candidate_total_bytes": scanned_total,
             "included_file_count": manifest["file_count"],
             "included_total_bytes": manifest["total_bytes"],
             "excluded_sensitive_file_count": manifest["excluded_sensitive_file_count"],
+            "archive_uses_exact_scanned_bytes": True,
         },
         "db_access": False,
         "host_mutation": False,
@@ -448,13 +515,13 @@ def stream_archive(
     }
 
     with tarfile.open(fileobj=output, mode="w|gz", format=tarfile.PAX_FORMAT) as archive:
-        for path, relative, metadata in included:
-            info = tarfile.TarInfo(f"source/{relative}")
-            info.size = metadata.st_size
-            info.mode = stat.S_IMODE(metadata.st_mode)
-            info.mtime = 0
-            with path.open("rb") as handle:
-                archive.addfile(info, handle)
+        for item in included:
+            _add_bytes(
+                archive,
+                f"source/{item.relative}",
+                item.payload,
+                mode=item.mode,
+            )
         _add_bytes(
             archive,
             "recovery-manifest.json",
