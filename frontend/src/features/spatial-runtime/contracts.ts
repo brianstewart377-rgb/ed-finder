@@ -48,7 +48,8 @@ export type RuntimeEvent =
 export type RuntimeBackend = 'WEBGPU' | 'WEBGL2';
 export type PickCandidate = Readonly<{ target: SpatialTarget; distancePx: number }>;
 export type PickResult = Readonly<{ candidates: readonly PickCandidate[]; truncated: boolean; totalCandidates?: number; latencyMs: number }>;
-export type PickStrategy = 'babylon-instance' | 'gpu-id-buffer' | 'cpu-index-gpu-confirm';
+/** Stage 27B exposes only picking paths it actually implements and measures. */
+export type PickStrategy = 'cpu-screen-projection' | 'cpu-spatial-index';
 export type RuntimeTelemetry = Readonly<{ backend: RuntimeBackend; cpuFrameMs: number | null; gpuFrameMs: number | null; streamLatencyMs: number | null; streamTruncated: boolean; visibleCount: number; drawCalls: number; resourceCount: number; bufferBytes: number; pickLatencyMs: number | null; recoveryOutcome: 'not-attempted' | 'pending' | 'usable' | 'failed'; renderedFrames: number }>;
 export type MapRuntimeOptions = Readonly<{ preferWebGpu: boolean; reducedMotion: boolean; onTelemetry?: (telemetry: RuntimeTelemetry) => void; onEvent?: (event: RuntimeEvent) => void }>;
 export interface MapRuntime { initialize(canvas: HTMLCanvasElement, options: MapRuntimeOptions): Promise<RuntimeBackend>; dispatch(command: RuntimeCommand): Promise<unknown> | unknown; snapshot(): Readonly<{ camera: CameraState | SystemCameraState | null; selection: readonly SpatialTarget[] }>; dispose(): void }
@@ -56,7 +57,10 @@ export interface MapRuntime { initialize(canvas: HTMLCanvasElement, options: Map
 export function spatialTargetId(target: SpatialTarget): SpatialTargetId {
   if (target.kind === 'system') return `system:${target.systemId64}`;
   if (target.kind === 'body') return `body:${target.ref.systemId64}:${target.ref.bodyId}`;
-  if (target.kind === 'facility') return `facility:${target.ref.owner}:${target.ref.facilityId}`;
+  if (target.kind === 'facility') {
+    const bodyIdentity = target.ref.body ? `${target.ref.body.systemId64}:${target.ref.body.bodyId}` : 'none';
+    return `facility:${target.ref.owner}:${target.ref.systemId64}:${bodyIdentity}:${target.ref.facilityId}`;
+  }
   return `${target.kind}:${target.id}`;
 }
 export function isSelectableObject(object: SpatialObject): object is SpatialObject & { target: SpatialTarget } { return object.representation !== 'AMBIENT' && object.target !== undefined; }

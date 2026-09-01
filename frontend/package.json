@@ -25,6 +25,7 @@
     "map-foundation:e2e": "playwright test --config playwright.map-foundation.config.ts",
     "spatial-workbench:dev": "vite --config vite.spatial-workbench.config.ts",
     "spatial-workbench:typecheck": "tsc --noEmit -p spatial-workbench/tsconfig.json",
+    "spatial-workbench:lint": "eslint spatial-workbench src/features/spatial-runtime vite.spatial-workbench.config.ts playwright.spatial-workbench.config.ts --max-warnings 0",
     "spatial-workbench:test": "node scripts/run-vitest.mjs run src/features/spatial-runtime",
     "spatial-workbench:build": "vite build --config vite.spatial-workbench.config.ts",
     "spatial-workbench:e2e": "playwright test --config playwright.spatial-workbench.config.ts",
