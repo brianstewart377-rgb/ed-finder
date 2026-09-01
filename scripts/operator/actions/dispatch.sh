@@ -26,6 +26,9 @@ case "$stage" in
   octopus-edge-status)
     exec bash scripts/operator/actions/octopus-edge-status.sh
     ;;
+  octopus-edge-topology)
+    exec bash scripts/operator/actions/octopus-edge-topology.sh
+    ;;
   latest-stage18j-summary)
     exec bash scripts/operator/actions/latest-artifact-summary.sh "stage-18j"
     ;;
