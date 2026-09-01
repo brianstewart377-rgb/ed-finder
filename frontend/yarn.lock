@@ -956,6 +956,11 @@
     "@babel/helper-string-parser" "^7.29.7"
     "@babel/helper-validator-identifier" "^7.29.7"
 
+"@babylonjs/core@9.23.0":
+  version "9.23.0"
+  resolved "https://registry.yarnpkg.com/@babylonjs/core/-/core-9.23.0.tgz#0bbb837ed219547b3e9d92655a740b205370bbe9"
+  integrity sha512-FpDaTPx485J1H0AEJpoJ785Z1CwCkEPNnZFu7WzHTy0ByGCy75bkZZILh4QFU4LLnzK1iuHwUfecCguATIeKSA==
+
 "@bcoe/v8-coverage@^0.2.3":
   version "0.2.3"
   resolved "https://registry.yarnpkg.com/@bcoe/v8-coverage/-/v8-coverage-0.2.3.tgz#75a2e8b51cb758a7553d6804a5932d7aace75c39"
@@ -4192,11 +4197,6 @@ babel-preset-jest@30.4.0:
   dependencies:
     babel-plugin-jest-hoist "30.4.0"
     babel-preset-current-node-syntax "^1.2.0"
-
-babylonjs@^6.39.0:
-  version "6.49.0"
-  resolved "https://registry.yarnpkg.com/babylonjs/-/babylonjs-6.49.0.tgz#b7e74e687494010964b428ab7101c813fcbb43d4"
-  integrity sha512-KYGpELn2osBvB8UqGuk6gfJBrriojwisw/egXaiBZNQaNuURjjogI1mgwAz4/KJB14JJwELNw3JNB4sp3Rh5Ng==
 
 balanced-match@^1.0.0:
   version "1.0.2"

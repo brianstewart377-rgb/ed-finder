@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["src/App.tsx", "map-foundation/main.tsx"],
+  "entry": ["src/App.tsx", "map-foundation/main.tsx", "spatial-workbench/main.tsx"],
   "project": ["src/**/*.{ts,tsx}"],
   "ignore": [
     "src/components/ui/**",

@@ -86,6 +86,7 @@ log/
 # Build outputs
 /out
 /target
+/frontend/dist-spatial-workbench/
 /.next
 /.nuxt
 /dist

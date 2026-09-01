@@ -1,6 +1,9 @@
 -- Stage 27A SELECT-only V3 data-coverage audit pack.
 -- Run only through an already-authorized read-only operator path.
--- This file performs no writes, DDL, locks, settings changes, or function calls.
+-- This file performs no writes, DDL, settings changes, or function calls and
+-- contains no explicit locking clause. PostgreSQL SELECTs still acquire
+-- ACCESS SHARE locks. Use the authorized wrapper's statement/lock timeouts,
+-- bounded concurrency, and cancellation controls to limit production impact.
 -- Report the database identity/time separately through the authorized wrapper;
 -- never add credentials to this file or command history.
 
@@ -69,14 +72,33 @@ FROM body_rings
 GROUP BY association_status, source, confidence
 ORDER BY association_status, source, confidence;
 
-SELECT COUNT(*) AS bodies_with_multiple_ring_rows
-FROM (
-  SELECT system_id64, body_id
+-- A physical band may have duplicate source rows. A non-blank ring_name is its
+-- identity within a body (case/outer-whitespace normalized). For an unnamed
+-- band, the complete stored physical signature is its identity; exactly equal
+-- signatures collapse, while distinct signatures remain distinct. This can
+-- undercount genuinely separate unnamed bands whose stored signatures are
+-- indistinguishable, so report that limitation with the audit result.
+WITH physical_ring_bands AS (
+  SELECT DISTINCT
+    system_id64,
+    body_id,
+    NULLIF(lower(btrim(ring_name)), '') AS normalized_ring_name,
+    CASE WHEN NULLIF(btrim(ring_name), '') IS NULL THEN ring_type END AS unnamed_ring_type,
+    CASE WHEN NULLIF(btrim(ring_name), '') IS NULL THEN ring_class END AS unnamed_ring_class,
+    CASE WHEN NULLIF(btrim(ring_name), '') IS NULL THEN mass_mt END AS unnamed_mass_mt,
+    CASE WHEN NULLIF(btrim(ring_name), '') IS NULL THEN inner_radius END AS unnamed_inner_radius,
+    CASE WHEN NULLIF(btrim(ring_name), '') IS NULL THEN outer_radius END AS unnamed_outer_radius
   FROM body_rings
   WHERE body_id IS NOT NULL AND association_status = 'local_matched'
+), bands_per_body AS (
+  SELECT system_id64, body_id, COUNT(*) AS physical_band_count
+  FROM physical_ring_bands
   GROUP BY system_id64, body_id
-  HAVING COUNT(*) > 1
-) AS multi;
+)
+SELECT
+  COUNT(*) FILTER (WHERE physical_band_count > 1) AS bodies_with_multiple_physical_ring_bands,
+  COALESCE(SUM(physical_band_count), 0) AS distinct_physical_ring_bands
+FROM bands_per_body;
 
 -- 5. Station data and body association. Missing links stay missing.
 SELECT

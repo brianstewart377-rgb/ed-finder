@@ -7,9 +7,11 @@ document that should answer "what next?".
 
 - Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
   scope and Stage 26's R3F map programme are complete historical foundations.
-- Current authorization: **27A Spatial Platform Contract and Audit only**.
-  Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
-  runtime, production map change, or any later Stage 27 slice.
+- Current authorization: **27B Babylon 9 Runtime Workbench only**. Stage 27A
+  Spatial Platform Contract and Audit was accepted and completed in PR #529
+  (squash commit `fd64ef8e14b5b026cec2d14949115ab681fb0b7d`). Stage 27B is
+  isolated and does not authorize production map wiring, a production renderer
+  change, or any later Stage 27 slice.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
   complete. Stage 26E production cutover is complete and in observation:
   browser, accessibility, visual,
@@ -160,8 +162,8 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Complete Stage 27A's product, architecture, data-readiness, migration and
-   governance contracts before any new Babylon runtime implementation.
+1. Implement Stage 27B's isolated Babylon 9 Runtime Workbench without
+   production map wiring or cutover.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -230,8 +232,8 @@ competing roadmap source.
   are retained as implementation evidence, not as an active or independent
   next lane. Its `/api/map/systems`, viewport LOD, hysteresis, and truncation
   findings may inform Stage 27, but real-system streaming is now owned by the
-  staged Stage 27 programme (principally 27D). Stage 27A authorizes only 27B;
-  no old Phase 2 work is currently authorized. See
+  staged Stage 27 programme (principally 27D). Stage 27B is the only current
+  authorization; no old Phase 2 work is authorized. See
   `docs/superpowers/plans/2026-08-11-map-real-star-streaming.md`.
 
 ### Deferred Product Expansion
@@ -276,8 +278,8 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 
 | Stage | Scope | Authorization |
 |---|---|---|
-| **27A** | Spatial Platform Contract and Audit | **CURRENT**; docs/audit/contracts only |
-| 27B | Babylon 9 Runtime Workbench | Authorized only after 27A acceptance; isolated, no production wiring |
+| **27A** | Spatial Platform Contract and Audit | **COMPLETE**; accepted in PR #529 (`fd64ef8e14b5b026cec2d14949115ab681fb0b7d`) |
+| **27B** | Babylon 9 Runtime Workbench | **CURRENT**; isolated, no production wiring |
 | 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27A |
 | 27D | Real-System Streaming and Interaction | Not authorized by 27A |
 | 27E | Stage 26 Capability Parity | Not authorized by 27A |
@@ -289,7 +291,8 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 | 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
 | 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27A |
 
-Stage 27A's only follow-on authorization is 27B. The R3F production map stays
+Stage 27A acceptance authorizes 27B only; 27C and later stages remain
+unauthorized. The R3F production map stays
 in place throughout workbench/foundation stages. Mechanics remain CRE-owned,
 planning remains CPE-owned, ED-Finder orchestrates/presents, and the renderer
 owns neither.
