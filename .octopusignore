@@ -25,10 +25,6 @@
 # generator, and handwritten frontend API boundary instead.
 /frontend/src/types/api.gen.ts
 
-# Yarn v1 rewrites this large machine-managed dependency graph. Dependency
-# intent and reviewable version changes remain visible in package.json.
-/frontend/yarn.lock
-
 # Browser-validation screenshots are durable visual receipts, but their binary
 # contents provide no useful text context. Keep adjacent README/JSON evidence.
 /docs/development/evidence/**/*.png
