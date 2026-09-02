@@ -96,6 +96,16 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
 
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in codex_job
     assert "codex-source-${{ github.run_id }}-${{ github.run_attempt }}" in codex_job
+    assert 'isolated_home="$RUNNER_TEMP/codex-isolated-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reconstruction
+    assert 'export HOME="$isolated_home"' in reconstruction
+    assert 'export XDG_CONFIG_HOME="$isolated_home/.config"' in reconstruction
+    assert "export GIT_CONFIG_NOSYSTEM=1" in reconstruction
+    assert "export GIT_CONFIG_GLOBAL=/dev/null" in reconstruction
+    assert "export GIT_CONFIG_SYSTEM=/dev/null" in reconstruction
+    assert "export GIT_ATTR_NOSYSTEM=1" in reconstruction
+    assert reconstruction.index("export GIT_CONFIG_NOSYSTEM=1") < reconstruction.index(
+        'init "$GITHUB_WORKSPACE"'
+    )
     assert 'rm -rf -- "$GITHUB_WORKSPACE"' in reconstruction
     assert 'init "$GITHUB_WORKSPACE"' in reconstruction
     assert 'fetch --no-tags "$bundle" "${refspecs[@]}"' in reconstruction
@@ -109,17 +119,31 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
     assert "git fetch origin" not in codex_job
 
 
-def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() -> None:
+def test_setup_python_receives_no_github_token_on_self_hosted_job() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    gate = text.split("- name: Prepare repository state gate", 1)[1].split(
-        "- name: Verify worker identity", 1
-    )[0]
-    setup = text.split("- name: Set up Python 3.12", 1)[1].split(
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    setup = codex_job.split("- name: Set up Python 3.12", 1)[1].split(
         "- name: Prepare repository state gate", 1
     )[0]
 
     assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
     assert 'python-version: "3.12"' in setup
+    assert "token: ''" in setup
+    assert "github.token" not in setup
+
+
+def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    gate = text.split("- name: Prepare repository state gate", 1)[1].split(
+        "- name: Verify worker identity", 1
+    )[0]
+    setup = text.split("  codex:", 1)[1].split("- name: Set up Python 3.12", 1)[1].split(
+        "- name: Prepare repository state gate", 1
+    )[0]
+
+    assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
+    assert 'python-version: "3.12"' in setup
+    assert "token: ''" in setup
     assert "command -v python" in gate
     assert "sys.version_info[:2] == (3, 12)" in gate
     assert "python -m venv .venv" in gate
