@@ -1,19 +1,36 @@
-﻿# SSH Deploy From Windows
+# SSH Deploy From Windows
 
-## Goal
+> **RETIRED — 2 September 2026**
+>
+> The former Hetzner V2 production host has been decommissioned. The deployment path described below is no longer a current ED-Finder production procedure and must not be redirected to the V3 replacement host.
+>
+> See `docs/operations/infrastructure-status.md` for the current infrastructure boundary.
 
-Run the Hetzner production deploy from this repo with one local command, without
-pasting long shell blocks into SSH every time.
+## Historical goal
 
-This uses:
+This runbook described how to run the former Hetzner production deploy from Windows without pasting long shell blocks into SSH.
 
-- a local SSH alias such as `ed-finder-prod`
-- the repo's remote deploy script `scripts/deploy_main.sh`
-- a Windows-friendly launcher `scripts/deploy-hetzner-over-ssh.ps1`
+It used:
 
-## 1. Create An SSH Alias
+- a local SSH alias such as `ed-finder-prod`;
+- the repo's former remote deploy script `scripts/deploy_main.sh`;
+- the Windows-friendly launcher `scripts/deploy-hetzner-over-ssh.ps1`.
 
-Edit `C:\Users\<you>\.ssh\config` and add a host entry like this:
+## Do not use this for V3
+
+Do not:
+
+- create a new SSH alias pointing the old `ed-finder-prod`/Hetzner workflow at the replacement host;
+- set `EDFINDER_DEPLOY_TARGET` to the replacement host and run the retired wrapper;
+- run `scripts/deploy-hetzner-over-ssh.ps1` as a V3 production deployment;
+- assume `/opt/ed-finder` on another machine has the same safety meaning as it had on V2;
+- copy the former server-side Docker/NGINX deployment model onto V3 merely to preserve this runbook.
+
+Any V3 production deploy must use a current replacement-host procedure with an explicit V3 safety boundary.
+
+## Historical procedure
+
+The former procedure created an SSH config entry similar to:
 
 ```sshconfig
 Host ed-finder-prod
@@ -23,95 +40,41 @@ Host ed-finder-prod
   IdentityFile C:/Users/<you>/.ssh/<key-file>
 ```
 
-Do not paste private keys into the repo or chat.
-
-## 2. Prove SSH Works Non-Interactively
-
-From PowerShell:
+and then used commands such as:
 
 ```powershell
 ssh ed-finder-prod "hostname"
 ssh ed-finder-prod "cd /opt/ed-finder && git rev-parse --abbrev-ref HEAD"
 ```
 
-If either command hangs on a password prompt, fix SSH first. The deploy wrapper
-assumes key-based auth works already.
-
-## 3. Set A Default Alias Once
-
-This lets the repo scripts use your alias automatically:
+The default target could be configured with:
 
 ```powershell
 setx EDFINDER_DEPLOY_TARGET ed-finder-prod
 ```
 
-Open a new PowerShell window after running `setx`.
-
-## 4. Run The Remote Deploy
-
-From the repo root:
+and the former production deploy launched with:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1
 ```
 
-What it does:
+The wrapper opened one SSH session, ran `bash scripts/deploy_main.sh` inside `/opt/ed-finder`, and checked the public application/API routes.
 
-- opens one SSH session to the target
-- runs `bash scripts/deploy_main.sh` inside `/opt/ed-finder`
-- checks public `/api/health`
-- checks `/`
-- checks `/index.html`
-- checks old `/v2/` bookmarks redirect cleanly to the root-served app
-
-Useful flags:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipPrompt
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipPull
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipMigrations
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -SkipFrontend
-```
-
-If you do not want to use `EDFINDER_DEPLOY_TARGET`, pass the host directly:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-hetzner-over-ssh.ps1 -DeployHost <hetzner-ip-or-hostname>
-```
-
-## 5. Full Release Flow
-
-If you want one command that also validates the local repo, pushes `main`, and
-then deploys remotely, use:
+The former full release wrapper was:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-main-to-prod.ps1
 ```
 
-Recommended with an alias:
+These commands are preserved here only so historical deployment evidence remains understandable.
 
-```powershell
-setx EDFINDER_DEPLOY_TARGET ed-finder-prod
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-main-to-prod.ps1 -SkipPrompt
-```
+## Credential cleanup
 
-That script now assumes the current root-served SPA:
+Do not retain obsolete Hetzner SSH keys, aliases, known-host entries, or deployment-target environment variables merely because this documentation still records them. Remove them through the normal credential-cleanup process once they have no current dependency.
 
-- probes `/` as the live app entrypoint
-- validates `/index.html`
-- uses `yarn` for frontend install/build/test steps
-- packages the validated frontend through the Git Bash adapter with the exact
-  Windows archive path, then uploads that prebuilt artifact for deployment
+Never commit private keys or credential-bearing configuration.
 
-## 6. Operational Notes
+## Historical record rule
 
-- The SSH alias is better than hardcoding the production IP into commands.
-- The wrapper treats an SSH alias as the remote SCP destination, while direct
-  host mode adds `-P <port>` separately; neither form adds the host as a local
-  upload source.
-- `scripts/deploy_main.sh` remains the canonical server-side deploy entrypoint.
-- The PowerShell wrappers should call the server script, not reimplement the
-  deployment logic locally.
-- If the server repo has local tracked edits, fix them before normal deploys.
-  Avoid using destructive cleanup unless you explicitly mean to discard work.
-
+Older PRs, receipts, and operations documents may correctly state that a deployment occurred using the Hetzner wrapper. Leave those records intact. This runbook itself is no longer execution authority.
