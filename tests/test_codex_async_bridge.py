@@ -151,7 +151,7 @@ def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
     assert "CODEX_WORKER_GIT_TOKEN" not in implementation
     assert "git push" not in implementation
     assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_wrapper
-    assert "^\\.github/workflows/" in push_wrapper
+    assert "'.github/workflows/'" in push_wrapper
     assert "Contents: read/write and Workflows: read/write" in push_wrapper
     assert "GIT_ASKPASS" in push_wrapper
     assert 'git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"' in push_wrapper
