@@ -92,19 +92,20 @@ BARE_ENV_ASSIGNMENT_RE = re.compile(
     r"(?P<value>\$\{[^}\r\n]*\}|[^\s,\"'\]\}]+)",
     re.MULTILINE,
 )
-# Mapping keys must be genuine line/flow-map keys. In particular, do not treat
-# the colon in shell/Compose interpolation (e.g. ${PASSWORD_FILE:-path}) as a
-# YAML mapping separator. Bare values explicitly exclude quote-started scalars
-# so a quoted placeholder cannot be matched a second time as a truncated bare
-# value.
+# Mapping matches are zero-width lookaheads so an outer flow-map key cannot
+# consume nested mappings and hide an inner sensitive assignment. In
+# particular, do not treat the colon in shell/Compose interpolation (for
+# example ${PASSWORD_FILE:-path}) as a YAML mapping separator. Bare values
+# explicitly exclude quote-started scalars so a quoted placeholder cannot be
+# matched a second time as a truncated bare value.
 QUOTED_MAPPING_ENV_RE = re.compile(
-    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
-    r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote)",
+    rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
+    r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote))",
 )
 BARE_MAPPING_ENV_RE = re.compile(
-    rf"(?m){MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
+    rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{IDENTIFIER})"
     r"(?P=keyquote)\s*:(?![ \t]*[\"'])[ \t]*"
-    r"(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+)",
+    r"(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+))",
 )
 DOCKERFILE_ENV_SPACE_RE = re.compile(
     rf"(?im)^\s*ENV\s+(?P<name>{IDENTIFIER})\s+(?P<value>[^\r\n#]+)"
@@ -336,6 +337,46 @@ def _name_is_sensitive(name: str) -> bool:
     return False
 
 
+def _jinja_reference_expression_is_safe(body: str) -> bool:
+    reference = rf"{IDENTIFIER}(?:\.{IDENTIFIER})*"
+    pipeline = [part.strip() for part in body.split("|")]
+    if not pipeline or not re.fullmatch(reference, pipeline[0]):
+        return False
+
+    for filter_expression in pipeline[1:]:
+        filter_match = re.fullmatch(
+            rf"(?P<name>{IDENTIFIER})(?:\((?P<arguments>.*)\))?",
+            filter_expression,
+        )
+        if not filter_match:
+            return False
+        arguments = filter_match.group("arguments")
+        if arguments is None or not arguments.strip():
+            continue
+
+        argument = arguments.strip()
+        # Multiple/literal filter arguments are not demonstrably reference-only.
+        if "," in argument:
+            return False
+        if filter_match.group("name").lower() == "default":
+            quoted_default = re.fullmatch(
+                r"""(?P<quote>['\"])(?P<literal>.*?)(?P=quote)""",
+                argument,
+            )
+            if quoted_default:
+                if quoted_default.group("literal"):
+                    return False
+                continue
+            if re.fullmatch(reference, argument):
+                continue
+            return False
+
+        if not re.fullmatch(reference, argument):
+            return False
+
+    return True
+
+
 def _placeholder_value(value: str) -> bool:
     candidate = value.strip().strip("\"'")
     if not candidate:
@@ -352,25 +393,7 @@ def _placeholder_value(value: str) -> bool:
 
     jinja = re.fullmatch(r"\{\{(?P<body>[^{}]+)\}\}", candidate)
     if jinja:
-        body = jinja.group("body").strip()
-        direct_literal = re.fullmatch(r"""(?P<quote>['\"])(?P<literal>.*?)(?P=quote)""", body)
-        if direct_literal:
-            return not bool(direct_literal.group("literal"))
-        default_match = re.search(
-            r"\bdefault\s*\(\s*(?P<argument>.*?)\s*\)",
-            body,
-            re.IGNORECASE,
-        )
-        if default_match:
-            argument = default_match.group("argument").strip()
-            quoted_default = re.fullmatch(
-                r"""(?P<quote>['\"])(?P<literal>.*?)(?P=quote)""",
-                argument,
-            )
-            if quoted_default:
-                return not bool(quoted_default.group("literal"))
-            return bool(re.fullmatch(IDENTIFIER, argument))
-        return True
+        return _jinja_reference_expression_is_safe(jinja.group("body").strip())
 
     if re.fullmatch(
         r"<(?:redacted|placeholder|secret|password|token|[^>]*_here)>",
@@ -421,18 +444,28 @@ def _assignment_value_is_safe(name: str, value: str) -> bool:
     return False
 
 
+def _compose_secret_reference_collection(name: str, value: str) -> bool:
+    return name.lower() == "secrets" and value.strip().startswith(("[", "{"))
+
+
 def _scan_assignment_patterns(text: str, findings: set[str]) -> None:
-    for pattern in (
-        QUOTED_ENV_ASSIGNMENT_RE,
-        BARE_ENV_ASSIGNMENT_RE,
-        QUOTED_MAPPING_ENV_RE,
-        BARE_MAPPING_ENV_RE,
-    ):
+    for pattern in (QUOTED_ENV_ASSIGNMENT_RE, BARE_ENV_ASSIGNMENT_RE):
         for match in pattern.finditer(text):
             name = match.group("name")
             if not _name_is_sensitive(name):
                 continue
             if not _assignment_value_is_safe(name, match.group("value")):
+                findings.add("sensitive-environment-assignment")
+
+    for pattern in (QUOTED_MAPPING_ENV_RE, BARE_MAPPING_ENV_RE):
+        for match in pattern.finditer(text):
+            name = match.group("name")
+            value = match.group("value")
+            if _compose_secret_reference_collection(name, value):
+                continue
+            if not _name_is_sensitive(name):
+                continue
+            if not _assignment_value_is_safe(name, value):
                 findings.add("sensitive-environment-assignment")
 
 
