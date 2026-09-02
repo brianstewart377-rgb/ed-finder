@@ -1,0 +1,42 @@
+name: Octopus review head normalizer
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: octopus-review-head-${{ github.event.issue.number }}-${{ github.event.comment.id }}
+  cancel-in-progress: true
+
+jobs:
+  normalize:
+    name: Normalize Octopus reviewed head
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.login == 'octopus-fc8f7111f1[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Replace model-derived footer with exact PR head
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/normalize_octopus_review_head.py \
+            --event "$EVENT_PATH" \
+            --repository "$REPOSITORY"
