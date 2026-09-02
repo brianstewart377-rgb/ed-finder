@@ -29,6 +29,7 @@ _WRITE_ACTION_ALLOWLIST = frozenset(
         "dorny/paths-filter",
     }
 )
+_SAFE_EXPLICIT_SHELLS = frozenset({"bash", "sh", "pwsh", "powershell", "cmd"})
 _ACTION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _RAW_GH_PR_MERGE = re.compile(r"\bgh\s+pr\s+merge\b(?P<tail>[^;&|\n]*)", re.IGNORECASE)
 _RAW_GH_API = re.compile(r"\bgh\b(?:(?![;&|\n]).)*\bapi\b", re.IGNORECASE)
@@ -163,6 +164,21 @@ def _step_contains_external_token(
     )
 
 
+def _reusable_secrets_expose_external_token(value: object) -> bool:
+    # `secrets: inherit` can pass repository/organization PATs into code outside
+    # this workflow file, so treat it as unknown credential authority.
+    return value == "inherit" or _value_contains_external_token(value)
+
+
+def _service_exposes_merge_credential(service: object, merge_authority: bool) -> bool:
+    if not isinstance(service, dict):
+        return False
+    env = service.get("env")
+    return _value_contains_external_token(env) or (
+        merge_authority and _value_contains_github_token(env)
+    )
+
+
 def _action_is_allowlisted_and_pinned(uses: str) -> bool:
     action, separator, ref = uses.partition("@")
     return (
@@ -203,15 +219,25 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
         if not isinstance(raw_job, dict):
             continue
         merge_authority = _job_has_merge_authority(document, raw_job)
-        reusable_has_external_token = _value_contains_external_token(raw_job.get("secrets"))
+        reusable_has_external_token = _reusable_secrets_expose_external_token(
+            raw_job.get("secrets")
+        )
 
-        # A reusable job can execute arbitrary code outside the inspected step
-        # list. Unknown/write merge authority or an external token therefore
-        # keeps reusable delegation behind the fail-closed boundary.
+        # A reusable job executes code outside the inspected step list. Unknown/
+        # write authority, external token secrets, or `secrets: inherit` therefore
+        # keep reusable delegation behind the fail-closed boundary.
         if isinstance(raw_job.get("uses"), str) and (
             merge_authority or reusable_has_external_token
         ):
             violations.append(f"{job_name}: merge-capable reusable job is not allowed")
+
+        services = raw_job.get("services")
+        if isinstance(services, dict):
+            for service_name, service in services.items():
+                if _service_exposes_merge_credential(service, merge_authority):
+                    violations.append(
+                        f"{job_name}: token-bearing service container {service_name} is not allowed"
+                    )
 
         for step in _steps(raw_job):
             run = step.get("run") if isinstance(step.get("run"), str) else ""
@@ -221,6 +247,13 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
                 merge_authority and github_token_exposed
             )
             guarded_capability = merge_authority or external_token_exposed
+
+            shell = step.get("shell")
+            if guarded_capability and isinstance(shell, str):
+                if shell.strip().lower() not in _SAFE_EXPLICIT_SHELLS:
+                    violations.append(
+                        f"{job_name}: custom shell template is forbidden in merge-capable step"
+                    )
 
             uses = step.get("uses")
             if isinstance(uses, str) and guarded_capability:
@@ -492,6 +525,92 @@ jobs:
     assert any("action" in item for item in violations)
     assert any("network/API client" in item for item in violations)
     assert any("general-purpose interpreter" in item for item in violations)
+
+
+def test_secrets_inherit_reusable_job_is_fail_closed():
+    document = _load(
+        """
+permissions: read-all
+jobs:
+  delegated:
+    uses: owner/reusable/.github/workflows/task.yml@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    secrets: inherit
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_custom_shell_template_is_rejected_in_merge_authority_job():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    steps:
+      - shell: "bash -c 'gh pr merge 123 --squash; bash {0}'"
+        run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert any("custom shell" in item for item in _merge_authority_violations(document))
+
+
+def test_plain_bash_shell_remains_allowed():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    steps:
+      - shell: bash
+        run: git status --short
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
+def test_token_bearing_service_container_is_rejected():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    services:
+      helper:
+        image: owner/helper:latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert any("service container" in item for item in _merge_authority_violations(document))
+
+
+def test_read_only_service_with_scoped_github_token_is_not_merge_capable():
+    document = _load(
+        """
+permissions:
+  contents: read
+jobs:
+  worker:
+    services:
+      helper:
+        image: owner/helper:latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
 
 
 def test_unknown_permissions_allow_unauthenticated_local_health_probe():
