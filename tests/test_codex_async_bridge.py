@@ -99,6 +99,18 @@ def test_worker_activates_and_verifies_the_pinned_venv() -> None:
     assert "python -m ruff --version" in verification
 
 
+def test_request_task_is_not_written_to_github_output() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    resolver = text.split("- name: Resolve request", 1)[1].split(
+        "- name: Switch to main workspace", 1
+    )[0]
+
+    assert 'printf \'%s\' "$task" > "$task_file"' in resolver
+    assert 'echo "task<<EOF"' not in resolver
+    assert "steps.request.outputs.task" not in text
+    assert 'CODEX_TASK="$(cat "$CODEX_TASK_FILE")"' in text
+
+
 def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denied() -> None:
     text = WORKER.read_text(encoding="utf-8")
     resolver = text.split("- name: Resolve request", 1)[1].split(
@@ -107,14 +119,17 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
 
     assert "INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}" in resolver
     assert 'git check-ref-format --branch "$target_branch"' in resolver
-    assert "main|master|codex-task-requests|chatgpt-ed-new-ops-requests" in resolver
+    assert (
+        "main|master|codex-task-requests|chatgpt-ops-requests|"
+        "chatgpt-ed-new-ops-requests" in resolver
+    )
     assert "target_branch is only valid for implement mode" in resolver
 
 
-def test_existing_pr_branch_is_fetched_exactly_and_updated_without_history_rewrite() -> None:
+def test_existing_pr_branch_is_fetched_exactly_and_updated_with_atomic_lease() -> None:
     text = WORKER.read_text(encoding="utf-8")
     implementation = text.split("- name: Run Codex implementation", 1)[1].split(
-        "- name: Push implementation branch", 1
+        "- name: Seal implementation result", 1
     )[0]
     push_wrapper = text.split("- name: Push implementation branch", 1)[1].split(
         "- name: Implementation branch summary", 1
@@ -126,21 +141,22 @@ def test_existing_pr_branch_is_fetched_exactly_and_updated_without_history_rewri
     assert 'branch="$CODEX_TARGET_BRANCH"' in implementation
     assert "Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history." in implementation
     assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in push_wrapper
-    assert 'git diff --name-only "$workflow_diff_base" HEAD --' in push_wrapper
-    assert "refs/remotes/origin/main...HEAD" not in push_wrapper
-    assert 'git -c credential.helper= ls-remote --heads origin "refs/heads/$CODEX_BRANCH"' in push_wrapper
+    assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$CODEX_CANDIDATE_SHA"' in push_wrapper
     assert "Target branch moved after Codex started; refusing to overwrite concurrent work." in push_wrapper
-    assert 'git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"' in push_wrapper
-    assert "--force" not in push_wrapper
+    assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push_wrapper
+    assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push_wrapper
 
 
-def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
+def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> None:
     text = WORKER.read_text(encoding="utf-8")
 
     checkout = text.split("- name: Checkout main", 1)[1].split(
         "- name: Resolve request", 1
     )[0]
     implementation = text.split("- name: Run Codex implementation", 1)[1].split(
+        "- name: Seal implementation result", 1
+    )[0]
+    seal = text.split("- name: Seal implementation result", 1)[1].split(
         "- name: Push implementation branch", 1
     )[0]
     push_wrapper = text.split("- name: Push implementation branch", 1)[1].split(
@@ -149,9 +165,18 @@ def test_privileged_workflow_push_token_is_isolated_from_codex() -> None:
 
     assert "persist-credentials: false" in checkout
     assert "CODEX_WORKER_GIT_TOKEN" not in implementation
+    assert "CODEX_WORKER_GIT_TOKEN" not in seal
     assert "git push" not in implementation
+    assert "/usr/bin/git" in implementation
+    assert "bundle create" in seal
     assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_wrapper
+    assert 'trusted_root="$(mktemp -d "$RUNNER_TEMP/codex-trusted-push.XXXXXX")"' in push_wrapper
+    assert 'remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"' in push_wrapper
+    assert "GIT_CONFIG_NOSYSTEM=1" in push_wrapper
+    assert "GIT_CONFIG_GLOBAL=/dev/null" in push_wrapper
+    assert "GIT_CONFIG_SYSTEM=/dev/null" in push_wrapper
+    assert "core.hooksPath=/dev/null" in push_wrapper
+    assert "PATH=/usr/bin:/bin" in push_wrapper
+    assert "GIT_ASKPASS" in push_wrapper
     assert "'.github/workflows/'" in push_wrapper
     assert "Contents: read/write and Workflows: read/write" in push_wrapper
-    assert "GIT_ASKPASS" in push_wrapper
-    assert 'git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"' in push_wrapper
