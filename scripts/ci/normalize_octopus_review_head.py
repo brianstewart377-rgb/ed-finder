@@ -9,13 +9,12 @@ text; GitHub's pull-request API is the authority for the current head SHA.
 from __future__ import annotations
 
 import argparse
+from http.client import HTTPException, HTTPSConnection
 import json
 import os
 from pathlib import Path
 import re
 import sys
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
 
 OCTOPUS_LOGIN = "octopus-fc8f7111f1[bot]"
@@ -23,7 +22,8 @@ OCTOPUS_HEADING = "## 🐙 Octopus Review"
 FOOTER_RE = re.compile(r"(?mi)^Last reviewed commit:\s*.*(?:\r?\n)?")
 CHECKLIST_RE = re.compile(r"(?m)^### Checklist\s*$")
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
-API_ROOT = "https://api.github.com"
+API_HOST = "api.github.com"
+MAX_RESPONSE_BYTES = 1_000_000
 
 
 class NormalizerError(RuntimeError):
@@ -47,25 +47,42 @@ def normalize_review_body(body: str, head_sha: str) -> str:
     return f"{cleaned}\n\n{footer}\n"
 
 
-def _api_json(method: str, path: str, token: str, payload: dict[str, object] | None = None) -> dict[str, object]:
+def _api_json(
+    method: str,
+    path: str,
+    token: str,
+    payload: dict[str, object] | None = None,
+) -> dict[str, object]:
+    """Call only the fixed GitHub API host with a validated absolute API path."""
+    if method not in {"GET", "PATCH"}:
+        raise NormalizerError("unsupported GitHub API method")
+    if not path.startswith("/repos/") or ".." in path or "?" in path or "#" in path:
+        raise NormalizerError("GitHub API path is invalid")
+
     data = None if payload is None else json.dumps(payload).encode("utf-8")
-    request = Request(
-        f"{API_ROOT}{path}",
-        data=data,
-        method=method,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "ed-finder-octopus-head-normalizer",
-            "Content-Type": "application/json",
-        },
-    )
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "ed-finder-octopus-head-normalizer",
+    }
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+
+    connection = HTTPSConnection(API_HOST, timeout=20)
     try:
-        with urlopen(request, timeout=20) as response:
-            raw = response.read(1_000_000)
-    except (HTTPError, URLError, TimeoutError) as exc:
+        connection.request(method, path, body=data, headers=headers)
+        response = connection.getresponse()
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+        if response.status < 200 or response.status >= 300:
+            raise NormalizerError(f"GitHub API request failed: {method} {path}")
+        if len(raw) > MAX_RESPONSE_BYTES:
+            raise NormalizerError("GitHub API response exceeded size limit")
+    except (HTTPException, OSError, TimeoutError) as exc:
         raise NormalizerError(f"GitHub API request failed: {method} {path}") from exc
+    finally:
+        connection.close()
+
     try:
         decoded = json.loads(raw)
     except json.JSONDecodeError as exc:
