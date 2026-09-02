@@ -16,6 +16,11 @@ on:
         options:
           - investigate
           - implement
+      target_branch:
+        description: "Existing non-protected branch to update in implement mode (optional)"
+        required: false
+        default: ""
+        type: string
       request_id:
         description: "Stable request identifier supplied by the async dispatcher"
         required: false
@@ -23,13 +28,85 @@ on:
         type: string
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.request.outputs.mode }}
+      branch: ${{ steps.request.outputs.branch }}
+      update_existing: ${{ steps.request.outputs.update_existing }}
+      expected_remote_sha: ${{ steps.request.outputs.expected_remote_sha }}
+      base_sha: ${{ steps.request.outputs.base_sha }}
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 10
+          ref: main
+          persist-credentials: false
+
+      - name: Resolve immutable request routing
+        id: request
+        shell: bash
+        env:
+          INPUT_TASK: ${{ inputs.task }}
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          set -euo pipefail
+          task="$INPUT_TASK"
+          mode="$INPUT_MODE"
+          target_branch="$INPUT_TARGET_BRANCH"
+          [ -n "${task//[[:space:]]/}" ] || { echo "task must be non-empty" >&2; exit 64; }
+          case "$mode" in
+            investigate|implement) ;;
+            *) echo "unsupported mode: $mode" >&2; exit 64 ;;
+          esac
+
+          update_existing=false
+          expected_remote_sha=""
+          if [ -n "$target_branch" ]; then
+            [ "$mode" = "implement" ] || {
+              echo "target_branch is only valid for implement mode" >&2
+              exit 64
+            }
+            git check-ref-format --branch "$target_branch" >/dev/null 2>&1 || {
+              echo "target_branch is not a valid Git branch name" >&2
+              exit 64
+            }
+            case "$target_branch" in
+              main|master|codex-task-requests|chatgpt-ops-requests|chatgpt-ed-new-ops-requests)
+                echo "target_branch is protected/control-plane state and cannot be updated by Codex" >&2
+                exit 64
+                ;;
+            esac
+            git fetch origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch" --depth=20
+            branch="$target_branch"
+            base_sha="$(git rev-parse "refs/remotes/origin/$target_branch")"
+            expected_remote_sha="$base_sha"
+            update_existing=true
+          else
+            branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            base_sha="$(git rev-parse HEAD)"
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "update_existing=$update_existing" >> "$GITHUB_OUTPUT"
+          echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+
   codex:
+    needs: prepare
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
+    permissions:
+      contents: read
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -37,30 +114,6 @@ jobs:
           fetch-depth: 10
           ref: main
           persist-credentials: false
-
-      - name: Resolve request
-        id: request
-        shell: bash
-        env:
-          INPUT_TASK: ${{ inputs.task }}
-          INPUT_MODE: ${{ inputs.mode }}
-          REQUEST_ID: ${{ inputs.request_id }}
-        run: |
-          set -euo pipefail
-          task="$INPUT_TASK"
-          mode="$INPUT_MODE"
-          [ -n "${task//[[:space:]]/}" ] || { echo "task must be non-empty" >&2; exit 64; }
-          case "$mode" in
-            investigate|implement) ;;
-            *) echo "unsupported mode: $mode" >&2; exit 64 ;;
-          esac
-          {
-            echo "mode=$mode"
-            echo "task<<EOF"
-            echo "$task"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-          echo "CODEX_REQUEST_ID=$REQUEST_ID"
 
       - name: Switch to main workspace
         shell: bash
@@ -71,15 +124,34 @@ jobs:
           git reset --hard refs/remotes/origin/main
           git clean -ffdx
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
       - name: Prepare repository state gate
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v python >/dev/null 2>&1; then
+            echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
+            exit 69
+          fi
+          if ! python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The selected interpreter did not report the required Python 3.12 version."
+            python --version >&2 || true
+            exit 69
+          fi
           if [ ! -x .venv/bin/python ]; then
-            python3 -m venv .venv
+            python -m venv .venv
+          fi
+          if ! .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The repository venv does not use the required Python 3.12 interpreter."
+            .venv/bin/python --version >&2 || true
+            exit 69
           fi
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
-          echo "CODEX_STATE_GATE=PASS"
+          echo "CODEX_MAIN_STATE_GATE=PASS"
 
       - name: Verify worker identity
         shell: bash
@@ -94,12 +166,70 @@ jobs:
             exit 42
           fi
           codex --version
+          [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
 
-      - name: Run Codex investigation
-        if: steps.request.outputs.mode == 'investigate'
+      - name: Select immutable implementation base
+        if: needs.prepare.outputs.mode == 'implement'
         shell: bash
         env:
-          CODEX_TASK: ${{ steps.request.outputs.task }}
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --unshallow --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          else
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          fi
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"
+            observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            [ "$observed_sha" = "$CODEX_EXPECTED_REMOTE_SHA" ] || {
+              echo "::error::Target branch moved before Codex started; refusing stale implementation work."
+              exit 70
+            }
+          else
+            observed_sha="$(git rev-parse refs/remotes/origin/main)"
+            [ "$observed_sha" = "$CODEX_BASE_SHA" ] || {
+              echo "::error::Main moved after request preparation; refusing stale implementation work."
+              exit 70
+            }
+          fi
+          git checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
+          git config user.name "codex-worker"
+          git config user.email "codex-worker@users.noreply.github.com"
+
+      - name: Validate selected implementation state
+        if: needs.prepare.outputs.mode == 'implement'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+          echo "CODEX_TARGET_STATE_GATE=PASS"
+
+      - name: Bootstrap pinned Python test environment from selected base
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python -m pytest --version
+          python -m ruff --version
+
+      - name: Run Codex investigation
+        if: needs.prepare.outputs.mode == 'investigate'
+        shell: bash
+        env:
+          CODEX_TASK: ${{ inputs.task }}
         run: |
           set -euo pipefail
           before="$(git status --porcelain=v1 --untracked-files=all)"
@@ -116,55 +246,162 @@ jobs:
           fi
 
       - name: Run Codex implementation
-        if: steps.request.outputs.mode == 'implement'
-        id: implement
+        if: needs.prepare.outputs.mode == 'implement'
         shell: bash
         env:
-          CODEX_TASK: ${{ steps.request.outputs.task }}
+          CODEX_TASK: ${{ inputs.task }}
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
         run: |
           set -euo pipefail
-          branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git checkout -B "$branch" refs/remotes/origin/main
-          git config user.name "codex-worker"
-          git config user.email "codex-worker@users.noreply.github.com"
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before creating this isolated implementation branch; do not rerun that gate merely because the branch name is now different. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
+          else
+            target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
+          fi
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
-          git diff --check
-          changes="$(git status --porcelain=v1 --untracked-files=all)"
+          /usr/bin/git -c core.hooksPath=/dev/null diff --check
+          changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
             echo "Codex produced no changes; refusing empty implementation branch." >&2
             exit 67
           fi
           echo "== changed files =="
-          git status --short
-          git add -A
-          git commit -m "Codex implementation run ${GITHUB_RUN_ID}"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "CODEX_BRANCH_LOCAL=$branch"
+          /usr/bin/git -c core.hooksPath=/dev/null status --short
+          /usr/bin/git -c core.hooksPath=/dev/null add -A
+          /usr/bin/git -c core.hooksPath=/dev/null -c user.name=codex-worker -c user.email=codex-worker@users.noreply.github.com commit -m "Codex implementation run ${GITHUB_RUN_ID}"
 
-      - name: Push implementation branch
-        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+      - name: Seal implementation result
+        if: needs.prepare.outputs.mode == 'implement'
+        id: sealed
         shell: bash
         env:
-          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
-          CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
-          workflow_changes="$(git diff --name-only refs/remotes/origin/main...HEAD | grep -E '^\.github/workflows/' || true)"
-          if [ -n "$workflow_changes" ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
-            echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured. Add that repository secret using a fine-grained personal access token limited to this repository with Contents: read/write and Workflows: read/write."
-            printf 'Workflow files requiring privileged push:\n%s\n' "$workflow_changes"
+          candidate_sha="$(/usr/bin/git -c core.hooksPath=/dev/null rev-parse HEAD)"
+          /usr/bin/git -c core.hooksPath=/dev/null merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha" || {
+            echo "::error::Codex result is not descended from its immutable base."
+            exit 70
+          }
+          if [ "$(/usr/bin/git rev-parse --is-shallow-repository)" = true ]; then
+            echo "::error::Implementation repository is still shallow; refusing an incomplete bundle."
+            exit 70
+          fi
+          /usr/bin/git -c core.hooksPath=/dev/null update-ref refs/heads/codex-sealed-result "$candidate_sha"
+          bundle="$RUNNER_TEMP/codex-result.bundle"
+          rm -f "$bundle"
+          /usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= bundle create "$bundle" refs/heads/codex-sealed-result
+          /usr/bin/git bundle verify "$bundle" >/dev/null
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Upload sealed implementation result
+        if: needs.prepare.outputs.mode == 'implement'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: codex-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.sealed.outputs.bundle }}
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    needs: [prepare, codex]
+    if: needs.prepare.outputs.mode == 'implement' && needs.codex.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download sealed implementation result
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: codex-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codex-result
+
+      - name: Reconstruct trusted push repository
+        id: trusted
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          trusted_git=/usr/bin/git
+          [ -x "$trusted_git" ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          bundle="$RUNNER_TEMP/codex-result/codex-result.bundle"
+          [ -f "$bundle" ] || { echo "::error::Sealed Codex result bundle is missing." >&2; exit 70; }
+
+          trusted_root="$RUNNER_TEMP/codex-trusted-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trusted_repo="$trusted_root/repo"
+          trusted_home="$trusted_root/home"
+          rm -rf "$trusted_root"
+          mkdir -p "$trusted_repo" "$trusted_home"
+
+          export HOME="$trusted_home"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_SYSTEM=/dev/null
+          export GIT_TERMINAL_PROMPT=0
+          PATH=/usr/bin:/bin
+          export PATH
+
+          "$trusted_git" -c core.hooksPath=/dev/null init "$trusted_repo" >/dev/null
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= fetch --no-tags "$bundle" "refs/heads/codex-sealed-result:refs/remotes/codex/result"
+
+          candidate_sha="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null rev-parse refs/remotes/codex/result)"
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha" || {
+            echo "::error::Sealed Codex result is not descended from its immutable base; refusing history rewrite."
+            exit 70
+          }
+
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"
+          else
+            workflow_diff_base="$CODEX_BASE_SHA"
+          fi
+          workflow_changes="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null diff --name-only "$workflow_diff_base" "$candidate_sha" -- '.github/workflows/' || true)"
+          requires_privileged=false
+          if [ -n "$workflow_changes" ]; then
+            requires_privileged=true
+          fi
+          echo "trusted_repo=$trusted_repo" >> "$GITHUB_OUTPUT"
+          echo "trusted_home=$trusted_home" >> "$GITHUB_OUTPUT"
+          echo "requires_privileged=$requires_privileged" >> "$GITHUB_OUTPUT"
+
+      - name: Push sealed implementation with exact-head lease
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}
+          CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          TRUSTED_REPO: ${{ steps.trusted.outputs.trusted_repo }}
+          TRUSTED_HOME: ${{ steps.trusted.outputs.trusted_home }}
+          REQUIRES_PRIVILEGED: ${{ steps.trusted.outputs.requires_privileged }}
+        run: |
+          set -euo pipefail
+          trusted_git=/usr/bin/git
+          PATH=/usr/bin:/bin
+          export PATH
+          export HOME="$TRUSTED_HOME"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_SYSTEM=/dev/null
+          export GIT_TERMINAL_PROMPT=0
+
+          if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
+            echo "::error::Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
             exit 68
           fi
-
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
 
-          # Checkout deliberately does not persist credentials. Authenticate only this
-          # wrapper-owned push through GIT_ASKPASS so the selected token is never present
-          # in argv, a remote URL, repository config, or the Codex process environment.
-          askpass="$(mktemp)"
-          trap 'rm -f "$askpass"' EXIT
+          askpass="$TRUSTED_HOME/askpass"
           cat > "$askpass" <<'EOF'
           #!/usr/bin/env sh
           case "$1" in
@@ -176,16 +413,30 @@ jobs:
           chmod 700 "$askpass"
           export CODEX_PUSH_TOKEN="$push_token"
           export GIT_ASKPASS="$askpass"
-          export GIT_TERMINAL_PROMPT=0
-          git -c credential.helper= push --force-with-lease origin "$CODEX_BRANCH"
+
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            "$trusted_git" -C "$TRUSTED_REPO" -c core.hooksPath=/dev/null -c credential.helper= push \
+              --force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA" \
+              origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"
+          else
+            "$trusted_git" -C "$TRUSTED_REPO" -c core.hooksPath=/dev/null -c credential.helper= push \
+              --force-with-lease="refs/heads/$CODEX_BRANCH:" \
+              origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"
+          fi
           echo "CODEX_BRANCH=$CODEX_BRANCH"
+          echo "CODEX_UPDATED_EXISTING_BRANCH=$CODEX_UPDATE_EXISTING"
 
       - name: Implementation branch summary
-        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
         shell: bash
         env:
-          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
         run: |
           set -euo pipefail
-          echo "Implementation branch pushed: $CODEX_BRANCH"
-          echo "Open a PR only after review of the diff and test evidence."
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            echo "Existing implementation branch updated: $CODEX_BRANCH"
+            echo "The existing pull request will pick up the pushed commit and fresh checks automatically."
+          else
+            echo "Implementation branch pushed: $CODEX_BRANCH"
+            echo "Open a PR only after review of the diff and test evidence."
+          fi

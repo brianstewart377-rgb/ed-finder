@@ -33,12 +33,18 @@ jobs:
           mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/codex-requests/*.json')
           [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one Codex request file" >&2; exit 64; }
           file="${files[0]}"
-          mode="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); extra=set(d)-{"task","mode"}; extra and sys.exit("unsupported request keys"); m=d.get("mode","investigate"); m in {"investigate","implement"} or sys.exit("unsupported mode"); print(m)' "$file")"
+          mode="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); extra=set(d)-{"task","mode","target_branch"}; extra and sys.exit("unsupported request keys"); m=d.get("mode","investigate"); m in {"investigate","implement"} or sys.exit("unsupported mode"); print(m)' "$file")"
           task="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); t=d.get("task"); isinstance(t,str) and t.strip() or sys.exit("task must be non-empty"); print(t.replace("\n"," "))' "$file")"
+          target_branch="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); b=d.get("target_branch",""); isinstance(b,str) or sys.exit("target_branch must be a string"); print(b)' "$file")"
+          if [ -n "$target_branch" ] && [ "$mode" != "implement" ]; then
+            echo "target_branch is only valid for implement mode" >&2
+            exit 64
+          fi
           stem="$(basename "$file" .json)"
           request_id="${stem}-${CURRENT_SHA:0:8}"
           {
             echo "mode=$mode"
+            echo "target_branch=$target_branch"
             echo "request_id=$request_id"
             echo "request_file=$file"
             echo "task<<EOF"
@@ -54,6 +60,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           CODEX_TASK: ${{ steps.request.outputs.task }}
           CODEX_MODE: ${{ steps.request.outputs.mode }}
+          CODEX_TARGET_BRANCH: ${{ steps.request.outputs.target_branch }}
           CODEX_REQUEST_ID: ${{ steps.request.outputs.request_id }}
           CODEX_REQUEST_FILE: ${{ steps.request.outputs.request_file }}
         run: |
@@ -65,6 +72,7 @@ jobs:
               "inputs": {
                   "task": os.environ["CODEX_TASK"],
                   "mode": os.environ["CODEX_MODE"],
+                  "target_branch": os.environ["CODEX_TARGET_BRANCH"],
                   "request_id": os.environ["CODEX_REQUEST_ID"],
               },
           }))
@@ -116,6 +124,7 @@ jobs:
           echo "CODEX_DISPATCH_ACCEPTED=true"
           echo "CODEX_REQUEST_ID=$CODEX_REQUEST_ID"
           echo "CODEX_REQUEST_FILE=$CODEX_REQUEST_FILE"
+          echo "CODEX_TARGET_BRANCH=${CODEX_TARGET_BRANCH:-new-branch}"
           if [ -n "$worker_run_id" ]; then
             echo "CODEX_WORKER_RUN_ID=$worker_run_id"
             echo "worker_run_id=$worker_run_id" >> "$GITHUB_OUTPUT"
