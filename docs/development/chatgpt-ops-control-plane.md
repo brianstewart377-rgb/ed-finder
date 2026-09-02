@@ -68,42 +68,44 @@ install the existing pinned `tests/requirements-ci.txt` authority with the venv
 interpreter. It then exports `VIRTUAL_ENV` and prepends `.venv/bin` for the
 unprivileged Codex/test steps, and verifies the bootstrap with `python -m pip
 check`, `python -m pytest --version`, and `python -m ruff --version`. The later
-credentialed Git wrapper deliberately discards that inherited PATH and invokes
-the trusted system Git directly.
+credentialed Git job deliberately discards that inherited PATH and invokes the
+trusted system Git directly.
 
 ### Codex review versus implementation authority
 
 Hosted Codex PR review remains a reviewer path. It should not be treated as the authoritative repository write path because its hosted checkout may not expose a writable Git remote and its optional PR-writing helper is outside ED-Finder's control.
 
-Repository writes are therefore routed through the self-hosted Codex Worker. An implementation request may include an optional `target_branch` naming an existing non-protected ED-Finder branch. When supplied, the worker:
+Repository writes are therefore routed through the self-hosted Codex Worker. An implementation request may include an optional `target_branch` naming an existing non-protected ED-Finder branch. When supplied, the workflow:
 
 1. validates the branch name and refuses `main`, `master`, `codex-task-requests`, `chatgpt-ops-requests`, and `chatgpt-ed-new-ops-requests`;
 2. keeps the arbitrary task body out of `$GITHUB_OUTPUT` and stores it in a wrapper-owned temporary file so task text cannot inject downstream outputs;
 3. runs the strict repository state gate on trusted `origin/main` before selecting the target;
 4. fetches the exact remote target branch and records its starting SHA;
-5. runs Codex without any push credential in its environment;
-6. commits the resulting changes without a push credential and seals the resulting branch into a Git bundle;
-7. creates a fresh wrapper-owned Git directory, imports only that sealed result, uses a pinned `https://github.com/${GITHUB_REPOSITORY}.git` remote, ignores system/global Git configuration, disables hooks, and resets PATH to trusted system binaries before any push credential exists;
-8. verifies the imported candidate SHA and proves the recorded base is its ancestor, so the wrapper cannot turn the lease into a history rewrite;
-9. re-reads the target ref immediately before push and then uses an explicit `--force-with-lease=<ref>:<expected-sha>` compare-and-swap. The lease is used only as the atomic expected-head check; the ancestry check still requires the candidate itself to be a fast-forward descendant.
+5. runs Codex in a read-only-authority job with no push credential in its environment;
+6. commits the resulting changes without a push credential, seals the branch into a Git bundle, and uploads that sealed bundle through the pinned GitHub artifact action;
+7. starts a **separate trusted push job** which receives no task text and never runs Codex, downloads only the sealed result, creates a fresh wrapper-owned Git directory, uses a pinned `https://github.com/${GITHUB_REPOSITORY}.git` remote, ignores system/global Git configuration, disables hooks, and resets PATH to trusted system binaries before any push credential exists;
+8. verifies the imported candidate SHA and proves the recorded base is its ancestor, so the trusted job cannot turn the lease into a history rewrite;
+9. exposes the selected push credential only in the final Git-only step and uses an explicit `--force-with-lease=<ref>:<expected-sha>` server-side compare-and-swap. The lease is the atomic expected-head check; the ancestry check separately requires the candidate itself to be a fast-forward descendant.
+
+The job boundary is intentional. The job that executes `codex exec` has only `contents: read`; the separate push job has the minimum `actions: read` plus `contents: write` authority needed to retrieve the sealed result and update the branch. This keeps authenticated repository-write authority completely outside every process and filesystem that Codex can influence.
 
 Updating an existing PR branch automatically updates that PR, so this path does not depend on a hosted `make_pr` helper. New implementation requests with no `target_branch` continue to create an isolated `codex/run-<run>-<attempt>` branch that ChatGPT can inspect and open as a PR through its GitHub connector. New-branch creation uses an empty expected-ref lease so a concurrently-created branch cannot be overwritten.
 
 For review-fix loops the preferred pattern is therefore:
 
-`Codex review -> ChatGPT dispositions -> self-hosted Codex implement(target_branch=<PR head>) -> CI/re-review`
+`Codex review -> ChatGPT dispositions -> self-hosted Codex implement(target_branch=<PR head>) -> sealed artifact -> trusted push job -> CI/re-review`
 
 This separation keeps reviewer independence while making repository writes deterministic and auditable.
 
 ### Codex implementation push credential
 
-Ordinary Codex implementation branches may be pushed with the workflow's normal `GITHUB_TOKEN`. GitHub refuses that token when a commit creates or modifies files under `.github/workflows/`, so workflow-file changes require the repository secret `CODEX_WORKER_GIT_TOKEN`.
+Ordinary Codex implementation branches may be pushed with the trusted push job's scoped `GITHUB_TOKEN`. GitHub refuses that token when a commit creates or modifies files under `.github/workflows/`, so workflow-file changes require the repository secret `CODEX_WORKER_GIT_TOKEN`.
 
 `CODEX_WORKER_GIT_TOKEN` should contain a fine-grained personal access token limited to this repository with `Contents: read/write` and `Workflows: read/write`. A broad classic token is not preferred. A GitHub App can be adopted later, but the workflow would need to generate a fresh installation token at runtime rather than storing a short-lived installation token as this repository secret.
 
-The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, the Codex execution environment, the seal step, or the Codex-controlled working repository. Codex finishes first and the result is sealed without a push credential. Only then does the wrapper create a fresh Git directory and a fresh temporary HOME, disable inherited Git configuration and hooks, pin the GitHub remote, and expose the selected token through a temporary `GIT_ASKPASS` helper. The token is therefore not embedded in command arguments, remote URLs, repository configuration, or any process that runs inside the Codex-controlled checkout.
+The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, the Codex execution environment, the sealing step, the artifact upload, or the Codex-controlled working repository. The Codex job finishes and publishes only its sealed result plus wrapper-derived branch/SHA metadata. A separate push job then downloads that result, creates a fresh Git directory and temporary HOME, disables inherited Git configuration and hooks, pins the GitHub remote, and only in its final Git-only step exposes the selected token through a temporary `GIT_ASKPASS` helper. The token is therefore not embedded in command arguments, remote URLs, repository configuration, artifacts, or any process that runs inside the Codex-controlled job.
 
-If a Codex implementation changes `.github/workflows/*` while `CODEX_WORKER_GIT_TOKEN` is absent, the trusted wrapper fails closed before attempting the push and reports the missing secret explicitly. Implementations that do not change workflow files continue to fall back to the normal `GITHUB_TOKEN`.
+If a Codex implementation changes `.github/workflows/*` while `CODEX_WORKER_GIT_TOKEN` is absent, the trusted push job fails closed before attempting the push and reports the missing secret explicitly. Implementations that do not change workflow files continue to fall back to the scoped `GITHUB_TOKEN`.
 
 ## Receipts
 
