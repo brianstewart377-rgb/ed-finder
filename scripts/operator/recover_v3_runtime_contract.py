@@ -61,16 +61,26 @@ QUOTED_ENV_ASSIGNMENT_RE = re.compile(
 )
 BARE_ENV_ASSIGNMENT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
-    r"(?P<value>\$\{[^}\r\n]*\}|[^\s,\"'\]\}]+)", re.MULTILINE,
+    r"(?P<value>[^\s,;\"'\]]+)", re.MULTILINE,
 )
 QUOTED_MAPPING_ENV_RE = re.compile(
     rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{STRUCTURED_KEY})"
     r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote))",
+    re.DOTALL,
 )
 BARE_MAPPING_ENV_RE = re.compile(
     rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{STRUCTURED_KEY})"
     r"(?P=keyquote)\s*:(?![ \t]*[\"'])[ \t]*"
     r"(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+))",
+)
+DOUBLE_QUOTED_MAPPING_ENV_RE = re.compile(
+    rf'''(?m)(?={MAPPING_KEY_PREFIX}"(?P<raw_name>(?:\\.|[^"\\])*)"\s*:\s*'''
+    r'''(?P<valquote>["'])(?P<value>.*?)(?P=valquote))''',
+    re.DOTALL,
+)
+DOUBLE_QUOTED_BARE_MAPPING_ENV_RE = re.compile(
+    rf'''(?m)(?={MAPPING_KEY_PREFIX}"(?P<raw_name>(?:\\.|[^"\\])*)"\s*'''
+    r''':(?![ \t]*["'])[ \t]*(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+))''',
 )
 DOCKERFILE_ENV_SPACE_RE = re.compile(
     rf"(?im)^\s*ENV\s+(?P<name>{IDENTIFIER})\s+(?P<value>[^\r\n#]+)"
@@ -138,7 +148,7 @@ K8S_SECRET_PAYLOAD_RE = re.compile(
 )
 TOKEN_PATTERNS = (
     ("private-key-material", re.compile(
-        r"-----BEGIN (?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+        r"-----BEGIN (?:(?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----",
         re.IGNORECASE,
     )),
     ("openai-api-token", re.compile(r"\bsk-(?!ant-)(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b")),
@@ -170,6 +180,12 @@ NONSENSITIVE_REFERENCE_NAMES = {
 }
 PYTHON_LOOKUP_CALL_NAMES = {
     "fetch_secret", "get_secret", "load_secret", "read_secret", "resolve_secret",
+}
+YAML_DOUBLE_QUOTE_ESCAPES = {
+    "0": "\0", "a": "\a", "b": "\b", "t": "\t", "n": "\n",
+    "v": "\v", "f": "\f", "r": "\r", "e": "\x1b", " ": " ",
+    '"': '"', "/": "/", "\\": "\\", "N": "\u0085", "_": "\u00a0",
+    "L": "\u2028", "P": "\u2029",
 }
 
 
@@ -284,6 +300,40 @@ def _normalized_name(name: str) -> str:
     camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
     punct_split = re.sub(r"[^A-Za-z0-9]+", "_", camel_split)
     return re.sub(r"_+", "_", punct_split).strip("_").upper()
+
+
+def _decode_yaml_double_quoted_key(raw: str) -> str | None:
+    decoded: list[str] = []
+    index = 0
+    while index < len(raw):
+        character = raw[index]
+        if character != "\\":
+            decoded.append(character)
+            index += 1
+            continue
+        index += 1
+        if index >= len(raw):
+            return None
+        escape = raw[index]
+        if escape in YAML_DOUBLE_QUOTE_ESCAPES:
+            decoded.append(YAML_DOUBLE_QUOTE_ESCAPES[escape])
+            index += 1
+            continue
+        widths = {"x": 2, "u": 4, "U": 8}
+        width = widths.get(escape)
+        if width is None:
+            return None
+        start = index + 1
+        end = start + width
+        digits = raw[start:end]
+        if len(digits) != width or not re.fullmatch(r"[0-9A-Fa-f]+", digits):
+            return None
+        try:
+            decoded.append(chr(int(digits, 16)))
+        except ValueError:
+            return None
+        index = end
+    return "".join(decoded)
 
 
 def _name_is_sensitive(name: str) -> bool:
@@ -417,6 +467,29 @@ def _compose_secret_reference_collection(name: str, value: str) -> bool:
     return _normalized_name(name) == "SECRETS" and value.strip().startswith(("[", "{"))
 
 
+def _scan_decoded_yaml_mapping_keys(text: str, findings: set[str]) -> None:
+    for match in DOUBLE_QUOTED_MAPPING_ENV_RE.finditer(text):
+        name = _decode_yaml_double_quoted_key(match.group("raw_name"))
+        if name is None:
+            continue
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if _name_is_sensitive(name) and not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+    for match in DOUBLE_QUOTED_BARE_MAPPING_ENV_RE.finditer(text):
+        name = _decode_yaml_double_quoted_key(match.group("raw_name"))
+        if name is None:
+            continue
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if not _name_is_sensitive(name) or _unquoted_yaml_null(value):
+            continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+
 def _scan_assignment_patterns(text: str, findings: set[str], *, include_equals: bool = True) -> None:
     if include_equals:
         for pattern in (QUOTED_ENV_ASSIGNMENT_RE, BARE_ENV_ASSIGNMENT_RE):
@@ -442,6 +515,8 @@ def _scan_assignment_patterns(text: str, findings: set[str], *, include_equals: 
             continue
         if not _assignment_value_is_safe(name, value):
             findings.add("sensitive-environment-assignment")
+
+    _scan_decoded_yaml_mapping_keys(text, findings)
 
 
 def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
@@ -660,6 +735,9 @@ def _scan_python_assignments(text: str, findings: set[str]) -> None:
             targets = node.targets
             value = node.value
         elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        elif isinstance(node, (ast.AugAssign, ast.NamedExpr)):
             targets = [node.target]
             value = node.value
         else:
