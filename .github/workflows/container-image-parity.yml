@@ -24,6 +24,9 @@ on:
     - cron: '0 7 * * 1'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 concurrency:
   group: container-image-parity-${{ github.ref }}
   cancel-in-progress: true
