@@ -34,7 +34,7 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "codex-task-requests" not in trigger
 
 
-def test_codex_execution_job_has_no_write_authority() -> None:
+def test_codex_execution_job_has_no_write_authority_and_push_is_ephemeral() -> None:
     text = WORKER.read_text(encoding="utf-8")
     top_permissions = text.split("permissions:", 1)[1].split("jobs:", 1)[0]
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
@@ -45,6 +45,9 @@ def test_codex_execution_job_has_no_write_authority() -> None:
     assert "permissions:\n      contents: read" in codex_job
     assert "contents: write" not in codex_job
     assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
+    assert "runs-on: [self-hosted, Linux, X64]" in codex_job
+    assert "runs-on: ubuntu-latest" in push_job
+    assert "runs-on: [self-hosted, Linux, X64]" not in push_job
     assert "permissions:\n      actions: read\n      contents: write" in push_job
     assert "pull-requests: write" not in text
 
@@ -189,6 +192,18 @@ def test_existing_pr_branch_is_updated_with_atomic_lease_from_prepare_job() -> N
     assert 'CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}' in push
     assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push
     assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push
+
+
+def test_existing_pr_update_requires_non_github_token_so_checks_retrigger() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    push = text.split("- name: Push sealed implementation with exact-head lease", 1)[1].split(
+        "- name: Implementation branch summary", 1
+    )[0]
+
+    assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push
+    assert 'if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then' in push
+    assert "Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN" in push
+    assert 'push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"' in push
 
 
 def test_sealed_result_is_complete_and_crosses_job_boundary_without_push_credential() -> None:
