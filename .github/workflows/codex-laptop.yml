@@ -230,7 +230,12 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          workflow_changes="$(git diff --name-only refs/remotes/origin/main...HEAD | grep -E '^\.github/workflows/' || true)"
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"
+          else
+            workflow_diff_base="refs/remotes/origin/main"
+          fi
+          workflow_changes="$(git diff --name-only "$workflow_diff_base" HEAD -- '.github/workflows/' || true)"
           if [ -n "$workflow_changes" ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
             echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured. Add that repository secret using a fine-grained personal access token limited to this repository with Contents: read/write and Workflows: read/write."
             printf 'Workflow files requiring privileged push:\n%s\n' "$workflow_changes"
