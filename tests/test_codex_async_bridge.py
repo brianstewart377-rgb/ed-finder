@@ -104,22 +104,26 @@ def test_worker_activates_and_verifies_the_pinned_venv() -> None:
     assert "python -m ruff --version" in verification
 
 
-def test_request_task_is_not_written_to_github_output() -> None:
+def test_routing_is_resolved_before_codex_and_task_never_enters_outputs() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    resolver = text.split("- name: Resolve request", 1)[1].split(
-        "- name: Switch to main workspace", 1
-    )[0]
+    prepare = text.split("  prepare:", 1)[1].split("\n  codex:", 1)[0]
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
 
-    assert 'printf \'%s\' "$task" > "$task_file"' in resolver
-    assert 'echo "task<<EOF"' not in resolver
-    assert "steps.request.outputs.task" not in text
-    assert 'CODEX_TASK="$(cat "$CODEX_TASK_FILE")"' in text
+    assert "runs-on: ubuntu-latest" in prepare
+    assert "Resolve immutable request routing" in prepare
+    assert 'INPUT_TASK: ${{ inputs.task }}' in prepare
+    assert 'echo "task=' not in prepare
+    assert 'echo "branch=$branch" >> "$GITHUB_OUTPUT"' in prepare
+    assert 'echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"' in prepare
+    assert "needs: prepare" in codex_job
+    assert '${{ needs.prepare.outputs.branch }}' in codex_job
+    assert '${{ needs.prepare.outputs.expected_remote_sha }}' in codex_job
 
 
 def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denied() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    resolver = text.split("- name: Resolve request", 1)[1].split(
-        "- name: Switch to main workspace", 1
+    resolver = text.split("- name: Resolve immutable request routing", 1)[1].split(
+        "\n  codex:", 1
     )[0]
 
     assert "INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}" in resolver
@@ -131,11 +135,21 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
     assert "target_branch is only valid for implement mode" in resolver
 
 
-def test_existing_pr_branch_is_fetched_exactly_and_updated_with_atomic_lease() -> None:
+def test_codex_rechecks_immutable_base_before_starting() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    implementation = text.split("- name: Run Codex implementation", 1)[1].split(
-        "- name: Seal implementation result", 1
+    selection = text.split("- name: Select immutable implementation base", 1)[1].split(
+        "- name: Run Codex implementation", 1
     )[0]
+
+    assert '${{ needs.prepare.outputs.expected_remote_sha }}' in selection
+    assert '${{ needs.prepare.outputs.base_sha }}' in selection
+    assert 'observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"' in selection
+    assert "Target branch moved before Codex started; refusing stale implementation work." in selection
+    assert "Main moved after request preparation; refusing stale implementation work." in selection
+
+
+def test_existing_pr_branch_is_updated_with_atomic_lease_from_prepare_job() -> None:
+    text = WORKER.read_text(encoding="utf-8")
     reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
         "- name: Push sealed implementation with exact-head lease", 1
     )[0]
@@ -143,13 +157,11 @@ def test_existing_pr_branch_is_fetched_exactly_and_updated_with_atomic_lease() -
         "- name: Implementation branch summary", 1
     )[0]
 
-    assert 'CODEX_TARGET_BRANCH: ${{ steps.request.outputs.target_branch }}' in implementation
-    assert 'git fetch origin "+refs/heads/$CODEX_TARGET_BRANCH:refs/remotes/origin/$CODEX_TARGET_BRANCH" --depth=20' in implementation
-    assert 'expected_remote_sha="$(git rev-parse "$base_ref")"' in implementation
-    assert 'branch="$CODEX_TARGET_BRANCH"' in implementation
-    assert "Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history." in implementation
+    assert 'CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}' in reconstruction
+    assert 'CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}' in reconstruction
     assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in reconstruction
-    assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$CODEX_CANDIDATE_SHA"' in reconstruction
+    assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha"' in reconstruction
+    assert 'CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}' in push
     assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push
     assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push
 
@@ -159,11 +171,12 @@ def test_sealed_result_crosses_job_boundary_without_push_credential() -> None:
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
     push_job = text.split("\n  push:", 1)[1]
 
+    assert "update-ref refs/heads/codex-sealed-result" in codex_job
     assert "bundle create" in codex_job
     assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in codex_job
     assert "retention-days: 1" in codex_job
-    assert "needs: codex" in push_job
+    assert "needs: [prepare, codex]" in push_job
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in push_job
     assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_job
 
@@ -171,7 +184,7 @@ def test_sealed_result_crosses_job_boundary_without_push_credential() -> None:
 def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> None:
     text = WORKER.read_text(encoding="utf-8")
     checkout = text.split("- name: Checkout main", 1)[1].split(
-        "- name: Resolve request", 1
+        "- name: Switch to main workspace", 1
     )[0]
     reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
         "- name: Push sealed implementation with exact-head lease", 1
