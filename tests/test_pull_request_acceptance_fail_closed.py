@@ -19,7 +19,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 _WRITE_ACTION_ALLOWLIST = frozenset({"actions/checkout"})
 _RAW_GH_PR_MERGE = re.compile(r"\bgh\s+pr\s+merge\b(?P<tail>[^;&|\n]*)", re.IGNORECASE)
-_RAW_GH_API = re.compile(r"\bgh\s+(?:--[^\s]+\s+)*api\b", re.IGNORECASE)
+_RAW_GH_API = re.compile(r"\bgh\b(?:(?![;&|\n]).)*\bapi\b", re.IGNORECASE)
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -51,16 +51,19 @@ def _tracked_workflows() -> list[Path]:
     return [Path(line) for line in result.stdout.splitlines() if (ROOT / line).is_file()]
 
 
-def _permissions_contents_write(permissions: object) -> bool:
-    return isinstance(permissions, dict) and permissions.get("contents") == "write"
+def _permissions_have_merge_authority(permissions: object) -> bool:
+    return isinstance(permissions, dict) and (
+        permissions.get("contents") == "write"
+        or permissions.get("pull-requests") == "write"
+    )
 
 
-def _job_contents_write(document: dict[str, object], job: dict[str, object]) -> bool:
+def _job_has_merge_authority(document: dict[str, object], job: dict[str, object]) -> bool:
     # A job-level permissions mapping replaces the inherited mapping. If it is
-    # present, only its explicit ``contents`` value matters.
+    # present, inspect only that explicit authority; otherwise inherit top-level.
     if "permissions" in job:
-        return _permissions_contents_write(job.get("permissions"))
-    return _permissions_contents_write(document.get("permissions"))
+        return _permissions_have_merge_authority(job.get("permissions"))
+    return _permissions_have_merge_authority(document.get("permissions"))
 
 
 def _steps(job: dict[str, object]) -> list[dict[str, object]]:
@@ -89,28 +92,28 @@ def _raw_merge_violations(run: str) -> list[str]:
     return violations
 
 
-def _write_surface_violations(document: dict[str, object]) -> list[str]:
-    """Return fail-closed violations in jobs able to write repository contents."""
+def _merge_authority_violations(document: dict[str, object]) -> list[str]:
+    """Return fail-closed violations in jobs with merge-adjacent token authority."""
     violations: list[str] = []
     jobs = document.get("jobs")
     if not isinstance(jobs, dict):
         return violations
 
     for job_name, raw_job in jobs.items():
-        if not isinstance(raw_job, dict) or not _job_contents_write(document, raw_job):
+        if not isinstance(raw_job, dict) or not _job_has_merge_authority(document, raw_job):
             continue
 
         # A reusable job can execute arbitrary code outside the inspected step
-        # list. Write-capable jobs therefore may not delegate through ``uses``.
+        # list. Merge-authority jobs therefore may not delegate through ``uses``.
         if isinstance(raw_job.get("uses"), str):
-            violations.append(f"{job_name}: write-capable reusable job is not allowed")
+            violations.append(f"{job_name}: merge-authority reusable job is not allowed")
 
         for step in _steps(raw_job):
             uses = step.get("uses")
             if isinstance(uses, str):
                 action = uses.split("@", 1)[0]
                 if action.startswith("./") or action not in _WRITE_ACTION_ALLOWLIST:
-                    violations.append(f"{job_name}: unapproved write-capable action {uses}")
+                    violations.append(f"{job_name}: unapproved merge-authority action {uses}")
 
             run = step.get("run")
             if not isinstance(run, str):
@@ -123,13 +126,13 @@ def _write_surface_violations(document: dict[str, object]) -> list[str]:
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # In a contents-write job, any direct ``gh`` use other than the
+            # In a merge-authority job, any direct ``gh`` use other than the
             # strictly protective disable-auto form is too powerful to classify
             # safely. The current worker needs Git, not GitHub CLI.
             gh_mentions = re.findall(r"\bgh\b", run, flags=re.IGNORECASE)
             protective = len(_RAW_GH_PR_MERGE.findall(run)) == 1 and not _raw_merge_violations(run)
             if gh_mentions and not protective:
-                violations.append(f"{job_name}: unclassified gh command in contents-write job")
+                violations.append(f"{job_name}: unclassified gh command in merge-authority job")
 
     return violations
 
@@ -144,11 +147,18 @@ def test_raw_guard_still_allows_only_protective_disable_auto():
     assert _raw_merge_violations('else gh pr merge --disable-auto "$PR_URL" --squash')
 
 
-def test_contents_write_guard_rejects_variable_api_endpoint():
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        "contents: write",
+        "pull-requests: write",
+    ],
+)
+def test_merge_authority_guard_rejects_variable_api_endpoint(permissions: str):
     document = _load(
-        """
+        f"""
 permissions:
-  contents: write
+  {permissions}
 jobs:
   merge:
     steps:
@@ -158,7 +168,7 @@ jobs:
 """
     )
     assert isinstance(document, dict)
-    assert _write_surface_violations(document)
+    assert _merge_authority_violations(document)
 
 
 @pytest.mark.parametrize(
@@ -169,11 +179,11 @@ jobs:
         "owner/pr-tools@deadbeef",
     ],
 )
-def test_contents_write_guard_rejects_unapproved_actions(uses: str):
+def test_merge_authority_guard_rejects_unapproved_actions(uses: str):
     document = _load(
         f"""
 permissions:
-  contents: write
+  pull-requests: write
 jobs:
   worker:
     steps:
@@ -181,14 +191,15 @@ jobs:
 """
     )
     assert isinstance(document, dict)
-    assert _write_surface_violations(document)
+    assert _merge_authority_violations(document)
 
 
-def test_contents_write_guard_allows_pinned_checkout_and_git_only_commands():
+def test_merge_authority_guard_allows_pinned_checkout_and_git_only_commands():
     document = _load(
         """
 permissions:
   contents: write
+  pull-requests: write
 jobs:
   worker:
     steps:
@@ -197,10 +208,27 @@ jobs:
 """
     )
     assert isinstance(document, dict)
-    assert not _write_surface_violations(document)
+    assert not _merge_authority_violations(document)
 
 
-def test_no_workflow_contains_raw_merge_or_gh_api_and_write_surfaces_are_allowlisted():
+def test_job_permissions_override_top_level_write_authority():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  readonly:
+    permissions:
+      contents: read
+    steps:
+      - uses: owner/read-only-helper@deadbeef
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
+def test_no_workflow_contains_raw_merge_or_gh_api_and_merge_authority_is_allowlisted():
     violations: list[str] = []
     for path in _tracked_workflows():
         source = (ROOT / path).read_text(encoding="utf-8")
@@ -222,6 +250,6 @@ def test_no_workflow_contains_raw_merge_or_gh_api_and_write_surfaces_are_allowli
                     if _RAW_GH_API.search(run):
                         violations.append(f"{path}: gh api path")
 
-        violations.extend(f"{path}: {item}" for item in _write_surface_violations(document))
+        violations.extend(f"{path}: {item}" for item in _merge_authority_violations(document))
 
     assert not violations, "\n".join(violations)
