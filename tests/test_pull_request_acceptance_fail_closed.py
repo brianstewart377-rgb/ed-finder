@@ -179,6 +179,20 @@ def _service_exposes_merge_credential(service: object, merge_authority: bool) ->
     )
 
 
+def _job_container_is_merge_capable(
+    document: dict[str, object], job: dict[str, object], merge_authority: bool
+) -> bool:
+    container = job.get("container")
+    if container is None:
+        return False
+    return (
+        merge_authority
+        or _value_contains_external_token(document.get("env"))
+        or _value_contains_external_token(job.get("env"))
+        or _value_contains_external_token(container)
+    )
+
+
 def _action_is_allowlisted_and_pinned(uses: str) -> bool:
     action, separator, ref = uses.partition("@")
     return (
@@ -187,6 +201,17 @@ def _action_is_allowlisted_and_pinned(uses: str) -> bool:
         and action in _WRITE_ACTION_ALLOWLIST
         and bool(_ACTION_SHA.fullmatch(ref))
     )
+
+
+def _checkout_persists_credentials(step: dict[str, object]) -> bool:
+    uses = step.get("uses")
+    if not isinstance(uses, str) or uses.split("@", 1)[0] != "actions/checkout":
+        return False
+    options = step.get("with")
+    if not isinstance(options, dict):
+        return True
+    value = options.get("persist-credentials")
+    return not (value is False or (isinstance(value, str) and value.lower() == "false"))
 
 
 def _is_strict_disable_auto_tail(tail: str) -> bool:
@@ -231,6 +256,9 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
         ):
             violations.append(f"{job_name}: merge-capable reusable job is not allowed")
 
+        if _job_container_is_merge_capable(document, raw_job, merge_authority):
+            violations.append(f"{job_name}: merge-capable job container is not allowed")
+
         services = raw_job.get("services")
         if isinstance(services, dict):
             for service_name, service in services.items():
@@ -260,6 +288,10 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
                 if not _action_is_allowlisted_and_pinned(uses):
                     violations.append(
                         f"{job_name}: unapproved or mutable merge-capable action {uses}"
+                    )
+                if merge_authority and _checkout_persists_credentials(step):
+                    violations.append(
+                        f"{job_name}: merge-capable checkout must set persist-credentials: false"
                     )
 
             if not run:
@@ -387,6 +419,8 @@ jobs:
       TOKEN: ${{ secrets.MERGE_PAT }}
     steps:
       - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          persist-credentials: false
       - run: |
           curl -H "Authorization: Bearer $TOKEN" "$MERGE_ENDPOINT"
         env:
@@ -613,6 +647,74 @@ jobs:
     assert not _merge_authority_violations(document)
 
 
+def test_job_container_is_rejected_under_merge_authority():
+    document = _load(
+        """
+permissions:
+  pull-requests: write
+jobs:
+  worker:
+    container:
+      image: owner/helper:latest
+    steps:
+      - run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert any("job container" in item for item in _merge_authority_violations(document))
+
+
+def test_read_only_job_container_remains_allowed():
+    document = _load(
+        """
+permissions:
+  contents: read
+jobs:
+  worker:
+    container:
+      image: owner/helper:latest
+    steps:
+      - run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
+def test_merge_authority_checkout_must_disable_persisted_credentials():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - run: echo harmless
+"""
+    )
+    assert isinstance(document, dict)
+    assert any("persist-credentials" in item for item in _merge_authority_violations(document))
+
+
+def test_merge_authority_checkout_with_persist_credentials_false_is_allowed():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          persist-credentials: false
+      - run: git status --short
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
 def test_unknown_permissions_allow_unauthenticated_local_health_probe():
     document = _load(
         """
@@ -620,6 +722,8 @@ jobs:
   probe:
     steps:
       - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          persist-credentials: false
       - run: curl -sf http://127.0.0.1:8000/api/health
 """
     )
@@ -636,6 +740,8 @@ jobs:
   worker:
     steps:
       - uses: actions/checkout@main
+        with:
+          persist-credentials: false
 """
     )
     assert isinstance(document, dict)
@@ -693,6 +799,8 @@ jobs:
   worker:
     steps:
       - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          persist-credentials: false
       - run: git push origin "$BRANCH"
 """
     )
