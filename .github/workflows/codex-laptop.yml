@@ -33,7 +33,7 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -42,13 +42,14 @@ jobs:
       update_existing: ${{ steps.request.outputs.update_existing }}
       expected_remote_sha: ${{ steps.request.outputs.expected_remote_sha }}
       base_sha: ${{ steps.request.outputs.base_sha }}
+      main_sha: ${{ steps.request.outputs.main_sha }}
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 10
+          fetch-depth: 0
           ref: main
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Resolve immutable request routing
         id: request
@@ -68,6 +69,7 @@ jobs:
             *) echo "unsupported mode: $mode" >&2; exit 64 ;;
           esac
 
+          main_sha="$(git rev-parse HEAD)"
           update_existing=false
           expected_remote_sha=""
           if [ -n "$target_branch" ]; then
@@ -85,14 +87,14 @@ jobs:
                 exit 64
                 ;;
             esac
-            git fetch origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch" --depth=20
+            git fetch --no-tags origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch"
             branch="$target_branch"
             base_sha="$(git rev-parse "refs/remotes/origin/$target_branch")"
             expected_remote_sha="$base_sha"
             update_existing=true
           else
             branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            base_sha="$(git rev-parse HEAD)"
+            base_sha="$main_sha"
           fi
 
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
@@ -100,29 +102,94 @@ jobs:
           echo "update_existing=$update_existing" >> "$GITHUB_OUTPUT"
           echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Seal trusted source bundle
+        id: source
+        shell: bash
+        env:
+          CODEX_UPDATE_EXISTING: ${{ steps.request.outputs.update_existing }}
+          CODEX_BRANCH: ${{ steps.request.outputs.branch }}
+          CODEX_MAIN_SHA: ${{ steps.request.outputs.main_sha }}
+          CODEX_BASE_SHA: ${{ steps.request.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/codex-source.bundle"
+          rm -f "$bundle"
+          git update-ref refs/heads/codex-source-main "$CODEX_MAIN_SHA"
+          refs=(refs/heads/codex-source-main)
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            observed="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            [ "$observed" = "$CODEX_BASE_SHA" ] || {
+              echo "::error::Prepared target branch changed while sealing source bundle."
+              exit 70
+            }
+            git update-ref refs/heads/codex-source-target "$CODEX_BASE_SHA"
+            refs+=(refs/heads/codex-source-target)
+          fi
+          git bundle create "$bundle" "${refs[@]}"
+          git bundle verify "$bundle" >/dev/null
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Upload trusted source bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: codex-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.source.outputs.bundle }}
+          if-no-files-found: error
+          retention-days: 1
 
   codex:
     needs: prepare
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 120
     permissions:
-      contents: read
+      actions: read
     steps:
-      - name: Checkout main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - name: Download trusted source bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          fetch-depth: 10
-          ref: main
-          persist-credentials: true
+          name: codex-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codex-source
 
-      - name: Switch to main workspace
+      - name: Reconstruct credential-free workspace
         shell: bash
+        env:
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_MAIN_SHA: ${{ needs.prepare.outputs.main_sha }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
-          git fetch origin '+refs/heads/main:refs/remotes/origin/main' --depth=10
-          git checkout -B main refs/remotes/origin/main
-          git reset --hard refs/remotes/origin/main
-          git clean -ffdx
+          trusted_git=/usr/bin/git
+          [ -x "$trusted_git" ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          bundle="$RUNNER_TEMP/codex-source/codex-source.bundle"
+          [ -f "$bundle" ] || { echo "::error::Trusted source bundle is missing." >&2; exit 70; }
+
+          cd "$RUNNER_TEMP"
+          rm -rf -- "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE"
+          "$trusted_git" -c core.hooksPath=/dev/null init "$GITHUB_WORKSPACE" >/dev/null
+
+          refspecs=("refs/heads/codex-source-main:refs/remotes/origin/main")
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            refspecs+=("refs/heads/codex-source-target:refs/remotes/origin/$CODEX_BRANCH")
+          fi
+          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null fetch --no-tags "$bundle" "${refspecs[@]}"
+
+          observed_main="$("$trusted_git" -C "$GITHUB_WORKSPACE" rev-parse refs/remotes/origin/main)"
+          [ "$observed_main" = "$CODEX_MAIN_SHA" ] || {
+            echo "::error::Trusted source main SHA mismatch."
+            exit 70
+          }
+          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null checkout -B main refs/remotes/origin/main
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config core.hooksPath /dev/null
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config user.name "codex-worker"
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config user.email "codex-worker@users.noreply.github.com"
+          [ -z "$("$trusted_git" -C "$GITHUB_WORKSPACE" remote)" ] || {
+            echo "::error::Credential-free Codex workspace unexpectedly has a network Git remote."
+            exit 70
+          }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
@@ -133,6 +200,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           if ! command -v python >/dev/null 2>&1; then
             echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
             exit 69
@@ -157,6 +225,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           echo "runner=$RUNNER_NAME"
           echo "workspace=$GITHUB_WORKSPACE"
           id
@@ -167,6 +236,7 @@ jobs:
           fi
           codex --version
           [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          [ -z "$(/usr/bin/git remote)" ] || { echo "::error::Codex workspace must not have a network Git remote." >&2; exit 70; }
 
       - name: Select immutable implementation base
         if: needs.prepare.outputs.mode == 'implement'
@@ -178,60 +248,30 @@ jobs:
           CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
-          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-            git fetch --unshallow --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
-          else
-            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
-          fi
+          cd "$GITHUB_WORKSPACE"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
-            git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"
-            observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            observed_sha="$(/usr/bin/git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
             [ "$observed_sha" = "$CODEX_EXPECTED_REMOTE_SHA" ] || {
-              echo "::error::Target branch moved before Codex started; refusing stale implementation work."
+              echo "::error::Sealed target branch SHA does not match the immutable prepared head."
               exit 70
             }
           else
-            observed_sha="$(git rev-parse refs/remotes/origin/main)"
+            observed_sha="$(/usr/bin/git rev-parse refs/remotes/origin/main)"
             [ "$observed_sha" = "$CODEX_BASE_SHA" ] || {
-              echo "::error::Main moved after request preparation; refusing stale implementation work."
+              echo "::error::Sealed main SHA does not match the immutable prepared base."
               exit 70
             }
           fi
-          git checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
-          git config user.name "codex-worker"
-          git config user.email "codex-worker@users.noreply.github.com"
-
-      - name: Drop checkout read credential
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -t credential_entries < <(git config --local --get-regexp '^include[Ii]f\.gitdir:' || true)
-          for entry in "${credential_entries[@]}"; do
-            key="${entry%% *}"
-            value="${entry#* }"
-            case "$value" in
-              "$RUNNER_TEMP"/git-credentials-*.config|/github/runner_temp/git-credentials-*.config)
-                rm -f -- "$value"
-                ;;
-            esac
-            git config --local --unset-all "$key" || true
-          done
-          git config --local --unset-all 'http.https://github.com/.extraheader' || true
-          git config --local --unset-all credential.helper || true
-          if git config --local --get-regexp '^(include[Ii]f\.gitdir:|http\..*\.extraheader$|credential\.helper$)' >/dev/null 2>&1; then
-            echo "::error::Checkout read credential configuration is still present before target validation/dependency install/Codex."
-            exit 70
-          fi
-          if compgen -G "$RUNNER_TEMP/git-credentials-*.config" >/dev/null; then
-            echo "::error::Checkout read credential file is still present before target validation/dependency install/Codex."
-            exit 70
-          fi
+          /usr/bin/git -c core.hooksPath=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
+          /usr/bin/git config core.hooksPath /dev/null
+          [ -z "$(/usr/bin/git remote)" ] || { echo "::error::Codex workspace gained a network Git remote." >&2; exit 70; }
 
       - name: Validate selected implementation state
         if: needs.prepare.outputs.mode == 'implement'
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
           echo "CODEX_TARGET_STATE_GATE=PASS"
 
@@ -239,6 +279,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
@@ -247,6 +288,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           python -m pip check
           python -m pytest --version
           python -m ruff --version
@@ -258,9 +300,10 @@ jobs:
           CODEX_TASK: ${{ inputs.task }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
-          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
+          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle and ran the mandatory state-resolution gate successfully on named branch main. There is no network Git remote and no repository credential on this self-hosted job. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
@@ -280,12 +323,13 @@ jobs:
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
           else
-            target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
+            target_context="Work on the isolated implementation branch created by the wrapper from current main."
           fi
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle, selected the exact immutable implementation base, and ran the mandatory state-resolution gate on that selected branch. There is no network Git remote and no repository credential on this self-hosted job. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
@@ -306,6 +350,7 @@ jobs:
           CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           candidate_sha="$(/usr/bin/git -c core.hooksPath=/dev/null rev-parse HEAD)"
           /usr/bin/git -c core.hooksPath=/dev/null merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha" || {
             echo "::error::Codex result is not descended from its immutable base."
