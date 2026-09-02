@@ -59,3 +59,63 @@ def test_python_ast_distinguishes_runtime_lookup_from_literal_assignment():
         'import os\nINARA_API_KEY = os.getenv("INARA_API_KEY", "opaque-default")\n',
         "inara_api.py",
     )
+
+
+def test_python_wrapped_literal_credentials_are_scanned():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'POSTGRES_PASSWORD = SecretStr("opaque-test-secret")\n',
+        "settings.py",
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'POSTGRES_PASSWORD = "opaque-test-secret".strip()\n',
+        "settings.py",
+    )
+    assert recovery._scan_text(
+        'import os\nPOSTGRES_PASSWORD = SecretStr(os.getenv("POSTGRES_PASSWORD"))\n',
+        "settings.py",
+    ) == ()
+
+
+def test_python_composed_literal_credentials_fail_closed():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'POSTGRES_PASSWORD = "opaque-" + "test-secret"\n',
+        "settings.py",
+    )
+    assert recovery._scan_text(
+        'POSTGRES_PASSWORD = password_reference\n',
+        "settings.py",
+    ) == ()
+
+
+def test_python_comments_and_docstrings_are_scanned_for_literal_credentials():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        '# POSTGRES_PASSWORD = "opaque-test-secret"\n',
+        "settings.py",
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        '"""POSTGRES_PASSWORD = "opaque-test-secret"\n"""\n',
+        "settings.py",
+    )
+    assert recovery._scan_text(
+        '# POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD")\n',
+        "settings.py",
+    ) == ()
+
+
+def test_yaml_sequence_item_sensitive_mapping_key_is_scanned():
+    findings = recovery._scan_text(
+        "users:\n  - password: opaque-test-secret\n",
+        "users.yml",
+    )
+    assert "sensitive-environment-assignment" in findings
+
+
+def test_embedded_sql_password_statements_are_scanned_in_non_sql_files():
+    assert "sql-password-statement" in recovery._scan_text(
+        'psql -c "ALTER ROLE app PASSWORD \'opaque-test-secret\';"\n',
+        "rotate.sh",
+    )
+    assert recovery._scan_text(
+        'psql -c "ALTER ROLE app PASSWORD \'${DB_PASSWORD}\';"\n',
+        "rotate.sh",
+    ) == ()
