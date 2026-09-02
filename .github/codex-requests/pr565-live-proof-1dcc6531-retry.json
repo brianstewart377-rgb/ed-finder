@@ -1,0 +1,5 @@
+{
+  "task": "Live proof of merged PR #564 against existing PR #565. Update only the existing PR branch cleanup/stage26a-amendment-current-main. Bring the PR onto current origin/main without rewriting history (use a normal merge/no-rewrite approach as needed), preserve its intended one-file documentation scope, and address the current Codex review finding in docs/colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md: the note must acknowledge that Stage 27 now owns/schedules the relevant Real-System Interaction / Stage 26 Capability Parity / Advanced Spatial Workflows (including Find Around Here / Systems Within…) instead of saying the workflow pass is unscheduled. Do not add or restore the historical noop file. After resolving current-main conflicts, the final PR diff versus main should contain only the intended documentation correction in that one contract file. Run focused validation appropriate to a docs-only change and report what changed.",
+  "mode": "implement",
+  "target_branch": "cleanup/stage26a-amendment-current-main"
+}
