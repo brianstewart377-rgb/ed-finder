@@ -146,47 +146,34 @@ jobs:
     permissions:
       actions: read
     steps:
-      - name: Quarantine prior runner-user processes
+      - name: Require disposable single-use execution boundary
         shell: bash
         run: |
           set -euo pipefail
-          uid="$(id -u)"
-          declare -A keep=()
-          pid="$$"
-          while [ "$pid" -gt 1 ] && [ -r "/proc/$pid/status" ]; do
-            keep["$pid"]=1
-            parent="$(awk '/^PPid:/ {print $2}' "/proc/$pid/status")"
-            [ -n "$parent" ] || break
-            pid="$parent"
-          done
-          keep["1"]=1
-
-          collect_victims() {
-            victims=()
-            local proc candidate status_uid
-            for proc in /proc/[0-9]*; do
-              candidate="${proc##*/}"
-              [ -n "${keep[$candidate]:-}" ] && continue
-              [ -r "$proc/status" ] || continue
-              status_uid="$(awk '/^Uid:/ {print $2}' "$proc/status" 2>/dev/null || true)"
-              [ "$status_uid" = "$uid" ] || continue
-              victims+=("$candidate")
-            done
-          }
-
-          for _ in 1 2 3; do
-            collect_victims
-            [ "${#victims[@]}" -eq 0 ] && break
-            kill -STOP "${victims[@]}" 2>/dev/null || true
-            kill -KILL "${victims[@]}" 2>/dev/null || true
-            sleep 1
-          done
-          collect_victims
-          if [ "${#victims[@]}" -ne 0 ]; then
-            echo "::error::Unexpected same-user processes survived runner quarantine: ${victims[*]}"
-            exit 70
+          # A job cannot establish a fresh trust boundary from inside the
+          # environment it is already running in. It cannot reliably enumerate
+          # or terminate root/other-UID helpers or containers left behind by a
+          # prior arbitrary-code run, and killing every same-UID process would
+          # also destroy sibling runner listeners and unrelated services. So
+          # this job does not attempt in-process quarantine. Instead it
+          # *requires* that trusted host infrastructure provisioned this runner
+          # as a single-use, disposable boundary (an ephemeral runner registered
+          # with --ephemeral on a fresh VM/container that is destroyed after one
+          # job) and attested that with a runner-service environment marker.
+          #
+          # Job-level code cannot forge this marker for a later job: a step can
+          # only affect its own job's later steps (via $GITHUB_ENV), never the
+          # runner service process that a subsequent job inherits its
+          # environment from, and on a genuinely disposable runner there is no
+          # subsequent job to compromise. The value is read from the runner
+          # process environment (the runner .env / service definition), NOT from
+          # any workflow-level GitHub Actions expression, so it stays host-owned
+          # and cannot be set by repository contents.
+          if [ "${CODEX_WORKER_EPHEMERAL_BOUNDARY:-}" != "1" ]; then
+            echo "::error::Refusing to run Codex: this runner is not attested as a disposable single-use boundary. The host owner must provision the Codex runner as an ephemeral one-job runner and set CODEX_WORKER_EPHEMERAL_BOUNDARY=1 in the runner service environment (see docs/development/chatgpt-ops-control-plane.md). Do not set this on a reused runner."
+            exit 72
           fi
-          echo "CODEX_RUNNER_PROCESS_QUARANTINE=PASS"
+          echo "CODEX_RUNNER_DISPOSABLE_BOUNDARY=ATTESTED"
 
       - name: Download trusted source bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -208,19 +195,25 @@ jobs:
           bundle="$RUNNER_TEMP/codex-source/codex-source.bundle"
           [ -f "$bundle" ] || { echo "::error::Trusted source bundle is missing." >&2; exit 70; }
 
-          isolated_home="$RUNNER_TEMP/codex-isolated-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          rm -rf -- "$isolated_home"
-          mkdir -p "$isolated_home/.config"
-          export HOME="$isolated_home"
-          export XDG_CONFIG_HOME="$isolated_home/.config"
+          # Do NOT override HOME/XDG here. The runner user's real HOME holds the
+          # Codex CLI login/config (~/.codex); moving HOME would leave
+          # `codex --version` working while `codex exec` fails unauthenticated.
+          # Git isolation is achieved independent of HOME: system/global config
+          # is ignored via GIT_CONFIG_NOSYSTEM + GIT_CONFIG_GLOBAL/SYSTEM=/dev/null
+          # (so ~/.gitconfig and any core.attributesFile / filter driver it names
+          # are never read), the system attributes file via GIT_ATTR_NOSYSTEM,
+          # hooks via per-command core.hooksPath=/dev/null, and the *default
+          # global attributes file* ($HOME/.config/git/attributes, which the
+          # GIT_* vars do NOT cover) via core.attributesFile=/dev/null set on the
+          # working-tree checkouts below. Prior-run state persistence is prevented
+          # by the disposable single-use runner boundary required above, not by
+          # in-job HOME isolation.
           export GIT_CONFIG_NOSYSTEM=1
           export GIT_CONFIG_GLOBAL=/dev/null
           export GIT_CONFIG_SYSTEM=/dev/null
           export GIT_ATTR_NOSYSTEM=1
           export GIT_TERMINAL_PROMPT=0
           {
-            echo "HOME=$HOME"
-            echo "XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
             echo "GIT_CONFIG_NOSYSTEM=1"
             echo "GIT_CONFIG_GLOBAL=/dev/null"
             echo "GIT_CONFIG_SYSTEM=/dev/null"
@@ -244,8 +237,9 @@ jobs:
             echo "::error::Trusted source main SHA mismatch."
             exit 70
           }
-          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null checkout -B main refs/remotes/origin/main
+          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null checkout -B main refs/remotes/origin/main
           "$trusted_git" -C "$GITHUB_WORKSPACE" config core.hooksPath /dev/null
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config core.attributesFile /dev/null
           "$trusted_git" -C "$GITHUB_WORKSPACE" config user.name "codex-worker"
           "$trusted_git" -C "$GITHUB_WORKSPACE" config user.email "codex-worker@users.noreply.github.com"
           [ -z "$("$trusted_git" -C "$GITHUB_WORKSPACE" remote)" ] || {
@@ -325,8 +319,9 @@ jobs:
               exit 70
             }
           fi
-          /usr/bin/git -c core.hooksPath=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
+          /usr/bin/git -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
           /usr/bin/git config core.hooksPath /dev/null
+          /usr/bin/git config core.attributesFile /dev/null
           [ -z "$(/usr/bin/git remote)" ] || { echo "::error::Codex workspace gained a network Git remote." >&2; exit 70; }
 
       - name: Validate selected implementation state

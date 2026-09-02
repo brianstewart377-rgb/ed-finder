@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DISPATCH = ROOT / ".github" / "workflows" / "codex-dispatch.yml"
 WORKER = ROOT / ".github" / "workflows" / "codex-laptop.yml"
+OPS_DOC = ROOT / "docs" / "development" / "chatgpt-ops-control-plane.md"
 
 
 def test_codex_request_push_is_acknowledged_by_short_dispatch_workflow() -> None:
@@ -56,21 +57,29 @@ def test_codex_host_has_no_repository_permission_and_push_is_ephemeral() -> None
     assert "pull-requests: write" not in text
 
 
-def test_reused_runner_process_state_is_quarantined_before_token_bearing_actions() -> None:
+def test_reused_runner_requires_disposable_boundary_before_token_bearing_actions() -> None:
     text = WORKER.read_text(encoding="utf-8")
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
-    quarantine_position = codex_job.index("- name: Quarantine prior runner-user processes")
+    boundary_position = codex_job.index("- name: Require disposable single-use execution boundary")
     download_position = codex_job.index("- name: Download trusted source bundle")
-    quarantine = codex_job.split("- name: Quarantine prior runner-user processes", 1)[1].split(
-        "- name: Download trusted source bundle", 1
-    )[0]
+    boundary = codex_job.split(
+        "- name: Require disposable single-use execution boundary", 1
+    )[1].split("- name: Download trusted source bundle", 1)[0]
 
-    assert quarantine_position < download_position
-    assert "CODEX_RUNNER_PROCESS_QUARANTINE=PASS" in quarantine
-    assert "collect_victims" in quarantine
-    assert "kill -STOP" in quarantine
-    assert "kill -KILL" in quarantine
-    assert "Unexpected same-user processes survived runner quarantine" in quarantine
+    # The boundary gate must run before anything that downloads source or runs Codex.
+    assert boundary_position < download_position
+    # Trust comes from a host-owned marker read from the runner process
+    # environment, not a workflow-level ${{ }} expression the repo could set.
+    assert '"${CODEX_WORKER_EPHEMERAL_BOUNDARY:-}" != "1"' in boundary
+    assert "${{" not in boundary
+    assert "exit 72" in boundary
+    assert "CODEX_RUNNER_DISPOSABLE_BOUNDARY=ATTESTED" in boundary
+    # The unsound in-job process-killing quarantine must be gone entirely: it
+    # could kill sibling runners (same-UID) and miss root/other-UID helpers.
+    assert "kill -KILL" not in codex_job
+    assert "kill -STOP" not in codex_job
+    assert "collect_victims" not in codex_job
+    assert "CODEX_RUNNER_PROCESS_QUARANTINE" not in codex_job
     assert codex_job.count("codex exec --sandbox workspace-write") == 2
     assert "danger-full-access" not in codex_job
 
@@ -116,9 +125,11 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
 
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in codex_job
     assert "codex-source-${{ github.run_id }}-${{ github.run_attempt }}" in codex_job
-    assert 'isolated_home="$RUNNER_TEMP/codex-isolated-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reconstruction
-    assert 'export HOME="$isolated_home"' in reconstruction
-    assert 'export XDG_CONFIG_HOME="$isolated_home/.config"' in reconstruction
+    # Codex CLI auth lives under the runner user's real HOME; the reconstruct
+    # step must NOT override HOME/XDG or codex exec would run unauthenticated.
+    assert "export HOME=" not in reconstruction
+    assert "isolated_home" not in reconstruction
+    assert "export XDG_CONFIG_HOME=" not in reconstruction
     assert "export GIT_CONFIG_NOSYSTEM=1" in reconstruction
     assert "export GIT_CONFIG_GLOBAL=/dev/null" in reconstruction
     assert "export GIT_CONFIG_SYSTEM=/dev/null" in reconstruction
@@ -133,10 +144,43 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
     assert "refs/heads/codex-source-target:refs/remotes/origin/$CODEX_BRANCH" in reconstruction
     assert "core.hooksPath=/dev/null" in reconstruction
     assert 'config core.hooksPath /dev/null' in reconstruction
+    # The default global attributes file ($HOME/.config/git/attributes) is not
+    # covered by GIT_ATTR_NOSYSTEM (system-only) or GIT_CONFIG_GLOBAL=/dev/null
+    # (config-only); with HOME no longer isolated it must be neutralized on the
+    # working-tree checkout via core.attributesFile=/dev/null.
+    assert "core.attributesFile=/dev/null" in reconstruction
+    assert 'config core.attributesFile /dev/null' in reconstruction
     assert "Credential-free Codex workspace unexpectedly has a network Git remote." in reconstruction
     assert "remote add" not in codex_job
     assert "https://github.com/${GITHUB_REPOSITORY}.git" not in codex_job
     assert "git fetch origin" not in codex_job
+
+
+def test_codex_cli_authentication_is_preserved_on_self_hosted_job() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+
+    # HOME must never be exported for the self-hosted Codex job (it would hide
+    # the runner's `codex login` state). Git isolation is achieved without it.
+    assert "export HOME=" not in codex_job
+    assert 'echo "HOME=' not in codex_job
+    assert "export XDG_CONFIG_HOME=" not in codex_job
+    assert "export GIT_CONFIG_GLOBAL=/dev/null" in codex_job
+    assert "export GIT_CONFIG_SYSTEM=/dev/null" in codex_job
+    assert "export GIT_CONFIG_NOSYSTEM=1" in codex_job
+
+
+def test_ops_control_plane_docs_match_workflow_change_and_boundary_policy() -> None:
+    doc = OPS_DOC.read_text(encoding="utf-8")
+
+    # Token scope must no longer recommend Workflows authority.
+    assert "Workflows: read/write" not in doc
+    assert "`Contents: read/write`" in doc
+    # Docs must state workflow-file changes are rejected by the normal path.
+    assert "not supported by this path" in doc
+    # Docs must document the host-owned disposable-boundary prerequisite.
+    assert "CODEX_WORKER_EPHEMERAL_BOUNDARY" in doc
+    assert "ephemeral" in doc
 
 
 def test_setup_python_receives_no_github_token_on_self_hosted_job() -> None:
@@ -186,7 +230,7 @@ def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     )[0]
     assert 'refs/remotes/origin/$CODEX_BRANCH' in selection
     assert "Sealed target branch SHA does not match the immutable prepared head." in selection
-    assert '/usr/bin/git -c core.hooksPath=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"' in selection
+    assert '/usr/bin/git -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"' in selection
     assert "Codex workspace gained a network Git remote." in selection
     target_gate = text.split("- name: Validate selected implementation state", 1)[1].split(
         "- name: Bootstrap pinned Python test environment from selected base", 1
