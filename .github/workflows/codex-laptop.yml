@@ -201,14 +201,6 @@ jobs:
           git config user.name "codex-worker"
           git config user.email "codex-worker@users.noreply.github.com"
 
-      - name: Validate selected implementation state
-        if: needs.prepare.outputs.mode == 'implement'
-        shell: bash
-        run: |
-          set -euo pipefail
-          PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
-          echo "CODEX_TARGET_STATE_GATE=PASS"
-
       - name: Drop checkout read credential
         shell: bash
         run: |
@@ -227,13 +219,21 @@ jobs:
           git config --local --unset-all 'http.https://github.com/.extraheader' || true
           git config --local --unset-all credential.helper || true
           if git config --local --get-regexp '^(include[Ii]f\.gitdir:|http\..*\.extraheader$|credential\.helper$)' >/dev/null 2>&1; then
-            echo "::error::Checkout read credential configuration is still present before dependency install/Codex."
+            echo "::error::Checkout read credential configuration is still present before target validation/dependency install/Codex."
             exit 70
           fi
           if compgen -G "$RUNNER_TEMP/git-credentials-*.config" >/dev/null; then
-            echo "::error::Checkout read credential file is still present before dependency install/Codex."
+            echo "::error::Checkout read credential file is still present before target validation/dependency install/Codex."
             exit 70
           fi
+
+      - name: Validate selected implementation state
+        if: needs.prepare.outputs.mode == 'implement'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+          echo "CODEX_TARGET_STATE_GATE=PASS"
 
       - name: Bootstrap pinned Python test environment from selected base
         shell: bash
