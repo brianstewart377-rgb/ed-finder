@@ -29,17 +29,29 @@ _WRITE_ACTION_ALLOWLIST = frozenset(
         "dorny/paths-filter",
     }
 )
+_ACTION_SHA = re.compile(r"^[0-9a-f]{40}$")
 _RAW_GH_PR_MERGE = re.compile(r"\bgh\s+pr\s+merge\b(?P<tail>[^;&|\n]*)", re.IGNORECASE)
 _RAW_GH_API = re.compile(r"\bgh\b(?:(?![;&|\n]).)*\bapi\b", re.IGNORECASE)
 _NETWORK_API_CLIENT = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:curl|wget|http|https|httpie|xh)(?![A-Za-z0-9_.-])",
     re.IGNORECASE,
 )
-_TOKEN_EXPRESSION = re.compile(
-    r"\$\{\{\s*(?:github\.token|secrets\.[A-Za-z0-9_]+)\s*\}\}",
+_INTERPRETER_CLIENT = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:python(?:3(?:\.\d+)?)?|node|ruby|perl|php)(?![A-Za-z0-9_.-])",
     re.IGNORECASE,
 )
-_SHELL_TOKEN_REFERENCE = re.compile(r"\$(?:\{)?(?:GITHUB_TOKEN|GH_TOKEN)(?:\})?\b")
+_GITHUB_TOKEN_EXPRESSION = re.compile(
+    r"\$\{\{\s*github\.token\s*\}\}",
+    re.IGNORECASE,
+)
+_TOKEN_SECRET_EXPRESSION = re.compile(
+    r"\$\{\{\s*secrets\.[A-Za-z0-9_]*(?:TOKEN|PAT)[A-Za-z0-9_]*\s*\}\}",
+    re.IGNORECASE,
+)
+_SHELL_TOKEN_REFERENCE = re.compile(
+    r"\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:TOKEN|PAT)[A-Za-z0-9_]*(?:\})?",
+    re.IGNORECASE,
+)
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -98,13 +110,31 @@ def _steps(job: dict[str, object]) -> list[dict[str, object]]:
     return [step for step in raw if isinstance(step, dict)]
 
 
+def _value_exposes_write_credential(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(
+            _GITHUB_TOKEN_EXPRESSION.search(value)
+            or _TOKEN_SECRET_EXPRESSION.search(value)
+        )
+    if isinstance(value, dict):
+        return any(_value_exposes_write_credential(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_value_exposes_write_credential(item) for item in value)
+    return False
+
+
 def _env_exposes_write_credential(env: object) -> bool:
     if not isinstance(env, dict):
         return False
     for key, value in env.items():
-        if isinstance(key, str) and key.upper() in {"GITHUB_TOKEN", "GH_TOKEN"}:
+        if isinstance(value, str) and _value_exposes_write_credential(value):
             return True
-        if isinstance(value, str) and _TOKEN_EXPRESSION.search(value):
+        if (
+            isinstance(key, str)
+            and re.search(r"(?:TOKEN|PAT)", key, re.IGNORECASE)
+            and isinstance(value, str)
+            and "${{" in value
+        ):
             return True
     return False
 
@@ -113,21 +143,33 @@ def _step_exposes_write_credential(
     document: dict[str, object],
     job: dict[str, object],
     step: dict[str, object],
-    run: str,
+    run: str = "",
 ) -> bool:
-    """Return whether an HTTP client can see a GitHub/secret credential.
+    """Return whether a step can see a GitHub-capable token/PAT.
 
-    Network probes against localhost are legitimate in CI even when the workflow
-    omits an explicit permissions block. The merge risk exists when such a client
-    is coupled to a GitHub token/PAT. Check workflow-, job-, and step-level env,
-    plus direct expressions/references in the shell command.
+    Token-bearing secrets are a capability independent of the permissions granted
+    to ``GITHUB_TOKEN``. Inspect inherited env plus step inputs so a read-only job
+    cannot hand a PAT to an unapproved action or interpreter and evade the guard.
     """
     return (
         _env_exposes_write_credential(document.get("env"))
         or _env_exposes_write_credential(job.get("env"))
         or _env_exposes_write_credential(step.get("env"))
-        or bool(_TOKEN_EXPRESSION.search(run))
+        or _value_exposes_write_credential(step.get("with"))
+        or _value_exposes_write_credential(step.get("secrets"))
+        or bool(_GITHUB_TOKEN_EXPRESSION.search(run))
+        or bool(_TOKEN_SECRET_EXPRESSION.search(run))
         or bool(_SHELL_TOKEN_REFERENCE.search(run))
+    )
+
+
+def _action_is_allowlisted_and_pinned(uses: str) -> bool:
+    action, separator, ref = uses.partition("@")
+    return (
+        separator == "@"
+        and not action.startswith("./")
+        and action in _WRITE_ACTION_ALLOWLIST
+        and bool(_ACTION_SHA.fullmatch(ref))
     )
 
 
@@ -151,48 +193,56 @@ def _raw_merge_violations(run: str) -> list[str]:
 
 
 def _merge_authority_violations(document: dict[str, object]) -> list[str]:
-    """Return fail-closed violations in jobs with merge-adjacent token authority."""
+    """Return fail-closed violations around merge-capable token surfaces."""
     violations: list[str] = []
     jobs = document.get("jobs")
     if not isinstance(jobs, dict):
         return violations
 
     for job_name, raw_job in jobs.items():
-        if not isinstance(raw_job, dict) or not _job_has_merge_authority(document, raw_job):
+        if not isinstance(raw_job, dict):
             continue
+        merge_authority = _job_has_merge_authority(document, raw_job)
+        reusable_has_token = _value_exposes_write_credential(raw_job.get("secrets"))
 
         # A reusable job can execute arbitrary code outside the inspected step
-        # list. Merge-authority jobs therefore may not delegate through ``uses``.
-        if isinstance(raw_job.get("uses"), str):
-            violations.append(f"{job_name}: merge-authority reusable job is not allowed")
+        # list. Merge-authority or token-bearing reusable jobs are therefore not
+        # accepted by this bounded static guard.
+        if isinstance(raw_job.get("uses"), str) and (merge_authority or reusable_has_token):
+            violations.append(f"{job_name}: merge-capable reusable job is not allowed")
 
         for step in _steps(raw_job):
-            uses = step.get("uses")
-            if isinstance(uses, str):
-                action = uses.split("@", 1)[0]
-                if action.startswith("./") or action not in _WRITE_ACTION_ALLOWLIST:
-                    violations.append(f"{job_name}: unapproved merge-authority action {uses}")
+            run = step.get("run") if isinstance(step.get("run"), str) else ""
+            token_exposed = _step_exposes_write_credential(document, raw_job, step, run)
+            guarded_capability = merge_authority or token_exposed
 
-            run = step.get("run")
-            if not isinstance(run, str):
+            uses = step.get("uses")
+            if isinstance(uses, str) and guarded_capability:
+                if not _action_is_allowlisted_and_pinned(uses):
+                    violations.append(
+                        f"{job_name}: unapproved or mutable merge-capable action {uses}"
+                    )
+
+            if not run:
                 continue
 
+            # gh api is intentionally forbidden across repository workflows; the
+            # complete-workflow scan below enforces this even for read-only jobs.
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # A raw network client becomes merge-capable only when the step can
-            # also see a GitHub/secret credential. This still catches variable
-            # endpoint tricks without banning ordinary unauthenticated localhost
-            # health checks used by CI and Cypress.
-            if _NETWORK_API_CLIENT.search(run) and _step_exposes_write_credential(
-                document, raw_job, step, run
-            ):
+            # A raw network client or general-purpose interpreter becomes a merge
+            # escape hatch when the same step can see a GitHub-capable token/PAT.
+            if token_exposed and _NETWORK_API_CLIENT.search(run):
                 violations.append(
-                    f"{job_name}: authenticated network/API client is forbidden in "
-                    "merge-authority job"
+                    f"{job_name}: authenticated network/API client is forbidden"
+                )
+            if token_exposed and _INTERPRETER_CLIENT.search(run):
+                violations.append(
+                    f"{job_name}: authenticated general-purpose interpreter is forbidden"
                 )
 
-            # In a merge-authority job, any direct ``gh`` use other than one
+            # In a guarded-capability step, any direct gh use other than one
             # strictly protective disable-auto invocation is too powerful to
             # classify safely. Do not let that one invocation exempt a block
             # containing a second alias/API/merge-capable gh command.
@@ -202,8 +252,8 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
                 and len(_RAW_GH_PR_MERGE.findall(run)) == 1
                 and not _raw_merge_violations(run)
             )
-            if gh_mentions and not protective:
-                violations.append(f"{job_name}: unclassified gh command in merge-authority job")
+            if guarded_capability and gh_mentions and not protective:
+                violations.append(f"{job_name}: unclassified gh command in merge-capable step")
 
     return violations
 
@@ -296,11 +346,43 @@ jobs:
     env:
       TOKEN: ${{ secrets.MERGE_PAT }}
     steps:
-      - uses: actions/checkout@deadbeef
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - run: |
           curl -H "Authorization: Bearer $TOKEN" "$MERGE_ENDPOINT"
         env:
           MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_read_only_job_cannot_pass_pat_to_unapproved_action():
+    document = _load(
+        """
+permissions: read-all
+jobs:
+  helper:
+    steps:
+      - uses: owner/pr-tools@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          token: ${{ secrets.MERGE_PAT }}
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_token_bearing_interpreter_is_rejected_even_with_read_only_github_token():
+    document = _load(
+        """
+permissions: read-all
+jobs:
+  helper:
+    env:
+      MERGE_PAT: ${{ secrets.MERGE_PAT }}
+    steps:
+      - run: python -c "print('would call GitHub API')"
 """
     )
     assert isinstance(document, dict)
@@ -313,12 +395,27 @@ def test_unknown_permissions_allow_unauthenticated_local_health_probe():
 jobs:
   probe:
     steps:
-      - uses: actions/checkout@deadbeef
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - run: curl -sf http://127.0.0.1:8000/api/health
 """
     )
     assert isinstance(document, dict)
     assert not _merge_authority_violations(document)
+
+
+def test_allowlisted_action_requires_immutable_full_sha():
+    document = _load(
+        """
+permissions:
+  contents: write
+jobs:
+  worker:
+    steps:
+      - uses: actions/checkout@main
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
 
 
 def test_disable_auto_does_not_mask_other_gh_commands():
@@ -343,8 +440,8 @@ jobs:
     "uses",
     [
         "./.github/actions/pr-tools",
-        "actions/github-script@deadbeef",
-        "owner/pr-tools@deadbeef",
+        "actions/github-script@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "owner/pr-tools@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ],
 )
 def test_merge_authority_guard_rejects_unapproved_actions(uses: str):
@@ -371,7 +468,7 @@ permissions:
 jobs:
   worker:
     steps:
-      - uses: actions/checkout@deadbeef
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
       - run: git push origin "$BRANCH"
 """
     )
