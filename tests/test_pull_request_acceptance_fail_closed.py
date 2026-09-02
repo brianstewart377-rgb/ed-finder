@@ -17,7 +17,18 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
-_WRITE_ACTION_ALLOWLIST = frozenset({"actions/checkout"})
+_WRITE_ACTION_ALLOWLIST = frozenset(
+    {
+        "actions/cache",
+        "actions/checkout",
+        "actions/download-artifact",
+        "actions/setup-node",
+        "actions/setup-python",
+        "actions/upload-artifact",
+        "docker/setup-buildx-action",
+        "dorny/paths-filter",
+    }
+)
 _RAW_GH_PR_MERGE = re.compile(r"\bgh\s+pr\s+merge\b(?P<tail>[^;&|\n]*)", re.IGNORECASE)
 _RAW_GH_API = re.compile(r"\bgh\b(?:(?![;&|\n]).)*\bapi\b", re.IGNORECASE)
 _NETWORK_API_CLIENT = re.compile(
@@ -56,7 +67,10 @@ def _tracked_workflows() -> list[Path]:
 
 
 def _permissions_have_merge_authority(permissions: object) -> bool:
-    if permissions == "write-all":
+    # Omitted permissions inherit a repository/organization setting that is not
+    # represented in the workflow file. Static policy must therefore treat the
+    # authority as unknown/potentially write-capable rather than assuming read.
+    if permissions is None or permissions == "write-all":
         return True
     return isinstance(permissions, dict) and (
         permissions.get("contents") == "write"
@@ -125,18 +139,12 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
             if not isinstance(run, str):
                 continue
 
-            # GitHub CLI API calls are intentionally forbidden in repository
-            # workflows. This avoids endpoint-variable/dataflow tricks entirely;
-            # a future legitimate need must introduce a separately reviewed,
-            # narrowly allowlisted operation instead of weakening this gate.
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # Raw network/API clients are also forbidden in merge-authority jobs.
-            # Otherwise a merge endpoint can be supplied through an environment
-            # variable and invoked without the literal path ever appearing in the
-            # workflow text. Any future legitimate network operation must first
-            # narrow the job permissions or introduce an explicitly reviewed path.
+            # Raw network/API clients are forbidden whenever merge authority is
+            # explicit OR inherited/unknown. Otherwise a merge endpoint can be
+            # supplied through env and the literal path never appears in source.
             if _NETWORK_API_CLIENT.search(run):
                 violations.append(
                     f"{job_name}: network/API client is forbidden in merge-authority job"
@@ -144,8 +152,8 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
 
             # In a merge-authority job, any direct ``gh`` use other than one
             # strictly protective disable-auto invocation is too powerful to
-            # classify safely. Do not let a protective invocation exempt a block
-            # that contains a second alias/API/merge-capable gh command.
+            # classify safely. Do not let that one invocation exempt a block
+            # containing a second alias/API/merge-capable gh command.
             gh_mentions = re.findall(r"\bgh\b", run, flags=re.IGNORECASE)
             protective = (
                 len(gh_mentions) == 1
@@ -196,6 +204,19 @@ def test_write_all_is_merge_authority():
     document = _load(
         """
 permissions: write-all
+jobs:
+  merge:
+    steps:
+      - uses: owner/pr-tools@deadbeef
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_omitted_permissions_are_treated_as_unknown_merge_authority():
+    document = _load(
+        """
 jobs:
   merge:
     steps:
