@@ -30,7 +30,8 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "target_branch:" in trigger
     assert "run-name: Codex Worker · ${{ inputs.request_id }}" in text
     assert "timeout-minutes: 120" in text
-    assert "codex exec --sandbox danger-full-access" in text
+    assert "codex exec --sandbox workspace-write" in text
+    assert "danger-full-access" not in text
     assert "codex-task-requests" not in trigger
 
 
@@ -53,6 +54,25 @@ def test_codex_host_has_no_repository_permission_and_push_is_ephemeral() -> None
     assert "runs-on: [self-hosted, Linux, X64]" not in push_job
     assert "permissions:\n      actions: read\n      contents: write" in push_job
     assert "pull-requests: write" not in text
+
+
+def test_reused_runner_process_state_is_quarantined_before_token_bearing_actions() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    quarantine_position = codex_job.index("- name: Quarantine prior runner-user processes")
+    download_position = codex_job.index("- name: Download trusted source bundle")
+    quarantine = codex_job.split("- name: Quarantine prior runner-user processes", 1)[1].split(
+        "- name: Download trusted source bundle", 1
+    )[0]
+
+    assert quarantine_position < download_position
+    assert "CODEX_RUNNER_PROCESS_QUARANTINE=PASS" in quarantine
+    assert "collect_victims" in quarantine
+    assert "kill -STOP" in quarantine
+    assert "kill -KILL" in quarantine
+    assert "Unexpected same-user processes survived runner quarantine" in quarantine
+    assert codex_job.count("codex exec --sandbox workspace-write") == 2
+    assert "danger-full-access" not in codex_job
 
 
 def test_codex_workers_are_not_globally_serialized() -> None:
@@ -255,9 +275,22 @@ def test_existing_pr_update_requires_non_github_token_so_checks_retrigger() -> N
     )[0]
 
     assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push
-    assert 'if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then' in push
-    assert "Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN" in push
+    assert 'if [ "$CODEX_UPDATE_EXISTING" = true ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then' in push
+    assert "Existing PR branch updates require CODEX_WORKER_GIT_TOKEN" in push
+    assert "REQUIRES_PRIVILEGED" not in push
     assert 'push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"' in push
+
+
+def test_codex_workflow_changes_are_rejected_before_any_privileged_push() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
+        "- name: Push sealed implementation with exact-head lease", 1
+    )[0]
+
+    assert "'.github/workflows/'" in reconstruction
+    assert "trusted push refuses unreviewed workflow activation" in reconstruction
+    assert "exit 71" in reconstruction
+    assert "requires_privileged" not in reconstruction.lower()
 
 
 def test_sealed_result_crosses_to_ephemeral_push_job_without_write_credential() -> None:
@@ -296,6 +329,7 @@ def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> No
     assert "core.hooksPath=/dev/null" in reconstruction
     assert "PATH=/usr/bin:/bin" in reconstruction
     assert "'.github/workflows/'" in reconstruction
+    assert "trusted push refuses unreviewed workflow activation" in reconstruction
     assert "https://github.com/" not in push
     assert "GIT_ASKPASS" in push
     assert "PATH=/usr/bin:/bin" in push
