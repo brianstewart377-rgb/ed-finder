@@ -44,7 +44,9 @@ def test_codex_host_has_no_repository_permission_and_push_is_ephemeral() -> None
 
     assert "runs-on: ubuntu-latest" in prepare_job
     assert "permissions:\n      contents: read" in prepare_job
-    assert "runs-on: [self-hosted, Linux, X64]" in codex_job
+    # The self-hosted job must require the dedicated disposable-runner label so
+    # an ordinary reused runner in a mixed pool cannot pick it up.
+    assert "runs-on: [self-hosted, Linux, X64, codex-ephemeral]" in codex_job
     assert "permissions:\n      actions: read" in codex_job
     assert "contents: read" not in codex_job
     assert "contents: write" not in codex_job
@@ -52,7 +54,7 @@ def test_codex_host_has_no_repository_permission_and_push_is_ephemeral() -> None
     assert "GITHUB_TOKEN" not in codex_job
     assert "${{ github.token }}" not in codex_job
     assert "runs-on: ubuntu-latest" in push_job
-    assert "runs-on: [self-hosted, Linux, X64]" not in push_job
+    assert "self-hosted" not in push_job
     assert "permissions:\n      actions: read\n      contents: write" in push_job
     assert "pull-requests: write" not in text
 
@@ -125,11 +127,15 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
 
     assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in codex_job
     assert "codex-source-${{ github.run_id }}-${{ github.run_attempt }}" in codex_job
-    # Codex CLI auth lives under the runner user's real HOME; the reconstruct
-    # step must NOT override HOME/XDG or codex exec would run unauthenticated.
-    assert "export HOME=" not in reconstruction
-    assert "isolated_home" not in reconstruction
-    assert "export XDG_CONFIG_HOME=" not in reconstruction
+    # HOME/XDG are isolated for the whole job so untrusted pre-sandbox target
+    # code cannot inherit the Codex login; the real login location is recorded
+    # first and published as a STEP OUTPUT (not a job-wide $GITHUB_ENV write) so
+    # only the two codex exec steps that reference it receive the path.
+    assert 'codex_auth_home="${CODEX_HOME:-$HOME/.codex}"' in reconstruction
+    assert 'export HOME="$isolated_home"' in reconstruction
+    assert 'export XDG_CONFIG_HOME="$isolated_home/.config"' in reconstruction
+    assert 'echo "auth_home=$codex_auth_home" >> "$GITHUB_OUTPUT"' in reconstruction
+    assert "CODEX_WORKER_AUTH_HOME=$codex_auth_home" not in reconstruction
     assert "export GIT_CONFIG_NOSYSTEM=1" in reconstruction
     assert "export GIT_CONFIG_GLOBAL=/dev/null" in reconstruction
     assert "export GIT_CONFIG_SYSTEM=/dev/null" in reconstruction
@@ -156,18 +162,43 @@ def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> Non
     assert "git fetch origin" not in codex_job
 
 
-def test_codex_cli_authentication_is_preserved_on_self_hosted_job() -> None:
+def test_codex_cli_authentication_is_scoped_to_sandboxed_codex_steps() -> None:
     text = WORKER.read_text(encoding="utf-8")
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    reconstruct = codex_job.split("- name: Reconstruct credential-free workspace", 1)[1].split(
+        "- name: Set up Python", 1
+    )[0]
 
-    # HOME must never be exported for the self-hosted Codex job (it would hide
-    # the runner's `codex login` state). Git isolation is achieved without it.
-    assert "export HOME=" not in codex_job
-    assert 'echo "HOME=' not in codex_job
-    assert "export XDG_CONFIG_HOME=" not in codex_job
-    assert "export GIT_CONFIG_GLOBAL=/dev/null" in codex_job
-    assert "export GIT_CONFIG_SYSTEM=/dev/null" in codex_job
-    assert "export GIT_CONFIG_NOSYSTEM=1" in codex_job
+    # HOME stays isolated job-wide; the real Codex login is recorded before
+    # isolation and published as a step output (not $GITHUB_ENV), so the path is
+    # never broadcast to every later step in the job.
+    assert "id: reconstruct" in codex_job
+    assert 'export HOME="$isolated_home"' in reconstruct
+    assert 'codex_auth_home="${CODEX_HOME:-$HOME/.codex}"' in reconstruct
+    assert 'echo "auth_home=$codex_auth_home" >> "$GITHUB_OUTPUT"' in reconstruct
+    assert "CODEX_WORKER_AUTH_HOME=$codex_auth_home" not in reconstruct
+
+    # The recorded path reaches only the two codex exec steps, via a scoped env:
+    # reference to the step output — and CODEX_HOME is exported there and nowhere
+    # else, so the credential location reaches only the sandboxed Codex step.
+    assert codex_job.count("CODEX_WORKER_AUTH_HOME: ${{ steps.reconstruct.outputs.auth_home }}") == 2
+    assert codex_job.count('export CODEX_HOME="$codex_home"') == 2
+    assert codex_job.count("codex exec --sandbox workspace-write") == 2
+    # Each codex step fails closed if the recorded login is missing.
+    assert codex_job.count("Codex auth home was not recorded by the reconstruct step") == 2
+
+    # The untrusted pre-sandbox target-code steps must not receive the credential
+    # location in any form (neither CODEX_HOME nor the recorded auth-home path).
+    validate = codex_job.split("- name: Validate selected implementation state", 1)[1].split(
+        "- name: Bootstrap pinned Python test environment from selected base", 1
+    )[0]
+    bootstrap = codex_job.split(
+        "- name: Bootstrap pinned Python test environment from selected base", 1
+    )[1].split("- name: Verify pinned Python test environment", 1)[0]
+    assert "CODEX_HOME" not in validate
+    assert "CODEX_HOME" not in bootstrap
+    assert "CODEX_WORKER_AUTH_HOME" not in validate
+    assert "CODEX_WORKER_AUTH_HOME" not in bootstrap
 
 
 def test_ops_control_plane_docs_match_workflow_change_and_boundary_policy() -> None:
@@ -178,9 +209,12 @@ def test_ops_control_plane_docs_match_workflow_change_and_boundary_policy() -> N
     assert "`Contents: read/write`" in doc
     # Docs must state workflow-file changes are rejected by the normal path.
     assert "not supported by this path" in doc
-    # Docs must document the host-owned disposable-boundary prerequisite.
+    # Docs must document the host-owned disposable-boundary prerequisite,
+    # the dedicated runner label, and the scoped Codex credential.
     assert "CODEX_WORKER_EPHEMERAL_BOUNDARY" in doc
     assert "ephemeral" in doc
+    assert "codex-ephemeral" in doc
+    assert "CODEX_HOME" in doc
 
 
 def test_setup_python_receives_no_github_token_on_self_hosted_job() -> None:

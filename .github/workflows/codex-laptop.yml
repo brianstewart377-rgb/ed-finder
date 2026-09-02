@@ -141,7 +141,12 @@ jobs:
 
   codex:
     needs: prepare
-    runs-on: [self-hosted, Linux, X64]
+    # The `codex-ephemeral` label must be applied ONLY to disposable single-use
+    # Codex runners (see the boundary gate below). The generic
+    # [self-hosted, Linux, X64] set alone would let an ordinary reused
+    # self-hosted runner in a mixed pool accept the job and then hit the
+    # fail-closed boundary gate, causing nondeterministic dispatch failures.
+    runs-on: [self-hosted, Linux, X64, codex-ephemeral]
     timeout-minutes: 120
     permissions:
       actions: read
@@ -182,6 +187,7 @@ jobs:
           path: ${{ runner.temp }}/codex-source
 
       - name: Reconstruct credential-free workspace
+        id: reconstruct
         shell: bash
         env:
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
@@ -195,25 +201,40 @@ jobs:
           bundle="$RUNNER_TEMP/codex-source/codex-source.bundle"
           [ -f "$bundle" ] || { echo "::error::Trusted source bundle is missing." >&2; exit 70; }
 
-          # Do NOT override HOME/XDG here. The runner user's real HOME holds the
-          # Codex CLI login/config (~/.codex); moving HOME would leave
-          # `codex --version` working while `codex exec` fails unauthenticated.
-          # Git isolation is achieved independent of HOME: system/global config
-          # is ignored via GIT_CONFIG_NOSYSTEM + GIT_CONFIG_GLOBAL/SYSTEM=/dev/null
-          # (so ~/.gitconfig and any core.attributesFile / filter driver it names
-          # are never read), the system attributes file via GIT_ATTR_NOSYSTEM,
-          # hooks via per-command core.hooksPath=/dev/null, and the *default
-          # global attributes file* ($HOME/.config/git/attributes, which the
-          # GIT_* vars do NOT cover) via core.attributesFile=/dev/null set on the
-          # working-tree checkouts below. Prior-run state persistence is prevented
-          # by the disposable single-use runner boundary required above, not by
-          # in-job HOME isolation.
+          # Record where the runner user's Codex CLI login lives BEFORE isolating
+          # HOME, and publish it as a STEP OUTPUT (not $GITHUB_ENV). A step output
+          # is injected only into steps that explicitly reference it via ${{ }},
+          # so only the two sandboxed `codex exec` steps below receive the path.
+          # Writing it to $GITHUB_ENV instead would broadcast it to every later
+          # step in the job — including the untrusted target-branch validator and
+          # pinned-dependency install — which is exactly the pre-sandbox exposure
+          # we are avoiding. HOME stays isolated job-wide, so that untrusted code
+          # also cannot reach the login through the default ~/.codex lookup, and
+          # `codex exec` still authenticates. The disposable single-use runner
+          # bounds any residual same-UID absolute-path read of the login to one
+          # throwaway job; see docs/development/chatgpt-ops-control-plane.md for
+          # the host credential-isolation prerequisite.
+          codex_auth_home="${CODEX_HOME:-$HOME/.codex}"
+          echo "auth_home=$codex_auth_home" >> "$GITHUB_OUTPUT"
+
+          # Isolate HOME/XDG. Git global/system config, attributes, filters and
+          # hooks are additionally neutralized via GIT_CONFIG_* / GIT_ATTR_NOSYSTEM
+          # / per-command core.hooksPath=/dev/null / core.attributesFile=/dev/null
+          # (defense in depth; the isolated HOME already removes the default
+          # ~/.gitconfig and ~/.config/git/attributes lookups).
+          isolated_home="$RUNNER_TEMP/codex-isolated-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf -- "$isolated_home"
+          mkdir -p "$isolated_home/.config"
+          export HOME="$isolated_home"
+          export XDG_CONFIG_HOME="$isolated_home/.config"
           export GIT_CONFIG_NOSYSTEM=1
           export GIT_CONFIG_GLOBAL=/dev/null
           export GIT_CONFIG_SYSTEM=/dev/null
           export GIT_ATTR_NOSYSTEM=1
           export GIT_TERMINAL_PROMPT=0
           {
+            echo "HOME=$HOME"
+            echo "XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
             echo "GIT_CONFIG_NOSYSTEM=1"
             echo "GIT_CONFIG_GLOBAL=/dev/null"
             echo "GIT_CONFIG_SYSTEM=/dev/null"
@@ -356,9 +377,15 @@ jobs:
         shell: bash
         env:
           CODEX_TASK: ${{ inputs.task }}
+          CODEX_WORKER_AUTH_HOME: ${{ steps.reconstruct.outputs.auth_home }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
+          # Expose the Codex login to the sandboxed Codex step only (HOME stays
+          # isolated job-wide so earlier untrusted target code never saw it).
+          codex_home="${CODEX_WORKER_AUTH_HOME:?Codex auth home was not recorded by the reconstruct step}"
+          [ -d "$codex_home" ] || { echo "::error::Codex auth home '$codex_home' is missing; the disposable runner is not logged into Codex (see docs/development/chatgpt-ops-control-plane.md)." >&2; exit 69; }
+          export CODEX_HOME="$codex_home"
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle and ran the mandatory state-resolution gate successfully on named branch main. There is no network Git remote and no repository credential on this self-hosted job. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
@@ -379,9 +406,15 @@ jobs:
           CODEX_TASK: ${{ inputs.task }}
           CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_WORKER_AUTH_HOME: ${{ steps.reconstruct.outputs.auth_home }}
         run: |
           set -euo pipefail
           cd "$GITHUB_WORKSPACE"
+          # Expose the Codex login to the sandboxed Codex step only (HOME stays
+          # isolated job-wide so earlier untrusted target code never saw it).
+          codex_home="${CODEX_WORKER_AUTH_HOME:?Codex auth home was not recorded by the reconstruct step}"
+          [ -d "$codex_home" ] || { echo "::error::Codex auth home '$codex_home' is missing; the disposable runner is not logged into Codex (see docs/development/chatgpt-ops-control-plane.md)." >&2; exit 69; }
+          export CODEX_HOME="$codex_home"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
           else
