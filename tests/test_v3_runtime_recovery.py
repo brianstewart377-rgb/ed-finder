@@ -175,6 +175,7 @@ def test_safe_placeholders_file_indirection_and_empty_defaults_remain_recoverabl
                 'CACHE_URL="host=cache password=${CACHE_PASSWORD}"',
                 'DATABASE_URL="postgresql://db/app?password=${POSTGRES_PASSWORD}"',
                 'DB_DSN_DIRECT="host=db user=app password=${DB_PASSWORD}"',
+                'DB_DSN_QUOTED="host=db user=app password=\'${DB_PASSWORD}\'"',
                 "",
             )
         ),
@@ -272,7 +273,17 @@ def test_optional_credentialed_uri_is_excluded_with_provenance_only(tmp_path: Pa
             'DB_DSN_DIRECT="host=db dbname=app user=app password=dsn-password"\n',
             "credentialed-dsn",
         ),
+        (
+            "legacy-quoted-dsn.sh",
+            'DB_DSN_DIRECT="host=db user=app password=\'actual secret\'"\n',
+            "credentialed-dsn",
+        ),
         ("settings.py", 'POSTGRES_PASSWORD = "python-password"\n', "sensitive-environment-assignment"),
+        (
+            "subscript.py",
+            'import os\nos.environ["POSTGRES_PASSWORD"] = "python-subscript-secret"\n',
+            "sensitive-environment-assignment",
+        ),
         (
             "storage.sh",
             "RCLONE_CONFIG_STORAGEBOX_PASS=storagebox-password\n",
@@ -289,8 +300,23 @@ def test_optional_credentialed_uri_is_excluded_with_provenance_only(tmp_path: Pa
             "credentialed-uri",
         ),
         (
+            "grafana.yml",
+            "authToken: opaque-token-value\n",
+            "sensitive-environment-assignment",
+        ),
+        (
             "roles.sql",
             "ALTER ROLE app LOGIN PASSWORD 'sql-password';\n",
+            "sql-password-statement",
+        ),
+        (
+            "roles-dollar.sql",
+            "ALTER ROLE app LOGIN PASSWORD $$sql-dollar-password$$;\n",
+            "sql-password-statement",
+        ),
+        (
+            "roles-tagged.sql",
+            "CREATE USER app PASSWORD $cred$sql-tagged-password$cred$;\n",
             "sql-password-statement",
         ),
     ),
@@ -325,6 +351,23 @@ def test_quoted_and_flow_yaml_sensitive_keys_fail_required_compose(tmp_path: Pat
     files = recovery.collect_files(tmp_path, [compose])
     with pytest.raises(recovery.RecoveryError, match="Required Compose config"):
         recovery.scan_selected_files(files, [compose])
+
+
+@pytest.mark.parametrize("value", ("null", "Null", "NULL", "~"))
+def test_unquoted_yaml_null_sensitive_values_are_safe(value: str):
+    text = f"services:\n  app:\n    environment:\n      POSTGRES_PASSWORD: {value}\n"
+    assert recovery._scan_text(text, "compose.yml") == ()
+
+
+@pytest.mark.parametrize("value", ('"null"', "'~'"))
+def test_quoted_yaml_null_spellings_remain_literals(value: str):
+    text = f"services:\n  app:\n    environment:\n      POSTGRES_PASSWORD: {value}\n"
+    assert "sensitive-environment-assignment" in recovery._scan_text(text, "compose.yml")
+
+
+def test_camel_case_token_metrics_are_not_credentials():
+    assert recovery._scan_text("tokenCount: 4096\n", "config.yml") == ()
+    assert recovery._scan_text("maxTokenCount: 4096\n", "config.yml") == ()
 
 
 @pytest.mark.parametrize(
