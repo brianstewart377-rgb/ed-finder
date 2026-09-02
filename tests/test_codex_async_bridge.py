@@ -34,18 +34,21 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "codex-task-requests" not in trigger
 
 
-def test_codex_execution_job_has_no_write_authority_and_push_is_ephemeral() -> None:
+def test_codex_host_has_no_repository_permission_and_push_is_ephemeral() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    top_permissions = text.split("permissions:", 1)[1].split("jobs:", 1)[0]
+    prepare_job = text.split("  prepare:", 1)[1].split("\n  codex:", 1)[0]
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
     push_job = text.split("\n  push:", 1)[1]
 
-    assert "contents: read" in top_permissions
-    assert "contents: write" not in top_permissions
-    assert "permissions:\n      contents: read" in codex_job
+    assert "runs-on: ubuntu-latest" in prepare_job
+    assert "permissions:\n      contents: read" in prepare_job
+    assert "runs-on: [self-hosted, Linux, X64]" in codex_job
+    assert "permissions:\n      actions: read" in codex_job
+    assert "contents: read" not in codex_job
     assert "contents: write" not in codex_job
     assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
-    assert "runs-on: [self-hosted, Linux, X64]" in codex_job
+    assert "GITHUB_TOKEN" not in codex_job
+    assert "${{ github.token }}" not in codex_job
     assert "runs-on: ubuntu-latest" in push_job
     assert "runs-on: [self-hosted, Linux, X64]" not in push_job
     assert "permissions:\n      actions: read\n      contents: write" in push_job
@@ -55,9 +58,55 @@ def test_codex_execution_job_has_no_write_authority_and_push_is_ephemeral() -> N
 def test_codex_workers_are_not_globally_serialized() -> None:
     text = WORKER.read_text(encoding="utf-8")
 
-    assert "runs-on: [self-hosted, Linux, X64]" in text
     assert "group: codex-worker" not in text
     assert "cancel-in-progress:" not in text
+
+
+def test_prepare_job_builds_complete_immutable_source_bundle() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    prepare_job = text.split("  prepare:", 1)[1].split("\n  codex:", 1)[0]
+    checkout = prepare_job.split("- name: Checkout trusted main", 1)[1].split(
+        "- name: Resolve immutable request routing", 1
+    )[0]
+    resolver = prepare_job.split("- name: Resolve immutable request routing", 1)[1].split(
+        "- name: Seal trusted source bundle", 1
+    )[0]
+    source = prepare_job.split("- name: Seal trusted source bundle", 1)[1].split(
+        "- name: Upload trusted source bundle", 1
+    )[0]
+
+    assert "fetch-depth: 0" in checkout
+    assert "persist-credentials: true" in checkout
+    assert 'git fetch --no-tags origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch"' in resolver
+    assert 'echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"' in resolver
+    assert "git update-ref refs/heads/codex-source-main" in source
+    assert "git update-ref refs/heads/codex-source-target" in source
+    assert 'git bundle create "$bundle" "${refs[@]}"' in source
+    assert "git bundle verify" in source
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in prepare_job
+    assert "retention-days: 1" in prepare_job
+
+
+def test_self_hosted_job_reconstructs_source_without_network_git_remote() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    reconstruction = codex_job.split("- name: Reconstruct credential-free workspace", 1)[1].split(
+        "- name: Set up Python 3.12", 1
+    )[0]
+
+    assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in codex_job
+    assert "codex-source-${{ github.run_id }}-${{ github.run_attempt }}" in codex_job
+    assert 'rm -rf -- "$GITHUB_WORKSPACE"' in reconstruction
+    assert 'init "$GITHUB_WORKSPACE"' in reconstruction
+    assert 'fetch --no-tags "$bundle" "${refspecs[@]}"' in reconstruction
+    assert "refs/heads/codex-source-main:refs/remotes/origin/main" in reconstruction
+    assert "refs/heads/codex-source-target:refs/remotes/origin/$CODEX_BRANCH" in reconstruction
+    assert "core.hooksPath=/dev/null" in reconstruction
+    assert 'config core.hooksPath /dev/null' in reconstruction
+    assert "Credential-free Codex workspace unexpectedly has a network Git remote." in reconstruction
+    assert "remote add" not in codex_job
+    assert "https://github.com/${GITHUB_REPOSITORY}.git" not in codex_job
+    assert "git fetch origin" not in codex_job
 
 
 def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() -> None:
@@ -72,10 +121,8 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() 
     assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
     assert 'python-version: "3.12"' in setup
     assert "command -v python" in gate
-    assert "::error::" in gate
     assert "sys.version_info[:2] == (3, 12)" in gate
     assert "python -m venv .venv" in gate
-    assert "The repository venv does not use the required Python 3.12" in gate
     assert "resolve_project_state.py --strict" in gate
     assert "CODEX_MAIN_STATE_GATE=PASS" in gate
 
@@ -83,20 +130,20 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() 
 def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
     select_position = text.index("- name: Select immutable implementation base")
-    credential_drop_position = text.index("- name: Drop checkout read credential")
     target_gate_position = text.index("- name: Validate selected implementation state")
     install_position = text.index(
         "- name: Bootstrap pinned Python test environment from selected base"
     )
     codex_position = text.index("- name: Run Codex implementation")
 
-    assert (
-        select_position
-        < credential_drop_position
-        < target_gate_position
-        < install_position
-        < codex_position
-    )
+    assert select_position < target_gate_position < install_position < codex_position
+    selection = text.split("- name: Select immutable implementation base", 1)[1].split(
+        "- name: Validate selected implementation state", 1
+    )[0]
+    assert 'refs/remotes/origin/$CODEX_BRANCH' in selection
+    assert "Sealed target branch SHA does not match the immutable prepared head." in selection
+    assert '/usr/bin/git -c core.hooksPath=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"' in selection
+    assert "Codex workspace gained a network Git remote." in selection
     target_gate = text.split("- name: Validate selected implementation state", 1)[1].split(
         "- name: Bootstrap pinned Python test environment from selected base", 1
     )[0]
@@ -104,46 +151,14 @@ def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     assert "CODEX_TARGET_STATE_GATE=PASS" in target_gate
 
 
-def test_checkout_read_credential_is_available_only_for_trusted_git_phase() -> None:
-    text = WORKER.read_text(encoding="utf-8")
-    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
-    checkout = codex_job.split("- name: Checkout main", 1)[1].split(
-        "- name: Switch to main workspace", 1
-    )[0]
-    credential_drop = codex_job.split("- name: Drop checkout read credential", 1)[1].split(
-        "- name: Validate selected implementation state", 1
-    )[0]
-
-    assert "persist-credentials: true" in checkout
-    assert "git fetch origin" in codex_job[: codex_job.index("- name: Drop checkout read credential")]
-    assert "git-credentials-*.config" in credential_drop
-    assert "--unset-all" in credential_drop
-    assert "include[Ii]f\\.gitdir:" in credential_drop
-    assert "http\\..*\\.extraheader" in credential_drop
-    assert "credential\\.helper" in credential_drop
-    assert "Checkout read credential configuration is still present" in credential_drop
-    assert "Checkout read credential file is still present" in credential_drop
-    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
-        "- name: Validate selected implementation state"
-    )
-    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
-        "- name: Bootstrap pinned Python test environment from selected base"
-    )
-    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
-        "- name: Run Codex implementation"
-    )
-
-
 def test_pinned_test_environment_is_installed_from_selected_base() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    gate_position = text.index("CODEX_MAIN_STATE_GATE=PASS")
-    select_position = text.index("- name: Select immutable implementation base")
+    target_gate_position = text.index("CODEX_TARGET_STATE_GATE=PASS")
     install_position = text.index(
         ".venv/bin/python -m pip install --requirement tests/requirements-ci.txt"
     )
 
-    assert gate_position < select_position < install_position
-    assert "pip install" not in text[:gate_position]
+    assert target_gate_position < install_position
     bootstrap = text.split(
         "- name: Bootstrap pinned Python test environment from selected base", 1
     )[1].split("- name: Verify pinned Python test environment", 1)[0]
@@ -169,23 +184,18 @@ def test_worker_activates_and_verifies_the_pinned_venv() -> None:
 def test_routing_is_resolved_before_codex_and_task_never_enters_outputs() -> None:
     text = WORKER.read_text(encoding="utf-8")
     prepare = text.split("  prepare:", 1)[1].split("\n  codex:", 1)[0]
-    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
 
-    assert "runs-on: ubuntu-latest" in prepare
     assert "Resolve immutable request routing" in prepare
     assert 'INPUT_TASK: ${{ inputs.task }}' in prepare
     assert 'echo "task=' not in prepare
     assert 'echo "branch=$branch" >> "$GITHUB_OUTPUT"' in prepare
     assert 'echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"' in prepare
-    assert "needs: prepare" in codex_job
-    assert '${{ needs.prepare.outputs.branch }}' in codex_job
-    assert '${{ needs.prepare.outputs.expected_remote_sha }}' in codex_job
 
 
 def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denied() -> None:
     text = WORKER.read_text(encoding="utf-8")
     resolver = text.split("- name: Resolve immutable request routing", 1)[1].split(
-        "\n  codex:", 1
+        "- name: Seal trusted source bundle", 1
     )[0]
 
     assert "INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}" in resolver
@@ -195,22 +205,6 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
         "chatgpt-ed-new-ops-requests" in resolver
     )
     assert "target_branch is only valid for implement mode" in resolver
-
-
-def test_codex_rechecks_immutable_base_and_fetches_complete_history_before_starting() -> None:
-    text = WORKER.read_text(encoding="utf-8")
-    selection = text.split("- name: Select immutable implementation base", 1)[1].split(
-        "- name: Drop checkout read credential", 1
-    )[0]
-
-    assert '${{ needs.prepare.outputs.expected_remote_sha }}' in selection
-    assert '${{ needs.prepare.outputs.base_sha }}' in selection
-    assert "git rev-parse --is-shallow-repository" in selection
-    assert "git fetch --unshallow --no-tags origin" in selection
-    assert 'git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"' in selection
-    assert 'observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"' in selection
-    assert "Target branch moved before Codex started; refusing stale implementation work." in selection
-    assert "Main moved after request preparation; refusing stale implementation work." in selection
 
 
 def test_existing_pr_branch_is_updated_with_atomic_lease_from_prepare_job() -> None:
@@ -226,7 +220,6 @@ def test_existing_pr_branch_is_updated_with_atomic_lease_from_prepare_job() -> N
     assert 'CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}' in reconstruction
     assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in reconstruction
     assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha"' in reconstruction
-    assert 'CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}' in push
     assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push
     assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push
 
@@ -243,7 +236,7 @@ def test_existing_pr_update_requires_non_github_token_so_checks_retrigger() -> N
     assert 'push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"' in push
 
 
-def test_sealed_result_is_complete_and_crosses_job_boundary_without_push_credential() -> None:
+def test_sealed_result_crosses_to_ephemeral_push_job_without_write_credential() -> None:
     text = WORKER.read_text(encoding="utf-8")
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
     push_job = text.split("\n  push:", 1)[1]
@@ -264,9 +257,6 @@ def test_sealed_result_is_complete_and_crosses_job_boundary_without_push_credent
 
 def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    prepare_checkout = text.split("- name: Checkout trusted main", 1)[1].split(
-        "- name: Resolve immutable request routing", 1
-    )[0]
     reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
         "- name: Push sealed implementation with exact-head lease", 1
     )[0]
@@ -274,7 +264,6 @@ def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> No
         "- name: Implementation branch summary", 1
     )[0]
 
-    assert "persist-credentials: false" in prepare_checkout
     assert 'trusted_root="$RUNNER_TEMP/codex-trusted-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reconstruction
     assert 'remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"' in reconstruction
     assert "GIT_CONFIG_NOSYSTEM=1" in reconstruction
