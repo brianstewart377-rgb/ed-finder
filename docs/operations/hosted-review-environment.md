@@ -1,32 +1,52 @@
-﻿# Hosted Hetzner Review Environment
+# Hosted Hetzner Review Environment
 
-This runbook activates and operates the persistent hosted review lane at:
+> **RETIRED — 2 September 2026**
+>
+> This hosted review lane depended on the former Hetzner V2 production host and its production Nginx edge. That host has been decommissioned, so this runbook is no longer executable as written.
+>
+> Do not recreate the old Hetzner production edge solely to revive this review environment and do not redirect these commands at the V3 replacement host. See `docs/operations/infrastructure-status.md`.
+
+## Historical purpose
+
+This runbook operated the former persistent review lane at:
 
 ```text
 https://review.ed-finder.app
 ```
 
-The review lane is for manually testing draft PR branches before they merge. It uses the production Dockerised Nginx edge, but its API, Postgres, Redis, volumes, and synthetic corpus are isolated from production data.
+The lane was used for manually testing draft PR branches before merge. It shared the former production Dockerised Nginx edge while keeping its API, Postgres, Redis, volumes, and synthetic corpus isolated from production data.
 
-## Safety Boundary
+## Current status
 
-- Do not deploy this automatically from GitHub, Git pushes, or PR changes.
-- Do not use production database URLs, Redis URLs, volumes, credentials, API containers, or logs.
-- Review data is synthetic and review-only.
-- Review drafts live in browser storage for `review.ed-finder.app`.
-- Review cannot alter Elite Dangerous or any live game state.
-- Only one active hosted review branch/ref is supported at a time.
-- The Raspberry Pi is not the primary PR review environment.
+The Hetzner-hosted implementation described here is retired with the V2 host.
 
-## DNS And Edge Prerequisite
+Before using `review.ed-finder.app` again, establish a new V3-era review design and document its target host, DNS/edge boundary, authentication, data isolation, deployment path, teardown path, and production-safety proof. Do not assume the old hostname currently points to, or is safely wired into, any replacement environment.
 
-`review.ed-finder.app` must point to the same Hetzner host as production and use the same Cloudflare/proxied Flexible SSL posture as `ed-finder.app`.
+## Historical safety boundary
 
-Do not add a new public Nginx container, host-level Nginx config, Certbot workflow, or additional public host ports. Production `ed-nginx` remains the only public edge.
+The retired lane followed these rules:
 
-## Initial Activation
+- no automatic deployment from Git pushes or PR changes;
+- no production database URLs, Redis URLs, volumes, credentials, API containers, or logs;
+- synthetic review-only data;
+- review drafts stored in browser storage for `review.ed-finder.app`;
+- no ability to alter Elite Dangerous or live game state;
+- one active hosted review branch/ref at a time;
+- the Raspberry Pi was not the primary PR review environment.
 
-Run these commands manually on the Hetzner host. They are intentionally not automated by Git push or PR state.
+Those principles remain useful design constraints for any future replacement, but they do not authorize reuse of the old infrastructure.
+
+## Historical DNS and edge design
+
+The former configuration pointed `review.ed-finder.app` to the same Hetzner host as production and used the same Cloudflare/proxied edge posture as `ed-finder.app`.
+
+Production `ed-nginx` was the only public edge. Review used a dedicated `edfinder-review-edge` Docker network and isolated review API/data services.
+
+That topology no longer exists as a supported production architecture.
+
+## Historical activation procedure
+
+The former activation began on the Hetzner host with:
 
 ```bash
 cd /opt/ed-finder
@@ -35,124 +55,77 @@ git checkout main
 git pull --ff-only origin main
 ```
 
-Create the dedicated edge network that only production `ed-nginx` and hosted `review-api` may join:
+It created the dedicated edge network:
 
 ```bash
 docker network create edfinder-review-edge
 ```
 
-Create the review auth file. The helper prompts without echoing the password, writes a bcrypt htpasswd entry as `root:<nginx-worker-group>` with mode `640`, and keeps the file non-public while allowing production Nginx to read it:
+and a review-only HTTP basic-auth file with:
 
 ```bash
 cd /opt/ed-finder
 scripts/ops/create_review_auth_file.sh --user review
 ```
 
-Deploy PR #271 as the first candidate only after the hosted review infrastructure is on `main`:
-
-1. Merge PR #272.
-2. Update Hetzner `main` with the merged hosted-review infrastructure.
-3. Rebase PR #271 onto the updated `main`.
-4. Push the rebased PR #271 branch.
-5. Deploy that rebased branch into `review.ed-finder.app`.
+A review ref was deployed with:
 
 ```bash
 cd /opt/ed-finder
 scripts/ops/deploy_hosted_review.sh deploy \
-  --ref stage-25d-a2-planner-clarity \
+  --ref <review-ref> \
   --confirm-hosted-review
 ```
 
-The deploy command creates `/opt/ed-finder-review/.review/nginx-logs` before production Nginx needs the review log mount.
+The former production Nginx configuration was then validated/reloaded to expose the review virtual host.
 
-Before recreating the live production Nginx edge, validate the assembled production Compose and Nginx configuration in a throwaway Nginx container:
+These commands are retained only for historical understanding. **Do not run them against the V3 replacement host.**
 
-```bash
-cd /opt/ed-finder
-docker compose config -q
-docker compose run --rm --no-deps nginx nginx -t
+## Historical review checkout
+
+The former lane used:
+
+```text
+/opt/ed-finder-review
 ```
 
-Only after both preflight commands pass, expose the review virtual host by recreating only production Nginx with the new mount/network configuration:
-
-```bash
-cd /opt/ed-finder
-docker compose up -d nginx
-docker compose exec nginx nginx -t
-docker compose exec nginx nginx -s reload
-```
-
-Verify the public review host and production health:
-
-```bash
-curl -I -H 'Host: review.ed-finder.app' http://127.0.0.1/
-curl -I -u review https://review.ed-finder.app/
-curl -fsS http://127.0.0.1/api/health
-curl -fsS https://ed-finder.app/api/health
-docker compose ps nginx api postgres redis
-```
-
-The first command should challenge with HTTP basic auth. The second command prompts for the review password and should reach the review React app after authentication.
-
-## Switching The Review Ref
-
-Deploy a different branch, PR ref, tag, or commit by running the same script with a new `--ref`. The script refuses dirty review checkout state outside `.secrets/` and `.review/`, records the requested ref and resolved commit, rebuilds the review frontend with `VITE_PUBLIC_BASE=/`, and updates only the hosted review compose project.
-
-```bash
-cd /opt/ed-finder
-scripts/ops/deploy_hosted_review.sh deploy \
-  --ref origin/some-review-branch \
-  --confirm-hosted-review
-```
-
-Deployment metadata is written to:
+with deployment metadata under:
 
 ```text
 /opt/ed-finder-review/.review/deployment.json
 ```
 
-## Browser Review
+and served the built review frontend from the hostname root while proxying `/api/` to the isolated `review-api` container.
 
-Open:
+Those paths are not current V3 review authority.
 
-```text
-https://review.ed-finder.app
-```
+## Historical teardown
 
-Authenticate with the review-only HTTP basic-auth account. The review frontend is served from `/opt/ed-finder-review/frontend/dist` at the hostname root. `/api/` is proxied only to the isolated `review-api` container on `edfinder-review-edge`.
-
-## Teardown And Rollback
-
-Standard review teardown stops only the isolated review Postgres, Redis, and API:
+The former review teardown used:
 
 ```bash
 cd /opt/ed-finder
 scripts/ops/deploy_hosted_review.sh teardown --confirm-hosted-review
 ```
 
-The review hostname remains configured on production Nginx and remains protected by HTTP basic auth. While review services are stopped, the review application or its API may be unavailable; production application traffic remains unaffected.
+with an optional explicit volume-removal mode.
 
-Remove review-owned containers and volumes only when explicitly intended:
+Do not interpret those commands as the teardown process for any future V3 review environment.
 
-```bash
-cd /opt/ed-finder
-scripts/ops/deploy_hosted_review.sh teardown \
-  --confirm-hosted-review \
-  --remove-volumes
-```
+## Repository artifacts
 
-Switching review branches uses `deploy`, which rebuilds the selected ref and starts a fresh review stack with clean synthetic volumes.
+The following files may remain in the repository because they document or implement the former lane:
 
-Removing the review virtual host from the public edge is a separate, deliberate Nginx configuration rollback. It is not part of ordinary review teardown. Do not stop production Nginx as a review rollback step.
+- `docker-compose.review.yml`;
+- `docker-compose.review-hosted.yml`;
+- `scripts/ops/deploy_hosted_review.sh`;
+- `scripts/ops/create_review_auth_file.sh`;
+- relevant Nginx review-vhost configuration and historical tests.
 
-Do not delete `/opt/ed-finder`. Do not run `docker compose down` for the production project as part of review rollback.
+Their continued presence does not mean the hosted Hetzner review lane is active.
 
-## Implementation Notes
+A future V3 review implementation should either deliberately reuse and re-review individual pieces or archive/remove them as part of its own migration PR.
 
-- `docker-compose.review.yml` remains the disposable local Review Lab contract.
-- `docker-compose.review-hosted.yml` is the hosted overlay and adds only hosted concerns: exact review CORS, conservative limits, and the review edge network for `review-api`.
-- `docker-compose.yml` attaches only `nginx` to `edfinder-review-edge`, mounts the review frontend/auth files read-only, and mounts review-only Nginx logs under `/opt/ed-finder-review/.review/nginx-logs`.
-- `config/nginx.conf` serves only `review.ed-finder.app` from `/var/www/review` and proxies `/api/` to `review-api`, never to `api_backend`.
-- Review admin/cache mutation endpoints are blocked at the review vhost.
-- Hosted deploy resets the hosted review Compose project with `down -v --remove-orphans` only after preflight checks pass, then seeds a clean synthetic review database for the selected ref.
+## Historical record rule
 
+Do not rewrite old PRs or Stage 25 evidence that accurately records testing through the Hetzner-hosted review lane. This document is retained to explain that history while clearly preventing new execution against infrastructure that no longer exists.
