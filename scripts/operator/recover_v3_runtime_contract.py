@@ -3,21 +3,31 @@
 
 This helper is intentionally read-only: Docker is queried only for selected
 Compose labels and every selected file is read from the resolved Compose source
-root.  The tar stream is written to stdout so the remote host is not mutated.
+root. The tar stream is written to stdout so the remote host is not mutated.
+
+Every candidate file is content-scanned before any archive bytes are emitted.
+Unsafe optional historical files are excluded with provenance-only metadata;
+unsafe required Compose files fail the whole recovery. The exact bytes that pass
+scanning are also the bytes hashed and archived, so a path cannot change between
+validation and export.
 """
 
 from __future__ import annotations
 
 import argparse
+import ast
+from dataclasses import dataclass
 import hashlib
 import io
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import stat
 import subprocess
 import sys
 import tarfile
+import tokenize
 from typing import BinaryIO, Iterable
 
 
@@ -28,49 +38,163 @@ MAX_FILE_BYTES = 20 * 1024 * 1024
 ALLOWED_SUFFIXES = {".yml", ".yaml", ".sql", ".sh", ".py", ".md", ".txt", ".json"}
 BUILD_FILE_PREFIXES = ("dockerfile", "containerfile")
 FORBIDDEN_PARTS = {
-    ".env",
-    ".git",
-    "backup",
-    "backups",
-    "cert",
-    "certs",
-    "credential",
-    "credentials",
-    "data",
-    "dump",
-    "dumps",
-    "id_rsa",
-    "id_ed25519",
-    "key",
-    "keys",
-    "log",
-    "logs",
-    "pgbackrest",
-    "private",
-    "secret",
-    "secrets",
-    "ssh",
-    "token",
-    "tokens",
-    "volume",
-    "volumes",
+    ".env", ".git", "backup", "backups", "cert", "certs", "credential",
+    "credentials", "data", "dump", "dumps", "id_rsa", "id_ed25519", "key",
+    "keys", "log", "logs", "pgbackrest", "private", "secret", "secrets",
+    "ssh", "token", "tokens", "volume", "volumes",
 }
 FORBIDDEN_FRAGMENTS = (
-    "password",
-    "passwd",
-    "credential",
-    "secret",
-    "token",
-    "private_key",
-    "apikey",
-    "api_key",
-    "id_rsa",
-    "id_ed25519",
+    "password", "passwd", "credential", "secret", "token", "private_key",
+    "apikey", "api_key", "id_rsa", "id_ed25519",
 )
 COMPOSE_WORKING_DIR_LABEL = "com.docker.compose.project.working_dir"
 COMPOSE_CONFIG_FILES_LABEL = "com.docker.compose.project.config_files"
 COMPOSE_PROJECT_LABEL = "com.docker.compose.project"
-SCHEMA = "edfinder-v3-runtime-recovery/v1"
+SCHEMA = "edfinder-v3-runtime-recovery/v2"
+
+IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
+STRUCTURED_KEY = r"[A-Za-z_][A-Za-z0-9_.-]*"
+MAPPING_KEY_PREFIX = r"(?:^\s*-\s*|^\s*|(?<!\$)[{,]\s*)"
+QUOTED_ENV_ASSIGNMENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
+    r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)", re.MULTILINE,
+)
+BARE_ENV_ASSIGNMENT_RE = re.compile(
+    rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
+    r"(?P<value>[^\s,;\"'\]]+)", re.MULTILINE,
+)
+QUOTED_MAPPING_ENV_RE = re.compile(
+    rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{STRUCTURED_KEY})"
+    r"(?P=keyquote)\s*:\s*(?P<valquote>[\"'])(?P<value>.*?)(?P=valquote))",
+    re.DOTALL,
+)
+BARE_MAPPING_ENV_RE = re.compile(
+    rf"(?m)(?={MAPPING_KEY_PREFIX}(?P<keyquote>[\"']?)(?P<name>{STRUCTURED_KEY})"
+    r"(?P=keyquote)\s*:(?![ \t]*[\"'])[ \t]*"
+    r"(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+))",
+)
+DOUBLE_QUOTED_MAPPING_ENV_RE = re.compile(
+    rf'''(?m)(?={MAPPING_KEY_PREFIX}"(?P<raw_name>(?:\\.|[^"\\])*)"\s*:\s*'''
+    r'''(?P<valquote>["'])(?P<value>.*?)(?P=valquote))''',
+    re.DOTALL,
+)
+DOUBLE_QUOTED_BARE_MAPPING_ENV_RE = re.compile(
+    rf'''(?m)(?={MAPPING_KEY_PREFIX}"(?P<raw_name>(?:\\.|[^"\\])*)"\s*'''
+    r''':(?![ \t]*["'])[ \t]*(?P<value>\$\{[^}\r\n]*\}|[^,\}\]\r\n#]+))''',
+)
+DOCKERFILE_ENV_SPACE_RE = re.compile(
+    rf"(?im)^\s*ENV\s+(?P<name>{IDENTIFIER})\s+(?P<value>[^\r\n#]+)"
+)
+CREDENTIALED_URI_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^/\s:@]*:(?P<password>[^@\s/]+)@"
+)
+URI_QUERY_CREDENTIAL_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s\"'<>]*[?&;]"
+    r"(?:password|passwd|pwd|secret|token|api_?key)="
+    r"(?P<password>[^&#;\s\"'<>]+)"
+)
+DSN_CREDENTIAL_PARAM_RE = re.compile(
+    r"(?i)(?:^|[\s?&;])(?:password|passwd|pwd|secret|token|api_?key)\s*=\s*"
+    r'''(?P<password>"[^"]*"|'[^']*'|[^\s;&\"']+)'''
+)
+SQL_PASSWORD_RE = re.compile(
+    r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
+    r"(?:[eE](?=[\"']))?(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
+)
+SQL_DOLLAR_PASSWORD_RE = re.compile(
+    r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
+    r"(?P<tag>\$\$|\$[A-Za-z_][A-Za-z0-9_]*\$)(?P<password>.*?)(?P=tag)"
+)
+AUTHORIZATION_RE = re.compile(
+    r'''(?im)["']?Authorization["']?\s*[:=]\s*'''
+    r'''(?:(?P<prefix>[rubf]{1,2})(?=["']))?'''
+    r'''(?P<quote>["']?)(?P<scheme>Bearer|Basic)\s+'''
+    r'''(?P<credential>[^\s"',\]]+)'''
+)
+STRUCTURED_ENV_NAME_RE = re.compile(
+    rf'''^(?P<indent>[ \t]*)-\s*name\s*:\s*'''
+    rf'''(?P<quote>["']?)(?P<name>{IDENTIFIER})(?P=quote)\s*(?:#.*)?$''',
+    re.IGNORECASE,
+)
+STRUCTURED_ENV_VALUE_RE = re.compile(
+    r'''^(?P<indent>[ \t]*)value\s*:\s*(?P<value>.+?)\s*(?:#.*)?$''',
+    re.IGNORECASE,
+)
+STRUCTURED_ENV_VALUE_FROM_RE = re.compile(
+    r'''^(?P<indent>[ \t]*)valueFrom\s*:''', re.IGNORECASE,
+)
+FLOW_OBJECT_RE = re.compile(r"\{[^{}\r\n]*\}")
+FLOW_NAME_FIELD_RE = re.compile(
+    rf'''(?i)(?:^|,)\s*["']?name["']?\s*:\s*'''
+    rf'''(?P<quote>["']?)(?P<name>{IDENTIFIER})(?P=quote)(?=\s*(?:,|$))'''
+)
+FLOW_VALUE_FIELD_RE = re.compile(
+    r'''(?i)(?:^|,)\s*["']?value["']?\s*:\s*'''
+    r'''(?:"(?P<double>[^"]*)"|'(?P<single>[^']*)'|(?P<bare>[^,}]+))'''
+)
+COMMAND_OPTION_SPACE_RE = re.compile(
+    r'''(?ix)(?<![A-Za-z0-9_-])--(?:password|passwd|pwd|secret|token|api[-_]?key)\b'''
+    r'''[ \t]+(?:"(?P<double>[^"]*)"|'(?P<single>[^']*)'|(?P<placeholder>\$\{[^}\r\n]*\})|(?P<bare>[^\s,;\]\}]+))'''
+)
+COMMAND_OPTION_ARRAY_RE = re.compile(
+    r'''(?ix)["']--(?:password|passwd|pwd|secret|token|api[-_]?key)["']\s*,\s*'''
+    r'''(?:"(?P<double>[^"]*)"|'(?P<single>[^']*)')'''
+)
+K8S_SECRET_KIND_RE = re.compile(
+    r'''(?mi)^\s*kind\s*:\s*["']?Secret["']?\s*(?:#.*)?$'''
+)
+K8S_SECRET_PAYLOAD_RE = re.compile(
+    r'''(?mi)^\s*(?:data|stringData)\s*:'''
+)
+TOKEN_PATTERNS = (
+    ("private-key-material", re.compile(
+        r"-----BEGIN (?:(?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY|PGP PRIVATE KEY BLOCK)-----",
+        re.IGNORECASE,
+    )),
+    ("openai-api-token", re.compile(r"\bsk-(?!ant-)(?:proj-|svcacct-)?[A-Za-z0-9_-]{20,}\b")),
+    ("anthropic-api-token", re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b")),
+    ("github-token", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}\b")),
+    ("github-fine-grained-token", re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b")),
+    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
+    ("slack-token", re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b")),
+)
+CONTENT_SCAN_RULES = (
+    "private-key-material", "recognized-api-token", "authorization-credential",
+    "credentialed-uri-or-dsn", "credential-command-option",
+    "non-placeholder-sensitive-assignment", "structured-name-value-environment-entry",
+    "python-ast-sensitive-assignment", "python-comment-docstring-sensitive-assignment",
+    "kubernetes-secret-payload", "docker-registry-auth", "private-jwk-material",
+    "sql-password-statement", "exact-scanned-bytes-archived",
+    "sensitive-file-digest-omitted",
+)
+URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
+TOKEN_METRIC_WORDS = {
+    "BUDGET", "BUDGETS", "CAP", "CAPACITY", "COUNT", "COUNTS", "EXPIRATION",
+    "EXPIRY", "LENGTH", "LENGTHS", "LIMIT", "LIMITS", "MAX", "MIN", "RATE",
+    "RATES", "SIZE", "SIZES", "TTL", "WINDOW", "WINDOWS",
+}
+NONSENSITIVE_REFERENCE_NAMES = {
+    "SECRETKEYREF", "SECRETREF", "SECRETNAME", "SECRETKEYSELECTOR", "SECRETSOURCE",
+    "CREDENTIALREF", "CREDENTIALSREF", "CREDENTIALREFERENCE",
+    "CREDENTIALSREFERENCE", "CREDENTIALNAME", "CREDENTIALSNAME",
+}
+PYTHON_LOOKUP_CALL_NAMES = {
+    "fetch_secret", "get_secret", "load_secret", "read_secret", "resolve_secret",
+}
+YAML_DOUBLE_QUOTE_ESCAPES = {
+    "0": "\0", "a": "\a", "b": "\b", "t": "\t", "n": "\n",
+    "v": "\v", "f": "\f", "r": "\r", "e": "\x1b", " ": " ",
+    '"': '"', "/": "/", "\\": "\\", "N": "\u0085", "_": "\u00a0",
+    "L": "\u2028", "P": "\u2029",
+}
+
+
+@dataclass(frozen=True)
+class ScannedFile:
+    relative: str
+    mode: int
+    payload: bytes
+    sha256: str
 
 
 class RecoveryError(RuntimeError):
@@ -124,7 +248,10 @@ def _safe_name(relative: PurePosixPath) -> bool:
     return relative.suffix.lower() in ALLOWED_SUFFIXES or name.startswith(BUILD_FILE_PREFIXES)
 
 
-def collect_files(root: Path, required_configs: Iterable[Path]) -> list[tuple[Path, str, os.stat_result]]:
+def collect_files(
+    root: Path,
+    required_configs: Iterable[Path],
+) -> list[tuple[Path, str, os.stat_result]]:
     root = root.resolve(strict=True)
     required = {path.resolve(strict=True) for path in required_configs}
     selected: list[tuple[Path, str, os.stat_result]] = []
@@ -169,29 +296,685 @@ def collect_files(root: Path, required_configs: Iterable[Path]) -> list[tuple[Pa
     return selected
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _normalized_name(name: str) -> str:
+    camel_split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name)
+    punct_split = re.sub(r"[^A-Za-z0-9]+", "_", camel_split)
+    return re.sub(r"_+", "_", punct_split).strip("_").upper()
 
 
-def build_manifest(files: Iterable[tuple[Path, str, os.stat_result]]) -> dict[str, object]:
-    entries = [
-        {
+def _decode_yaml_double_quoted_key(raw: str) -> str | None:
+    decoded: list[str] = []
+    index = 0
+    while index < len(raw):
+        character = raw[index]
+        if character != "\\":
+            decoded.append(character)
+            index += 1
+            continue
+        index += 1
+        if index >= len(raw):
+            return None
+        escape = raw[index]
+        if escape in YAML_DOUBLE_QUOTE_ESCAPES:
+            decoded.append(YAML_DOUBLE_QUOTE_ESCAPES[escape])
+            index += 1
+            continue
+        widths = {"x": 2, "u": 4, "U": 8}
+        width = widths.get(escape)
+        if width is None:
+            return None
+        start = index + 1
+        end = start + width
+        digits = raw[start:end]
+        if len(digits) != width or not re.fullmatch(r"[0-9A-Fa-f]+", digits):
+            return None
+        try:
+            decoded.append(chr(int(digits, 16)))
+        except ValueError:
+            return None
+        index = end
+    return "".join(decoded)
+
+
+def _name_is_sensitive(name: str) -> bool:
+    upper = _normalized_name(name)
+    compact = upper.replace("_", "")
+    if compact in NONSENSITIVE_REFERENCE_NAMES:
+        return False
+    if upper in URL_ENV_NAMES or upper in {"OCTOPUS_DATA_KEY", "DATA_ENCRYPTION_KEY"}:
+        return True
+    if any(marker in upper for marker in (
+        "PASSWORD", "PASSWD", "PRIVATE_KEY", "API_KEY", "APIKEY", "SECRET",
+        "CREDENTIAL",
+    )):
+        return True
+    if (
+        upper == "PASS"
+        or upper.endswith(("_PASS", "_PWD"))
+        or "_PASS_" in upper
+        or "_PWD_" in upper
+    ):
+        return True
+    parts = [part for part in upper.split("_") if part]
+    for index, part in enumerate(parts):
+        if part != "TOKEN":
+            continue
+        previous = parts[index - 1] if index else None
+        following = parts[index + 1] if index + 1 < len(parts) else None
+        if previous in TOKEN_METRIC_WORDS or following in TOKEN_METRIC_WORDS:
+            continue
+        return True
+    return False
+
+
+def _jinja_reference_expression_is_safe(body: str) -> bool:
+    reference = rf"{IDENTIFIER}(?:\.{IDENTIFIER})*"
+    pipeline = [part.strip() for part in body.split("|")]
+    if not pipeline or not re.fullmatch(reference, pipeline[0]):
+        return False
+    for filter_expression in pipeline[1:]:
+        filter_match = re.fullmatch(
+            rf"(?P<name>{IDENTIFIER})(?:\((?P<arguments>.*)\))?", filter_expression,
+        )
+        if not filter_match:
+            return False
+        arguments = filter_match.group("arguments")
+        if arguments is None or not arguments.strip():
+            continue
+        argument = arguments.strip()
+        if "," in argument:
+            return False
+        if filter_match.group("name").lower() == "default":
+            quoted_default = re.fullmatch(
+                r'''(?P<quote>['\"])(?P<literal>.*?)(?P=quote)''', argument,
+            )
+            if quoted_default:
+                if quoted_default.group("literal"):
+                    return False
+                continue
+            if re.fullmatch(reference, argument):
+                continue
+            return False
+        if not re.fullmatch(reference, argument):
+            return False
+    return True
+
+
+def _placeholder_value(value: str) -> bool:
+    candidate = value.strip().strip("\"'")
+    if not candidate:
+        return True
+    var_name = IDENTIFIER
+    if re.fullmatch(rf"\$\{{{var_name}\}}", candidate):
+        return True
+    if re.fullmatch(rf"\$\{{{var_name}(?::?\?[^}}]*)\}}", candidate):
+        return True
+    if re.fullmatch(rf"\$\{{{var_name}(?::-|-)\}}", candidate):
+        return True
+    if re.fullmatch(rf"\${var_name}", candidate):
+        return True
+    jinja = re.fullmatch(r"\{\{(?P<body>[^{}]+)\}\}", candidate)
+    if jinja:
+        return _jinja_reference_expression_is_safe(jinja.group("body").strip())
+    if re.fullmatch(
+        r"<(?:redacted|placeholder|secret|password|token|[^>]*_here)>",
+        candidate, re.IGNORECASE,
+    ):
+        return True
+    if candidate.upper() in {
+        "REDACTED", "PLACEHOLDER", "NOT_SET", "UNSET", "REPLACE_ME",
+        "YOUR_SECRET_HERE", "YOUR_PASSWORD_HERE", "YOUR_TOKEN_HERE",
+    }:
+        return True
+    if re.fullmatch(r"[*xX]{6,}", candidate):
+        return True
+    return False
+
+
+def _unquoted_yaml_null(value: str) -> bool:
+    candidate = value.strip()
+    if not candidate or candidate.startswith(("\"", "'")):
+        return False
+    return candidate.lower() in {"null", "~"}
+
+
+def _secret_file_reference(value: str) -> bool:
+    candidate = value.strip().strip("\"'")
+    return candidate.startswith(("/", "./", "../"))
+
+
+def _credential_values(text: str) -> list[str]:
+    values = [match.group("password") for match in CREDENTIALED_URI_RE.finditer(text)]
+    values.extend(match.group("password") for match in URI_QUERY_CREDENTIAL_RE.finditer(text))
+    values.extend(match.group("password") for match in DSN_CREDENTIAL_PARAM_RE.finditer(text))
+    return values
+
+
+def _assignment_value_is_safe(name: str, value: str) -> bool:
+    if _placeholder_value(value):
+        return True
+    upper_name = _normalized_name(name)
+    if upper_name.endswith(("_FILE", "_PATH")) and _secret_file_reference(value):
+        return True
+    if upper_name in URL_ENV_NAMES:
+        candidate = value.strip().strip("\"'")
+        credential_values = _credential_values(candidate)
+        return not credential_values or all(_placeholder_value(item) for item in credential_values)
+    return False
+
+
+def _compose_secret_reference_collection(name: str, value: str) -> bool:
+    return _normalized_name(name) == "SECRETS" and value.strip().startswith(("[", "{"))
+
+
+def _scan_decoded_yaml_mapping_keys(text: str, findings: set[str]) -> None:
+    for match in DOUBLE_QUOTED_MAPPING_ENV_RE.finditer(text):
+        name = _decode_yaml_double_quoted_key(match.group("raw_name"))
+        if name is None:
+            continue
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if _name_is_sensitive(name) and not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+    for match in DOUBLE_QUOTED_BARE_MAPPING_ENV_RE.finditer(text):
+        name = _decode_yaml_double_quoted_key(match.group("raw_name"))
+        if name is None:
+            continue
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if not _name_is_sensitive(name) or _unquoted_yaml_null(value):
+            continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+
+def _scan_assignment_patterns(text: str, findings: set[str], *, include_equals: bool = True) -> None:
+    if include_equals:
+        for pattern in (QUOTED_ENV_ASSIGNMENT_RE, BARE_ENV_ASSIGNMENT_RE):
+            for match in pattern.finditer(text):
+                name = match.group("name")
+                if _name_is_sensitive(name) and not _assignment_value_is_safe(name, match.group("value")):
+                    findings.add("sensitive-environment-assignment")
+
+    for match in QUOTED_MAPPING_ENV_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if _name_is_sensitive(name) and not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+    for match in BARE_MAPPING_ENV_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if not _name_is_sensitive(name) or _unquoted_yaml_null(value):
+            continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+    _scan_decoded_yaml_mapping_keys(text, findings)
+
+
+def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        name_match = STRUCTURED_ENV_NAME_RE.match(line)
+        if not name_match:
+            continue
+        name = name_match.group("name")
+        if not _name_is_sensitive(name):
+            continue
+        base_indent = len(name_match.group("indent").expandtabs(4))
+        for next_line in lines[index + 1 : index + 8]:
+            stripped = next_line.lstrip(" \t")
+            next_indent = len(next_line[: len(next_line) - len(stripped)].expandtabs(4))
+            if stripped.startswith("-") and next_indent <= base_indent:
+                break
+            if STRUCTURED_ENV_VALUE_FROM_RE.match(next_line):
+                break
+            value_match = STRUCTURED_ENV_VALUE_RE.match(next_line)
+            if value_match:
+                value = value_match.group("value")
+                if not _unquoted_yaml_null(value) and not _assignment_value_is_safe(name, value):
+                    findings.add("sensitive-environment-assignment")
+                break
+
+    for match in FLOW_OBJECT_RE.finditer(text):
+        block = match.group(0)[1:-1]
+        name_match = FLOW_NAME_FIELD_RE.search(block)
+        value_match = FLOW_VALUE_FIELD_RE.search(block)
+        if not name_match or not value_match:
+            continue
+        name = name_match.group("name")
+        if not _name_is_sensitive(name):
+            continue
+        value = value_match.group("double")
+        if value is None:
+            value = value_match.group("single")
+        if value is None:
+            value = value_match.group("bare") or ""
+            if _unquoted_yaml_null(value):
+                continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+
+def _json_object_is_private_jwk(value: dict[str, object]) -> bool:
+    kty = str(value.get("kty", "")).upper()
+    if kty == "RSA":
+        return all(key in value for key in ("n", "e", "d"))
+    if kty in {"EC", "OKP"}:
+        return "d" in value and ("x" in value or "crv" in value)
+    if kty == "OCT":
+        return "k" in value
+    return False
+
+
+def _scan_structured_json_environment(text: str, findings: set[str]) -> None:
+    try:
+        document = json.loads(text)
+    except json.JSONDecodeError:
+        return
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            if str(value.get("kind", "")).lower() == "secret" and (
+                "data" in value or "stringData" in value
+            ):
+                findings.add("kubernetes-secret-payload")
+            if _json_object_is_private_jwk(value):
+                findings.add("private-jwk-material")
+            auths = value.get("auths")
+            if isinstance(auths, dict):
+                for registry in auths.values():
+                    if not isinstance(registry, dict):
+                        continue
+                    auth = registry.get("auth")
+                    if isinstance(auth, str) and auth and not _placeholder_value(auth):
+                        findings.add("docker-registry-auth")
+            name = value.get("name")
+            literal = value.get("value")
+            if isinstance(name, str) and _name_is_sensitive(name) and literal is not None:
+                if isinstance(literal, (str, int, float, bool)) and not _assignment_value_is_safe(name, str(literal)):
+                    findings.add("sensitive-environment-assignment")
+            for key, nested in value.items():
+                if isinstance(key, str) and _name_is_sensitive(key):
+                    if _normalized_name(key) == "SECRETS" and isinstance(nested, (list, dict)):
+                        pass
+                    elif nested is not None and isinstance(nested, (str, int, float, bool)):
+                        if not _assignment_value_is_safe(key, str(nested)):
+                            findings.add("sensitive-environment-assignment")
+                walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                walk(nested)
+
+    walk(document)
+
+
+def _python_target_names(target: ast.expr) -> list[str]:
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, ast.Attribute):
+        return [target.attr]
+    if isinstance(target, ast.Subscript):
+        key = target.slice
+        if isinstance(key, ast.Constant) and isinstance(key.value, str):
+            return [key.value]
+        return []
+    if isinstance(target, (ast.Tuple, ast.List)):
+        names: list[str] = []
+        for item in target.elts:
+            names.extend(_python_target_names(item))
+        return names
+    return []
+
+
+def _python_call_name(value: ast.Call) -> str:
+    if isinstance(value.func, ast.Name):
+        return value.func.id.lower()
+    if isinstance(value.func, ast.Attribute):
+        return value.func.attr.lower()
+    return ""
+
+
+def _python_expression_is_safe(name: str, value: ast.expr) -> bool:
+    if isinstance(value, ast.Constant):
+        if value.value is None:
+            return True
+        if isinstance(value.value, bytes):
+            try:
+                decoded = value.value.decode("utf-8")
+            except UnicodeDecodeError:
+                return False
+            return _assignment_value_is_safe(name, decoded)
+        if isinstance(value.value, (str, int, float, bool)):
+            return _assignment_value_is_safe(name, str(value.value))
+        return True
+    if isinstance(value, (ast.Name, ast.Attribute, ast.Subscript)):
+        return True
+    if isinstance(value, ast.JoinedStr):
+        for item in value.values:
+            if isinstance(item, ast.Constant) and isinstance(item.value, str) and item.value:
+                if not _placeholder_value(item.value):
+                    return False
+            elif isinstance(item, ast.FormattedValue):
+                if not _python_expression_is_safe(name, item.value):
+                    return False
+        return True
+    if isinstance(value, ast.Call):
+        function_name = _python_call_name(value)
+        if function_name in {"get", "getenv"}:
+            defaults = list(value.args[1:])
+            defaults.extend(
+                keyword.value
+                for keyword in value.keywords
+                if keyword.arg in {"default", "fallback"}
+            )
+            return all(_python_expression_is_safe(name, default) for default in defaults)
+        if function_name in PYTHON_LOOKUP_CALL_NAMES:
+            extras = list(value.args[1:])
+            extras.extend(
+                keyword.value
+                for keyword in value.keywords
+                if keyword.arg in {"default", "fallback"}
+            )
+            return all(_python_expression_is_safe(name, item) for item in extras)
+        components: list[ast.expr] = list(value.args)
+        components.extend(keyword.value for keyword in value.keywords)
+        if isinstance(value.func, ast.Attribute):
+            components.append(value.func.value)
+        return all(_python_expression_is_safe(name, item) for item in components)
+    if isinstance(value, ast.BinOp):
+        return _python_expression_is_safe(name, value.left) and _python_expression_is_safe(name, value.right)
+    if isinstance(value, ast.IfExp):
+        return _python_expression_is_safe(name, value.body) and _python_expression_is_safe(name, value.orelse)
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+        return all(_python_expression_is_safe(name, item) for item in value.elts)
+    if isinstance(value, ast.Dict):
+        candidates = [item for item in (*value.keys, *value.values) if isinstance(item, ast.expr)]
+        return all(_python_expression_is_safe(name, item) for item in candidates)
+    child_expressions = [item for item in ast.iter_child_nodes(value) if isinstance(item, ast.expr)]
+    if child_expressions:
+        return all(_python_expression_is_safe(name, item) for item in child_expressions)
+    return False
+
+
+def _scan_python_function_defaults(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+    findings: set[str],
+) -> None:
+    positional = [*node.args.posonlyargs, *node.args.args]
+    if node.args.defaults:
+        for argument, default in zip(
+            positional[-len(node.args.defaults):], node.args.defaults, strict=True
+        ):
+            if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
+                findings.add("sensitive-environment-assignment")
+    for argument, default in zip(
+        node.args.kwonlyargs, node.args.kw_defaults, strict=True
+    ):
+        if default is None:
+            continue
+        if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
+            findings.add("sensitive-environment-assignment")
+
+
+def _scan_python_assignments(text: str, findings: set[str]) -> None:
+    try:
+        document = ast.parse(text)
+    except SyntaxError:
+        findings.add("python-syntax-unscannable")
+        return
+    for node in ast.walk(document):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        elif isinstance(node, (ast.AugAssign, ast.NamedExpr)):
+            targets = [node.target]
+            value = node.value
+        else:
+            targets = []
+            value = None
+        if value is not None:
+            names: list[str] = []
+            for target in targets:
+                names.extend(_python_target_names(target))
+            for name in names:
+                if _name_is_sensitive(name) and not _python_expression_is_safe(name, value):
+                    findings.add("sensitive-environment-assignment")
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg and _name_is_sensitive(keyword.arg):
+                    if not _python_expression_is_safe(keyword.arg, keyword.value):
+                        findings.add("sensitive-environment-assignment")
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            _scan_python_function_defaults(node, findings)
+
+
+def _scan_embedded_assignment_text(text: str, findings: set[str]) -> None:
+    for match in QUOTED_ENV_ASSIGNMENT_RE.finditer(text):
+        name = match.group("name")
+        if _name_is_sensitive(name) and not _assignment_value_is_safe(name, match.group("value")):
+            findings.add("sensitive-environment-assignment")
+    for match in BARE_ENV_ASSIGNMENT_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value").strip()
+        if not _name_is_sensitive(name):
+            continue
+        if _placeholder_value(value):
+            continue
+        if re.fullmatch(rf"{IDENTIFIER}(?:\.{IDENTIFIER})*", value):
+            continue
+        if any(marker in value for marker in ("(", "[", "{")):
+            continue
+        findings.add("sensitive-environment-assignment")
+
+
+def _scan_python_comments_and_strings(text: str, findings: set[str]) -> None:
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        for item in tokens:
+            if item.type == tokenize.COMMENT:
+                _scan_embedded_assignment_text(item.string.lstrip("#").strip(), findings)
+            elif item.type == tokenize.STRING:
+                try:
+                    literal = ast.literal_eval(item.string)
+                except (SyntaxError, ValueError):
+                    continue
+                if isinstance(literal, str):
+                    _scan_embedded_assignment_text(literal, findings)
+    except (IndentationError, tokenize.TokenError):
+        findings.add("python-tokenization-unscannable")
+
+
+def _command_credential(match: re.Match[str]) -> str:
+    groups = match.groupdict()
+    return (
+        groups.get("double")
+        or groups.get("single")
+        or groups.get("placeholder")
+        or groups.get("bare")
+        or ""
+    )
+
+
+def _scan_command_options(text: str, findings: set[str]) -> None:
+    for pattern in (COMMAND_OPTION_SPACE_RE, COMMAND_OPTION_ARRAY_RE):
+        for match in pattern.finditer(text):
+            credential = _command_credential(match)
+            if credential and not _placeholder_value(credential):
+                findings.add("credential-command-option")
+
+
+def _scan_sql_passwords(text: str, findings: set[str]) -> None:
+    for pattern in (SQL_PASSWORD_RE, SQL_DOLLAR_PASSWORD_RE):
+        for match in pattern.finditer(text):
+            if not _placeholder_value(match.group("password")):
+                findings.add("sql-password-statement")
+
+
+def _scan_yaml_private_jwk(text: str, findings: set[str]) -> None:
+    kty_match = re.search(
+        r'''(?im)^\s*(?:-\s*)?["']?kty["']?\s*:\s*["']?(RSA|EC|OKP|oct)["']?\s*(?:#.*)?$''',
+        text,
+    )
+    if not kty_match:
+        return
+    kty = kty_match.group(1).upper()
+    private_key = "k" if kty == "OCT" else "d"
+    private_match = re.search(
+        rf'''(?im)^\s*(?:-\s*)?["']?{private_key}["']?\s*:\s*(?P<value>[^#\r\n]+)''',
+        text,
+    )
+    if private_match and not _placeholder_value(private_match.group("value").strip()):
+        findings.add("private-jwk-material")
+
+
+def _authorization_credential_is_safe(match: re.Match[str]) -> bool:
+    credential = match.group("credential")
+    prefix = (match.groupdict().get("prefix") or "").lower()
+    if "f" in prefix and re.fullmatch(rf"\{{{IDENTIFIER}(?:\.{IDENTIFIER})*\}}", credential):
+        return True
+    return _placeholder_value(credential)
+
+
+def _scan_text(text: str, relative: str) -> tuple[str, ...]:
+    text = text.removeprefix("\ufeff")
+    findings: set[str] = set()
+    for category, pattern in TOKEN_PATTERNS:
+        if pattern.search(text):
+            findings.add(category)
+    for match in AUTHORIZATION_RE.finditer(text):
+        if not _authorization_credential_is_safe(match):
+            findings.add("authorization-credential")
+    for pattern in (CREDENTIALED_URI_RE, URI_QUERY_CREDENTIAL_RE):
+        for match in pattern.finditer(text):
+            if not _placeholder_value(match.group("password")):
+                findings.add("credentialed-uri")
+    for line in text.splitlines():
+        if not (
+            re.search(r"(?i)\b(?:host|dbname|user|port|sslmode)\s*=", line)
+            or re.search(r"(?i)\b[A-Za-z0-9_]*DSN[A-Za-z0-9_]*\b", line)
+        ):
+            continue
+        for match in DSN_CREDENTIAL_PARAM_RE.finditer(line):
+            password = match.group("password").strip("\"'")
+            if not _placeholder_value(password):
+                findings.add("credentialed-dsn")
+    _scan_command_options(text, findings)
+    _scan_sql_passwords(text, findings)
+
+    relative_path = PurePosixPath(relative)
+    is_python = relative_path.suffix.lower() == ".py"
+    _scan_assignment_patterns(text, findings, include_equals=not is_python)
+
+    if relative_path.name.lower().startswith(BUILD_FILE_PREFIXES):
+        for match in DOCKERFILE_ENV_SPACE_RE.finditer(text):
+            name = match.group("name")
+            if _name_is_sensitive(name) and not _assignment_value_is_safe(name, match.group("value")):
+                findings.add("sensitive-environment-assignment")
+
+    suffix = relative_path.suffix.lower()
+    if suffix in {".yml", ".yaml"}:
+        _scan_structured_yaml_environment(text, findings)
+        _scan_yaml_private_jwk(text, findings)
+        if K8S_SECRET_KIND_RE.search(text) and K8S_SECRET_PAYLOAD_RE.search(text):
+            findings.add("kubernetes-secret-payload")
+    elif suffix == ".json":
+        _scan_structured_json_environment(text, findings)
+    elif suffix == ".py":
+        _scan_python_assignments(text, findings)
+        _scan_python_comments_and_strings(text, findings)
+
+    return tuple(sorted(findings))
+
+
+def _read_scannable_bytes(
+    path: Path,
+    relative: str,
+    expected_metadata: os.stat_result,
+) -> tuple[bytes, os.stat_result]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(path, flags)
+    except OSError as exc:
+        raise RecoveryError(f"Unable to open selected file safely: {relative}") from exc
+    with os.fdopen(fd, "rb") as handle:
+        metadata = os.fstat(handle.fileno())
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RecoveryError(f"Selected path is no longer a regular file: {relative}")
+        if (metadata.st_dev, metadata.st_ino) != (expected_metadata.st_dev, expected_metadata.st_ino):
+            raise RecoveryError(f"Selected file identity changed during recovery: {relative}")
+        payload = handle.read(MAX_FILE_BYTES + 1)
+    if len(payload) > MAX_FILE_BYTES:
+        raise RecoveryError(f"Selected file exceeds per-file limit during scan: {relative}")
+    return payload, metadata
+
+
+def scan_selected_files(
+    files: Iterable[tuple[Path, str, os.stat_result]],
+    required_configs: Iterable[Path],
+) -> tuple[list[ScannedFile], list[dict[str, object]]]:
+    required = {os.path.abspath(path) for path in required_configs}
+    included: list[ScannedFile] = []
+    excluded: list[dict[str, object]] = []
+    scanned_total = 0
+    for path, relative, expected_metadata in files:
+        payload, metadata = _read_scannable_bytes(path, relative, expected_metadata)
+        scanned_total += len(payload)
+        if scanned_total > MAX_TOTAL_BYTES:
+            raise RecoveryError("Selected files exceed total-size limit during scan")
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise RecoveryError(f"Selected text file is not valid UTF-8: {relative}") from exc
+        findings = _scan_text(text, relative)
+        mode = stat.S_IMODE(metadata.st_mode)
+        if not findings:
+            included.append(ScannedFile(
+                relative=relative, mode=mode, payload=payload,
+                sha256=hashlib.sha256(payload).hexdigest(),
+            ))
+            continue
+        if os.path.abspath(path) in required:
+            categories = ", ".join(findings)
+            raise RecoveryError(
+                f"Required Compose config contains sensitive content: {relative} ({categories})"
+            )
+        excluded.append({
             "path": relative,
-            "size": metadata.st_size,
-            "mode": f"{stat.S_IMODE(metadata.st_mode):04o}",
-            "sha256": _sha256_file(path),
-        }
-        for path, relative, metadata in files
+            "size": len(payload),
+            "mode": f"{mode:04o}",
+            "findings": list(findings),
+        })
+    return included, excluded
+
+
+def build_manifest(
+    files: Iterable[ScannedFile],
+    excluded_sensitive_files: Iterable[dict[str, object]] = (),
+) -> dict[str, object]:
+    file_list = list(files)
+    entries = [
+        {"path": item.relative, "size": len(item.payload), "mode": f"{item.mode:04o}", "sha256": item.sha256}
+        for item in file_list
     ]
+    exclusions = list(excluded_sensitive_files)
     return {
         "schema": SCHEMA,
         "file_count": len(entries),
         "total_bytes": sum(int(entry["size"]) for entry in entries),
         "files": entries,
+        "excluded_sensitive_file_count": len(exclusions),
+        "excluded_sensitive_files": exclusions,
     }
 
 
@@ -204,38 +987,66 @@ def _add_bytes(archive: tarfile.TarFile, name: str, payload: bytes, mode: int = 
 
 
 def stream_archive(
-    root: Path, project: str, files: list[tuple[Path, str, os.stat_result]], output: BinaryIO
+    root: Path,
+    project: str,
+    files: list[tuple[Path, str, os.stat_result]],
+    output: BinaryIO,
+    required_configs: Iterable[Path] = (),
 ) -> None:
-    manifest = build_manifest(files)
+    included, excluded = scan_selected_files(files, required_configs)
+    manifest = build_manifest(included, excluded)
+    scanned_total = int(manifest["total_bytes"]) + sum(int(entry["size"]) for entry in excluded)
     receipt = {
         "schema": SCHEMA,
         "operation": "recover-v3-runtime-contract",
         "container": CONTAINER_NAME,
         "source_root": str(root),
         "compose_project": project,
-        "docker_metadata_fields": [COMPOSE_PROJECT_LABEL, COMPOSE_WORKING_DIR_LABEL, COMPOSE_CONFIG_FILES_LABEL],
+        "docker_metadata_fields": [
+            COMPOSE_PROJECT_LABEL, COMPOSE_WORKING_DIR_LABEL, COMPOSE_CONFIG_FILES_LABEL,
+        ],
         "docker_inspect_env": False,
+        "source_content_scan": {
+            "performed": True,
+            "mode": "fail-closed-before-stream",
+            "rules": list(CONTENT_SCAN_RULES),
+            "candidate_file_count": len(files),
+            "candidate_total_bytes": scanned_total,
+            "included_file_count": manifest["file_count"],
+            "included_total_bytes": manifest["total_bytes"],
+            "excluded_sensitive_file_count": manifest["excluded_sensitive_file_count"],
+            "archive_uses_exact_scanned_bytes": True,
+            "excluded_sensitive_content_digests": False,
+        },
         "db_access": False,
         "host_mutation": False,
         "file_count": manifest["file_count"],
         "total_bytes": manifest["total_bytes"],
-        "limits": {"max_files": MAX_FILES, "max_total_bytes": MAX_TOTAL_BYTES, "max_file_bytes": MAX_FILE_BYTES},
+        "limits": {
+            "max_files": MAX_FILES,
+            "max_total_bytes": MAX_TOTAL_BYTES,
+            "max_file_bytes": MAX_FILE_BYTES,
+        },
     }
     with tarfile.open(fileobj=output, mode="w|gz", format=tarfile.PAX_FORMAT) as archive:
-        for path, relative, metadata in files:
-            info = tarfile.TarInfo(f"source/{relative}")
-            info.size = metadata.st_size
-            info.mode = stat.S_IMODE(metadata.st_mode)
-            info.mtime = 0
-            with path.open("rb") as handle:
-                archive.addfile(info, handle)
-        _add_bytes(archive, "recovery-manifest.json", json.dumps(manifest, indent=2, sort_keys=True).encode() + b"\n")
-        _add_bytes(archive, "recovery-receipt.json", json.dumps(receipt, indent=2, sort_keys=True).encode() + b"\n")
+        for item in included:
+            _add_bytes(archive, f"source/{item.relative}", item.payload, mode=item.mode)
+        _add_bytes(
+            archive, "recovery-manifest.json",
+            json.dumps(manifest, indent=2, sort_keys=True).encode() + b"\n",
+        )
+        _add_bytes(
+            archive, "recovery-receipt.json",
+            json.dumps(receipt, indent=2, sort_keys=True).encode() + b"\n",
+        )
 
 
 def docker_compose_labels(container: str) -> str:
     result = subprocess.run(
-        ["docker", "inspect", "--type", "container", "--format", "{{json .Config.Labels}}", container],
+        [
+            "docker", "inspect", "--type", "container", "--format",
+            "{{json .Config.Labels}}", container,
+        ],
         check=False,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -254,7 +1065,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root, configs, project = parse_compose_labels(docker_compose_labels(args.container))
         files = collect_files(root, configs)
-        stream_archive(root, project, files, sys.stdout.buffer)
+        stream_archive(root, project, files, sys.stdout.buffer, required_configs=configs)
     except (OSError, RecoveryError, subprocess.SubprocessError) as exc:
         print(f"STOP: V3 runtime recovery failed closed: {exc}", file=sys.stderr)
         return 1
