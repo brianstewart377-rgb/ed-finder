@@ -119,3 +119,94 @@ def test_embedded_sql_password_statements_are_scanned_in_non_sql_files():
         'psql -c "ALTER ROLE app PASSWORD \'${DB_PASSWORD}\';"\n',
         "rotate.sh",
     ) == ()
+
+
+def test_python_sensitive_keyword_arguments_and_defaults_are_scanned():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'client.login(password="opaque-test-secret")\n', "client.py"
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'def connect(password="opaque-test-secret"):\n    pass\n', "client.py"
+    )
+    assert recovery._scan_text(
+        'import os\nclient.login(password=os.getenv("DB_PASSWORD"))\n', "client.py"
+    ) == ()
+    assert recovery._scan_text(
+        'def connect(password=None):\n    pass\n', "client.py"
+    ) == ()
+
+
+def test_nested_json_kubernetes_secret_is_scanned():
+    findings = recovery._scan_text(
+        '{"kind":"List","items":[{"kind":"Secret","data":{"auth":"b3BhcXVl"}}]}',
+        "resources.json",
+    )
+    assert "kubernetes-secret-payload" in findings
+
+
+def test_credential_named_assignments_are_sensitive_but_path_indirection_is_safe():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        "DB_CREDENTIAL=opaque-test-secret\n", "start.sh"
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        "service_credentials: opaque-test-secret\n", "config.yml"
+    )
+    assert recovery._scan_text(
+        "CREDENTIALS_FILE=/run/secrets/service_credentials\n", "start.sh"
+    ) == ()
+
+
+def test_python_prefixed_authorization_strings_are_scanned_without_blocking_dynamic_fstrings():
+    assert "authorization-credential" in recovery._scan_text(
+        'headers = {"Authorization": u"Bearer opaque-test-credential"}\n', "client.py"
+    )
+    assert "authorization-credential" in recovery._scan_text(
+        'headers = {"Authorization": f"Bearer opaque-test-credential"}\n', "client.py"
+    )
+    assert recovery._scan_text(
+        'headers = {"Authorization": f"Bearer {token}"}\n', "client.py"
+    ) == ()
+
+
+def test_python_byte_string_credentials_are_scanned():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'API_KEY = b"opaque-test-key"\n', "settings.py"
+    )
+
+
+def test_postgres_escape_string_password_is_scanned():
+    assert "sql-password-statement" in recovery._scan_text(
+        "ALTER ROLE app PASSWORD E'opaque-test-secret';\n", "rotate.sql"
+    )
+
+
+def test_docker_registry_auth_payload_is_scanned():
+    assert "docker-registry-auth" in recovery._scan_text(
+        '{"auths":{"registry.example":{"auth":"dXNlcjpwYXNz"}}}',
+        ".docker/config.json",
+    )
+    assert recovery._scan_text(
+        '{"auths":{"registry.example":{"auth":"${DOCKER_AUTH}"}}}',
+        ".docker/config.json",
+    ) == ()
+
+
+def test_private_jwks_are_scanned_but_public_jwks_are_allowed():
+    assert "private-jwk-material" in recovery._scan_text(
+        '{"kty":"RSA","n":"n","e":"AQAB","d":"opaque-private"}',
+        "jwks.json",
+    )
+    assert recovery._scan_text(
+        '{"kty":"RSA","n":"n","e":"AQAB"}',
+        "jwks.json",
+    ) == ()
+    assert "private-jwk-material" in recovery._scan_text(
+        "kty: RSA\nn: n\ne: AQAB\nd: opaque-private\n",
+        "jwk.yml",
+    )
+
+
+def test_utf8_bom_does_not_hide_first_yaml_sensitive_key():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        "\ufeffpassword: opaque-test-secret\n", "config.yml"
+    )
