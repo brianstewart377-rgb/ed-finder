@@ -20,6 +20,10 @@ ROOT = Path(__file__).resolve().parents[1]
 _WRITE_ACTION_ALLOWLIST = frozenset({"actions/checkout"})
 _RAW_GH_PR_MERGE = re.compile(r"\bgh\s+pr\s+merge\b(?P<tail>[^;&|\n]*)", re.IGNORECASE)
 _RAW_GH_API = re.compile(r"\bgh\b(?:(?![;&|\n]).)*\bapi\b", re.IGNORECASE)
+_NETWORK_API_CLIENT = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:curl|wget|http|https|httpie|xh)(?![A-Za-z0-9_.-])",
+    re.IGNORECASE,
+)
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -52,6 +56,8 @@ def _tracked_workflows() -> list[Path]:
 
 
 def _permissions_have_merge_authority(permissions: object) -> bool:
+    if permissions == "write-all":
+        return True
     return isinstance(permissions, dict) and (
         permissions.get("contents") == "write"
         or permissions.get("pull-requests") == "write"
@@ -126,11 +132,26 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # In a merge-authority job, any direct ``gh`` use other than the
-            # strictly protective disable-auto form is too powerful to classify
-            # safely. The current worker needs Git, not GitHub CLI.
+            # Raw network/API clients are also forbidden in merge-authority jobs.
+            # Otherwise a merge endpoint can be supplied through an environment
+            # variable and invoked without the literal path ever appearing in the
+            # workflow text. Any future legitimate network operation must first
+            # narrow the job permissions or introduce an explicitly reviewed path.
+            if _NETWORK_API_CLIENT.search(run):
+                violations.append(
+                    f"{job_name}: network/API client is forbidden in merge-authority job"
+                )
+
+            # In a merge-authority job, any direct ``gh`` use other than one
+            # strictly protective disable-auto invocation is too powerful to
+            # classify safely. Do not let a protective invocation exempt a block
+            # that contains a second alias/API/merge-capable gh command.
             gh_mentions = re.findall(r"\bgh\b", run, flags=re.IGNORECASE)
-            protective = len(_RAW_GH_PR_MERGE.findall(run)) == 1 and not _raw_merge_violations(run)
+            protective = (
+                len(gh_mentions) == 1
+                and len(_RAW_GH_PR_MERGE.findall(run)) == 1
+                and not _raw_merge_violations(run)
+            )
             if gh_mentions and not protective:
                 violations.append(f"{job_name}: unclassified gh command in merge-authority job")
 
@@ -165,6 +186,56 @@ jobs:
       - run: gh api -X PUT "$MERGE_ENDPOINT"
         env:
           MERGE_ENDPOINT: repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_write_all_is_merge_authority():
+    document = _load(
+        """
+permissions: write-all
+jobs:
+  merge:
+    steps:
+      - uses: owner/pr-tools@deadbeef
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+@pytest.mark.parametrize("client", ["curl", "wget", "http", "https", "httpie", "xh"])
+def test_merge_authority_guard_rejects_network_clients_with_variable_endpoint(client: str):
+    document = _load(
+        f"""
+permissions:
+  pull-requests: write
+jobs:
+  merge:
+    steps:
+      - run: {client} "$MERGE_ENDPOINT"
+        env:
+          MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_disable_auto_does_not_mask_other_gh_commands():
+    document = _load(
+        """
+permissions:
+  pull-requests: write
+jobs:
+  merge:
+    steps:
+      - run: |
+          gh alias set land 'pr merge'
+          gh pr merge --disable-auto "$PR_URL"
+          gh land "$PR_URL" --squash
 """
     )
     assert isinstance(document, dict)
