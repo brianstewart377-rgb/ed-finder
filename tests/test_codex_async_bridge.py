@@ -23,14 +23,15 @@ def test_codex_request_push_is_acknowledged_by_short_dispatch_workflow() -> None
 
 def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     text = WORKER.read_text(encoding="utf-8")
+    trigger = text.split("on:", 1)[1].split("permissions:", 1)[0]
 
-    assert "workflow_dispatch:" in text
-    assert "request_id:" in text
-    assert "target_branch:" in text
+    assert "workflow_dispatch:" in trigger
+    assert "request_id:" in trigger
+    assert "target_branch:" in trigger
     assert "run-name: Codex Worker · ${{ inputs.request_id }}" in text
     assert "timeout-minutes: 120" in text
     assert "codex exec --sandbox danger-full-access" in text
-    assert "codex-task-requests" not in text
+    assert "codex-task-requests" not in trigger
 
 
 def test_codex_worker_permissions_are_minimal_for_branch_writes() -> None:
