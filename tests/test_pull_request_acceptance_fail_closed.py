@@ -48,10 +48,6 @@ _TOKEN_SECRET_EXPRESSION = re.compile(
     r"\$\{\{\s*secrets\.[A-Za-z0-9_]*(?:TOKEN|PAT)[A-Za-z0-9_]*\s*\}\}",
     re.IGNORECASE,
 )
-_SHELL_TOKEN_REFERENCE = re.compile(
-    r"\$(?:\{)?[A-Za-z_][A-Za-z0-9_]*(?:TOKEN|PAT)[A-Za-z0-9_]*(?:\})?",
-    re.IGNORECASE,
-)
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -110,56 +106,60 @@ def _steps(job: dict[str, object]) -> list[dict[str, object]]:
     return [step for step in raw if isinstance(step, dict)]
 
 
-def _value_exposes_write_credential(value: object) -> bool:
+def _value_contains_github_token(value: object) -> bool:
     if isinstance(value, str):
-        return bool(
-            _GITHUB_TOKEN_EXPRESSION.search(value)
-            or _TOKEN_SECRET_EXPRESSION.search(value)
-        )
+        return bool(_GITHUB_TOKEN_EXPRESSION.search(value))
     if isinstance(value, dict):
-        return any(_value_exposes_write_credential(item) for item in value.values())
+        return any(_value_contains_github_token(item) for item in value.values())
     if isinstance(value, list):
-        return any(_value_exposes_write_credential(item) for item in value)
+        return any(_value_contains_github_token(item) for item in value)
     return False
 
 
-def _env_exposes_write_credential(env: object) -> bool:
-    if not isinstance(env, dict):
-        return False
-    for key, value in env.items():
-        if isinstance(value, str) and _value_exposes_write_credential(value):
-            return True
-        if (
-            isinstance(key, str)
-            and re.search(r"(?:TOKEN|PAT)", key, re.IGNORECASE)
-            and isinstance(value, str)
-            and "${{" in value
-        ):
-            return True
+def _value_contains_external_token(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(_TOKEN_SECRET_EXPRESSION.search(value))
+    if isinstance(value, dict):
+        return any(_value_contains_external_token(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_value_contains_external_token(item) for item in value)
     return False
 
 
-def _step_exposes_write_credential(
+def _step_contains_github_token(
     document: dict[str, object],
     job: dict[str, object],
     step: dict[str, object],
     run: str = "",
 ) -> bool:
-    """Return whether a step can see a GitHub-capable token/PAT.
+    return (
+        _value_contains_github_token(document.get("env"))
+        or _value_contains_github_token(job.get("env"))
+        or _value_contains_github_token(step.get("env"))
+        or _value_contains_github_token(step.get("with"))
+        or _value_contains_github_token(step.get("secrets"))
+        or bool(_GITHUB_TOKEN_EXPRESSION.search(run))
+    )
 
-    Token-bearing secrets are a capability independent of the permissions granted
-    to ``GITHUB_TOKEN``. Inspect inherited env plus step inputs so a read-only job
-    cannot hand a PAT to an unapproved action or interpreter and evade the guard.
+
+def _step_contains_external_token(
+    document: dict[str, object],
+    job: dict[str, object],
+    step: dict[str, object],
+    run: str = "",
+) -> bool:
+    """Return whether the step receives an external token/PAT secret.
+
+    Literal variable names such as ``ADMIN_TOKEN`` are not evidence of GitHub
+    merge capability. The capability is traced from secret expressions instead.
     """
     return (
-        _env_exposes_write_credential(document.get("env"))
-        or _env_exposes_write_credential(job.get("env"))
-        or _env_exposes_write_credential(step.get("env"))
-        or _value_exposes_write_credential(step.get("with"))
-        or _value_exposes_write_credential(step.get("secrets"))
-        or bool(_GITHUB_TOKEN_EXPRESSION.search(run))
+        _value_contains_external_token(document.get("env"))
+        or _value_contains_external_token(job.get("env"))
+        or _value_contains_external_token(step.get("env"))
+        or _value_contains_external_token(step.get("with"))
+        or _value_contains_external_token(step.get("secrets"))
         or bool(_TOKEN_SECRET_EXPRESSION.search(run))
-        or bool(_SHELL_TOKEN_REFERENCE.search(run))
     )
 
 
@@ -203,18 +203,24 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
         if not isinstance(raw_job, dict):
             continue
         merge_authority = _job_has_merge_authority(document, raw_job)
-        reusable_has_token = _value_exposes_write_credential(raw_job.get("secrets"))
+        reusable_has_external_token = _value_contains_external_token(raw_job.get("secrets"))
 
         # A reusable job can execute arbitrary code outside the inspected step
-        # list. Merge-authority or token-bearing reusable jobs are therefore not
-        # accepted by this bounded static guard.
-        if isinstance(raw_job.get("uses"), str) and (merge_authority or reusable_has_token):
+        # list. Unknown/write merge authority or an external token therefore
+        # keeps reusable delegation behind the fail-closed boundary.
+        if isinstance(raw_job.get("uses"), str) and (
+            merge_authority or reusable_has_external_token
+        ):
             violations.append(f"{job_name}: merge-capable reusable job is not allowed")
 
         for step in _steps(raw_job):
             run = step.get("run") if isinstance(step.get("run"), str) else ""
-            token_exposed = _step_exposes_write_credential(document, raw_job, step, run)
-            guarded_capability = merge_authority or token_exposed
+            github_token_exposed = _step_contains_github_token(document, raw_job, step, run)
+            external_token_exposed = _step_contains_external_token(document, raw_job, step, run)
+            merge_credential_exposed = external_token_exposed or (
+                merge_authority and github_token_exposed
+            )
+            guarded_capability = merge_authority or external_token_exposed
 
             uses = step.get("uses")
             if isinstance(uses, str) and guarded_capability:
@@ -231,13 +237,14 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # A raw network client or general-purpose interpreter becomes a merge
-            # escape hatch when the same step can see a GitHub-capable token/PAT.
-            if token_exposed and _NETWORK_API_CLIENT.search(run):
+            # Network clients and general-purpose interpreters are merge escape
+            # hatches only when the same step can see an actually merge-capable
+            # credential. A scoped read-only/actions-only github.token is not one.
+            if merge_credential_exposed and _NETWORK_API_CLIENT.search(run):
                 violations.append(
                     f"{job_name}: authenticated network/API client is forbidden"
                 )
-            if token_exposed and _INTERPRETER_CLIENT.search(run):
+            if merge_credential_exposed and _INTERPRETER_CLIENT.search(run):
                 violations.append(
                     f"{job_name}: authenticated general-purpose interpreter is forbidden"
                 )
@@ -373,7 +380,7 @@ jobs:
     assert _merge_authority_violations(document)
 
 
-def test_token_bearing_interpreter_is_rejected_even_with_read_only_github_token():
+def test_external_pat_bearing_interpreter_is_rejected_with_read_only_github_token():
     document = _load(
         """
 permissions: read-all
@@ -387,6 +394,104 @@ jobs:
     )
     assert isinstance(document, dict)
     assert _merge_authority_violations(document)
+
+
+def test_scoped_github_token_allows_non_merge_dispatch_clients():
+    document = _load(
+        """
+permissions:
+  actions: write
+  contents: read
+jobs:
+  dispatch:
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      - run: |
+          python -c "print('prepare dispatch')"
+          curl -X POST https://api.github.com/repos/o/r/actions/workflows/worker.yml/dispatches
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
+def test_literal_local_admin_token_does_not_imply_github_merge_credential():
+    document = _load(
+        """
+permissions:
+  contents: read
+jobs:
+  probe:
+    env:
+      ADMIN_TOKEN: test-admin-token
+    steps:
+      - run: |
+          python -c "print('boot local service')"
+          curl -sf http://127.0.0.1:8000/api/health
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
+
+
+@pytest.mark.parametrize(
+    "permissions",
+    [
+        "",
+        "permissions:\n  contents: write",
+        "permissions:\n  pull-requests: write",
+    ],
+)
+def test_merge_capable_github_token_rejects_curl_and_python(permissions: str):
+    document = _load(
+        f"""
+{permissions}
+jobs:
+  merge:
+    env:
+      GITHUB_TOKEN: ${{{{ github.token }}}}
+    steps:
+      - run: |
+          python -c "print('could call GitHub API')"
+          curl "$MERGE_ENDPOINT"
+        env:
+          MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    violations = _merge_authority_violations(document)
+    assert any("network/API client" in item for item in violations)
+    assert any("general-purpose interpreter" in item for item in violations)
+
+
+def test_read_only_github_token_does_not_downgrade_external_pat():
+    document = _load(
+        """
+permissions:
+  contents: read
+jobs:
+  helper:
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
+      MERGE_PAT: ${{ secrets.MERGE_PAT }}
+    steps:
+      - uses: owner/pr-tools@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+        with:
+          token: ${{ secrets.MERGE_PAT }}
+      - run: |
+          python -c "print('could call GitHub API')"
+          curl -H "Authorization: Bearer $MERGE_PAT" "$MERGE_ENDPOINT"
+        env:
+          MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    violations = _merge_authority_violations(document)
+    assert any("action" in item for item in violations)
+    assert any("network/API client" in item for item in violations)
+    assert any("general-purpose interpreter" in item for item in violations)
 
 
 def test_unknown_permissions_allow_unauthenticated_local_health_probe():
