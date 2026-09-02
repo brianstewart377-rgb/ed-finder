@@ -146,6 +146,48 @@ jobs:
     permissions:
       actions: read
     steps:
+      - name: Quarantine prior runner-user processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          uid="$(id -u)"
+          declare -A keep=()
+          pid="$$"
+          while [ "$pid" -gt 1 ] && [ -r "/proc/$pid/status" ]; do
+            keep["$pid"]=1
+            parent="$(awk '/^PPid:/ {print $2}' "/proc/$pid/status")"
+            [ -n "$parent" ] || break
+            pid="$parent"
+          done
+          keep["1"]=1
+
+          collect_victims() {
+            victims=()
+            local proc candidate status_uid
+            for proc in /proc/[0-9]*; do
+              candidate="${proc##*/}"
+              [ -n "${keep[$candidate]:-}" ] && continue
+              [ -r "$proc/status" ] || continue
+              status_uid="$(awk '/^Uid:/ {print $2}' "$proc/status" 2>/dev/null || true)"
+              [ "$status_uid" = "$uid" ] || continue
+              victims+=("$candidate")
+            done
+          }
+
+          for _ in 1 2 3; do
+            collect_victims
+            [ "${#victims[@]}" -eq 0 ] && break
+            kill -STOP "${victims[@]}" 2>/dev/null || true
+            kill -KILL "${victims[@]}" 2>/dev/null || true
+            sleep 1
+          done
+          collect_victims
+          if [ "${#victims[@]}" -ne 0 ]; then
+            echo "::error::Unexpected same-user processes survived runner quarantine: ${victims[*]}"
+            exit 70
+          fi
+          echo "CODEX_RUNNER_PROCESS_QUARANTINE=PASS"
+
       - name: Download trusted source bundle
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -325,7 +367,7 @@ jobs:
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle and ran the mandatory state-resolution gate successfully on named branch main. There is no network Git remote and no repository credential on this self-hosted job. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          codex exec --sandbox workspace-write "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
             echo "Investigation modified the workspace; failing closed." >&2
@@ -351,7 +393,7 @@ jobs:
             target_context="Work on the isolated implementation branch created by the wrapper from current main."
           fi
           prompt="You are an implementation worker in the ED-Finder repository. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle, selected the exact immutable implementation base, and ran the mandatory state-resolution gate on that selected branch. There is no network Git remote and no repository credential on this self-hosted job. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          codex exec --sandbox workspace-write "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
@@ -457,13 +499,13 @@ jobs:
             workflow_diff_base="$CODEX_BASE_SHA"
           fi
           workflow_changes="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null diff --name-only "$workflow_diff_base" "$candidate_sha" -- '.github/workflows/' || true)"
-          requires_privileged=false
           if [ -n "$workflow_changes" ]; then
-            requires_privileged=true
+            echo "::error::Codex result changes .github/workflows; trusted push refuses unreviewed workflow activation."
+            printf '%s\n' "$workflow_changes" >&2
+            exit 71
           fi
           echo "trusted_repo=$trusted_repo" >> "$GITHUB_OUTPUT"
           echo "trusted_home=$trusted_home" >> "$GITHUB_OUTPUT"
-          echo "requires_privileged=$requires_privileged" >> "$GITHUB_OUTPUT"
 
       - name: Push sealed implementation with exact-head lease
         shell: bash
@@ -475,7 +517,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TRUSTED_REPO: ${{ steps.trusted.outputs.trusted_repo }}
           TRUSTED_HOME: ${{ steps.trusted.outputs.trusted_home }}
-          REQUIRES_PRIVILEGED: ${{ steps.trusted.outputs.requires_privileged }}
         run: |
           set -euo pipefail
           trusted_git=/usr/bin/git
@@ -487,8 +528,8 @@ jobs:
           export GIT_CONFIG_SYSTEM=/dev/null
           export GIT_TERMINAL_PROMPT=0
 
-          if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
-            echo "::error::Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
+          if [ "$CODEX_UPDATE_EXISTING" = true ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
+            echo "::error::Existing PR branch updates require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
             exit 68
           fi
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
