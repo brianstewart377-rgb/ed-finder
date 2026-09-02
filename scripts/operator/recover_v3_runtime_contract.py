@@ -635,10 +635,14 @@ def _scan_python_function_defaults(
 ) -> None:
     positional = [*node.args.posonlyargs, *node.args.args]
     if node.args.defaults:
-        for argument, default in zip(positional[-len(node.args.defaults):], node.args.defaults):
+        for argument, default in zip(
+            positional[-len(node.args.defaults):], node.args.defaults, strict=True
+        ):
             if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
                 findings.add("sensitive-environment-assignment")
-    for argument, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+    for argument, default in zip(
+        node.args.kwonlyargs, node.args.kw_defaults, strict=True
+    ):
         if default is None:
             continue
         if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
