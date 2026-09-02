@@ -1,86 +1,57 @@
-﻿# GitHub Actions Hetzner Operator
+# GitHub Actions Hetzner Operator
 
-## Purpose
+> **RETIRED — 2 September 2026**
+>
+> The former Hetzner V2 production host has been decommissioned and is no longer an ED-Finder operator target. Do not run the Hetzner Operator workflow as a current production operation. This document is retained as historical operator documentation.
+>
+> See `docs/operations/infrastructure-status.md` for the current infrastructure boundary.
 
-This manual workflow runs a small allowlisted set of operator checks on Hetzner without pasting large shell blocks into SSH.
+## Historical purpose
 
-## Current stages
+This manual workflow ran a small allowlisted set of operator checks on the former Hetzner host without pasting large shell blocks into SSH.
 
-| Stage | What it does |
+## Historical stages
+
+| Stage | What it did |
 |---|---|
-| `context` | Shows hostname, user, repo path, git branch, recent commits, and git status. |
-| `git-clean-check` | Confirms the Hetzner repo working tree is clean. |
-| `latest-artifacts` | Lists recent JSON artifacts for the selected `artifact_stage`. |
-| `latest-artifact-summary` | Summarises the newest JSON artifact for the selected `artifact_stage`. |
+| `context` | Showed hostname, user, repo path, git branch, recent commits, and git status. |
+| `git-clean-check` | Confirmed the Hetzner repo working tree was clean. |
+| `latest-artifacts` | Listed recent JSON artifacts for the selected `artifact_stage`. |
+| `latest-artifact-summary` | Summarised the newest JSON artifact for the selected `artifact_stage`. |
 
-## Artifact stage input
-
-The workflow has an `artifact_stage` input.
-
-Examples:
-
-- `stage-18j`
-- `stage-19`
-- `stage-20a`
-
-The value must start with `stage-` and may only contain letters, numbers, underscores, and hyphens.
-
-The scripts read artifacts from:
+The workflow read former operator artifacts from:
 
 `/var/lib/ed-finder/operator-artifacts/<artifact_stage>`
 
-## Hard boundary
+That path on the retired Hetzner host is no longer an available production surface.
 
-The workflow does not accept arbitrary shell commands.
+## Retired secrets
 
-Current stages do not perform:
-
-- DB access;
-- DB writes;
-- migrations;
-- station-type writes;
-- canonical apply.
-
-## Required GitHub secrets
-
-Repository secrets:
+The workflow historically used repository secrets named:
 
 - `HETZNER_OPERATOR_HOST`
 - `HETZNER_OPERATOR_PORT`
 - `HETZNER_OPERATOR_USER`
 - `HETZNER_OPERATOR_SSH_KEY`
 
-## How to run
+Do not recreate or rotate these solely to revive the retired lane. Remove/retire them through the repository's credential-cleanup process when no other current workflow depends on them.
 
-1. Go to the GitHub repository.
-2. Open the **Actions** tab.
-3. Select **Hetzner Operator**.
-4. Click **Run workflow**.
-5. Choose a stage.
-6. Enter an artifact stage if needed, for example `stage-18j`.
-7. Click **Run workflow**.
+## Do not transplant this workflow
 
-## Future stages
+Do not change the old host value, expected hostname, or paths and then run this workflow against the V3 replacement host. The replacement environment has a different architecture and safety boundary.
 
-Any future production DB write stage must be added by a separate PR and must not use arbitrary command input.
+Any production workflow for V3 must explicitly target the replacement environment and be reviewed as a current V3 operator path.
 
-## Separate ed-new V3 recovery lane
+## Current V3 recovery lane
 
-The `ChatGPT ed-new Ops` workflow has one narrowly scoped recovery operation:
-`recover-v3-runtime-contract`. It targets only the retained container
-`edfinder-v3-phase4c-full-20260827_r5-postgres` and derives the source root and
-Compose files from Docker Compose labels. It never inspects container
-environment values, contacts the database, or writes to the remote host. The
-archive is streamed to the Actions runner and uploaded with a file manifest,
-machine-readable safety receipt, and archive SHA-256 sidecar.
+The separate `ChatGPT ed-new Ops` workflow has a narrowly scoped recovery operation named `recover-v3-runtime-contract`. That is a replacement-host lane, not a continuation of the Hetzner Operator workflow.
 
-The lane requires the environment secret `ED_NEW_OPERATOR_KNOWN_HOSTS` to hold
-the pinned OpenSSH known-host entry for `ED_NEW_OPERATOR_HOST` and
-`ED_NEW_OPERATOR_PORT`. Runtime host discovery (`ssh-keyscan`) is prohibited.
+It targets only the retained container `edfinder-v3-phase4c-full-20260827_r5-postgres` and derives the source root and Compose files from Docker Compose labels. It never inspects container environment values, contacts the database, or writes to the remote host. The archive is streamed to the Actions runner and uploaded with a file manifest, machine-readable safety receipt, and archive SHA-256 sidecar.
 
-Recovery is limited to Compose YAML, Dockerfile/Containerfile build inputs,
-`.sql`, `.sh`, `.py`, and non-secret-name `.md`, `.txt`, and `.json` files.
-It fails closed on `.env` and secret/credential/token/key/certificate names,
-logs, backups, dumps, database data/volumes, pgBackRest or SSH material,
-symlinks, special files, paths outside the label-resolved source root, and
-file-count or byte limits. File contents are not printed to Actions logs.
+The lane requires the environment secret `ED_NEW_OPERATOR_KNOWN_HOSTS` to hold the pinned OpenSSH known-host entry for `ED_NEW_OPERATOR_HOST` and `ED_NEW_OPERATOR_PORT`. Runtime host discovery (`ssh-keyscan`) is prohibited.
+
+Recovery is limited to Compose YAML, Dockerfile/Containerfile build inputs, `.sql`, `.sh`, `.py`, and non-secret-name `.md`, `.txt`, and `.json` files. It fails closed on `.env` and secret/credential/token/key/certificate names, logs, backups, dumps, database data/volumes, pgBackRest or SSH material, symlinks, special files, paths outside the label-resolved source root, and file-count or byte limits. File contents are not printed to Actions logs.
+
+## Historical record rule
+
+References in Stage 17/18/19 evidence to this workflow should remain unchanged when they describe what actually happened. They are historical evidence, not current instructions.
