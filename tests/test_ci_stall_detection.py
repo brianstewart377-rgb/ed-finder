@@ -46,7 +46,6 @@ CHECKED_WORKFLOWS = (
     'container-image-parity.yml',
     'coverage.yml',
     'cypress-parity.yml',
-    'dependabot-auto-merge.yml',
     'hetzner-operator.yml',
     'review-lab.yml',
     'semgrep.yml',
