@@ -57,10 +57,10 @@ def test_codex_workers_are_not_globally_serialized() -> None:
     assert "cancel-in-progress:" not in text
 
 
-def test_worker_bootstrap_fails_closed_on_wrong_python_before_state_gate() -> None:
+def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() -> None:
     text = WORKER.read_text(encoding="utf-8")
     gate = text.split("- name: Prepare repository state gate", 1)[1].split(
-        "- name: Bootstrap pinned Python test environment", 1
+        "- name: Verify worker identity", 1
     )[0]
     setup = text.split("- name: Set up Python 3.12", 1)[1].split(
         "- name: Prepare repository state gate", 1
@@ -74,28 +74,50 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_state_gate() -> No
     assert "python -m venv .venv" in gate
     assert "The repository venv does not use the required Python 3.12" in gate
     assert "resolve_project_state.py --strict" in gate
+    assert "CODEX_MAIN_STATE_GATE=PASS" in gate
 
 
-def test_pinned_test_environment_is_installed_only_after_state_gate() -> None:
+def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    gate_position = text.index("resolve_project_state.py --strict")
-    bootstrap_position = text.index("- name: Bootstrap pinned Python test environment")
+    select_position = text.index("- name: Select immutable implementation base")
+    target_gate_position = text.index("- name: Validate selected implementation state")
+    install_position = text.index(
+        "- name: Bootstrap pinned Python test environment from selected base"
+    )
+    codex_position = text.index("- name: Run Codex implementation")
+
+    assert select_position < target_gate_position < install_position < codex_position
+    target_gate = text.split("- name: Validate selected implementation state", 1)[1].split(
+        "- name: Bootstrap pinned Python test environment from selected base", 1
+    )[0]
+    assert "resolve_project_state.py --strict" in target_gate
+    assert "CODEX_TARGET_STATE_GATE=PASS" in target_gate
+
+
+def test_pinned_test_environment_is_installed_from_selected_base() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    gate_position = text.index("CODEX_MAIN_STATE_GATE=PASS")
+    select_position = text.index("- name: Select immutable implementation base")
     install_position = text.index(
         ".venv/bin/python -m pip install --requirement tests/requirements-ci.txt"
     )
 
-    assert gate_position < bootstrap_position < install_position
+    assert gate_position < select_position < install_position
     assert "pip install" not in text[:gate_position]
+    bootstrap = text.split(
+        "- name: Bootstrap pinned Python test environment from selected base", 1
+    )[1].split("- name: Verify pinned Python test environment", 1)[0]
+    assert ".venv/bin/python -m pip install --requirement tests/requirements-ci.txt" in bootstrap
 
 
 def test_worker_activates_and_verifies_the_pinned_venv() -> None:
     text = WORKER.read_text(encoding="utf-8")
     bootstrap = text.split(
-        "- name: Bootstrap pinned Python test environment", 1
+        "- name: Bootstrap pinned Python test environment from selected base", 1
     )[1].split("- name: Verify pinned Python test environment", 1)[0]
     verification = text.split(
         "- name: Verify pinned Python test environment", 1
-    )[1].split("- name: Verify worker identity", 1)[0]
+    )[1].split("- name: Run Codex investigation", 1)[0]
 
     assert 'echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"' in bootstrap
     assert 'echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"' in bootstrap
@@ -135,14 +157,17 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
     assert "target_branch is only valid for implement mode" in resolver
 
 
-def test_codex_rechecks_immutable_base_before_starting() -> None:
+def test_codex_rechecks_immutable_base_and_fetches_complete_history_before_starting() -> None:
     text = WORKER.read_text(encoding="utf-8")
     selection = text.split("- name: Select immutable implementation base", 1)[1].split(
-        "- name: Run Codex implementation", 1
+        "- name: Validate selected implementation state", 1
     )[0]
 
     assert '${{ needs.prepare.outputs.expected_remote_sha }}' in selection
     assert '${{ needs.prepare.outputs.base_sha }}' in selection
+    assert "git rev-parse --is-shallow-repository" in selection
+    assert "git fetch --unshallow --no-tags origin" in selection
+    assert 'git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"' in selection
     assert 'observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"' in selection
     assert "Target branch moved before Codex started; refusing stale implementation work." in selection
     assert "Main moved after request preparation; refusing stale implementation work." in selection
@@ -166,13 +191,17 @@ def test_existing_pr_branch_is_updated_with_atomic_lease_from_prepare_job() -> N
     assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push
 
 
-def test_sealed_result_crosses_job_boundary_without_push_credential() -> None:
+def test_sealed_result_is_complete_and_crosses_job_boundary_without_push_credential() -> None:
     text = WORKER.read_text(encoding="utf-8")
     codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
     push_job = text.split("\n  push:", 1)[1]
+    seal = codex_job.split("- name: Seal implementation result", 1)[1].split(
+        "- name: Upload sealed implementation result", 1
+    )[0]
 
-    assert "update-ref refs/heads/codex-sealed-result" in codex_job
-    assert "bundle create" in codex_job
+    assert "Implementation repository is still shallow; refusing an incomplete bundle." in seal
+    assert "update-ref refs/heads/codex-sealed-result" in seal
+    assert "bundle create" in seal
     assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
     assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in codex_job
     assert "retention-days: 1" in codex_job
