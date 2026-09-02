@@ -308,7 +308,7 @@ jobs:
   push:
     needs: [prepare, codex]
     if: needs.prepare.outputs.mode == 'implement' && needs.codex.result == 'success'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       actions: read
@@ -395,8 +395,8 @@ jobs:
           export GIT_CONFIG_SYSTEM=/dev/null
           export GIT_TERMINAL_PROMPT=0
 
-          if [ "$REQUIRES_PRIVILEGED" = true ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
-            echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured."
+          if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
+            echo "::error::Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
             exit 68
           fi
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
@@ -435,7 +435,7 @@ jobs:
           set -euo pipefail
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             echo "Existing implementation branch updated: $CODEX_BRANCH"
-            echo "The existing pull request will pick up the pushed commit automatically."
+            echo "The existing pull request will pick up the pushed commit and fresh checks automatically."
           else
             echo "Implementation branch pushed: $CODEX_BRANCH"
             echo "Open a PR only after review of the diff and test evidence."
