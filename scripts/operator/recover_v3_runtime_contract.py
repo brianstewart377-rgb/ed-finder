@@ -27,6 +27,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tokenize
 from typing import BinaryIO, Iterable
 
 
@@ -53,7 +54,7 @@ SCHEMA = "edfinder-v3-runtime-recovery/v2"
 
 IDENTIFIER = r"[A-Za-z_][A-Za-z0-9_]*"
 STRUCTURED_KEY = r"[A-Za-z_][A-Za-z0-9_.-]*"
-MAPPING_KEY_PREFIX = r"(?:^\s*|(?<!\$)[{,]\s*)"
+MAPPING_KEY_PREFIX = r"(?:^\s*-\s*|^\s*|(?<!\$)[{,]\s*)"
 QUOTED_ENV_ASSIGNMENT_RE = re.compile(
     rf"(?<![A-Za-z0-9_])(?P<name>{IDENTIFIER})\s*=\s*"
     r"(?P<quote>[\"'])(?P<value>.*?)(?P=quote)", re.MULTILINE,
@@ -150,9 +151,9 @@ CONTENT_SCAN_RULES = (
     "private-key-material", "recognized-api-token", "authorization-credential",
     "credentialed-uri-or-dsn", "credential-command-option",
     "non-placeholder-sensitive-assignment", "structured-name-value-environment-entry",
-    "python-ast-sensitive-assignment", "kubernetes-secret-payload",
-    "sql-password-statement", "exact-scanned-bytes-archived",
-    "sensitive-file-digest-omitted",
+    "python-ast-sensitive-assignment", "python-comment-docstring-sensitive-assignment",
+    "kubernetes-secret-payload", "sql-password-statement",
+    "exact-scanned-bytes-archived", "sensitive-file-digest-omitted",
 )
 URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
 TOKEN_METRIC_WORDS = {
@@ -162,6 +163,9 @@ TOKEN_METRIC_WORDS = {
 }
 NONSENSITIVE_REFERENCE_NAMES = {
     "SECRETKEYREF", "SECRETREF", "SECRETNAME", "SECRETKEYSELECTOR", "SECRETSOURCE",
+}
+PYTHON_LOOKUP_CALL_NAMES = {
+    "fetch_secret", "get_secret", "load_secret", "read_secret", "resolve_secret",
 }
 
 
@@ -525,43 +529,68 @@ def _python_target_names(target: ast.expr) -> list[str]:
     return []
 
 
-def _python_retrieval_call_is_safe(name: str, value: ast.Call) -> bool:
-    function_name = ""
+def _python_call_name(value: ast.Call) -> str:
     if isinstance(value.func, ast.Name):
-        function_name = value.func.id
-    elif isinstance(value.func, ast.Attribute):
-        function_name = value.func.attr
-    if function_name.lower() not in {"get", "getenv"}:
-        return True
-    defaults = list(value.args[1:])
-    defaults.extend(keyword.value for keyword in value.keywords if keyword.arg in {"default", "fallback"})
-    for default in defaults:
-        if isinstance(default, ast.Constant):
-            if default.value is None:
-                continue
-            if isinstance(default.value, (str, int, float, bool)) and not _assignment_value_is_safe(
-                name, str(default.value)
-            ):
-                return False
-    return True
+        return value.func.id.lower()
+    if isinstance(value.func, ast.Attribute):
+        return value.func.attr.lower()
+    return ""
 
 
-def _python_assignment_value_is_safe(name: str, value: ast.expr) -> bool:
+def _python_expression_is_safe(name: str, value: ast.expr) -> bool:
     if isinstance(value, ast.Constant):
         if value.value is None:
             return True
         if isinstance(value.value, (str, int, float, bool)):
             return _assignment_value_is_safe(name, str(value.value))
         return True
+    if isinstance(value, (ast.Name, ast.Attribute, ast.Subscript)):
+        return True
     if isinstance(value, ast.JoinedStr):
         for item in value.values:
             if isinstance(item, ast.Constant) and isinstance(item.value, str) and item.value:
                 if not _placeholder_value(item.value):
                     return False
+            elif isinstance(item, ast.FormattedValue):
+                if not _python_expression_is_safe(name, item.value):
+                    return False
         return True
     if isinstance(value, ast.Call):
-        return _python_retrieval_call_is_safe(name, value)
-    return True
+        function_name = _python_call_name(value)
+        if function_name in {"get", "getenv"}:
+            defaults = list(value.args[1:])
+            defaults.extend(
+                keyword.value
+                for keyword in value.keywords
+                if keyword.arg in {"default", "fallback"}
+            )
+            return all(_python_expression_is_safe(name, default) for default in defaults)
+        if function_name in PYTHON_LOOKUP_CALL_NAMES:
+            extras = list(value.args[1:])
+            extras.extend(
+                keyword.value
+                for keyword in value.keywords
+                if keyword.arg in {"default", "fallback"}
+            )
+            return all(_python_expression_is_safe(name, item) for item in extras)
+        components: list[ast.expr] = list(value.args)
+        components.extend(keyword.value for keyword in value.keywords)
+        if isinstance(value.func, ast.Attribute):
+            components.append(value.func.value)
+        return all(_python_expression_is_safe(name, item) for item in components)
+    if isinstance(value, ast.BinOp):
+        return _python_expression_is_safe(name, value.left) and _python_expression_is_safe(name, value.right)
+    if isinstance(value, ast.IfExp):
+        return _python_expression_is_safe(name, value.body) and _python_expression_is_safe(name, value.orelse)
+    if isinstance(value, (ast.List, ast.Tuple, ast.Set)):
+        return all(_python_expression_is_safe(name, item) for item in value.elts)
+    if isinstance(value, ast.Dict):
+        candidates = [item for item in (*value.keys, *value.values) if isinstance(item, ast.expr)]
+        return all(_python_expression_is_safe(name, item) for item in candidates)
+    child_expressions = [item for item in ast.iter_child_nodes(value) if isinstance(item, ast.expr)]
+    if child_expressions:
+        return all(_python_expression_is_safe(name, item) for item in child_expressions)
+    return False
 
 
 def _scan_python_assignments(text: str, findings: set[str]) -> None:
@@ -585,8 +614,44 @@ def _scan_python_assignments(text: str, findings: set[str]) -> None:
         for target in targets:
             names.extend(_python_target_names(target))
         for name in names:
-            if _name_is_sensitive(name) and not _python_assignment_value_is_safe(name, value):
+            if _name_is_sensitive(name) and not _python_expression_is_safe(name, value):
                 findings.add("sensitive-environment-assignment")
+
+
+def _scan_embedded_assignment_text(text: str, findings: set[str]) -> None:
+    for match in QUOTED_ENV_ASSIGNMENT_RE.finditer(text):
+        name = match.group("name")
+        if _name_is_sensitive(name) and not _assignment_value_is_safe(name, match.group("value")):
+            findings.add("sensitive-environment-assignment")
+    for match in BARE_ENV_ASSIGNMENT_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value").strip()
+        if not _name_is_sensitive(name):
+            continue
+        if _placeholder_value(value):
+            continue
+        if re.fullmatch(rf"{IDENTIFIER}(?:\.{IDENTIFIER})*", value):
+            continue
+        if any(marker in value for marker in ("(", "[", "{")):
+            continue
+        findings.add("sensitive-environment-assignment")
+
+
+def _scan_python_comments_and_strings(text: str, findings: set[str]) -> None:
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(text).readline)
+        for item in tokens:
+            if item.type == tokenize.COMMENT:
+                _scan_embedded_assignment_text(item.string.lstrip("#").strip(), findings)
+            elif item.type == tokenize.STRING:
+                try:
+                    literal = ast.literal_eval(item.string)
+                except (SyntaxError, ValueError):
+                    continue
+                if isinstance(literal, str):
+                    _scan_embedded_assignment_text(literal, findings)
+    except (IndentationError, tokenize.TokenError):
+        findings.add("python-tokenization-unscannable")
 
 
 def _command_credential(match: re.Match[str]) -> str:
@@ -606,6 +671,13 @@ def _scan_command_options(text: str, findings: set[str]) -> None:
             credential = _command_credential(match)
             if credential and not _placeholder_value(credential):
                 findings.add("credential-command-option")
+
+
+def _scan_sql_passwords(text: str, findings: set[str]) -> None:
+    for pattern in (SQL_PASSWORD_RE, SQL_DOLLAR_PASSWORD_RE):
+        for match in pattern.finditer(text):
+            if not _placeholder_value(match.group("password")):
+                findings.add("sql-password-statement")
 
 
 def _scan_text(text: str, relative: str) -> tuple[str, ...]:
@@ -631,6 +703,7 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
             if not _placeholder_value(password):
                 findings.add("credentialed-dsn")
     _scan_command_options(text, findings)
+    _scan_sql_passwords(text, findings)
 
     relative_path = PurePosixPath(relative)
     is_python = relative_path.suffix.lower() == ".py"
@@ -658,12 +731,8 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
                 findings.add("kubernetes-secret-payload")
     elif suffix == ".py":
         _scan_python_assignments(text, findings)
+        _scan_python_comments_and_strings(text, findings)
 
-    if suffix == ".sql":
-        for pattern in (SQL_PASSWORD_RE, SQL_DOLLAR_PASSWORD_RE):
-            for match in pattern.finditer(text):
-                if not _placeholder_value(match.group("password")):
-                    findings.add("sql-password-statement")
     return tuple(sorted(findings))
 
 
