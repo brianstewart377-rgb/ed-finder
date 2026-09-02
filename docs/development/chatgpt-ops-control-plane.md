@@ -47,53 +47,36 @@ Codex task requests are intentionally asynchronous so a ChatGPT web or desktop t
 
 The request path is:
 
-`ChatGPT -> codex-task-requests -> Codex Dispatch -> workflow_dispatch -> Codex Worker -> self-hosted runner -> codex exec`
+`ChatGPT -> codex-task-requests -> Codex Dispatch -> workflow_dispatch -> prepare -> Codex Worker -> sealed result -> trusted push`
 
 A request is a single JSON file committed under `.github/codex-requests/` on the `codex-task-requests` branch. `.github/workflows/codex-dispatch.yml` validates that request on a GitHub-hosted runner, dispatches `.github/workflows/codex-laptop.yml` through `workflow_dispatch`, records a stable request identifier, and then exits. Its bounded job must never wait for the Codex worker to finish.
 
-The long-running self-hosted job is a separate workflow run. Its run name includes the stable request identifier, and the dispatcher prints `CODEX_DISPATCH_ACCEPTED=true` plus `CODEX_WORKER_RUN_ID=<id>` when the worker run becomes visible. If GitHub has accepted the dispatch but the worker run has not appeared within the short lookup window, the dispatcher prints `CODEX_WORKER_RUN_ID=pending` and still exits successfully.
+The long-running self-hosted workflow has a stable request identifier in its run name. The dispatcher prints `CODEX_DISPATCH_ACCEPTED=true` plus `CODEX_WORKER_RUN_ID=<id>` when the run becomes visible. If GitHub has accepted the dispatch but the worker run has not appeared within the short lookup window, the dispatcher prints `CODEX_WORKER_RUN_ID=pending` and still exits successfully.
 
 ChatGPT clients should therefore report the dispatch acknowledgement/run ID immediately. A later turn may query the worker run for progress or results. A client-side timeout must not be treated as evidence that Codex failed unless the GitHub worker run itself failed or timed out.
 
-The Codex Worker retains its 120-minute execution limit, repository state gate,
-investigation immutability check, and isolated implementation-branch behavior.
-The self-hosted runner pool processes independent worker runs in parallel; the
-workflow deliberately has no global concurrency group.
+The Codex execution job retains its 120-minute execution limit, repository state gate, investigation immutability check, and isolated implementation-branch behavior. The self-hosted runner pool processes independent worker runs in parallel; the workflow deliberately has no global concurrency group.
 
-After the clean checkout, the worker selects Python 3.12 through the same pinned
-setup action used by CI, verifies the exact interpreter version or fails closed,
-creates the repo-local `.venv`, and runs the strict repository state gate before
-installing dependencies. Only after that gate passes does it
-install the existing pinned `tests/requirements-ci.txt` authority with the venv
-interpreter. It then exports `VIRTUAL_ENV` and prepends `.venv/bin` for the
-unprivileged Codex/test steps, and verifies the bootstrap with `python -m pip
-check`, `python -m pytest --version`, and `python -m ruff --version`. The later
-credentialed Git job deliberately discards that inherited PATH and invokes the
-trusted system Git directly.
+After the clean checkout, the Codex job selects Python 3.12 through the same pinned setup action used by CI, verifies the exact interpreter version or fails closed, creates the repo-local `.venv`, and runs the strict repository state gate before installing dependencies. Only after that gate passes does it install the existing pinned `tests/requirements-ci.txt` authority with the venv interpreter. It then exports `VIRTUAL_ENV` and prepends `.venv/bin` for the unprivileged Codex/test steps, and verifies the bootstrap with `python -m pip check`, `python -m pytest --version`, and `python -m ruff --version`.
 
 ### Codex review versus implementation authority
 
 Hosted Codex PR review remains a reviewer path. It should not be treated as the authoritative repository write path because its hosted checkout may not expose a writable Git remote and its optional PR-writing helper is outside ED-Finder's control.
 
-Repository writes are therefore routed through the self-hosted Codex Worker. An implementation request may include an optional `target_branch` naming an existing non-protected ED-Finder branch. When supplied, the workflow:
+Repository writes are routed through a three-stage self-hosted workflow with separate trust domains:
 
-1. validates the branch name and refuses `main`, `master`, `codex-task-requests`, `chatgpt-ops-requests`, and `chatgpt-ed-new-ops-requests`;
-2. keeps the arbitrary task body out of `$GITHUB_OUTPUT` and stores it in a wrapper-owned temporary file so task text cannot inject downstream outputs;
-3. runs the strict repository state gate on trusted `origin/main` before selecting the target;
-4. fetches the exact remote target branch and records its starting SHA;
-5. runs Codex in a read-only-authority job with no push credential in its environment;
-6. commits the resulting changes without a push credential, seals the branch into a Git bundle, and uploads that sealed bundle through the pinned GitHub artifact action;
-7. starts a **separate trusted push job** which receives no task text and never runs Codex, downloads only the sealed result, creates a fresh wrapper-owned Git directory, uses a pinned `https://github.com/${GITHUB_REPOSITORY}.git` remote, ignores system/global Git configuration, disables hooks, and resets PATH to trusted system binaries before any push credential exists;
-8. verifies the imported candidate SHA and proves the recorded base is its ancestor, so the trusted job cannot turn the lease into a history rewrite;
-9. exposes the selected push credential only in the final Git-only step and uses an explicit `--force-with-lease=<ref>:<expected-sha>` server-side compare-and-swap. The lease is the atomic expected-head check; the ancestry check separately requires the candidate itself to be a fast-forward descendant.
+1. A small GitHub-hosted **prepare job** validates mode and branch routing before Codex exists. It refuses `main`, `master`, `codex-task-requests`, `chatgpt-ops-requests`, and `chatgpt-ed-new-ops-requests`; captures the exact target/base SHA; and emits only validated branch/SHA metadata. Arbitrary task text is never written to `$GITHUB_OUTPUT`.
+2. The **Codex job** has `contents: read` only. It re-fetches the immutable base and refuses to start if that SHA has already moved, then runs Codex without any push credential. After Codex finishes, it commits the result without credentials, verifies that it still descends from the immutable base, writes the result to a fixed sealed ref, and uploads a one-day Git bundle through a pinned artifact action. No routing or expected-head value produced by the Codex job is trusted by later jobs.
+3. A separate **trusted push job** receives routing and expected-head metadata only from the prepare job. It never receives task text and never runs Codex. It downloads only the sealed bundle, creates a fresh wrapper-owned Git directory and HOME, pins `https://github.com/${GITHUB_REPOSITORY}.git`, disables inherited system/global configuration and hooks, resets PATH to trusted system binaries, verifies the bundle is descended from the immutable base, and determines whether the change touches workflow files before any push credential is exposed.
+4. Only the final Git-only step receives the scoped GitHub write token/PAT. Existing-branch updates use `--force-with-lease=<ref>:<expected-sha>` as a server-side compare-and-swap; new-branch creation uses an empty expected-ref lease. The ancestry proof means the lease is never authority to rewrite history.
 
-The job boundary is intentional. The job that executes `codex exec` has only `contents: read`; the separate push job has the minimum `actions: read` plus `contents: write` authority needed to retrieve the sealed result and update the branch. This keeps authenticated repository-write authority completely outside every process and filesystem that Codex can influence.
+This design protects both directions of the boundary: Codex cannot acquire the write credential, and Codex-controlled output cannot change the target branch or the expected remote SHA used by the trusted writer.
 
-Updating an existing PR branch automatically updates that PR, so this path does not depend on a hosted `make_pr` helper. New implementation requests with no `target_branch` continue to create an isolated `codex/run-<run>-<attempt>` branch that ChatGPT can inspect and open as a PR through its GitHub connector. New-branch creation uses an empty expected-ref lease so a concurrently-created branch cannot be overwritten.
+Updating an existing PR branch automatically updates that PR, so this path does not depend on a hosted `make_pr` helper. New implementation requests with no `target_branch` continue to create an isolated `codex/run-<run>-<attempt>` branch that ChatGPT can inspect and open as a PR through its GitHub connector.
 
 For review-fix loops the preferred pattern is therefore:
 
-`Codex review -> ChatGPT dispositions -> self-hosted Codex implement(target_branch=<PR head>) -> sealed artifact -> trusted push job -> CI/re-review`
+`Codex review -> ChatGPT dispositions -> prepare immutable branch/SHA -> self-hosted Codex -> sealed artifact -> trusted push job -> CI/re-review`
 
 This separation keeps reviewer independence while making repository writes deterministic and auditable.
 
@@ -103,7 +86,7 @@ Ordinary Codex implementation branches may be pushed with the trusted push job's
 
 `CODEX_WORKER_GIT_TOKEN` should contain a fine-grained personal access token limited to this repository with `Contents: read/write` and `Workflows: read/write`. A broad classic token is not preferred. A GitHub App can be adopted later, but the workflow would need to generate a fresh installation token at runtime rather than storing a short-lived installation token as this repository secret.
 
-The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, the Codex execution environment, the sealing step, the artifact upload, or the Codex-controlled working repository. The Codex job finishes and publishes only its sealed result plus wrapper-derived branch/SHA metadata. A separate push job then downloads that result, creates a fresh Git directory and temporary HOME, disables inherited Git configuration and hooks, pins the GitHub remote, and only in its final Git-only step exposes the selected token through a temporary `GIT_ASKPASS` helper. The token is therefore not embedded in command arguments, remote URLs, repository configuration, artifacts, or any process that runs inside the Codex-controlled job.
+The privileged credential is intentionally not passed to `actions/checkout`, the Codex CLI, the task prompt, the Codex execution environment, the sealing step, the artifact upload/download, or the reconstruction step. The trusted writer first reconstructs and verifies the candidate using no push credential. Only its final Git-only step exposes the selected token through a temporary `GIT_ASKPASS` helper. The token is therefore not embedded in command arguments, remote URLs, repository configuration, artifacts, or any process/file system that Codex can influence.
 
 If a Codex implementation changes `.github/workflows/*` while `CODEX_WORKER_GIT_TOKEN` is absent, the trusted push job fails closed before attempting the push and reports the missing secret explicitly. Implementations that do not change workflow files continue to fall back to the scoped `GITHUB_TOKEN`.
 
