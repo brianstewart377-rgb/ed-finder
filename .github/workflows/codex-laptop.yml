@@ -71,15 +71,50 @@ jobs:
           git reset --hard refs/remotes/origin/main
           git clean -ffdx
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
       - name: Prepare repository state gate
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v python >/dev/null 2>&1; then
+            echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
+            exit 69
+          fi
+          if ! python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The selected interpreter did not report the required Python 3.12 version."
+            python --version >&2 || true
+            exit 69
+          fi
           if [ ! -x .venv/bin/python ]; then
-            python3 -m venv .venv
+            python -m venv .venv
+          fi
+          if ! .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The repository venv does not use the required Python 3.12 interpreter."
+            .venv/bin/python --version >&2 || true
+            exit 69
           fi
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
           echo "CODEX_STATE_GATE=PASS"
+
+      - name: Bootstrap pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python -m pytest --version
+          python -m ruff --version
 
       - name: Verify worker identity
         shell: bash
