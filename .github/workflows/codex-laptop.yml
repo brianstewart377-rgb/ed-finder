@@ -70,18 +70,18 @@ jobs:
               exit 64
             }
             case "$target_branch" in
-              main|master|codex-task-requests|chatgpt-ed-new-ops-requests)
+              main|master|codex-task-requests|chatgpt-ops-requests|chatgpt-ed-new-ops-requests)
                 echo "target_branch is protected/control-plane state and cannot be updated by Codex" >&2
                 exit 64
                 ;;
             esac
           fi
+          task_file="$RUNNER_TEMP/codex-task-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          umask 077
+          printf '%s' "$task" > "$task_file"
           {
             echo "mode=$mode"
             echo "target_branch=$target_branch"
-            echo "task<<EOF"
-            echo "$task"
-            echo "EOF"
           } >> "$GITHUB_OUTPUT"
           echo "CODEX_REQUEST_ID=$REQUEST_ID"
 
@@ -152,14 +152,16 @@ jobs:
             exit 42
           fi
           codex --version
+          [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
 
       - name: Run Codex investigation
         if: steps.request.outputs.mode == 'investigate'
         shell: bash
-        env:
-          CODEX_TASK: ${{ steps.request.outputs.task }}
         run: |
           set -euo pipefail
+          CODEX_TASK_FILE="$RUNNER_TEMP/codex-task-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          [ -f "$CODEX_TASK_FILE" ] || { echo "Codex task file is missing" >&2; exit 64; }
+          CODEX_TASK="$(cat "$CODEX_TASK_FILE")"
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
@@ -178,10 +180,12 @@ jobs:
         id: implement
         shell: bash
         env:
-          CODEX_TASK: ${{ steps.request.outputs.task }}
           CODEX_TARGET_BRANCH: ${{ steps.request.outputs.target_branch }}
         run: |
           set -euo pipefail
+          CODEX_TASK_FILE="$RUNNER_TEMP/codex-task-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.txt"
+          [ -f "$CODEX_TASK_FILE" ] || { echo "Codex task file is missing" >&2; exit 64; }
+          CODEX_TASK="$(cat "$CODEX_TASK_FILE")"
           update_existing=false
           expected_remote_sha=""
           if [ -n "$CODEX_TARGET_BRANCH" ]; then
@@ -194,6 +198,7 @@ jobs:
             branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
             base_ref="refs/remotes/origin/main"
           fi
+          base_sha="$(git rev-parse "$base_ref")"
           git checkout -B "$branch" "$base_ref"
           git config user.name "codex-worker"
           git config user.email "codex-worker@users.noreply.github.com"
@@ -204,20 +209,43 @@ jobs:
           fi
           prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before selecting this isolated implementation target. Do not rerun that gate merely because the branch name is now different. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
-          git diff --check
-          changes="$(git status --porcelain=v1 --untracked-files=all)"
+          /usr/bin/git -c core.hooksPath=/dev/null diff --check
+          changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
             echo "Codex produced no changes; refusing empty implementation branch." >&2
             exit 67
           fi
           echo "== changed files =="
-          git status --short
-          git add -A
-          git commit -m "Codex implementation run ${GITHUB_RUN_ID}"
+          /usr/bin/git -c core.hooksPath=/dev/null status --short
+          /usr/bin/git -c core.hooksPath=/dev/null add -A
+          /usr/bin/git -c core.hooksPath=/dev/null -c user.name=codex-worker -c user.email=codex-worker@users.noreply.github.com commit -m "Codex implementation run ${GITHUB_RUN_ID}"
+          candidate_sha="$(/usr/bin/git -c core.hooksPath=/dev/null rev-parse HEAD)"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           echo "update_existing=$update_existing" >> "$GITHUB_OUTPUT"
           echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
           echo "CODEX_BRANCH_LOCAL=$branch"
+
+      - name: Seal implementation result
+        if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
+        id: sealed
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_CANDIDATE_SHA: ${{ steps.implement.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/codex-result-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.bundle"
+          rm -f "$bundle"
+          actual_sha="$(/usr/bin/git -c core.hooksPath=/dev/null rev-parse "refs/heads/$CODEX_BRANCH")"
+          [ "$actual_sha" = "$CODEX_CANDIDATE_SHA" ] || {
+            echo "::error::Implementation branch changed after Codex completed; refusing to seal it."
+            exit 70
+          }
+          /usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= bundle create "$bundle" "refs/heads/$CODEX_BRANCH"
+          /usr/bin/git bundle verify "$bundle" >/dev/null
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
 
       - name: Push implementation branch
         if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
@@ -226,29 +254,59 @@ jobs:
           CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
           CODEX_UPDATE_EXISTING: ${{ steps.implement.outputs.update_existing }}
           CODEX_EXPECTED_REMOTE_SHA: ${{ steps.implement.outputs.expected_remote_sha }}
+          CODEX_BASE_SHA: ${{ steps.implement.outputs.base_sha }}
+          CODEX_CANDIDATE_SHA: ${{ steps.implement.outputs.candidate_sha }}
+          CODEX_RESULT_BUNDLE: ${{ steps.sealed.outputs.bundle }}
           CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          trusted_git=/usr/bin/git
+          [ -x "$trusted_git" ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          [ -f "$CODEX_RESULT_BUNDLE" ] || { echo "::error::Sealed Codex result bundle is missing." >&2; exit 70; }
+
+          trusted_root="$(mktemp -d "$RUNNER_TEMP/codex-trusted-push.XXXXXX")"
+          trusted_repo="$trusted_root/repo"
+          trusted_home="$trusted_root/home"
+          mkdir -p "$trusted_repo" "$trusted_home"
+          trap 'rm -rf "$trusted_root"' EXIT
+
+          export HOME="$trusted_home"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_SYSTEM=/dev/null
+          export GIT_TERMINAL_PROMPT=0
+          PATH=/usr/bin:/bin
+          export PATH
+
+          "$trusted_git" -c core.hooksPath=/dev/null init "$trusted_repo" >/dev/null
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= fetch --no-tags "$CODEX_RESULT_BUNDLE" "refs/heads/$CODEX_BRANCH:refs/remotes/codex/result"
+
+          imported_sha="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null rev-parse refs/remotes/codex/result)"
+          [ "$imported_sha" = "$CODEX_CANDIDATE_SHA" ] || {
+            echo "::error::Sealed implementation SHA mismatch."
+            exit 70
+          }
+          "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null merge-base --is-ancestor "$CODEX_BASE_SHA" "$CODEX_CANDIDATE_SHA" || {
+            echo "::error::Codex result is not descended from its recorded base; refusing history rewrite."
+            exit 70
+          }
+
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"
           else
-            workflow_diff_base="refs/remotes/origin/main"
+            workflow_diff_base="$CODEX_BASE_SHA"
           fi
-          workflow_changes="$(git diff --name-only "$workflow_diff_base" HEAD -- '.github/workflows/' || true)"
+          workflow_changes="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null diff --name-only "$workflow_diff_base" "$CODEX_CANDIDATE_SHA" -- '.github/workflows/' || true)"
           if [ -n "$workflow_changes" ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
             echo "::error::Codex changed GitHub workflow files, but CODEX_WORKER_GIT_TOKEN is not configured. Add that repository secret using a fine-grained personal access token limited to this repository with Contents: read/write and Workflows: read/write."
             printf 'Workflow files requiring privileged push:\n%s\n' "$workflow_changes"
             exit 68
           fi
-
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
 
-          # Checkout deliberately does not persist credentials. Authenticate only this
-          # wrapper-owned push through GIT_ASKPASS so the selected token is never present
-          # in argv, a remote URL, repository config, or the Codex process environment.
-          askpass="$(mktemp)"
-          trap 'rm -f "$askpass"' EXIT
+          askpass="$trusted_root/askpass"
           cat > "$askpass" <<'EOF'
           #!/usr/bin/env sh
           case "$1" in
@@ -260,19 +318,23 @@ jobs:
           chmod 700 "$askpass"
           export CODEX_PUSH_TOKEN="$push_token"
           export GIT_ASKPASS="$askpass"
-          export GIT_TERMINAL_PROMPT=0
 
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
-            remote_sha="$(git -c credential.helper= ls-remote --heads origin "refs/heads/$CODEX_BRANCH" | awk 'NR==1 {print $1}')"
+            remote_sha="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= ls-remote --heads "https://github.com/${GITHUB_REPOSITORY}.git" "refs/heads/$CODEX_BRANCH" | awk 'NR==1 {print $1}')"
             if [ -z "$remote_sha" ] || [ "$remote_sha" != "$CODEX_EXPECTED_REMOTE_SHA" ]; then
               echo "::error::Target branch moved after Codex started; refusing to overwrite concurrent work."
               echo "expected_remote_sha=$CODEX_EXPECTED_REMOTE_SHA"
               echo "observed_remote_sha=${remote_sha:-missing}"
               exit 70
             fi
+            "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= push \
+              --force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA" \
+              origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"
+          else
+            "$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null -c credential.helper= push \
+              --force-with-lease="refs/heads/$CODEX_BRANCH:" \
+              origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"
           fi
-
-          git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"
           echo "CODEX_BRANCH=$CODEX_BRANCH"
           echo "CODEX_UPDATED_EXISTING_BRANCH=$CODEX_UPDATE_EXISTING"
 
