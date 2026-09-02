@@ -151,23 +151,7 @@ jobs:
             exit 69
           fi
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
-          echo "CODEX_STATE_GATE=PASS"
-
-      - name: Bootstrap pinned Python test environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
-          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
-
-      - name: Verify pinned Python test environment
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip check
-          python -m pytest --version
-          python -m ruff --version
+          echo "CODEX_MAIN_STATE_GATE=PASS"
 
       - name: Verify worker identity
         shell: bash
@@ -183,6 +167,63 @@ jobs:
           fi
           codex --version
           [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+
+      - name: Select immutable implementation base
+        if: needs.prepare.outputs.mode == 'implement'
+        shell: bash
+        env:
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
+            git fetch --unshallow --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          else
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          fi
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"
+            observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            [ "$observed_sha" = "$CODEX_EXPECTED_REMOTE_SHA" ] || {
+              echo "::error::Target branch moved before Codex started; refusing stale implementation work."
+              exit 70
+            }
+          else
+            observed_sha="$(git rev-parse refs/remotes/origin/main)"
+            [ "$observed_sha" = "$CODEX_BASE_SHA" ] || {
+              echo "::error::Main moved after request preparation; refusing stale implementation work."
+              exit 70
+            }
+          fi
+          git checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
+          git config user.name "codex-worker"
+          git config user.email "codex-worker@users.noreply.github.com"
+
+      - name: Validate selected implementation state
+        if: needs.prepare.outputs.mode == 'implement'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
+          echo "CODEX_TARGET_STATE_GATE=PASS"
+
+      - name: Bootstrap pinned Python test environment from selected base
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python -m pytest --version
+          python -m ruff --version
 
       - name: Run Codex investigation
         if: needs.prepare.outputs.mode == 'investigate'
@@ -204,34 +245,6 @@ jobs:
             exit 66
           fi
 
-      - name: Select immutable implementation base
-        if: needs.prepare.outputs.mode == 'implement'
-        shell: bash
-        env:
-          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
-          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
-          CODEX_EXPECTED_REMOTE_SHA: ${{ needs.prepare.outputs.expected_remote_sha }}
-          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
-        run: |
-          set -euo pipefail
-          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
-            git fetch origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH" --depth=20
-            observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
-            [ "$observed_sha" = "$CODEX_EXPECTED_REMOTE_SHA" ] || {
-              echo "::error::Target branch moved before Codex started; refusing stale implementation work."
-              exit 70
-            }
-          else
-            observed_sha="$(git rev-parse refs/remotes/origin/main)"
-            [ "$observed_sha" = "$CODEX_BASE_SHA" ] || {
-              echo "::error::Main moved after request preparation; refusing stale implementation work."
-              exit 70
-            }
-          fi
-          git checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
-          git config user.name "codex-worker"
-          git config user.email "codex-worker@users.noreply.github.com"
-
       - name: Run Codex implementation
         if: needs.prepare.outputs.mode == 'implement'
         shell: bash
@@ -246,7 +259,7 @@ jobs:
           else
             target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
           fi
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before selecting this isolated implementation target. Do not rerun that gate merely because the branch name is now different. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
@@ -272,6 +285,10 @@ jobs:
             echo "::error::Codex result is not descended from its immutable base."
             exit 70
           }
+          if [ "$(/usr/bin/git rev-parse --is-shallow-repository)" = true ]; then
+            echo "::error::Implementation repository is still shallow; refusing an incomplete bundle."
+            exit 70
+          fi
           /usr/bin/git -c core.hooksPath=/dev/null update-ref refs/heads/codex-sealed-result "$candidate_sha"
           bundle="$RUNNER_TEMP/codex-result.bundle"
           rm -f "$bundle"
