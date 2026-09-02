@@ -210,3 +210,52 @@ def test_utf8_bom_does_not_hide_first_yaml_sensitive_key():
     assert "sensitive-environment-assignment" in recovery._scan_text(
         "\ufeffpassword: opaque-test-secret\n", "config.yml"
     )
+
+
+def test_escaped_double_quoted_yaml_keys_are_decoded_before_classification():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        '"POSTGRES_PASS\\u0057ORD": opaque-test-secret\n', "compose.yml"
+    )
+    assert recovery._scan_text(
+        '"DISPLAY\\u005fNAME": console\n', "compose.yml"
+    ) == ()
+
+
+def test_python_walrus_and_augmented_sensitive_assignments_are_scanned():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'if (POSTGRES_PASSWORD := "opaque-test-secret"):\n    pass\n', "settings.py"
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'POSTGRES_PASSWORD = existing\nPOSTGRES_PASSWORD += "opaque-test-secret"\n',
+        "settings.py",
+    )
+    assert recovery._scan_text(
+        'import os\nif (POSTGRES_PASSWORD := os.getenv("POSTGRES_PASSWORD")):\n    pass\n',
+        "settings.py",
+    ) == ()
+
+
+def test_openpgp_private_key_armor_is_scanned():
+    assert "private-key-material" in recovery._scan_text(
+        "-----BEGIN PGP PRIVATE KEY BLOCK-----\nopaque-test-material\n"
+        "-----END PGP PRIVATE KEY BLOCK-----\n",
+        "historical.md",
+    )
+
+
+def test_shell_assignment_scans_entire_concatenated_word():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        "POSTGRES_PASSWORD=${PREFIX}opaque-test-secret\n", "start.sh"
+    )
+    assert recovery._scan_text(
+        "POSTGRES_PASSWORD=${DB_PASSWORD}\n", "start.sh"
+    ) == ()
+
+
+def test_multiline_quoted_yaml_sensitive_scalar_is_scanned():
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        'POSTGRES_PASSWORD: "opaque-test-\n  secret"\n', "compose.yml"
+    )
+    assert recovery._scan_text(
+        'POSTGRES_PASSWORD: "${DB_PASSWORD}\n  "\n', "compose.yml"
+    ) == ()
