@@ -89,7 +89,7 @@ DSN_CREDENTIAL_PARAM_RE = re.compile(
 )
 SQL_PASSWORD_RE = re.compile(
     r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
-    r"(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
+    r"(?:[eE](?=[\"']))?(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
 )
 SQL_DOLLAR_PASSWORD_RE = re.compile(
     r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
@@ -97,6 +97,7 @@ SQL_DOLLAR_PASSWORD_RE = re.compile(
 )
 AUTHORIZATION_RE = re.compile(
     r'''(?im)["']?Authorization["']?\s*[:=]\s*'''
+    r'''(?:(?P<prefix>[rubf]{1,2})(?=["']))?'''
     r'''(?P<quote>["']?)(?P<scheme>Bearer|Basic)\s+'''
     r'''(?P<credential>[^\s"',\]]+)'''
 )
@@ -152,8 +153,9 @@ CONTENT_SCAN_RULES = (
     "credentialed-uri-or-dsn", "credential-command-option",
     "non-placeholder-sensitive-assignment", "structured-name-value-environment-entry",
     "python-ast-sensitive-assignment", "python-comment-docstring-sensitive-assignment",
-    "kubernetes-secret-payload", "sql-password-statement",
-    "exact-scanned-bytes-archived", "sensitive-file-digest-omitted",
+    "kubernetes-secret-payload", "docker-registry-auth", "private-jwk-material",
+    "sql-password-statement", "exact-scanned-bytes-archived",
+    "sensitive-file-digest-omitted",
 )
 URL_ENV_NAMES = {"DATABASE_URL", "REDIS_URL", "CACHE_URL", "CELERY_BROKER_URL"}
 TOKEN_METRIC_WORDS = {
@@ -163,6 +165,8 @@ TOKEN_METRIC_WORDS = {
 }
 NONSENSITIVE_REFERENCE_NAMES = {
     "SECRETKEYREF", "SECRETREF", "SECRETNAME", "SECRETKEYSELECTOR", "SECRETSOURCE",
+    "CREDENTIALREF", "CREDENTIALSREF", "CREDENTIALREFERENCE",
+    "CREDENTIALSREFERENCE", "CREDENTIALNAME", "CREDENTIALSNAME",
 }
 PYTHON_LOOKUP_CALL_NAMES = {
     "fetch_secret", "get_secret", "load_secret", "read_secret", "resolve_secret",
@@ -291,6 +295,7 @@ def _name_is_sensitive(name: str) -> bool:
         return True
     if any(marker in upper for marker in (
         "PASSWORD", "PASSWD", "PRIVATE_KEY", "API_KEY", "APIKEY", "SECRET",
+        "CREDENTIAL",
     )):
         return True
     if (
@@ -399,7 +404,7 @@ def _assignment_value_is_safe(name: str, value: str) -> bool:
     if _placeholder_value(value):
         return True
     upper_name = _normalized_name(name)
-    if upper_name.endswith("_FILE") and _secret_file_reference(value):
+    if upper_name.endswith(("_FILE", "_PATH")) and _secret_file_reference(value):
         return True
     if upper_name in URL_ENV_NAMES:
         candidate = value.strip().strip("\"'")
@@ -483,6 +488,17 @@ def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
             findings.add("sensitive-environment-assignment")
 
 
+def _json_object_is_private_jwk(value: dict[str, object]) -> bool:
+    kty = str(value.get("kty", "")).upper()
+    if kty == "RSA":
+        return all(key in value for key in ("n", "e", "d"))
+    if kty in {"EC", "OKP"}:
+        return "d" in value and ("x" in value or "crv" in value)
+    if kty == "OCT":
+        return "k" in value
+    return False
+
+
 def _scan_structured_json_environment(text: str, findings: set[str]) -> None:
     try:
         document = json.loads(text)
@@ -491,6 +507,20 @@ def _scan_structured_json_environment(text: str, findings: set[str]) -> None:
 
     def walk(value: object) -> None:
         if isinstance(value, dict):
+            if str(value.get("kind", "")).lower() == "secret" and (
+                "data" in value or "stringData" in value
+            ):
+                findings.add("kubernetes-secret-payload")
+            if _json_object_is_private_jwk(value):
+                findings.add("private-jwk-material")
+            auths = value.get("auths")
+            if isinstance(auths, dict):
+                for registry in auths.values():
+                    if not isinstance(registry, dict):
+                        continue
+                    auth = registry.get("auth")
+                    if isinstance(auth, str) and auth and not _placeholder_value(auth):
+                        findings.add("docker-registry-auth")
             name = value.get("name")
             literal = value.get("value")
             if isinstance(name, str) and _name_is_sensitive(name) and literal is not None:
@@ -541,6 +571,12 @@ def _python_expression_is_safe(name: str, value: ast.expr) -> bool:
     if isinstance(value, ast.Constant):
         if value.value is None:
             return True
+        if isinstance(value.value, bytes):
+            try:
+                decoded = value.value.decode("utf-8")
+            except UnicodeDecodeError:
+                return False
+            return _assignment_value_is_safe(name, decoded)
         if isinstance(value.value, (str, int, float, bool)):
             return _assignment_value_is_safe(name, str(value.value))
         return True
@@ -593,6 +629,22 @@ def _python_expression_is_safe(name: str, value: ast.expr) -> bool:
     return False
 
 
+def _scan_python_function_defaults(
+    node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
+    findings: set[str],
+) -> None:
+    positional = [*node.args.posonlyargs, *node.args.args]
+    if node.args.defaults:
+        for argument, default in zip(positional[-len(node.args.defaults):], node.args.defaults):
+            if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
+                findings.add("sensitive-environment-assignment")
+    for argument, default in zip(node.args.kwonlyargs, node.args.kw_defaults):
+        if default is None:
+            continue
+        if _name_is_sensitive(argument.arg) and not _python_expression_is_safe(argument.arg, default):
+            findings.add("sensitive-environment-assignment")
+
+
 def _scan_python_assignments(text: str, findings: set[str]) -> None:
     try:
         document = ast.parse(text)
@@ -607,15 +659,22 @@ def _scan_python_assignments(text: str, findings: set[str]) -> None:
             targets = [node.target]
             value = node.value
         else:
-            continue
-        if value is None:
-            continue
-        names: list[str] = []
-        for target in targets:
-            names.extend(_python_target_names(target))
-        for name in names:
-            if _name_is_sensitive(name) and not _python_expression_is_safe(name, value):
-                findings.add("sensitive-environment-assignment")
+            targets = []
+            value = None
+        if value is not None:
+            names: list[str] = []
+            for target in targets:
+                names.extend(_python_target_names(target))
+            for name in names:
+                if _name_is_sensitive(name) and not _python_expression_is_safe(name, value):
+                    findings.add("sensitive-environment-assignment")
+        if isinstance(node, ast.Call):
+            for keyword in node.keywords:
+                if keyword.arg and _name_is_sensitive(keyword.arg):
+                    if not _python_expression_is_safe(keyword.arg, keyword.value):
+                        findings.add("sensitive-environment-assignment")
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            _scan_python_function_defaults(node, findings)
 
 
 def _scan_embedded_assignment_text(text: str, findings: set[str]) -> None:
@@ -680,13 +739,39 @@ def _scan_sql_passwords(text: str, findings: set[str]) -> None:
                 findings.add("sql-password-statement")
 
 
+def _scan_yaml_private_jwk(text: str, findings: set[str]) -> None:
+    kty_match = re.search(
+        r'''(?im)^\s*(?:-\s*)?["']?kty["']?\s*:\s*["']?(RSA|EC|OKP|oct)["']?\s*(?:#.*)?$''',
+        text,
+    )
+    if not kty_match:
+        return
+    kty = kty_match.group(1).upper()
+    private_key = "k" if kty == "OCT" else "d"
+    private_match = re.search(
+        rf'''(?im)^\s*(?:-\s*)?["']?{private_key}["']?\s*:\s*(?P<value>[^#\r\n]+)''',
+        text,
+    )
+    if private_match and not _placeholder_value(private_match.group("value").strip()):
+        findings.add("private-jwk-material")
+
+
+def _authorization_credential_is_safe(match: re.Match[str]) -> bool:
+    credential = match.group("credential")
+    prefix = (match.groupdict().get("prefix") or "").lower()
+    if "f" in prefix and re.fullmatch(rf"\{{{IDENTIFIER}(?:\.{IDENTIFIER})*\}}", credential):
+        return True
+    return _placeholder_value(credential)
+
+
 def _scan_text(text: str, relative: str) -> tuple[str, ...]:
+    text = text.removeprefix("\ufeff")
     findings: set[str] = set()
     for category, pattern in TOKEN_PATTERNS:
         if pattern.search(text):
             findings.add(category)
     for match in AUTHORIZATION_RE.finditer(text):
-        if not _placeholder_value(match.group("credential")):
+        if not _authorization_credential_is_safe(match):
             findings.add("authorization-credential")
     for pattern in (CREDENTIALED_URI_RE, URI_QUERY_CREDENTIAL_RE):
         for match in pattern.finditer(text):
@@ -718,17 +803,11 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
     suffix = relative_path.suffix.lower()
     if suffix in {".yml", ".yaml"}:
         _scan_structured_yaml_environment(text, findings)
+        _scan_yaml_private_jwk(text, findings)
         if K8S_SECRET_KIND_RE.search(text) and K8S_SECRET_PAYLOAD_RE.search(text):
             findings.add("kubernetes-secret-payload")
     elif suffix == ".json":
         _scan_structured_json_environment(text, findings)
-        try:
-            document = json.loads(text)
-        except json.JSONDecodeError:
-            document = None
-        if isinstance(document, dict) and str(document.get("kind", "")).lower() == "secret":
-            if "data" in document or "stringData" in document:
-                findings.add("kubernetes-secret-payload")
     elif suffix == ".py":
         _scan_python_assignments(text, findings)
         _scan_python_comments_and_strings(text, findings)
