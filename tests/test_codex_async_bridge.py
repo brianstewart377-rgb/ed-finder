@@ -84,17 +84,51 @@ def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
     select_position = text.index("- name: Select immutable implementation base")
     target_gate_position = text.index("- name: Validate selected implementation state")
+    credential_drop_position = text.index("- name: Drop checkout read credential")
     install_position = text.index(
         "- name: Bootstrap pinned Python test environment from selected base"
     )
     codex_position = text.index("- name: Run Codex implementation")
 
-    assert select_position < target_gate_position < install_position < codex_position
+    assert (
+        select_position
+        < target_gate_position
+        < credential_drop_position
+        < install_position
+        < codex_position
+    )
     target_gate = text.split("- name: Validate selected implementation state", 1)[1].split(
-        "- name: Bootstrap pinned Python test environment from selected base", 1
+        "- name: Drop checkout read credential", 1
     )[0]
     assert "resolve_project_state.py --strict" in target_gate
     assert "CODEX_TARGET_STATE_GATE=PASS" in target_gate
+
+
+def test_checkout_read_credential_is_available_only_for_trusted_git_phase() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    checkout = codex_job.split("- name: Checkout main", 1)[1].split(
+        "- name: Switch to main workspace", 1
+    )[0]
+    credential_drop = codex_job.split("- name: Drop checkout read credential", 1)[1].split(
+        "- name: Bootstrap pinned Python test environment from selected base", 1
+    )[0]
+
+    assert "persist-credentials: true" in checkout
+    assert "git fetch origin" in codex_job[: codex_job.index("- name: Drop checkout read credential")]
+    assert "git-credentials-*.config" in credential_drop
+    assert "--unset-all" in credential_drop
+    assert "include[Ii]f\\.gitdir:" in credential_drop
+    assert "http\\..*\\.extraheader" in credential_drop
+    assert "credential\\.helper" in credential_drop
+    assert "Checkout read credential configuration is still present" in credential_drop
+    assert "Checkout read credential file is still present" in credential_drop
+    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
+        "- name: Bootstrap pinned Python test environment from selected base"
+    )
+    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
+        "- name: Run Codex implementation"
+    )
 
 
 def test_pinned_test_environment_is_installed_from_selected_base() -> None:
@@ -227,8 +261,8 @@ def test_sealed_result_is_complete_and_crosses_job_boundary_without_push_credent
 
 def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    checkout = text.split("- name: Checkout main", 1)[1].split(
-        "- name: Switch to main workspace", 1
+    prepare_checkout = text.split("- name: Checkout trusted main", 1)[1].split(
+        "- name: Resolve immutable request routing", 1
     )[0]
     reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
         "- name: Push sealed implementation with exact-head lease", 1
@@ -237,7 +271,7 @@ def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> No
         "- name: Implementation branch summary", 1
     )[0]
 
-    assert "persist-credentials: false" in checkout
+    assert "persist-credentials: false" in prepare_checkout
     assert 'trusted_root="$RUNNER_TEMP/codex-trusted-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reconstruction
     assert 'remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"' in reconstruction
     assert "GIT_CONFIG_NOSYSTEM=1" in reconstruction
