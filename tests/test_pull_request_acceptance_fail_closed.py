@@ -35,6 +35,11 @@ _NETWORK_API_CLIENT = re.compile(
     r"(?<![A-Za-z0-9_.-])(?:curl|wget|http|https|httpie|xh)(?![A-Za-z0-9_.-])",
     re.IGNORECASE,
 )
+_TOKEN_EXPRESSION = re.compile(
+    r"\$\{\{\s*(?:github\.token|secrets\.[A-Za-z0-9_]+)\s*\}\}",
+    re.IGNORECASE,
+)
+_SHELL_TOKEN_REFERENCE = re.compile(r"\$(?:\{)?(?:GITHUB_TOKEN|GH_TOKEN)(?:\})?\b")
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -93,6 +98,39 @@ def _steps(job: dict[str, object]) -> list[dict[str, object]]:
     return [step for step in raw if isinstance(step, dict)]
 
 
+def _env_exposes_write_credential(env: object) -> bool:
+    if not isinstance(env, dict):
+        return False
+    for key, value in env.items():
+        if isinstance(key, str) and key.upper() in {"GITHUB_TOKEN", "GH_TOKEN"}:
+            return True
+        if isinstance(value, str) and _TOKEN_EXPRESSION.search(value):
+            return True
+    return False
+
+
+def _step_exposes_write_credential(
+    document: dict[str, object],
+    job: dict[str, object],
+    step: dict[str, object],
+    run: str,
+) -> bool:
+    """Return whether an HTTP client can see a GitHub/secret credential.
+
+    Network probes against localhost are legitimate in CI even when the workflow
+    omits an explicit permissions block. The merge risk exists when such a client
+    is coupled to a GitHub token/PAT. Check workflow-, job-, and step-level env,
+    plus direct expressions/references in the shell command.
+    """
+    return (
+        _env_exposes_write_credential(document.get("env"))
+        or _env_exposes_write_credential(job.get("env"))
+        or _env_exposes_write_credential(step.get("env"))
+        or bool(_TOKEN_EXPRESSION.search(run))
+        or bool(_SHELL_TOKEN_REFERENCE.search(run))
+    )
+
+
 def _is_strict_disable_auto_tail(tail: str) -> bool:
     try:
         args = [arg for arg in shlex.split(tail, posix=True) if arg != "--"]
@@ -142,12 +180,16 @@ def _merge_authority_violations(document: dict[str, object]) -> list[str]:
             if _RAW_GH_API.search(run):
                 violations.append(f"{job_name}: gh api is forbidden in workflows")
 
-            # Raw network/API clients are forbidden whenever merge authority is
-            # explicit OR inherited/unknown. Otherwise a merge endpoint can be
-            # supplied through env and the literal path never appears in source.
-            if _NETWORK_API_CLIENT.search(run):
+            # A raw network client becomes merge-capable only when the step can
+            # also see a GitHub/secret credential. This still catches variable
+            # endpoint tricks without banning ordinary unauthenticated localhost
+            # health checks used by CI and Cypress.
+            if _NETWORK_API_CLIENT.search(run) and _step_exposes_write_credential(
+                document, raw_job, step, run
+            ):
                 violations.append(
-                    f"{job_name}: network/API client is forbidden in merge-authority job"
+                    f"{job_name}: authenticated network/API client is forbidden in "
+                    "merge-authority job"
                 )
 
             # In a merge-authority job, any direct ``gh`` use other than one
@@ -228,7 +270,7 @@ jobs:
 
 
 @pytest.mark.parametrize("client", ["curl", "wget", "http", "https", "httpie", "xh"])
-def test_merge_authority_guard_rejects_network_clients_with_variable_endpoint(client: str):
+def test_merge_authority_guard_rejects_authenticated_network_clients(client: str):
     document = _load(
         f"""
 permissions:
@@ -239,10 +281,43 @@ jobs:
       - run: {client} "$MERGE_ENDPOINT"
         env:
           MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+          TOKEN: ${{{{ github.token }}}}
 """
     )
     assert isinstance(document, dict)
     assert _merge_authority_violations(document)
+
+
+def test_merge_authority_guard_rejects_secret_pat_with_variable_endpoint():
+    document = _load(
+        """
+jobs:
+  merge:
+    env:
+      TOKEN: ${{ secrets.MERGE_PAT }}
+    steps:
+      - uses: actions/checkout@deadbeef
+      - run: curl -H "Authorization: Bearer $TOKEN" "$MERGE_ENDPOINT"
+        env:
+          MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
+"""
+    )
+    assert isinstance(document, dict)
+    assert _merge_authority_violations(document)
+
+
+def test_unknown_permissions_allow_unauthenticated_local_health_probe():
+    document = _load(
+        """
+jobs:
+  probe:
+    steps:
+      - uses: actions/checkout@deadbeef
+      - run: curl -sf http://127.0.0.1:8000/api/health
+"""
+    )
+    assert isinstance(document, dict)
+    assert not _merge_authority_violations(document)
 
 
 def test_disable_auto_does_not_mask_other_gh_commands():
