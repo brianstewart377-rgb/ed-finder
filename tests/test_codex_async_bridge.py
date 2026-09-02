@@ -125,6 +125,9 @@ def test_existing_pr_branch_is_fetched_exactly_and_updated_without_history_rewri
     assert 'expected_remote_sha="$(git rev-parse "$base_ref")"' in implementation
     assert 'branch="$CODEX_TARGET_BRANCH"' in implementation
     assert "Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history." in implementation
+    assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in push_wrapper
+    assert 'git diff --name-only "$workflow_diff_base" HEAD --' in push_wrapper
+    assert "refs/remotes/origin/main...HEAD" not in push_wrapper
     assert 'git -c credential.helper= ls-remote --heads origin "refs/heads/$CODEX_BRANCH"' in push_wrapper
     assert "Target branch moved after Codex started; refusing to overwrite concurrent work." in push_wrapper
     assert 'git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"' in push_wrapper
