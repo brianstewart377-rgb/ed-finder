@@ -15,6 +15,7 @@ validation and export.
 from __future__ import annotations
 
 import argparse
+import ast
 from dataclasses import dataclass
 import hashlib
 import io
@@ -120,11 +121,15 @@ URI_QUERY_CREDENTIAL_RE = re.compile(
 )
 DSN_CREDENTIAL_PARAM_RE = re.compile(
     r"(?i)(?:^|[\s?&;])(?:password|passwd|pwd|secret|token|api_?key)\s*=\s*"
-    r"(?P<password>[^\s;&\"']+)"
+    r'''(?P<password>"[^"]*"|'[^']*'|[^\s;&\"']+)'''
 )
 SQL_PASSWORD_RE = re.compile(
     r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
     r"(?P<quote>[\"'])(?P<password>.*?)(?P=quote)"
+)
+SQL_DOLLAR_PASSWORD_RE = re.compile(
+    r"(?is)\b(?:ALTER|CREATE)\s+(?:ROLE|USER)\b[^;]*?\bPASSWORD\s*(?:=)?\s*"
+    r"(?P<tag>\$\$|\$[A-Za-z_][A-Za-z0-9_]*\$)(?P<password>.*?)(?P=tag)"
 )
 AUTHORIZATION_RE = re.compile(
     r"""(?im)[\"']?Authorization[\"']?\s*[:=]\s*"""
@@ -166,6 +171,7 @@ CONTENT_SCAN_RULES = (
     "credentialed-uri-or-dsn",
     "non-placeholder-sensitive-assignment",
     "structured-name-value-environment-entry",
+    "python-subscript-sensitive-assignment",
     "sql-password-statement",
     "exact-scanned-bytes-archived",
     "sensitive-file-digest-omitted",
@@ -310,8 +316,12 @@ def collect_files(
     return selected
 
 
+def _normalized_name(name: str) -> str:
+    return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name).upper()
+
+
 def _name_is_sensitive(name: str) -> bool:
-    upper = name.upper()
+    upper = _normalized_name(name)
     compact = upper.replace("_", "")
     if compact in NONSENSITIVE_REFERENCE_NAMES:
         return False
@@ -355,7 +365,6 @@ def _jinja_reference_expression_is_safe(body: str) -> bool:
             continue
 
         argument = arguments.strip()
-        # Multiple/literal filter arguments are not demonstrably reference-only.
         if "," in argument:
             return False
         if filter_match.group("name").lower() == "default":
@@ -417,6 +426,13 @@ def _placeholder_value(value: str) -> bool:
     return False
 
 
+def _unquoted_yaml_null(value: str) -> bool:
+    candidate = value.strip()
+    if not candidate or candidate.startswith(("\"", "'")):
+        return False
+    return candidate.lower() in {"null", "~"}
+
+
 def _secret_file_reference(value: str) -> bool:
     candidate = value.strip().strip("\"'")
     return candidate.startswith(("/", "./", "../"))
@@ -432,7 +448,7 @@ def _credential_values(text: str) -> list[str]:
 def _assignment_value_is_safe(name: str, value: str) -> bool:
     if _placeholder_value(value):
         return True
-    upper_name = name.upper()
+    upper_name = _normalized_name(name)
     if upper_name.endswith("_FILE") and _secret_file_reference(value):
         return True
     if upper_name in URL_ENV_NAMES:
@@ -457,16 +473,27 @@ def _scan_assignment_patterns(text: str, findings: set[str]) -> None:
             if not _assignment_value_is_safe(name, match.group("value")):
                 findings.add("sensitive-environment-assignment")
 
-    for pattern in (QUOTED_MAPPING_ENV_RE, BARE_MAPPING_ENV_RE):
-        for match in pattern.finditer(text):
-            name = match.group("name")
-            value = match.group("value")
-            if _compose_secret_reference_collection(name, value):
-                continue
-            if not _name_is_sensitive(name):
-                continue
-            if not _assignment_value_is_safe(name, value):
-                findings.add("sensitive-environment-assignment")
+    for match in QUOTED_MAPPING_ENV_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if not _name_is_sensitive(name):
+            continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
+
+    for match in BARE_MAPPING_ENV_RE.finditer(text):
+        name = match.group("name")
+        value = match.group("value")
+        if _compose_secret_reference_collection(name, value):
+            continue
+        if not _name_is_sensitive(name):
+            continue
+        if _unquoted_yaml_null(value):
+            continue
+        if not _assignment_value_is_safe(name, value):
+            findings.add("sensitive-environment-assignment")
 
 
 def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
@@ -489,7 +516,10 @@ def _scan_structured_yaml_environment(text: str, findings: set[str]) -> None:
                 break
             value_match = STRUCTURED_ENV_VALUE_RE.match(next_line)
             if value_match:
-                if not _assignment_value_is_safe(name, value_match.group("value")):
+                value = value_match.group("value")
+                if _unquoted_yaml_null(value):
+                    break
+                if not _assignment_value_is_safe(name, value):
                     findings.add("sensitive-environment-assignment")
                 break
 
@@ -516,6 +546,51 @@ def _scan_structured_json_environment(text: str, findings: set[str]) -> None:
                 walk(nested)
 
     walk(document)
+
+
+def _scan_python_subscript_assignments(text: str, findings: set[str]) -> None:
+    try:
+        document = ast.parse(text)
+    except SyntaxError:
+        return
+
+    for node in ast.walk(document):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value = node.value
+        else:
+            continue
+        if value is None:
+            continue
+
+        for target in targets:
+            if not isinstance(target, ast.Subscript):
+                continue
+            key = target.slice
+            if not isinstance(key, ast.Constant) or not isinstance(key.value, str):
+                continue
+            name = key.value
+            if not _name_is_sensitive(name):
+                continue
+
+            if isinstance(value, ast.Constant):
+                if value.value is None:
+                    continue
+                if isinstance(value.value, (str, int, float, bool)) and not _assignment_value_is_safe(
+                    name, str(value.value)
+                ):
+                    findings.add("sensitive-environment-assignment")
+            elif isinstance(value, ast.JoinedStr):
+                literal_parts = [
+                    item.value
+                    for item in value.values
+                    if isinstance(item, ast.Constant) and isinstance(item.value, str)
+                ]
+                if any(part and not _placeholder_value(part) for part in literal_parts):
+                    findings.add("sensitive-environment-assignment")
 
 
 def _scan_text(text: str, relative: str) -> tuple[str, ...]:
@@ -553,11 +628,14 @@ def _scan_text(text: str, relative: str) -> tuple[str, ...]:
         _scan_structured_yaml_environment(text, findings)
     elif relative_path.suffix.lower() == ".json":
         _scan_structured_json_environment(text, findings)
+    elif relative_path.suffix.lower() == ".py":
+        _scan_python_subscript_assignments(text, findings)
 
     if relative_path.suffix.lower() == ".sql":
-        for match in SQL_PASSWORD_RE.finditer(text):
-            if not _placeholder_value(match.group("password")):
-                findings.add("sql-password-statement")
+        for pattern in (SQL_PASSWORD_RE, SQL_DOLLAR_PASSWORD_RE):
+            for match in pattern.finditer(text):
+                if not _placeholder_value(match.group("password")):
+                    findings.add("sql-password-statement")
 
     return tuple(sorted(findings))
 
@@ -627,9 +705,6 @@ def scan_selected_files(
                 f"Required Compose config contains sensitive content: {relative} ({categories})"
             )
 
-        # Never publish a content digest for a file known to contain a secret.
-        # A whole-file digest can act as an offline oracle when the surrounding
-        # content is predictable and only the credential value varies.
         excluded.append(
             {
                 "path": relative,
