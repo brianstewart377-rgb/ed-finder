@@ -144,6 +144,7 @@ def test_archive_manifest_and_receipt_prove_no_db_no_mutation_and_exact_scan(tmp
     assert scan["candidate_file_count"] == 2
     assert scan["excluded_sensitive_file_count"] == 0
     assert scan["archive_uses_exact_scanned_bytes"] is True
+    assert scan["excluded_sensitive_content_digests"] is False
 
 
 def test_safe_placeholders_file_indirection_and_empty_defaults_remain_recoverable(tmp_path: Path):
@@ -241,8 +242,10 @@ def test_optional_credentialed_uri_is_excluded_with_provenance_only(tmp_path: Pa
     excluded = manifest["excluded_sensitive_files"][0]
     assert excluded["path"] == "legacy-script.py"
     assert "credentialed-uri" in excluded["findings"]
-    assert len(excluded["sha256"]) == 64
-    assert receipt["source_content_scan"]["excluded_sensitive_file_count"] == 1
+    assert "sha256" not in excluded
+    scan = receipt["source_content_scan"]
+    assert scan["excluded_sensitive_file_count"] == 1
+    assert scan["excluded_sensitive_content_digests"] is False
 
     with tarfile.open(fileobj=io.BytesIO(output.getvalue()), mode="r:gz") as bundle:
         retained_payload = b""
@@ -322,6 +325,59 @@ def test_quoted_and_flow_yaml_sensitive_keys_fail_required_compose(tmp_path: Pat
     files = recovery.collect_files(tmp_path, [compose])
     with pytest.raises(recovery.RecoveryError, match="Required Compose config"):
         recovery.scan_selected_files(files, [compose])
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        '"{{ \'actual-secret\' | string }}"',
+        '"{{ password_ref | default(\'literal-secret\') }}"',
+    ),
+)
+def test_jinja_literal_sensitive_assignments_fail_closed(tmp_path: Path, value: str):
+    compose = tmp_path / "compose.yml"
+    compose.write_text(
+        f"services:\n  app:\n    environment:\n      POSTGRES_PASSWORD: {value}\n",
+        encoding="utf-8",
+    )
+    files = recovery.collect_files(tmp_path, [compose])
+    with pytest.raises(recovery.RecoveryError, match="Required Compose config"):
+        recovery.scan_selected_files(files, [compose])
+
+
+@pytest.mark.parametrize(
+    "value",
+    (
+        '"{{ password_ref }}"',
+        '"{{ password_ref | string }}"',
+        '"{{ password_ref | default(\'\') }}"',
+        '"{{ password_ref | default(other_password_ref) }}"',
+    ),
+)
+def test_jinja_reference_only_sensitive_assignments_are_safe(value: str):
+    text = f"services:\n  app:\n    environment:\n      POSTGRES_PASSWORD: {value}\n"
+    assert recovery._scan_text(text, "compose.yml") == ()
+
+
+def test_compose_secret_reference_collection_is_not_a_credential_assignment():
+    safe = "\n".join(
+        (
+            "services: {app: {secrets: [db_password], environment: {POSTGRES_USER: app}}}",
+            "secrets:",
+            "  db_password:",
+            "    file: ./db_password.disabled",
+            "",
+        )
+    )
+    assert recovery._scan_text(safe, "compose.yml") == ()
+
+    unsafe = (
+        "services: {app: {secrets: [db_password], "
+        "environment: {POSTGRES_PASSWORD: literal-password}}}\n"
+    )
+    assert "sensitive-environment-assignment" in recovery._scan_text(
+        unsafe, "compose.yml"
+    )
 
 
 def test_historical_docker_env_json_is_excluded_without_secret_values(tmp_path: Path):
