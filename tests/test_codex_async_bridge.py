@@ -83,8 +83,8 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() 
 def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
     text = WORKER.read_text(encoding="utf-8")
     select_position = text.index("- name: Select immutable implementation base")
-    target_gate_position = text.index("- name: Validate selected implementation state")
     credential_drop_position = text.index("- name: Drop checkout read credential")
+    target_gate_position = text.index("- name: Validate selected implementation state")
     install_position = text.index(
         "- name: Bootstrap pinned Python test environment from selected base"
     )
@@ -92,13 +92,13 @@ def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
 
     assert (
         select_position
-        < target_gate_position
         < credential_drop_position
+        < target_gate_position
         < install_position
         < codex_position
     )
     target_gate = text.split("- name: Validate selected implementation state", 1)[1].split(
-        "- name: Drop checkout read credential", 1
+        "- name: Bootstrap pinned Python test environment from selected base", 1
     )[0]
     assert "resolve_project_state.py --strict" in target_gate
     assert "CODEX_TARGET_STATE_GATE=PASS" in target_gate
@@ -111,7 +111,7 @@ def test_checkout_read_credential_is_available_only_for_trusted_git_phase() -> N
         "- name: Switch to main workspace", 1
     )[0]
     credential_drop = codex_job.split("- name: Drop checkout read credential", 1)[1].split(
-        "- name: Bootstrap pinned Python test environment from selected base", 1
+        "- name: Validate selected implementation state", 1
     )[0]
 
     assert "persist-credentials: true" in checkout
@@ -123,6 +123,9 @@ def test_checkout_read_credential_is_available_only_for_trusted_git_phase() -> N
     assert "credential\\.helper" in credential_drop
     assert "Checkout read credential configuration is still present" in credential_drop
     assert "Checkout read credential file is still present" in credential_drop
+    assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
+        "- name: Validate selected implementation state"
+    )
     assert codex_job.index("- name: Drop checkout read credential") < codex_job.index(
         "- name: Bootstrap pinned Python test environment from selected base"
     )
@@ -197,7 +200,7 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
 def test_codex_rechecks_immutable_base_and_fetches_complete_history_before_starting() -> None:
     text = WORKER.read_text(encoding="utf-8")
     selection = text.split("- name: Select immutable implementation base", 1)[1].split(
-        "- name: Validate selected implementation state", 1
+        "- name: Drop checkout read credential", 1
     )[0]
 
     assert '${{ needs.prepare.outputs.expected_remote_sha }}' in selection
