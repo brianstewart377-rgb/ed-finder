@@ -1,233 +1,122 @@
-﻿# Operator Command Contexts
+# Operator Command Contexts
+
+## Infrastructure status
+
+**The former Hetzner V2 production host was decommissioned on 2 September 2026 and no longer exists as an ED-Finder operator target.**
+
+See `docs/operations/infrastructure-status.md` for the current infrastructure boundary and legacy-data disposition.
+
+Any instruction that expects the retired Hetzner hostname `ed-finder`, the old production IP, or the former host's `/opt/ed-finder` or `/var/lib/ed-finder` paths is historical unless a current V3 runbook explicitly says otherwise. Do not attempt to revive or reinterpret an old Hetzner command against the replacement host.
 
 ## Purpose
 
-This document separates ED-Finder command contexts so production-only operator
-commands are not accidentally run from Codex, DAVE2 local development, or any
-other non-Hetzner shell.
+This document separates ED-Finder command contexts so repository work, local development, current V3 production operations, and retired V2 instructions are not confused.
 
-Codex is for repo, code, docs, tests, commits, and PR work. The Hetzner
-production operator shell is for `/opt/ed-finder`, `/var/lib/ed-finder`,
-Docker/Postgres production containers, production artifacts, and operator
-commands. DAVE2/local development is not production.
+## Current environments
 
-## The Three Environments
-
-ED-Finder currently has three common command contexts:
-
-| Environment | Typical path | Purpose |
+| Environment | Typical context | Purpose |
 |---|---|---|
-| Codex / repo environment | A checked-out repo under a local workspace | Code, docs, tests, validation, commits, and PRs. |
-| DAVE2 local dev environment | A developer checkout or local services | Local development and non-production validation. |
-| Hetzner production operator shell | `/opt/ed-finder` | Production operator artifacts, Docker Compose services, and production-only checks. |
+| Codex / repo environment | A checked-out repository or GitHub branch/PR | Code, docs, tests, validation, commits, and PRs. |
+| DAVE2 / local development | Developer checkout and disposable local services | Local development and non-production validation. |
+| V3 replacement production | Current replacement-host runbooks only | Current production services, backup/recovery, identity, and V3 operations. |
+| Retired Hetzner V2 | Historical documents only | Evidence of former V2 operations; **not an executable operator target**. |
 
-If a command depends on `/opt/ed-finder`, `/var/lib/ed-finder`, production
-Docker services, or production Postgres containers, it belongs in the Hetzner
-operator shell.
+## Codex / repo environment
 
-## Codex / Repo Environment
+Use Codex/repository tooling for:
 
-Use Codex for:
+- editing code and documentation;
+- writing and running repository tests;
+- local/static validation;
+- opening and updating PRs;
+- documenting operator procedures without executing production commands.
 
-- editing code and docs,
-- writing tests,
-- running local test suites,
-- running local syntax checks,
-- opening and updating PRs,
-- documenting operator commands without executing them.
+Repository automation must not infer that an old Hetzner runbook is current merely because the script or document remains in Git history.
 
-Codex must not run production operator commands. If a pasted command starts
-with `cd /opt/ed-finder`, reads `/var/lib/ed-finder`, calls production Docker
-Compose services, or reads production artifacts, treat it as a Hetzner operator
-command and do not run it from Codex.
+## DAVE2 / local development
 
-## DAVE2 Local Dev Environment
+DAVE2/local development is useful for local builds, disposable services, and non-production experiments. It is not proof that a production command is safe.
 
-DAVE2/local dev is useful for local builds, local services, and non-production
-experiments. It is not the production operator shell.
+Do not substitute a local Docker stack or local PostgreSQL instance for current V3 production when validating production procedures.
 
-Do not treat a local checkout, local Docker stack, or local Postgres instance
-as proof that a production operator command is safe. Production artifact paths
-and production Docker service names still belong on Hetzner.
+## V3 replacement production
 
-## Hetzner Production Operator Shell
+Production commands must come from a current runbook that explicitly identifies the replacement environment and its safety boundary.
 
-The Hetzner production operator shell is the only place for commands that need:
+Before any production action:
 
-- `/opt/ed-finder`,
-- `/var/lib/ed-finder/operator-artifacts`,
-- production Docker Compose services,
-- production Postgres containers,
-- operator-managed production artifacts.
+1. identify the target host/environment explicitly;
+2. verify the current runbook is V3/replacement-host guidance rather than a retained Hetzner document;
+3. verify the intended host identity before executing destructive or stateful commands;
+4. preserve the current V3 backup, credential, and least-privilege boundaries.
 
-Operator commands must be explicit, bounded, and reviewed. They should print
-clear stop messages when the host, path, artifact directory, or Docker context
-is wrong.
+Do not transplant commands from retired Hetzner runbooks onto the replacement host simply because paths or Docker service names look similar.
 
-## Commands Codex Must Not Run
+## Retired Hetzner V2 context
 
-Codex must not run commands that:
+The following former operator assumptions are retired:
 
-- change into `/opt/ed-finder`,
-- read or write `/var/lib/ed-finder/operator-artifacts`,
-- invoke production Docker Compose services,
-- query production Postgres containers,
-- run imports or warehouse loads against production inputs,
-- run production reconciliation,
-- run the compact summarizer against production artifacts,
-- run station-type dry-run against production artifacts,
-- run canonical apply,
-- install or wire cron/scheduler jobs on production.
+- hostname `ed-finder` as the active production host;
+- Hetzner IP `95.216.33.156` as an active ED-Finder production endpoint;
+- `/opt/ed-finder` on the old Hetzner host as the live deployment checkout;
+- `/var/lib/ed-finder/operator-artifacts` on the old host as a live artifact surface;
+- old production Docker/PostgreSQL containers on that machine;
+- the `Hetzner Operator` GitHub Actions workflow as a live production control path;
+- the Windows Hetzner SSH deployment wrapper as a current production deployment path;
+- the hosted review environment that depended on the old Hetzner production Nginx edge.
 
-Codex may edit scripts and docs that describe these workflows, and may run
-local syntax/tests against those scripts.
+Historical Stage 17/18/19 documentation may retain these names and paths because they accurately describe where that work occurred. Historical accuracy is not execution authority.
 
-## Commands That Must Run Only On Hetzner
+## Commands that must stop when they target retired Hetzner
 
-Run these only from the Hetzner production operator shell:
+Do not run a command as current production guidance if it:
 
-- Stage 18J compact summary generation from production artifacts,
-- production artifact file permission changes,
-- production artifact checksum or size inspection,
-- Docker Compose production service inspection,
-- read-only production station count checks,
-- any future operator-approved production dry-run,
-- any future explicitly approved manual canonical apply.
+- says to SSH to the former Hetzner host;
+- changes into `/opt/ed-finder` specifically on the retired host;
+- expects `/var/lib/ed-finder/operator-artifacts` from the retired host;
+- invokes the former production Docker Compose project;
+- queries the former PostgreSQL 16 production containers;
+- runs old imports, warehouse loads, reconciliation, canonical apply, or scheduler wiring against that retired environment.
 
-Scheduled jobs must never run canonical apply.
+These commands may remain in historical records, archived scripts, and closeout evidence.
 
-## Required Hetzner Paths
+## Legacy V2 artifacts and data
 
-Required production paths include:
+The old server is not the recovery boundary. The validated V2 PostgreSQL dump is retained offsite as the legacy migration vault.
 
-- `/opt/ed-finder`
-- `/var/lib/ed-finder/operator-artifacts/stage-18j`
+Use it only through a purpose-built, allowlisted migration/recovery process. Do not restore it wholesale as V3 and do not copy the old PostgreSQL physical data directory into PostgreSQL 18.
 
-If these paths do not exist, the command is not running in the expected
-operator context.
+Production artifacts that were not deliberately retained off-host should be considered unavailable after Hetzner decommission unless another recorded copy exists.
 
-## Artifact Directory Rules
+## Secret handling
 
-Production artifacts are private operator files. They should not be committed
-to git.
+Never paste real DSNs, passwords, secrets, private keys, recovery codes, or credential-bearing URLs into chat or Git.
 
-Rules:
+Current V3 credentials must be managed through the current recovery/secret process. Do not recover obsolete V2 credentials merely to make an old runbook executable.
 
-- Keep production artifacts under operator-managed directories.
-- Commit only synthetic fixtures or explicitly sanitized examples.
-- Compact summaries generated from production evidence default to
-  `safe_for_git = false`.
-- Use domain-qualified artifact names from Stage 19A for new outputs.
-- Keep load, reconciliation, compact summary, dry-run, approval packet, and
-  apply artifacts separate.
+## How to recognise the right prompt
 
-## Secret Handling
+Use Codex/repository tooling when the prompt asks for repo edits, docs, tests, validation, commits, or PRs.
 
-Never paste real DSNs/passwords/secrets into chat or Git. Do not commit private
-environment files. Operator scripts must not source private environment files
-unless a later reviewed stage explicitly adds that behavior.
+Use DAVE2/local development for non-production application work.
 
-When sharing output, prefer schema versions, counts, basenames, file sizes, and
-hashes. Do not share full production artifact paths if a basename is enough.
+Use current V3 operator procedures only when the prompt explicitly concerns the replacement production environment and the relevant current runbook has been identified.
 
-## How To Recognise The Right Prompt
+If a prompt says "Hetzner", references the old hostname/IP, or relies on an old Hetzner-only path, treat it as historical and stop unless the task is explicitly archival analysis.
 
-Use Codex when the prompt asks for repo edits, docs, tests, validation, commits,
-or PRs.
+## Operator scripts
 
-Use Hetzner when the prompt asks to operate on `/opt/ed-finder`,
-`/var/lib/ed-finder`, production Docker services, production Postgres
-containers, or production artifacts.
+`scripts/operator/` contains a mixture of current replacement-host helpers and retained legacy/operator-history material. Read `scripts/operator/README.md` before executing anything from that directory.
 
-Use DAVE2/local dev when the prompt asks for local application development or
-non-production service checks.
+A script whose guard requires the retired Hetzner environment is not a current production command. Do not weaken its guard just to make it run somewhere else.
 
-If the prompt mixes contexts, split it. Codex can prepare the PR; the Hetzner
-operator terminal runs the production command.
+## Final recommendation
 
-## How To Use Operator Scripts
+Keep four concepts separate:
 
-Operator scripts live under `scripts/operator`.
+- repository work;
+- local/non-production development;
+- current V3 replacement-host operations;
+- retired Hetzner V2 history.
 
-For Stage 18J compact summary generation, run from Hetzner only:
-
-```sh
-cd /opt/ed-finder
-scripts/operator/archive/stage18j/stage18j_run_compact_summary.sh
-```
-
-Optional environment overrides:
-
-- `ART_DIR`
-- `RECON_ARTIFACT`
-- `COMPACT_SUMMARY`
-- `MAX_CANDIDATE_SAMPLES`
-- `CHECK_CANONICAL_COUNT=yes`
-
-The compact summary script calls the shared environment guard first. It fails
-fast outside the expected host/path/Docker/artifact context.
-
-For a future Stage 18J-P station-type dry-run, after the operator has been
-separately prompted, run from Hetzner only:
-
-```sh
-cd /opt/ed-finder
-MAX_ROWS=5 scripts/operator/stage18j_run_station_type_dry_run.sh
-```
-
-Optional environment overrides:
-
-- `ART_DIR`
-- `RECON_ARTIFACT`
-- `EXPECTED_RECON_SHA256`
-- `DRY_RUN_ARTIFACT`
-- `MAX_ROWS`
-- `BLOCKED_CANDIDATE_SAMPLE_LIMIT`
-
-The station-type dry-run wrapper calls the shared environment guard, verifies
-the reconciliation artifact checksum, refuses `MAX_ROWS > 20`, writes output
-under the operator artifact directory, and prints only compact summary fields.
-It does not connect to the database, create approval records, or run canonical
-apply.
-
-## Stage 18J Current Operator Artifacts
-
-Stage 18J currently uses an operator-managed reconciliation artifact basename:
-
-```text
-enrichment_staging_reconciliation_20260602T112948Z.json
-```
-
-The compact summary output basename is:
-
-```text
-reconciliation_compact_summary_20260602T112948Z.json
-```
-
-The future station-type dry-run wrapper defaults to this output basename:
-
-```text
-station_type_canonical_pilot_dry_run_20260602T112948Z.json
-```
-
-Both are production/operator artifacts and must stay out of git unless a future
-review explicitly produces a synthetic or sanitized example.
-
-## Stage 19 Roadmap Impact
-
-Stage 19A.1 adds guardrails before broader warehouse work continues. Future
-Stage 19 chunks should keep Codex/repo work separate from Hetzner operator
-work, and server-only scripts should fail fast outside Hetzner.
-
-Stage 19 scheduler planning remains disabled by default. Scheduler jobs may
-refresh warehouse artifacts only after explicit approval and must never run
-canonical apply.
-
-## Final Recommendation
-
-Use Codex for repository work and PRs. Use DAVE2/local dev for non-production
-development. Use the Hetzner production operator shell for `/opt/ed-finder`,
-`/var/lib/ed-finder`, Docker/Postgres production services, and production
-artifacts. Keep operator artifacts private, keep secrets out of chat and Git,
-and rely on fail-fast operator scripts for server-only commands.
-
+The former Hetzner host is gone. Preserve its records as history, use the offsite V2 dump only as a selective migration vault, and require explicit current V3 runbooks for all production operations.
