@@ -34,13 +34,19 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "codex-task-requests" not in trigger
 
 
-def test_codex_worker_permissions_are_minimal_for_branch_writes() -> None:
+def test_codex_execution_job_has_no_write_authority() -> None:
     text = WORKER.read_text(encoding="utf-8")
-    permissions = text.split("permissions:", 1)[1].split("jobs:", 1)[0]
+    top_permissions = text.split("permissions:", 1)[1].split("jobs:", 1)[0]
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    push_job = text.split("\n  push:", 1)[1]
 
-    assert "contents: write" in permissions
-    assert "pull-requests: write" not in permissions
-    assert "actions: write" not in permissions
+    assert "contents: read" in top_permissions
+    assert "contents: write" not in top_permissions
+    assert "permissions:\n      contents: read" in codex_job
+    assert "contents: write" not in codex_job
+    assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
+    assert "permissions:\n      actions: read\n      contents: write" in push_job
+    assert "pull-requests: write" not in text
 
 
 def test_codex_workers_are_not_globally_serialized() -> None:
@@ -56,7 +62,6 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_state_gate() -> No
     gate = text.split("- name: Prepare repository state gate", 1)[1].split(
         "- name: Bootstrap pinned Python test environment", 1
     )[0]
-
     setup = text.split("- name: Set up Python 3.12", 1)[1].split(
         "- name: Prepare repository state gate", 1
     )[0]
@@ -131,7 +136,10 @@ def test_existing_pr_branch_is_fetched_exactly_and_updated_with_atomic_lease() -
     implementation = text.split("- name: Run Codex implementation", 1)[1].split(
         "- name: Seal implementation result", 1
     )[0]
-    push_wrapper = text.split("- name: Push implementation branch", 1)[1].split(
+    reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
+        "- name: Push sealed implementation with exact-head lease", 1
+    )[0]
+    push = text.split("- name: Push sealed implementation with exact-head lease", 1)[1].split(
         "- name: Implementation branch summary", 1
     )[0]
 
@@ -140,43 +148,47 @@ def test_existing_pr_branch_is_fetched_exactly_and_updated_with_atomic_lease() -
     assert 'expected_remote_sha="$(git rev-parse "$base_ref")"' in implementation
     assert 'branch="$CODEX_TARGET_BRANCH"' in implementation
     assert "Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history." in implementation
-    assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in push_wrapper
-    assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$CODEX_CANDIDATE_SHA"' in push_wrapper
-    assert "Target branch moved after Codex started; refusing to overwrite concurrent work." in push_wrapper
-    assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push_wrapper
-    assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push_wrapper
+    assert 'workflow_diff_base="$CODEX_EXPECTED_REMOTE_SHA"' in reconstruction
+    assert 'merge-base --is-ancestor "$CODEX_BASE_SHA" "$CODEX_CANDIDATE_SHA"' in reconstruction
+    assert '--force-with-lease="refs/heads/$CODEX_BRANCH:$CODEX_EXPECTED_REMOTE_SHA"' in push
+    assert 'origin "refs/remotes/codex/result:refs/heads/$CODEX_BRANCH"' in push
+
+
+def test_sealed_result_crosses_job_boundary_without_push_credential() -> None:
+    text = WORKER.read_text(encoding="utf-8")
+    codex_job = text.split("  codex:", 1)[1].split("\n  push:", 1)[0]
+    push_job = text.split("\n  push:", 1)[1]
+
+    assert "bundle create" in codex_job
+    assert "CODEX_WORKER_GIT_TOKEN" not in codex_job
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in codex_job
+    assert "retention-days: 1" in codex_job
+    assert "needs: codex" in push_job
+    assert "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c" in push_job
+    assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_job
 
 
 def test_privileged_push_uses_fresh_trusted_repository_and_pinned_remote() -> None:
     text = WORKER.read_text(encoding="utf-8")
-
     checkout = text.split("- name: Checkout main", 1)[1].split(
         "- name: Resolve request", 1
     )[0]
-    implementation = text.split("- name: Run Codex implementation", 1)[1].split(
-        "- name: Seal implementation result", 1
+    reconstruction = text.split("- name: Reconstruct trusted push repository", 1)[1].split(
+        "- name: Push sealed implementation with exact-head lease", 1
     )[0]
-    seal = text.split("- name: Seal implementation result", 1)[1].split(
-        "- name: Push implementation branch", 1
-    )[0]
-    push_wrapper = text.split("- name: Push implementation branch", 1)[1].split(
+    push = text.split("- name: Push sealed implementation with exact-head lease", 1)[1].split(
         "- name: Implementation branch summary", 1
     )[0]
 
     assert "persist-credentials: false" in checkout
-    assert "CODEX_WORKER_GIT_TOKEN" not in implementation
-    assert "CODEX_WORKER_GIT_TOKEN" not in seal
-    assert "git push" not in implementation
-    assert "/usr/bin/git" in implementation
-    assert "bundle create" in seal
-    assert "CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}" in push_wrapper
-    assert 'trusted_root="$(mktemp -d "$RUNNER_TEMP/codex-trusted-push.XXXXXX")"' in push_wrapper
-    assert 'remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"' in push_wrapper
-    assert "GIT_CONFIG_NOSYSTEM=1" in push_wrapper
-    assert "GIT_CONFIG_GLOBAL=/dev/null" in push_wrapper
-    assert "GIT_CONFIG_SYSTEM=/dev/null" in push_wrapper
-    assert "core.hooksPath=/dev/null" in push_wrapper
-    assert "PATH=/usr/bin:/bin" in push_wrapper
-    assert "GIT_ASKPASS" in push_wrapper
-    assert "'.github/workflows/'" in push_wrapper
-    assert "Contents: read/write and Workflows: read/write" in push_wrapper
+    assert 'trusted_root="$RUNNER_TEMP/codex-trusted-push-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in reconstruction
+    assert 'remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"' in reconstruction
+    assert "GIT_CONFIG_NOSYSTEM=1" in reconstruction
+    assert "GIT_CONFIG_GLOBAL=/dev/null" in reconstruction
+    assert "GIT_CONFIG_SYSTEM=/dev/null" in reconstruction
+    assert "core.hooksPath=/dev/null" in reconstruction
+    assert "PATH=/usr/bin:/bin" in reconstruction
+    assert "'.github/workflows/'" in reconstruction
+    assert "https://github.com/" not in push
+    assert "GIT_ASKPASS" in push
+    assert "PATH=/usr/bin:/bin" in push
