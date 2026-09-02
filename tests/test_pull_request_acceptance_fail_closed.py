@@ -297,7 +297,8 @@ jobs:
       TOKEN: ${{ secrets.MERGE_PAT }}
     steps:
       - uses: actions/checkout@deadbeef
-      - run: curl -H "Authorization: Bearer $TOKEN" "$MERGE_ENDPOINT"
+      - run: |
+          curl -H "Authorization: Bearer $TOKEN" "$MERGE_ENDPOINT"
         env:
           MERGE_ENDPOINT: https://api.github.com/repos/o/r/pulls/123/merge
 """
