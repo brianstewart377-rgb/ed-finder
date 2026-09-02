@@ -55,7 +55,44 @@ The long-running self-hosted job is a separate workflow run. Its run name includ
 
 ChatGPT clients should therefore report the dispatch acknowledgement/run ID immediately. A later turn may query the worker run for progress or results. A client-side timeout must not be treated as evidence that Codex failed unless the GitHub worker run itself failed or timed out.
 
-The Codex Worker retains its 120-minute execution limit, serial `codex-worker` concurrency group, repository state gate, investigation immutability check, and isolated implementation-branch behavior.
+The Codex Worker retains its 120-minute execution limit, repository state gate,
+investigation immutability check, and isolated implementation-branch behavior.
+The self-hosted runner pool processes independent worker runs in parallel; the
+workflow deliberately has no global concurrency group.
+
+After the clean checkout, the worker selects Python 3.12 through the same pinned
+setup action used by CI, verifies the exact interpreter version or fails closed,
+creates the repo-local `.venv`, and runs the strict repository state gate before
+installing dependencies. Only after that gate passes does it
+install the existing pinned `tests/requirements-ci.txt` authority with the venv
+interpreter. It then exports `VIRTUAL_ENV` and prepends `.venv/bin` for all later
+steps, and verifies the bootstrap with `python -m pip check`,
+`python -m pytest --version`, and `python -m ruff --version`. Thus Codex commands
+documented with `python -m pytest` or `python -m ruff` use the deterministic
+worker environment rather than packages left on the runner host.
+
+### Codex review versus implementation authority
+
+Hosted Codex PR review remains a reviewer path. It should not be treated as the authoritative repository write path because its hosted checkout may not expose a writable Git remote and its optional PR-writing helper is outside ED-Finder's control.
+
+Repository writes are therefore routed through the self-hosted Codex Worker. An implementation request may include an optional `target_branch` naming an existing non-protected ED-Finder branch. When supplied, the worker:
+
+1. validates the branch name and refuses `main`, `master`, `codex-task-requests`, and `chatgpt-ed-new-ops-requests`;
+2. runs the strict repository state gate on trusted `origin/main` before selecting the target;
+3. fetches the exact remote target branch and records its starting SHA;
+4. runs Codex without any push credential in its environment;
+5. commits the resulting changes through the wrapper;
+6. exposes the push credential only after Codex exits;
+7. re-reads the remote target SHA and refuses to push if another writer moved the branch;
+8. performs a normal fast-forward push, never a force push.
+
+Updating an existing PR branch automatically updates that PR, so this path does not depend on a hosted `make_pr` helper. New implementation requests with no `target_branch` continue to create an isolated `codex/run-<run>-<attempt>` branch that ChatGPT can inspect and open as a PR through its GitHub connector.
+
+For review-fix loops the preferred pattern is therefore:
+
+`Codex review -> ChatGPT dispositions -> self-hosted Codex implement(target_branch=<PR head>) -> CI/re-review`
+
+This separation keeps reviewer independence while making repository writes deterministic and auditable.
 
 ### Codex implementation push credential
 

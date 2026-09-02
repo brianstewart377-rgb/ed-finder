@@ -16,6 +16,11 @@ on:
         options:
           - investigate
           - implement
+      target_branch:
+        description: "Existing non-protected branch to update in implement mode (optional)"
+        required: false
+        default: ""
+        type: string
       request_id:
         description: "Stable request identifier supplied by the async dispatcher"
         required: false
@@ -24,7 +29,6 @@ on:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   codex:
@@ -44,18 +48,37 @@ jobs:
         env:
           INPUT_TASK: ${{ inputs.task }}
           INPUT_MODE: ${{ inputs.mode }}
+          INPUT_TARGET_BRANCH: ${{ inputs.target_branch }}
           REQUEST_ID: ${{ inputs.request_id }}
         run: |
           set -euo pipefail
           task="$INPUT_TASK"
           mode="$INPUT_MODE"
+          target_branch="$INPUT_TARGET_BRANCH"
           [ -n "${task//[[:space:]]/}" ] || { echo "task must be non-empty" >&2; exit 64; }
           case "$mode" in
             investigate|implement) ;;
             *) echo "unsupported mode: $mode" >&2; exit 64 ;;
           esac
+          if [ -n "$target_branch" ]; then
+            [ "$mode" = "implement" ] || {
+              echo "target_branch is only valid for implement mode" >&2
+              exit 64
+            }
+            git check-ref-format --branch "$target_branch" >/dev/null 2>&1 || {
+              echo "target_branch is not a valid Git branch name" >&2
+              exit 64
+            }
+            case "$target_branch" in
+              main|master|codex-task-requests|chatgpt-ed-new-ops-requests)
+                echo "target_branch is protected/control-plane state and cannot be updated by Codex" >&2
+                exit 64
+                ;;
+            esac
+          fi
           {
             echo "mode=$mode"
+            echo "target_branch=$target_branch"
             echo "task<<EOF"
             echo "$task"
             echo "EOF"
@@ -71,15 +94,50 @@ jobs:
           git reset --hard refs/remotes/origin/main
           git clean -ffdx
 
+      - name: Set up Python 3.12
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.12"
+
       - name: Prepare repository state gate
         shell: bash
         run: |
           set -euo pipefail
+          if ! command -v python >/dev/null 2>&1; then
+            echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
+            exit 69
+          fi
+          if ! python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The selected interpreter did not report the required Python 3.12 version."
+            python --version >&2 || true
+            exit 69
+          fi
           if [ ! -x .venv/bin/python ]; then
-            python3 -m venv .venv
+            python -m venv .venv
+          fi
+          if ! .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
+            echo "::error::The repository venv does not use the required Python 3.12 interpreter."
+            .venv/bin/python --version >&2 || true
+            exit 69
           fi
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
           echo "CODEX_STATE_GATE=PASS"
+
+      - name: Bootstrap pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
+          echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Verify pinned Python test environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip check
+          python -m pytest --version
+          python -m ruff --version
 
       - name: Verify worker identity
         shell: bash
@@ -121,13 +179,30 @@ jobs:
         shell: bash
         env:
           CODEX_TASK: ${{ steps.request.outputs.task }}
+          CODEX_TARGET_BRANCH: ${{ steps.request.outputs.target_branch }}
         run: |
           set -euo pipefail
-          branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git checkout -B "$branch" refs/remotes/origin/main
+          update_existing=false
+          expected_remote_sha=""
+          if [ -n "$CODEX_TARGET_BRANCH" ]; then
+            git fetch origin "+refs/heads/$CODEX_TARGET_BRANCH:refs/remotes/origin/$CODEX_TARGET_BRANCH" --depth=20
+            branch="$CODEX_TARGET_BRANCH"
+            base_ref="refs/remotes/origin/$CODEX_TARGET_BRANCH"
+            expected_remote_sha="$(git rev-parse "$base_ref")"
+            update_existing=true
+          else
+            branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            base_ref="refs/remotes/origin/main"
+          fi
+          git checkout -B "$branch" "$base_ref"
           git config user.name "codex-worker"
           git config user.email "codex-worker@users.noreply.github.com"
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before creating this isolated implementation branch; do not rerun that gate merely because the branch name is now different. Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          if [ "$update_existing" = true ]; then
+            target_context="Update only the existing branch $branch. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
+          else
+            target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
+          fi
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on named branch main at origin/main before selecting this isolated implementation target. Do not rerun that gate merely because the branch name is now different. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --sandbox danger-full-access "$prompt"
           git diff --check
           changes="$(git status --porcelain=v1 --untracked-files=all)"
@@ -140,6 +215,8 @@ jobs:
           git add -A
           git commit -m "Codex implementation run ${GITHUB_RUN_ID}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "update_existing=$update_existing" >> "$GITHUB_OUTPUT"
+          echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"
           echo "CODEX_BRANCH_LOCAL=$branch"
 
       - name: Push implementation branch
@@ -147,6 +224,8 @@ jobs:
         shell: bash
         env:
           CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ steps.implement.outputs.update_existing }}
+          CODEX_EXPECTED_REMOTE_SHA: ${{ steps.implement.outputs.expected_remote_sha }}
           CODEX_WORKER_GIT_TOKEN: ${{ secrets.CODEX_WORKER_GIT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
@@ -177,15 +256,33 @@ jobs:
           export CODEX_PUSH_TOKEN="$push_token"
           export GIT_ASKPASS="$askpass"
           export GIT_TERMINAL_PROMPT=0
-          git -c credential.helper= push --force-with-lease origin "$CODEX_BRANCH"
+
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            remote_sha="$(git -c credential.helper= ls-remote --heads origin "refs/heads/$CODEX_BRANCH" | awk 'NR==1 {print $1}')"
+            if [ -z "$remote_sha" ] || [ "$remote_sha" != "$CODEX_EXPECTED_REMOTE_SHA" ]; then
+              echo "::error::Target branch moved after Codex started; refusing to overwrite concurrent work."
+              echo "expected_remote_sha=$CODEX_EXPECTED_REMOTE_SHA"
+              echo "observed_remote_sha=${remote_sha:-missing}"
+              exit 70
+            fi
+          fi
+
+          git -c credential.helper= push origin "HEAD:refs/heads/$CODEX_BRANCH"
           echo "CODEX_BRANCH=$CODEX_BRANCH"
+          echo "CODEX_UPDATED_EXISTING_BRANCH=$CODEX_UPDATE_EXISTING"
 
       - name: Implementation branch summary
         if: steps.request.outputs.mode == 'implement' && steps.implement.outputs.branch != ''
         shell: bash
         env:
           CODEX_BRANCH: ${{ steps.implement.outputs.branch }}
+          CODEX_UPDATE_EXISTING: ${{ steps.implement.outputs.update_existing }}
         run: |
           set -euo pipefail
-          echo "Implementation branch pushed: $CODEX_BRANCH"
-          echo "Open a PR only after review of the diff and test evidence."
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            echo "Existing implementation branch updated: $CODEX_BRANCH"
+            echo "The existing pull request will pick up the pushed commit automatically."
+          else
+            echo "Implementation branch pushed: $CODEX_BRANCH"
+            echo "Open a PR only after review of the diff and test evidence."
+          fi
