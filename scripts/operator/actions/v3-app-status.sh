@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 import socket
 import subprocess
 import sys
@@ -20,6 +21,7 @@ EXPECTED_FQDN = "nb79a3d.mevnode.com"
 ORIGIN = "http://127.0.0.1:58080"
 PUBLIC = "https://ed-finder.app"
 API_CONTAINER = "edfinder-v3-api"
+HOST_FRONTEND_INDEX = Path("/opt/ed-finder/frontend/dist/index.html")
 MAX_BODY = 65536
 
 
@@ -56,6 +58,17 @@ def ok_http(item):
     return item.get("inspection_succeeded") and isinstance(code, int) and 200 <= code < 400
 
 
+def classify_index_bytes(payload: bytes, *, full_size: int) -> dict[str, object]:
+    prefix = payload[:MAX_BODY]
+    return {
+        "index_present": True,
+        "index_bytes": full_size,
+        "prefix_sha256": hashlib.sha256(prefix).hexdigest(),
+        "temporary_shell": b"replacement ED-Finder backend is online" in prefix,
+        "vite_bundle_marker": b"/assets/" in prefix or b'type="module"' in prefix,
+    }
+
+
 receipt = {
     "schema_version": "ed-finder/operator-operation-result/v1",
     "operation": "v3-app-status",
@@ -84,6 +97,16 @@ if failures:
     receipt["failures"] = sorted(set(failures))
     print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
     sys.exit(1)
+
+head_result = run(["git", "rev-parse", "HEAD"])
+branch_result = run(["git", "branch", "--show-current"])
+dirty_result = run(["git", "status", "--porcelain", "--untracked-files=no"])
+receipt["repo"] = {
+    "inspection_succeeded": head_result.returncode == branch_result.returncode == dirty_result.returncode == 0,
+    "head": head_result.stdout.strip() if head_result.returncode == 0 else None,
+    "branch": branch_result.stdout.strip() if branch_result.returncode == 0 else None,
+    "tracked_changes_present": bool(dirty_result.stdout.strip()) if dirty_result.returncode == 0 else None,
+}
 
 listeners_result = run(["ss", "-H", "-lnt"])
 listener_text = listeners_result.stdout
@@ -121,14 +144,30 @@ elif missing:
     failures.append("required_v3_container_missing")
 receipt["containers"]["missing"] = missing
 
+host_frontend = {
+    "inspection_succeeded": True,
+    "index_present": HOST_FRONTEND_INDEX.is_file(),
+    "index_bytes": None,
+    "prefix_sha256": None,
+    "temporary_shell": None,
+    "vite_bundle_marker": None,
+}
+if HOST_FRONTEND_INDEX.is_file():
+    try:
+        host_payload = HOST_FRONTEND_INDEX.read_bytes()
+        host_frontend.update(classify_index_bytes(host_payload, full_size=len(host_payload)))
+    except OSError:
+        host_frontend["inspection_succeeded"] = False
+receipt["host_frontend"] = host_frontend
+
 index_result = run([
     "docker", "exec", API_CONTAINER, "python", "-c",
     "from pathlib import Path; p=Path('/app/frontend/index.html'); "
-    "b=p.read_bytes()[:65536] if p.is_file() else b''; "
-    "print(len(p.read_bytes()) if p.is_file() else -1); "
-    "print(__import__('hashlib').sha256(b).hexdigest() if b else ''); "
-    "print('temporary_shell=' + str(b'replacement ED-Finder backend is online' in b).lower()); "
-    "print('vite_bundle=' + str(b'/assets/' in b or b'type=\"module\"' in b).lower())"
+    "b=p.read_bytes() if p.is_file() else b''; "
+    "print(len(b) if p.is_file() else -1); "
+    "print(__import__('hashlib').sha256(b[:65536]).hexdigest() if b else ''); "
+    "print('temporary_shell=' + str(b'replacement ED-Finder backend is online' in b[:65536]).lower()); "
+    "print('vite_bundle=' + str(b'/assets/' in b[:65536] or b'type=\"module\"' in b[:65536]).lower())"
 ])
 frontend = {
     "inspection_succeeded": index_result.returncode == 0,
@@ -155,6 +194,14 @@ if index_result.returncode == 0:
 receipt["frontend"] = frontend
 if not frontend["inspection_succeeded"] or not frontend["index_present"]:
     failures.append("frontend_index_inspection_failed")
+receipt["frontend_comparison"] = {
+    "host_bundle_available": bool(host_frontend["index_present"]),
+    "host_matches_running": bool(
+        host_frontend["prefix_sha256"]
+        and frontend["prefix_sha256"]
+        and host_frontend["prefix_sha256"] == frontend["prefix_sha256"]
+    ),
+}
 
 origin_root, _ = get(ORIGIN + "/", body=False)
 origin_health, health_body = get(ORIGIN + "/api/health")
