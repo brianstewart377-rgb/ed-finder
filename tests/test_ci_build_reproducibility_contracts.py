@@ -131,26 +131,14 @@ def test_package_frontend_bundle_script_builds_archive_and_checksum_from_real_di
         assert check_result.returncode == 0, check_result.stderr or check_result.stdout
 
 
-def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
+def test_current_packaging_and_deploy_path_support_prebuilt_frontend_artifacts():
     deploy = _read('scripts', 'deploy_main.sh')
-    release = _read('scripts', 'release-main-to-prod.ps1')
     package = _read('scripts', 'package_frontend_bundle.sh')
 
+    assert not (ROOT / 'scripts' / 'release-main-to-prod.ps1').exists()
     assert '--frontend-archive' in deploy
     assert 'tar -xzf "$FRONTEND_ARCHIVE"' in deploy
     assert 'yarn install --frozen-lockfile --no-progress --non-interactive' in deploy
-    assert 'scripts/package_frontend_bundle.sh' in release
-    assert '& $runBash `' in release
-    assert "-ScriptArgs @('--output', $frontendArchiveLocal)" in release
-    assert '& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash' not in release
-    assert 'ScpOptions = @()' in release
-    assert 'Destination = $DeployTarget' in release
-    assert '$scpArgs += $resolvedTarget.ScpOptions' in release
-    assert '$scpArgs += $resolvedTarget.ScpArgs' not in release
-    assert '$scpArgs += "$($resolvedTarget.Destination)`:$remoteFrontendArchive"' in release
-    assert 'scp' in release
-    assert '--frontend-archive' in release
-    assert 'frontend-dist-$head.tar.gz' in release
     assert 'frontend/dist' in package
     assert 'frontend/yarn.lock' in package or '$FRONTEND_DIR/yarn.lock' in package
     assert 'cygpath -u' in package
