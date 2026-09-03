@@ -8,6 +8,14 @@ The current environment uses PostgreSQL 18, the current backup/PITR design, the 
 
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
 
+## V3 database recovery boundary
+
+This repository **does not currently contain an executable PostgreSQL 18 backup/restore/PITR recovery runbook**. This file records the infrastructure boundary; it is not itself a recovery procedure.
+
+Until a reviewed V3 database recovery runbook is added or an already-authorized current V3 operator procedure is explicitly identified, repository-driven production database backup restoration, PITR execution, or disaster-recovery commands are **not authorized**. Stop rather than adapting the retired V2 PostgreSQL/Compose procedures.
+
+The absence of an in-repo execution runbook must remain visible; do not fill it with guessed hostnames, storage targets, credentials, PostgreSQL paths, or recovery commands.
+
 ## Legacy migration vault
 
 A validated custom-format PostgreSQL dump is retained offsite solely as a selective legacy migration source for genuinely irreplaceable/private/manual/history data.
