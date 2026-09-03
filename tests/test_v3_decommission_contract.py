@@ -75,3 +75,14 @@ def test_protected_integration_lane_exercises_postgresql_18():
     assert 'bash scripts/seed_check.sh' in integration
     assert 'Run data invariants against seeded integration DB' in integration
     assert 'Run integration test suite' in integration
+
+
+def test_backend_coverage_lane_exercises_postgresql_18():
+    workflow = _read('.github', 'workflows', 'coverage.yml')
+    backend = workflow[workflow.index('  backend-coverage:'):workflow.index('  frontend-coverage:')]
+
+    assert 'image: postgres:18-alpine' in backend
+    assert 'image: postgres:16-alpine' not in backend
+    assert 'bash scripts/seed_check.sh' in backend
+    assert 'Validate seeded coverage database' in backend
+    assert 'Append integration coverage' in backend
