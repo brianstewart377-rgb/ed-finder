@@ -10,6 +10,14 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Current replacement-host helpers
 
+- `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
+  for the current ED-Finder V3 origin and public edge. It checks the fixed V3
+  container set, the loopback origin listener, the frontend index classification,
+  `/api/health`, anonymous `/api/auth/session`, and the runtime OpenAPI OAuth
+  route surface. It does not start an OAuth login, read environment/private-key
+  files, access PostgreSQL directly, write files, or restart services. The
+  public application health endpoint may itself perform its normal bounded DB
+  liveness read.
 - `actions/octopus-qdrant-healthcheck-repair.sh`: narrowly repairs the known
   Qdrant healthcheck for the current Octopus service, recreates only Qdrant,
   verifies the existing Postgres container is healthy without accessing it,
