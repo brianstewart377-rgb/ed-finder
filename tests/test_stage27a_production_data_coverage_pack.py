@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 COVERAGE_PACK = (
@@ -12,6 +14,30 @@ COVERAGE_PACK = (
     / 'stage-27a-production-data-coverage-queries.sql'
 )
 MAX_RESULT_ROWS = 200
+FORBIDDEN_PATTERNS = (
+    r'\bINSERT\b',
+    r'\bUPDATE\b',
+    r'\bDELETE\b',
+    r'\bMERGE\b',
+    r'\bCREATE\b',
+    r'\bALTER\b',
+    r'\bDROP\b',
+    r'\bTRUNCATE\b',
+    r'\bGRANT\b',
+    r'\bREVOKE\b',
+    r'\bSET\b',
+    r'\bRESET\b',
+    r'\bLOCK\b',
+    r'\bCALL\b',
+    r'\bDO\s+\$\$',
+    r'\bCOPY\b',
+    r'\bFOR\s+(UPDATE|SHARE)\b',
+    # SELECT can still cause session side effects through functions. Block the
+    # whole PostgreSQL advisory-lock family plus function-based settings changes.
+    r'\bpg_(?:try_)?advisory_[a-z_]*\s*\(',
+    r'\bset_config\s*\(',
+    r'refresh_map_mviews\s*\(',
+)
 
 
 def _raw_sql() -> str:
@@ -33,8 +59,21 @@ def _statements() -> list[str]:
 
 def _statement_limit(statement: str) -> int:
     limits = re.findall(r'\bLIMIT\s+(\d+)\b', statement, flags=re.IGNORECASE)
-    assert len(limits) == 1, f'every coverage statement must have exactly one literal LIMIT: {statement}'
-    return int(limits[0])
+    assert len(limits) == 1, (
+        f'every coverage statement must have exactly one literal LIMIT: {statement}'
+    )
+    outer = re.search(r'\bLIMIT\s+(\d+)\s*$', statement, flags=re.IGNORECASE)
+    assert outer is not None, (
+        'the sole result bound must apply to the outer SELECT, not only to a nested query: '
+        f'{statement}'
+    )
+    assert outer.group(1) == limits[0]
+    return int(outer.group(1))
+
+
+def _assert_no_forbidden_patterns(statement: str) -> None:
+    for pattern in FORBIDDEN_PATTERNS:
+        assert re.search(pattern, statement, flags=re.IGNORECASE) is None, pattern
 
 
 def test_stage27a_coverage_pack_is_bounded_select_only_sql():
@@ -46,33 +85,38 @@ def test_stage27a_coverage_pack_is_bounded_select_only_sql():
     for statement in statements:
         limit = _statement_limit(statement)
         assert 1 <= limit <= MAX_RESULT_ROWS
+        _assert_no_forbidden_patterns(statement)
 
-    sql = _sql_without_line_comments()
-    forbidden_patterns = (
-        r'\bINSERT\b',
-        r'\bUPDATE\b',
-        r'\bDELETE\b',
-        r'\bMERGE\b',
-        r'\bCREATE\b',
-        r'\bALTER\b',
-        r'\bDROP\b',
-        r'\bTRUNCATE\b',
-        r'\bGRANT\b',
-        r'\bREVOKE\b',
-        r'\bSET\b',
-        r'\bRESET\b',
-        r'\bLOCK\b',
-        r'\bCALL\b',
-        r'\bDO\s+\$\$',
-        r'\bCOPY\b',
-        r'\bFOR\s+(UPDATE|SHARE)\b',
-        # Block the entire PostgreSQL advisory-lock family, including
-        # pg_try_advisory_lock*, xact/shared variants, and unlock helpers.
-        r'\bpg_(?:try_)?advisory_[a-z_]*\s*\(',
-        r'refresh_map_mviews\s*\(',
+
+def test_stage27a_limit_guard_rejects_nested_only_bounds():
+    malicious = (
+        'SELECT * FROM exploration_facts '
+        'WHERE EXISTS (SELECT 1 LIMIT 200)'
     )
-    for pattern in forbidden_patterns:
-        assert re.search(pattern, sql, flags=re.IGNORECASE) is None, pattern
+    with pytest.raises(AssertionError, match='outer SELECT'):
+        _statement_limit(malicious)
+
+
+def test_stage27a_select_guard_blocks_function_side_effects():
+    for malicious in (
+        "SELECT set_config('statement_timeout', '0', false) LIMIT 1",
+        'SELECT pg_try_advisory_lock(1) LIMIT 1',
+        'SELECT pg_try_advisory_xact_lock_shared(1) LIMIT 1',
+    ):
+        assert any(
+            re.search(pattern, malicious, flags=re.IGNORECASE)
+            for pattern in FORBIDDEN_PATTERNS
+        ), malicious
+
+
+def test_stage27a_station_association_breakdown_preserves_every_group():
+    station_breakdown = _statements()[6]
+
+    assert _statement_limit(station_breakdown) == 1
+    assert 'COUNT(*) AS association_groups' in station_breakdown
+    assert 'jsonb_agg(' in station_breakdown
+    assert 'GROUP BY association_status, lane, association_confidence, association_source' in station_breakdown
+    assert 'LIMIT 200' not in station_breakdown
 
 
 def test_stage27a_coverage_pack_does_not_expose_credentials_or_commander_keys():
