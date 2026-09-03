@@ -33,6 +33,17 @@ These helpers still require their own host/environment checks. Their presence he
 
 Staging, migration, research, or historical-phase scripts that remain in this directory are repository tooling unless a current V3 runbook explicitly promotes them into the production operator surface. Do not run them against production by inference.
 
+In particular, the surviving Stage 19 staging tools are retained as historical/research tooling and evidence of the bounded staging contracts they implemented; their presence is **not** current V3 production authorization:
+
+- `stage19anr_warehouse_derived_staging_rehearsal.py`
+- `stage19ar_edsm_25_row_staging_pilot.py`
+- `stage19as_au_edsm_100_row_controlled_expansion.py`
+- `stage19av_expanded_source_run_staging_pilot.py`
+- `stage19ba_bounded_production_staging_activation.py`
+- `stage19bb_first_production_staging_activation.py`
+
+Historical shell wrappers that are no longer part of the active operator surface belong under `scripts/operator/archive/`, not back at the top level.
+
 ## Legacy migration data
 
 A validated offsite database dump is retained only as a selective migration source. Use it through a purpose-built reviewed migration path; do not restore it wholesale as the production database and do not copy an older PostgreSQL physical data directory into PostgreSQL 18.
