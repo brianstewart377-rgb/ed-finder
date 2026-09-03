@@ -6,8 +6,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-WORKFLOW = ROOT / ".github" / "workflows" / "chatgpt-ops.yml"
-DISPATCH = ROOT / "scripts" / "operator" / "actions" / "dispatch.sh"
+WORKFLOW = ROOT / ".github" / "workflows" / "chatgpt-ed-new-ops.yml"
 ACTION = ROOT / "scripts" / "operator" / "actions" / "octopus-qdrant-healthcheck-repair.sh"
 OPERATION = "octopus-qdrant-healthcheck-repair"
 BROKEN_HEALTHCHECK = ('test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", '
@@ -52,16 +51,15 @@ def _run_editor(tmp_path, healthcheck):
     return result, compose, output
 
 
-def test_chatgpt_ops_allowlists_and_routes_repair_operation():
+def test_ed_new_workflow_allowlists_and_routes_repair_operation():
     source = WORKFLOW.read_text(encoding="utf-8")
     assert source.count(f"          - {OPERATION}\n") == 1
-    assert f"{OPERATION}) stage={OPERATION} ;;" in source
-
-
-def test_dispatcher_uses_dedicated_repair_action():
-    source = DISPATCH.read_text(encoding="utf-8")
-    assert f"{OPERATION})" in source
-    assert f"exec bash scripts/operator/actions/{OPERATION}.sh" in source
+    assert "host-status|octopus-edge-status|recover-v3-runtime-contract|octopus-qdrant-healthcheck-repair" in source
+    assert f"steps.request.outputs.operation == '{OPERATION}'" in source
+    assert f"trusted-main/scripts/operator/actions/{OPERATION}.sh" in source
+    assert "ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS" in source
+    assert "StrictHostKeyChecking=yes" in source
+    assert "UserKnownHostsFile=~/.ssh/known_hosts" in source
 
 
 def test_repair_action_has_fail_closed_scope_and_guards():
