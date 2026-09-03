@@ -1,7 +1,7 @@
 -- Stage 27A SELECT-only V3 data-coverage audit pack.
 -- Run only through an already-authorized read-only operator path.
 -- This file performs no writes, DDL, locks, settings changes, or unsafe function calls.
--- Every statement has an explicit result-row LIMIT so a later authorized production
+-- Every statement has an explicit outer result-row LIMIT so a later authorized production
 -- run cannot accidentally materialize an unbounded detail set in the client.
 -- Report the database identity/time separately through the authorized wrapper;
 -- never add credentials to this file or command history.
@@ -98,13 +98,34 @@ SELECT
 FROM stations
 LIMIT 1;
 
-SELECT association_status, lane, association_confidence, association_source,
-       COUNT(*) AS links,
-       COUNT(*) FILTER (WHERE body_id IS NOT NULL) AS with_body_id
-FROM station_body_links
-GROUP BY association_status, lane, association_confidence, association_source
-ORDER BY association_status, lane, association_confidence, association_source
-LIMIT 200;
+-- The station-link dimensions are all constrained by the schema, but their
+-- legitimate Cartesian product can exceed the client row cap. Preserve every
+-- observed group inside one bounded result row instead of silently dropping
+-- groups after an arbitrary LIMIT.
+SELECT
+  COUNT(*) AS association_groups,
+  COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'association_status', association_status,
+        'lane', lane,
+        'association_confidence', association_confidence,
+        'association_source', association_source,
+        'links', links,
+        'with_body_id', with_body_id
+      )
+      ORDER BY association_status, lane, association_confidence, association_source
+    ),
+    '[]'::jsonb
+  ) AS groups
+FROM (
+  SELECT association_status, lane, association_confidence, association_source,
+         COUNT(*) AS links,
+         COUNT(*) FILTER (WHERE body_id IS NOT NULL) AS with_body_id
+  FROM station_body_links
+  GROUP BY association_status, lane, association_confidence, association_source
+) AS grouped_station_links
+LIMIT 1;
 
 -- 6. Defensive identity checks. Non-zero rows are unresolved audit findings;
 -- do not auto-repair or name-match them.
