@@ -63,17 +63,47 @@ FROM bodies
 LIMIT 1;
 
 -- 4. Ring bands, association/provenance, and multiple-band population.
-SELECT association_status, source, confidence,
-       COUNT(*) AS ring_rows,
-       COUNT(*) FILTER (WHERE ring_class IS NOT NULL) AS with_class,
-       COUNT(*) FILTER (WHERE inner_radius IS NOT NULL AND outer_radius IS NOT NULL) AS with_radii,
-       COUNT(DISTINCT (system_id64, body_id)) FILTER (WHERE body_id IS NOT NULL) AS associated_bodies,
-       MIN(updated_at) AS oldest_updated_at,
-       MAX(updated_at) AS newest_updated_at
-FROM body_rings
-GROUP BY association_status, source, confidence
-ORDER BY association_status, source, confidence
-LIMIT 200;
+-- `source` and `confidence` are free-form text, so report the full group count
+-- plus an ordered sample capped at 200 groups. `omitted_groups` accounts for
+-- every group outside the bounded payload instead of silently dropping them.
+SELECT
+  COUNT(*) AS provenance_groups,
+  COUNT(*) FILTER (WHERE group_rank > 200) AS omitted_groups,
+  COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'association_status', association_status,
+        'source', source,
+        'confidence', confidence,
+        'ring_rows', ring_rows,
+        'with_class', with_class,
+        'with_radii', with_radii,
+        'associated_bodies', associated_bodies,
+        'oldest_updated_at', oldest_updated_at,
+        'newest_updated_at', newest_updated_at
+      )
+      ORDER BY group_rank
+    ) FILTER (WHERE group_rank <= 200),
+    '[]'::jsonb
+  ) AS sampled_groups
+FROM (
+  SELECT grouped_ring_provenance.*,
+         ROW_NUMBER() OVER (
+           ORDER BY association_status, source, confidence
+         ) AS group_rank
+  FROM (
+    SELECT association_status, source, confidence,
+           COUNT(*) AS ring_rows,
+           COUNT(*) FILTER (WHERE ring_class IS NOT NULL) AS with_class,
+           COUNT(*) FILTER (WHERE inner_radius IS NOT NULL AND outer_radius IS NOT NULL) AS with_radii,
+           COUNT(DISTINCT (system_id64, body_id)) FILTER (WHERE body_id IS NOT NULL) AS associated_bodies,
+           MIN(updated_at) AS oldest_updated_at,
+           MAX(updated_at) AS newest_updated_at
+    FROM body_rings
+    GROUP BY association_status, source, confidence
+  ) AS grouped_ring_provenance
+) AS ranked_ring_provenance
+LIMIT 1;
 
 SELECT COUNT(*) AS bodies_with_multiple_ring_rows
 FROM (
@@ -142,16 +172,42 @@ WHERE r.system_id64 <> b.system_id64
 LIMIT 1;
 
 -- 7. Personal exploration population by source/type without exposing sync keys.
-SELECT source, event_type, COUNT(*) AS facts,
-       COUNT(DISTINCT system_id64) AS systems,
-       COUNT(*) FILTER (WHERE body_id IS NOT NULL) AS with_body_id,
-       COUNT(*) FILTER (WHERE body_id IS NULL AND body_name IS NOT NULL) AS name_only_body,
-       MIN(observed_at) AS first_observed_at,
-       MAX(observed_at) AS last_observed_at
-FROM exploration_facts
-GROUP BY source, event_type
-ORDER BY source, event_type
-LIMIT 200;
+-- `source` and `event_type` are not a schema-bounded enumeration, so retain a
+-- bounded 200-group payload while separately counting every omitted group.
+SELECT
+  COUNT(*) AS event_groups,
+  COUNT(*) FILTER (WHERE group_rank > 200) AS omitted_groups,
+  COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'source', source,
+        'event_type', event_type,
+        'facts', facts,
+        'systems', systems,
+        'with_body_id', with_body_id,
+        'name_only_body', name_only_body,
+        'first_observed_at', first_observed_at,
+        'last_observed_at', last_observed_at
+      )
+      ORDER BY group_rank
+    ) FILTER (WHERE group_rank <= 200),
+    '[]'::jsonb
+  ) AS sampled_groups
+FROM (
+  SELECT grouped_exploration.*,
+         ROW_NUMBER() OVER (ORDER BY source, event_type) AS group_rank
+  FROM (
+    SELECT source, event_type, COUNT(*) AS facts,
+           COUNT(DISTINCT system_id64) AS systems,
+           COUNT(*) FILTER (WHERE body_id IS NOT NULL) AS with_body_id,
+           COUNT(*) FILTER (WHERE body_id IS NULL AND body_name IS NOT NULL) AS name_only_body,
+           MIN(observed_at) AS first_observed_at,
+           MAX(observed_at) AS last_observed_at
+    FROM exploration_facts
+    GROUP BY source, event_type
+  ) AS grouped_exploration
+) AS ranked_exploration
+LIMIT 1;
 
 SELECT
   COUNT(*) AS body_completeness_rows,
