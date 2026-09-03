@@ -128,8 +128,8 @@ def test_stage19ax_doc_and_roadmap_record_passed_readonly_evidence():
 
     assert 'Stage 19AV was run on `2026-06-15T06:21:02Z`' in av_doc
     assert 'Stage 19AW records the paused-state decision checkpoint after Stage 19AV.' in aw_doc
-    assert 'Stage 19AX is the completed read-only AV safety-gate verification selected after Stage 19AW.' in roadmap
-    assert 'does not authorize any next write lane' in roadmap
+    assert 'Stage 19AX is the completed historical read-only AV safety-gate verification.' in roadmap
+    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
 
 
 @pytest.mark.unit

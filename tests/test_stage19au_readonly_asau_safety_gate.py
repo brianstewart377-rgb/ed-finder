@@ -52,7 +52,7 @@ def test_stage19au_keeps_authority_paused_and_asau_recorded():
 
 
 @pytest.mark.unit
-def test_stage19au_records_as1_as2_at_and_readonly_gate():
+def test_stage19au_records_as1_as2_at_and_historical_readonly_gate():
     au_doc = _squash(_read(AU_DOC_PATH))
     as1_doc = _squash(_read(AS1_DOC_PATH))
     as2_doc = _squash(_read(AS2_DOC_PATH))
@@ -75,7 +75,7 @@ def test_stage19au_records_as1_as2_at_and_readonly_gate():
     assert 'Stage 19AS.1 adds the next safety-test checkpoint' in as1_doc
     assert 'Stage 19AS.2 - Operator Script Contract Formalization' in as2_doc
     assert 'Stage 19AT - Paused-State Next Operator Decision' in at_doc
-    assert 'Stage 19AU is the read-only AS-AU safety-gate checkpoint after Stage 19AT.' in roadmap
+    assert 'Stage 19AU is the historical read-only AS-AU safety-gate checkpoint after Stage 19AT.' in roadmap
     assert 'stage-19au-readonly-asau-safety-gate.md' in roadmap
 
 
@@ -103,10 +103,10 @@ def test_stage19au_records_db_verification_history_and_passed_followup():
         assert fragment in au_doc
 
     for fragment in (
-        'The follow-up Stage 19AU read-only DB verification passed against the approved safe local target `127.0.0.1:55432`.',
-        'absence of active or failed blocking Stage 19 source runs',
-        'absence of canonical apply/write evidence',
-        'Stage 19 remains paused',
+        'The Stage 19AU read-only DB verification historically passed against the approved safe local target `127.0.0.1:55432`.',
+        'Historical verification notes preserve the absence of active or failed blocking Stage 19 source runs',
+        'the absence of canonical apply/write evidence at that checkpoint.',
+        'Stage 19 remains historical and paused',
     ):
         assert fragment in roadmap
 

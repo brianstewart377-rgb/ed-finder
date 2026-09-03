@@ -98,7 +98,7 @@ def test_stage19as2_contract_doc_records_repo_only_safety_boundary():
     ):
         assert fragment in compact_contract_doc
 
-    assert 'Stage 19AS.2 now formalizes the operator-script contract' in roadmap
+    assert 'Stage 19AS.2 now formalizes the historical operator-script contract.' in roadmap
     assert 'stage-19as2-operator-script-contract.md' in roadmap
 
 

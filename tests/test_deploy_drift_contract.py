@@ -8,18 +8,26 @@ def _read(*parts: str) -> str:
     return ROOT.joinpath(*parts).read_text(encoding='utf-8')
 
 
-def test_health_exposes_the_deployed_commit_sha():
+def test_health_exposes_the_deployed_commit_sha_runtime_contract():
     config = _read('apps', 'api', 'src', 'config.py')
     model = _read('apps', 'api', 'src', 'models.py')
     route = _read('apps', 'api', 'src', 'routers', 'meta.py')
     compose = _read('docker-compose.yml')
-    deploy = _read('scripts', 'deploy_main.sh')
 
     assert "build_sha:          str  = 'unknown'" in config
     assert 'build_sha: str' in model
     assert 'build_sha=settings.build_sha' in route
-    assert 'BUILD_SHA:            ${EDFINDER_BUILD_SHA:-unknown}' in compose
-    assert 'EDFINDER_BUILD_SHA="$(git rev-parse HEAD)"' in deploy
+    assert 'BUILD_SHA:' in compose
+    assert '${EDFINDER_BUILD_SHA:-unknown}' in compose
+
+
+def test_v2_deploy_entrypoint_is_retired():
+    deploy = _read('scripts', 'deploy_main.sh')
+
+    assert 'RETIRED — V2 single-host deployment entrypoint' in deploy
+    assert 'intentionally performs no deployment or production mutation' in deploy
+    assert 'exit 64' in deploy
+    assert 'EDFINDER_BUILD_SHA="$(git rev-parse HEAD)"' not in deploy
 
 
 def test_manual_drift_check_is_loud_and_never_deploys():
@@ -29,12 +37,10 @@ def test_manual_drift_check_is_loud_and_never_deploys():
     assert 'git rev-parse origin/main' in check
     assert 'git rev-list --count "$liveSha..origin/main"' in check
     assert 'DEPLOY DRIFT:' in check
-    assert 'scripts/release-main-to-prod.ps1' in check
-    assert '& scripts/release-main-to-prod.ps1' not in check
+    assert 'Do not use a retired V2/Hetzner release wrapper.' in check
+    assert 'current V3 production runbook/operator path' in check
+    assert 'scripts/release-main-to-prod.ps1' not in check
 
 
-def test_release_wrapper_requires_the_live_sha_to_match():
-    release = _read('scripts', 'release-main-to-prod.ps1')
-
-    assert "$health.build_sha -ne (git rev-parse HEAD).Trim()" in release
-    assert 'Public build SHA matches local HEAD' in release
+def test_v2_release_wrapper_is_retired():
+    assert not (ROOT / 'scripts' / 'release-main-to-prod.ps1').exists()

@@ -41,7 +41,7 @@ def test_stage19at_keeps_active_authority_paused_and_asau_recorded():
 
 
 @pytest.mark.unit
-def test_stage19at_records_as1_as2_and_paused_decision_gate():
+def test_stage19at_records_as1_as2_and_historical_paused_decision_gate():
     at_doc = _squash(_read(AT_DOC_PATH))
     as1_doc = _squash(_read(AS1_DOC_PATH))
     as2_doc = _squash(_read(AS2_DOC_PATH))
@@ -61,7 +61,7 @@ def test_stage19at_records_as1_as2_and_paused_decision_gate():
 
     assert 'Stage 19AS.1 adds the next safety-test checkpoint' in as1_doc
     assert 'Stage 19AS.2 - Operator Script Contract Formalization' in as2_doc
-    assert 'Stage 19AT is the current paused-state decision gate after Stage 19AS.2' in roadmap
+    assert 'Stage 19AT is the recorded paused-state decision gate after Stage 19AS.2.' in roadmap
     assert 'stage-19at-paused-state-next-operator-decision.md' in roadmap
 
 

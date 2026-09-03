@@ -114,13 +114,15 @@ def test_ci_workflow_has_focused_script_contracts_job():
     assert 'name: Script contracts + migration paths' in workflow
     assert 'bash -n scripts/apply_migrations.sh' in workflow
     assert 'bash -n scripts/baseline_migration_ledger.sh' in workflow
-    assert 'bash -n setup.sh' in workflow
+    assert 'bash -n setup.sh' not in workflow
+    assert not (ROOT / 'setup.sh').exists()
     assert 'bash -n scripts/migrate_postgis.sh' in workflow
     assert 'bash -n scripts/sync_password.sh' in workflow
     assert 'bash -n scripts/run_import.sh' in workflow
     assert 'bash -n scripts/seed_check.sh' in workflow
     assert 'bash -n scripts/checks/local-ci-parity.sh' in workflow
     assert 'bash -n scripts/run_canonical_safety_tests.sh' in workflow
+    assert 'bash -n scripts/deploy_main.sh' in workflow
     assert 'tests/test_migration_script_contracts.py' in workflow
     assert 'tests/test_operational_script_hardening.py' in workflow
     assert 'tests/test_ci_dependency_contract.py' in workflow
@@ -129,11 +131,16 @@ def test_ci_workflow_has_focused_script_contracts_job():
     assert 'tests/test_windows_local_db_reset_contract.py' in workflow
 
 
-def test_ci_integration_job_runs_migration_runtime_rehearsal():
+def test_ci_integration_job_is_pg18_and_runs_full_migration_runtime_rehearsal():
     workflow = _read(CI_WORKFLOW)
+    integration = workflow[workflow.index('  integration:'):workflow.index('  canonical-safety:')]
 
-    assert 'Run integration test suite' in workflow
-    assert 'tests/integration/' in workflow
-    assert 'tests/test_migration_applier_runtime.py' in workflow
-    assert 'tests/test_migration_ledger_baseline_runtime.py' in workflow
-    assert 'tests/test_data_trust_runtime.py' in workflow
+    assert 'image: postgres:18-alpine' in integration
+    assert 'image: postgres:16-alpine' not in integration
+    assert 'bash scripts/seed_check.sh' in integration
+    assert 'Run data invariants against seeded integration DB' in integration
+    assert 'Run integration test suite' in integration
+    assert 'tests/integration/' in integration
+    assert 'tests/test_migration_applier_runtime.py' in integration
+    assert 'tests/test_migration_ledger_baseline_runtime.py' in integration
+    assert 'tests/test_data_trust_runtime.py' in integration

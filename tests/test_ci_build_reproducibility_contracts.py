@@ -131,26 +131,23 @@ def test_package_frontend_bundle_script_builds_archive_and_checksum_from_real_di
         assert check_result.returncode == 0, check_result.stderr or check_result.stdout
 
 
-def test_deploy_and_release_paths_support_prebuilt_frontend_artifacts():
+def test_frontend_packaging_remains_available_but_v2_deploy_path_is_retired():
     deploy = _read('scripts', 'deploy_main.sh')
-    release = _read('scripts', 'release-main-to-prod.ps1')
     package = _read('scripts', 'package_frontend_bundle.sh')
 
-    assert '--frontend-archive' in deploy
-    assert 'tar -xzf "$FRONTEND_ARCHIVE"' in deploy
-    assert 'yarn install --frozen-lockfile --no-progress --non-interactive' in deploy
-    assert 'scripts/package_frontend_bundle.sh' in release
-    assert '& $runBash `' in release
-    assert "-ScriptArgs @('--output', $frontendArchiveLocal)" in release
-    assert '& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $runBash' not in release
-    assert 'ScpOptions = @()' in release
-    assert 'Destination = $DeployTarget' in release
-    assert '$scpArgs += $resolvedTarget.ScpOptions' in release
-    assert '$scpArgs += $resolvedTarget.ScpArgs' not in release
-    assert '$scpArgs += "$($resolvedTarget.Destination)`:$remoteFrontendArchive"' in release
-    assert 'scp' in release
-    assert '--frontend-archive' in release
-    assert 'frontend-dist-$head.tar.gz' in release
+    assert not (ROOT / 'scripts' / 'release-main-to-prod.ps1').exists()
+    assert 'RETIRED — V2 single-host deployment entrypoint' in deploy
+    assert 'intentionally performs no deployment or production mutation' in deploy
+    assert 'exit 64' in deploy
+    for retired_action in (
+        'git pull --ff-only',
+        'bash scripts/apply_migrations.sh',
+        'docker compose up',
+        'nginx -s reload',
+        '--frontend-archive',
+    ):
+        assert retired_action not in deploy
+
     assert 'frontend/dist' in package
     assert 'frontend/yarn.lock' in package or '$FRONTEND_DIR/yarn.lock' in package
     assert 'cygpath -u' in package

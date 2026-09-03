@@ -2,8 +2,6 @@ import json
 import os
 import sys
 import hashlib
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
@@ -631,23 +629,15 @@ def test_cli_dry_run_rejects_dsn_and_does_not_invoke_apply(tmp_path, monkeypatch
         ])
 
 
-def test_operator_station_type_dry_run_script_is_syntax_valid_and_guarded():
+def test_operator_station_type_dry_run_wrapper_is_retired():
     script = ROOT / 'scripts' / 'operator' / 'stage18j_run_station_type_dry_run.sh'
+    manifest = ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'README.md'
 
-    bash = shutil.which('bash')
-    if bash is not None and Path(bash).name.lower() != 'bash.exe':
-        subprocess.run([bash, '-n', str(script)], check=True)
-    text = script.read_text(encoding='utf-8')
-    assert 'scripts/operator/require_hetzner_operator_env.sh' in text
-    assert '--apply' not in text
-    assert '--dsn' not in text
-    assert '--limit "$MAX_ROWS"' in text
-    assert '--blocked-candidate-sample-limit "$BLOCKED_CANDIDATE_SAMPLE_LIMIT"' in text
-    assert 'MAX_ROWS > 20' in text
-    assert '[[ ! -s "$RECON_ARTIFACT" ]]' in text
-    assert 'checksum mismatch' in text
-    assert 'canonical_writes_planned_zero' in text
-    assert 'approval_record_created_false' in text
+    assert not script.exists()
+    text = manifest.read_text(encoding='utf-8')
+    assert '`stage18j_run_station_type_dry_run.sh`' in text
+    assert 'fully retired' in text
+    assert 'runnable wrapper bodies are intentionally not carried into the V3 repository surface' in text
 
 
 def test_validate_apply_request_fails_closed_on_mismatched_approval_parameters():

@@ -130,7 +130,8 @@ def test_stage19ba_docs_indexes_and_roadmaps_record_the_separate_dependency():
     assert 'Stage 23 remains the active product/evidence roadmap' in document
     assert 'stage-19-bounded-production-staging-activation.md' in readme
     assert 'stage-19-bounded-production-staging-activation.md' in stage17p
-    assert 'Stage 19BA dependency' in stage19_roadmap
+    assert 'Stage 19 remains historical and paused' in stage19_roadmap
+    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in stage19_roadmap
     assert 'stage19ba_bounded_production_staging_activation.py' in operator_readme
     assert 'tests/test_stage19ba_bounded_production_staging_activation.py' in parity
 

@@ -1,70 +1,63 @@
 # Operator Scripts
 
-Scripts in this directory are for the Hetzner production operator shell unless
-their own header says otherwise. They are not Codex/local development commands.
+Read `docs/operations/infrastructure-status.md` and `docs/operations/operator-command-contexts.md` before executing any operator script.
 
-Run them from:
+## Production rule
 
-```sh
-cd /opt/ed-finder
-```
+A script is a current production operator command only when a current V3 workflow or runbook explicitly identifies it, its target environment, and its safety boundary.
 
-The shared guard `require_hetzner_operator_env.sh` checks the host, working
-directory, Docker Compose availability, and required artifact directories before
-server-only workflows proceed. It does not source private environment files and
-does not touch the database.
+Do not promote a repository helper into a production command merely because it exists under `scripts/operator/`.
 
-Current scripts:
+## Current replacement-host helpers
 
-- `require_hetzner_operator_env.sh`: reusable fail-fast guard for
-  Hetzner-only commands.
+- `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
+  for the current ED-Finder V3 origin and public edge. It checks the fixed V3
+  container set, the loopback origin listener, the frontend index classification,
+  `/api/health`, anonymous `/api/auth/session`, and the runtime OpenAPI OAuth
+  route surface. It does not start an OAuth login, read environment/private-key
+  files, access PostgreSQL directly, write files, or restart services. The
+  public application health endpoint may itself perform its normal bounded DB
+  liveness read.
 - `actions/octopus-qdrant-healthcheck-repair.sh`: narrowly repairs the known
-  broken `wget` healthcheck in Octopus v1.0.122's Qdrant Compose service,
-  accepts the exact repaired state on a resumable rerun, recreates only Qdrant,
+  Qdrant healthcheck for the current Octopus service, recreates only Qdrant,
   verifies the existing Postgres container is healthy without accessing it,
   and starts/verifies web without managing its dependencies. It does not read
   `.env`, access a database, or modify volumes.
 - `actions/octopus-edge-status.sh`: fail-closed, read-only status receipt for
-  Octopus v1.0.122 on short host `ed-finder-prod`. It reports the bounded edge listeners,
-  relevant containers, internal health/version, sanitized nginx routing, DNS,
-  public HTTP/HTTPS responses, and the certificate actually served for Octopus
-  SNI. It does not read environment or private-key files, access a database,
-  write files, or restart services.
-- `recover_v3_runtime_contract.py`: read-only helper for the allowlisted ed-new
-  `recover-v3-runtime-contract` operation. It identifies the retained Phase 4C
-  R5 Compose source root from container labels, rejects secret-like and unsafe
-  paths, and streams a bounded checksummed source archive without database
-  access or remote-host writes.
-- `stage18j_run_station_type_dry_run.sh`: generates the Stage 18J-P
-  station-type dry-run artifact from the validated reconciliation artifact
-  after verifying its SHA-256. It requires bounded `MAX_ROWS`, caps blocked
-  candidate samples, writes under the operator artifact directory, and never
-  touches the database, creates approval records, or runs canonical apply.
-- `stage19ba_bounded_production_staging_activation.py`: prepares the Stage 19BA
-  bounded production-staging activation contract for a future manual EDSM
-  staging-only run. It defaults to dry-run planning, enforces source identity,
-  source hash, sanitized source-reference display, target-shape, row-cap, and
-  runtime-cap checks, creates no artifact directory during dry-run, and does
-  not authorize execution by itself.
-- `stage19bb_first_production_staging_activation.py`: prepares or runs the exact
-  Stage 19BB first production-staging activation lane. It defaults to dry-run,
-  requires merged authority plus `--commit --confirm-stage19bb` for execution,
-  pins the approved EDSM source SHA-256 and approved isolated target
-  fingerprint, enforces the exact five-table write boundary, and blocks
-  canonical apply, rebaseline, and scheduler/service dispatch.
+  the current Octopus edge on `ed-finder-prod` / `nb79a3d.mevnode.com`. It
+  reports bounded listeners, relevant containers, internal health/version,
+  sanitized nginx routing, DNS, public HTTP/HTTPS responses, and the served
+  certificate. It does not read environment or private-key files, access a
+  database, write files, or restart services.
+- `recover_v3_runtime_contract.py`: read-only helper for the allowlisted
+  `recover-v3-runtime-contract` operation. It identifies the retained runtime
+  source root from container labels, rejects secret-like and unsafe paths, and
+  streams a bounded checksummed source archive without database access or
+  remote-host writes.
 
-Archived historical wrappers:
+These helpers still require their own host/environment checks. Their presence here does not authorize a production action by itself.
 
-- `scripts/operator/archive/stage18j/stage18j_run_compact_summary.sh`
-- `scripts/operator/archive/stage18j/stage18j_run_identity_review_packet.sh`
-- `scripts/operator/archive/stage18j/stage18j_run_identity_load_dry_run.sh`
-- `scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`
+## Other scripts in this directory
 
-These remain in-repo as historical operator receipts, but they are no longer
-presented as current top-level commands in `scripts/operator/`.
+Staging, migration, research, or historical-phase scripts that remain in this directory are repository tooling unless a current V3 runbook explicitly promotes them into the production operator surface. Do not run them against production by inference.
 
-The sanitized execution evidence for the completed bounded `100 -> 1,000 ->
-10,000` Stage 19BB ladder is recorded in
-`docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`.
+In particular, the surviving Stage 19 staging tools are retained as historical/research tooling and evidence of the bounded staging contracts they implemented; their presence is **not** current V3 production authorization:
 
-Production artifacts are private operator files and should not be committed.
+- `stage19anr_warehouse_derived_staging_rehearsal.py`
+- `stage19ar_edsm_25_row_staging_pilot.py`
+- `stage19as_au_edsm_100_row_controlled_expansion.py`
+- `stage19av_expanded_source_run_staging_pilot.py`
+- `stage19ba_bounded_production_staging_activation.py`
+- `stage19bb_first_production_staging_activation.py`
+
+The historical Stage 19BB execution evidence remains indexed by `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`. That closeout is evidence of the completed bounded historical run, not permission to repeat it against V3.
+
+Historical shell wrappers that are no longer part of the active operator surface belong under `scripts/operator/archive/`, not back at the top level.
+
+## Legacy migration data
+
+A validated offsite database dump is retained only as a selective migration source. Use it through a purpose-built reviewed migration path; do not restore it wholesale as the production database and do not copy an older PostgreSQL physical data directory into PostgreSQL 18.
+
+## Private material
+
+Production artifacts and credentials are private operator material and should not be committed unless explicitly sanitized and reviewed. Current production secrets must come from the current V3 recovery/credential process.

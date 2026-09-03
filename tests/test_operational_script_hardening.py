@@ -12,7 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SYNC_PASSWORD = ROOT / 'scripts' / 'sync_password.sh'
 RUN_IMPORT = ROOT / 'scripts' / 'run_import.sh'
-SETUP = ROOT / 'setup.sh'
+RETIRED_SETUP = ROOT / 'setup.sh'
 APPLY_MIGRATIONS = ROOT / 'scripts' / 'apply_migrations.sh'
 BASELINE_MIGRATIONS = ROOT / 'scripts' / 'baseline_migration_ledger.sh'
 MIGRATE_POSTGIS = ROOT / 'scripts' / 'migrate_postgis.sh'
@@ -65,12 +65,15 @@ def _load_fix_index():
 def test_password_sync_uses_non_argv_secret_channels_and_one_canonical_path():
     sync_source = _read(SYNC_PASSWORD)
     import_source = _read(RUN_IMPORT)
-    setup_source = _read(SETUP)
 
-    for source in (sync_source, import_source, setup_source):
+    for source in (sync_source, import_source):
         assert 'postgresql://edfinder:${POSTGRES_PASSWORD}' not in source
         assert "PASSWORD '${POSTGRES_PASSWORD}'" not in source
         assert '${POSTGRES_PASSWORD:0:3}' not in source
+
+    # setup.sh was the old single-host/V2 bootstrap entrypoint. V3 must not
+    # keep it alive merely so a hardening test can inspect historical code.
+    assert not RETIRED_SETUP.exists()
 
     assert 'Password  : [redacted]' in sync_source
     assert 'ENV_FILE="${ENV_FILE:-$INSTALL_DIR/.env}"' in sync_source
@@ -83,11 +86,6 @@ def test_password_sync_uses_non_argv_secret_channels_and_one_canonical_path():
     assert "sed -e 's/\\\\/\\\\\\\\/g' -e 's/:/\\\\:/g'" in sync_source
     assert 'bash "$INSTALL_DIR/scripts/sync_password.sh" --verify-only' in import_source
     assert 'bash "$INSTALL_DIR/scripts/sync_password.sh"' in import_source
-    assert 'ENV_FILE="$ENV_FILE" bash "$INSTALL_DIR/scripts/sync_password.sh"' in setup_source
-    assert 'read -r -s -p "PostgreSQL password' in setup_source
-    assert 'Generated password: $PG_PASS' not in setup_source
-    assert 'grep POSTGRES_PASSWORD' not in setup_source
-    assert 'ALTER USER' not in setup_source
 
 
 def test_ci_rejects_inline_shell_password_sql_outside_sync_script():
@@ -186,20 +184,18 @@ def test_migration_scripts_default_to_finite_validated_timeouts(script: Path):
 
 
 def test_long_running_index_paths_default_to_reviewed_timeout_overrides():
-    setup_source = _read(SETUP)
     postgis_source = _read(MIGRATE_POSTGIS)
     fix_index_source = _read(FIX_INDEX)
 
-    for source in (setup_source, postgis_source):
-        assert 'MIGRATION_STATEMENT_TIMEOUT="${MIGRATION_STATEMENT_TIMEOUT:-3h}"' in source
-        assert 'MIGRATION_LOCK_TIMEOUT="${MIGRATION_LOCK_TIMEOUT:-30s}"' in source
-        assert 'EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS' in source
-        assert 'zero migration timeouts require EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes' in source
-        assert 'statement_timeout=${MIGRATION_STATEMENT_TIMEOUT}' in source
-        assert 'lock_timeout=${MIGRATION_LOCK_TIMEOUT}' in source
+    assert not RETIRED_SETUP.exists()
 
-    assert '-f /docker-entrypoint-initdb.d/002_indexes.sql' in setup_source
-    assert 'docker compose exec -T -e "PGOPTIONS=$MIGRATION_PGOPTIONS" postgres' in setup_source
+    assert 'MIGRATION_STATEMENT_TIMEOUT="${MIGRATION_STATEMENT_TIMEOUT:-3h}"' in postgis_source
+    assert 'MIGRATION_LOCK_TIMEOUT="${MIGRATION_LOCK_TIMEOUT:-30s}"' in postgis_source
+    assert 'EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS' in postgis_source
+    assert 'zero migration timeouts require EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS=yes' in postgis_source
+    assert 'statement_timeout=${MIGRATION_STATEMENT_TIMEOUT}' in postgis_source
+    assert 'lock_timeout=${MIGRATION_LOCK_TIMEOUT}' in postgis_source
+
     assert 'docker exec -e "PGOPTIONS=$PGOPTIONS_VALUE" -i ed-postgres' in postgis_source
     assert "os.getenv('MIGRATION_STATEMENT_TIMEOUT', '3h')" in fix_index_source
     assert "os.getenv('MIGRATION_LOCK_TIMEOUT', '30s')" in fix_index_source

@@ -71,7 +71,7 @@ def test_stage19aw_records_post_av_decision_checkpoint_without_unpausing_stage19
 
 
 @pytest.mark.unit
-def test_stage19aw_doc_and_roadmap_require_explicit_operator_decision_for_next_lane():
+def test_stage19aw_doc_and_roadmap_require_historical_paused_boundary():
     aw_doc = _squash(_read(AW_DOC_PATH))
     av_doc = _squash(_read(AV_DOC_PATH))
     roadmap = _squash(_read(ROADMAP_PATH))
@@ -98,9 +98,9 @@ def test_stage19aw_doc_and_roadmap_require_explicit_operator_decision_for_next_l
         assert fragment in aw_doc
 
     assert 'Stage 19AV was run on `2026-06-15T06:21:02Z`' in av_doc
-    assert 'Stage 19AW is the post-AV paused-state decision checkpoint.' in roadmap
-    assert 'docs/static coverage only' in roadmap
-    assert 'The next lane must be selected by a separate explicit operator decision.' in roadmap
+    assert 'Stage 19AW is the historical post-AV paused-state decision checkpoint.' in roadmap
+    assert 'Stage 19 remains historical and paused' in roadmap
+    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
 
 
 @pytest.mark.unit

@@ -163,12 +163,12 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert 'stage19bb-edsm-10000-row-bounded-staging-20260619T200018Z' in stage19bb_closeout
     assert stage19bb.APPROVED_TARGET_FINGERPRINT in stage19bb_doc
     assert 'formula mismatch' in stage19bb_doc
-    assert 'Stage 19BB authorization dependency' in stage19_roadmap
-    assert 'Stage 19BB bounded execution closeout' in stage19_roadmap
-    assert 'source refresh reason' in stage19_roadmap
-    assert 'Stage 19BB authorization' in stage23
-    assert 'dependency is now' in stage23
-    assert 'satisfied' in stage23
+
+    assert 'Historical Stage 19BB notes preserve the bounded production-staging' in stage19_roadmap
+    assert 'authorization dependency, execution closeout and recorded EDSM source refresh' in stage19_roadmap
+    assert 'former V2 environment' in stage19_roadmap
+    assert 'Stage 19 remains historical and paused' in stage23
+    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in stage23
     assert 'tests/test_stage19bb_first_production_staging_activation.py' in parity
 
 
@@ -328,4 +328,3 @@ def test_stage19bb_script_source_blocks_scheduler_service_and_canonical_apply_pa
     assert 'canonical_apply_authorized' in source
     assert 'rebaseline_authorized' in source
     assert "['git', 'merge-base', '--is-ancestor'" in source
-

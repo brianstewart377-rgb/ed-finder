@@ -356,11 +356,13 @@ def test_migration_manifest_tracks_manual_and_excludes_ops_only_sql():
     assert len(filenames) == len(set(filenames))
 
 
-def test_deploy_and_seed_scripts_use_manifested_migration_applier():
+def test_seed_uses_manifested_migration_applier_and_v2_deploy_is_retired():
     deploy_source = Path(ROOT, 'scripts', 'deploy_main.sh').read_text(encoding='utf-8')
     seed_source = Path(ROOT, 'scripts', 'seed_check.sh').read_text(encoding='utf-8')
 
-    assert 'bash scripts/apply_migrations.sh' in deploy_source
+    assert 'RETIRED — V2 single-host deployment entrypoint' in deploy_source
+    assert 'exit 64' in deploy_source
+    assert 'bash scripts/apply_migrations.sh' not in deploy_source
     assert "DATABASE_URL=\"$DB_URL\" bash \"$(dirname \"$0\")/apply_migrations.sh\" --include-manual" in seed_source
     assert "find sql -maxdepth 1 -type f -name '[0-9][0-9][0-9]_*.sql'" not in deploy_source
     assert 'for f in $(ls -1 "$SQL_DIR"/*.sql | sort); do' not in seed_source
@@ -646,8 +648,6 @@ def test_dirty_ratings_maintenance_script_is_host_cron_safe():
     assert '--chunk "$DIRTY_RATING_CHUNK"' in source
     assert 'redis-cli' not in source
 
-    # Windows often exposes a bash.exe shim without a working POSIX /bin/bash.
-    # Only run syntax validation when a real shell is available.
     if os.name == 'nt':
         return
 
@@ -665,11 +665,13 @@ def test_dirty_ratings_maintenance_script_is_host_cron_safe():
     assert syntax.returncode == 0, syntax.stderr
 
 
-def test_dirty_ratings_runbook_documents_host_cron_installation():
+def test_dirty_ratings_runbook_documents_historical_v2_host_cron():
     runbook = Path(ROOT, 'docs', 'operations', 'stage17n2c-data-trust-runbook.md').read_text(
         encoding='utf-8'
     )
 
+    assert 'RETIRED — Stage 17N2C V2/Hetzner data-trust runbook' in runbook
+    assert 'Historical evidence only. Do not execute this document.' in runbook
     assert 'host cron that invokes the importer container' in runbook
     assert 'deploy_main.sh` rebuilds/restarts' in runbook
     assert (

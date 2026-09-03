@@ -218,8 +218,6 @@ fi
         check=False,
     )
 
-    # The script's process-substitution logger can finish a few milliseconds
-    # after the parent shell exits. Give it a bounded window to flush.
     deadline = time.monotonic() + 1
     while not log_file.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
@@ -276,13 +274,14 @@ def _assert_archive_sidecars_consistent(backup_dir: Path) -> None:
         assert Path(str(metadata_file).removesuffix('.json')).exists()
 
 
-def test_backup_automation_is_wired_through_maintenance_sidecar():
+def test_backup_helpers_remain_in_legacy_maintenance_compose_without_v2_storagebox_authority():
     compose = _read('docker-compose.yml')
     env_example = _read('env.example')
     env_example_lines = env_example.splitlines()
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
+    assert 'this Compose file is NOT current production authority' in compose
     assert 'context: .' in compose
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
@@ -293,20 +292,14 @@ def test_backup_automation_is_wired_through_maintenance_sidecar():
         'BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES: '
         '${BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES:-3}'
     ) in compose
-    for key in (
-        'RCLONE_CONFIG_STORAGEBOX_TYPE',
-        'RCLONE_CONFIG_STORAGEBOX_HOST',
-        'RCLONE_CONFIG_STORAGEBOX_USER',
-        'RCLONE_CONFIG_STORAGEBOX_PORT',
-        'RCLONE_CONFIG_STORAGEBOX_PASS',
-    ):
-        assert f'{key}: ${{{key}:-}}' in compose
-        assert f'{key}=' in env_example_lines
+    assert 'RCLONE_CONFIG_STORAGEBOX_' not in compose
+    assert 'RCLONE_CONFIG_STORAGEBOX_' not in env_example
+    assert 'storagebox:ed-finder/backups/postgres' not in env_example
+    assert 'V3 backup/PITR storage is not to' in env_example
+    assert 'be inferred from V2 history' in env_example
     assert 'BACKUP_RETENTION_MIN_ARCHIVES=3' in env_example_lines
     assert 'BACKUP_OFFSITE_RETENTION_DAYS=30' in env_example_lines
     assert 'BACKUP_OFFSITE_RETENTION_MIN_ARCHIVES=3' in env_example_lines
-    assert 'names must match the remote name used in' in env_example
-    assert 'BACKUP_OFFSITE_REMOTE; change one, change all.' in env_example
     assert 'BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}' in compose
     assert 'BACKUP_OFFSITE_HEARTBEAT_URL: ${BACKUP_OFFSITE_HEARTBEAT_URL:-}' in compose
     assert 'BACKUP_HEARTBEAT_URL=' in env_example
@@ -484,8 +477,6 @@ def test_offsite_retention_prunes_over_age_archives_with_sidecars(tmp_path: Path
 
 
 def test_offsite_retention_floor_keeps_three_over_age_archives(tmp_path: Path):
-    # The just-uploaded archive is the fourth object, so a floor of four keeps
-    # all three pre-existing over-age archive groups intact.
     observation = _run_backup_scenario(
         tmp_path,
         offsite=True,
@@ -834,11 +825,14 @@ def test_heartbeat_failure_does_not_change_backup_success(tmp_path: Path):
     assert 'local heartbeat: failed' in output
 
 
-def test_backup_runbook_and_remediation_docs_reflect_current_state():
+def test_backup_runbook_and_remediation_docs_are_historical_v2_not_v3_recovery_authority():
     runbook = _read('docs', 'operations', 'postgres-backup-and-restore.md')
     remediation = _read('docs', 'operations', 'audit-remediation-plan.md')
     roadmap = _read('docs', 'ROADMAP.md')
+    status = _read('docs', 'operations', 'infrastructure-status.md')
 
+    assert 'RETIRED — V2/Hetzner PostgreSQL backup and restore contract' in runbook
+    assert 'Historical evidence only. Do not execute this document.' in runbook
     assert 'daily at `02:10 UTC`' in runbook
     assert 'scripts/restore_postgres_backup.sh' in runbook
     assert 'scripts/rehearse_postgres_restore.sh' in runbook
@@ -854,19 +848,18 @@ def test_backup_runbook_and_remediation_docs_reflect_current_state():
     assert '- `scripts/rehearse_postgres_restore.sh`' in remediation
 
     squashed = _squash(roadmap)
-    assert 'Backup/restore automation and a recorded disposable restore rehearsal now establish the minimum restore-readiness baseline.' in squashed
-    assert 'artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json' in roadmap
+    assert 'historical minimum V2 restore-readiness baseline' in squashed
+    assert 'do **not** constitute a V3 PostgreSQL 18 recovery runbook' in roadmap
+    assert 'does not currently contain an executable PostgreSQL 18 backup/restore/PITR recovery runbook' in status
 
 
 def test_local_backup_retention_repo_default_stays_safe_without_offsite_mirror():
-    """The repo-committed BACKUP_RETENTION_DAYS default must stay 14, not 3
-    (2026-08-09 Codex Review finding on the original 14 -> 3 shrink): any
-    deployment that leaves BACKUP_OFFSITE_REMOTE unset (the supported
-    default) has no offsite mirror, so local archives are its only recovery
-    point, and run_backup.sh prunes local archives regardless of whether an
-    offsite copy exists. Production's real offsite storage-box mirror was
-    directly verified working, so production overrides BACKUP_RETENTION_DAYS
-    to 3 in its own untracked .env - not in this repo default."""
+    """The repo/local BACKUP_RETENTION_DAYS default remains conservative.
+
+    This is a repository-helper contract only. The former V2 production
+    Storage Box override is historical evidence and is not current V3 backup
+    policy; V3 recovery configuration comes from a current reviewed runbook.
+    """
     compose = _read('docker-compose.yml')
     env_example = _read('env.example')
     runbook = _read('docs', 'operations', 'postgres-backup-and-restore.md')
@@ -880,7 +873,7 @@ def test_local_backup_retention_repo_default_stays_safe_without_offsite_mirror()
     assert 'untracked `.env`' in runbook
 
 
-def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenance_schedule():
+def test_data_invariant_helpers_remain_available_but_v2_post_deploy_path_is_retired():
     compose = _read('docker-compose.yml')
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     deploy = _read('scripts', 'deploy_main.sh')
@@ -889,11 +882,9 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
 
     assert 'DATA_INVARIANTS_DATABASE_URL: ${DATABASE_READONLY_URL:-${DATABASE_APP_URL:-postgresql://edfinder:${POSTGRES_PASSWORD}@postgres:5432/edfinder}}' in compose
     assert '/usr/local/bin/run_data_invariants_receipted.sh --target-rating-version 3.4' in crontab
-    assert '--skip-invariants' in deploy
-    assert 'bash scripts/run_data_invariants_receipted.sh \\' in deploy
-    assert '/tmp/ed-finder-data-invariants-post-deploy.json' in deploy
-    assert '--durable-receipt-dir /data/receipts/data-invariants/post-deploy' in deploy
-    assert '--allow-stale-colonisation-status' in deploy
+    assert 'RETIRED — V2 single-host deployment entrypoint' in deploy
+    assert '--skip-invariants' not in deploy
+    assert 'run_data_invariants_receipted.sh' not in deploy
     assert 'TARGET_RATING_VERSION="${TARGET_RATING_VERSION:-3.4}"' in wrapper
     assert 'DURABLE_RECEIPT_DIR="${DURABLE_RECEIPT_DIR:-}"' in wrapper
     assert 'DATABASE_URL_OVERRIDE="${DATA_INVARIANTS_DATABASE_URL:-}"' in wrapper
@@ -903,14 +894,10 @@ def test_data_invariants_ops_path_is_wired_for_post_deploy_and_weekly_maintenanc
     assert '--allow-stale-colonisation-status) ALLOW_STALE_COLONISATION_STATUS=1; shift ;;' in wrapper
     assert '"status": "$status"' in wrapper
     assert '"allow_stale_colonisation_status":' in wrapper
-    # 2026-08-07 Codex Review finding: the wrapper's --allow-stale-noneligible
-    # flag (see test_deploy_main_invariants_gate.py) suppresses a real
-    # invariant failure, but the durable receipt only recorded
-    # allow_stale_colonisation_status — a receipt could report "passed" with
-    # no way to tell it only passed because this waiver was active.
     assert '"allow_stale_noneligible":' in wrapper
     assert 'data-invariants-${durable_stamp}.json' in wrapper
     assert 'latest.json' in wrapper
+    assert 'RETIRED — Stage 17N2C V2/Hetzner data-trust runbook' in runbook
     assert '45 4 * * 0 /usr/local/bin/run_data_invariants_receipted.sh' in runbook
     assert '/data/receipts/data-invariants/weekly-latest.json' in runbook
     assert 'DATA_INVARIANTS_DATABASE_URL' in runbook
