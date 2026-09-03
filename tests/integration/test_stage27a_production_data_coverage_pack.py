@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import psycopg2
@@ -14,6 +15,7 @@ COVERAGE_PACK = (
     / 'colonisation-redesign'
     / 'stage-27a-production-data-coverage-queries.sql'
 )
+MAX_RESULT_ROWS = 200
 
 
 def _statements() -> list[str]:
@@ -24,6 +26,12 @@ def _statements() -> list[str]:
             lines.append(line)
     sql = '\n'.join(lines)
     return [part.strip() for part in sql.split(';') if part.strip()]
+
+
+def _statement_limit(statement: str) -> int:
+    limits = re.findall(r'\bLIMIT\s+(\d+)\b', statement, flags=re.IGNORECASE)
+    assert len(limits) == 1
+    return int(limits[0])
 
 
 @pytest.mark.db
@@ -39,12 +47,15 @@ def test_stage27a_coverage_pack_executes_against_current_migrated_schema_read_on
             assert cur.fetchone() == ('on',)
 
             for index, statement in enumerate(statements, start=1):
+                limit = _statement_limit(statement)
+                assert 1 <= limit <= MAX_RESULT_ROWS
                 try:
                     cur.execute(statement)
-                    cur.fetchall()
+                    rows = cur.fetchall()
+                    assert len(rows) <= limit
                 except Exception as exc:
                     raise AssertionError(
-                        f'Stage 27A coverage statement {index} no longer matches the migrated schema'
+                        f'Stage 27A coverage statement {index} no longer matches the migrated schema or result bound'
                     ) from exc
     finally:
         conn.rollback()
