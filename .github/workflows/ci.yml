@@ -22,9 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
-      # Declaring job-level permissions resets every unlisted scope to
-      # 'none' - contents: read must be listed explicitly or the
-      # actions/checkout step below has no repo read access.
       contents: read
       pull-requests: read
     outputs:
@@ -34,51 +31,35 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         id: filter
         with:
-          # A filter made only of negated ('!') patterns never matches
-          # anything (see dorny/paths-filter's README) - it needs an
-          # explicit catch-all pattern to exclude *from*, plus
-          # 'some-with-excludes' so the exclusions actually exclude
-          # rather than being ignored under the default quantifier.
-          # some-with-excludes requires v4 - v3 only accepts every/some.
           predicate-quantifier: 'some-with-excludes'
           filters: |
             needs_frontend_ci:
               - '**'
-              # Only the importer's flat .py scripts, not the whole tree -
-              # apps/importer/src/data/region_map.json feeds the frontend
-              # build directly (frontend/vite.authoritative-regions.ts
-              # reads it to emit stage26e/authoritative-regions.json), so
-              # a change there must still run Frontend build/Playwright.
               - '!apps/importer/src/*.py'
               - '!apps/eddn/**'
               - '!docs/**'
               - '!**/*.md'
               - '!scripts/operator/**'
 
-  # ─── Asset provenance ───────────────────────────────────────────────
   asset-provenance:
     name: Asset provenance guard
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
       - name: Require provenance for every public asset
         run: python scripts/checks/asset_provenance.py
 
-  # ─── Backend ────────────────────────────────────────────────────────
   backend:
     name: Backend unit tests + compose validate
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -89,26 +70,20 @@ jobs:
             apps/eddn/requirements.txt
             apps/importer/requirements.txt
             tests/requirements-ci.txt
-
       - name: Install backend and test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt
-
       - name: Python syntax check (py_compile, all .py under apps/)
         run: python -m compileall -q apps
-
       - name: Run Ruff lint gate
         run: |
           python -m ruff check apps tests scripts shared_contracts
           python -m ruff check apps tests scripts --select B905
-
       - name: Run backend unit test suite (no DB required)
         run: python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
-
       - name: Set up Docker buildx (for compose validate)
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
       - name: Validate docker-compose.yml
         run: docker compose --project-directory . config --quiet
 
@@ -118,19 +93,16 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: tests/requirements-ci.txt
-
       - name: Install focused test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt
-
       - name: Shell syntax check for guarded script paths
         run: |
           bash -n scripts/apply_migrations.sh
@@ -142,7 +114,7 @@ jobs:
           bash -n scripts/seed_check.sh
           bash -n scripts/checks/local-ci-parity.sh
           bash -n scripts/run_canonical_safety_tests.sh
-
+          bash -n scripts/deploy_main.sh
       - name: Reject inline shell password SQL
         run: |
           password_sql_hits="$(
@@ -155,7 +127,6 @@ jobs:
             echo "$password_sql_hits" >&2
             exit 1
           fi
-
       - name: Run migration and script contract tests
         run: |
           python -m pytest \
@@ -170,17 +141,16 @@ jobs:
             tests/test_windows_local_db_reset_contract.py \
             -q
 
-  # ─── Backend integration tests (Postgres + Redis) ──────────────────
-  # Audit fix Phase 6: real DB-backed integration tests. Spawns a
-  # PG service container, applies the schema migrations, seeds a
-  # tiny dataset, runs every test under tests/integration/.
+  # V3 production uses PostgreSQL 18. This protected integration lane therefore
+  # validates every migration, seed invariant and DB-backed integration test on
+  # PostgreSQL 18 instead of relying only on the legacy/local PG16 Compose file.
   integration:
     name: Backend integration (PG+Redis)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:18-alpine
         env:
           POSTGRES_USER:     edfinder
           POSTGRES_PASSWORD: edfinder
@@ -196,7 +166,6 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -205,25 +174,16 @@ jobs:
           cache-dependency-path: |
             apps/api/requirements.txt
             tests/integration/requirements.txt
-
       - name: Install API + integration test deps
         run: |
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt
           pip install httpx
-
       - name: Apply schema + seed (with ON_ERROR_STOP)
         env:
           PGPASSWORD: edfinder
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
-        # `scripts/seed_check.sh` applies every sql/*.sql with
-        # ON_ERROR_STOP=1 and asserts post-conditions (every system has
-        # a rating, MVs refresh). Replaces the previous loose
-        # `for f in …; psql -f $f; done` that exited 0 on silent SQL
-        # errors — the 'INSERT has more expressions than target columns'
-        # regression in seed_preview.sql sat undetected for weeks.
         run: bash scripts/seed_check.sh
-
       - name: Top up ratings (richer scoring for integration tests)
         env:
           PGPASSWORD: edfinder
@@ -248,12 +208,10 @@ jobs:
           FROM systems s ON CONFLICT DO NOTHING;
           SELECT * FROM refresh_map_mviews(FALSE);
           SQL
-
       - name: Run data invariants against seeded integration DB
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: python scripts/checks/data_invariants.py --target-rating-version 3.4
-
       - name: Run integration test suite
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -263,10 +221,6 @@ jobs:
           LOG_LEVEL:    WARNING
         run: python -m pytest tests/integration/ tests/test_migration_applier_runtime.py tests/test_migration_ledger_baseline_runtime.py tests/test_data_trust_runtime.py -v
 
-  # ─── Canonical safety tests ────────────────────────────────────────
-  # Stage 18T: keep canonical-write-capable code behind deterministic
-  # unit gates plus a disposable Postgres rehearsal of the guarded apply
-  # path and role boundary.
   canonical-safety:
     name: Canonical safety tests
     runs-on: ubuntu-latest
@@ -284,7 +238,6 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -294,12 +247,10 @@ jobs:
             tests/requirements-ci.txt
             apps/api/requirements.txt
             apps/importer/requirements.txt
-
       - name: Install canonical safety test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt
-
       - name: Run canonical safety suite
         run: |
           python -m pytest \
@@ -309,14 +260,12 @@ jobs:
             tests/test_enrichment_report_contracts.py \
             tests/test_edsm_station_normalization.py \
             -q
-
       - name: Compile canonical safety modules
         run: |
           python -m py_compile \
             apps/importer/src/station_type_canonical_pilot.py \
             tests/test_station_type_canonical_pilot.py \
             tests/test_station_type_canonical_pilot_postgres.py
-
       - name: Run disposable Postgres canonical rehearsal
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -324,11 +273,6 @@ jobs:
           EDFINDER_CONFIRM_CANONICAL_TEST_DB: "yes"
         run: python -m pytest tests/test_station_type_canonical_pilot_postgres.py -q
 
-
-  # ─── Frontend ───────────────────────────────────────────────────────
-  # Catches the exact class of "file got swallowed by .gitignore" bug we
-  # hit on the former production host. If `frontend/src/lib/api/index.ts`
-  # ever gets ignored again, this job fails on PR before production promotion.
   v2:
     name: Frontend build
     needs: changes
@@ -340,20 +284,15 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
-
       - name: Enable Corepack
         run: corepack enable
-
       - name: Verify required source files are present
-        # Sanity check that catches the .gitignore-eating-lib regression
-        # in <1 s, without waiting for a full Vite build.
         run: |
           set -e
           for f in \
@@ -375,30 +314,20 @@ jobs:
             test -f "$f" || { echo "::error file=frontend/$f::missing — likely globbed out by a parent .gitignore"; exit 1; }
           done
           echo "✓ all required v2 source files present"
-
       - name: Install dependencies
         run: yarn install --frozen-lockfile --no-progress --non-interactive
-
       - name: Type-check
         run: yarn typecheck
-
       - name: Knip unused-file check
         run: yarn knip --files
-
       - name: Frontend CI test suite
         run: yarn test:ci
-
       - name: Build
         run: yarn build
-
       - name: Package frontend bundle
         working-directory: .
-        run: |
-          bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz
-
+        run: bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz
       - name: Upload dist artefact
-        # Lets us grab a build out of CI if we ever need to bypass a
-        # host-side frontend build step.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-dist
@@ -408,37 +337,24 @@ jobs:
             artifacts/frontend-bundles/frontend-dist-ci.tar.gz.sha256
           retention-days: 7
 
-  # ─── Nginx config ───────────────────────────────────────────────────
-  # `nginx -t` against our composed config catches the *other* class of
-  # bug we hit (CSP/security-headers misconfiguration, /v2/ alias typos,
-  # etc.) without needing a production-host round-trip.
   nginx:
     name: Nginx config syntax
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Install nginx
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y nginx
-
       - name: Test nginx config
         run: |
           set -e
-          # Build a temporary tree that mimics the docker mount layout.
           mkdir -p /tmp/ngx/snippets /tmp/ngx/www /tmp/ngx/v2 /tmp/ngx/logs
           cp config/nginx-ci.conf         /tmp/ngx/nginx.conf
           cp config/security-headers.conf /tmp/ngx/snippets/security-headers.conf
           sudo nginx -t -c /tmp/ngx/nginx.conf -p /tmp/ngx
 
-  # ─── OpenAPI type generation drift check ──────────────────────────
-  # Audit Phase 7: ensures frontend/src/types/api.gen.ts stays in sync
-  # with the API's actual OpenAPI schema. Boots PG+Redis+API, regenerates
-  # types via openapi-typescript, fails on drift. To fix: run
-  # `cd frontend && yarn types:gen` locally (with API on :8000) and
-  # commit the updated src/types/api.gen.ts.
   openapi-types:
     name: OpenAPI types drift check
     runs-on: ubuntu-latest
@@ -461,40 +377,33 @@ jobs:
           --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
-
       - name: Set up Node 22
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
-
       - name: Enable Corepack
         run: corepack enable
-
       - name: Install API deps
         run: |
           python -m pip install --upgrade pip
           pip install -r tests/requirements-ci.txt
-
       - name: Apply schema migrations (with ON_ERROR_STOP)
         env:
           PGPASSWORD: edfinder
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: bash scripts/seed_check.sh
-
       - name: Run data invariants against seeded OpenAPI DB
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
         run: python scripts/checks/data_invariants.py --target-rating-version 3.4
-
       - name: Boot API in background
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -520,17 +429,14 @@ jobs:
           echo "API startup log:"
           tail -50 /tmp/uvicorn.log
           exit 1
-
       - name: Install frontend deps
         working-directory: frontend
         run: yarn install --frozen-lockfile --no-progress --non-interactive
-
       - name: Regenerate types from running API
         working-directory: frontend
         env:
           VITE_OPENAPI_URL: http://127.0.0.1:8000/openapi.json
         run: yarn types:gen
-
       - name: Check for drift against checked-in api.gen.ts
         working-directory: frontend
         run: |
