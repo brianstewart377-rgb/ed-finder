@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCAL_REVIEW_COMPOSE = ROOT / 'docker-compose.review.yml'
+ROOT_COMPOSE = ROOT / 'docker-compose.yml'
+NGINX_CONFIG = ROOT / 'config' / 'nginx.conf'
+NGINX_CI_CONFIG = ROOT / 'config' / 'nginx-ci.conf'
 RETIRED_HOSTED_REVIEW_COMPOSE = ROOT / 'docker-compose.review-hosted.yml'
 RETIRED_DEPLOY_SCRIPT = ROOT / 'scripts' / 'ops' / 'deploy_hosted_review.sh'
 RETIRED_AUTH_SCRIPT = ROOT / 'scripts' / 'ops' / 'create_review_auth_file.sh'
@@ -144,6 +147,27 @@ def test_hetzner_hosted_review_surface_is_retired():
         assert not path.exists(), f'retired Hetzner hosted-review artifact returned: {path}'
 
 
+def test_root_runtime_configs_do_not_retain_hosted_review_wiring():
+    forbidden = (
+        '/opt/ed-finder-review',
+        'review.ed-finder.app',
+        'review.htpasswd',
+        'edfinder-review-edge',
+        'review-edge',
+        'review-api:8000',
+        '/var/www/review',
+        '/var/log/nginx-review',
+    )
+
+    for path in (ROOT_COMPOSE, NGINX_CONFIG, NGINX_CI_CONFIG):
+        text = _read(path)
+        for value in forbidden:
+            assert value not in text, f'{value!r} returned in {path}'
+
+    nginx_block = _service_block(_read(ROOT_COMPOSE), 'nginx')
+    assert _list_values(nginx_block, 'networks') == ['default']
+
+
 def test_local_review_contract_does_not_depend_on_retired_hosted_paths():
     compose_text = _read(LOCAL_REVIEW_COMPOSE)
     forbidden = (
@@ -157,7 +181,7 @@ def test_local_review_contract_does_not_depend_on_retired_hosted_paths():
     for value in forbidden:
         assert value not in compose_text
 
-    # Keep this structural rather than text-only: local Review Lab has exactly
-    # the three services it needs and no hidden hosted edge/proxy service.
+    # Local Review Lab has exactly the three services it needs and no hidden
+    # hosted edge/proxy service.
     service_names = re.findall(r'^  ([A-Za-z0-9_-]+):$', _top_level_block(compose_text, 'services'), re.MULTILINE)
     assert service_names == ['review-postgres', 'review-redis', 'review-api']
