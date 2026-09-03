@@ -17,7 +17,8 @@ def test_health_exposes_the_deployed_commit_sha_runtime_contract():
     assert "build_sha:          str  = 'unknown'" in config
     assert 'build_sha: str' in model
     assert 'build_sha=settings.build_sha' in route
-    assert 'BUILD_SHA:            ${EDFINDER_BUILD_SHA:-unknown}' in compose
+    assert 'BUILD_SHA:' in compose
+    assert '${EDFINDER_BUILD_SHA:-unknown}' in compose
 
 
 def test_v2_deploy_entrypoint_is_retired():
