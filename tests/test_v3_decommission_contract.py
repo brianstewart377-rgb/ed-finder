@@ -29,10 +29,11 @@ def test_current_infrastructure_fails_closed_without_pg18_recovery_runbook():
 
 def test_destructive_v2_storage_recovery_runbook_is_tombstoned():
     runbook = _read('docs', 'operations', 'storage-recovery-runbook-2026-07-12.md')
+    normalized = ' '.join(runbook.replace('**', '').split())
 
     assert 'RETIRED — V1/V2 production storage recovery runbook' in runbook
     assert '**Do not execute this file.**' in runbook
-    assert 'not a PostgreSQL 18/V3 production runbook' in runbook
+    assert 'It is not a PostgreSQL 18/V3 production runbook' in normalized
     assert 'Issue #573' in runbook
     assert 'DROP INDEX CONCURRENTLY' not in runbook
     assert 'pg_repack ratings' not in runbook
