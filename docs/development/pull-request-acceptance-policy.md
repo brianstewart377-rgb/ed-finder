@@ -38,11 +38,11 @@ All of the following are mandatory:
    other.
 5. Any new commit invalidates all prior CI and reviewer evidence for merge
    eligibility on the new head. Re-run protected checks on the new head as
-   normal. Do **not** automatically rerun Octopus on every intermediate head;
+   normal. Do not automatically rerun Octopus on every intermediate head;
    only trigger it after the new head again satisfies the final-candidate
    criteria below. Before merge, both reviewer services must have completed
-   against the exact latest head and each reviewer's reviewed SHA must be
-   recorded.
+   against the exact latest head; record each reviewer's reviewed SHA for that
+   head.
 
 Reviewer findings are evidence, not ground truth. Verify them against the
 actual code before acting: trace values to where they are persisted or used,
