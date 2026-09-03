@@ -131,14 +131,23 @@ def test_package_frontend_bundle_script_builds_archive_and_checksum_from_real_di
         assert check_result.returncode == 0, check_result.stderr or check_result.stdout
 
 
-def test_current_packaging_and_deploy_path_support_prebuilt_frontend_artifacts():
+def test_frontend_packaging_remains_available_but_v2_deploy_path_is_retired():
     deploy = _read('scripts', 'deploy_main.sh')
     package = _read('scripts', 'package_frontend_bundle.sh')
 
     assert not (ROOT / 'scripts' / 'release-main-to-prod.ps1').exists()
-    assert '--frontend-archive' in deploy
-    assert 'tar -xzf "$FRONTEND_ARCHIVE"' in deploy
-    assert 'yarn install --frozen-lockfile --no-progress --non-interactive' in deploy
+    assert 'RETIRED — V2 single-host deployment entrypoint' in deploy
+    assert 'intentionally performs no deployment or production mutation' in deploy
+    assert 'exit 64' in deploy
+    for retired_action in (
+        'git pull --ff-only',
+        'bash scripts/apply_migrations.sh',
+        'docker compose up',
+        'nginx -s reload',
+        '--frontend-archive',
+    ):
+        assert retired_action not in deploy
+
     assert 'frontend/dist' in package
     assert 'frontend/yarn.lock' in package or '$FRONTEND_DIR/yarn.lock' in package
     assert 'cygpath -u' in package
