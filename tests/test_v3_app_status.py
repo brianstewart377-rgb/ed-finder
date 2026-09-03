@@ -59,11 +59,16 @@ def test_v3_app_status_has_fixed_read_only_runtime_targets():
 def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login():
     source = _read(ACTION)
 
-    assert 'get(ORIGIN + "/api/health")' in source
-    assert 'get(ORIGIN + "/api/auth/session")' in source
-    assert 'get(ORIGIN + "/openapi.json")' in source
-    assert 'get(PUBLIC + "/api/health", body=False)' in source
-    assert 'get(PUBLIC + "/api/auth/session", body=False)' in source
+    assert 'get(ORIGIN + "/api/health", follow_redirects=False)' in source
+    assert 'get(ORIGIN + "/api/auth/session", follow_redirects=False)' in source
+    assert 'ORIGIN + "/openapi.json"' in source
+    assert 'max_body=MAX_OPENAPI_BODY' in source
+    assert 'get(PUBLIC + "/api/health", follow_redirects=False)' in source
+    assert 'get(PUBLIC + "/api/auth/session", follow_redirects=False)' in source
+    assert 'parse_health_response(public_health_body)' in source
+    assert 'parse_anonymous_session(public_session_body)' in source
+    assert 'public_health_shape_invalid' in source
+    assert 'public_session_shape_invalid' in source
     assert 'replacement ED-Finder backend is online' in source
     assert 'oauth_paths_missing' in source
     assert 'get(ORIGIN + "/api/auth/frontier/login")' not in source
@@ -79,11 +84,23 @@ def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login()
         assert path in source
 
 
+def test_v3_app_status_does_not_mask_origin_with_public_redirects():
+    source = _read(ACTION)
+
+    assert 'def get(url, *, body=True, follow_redirects=False' in source
+    assert 'if follow_redirects:\n        argv.append("--location")' in source
+    assert 'origin_root, _ = get(ORIGIN + "/", body=False, follow_redirects=False)' in source
+    assert 'get(ORIGIN + "/api/health", follow_redirects=False)' in source
+    assert 'get(ORIGIN + "/api/auth/session", follow_redirects=False)' in source
+    assert 'public_root, _ = get(PUBLIC + "/", body=False, follow_redirects=True)' in source
+    assert '200 <= code < 300' in source
+
+
 def test_v3_app_status_compares_host_bundle_to_running_api_without_mutation():
     source = _read(ACTION)
 
     assert '["git", "rev-parse", "HEAD"]' in source
-    assert '["git", "status", "--porcelain", "--untracked-files=no"]' in source
+    assert '["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=no"]' in source
     assert 'receipt["host_frontend"]' in source
     assert '"host_bundle_available"' in source
     assert '"host_matches_running"' in source
@@ -92,6 +109,15 @@ def test_v3_app_status_compares_host_bundle_to_running_api_without_mutation():
     assert 'git reset' not in source
     assert 'git checkout' not in source
     assert 'git pull' not in source
+
+
+def test_v3_app_status_rejects_unhealthy_required_containers():
+    source = _read(ACTION)
+
+    assert '"(unhealthy)" in item["status"].lower()' in source
+    assert 'not item["status"].lower().startswith("up ")' in source
+    assert 'required_v3_container_unhealthy' in source
+    assert 'receipt["containers"]["unhealthy"] = unhealthy' in source
 
 
 def test_v3_app_status_shell_syntax_is_valid():
