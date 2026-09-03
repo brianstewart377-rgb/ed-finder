@@ -5,27 +5,48 @@ document that should answer "what next?".
 
 ## Current State
 
+### V3 infrastructure cutover boundary — 2026-09-02
+
+Hetzner/V2 is decommissioned. ED-Finder production is on the V3 replacement
+infrastructure and uses PostgreSQL 18. Current infrastructure and recovery truth
+comes from `docs/operations/infrastructure-status.md` plus an explicitly current
+V3 operator workflow/runbook.
+
+Any statement below that refers to a pre-2026-09-02 production deployment,
+public smoke check, cron job, database receipt, backup target, maintenance
+schedule, or host-side rollback is **historical V2 evidence** unless a current
+V3 artifact explicitly re-verifies it. Do not infer V3 runtime state from those
+receipts.
+
+In particular:
+
+- Stage 26E's R3F/Three.js implementation remains the inherited repository and
+  product renderer baseline pending the Stage 27 bakeoff/cutover sequence; the
+  old V2 public-host observations and rollback procedure are historical.
+- Ratings v3.4 remains the repository/application scoring implementation, but
+  the July V2 rebaseline receipts, zeroed integrity buckets, and dirty-ratings
+  cron do not prove the current PostgreSQL 18 population or maintenance state.
+- V3 PostgreSQL 18 data population, invariants, backup/PITR readiness, and
+  maintenance state must be established by current V3 evidence. Missing V3
+  evidence remains unknown rather than being filled from V2 history.
+- The retired Windows/V2 release wrappers, Hetzner workflows, `setup.sh`, and
+  hosted-review deployment lane must stay absent.
+
 - Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
   scope and Stage 26's R3F map programme are complete historical foundations.
 - Current authorization: **27A Spatial Platform Contract and Audit only**.
   Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
   runtime, production map change, or any later Stage 27 slice.
-- Status: Stage 25A through Stage 25H and Stage 26A through Stage 26D are
-  complete. Stage 26E production cutover is complete and in observation:
-  browser, accessibility, visual,
-  steady-state frame, pre-activation production parity, and live-route memory
-  gates are recorded; hardware GPU timing and the owner-reviewed region-data
-  gate are closed. Bounded region delivery and the full regression pass, and
-  commit `3b53477` now serves the Stage 26E map as the public app map. Root,
-  index, legacy `/v2/`, region-asset, and visible `#map` smoke checks pass; the
-  explicit disabled build remains the immediate rollback. The first bounded
-  post-cutover slice is implementation-verified: it improves region-boundary
-  hierarchy and adds explicit 2D/3D projection controls on the real route.
-- Local engineering posture: the repo-local Python 3.12 `.venv` path is now
-  the canonical local test runner, Docker-backed disposable Postgres/Redis on
-  `127.0.0.1:55432` / `127.0.0.1:6379` are validated by preflight, and the
-  broad local pytest burn-down most recently observed green at
-  `1487 passed, 16 skipped` in the current workspace.
+- Status: Stage 25A through Stage 25H and Stage 26A through Stage 26E are
+  complete historical product foundations. Stage 26E's recorded browser,
+  accessibility, visual, frame, GPU, region-data, cutover and post-cutover
+  evidence remains valid history. Commit `3b53477` is the inherited R3F product
+  baseline; its former V2 public-host smoke checks and disabled-build rollback
+  observations are not current V3 deployment claims.
+- Local engineering posture: the repo-local Python 3.12 `.venv` path is the
+  canonical local test runner, with disposable Postgres/Redis used for local and
+  CI verification. Local green proves repository compatibility; it does not
+  substitute for V3 production evidence.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Identity posture (2026-08-22): Frontier approved ED-Finder's production
   OAuth client with `AUTH` and `CAPI` scopes and the owner explicitly
@@ -35,11 +56,12 @@ document that should answer "what next?".
 - Primary planning surface: Colony Planner remains the canonical live planning
   workspace.
 - Map posture: Stage 26E R3F/Three.js (cutover commit `3b53477`) remains the
-  production baseline and rollback until a Stage 27 Babylon renderer earns a
-  later explicit bakeoff/cutover. Stage 27 deliberately allows the spatial
-  platform to assist Explore → Inspect → Plan → Review, while Colony Planner
-  remains the canonical detailed Build Plan workspace/persistence owner. No
-  silent plan mutation or Preview execution is allowed.
+  **repository/product baseline** until a Stage 27 Babylon renderer earns a
+  later explicit bakeoff/cutover. This roadmap does not assert that an old V2
+  host observation still describes the current V3 edge. Stage 27 deliberately
+  allows the spatial platform to assist Explore → Inspect → Plan → Review,
+  while Colony Planner remains the canonical detailed Build Plan workspace and
+  persistence owner. No silent plan mutation or Preview execution is allowed.
 - Map layer posture (2026-08-08): the map's typed `MapSceneDescriptor` layer/adapter
   boundary (Stage 26D) is the standing, documented pattern for any Explore-journey
   feature that wants map presence — not a closed list limited to Finder, Compare,
@@ -49,28 +71,25 @@ document that should answer "what next?".
   retained as Stage 26 history. Stage 27 supersedes its global Explore-only
   restriction while preserving explicit ownership and truth boundaries.
 - Scoring posture: player-facing UI continues to speak in **Development
-  Score**, API rerank helpers stay under **archetypes**, and the current DB
-  implementation still runs on the **Ratings v3.4** scorer/tables. The full
-  production rebaseline main pass has completed and the steady-state
-  dirty-ratings cron has been restored. The 2026-07-18 production closeout
-  drained 144,942 truthful no-body dirty rows, deleted 31,417 stale ratings,
-  repaired 2,766 ring-status rows, and corrected the final body-count row. The
-  production-safe integrity buckets now read zero; steady-state maintenance
-  reconciles no-body rows before body-backed rerating so the backlog cannot
-  recur as a retry storm.
-- Data-trust follow-up posture: persisted body, ring, station-link, and evidence
-  lifecycle invariants are clean. Colonisation age buckets remain visible
-  observational telemetry and no longer block deploys merely because a
-  positive EDDN status has not been re-observed within 14 days. Canonical
-  population storage still needs a later unknown-vs-zero migration.
-- Local test-environment posture: real-service readiness now proves live local
+  Score**, API rerank helpers stay under **archetypes**, and repository code
+  still implements the **Ratings v3.4** scorer/tables. The 2026-07-18 rebaseline
+  and repair receipts — including drained no-body rows, stale-rating deletion,
+  ring-status repair and zeroed V2 integrity buckets — are historical migration
+  evidence. They do not establish current V3 PostgreSQL 18 row counts,
+  maintenance scheduling, or integrity state.
+- Data-trust posture: the repository retains the body, ring, station-link and
+  evidence-lifecycle invariants and the historical V2 clean receipts. Current
+  V3 values are not assumed from those receipts; any production claim requires
+  current V3 evidence through an authorized path. Canonical population storage
+  still needs a later unknown-vs-zero migration.
+- Local test-environment posture: real-service readiness proves live disposable
   Postgres access without fake fallbacks, while historical Stage 19 checkpoint
   assertions skip explicitly when the approved historical baseline rows are not
   present in the empty disposable DB.
 - Legacy ratings posture: treat `rating_version IS NULL` rows as
   **Pre-v3.4 Unversioned Ratings**, not as one coherent legacy type. They may
-  span multiple historical scorer generations and must be rebaselined before
-  the ratings migration can be considered operationally complete.
+  span multiple historical scorer generations. Whether such rows exist in V3
+  is a data-coverage question, not something inferred from the V2 database.
 
 ## Architectural Decisions — 2026-07-12
 
@@ -84,41 +103,36 @@ retired and will be removed.
 The Finder sorts by the selected archetype score. No universal score exists.
 Confidence is shown adjacent to every score. Everything else is a fact the
 user weighs themselves.
-`score_breakdown` JSONB was cleared before the 2026-07-15 ratings repack and is
-not written by active code. Keep it NULL and reconstruct API responses from the
-normalized columns until a reviewed migration removes the retired column.
+`score_breakdown` JSONB was cleared before the 2026-07-15 V2 ratings repack and
+is not written by active code. Keep it NULL and reconstruct API responses from
+the normalized columns until a reviewed migration removes the retired column.
 
 ### Three-Repo Architecture
 
 Option 2 adopted: CRE (`colonisation-research-engine`) produces research
 truth, ed-finder consumes it. CPE (`colony-planning-engine`) owns plan
 construction.
-CRE is actively developed (83 commits, HEAD 2026-07-09) but not yet wired
-into ed-finder at runtime. Storage recovery is complete; integration remains
-sequenced after the remaining scoring cleanup and vocabulary reconciliation.
-CRE's confidence vocabulary and source authority register
-(SA-0001-SA-0010) are more rigorous than ed-finder's current
-implementations and will become canonical.
-The confidence vocabularies are currently incompatible and must be
-reconciled before any evidence-layer integration begins.
-CPE has no implementation yet. Its role (assessment/plan construction layer
-between CRE and ed-finder) will be defined once CRE-to-ed-finder
-integration is underway.
+CRE is actively developed but not yet wired into ed-finder at runtime. Its
+confidence vocabulary and source authority are reviewed inputs, not a runtime
+contract until a versioned adapter/publication path is agreed. CPE remains a
+separate planning owner; ED-Finder must not invent missing CRE/CPE contracts.
 
-### Storage Recovery (Completed 2026-07-15)
+### Storage Recovery (Historical V2, completed 2026-07-15)
 
 Phase A removed fossil and redundant indexes and recovered 89 GB, reducing the
-database from 960 GB to 871 GB. Phase B confirmed `score_breakdown` was already
-entirely NULL, dropped the retired dirty index, and repacked `ratings` from
-392 GB to 39 GB. The database finished at 519 GB, reclaiming 366 GB in Phase B
-and leaving 749 GB disk free. Preserve this baseline: do not write
-`score_breakdown` or create indexes on retired ratings score columns. Evidence:
+then-V2 database from 960 GB to 871 GB. Phase B confirmed `score_breakdown` was
+already entirely NULL, dropped the retired dirty index, and repacked `ratings`
+from 392 GB to 39 GB. The V2 database finished at 519 GB, reclaiming 366 GB in
+Phase B and leaving 749 GB disk free. Preserve the schema/code lesson: do not
+write `score_breakdown` or create indexes on retired ratings score columns.
+These figures are historical V2 evidence, not V3 PostgreSQL 18 capacity or
+population claims. Evidence:
 `artifacts/storage-recovery/phase-a-index-drop-receipt-2026-07-12.md` and
 `artifacts/storage-recovery/phase-b-repack-receipt-2026-07-15.md`.
 
 ### Foundation Sequence (Agreed)
 
-1. Storage recovery + index drops. **Completed 2026-07-15.**
+1. Storage recovery + index drops. **Completed historically on V2 2026-07-15.**
 2. Docs triage (archive completed stages using dependency-aware evidence).
 3. Scoring pivot: UI reflects archetype scores, not legacy ratings.
 4. CRE integration: confidence vocabulary first, then source authority, then
@@ -170,15 +184,15 @@ Stage 25 has exactly one primary objective:
    continuing codebase and documentation cleanup.
 5. Advance the evidence-store and ingestion lane safely, with reviewable
    operator/admin surfaces rather than implicit write automation.
-6. Preserve the closed ratings/data-integrity baseline through bounded
-   no-body reconciliation, body-backed rerating, and durable production
-   receipts.
-7. Keep the now-green local test environment honest: preserve the repo-venv
-   runner, preflight path, explicit real-service skips, and broad pytest
-   coverage so local "green" continues to mean something.
+6. Preserve the historical V2 ratings/data-integrity receipts as migration
+   evidence while requiring fresh V3 evidence before claiming current
+   PostgreSQL 18 integrity, population, scheduling, or recovery state.
+7. Keep the local test environment honest: preserve the repo-venv runner,
+   preflight path, explicit real-service skips, PG18 integration coverage, and
+   broad pytest coverage so local/CI "green" continues to mean something.
 8. Use the external adversarial audit as an execution-order correction, not as
-   a parallel roadmap: preserve the now-closed ratings, migration, backup, and
-   CI foundations before opening new product lanes like accounts.
+   a parallel roadmap: preserve the migration, safety and CI lessons while
+   re-baselining operational assumptions on V3 rather than V2.
 9. Preserve the already-shipped bounded `B-1` nearest-colonised proximity and
    `A-1` journal staging/evidence capabilities without expanding either from
    its old lane. Any spatial or Commander History follow-on is governed only
@@ -192,35 +206,36 @@ competing roadmap source.
 
 ### Do Now
 
-- Preserve the zeroed production body, ring, no-body rating, station-link, and
-  evidence-lifecycle invariant buckets established by the 2026-07-18 repair
-  receipts.
-- Keep receipting `scripts/run_data_invariants_receipted.sh --production-safe`
-  on production so the post-rerate end-state is evidenced, not assumed, and
-  persist the dated durable receipts under the production receipts path plus
-  committed review artifacts.
-- Monitor the now-bounded no-body cleanup and body-backed rerating cadence;
-  colonisation age remains reported separately as source freshness telemetry.
-- Keep Stage 25 shell/context work closed and stable while the audit-response
-  foundation follow-through finishes.
+- Keep pre-cutover ratings, body, ring, station-link, migration and backup
+  receipts available as historical V2 evidence; never present them as proof of
+  current V3 PostgreSQL 18 state.
+- Establish any current V3 production data/invariant/recovery assertion only
+  through an explicitly authorized V3 read-only or recovery path. If no such
+  path/runbook exists, keep the state unknown and fail closed.
+- Preserve the protected PG18 integration/migration rehearsal, repository data
+  invariants, and local disposable-service checks so code/schema compatibility
+  is proven independently of production access.
+- Keep Stage 25/26 shell, map and planner foundations stable while Stage 27A
+  finishes its contract/audit work.
 
 ### Do Next
 
 - Complete bounded documentation triage using dependency-aware evidence; do
   not mass-archive stage documents that are still consumed by tests or active
-  operational contracts.
-- Scoring cleanup: keep `score_breakdown` NULL, remove remaining
-  legacy score dependencies (✓ completed 2026-08-15), and retire the column through a reviewed migration.
-- Reconcile the CRE and ed-finder confidence vocabularies before consuming CRE
-  source-authority or release artifacts at runtime (✓ completed 2026-08-15).
-- Keep CI/build reproducibility honest: preserve all ten protected checks, the
-  expanded Ruff/Knip gates, the pinned lockfile, built-image parity, the
-  artifact-backed Windows release wrapper, and the isolated Review Lab browser
-  journey.
-- Preserve the repaired local verification path: the Docker-backed preflight,
-  map MV latency guard, archetypes JSON-response normalization, and explicit
-  Stage 19 baseline/checkpoint skip semantics are now part of the expected
-  local trust boundary.
+  contracts.
+- Scoring cleanup: keep `score_breakdown` NULL, remove remaining legacy score
+  dependencies, and retire the column through a reviewed migration when the
+  current authorized stage permits it.
+- Reconcile CRE and ed-finder confidence/source-authority contracts before
+  consuming CRE release artifacts at runtime.
+- Keep CI/build reproducibility honest: preserve the protected CI/security/
+  browser/image-parity checks, expanded Ruff/Knip gates, pinned lockfile, and
+  built-image parity. The retired Windows/V2 release wrapper must stay absent;
+  reusable frontend package artifacts are CI/repository outputs, not a V2
+  production release path.
+- Preserve the repaired local verification path: Docker-backed preflight, map
+  MV latency guard, archetypes JSON-response normalization, and explicit
+  historical Stage 19 baseline/checkpoint skip semantics.
 - Keep the committed data-invariants check path wired into seeded CI/local
   verification and expand coverage for rating-version uniformity, rating
   coverage, and related trust signals.
@@ -237,32 +252,36 @@ competing roadmap source.
 
 ### Deferred Product Expansion
 
-- The bounded account/auth foundation is now authorized following Frontier
-  OAuth approval and the 2026-08-22 owner identity decision. Cross-device plan
-  sync, collaboration, and broader account expansion remain deferred until the
+- The bounded account/auth foundation is authorized following Frontier OAuth
+  approval and the 2026-08-22 owner identity decision. Cross-device plan sync,
+  collaboration, and broader account expansion remain deferred until the
   identity foundation has shipped and been observed.
 - Broad product-surface expansion remains secondary to eliminating hidden or
   conflicting surfaces already in the tree.
 
 ### Audit Findings We Accept As Real
 
-- Migration replay without a ledger was a critical operational flaw; the active
-  checksum ledger and verified production bookkeeping now close it.
-- Backup/restore automation and a recorded disposable restore rehearsal now
-  establish the minimum restore-readiness baseline.
-- The ratings rebaseline was operationally incomplete and invisible, which was
-  a core data-trust issue; production drift is now reconciled and receipted,
-  with recurrence prevention and monitoring retained as ongoing work.
-- CI protection and built-image identity were real gaps; all ten checks are now
-  required on `main`, including built-image parity and Review Lab.
+- Migration replay without a ledger was a critical V2 operational flaw; the
+  checksum-ledger implementation closes that code/process gap. Current V3
+  production bookkeeping is not inferred from the old V2 ledger receipt.
+- Backup/restore automation and a disposable restore rehearsal established the
+  historical minimum V2 restore-readiness baseline. They do **not** constitute a
+  V3 PostgreSQL 18 recovery runbook; `docs/operations/infrastructure-status.md`
+  explicitly fails closed on that missing current procedure.
+- The V2 ratings rebaseline was operationally incomplete and invisible; its
+  eventual repair/receipts remain migration evidence, not a current V3 row-state
+  assertion.
+- CI protection and built-image identity were real gaps. Current protected
+  workflows, including the PostgreSQL 18 integration lane, remain the
+  repository compatibility gate; do not rely on stale historical check counts.
 
 ### Audit Findings To Handle Carefully
 
 - The audit's residue and optics observations are useful, but dependency-aware
   evidence must govern any cleanup.
 - Cleanup of hidden routes, preview surfaces, archived stage scripts, and other
-  process residue should be executed as a bounded hygiene pass after the
-  foundation risks above, not as a substitute for them.
+  process residue should be executed as bounded hygiene, not as a substitute
+  for foundation safety.
 
 ## Stage 27 Programme (current authority)
 
@@ -290,10 +309,11 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 | 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
 | 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27A |
 
-Stage 27A's only follow-on authorization is 27B. The R3F production map stays
-in place throughout workbench/foundation stages. Mechanics remain CRE-owned,
-planning remains CPE-owned, ED-Finder orchestrates/presents, and the renderer
-owns neither.
+Stage 27A's only follow-on authorization is 27B. The R3F repository/product
+baseline stays in place throughout workbench/foundation stages unless a later
+explicit Stage 27 cutover changes it. Mechanics remain CRE-owned, planning
+remains CPE-owned, ED-Finder orchestrates/presents, and the renderer owns
+neither.
 
 Stage ownership is deliberate: 27F defines account/commander/sync scope,
 privacy-filtered raw retention, normalized facts, provenance, source-aware
@@ -316,7 +336,8 @@ and event breadth only—not mechanics authority or a code, asset or UI source.
 ## Stage 25/26 historical next steps
 
 The material below preserves completed-stage decisions and evidence. It is not
-authority for what begins after Stage 27A.
+authority for what begins after Stage 27A and its references to production are
+historical V2 observations unless independently reverified on V3.
 
 - Stage 25 product work is complete and promoted. Preserve its shell/context
   baseline while documentation triage, scoring cleanup, and CRE contract work
@@ -332,12 +353,8 @@ authority for what begins after Stage 27A.
 - The then-current frontend map renderer was not an architectural baseline and
   was retained only until the deliberate Stage 26E cutover; independently
   verified backend/API assets remained reusable.
-- Stage 26A selects no renderer and changes no runtime route. Its only follow-on
-  authorization is Stage 26B: a paid artifact-backed Research Control run and
-  an isolated, equally measured deck.gl OrbitView, deck.gl OrthographicView,
-  and Three.js/R3F bake-off.
-- Desktop viewports 1280x720 and 1440x900 are required. Mobile and touch map
-  work are explicitly out of scope.
+- Stage 26A selected no renderer and changed no runtime route. Its only
+  follow-on authorization was Stage 26B.
 
 ### Stage 26B
 
@@ -345,144 +362,53 @@ authority for what begins after Stage 27A.
   `artifacts/map-foundation/stage-26b/` and pass strict TypeScript, JSON,
   authoritative region-order, targeted semantic, and fixture-count gates.
 - The 12-cell Chromium matrix equally covered three renderers, 100k/500k
-  datasets, and both required desktop viewports. Three.js/R3F is selected for
-  the Stage 26C foundation because it retained usable context recovery and
-  materially lower tested interaction latency. The measurement receipt and
-  limitations are recorded in
-  [`stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md).
-- R3F is not production-ready: its 500k frame-time result still requires
-  optimization, and GPU timing and candidate-specific compressed bundle size
-  remain unresolved.
+  datasets, and both required desktop viewports. Three.js/R3F was selected for
+  the Stage 26C foundation based on the recorded bakeoff.
 
 ### Stage 26C
 
-- Complete: the selected R3F renderer now has a reusable region-first scene
-  component behind a separate development-only Vite entry. It reads the
-  existing authoritative region source at runtime, renders all 42 named
-  regions, preserves the typed scene/interaction boundary, and supports
-  arbitrary comparison and cluster highlights with explicit overlap choice.
-- The deterministic 500k workbench caps background rendering at 25,000 points
-  while retaining every guaranteed system and reporting the aggregate
-  remainder. Both required desktop Playwright journeys pass camera, keyboard,
-  overlap, planner-separation, and post-context-restoration interaction checks.
-- The production map route remained unchanged. Stage 26D completed feature
-  hand-off wiring; Stage 26E retains production performance, accessibility,
-  browser, visual-regression, legal, and cutover gates.
+- Complete: the selected R3F renderer gained a reusable region-first scene
+  component behind a separate development-only Vite entry, authoritative region
+  input, typed scene/interaction boundaries, arbitrary highlights, deterministic
+  large-fixture handling, and browser interaction checks.
 
 ### Stage 26D
 
-- Complete: Finder, Compare, both saved-system persistence shapes, evidence,
-  System Detail, Cluster Search, and read-only Planner state now normalize
-  through reusable typed feature-to-scene adapters behind the isolated entry.
-- Evidence and cluster members without real coordinates are explicitly omitted
-  and reported; no position is invented. Camera, origin, layers,
-  selected-system identity, and cluster group context survive round trips.
-- Renderer interactions resolve to explicit host commands. Planner navigation
-  requires a selected system and cannot create or mutate a Build Plan.
-- Focused unit tests and both required Chromium journeys exercise every
-  hand-off. The production map route remains unchanged; Stage 26E owns parity,
-  final gates, deliberate cutover, and superseded-map removal.
+- Complete: Finder, Compare, saved-system persistence, evidence, System Detail,
+  Cluster Search, and read-only Planner state normalize through reusable typed
+  feature-to-scene adapters. Missing coordinates remain missing; no position is
+  invented. Planner navigation cannot create or mutate a Build Plan.
 
 ### Stage 26E
 
-- Cutover complete, observation in progress: Chromium, Firefox, and WebKit pass the isolated typed-foundation
-  journey at both required desktop viewports. Axe reports zero detectable WCAG
-  2/2.1 A/AA violations, and the 1440x900 golden passes repeat comparison.
-- The 500,000-system steady-state Chromium p95 measured about 16.7-16.8 ms at
-  the required viewports. After replacing sampled region fragments with 22,595
-  antialiased continuous exact-grid segments, a hardware-backed Chromium rerun
-  produced 30/30 valid actual-render GPU timer queries at both viewports, with
-  18.982 ms and 27.243 ms p95 and no disjoint samples. Normalized overlay buffers pass a
-  deterministic 8 MiB budget. The heatmap API now has a stable 50,000-cell ceiling and its
-  worst-case fixture passes a separate 8 MiB raw-response budget. The
-  pre-activation `#map` composition with live payloads plus 42 region labels and 22,595
-  continuous boundaries measured 30,353,992 and 27,463,288-byte Chromium heap
-  maxima at the required viewports against a 256 MiB budget and passed Axe at
-  both viewports with zero detectable violations.
-- The candidate now carries live heatmap cells, aggregate cluster hulls,
-  timeline state, view presets, 42 authoritative region labels, 22,595
-  continuous boundaries, and typed ready/empty/error composition.
-  The production Vite configuration now supplies the exact enabled value by
-  default. `VITE_STAGE26E_PRODUCTION_MAP=disabled` retains the established
-  renderer as an explicit build-time rollback.
-- The project owner confirmed ED-Finder is non-commercial and confirmed the 42
-  region names and derived RLE geometry are covered by Frontier's current media
-  guidance. The local grid is pinned to the upstream MIT-licensed
-  `EliteDangerousRegionMap` data, its MIT notice is retained, and Frontier's
-  official long-form attribution is site-wide. This closes the internal gate
-  as an owner governance decision, not independent legal advice. Donations are
-  outside the current implementation and are not relied on by the review. The
-  default production build emits a guarded 2,312,898-byte static region asset;
-  the explicit rollback build omits it. The retained interaction,
-  three-browser, accessibility, visual, live-route, and ordinary app smoke
-  regressions all pass. PR #365 deployed commit `3b53477`; public root,
-  compatibility, region-asset, health, and visible Map-tab checks pass. See
-  [`stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md).
-- ED Astro's 134-file, roughly 335.58 GiB published catalogue is inventoried
-  without opening a bulk-ingest lane. Nebula coordinates and combined POIs are
-  the first bounded candidates after file-level reuse terms and mixed-source
-  provenance are confirmed; multi-gigabyte body/star dumps stay outside Stage
-  26E. See
-  [`edastro-data-source-inventory.md`](./colonisation-redesign/edastro-data-source-inventory.md).
-- The first post-cutover visual slice preserves all 22,595 authoritative
-  endpoints while replacing the single-pixel divider with one batched
-  screen-space anti-aliased halo/core treatment. Region labels now share a
-  restrained warm hierarchy, and the live control rail exposes explicit flat
-  2D and oblique tabletop 3D presets through the existing camera state. The
-  1440x900 golden and Axe gate pass. PR #367 deployed commit `c0eef72`; public
-  root, compatibility, health, exact region-asset, and 2D -> 3D -> 2D browser
-  checks pass.
+- Historical cutover complete: the retained evidence records three-browser,
+  accessibility, visual, memory/performance, GPU timing, region-data/legal,
+  live-route, rollback-build and public V2 smoke gates. PR #365 recorded the R3F
+  cutover commit `3b53477`; later bounded projection/boundary polish is also
+  preserved. These host observations are V2 history, while the code/product
+  baseline remains inherited by Stage 27.
+- ED Astro's published catalogue was inventoried without opening a bulk-ingest
+  lane; those source decisions remain historical inputs to future Stage 27
+  work where explicitly authorized.
 
 ### Stage 25C
 
 - Completed: shared product shell, selected-system context spine, and explicit
-  shell-level hand-off into Plan are now the live baseline.
-- Keep Stage 25C closed as the shell/context baseline; future work should build
-  on it rather than reopening route sprawl.
+  shell-level hand-off into Plan are the product baseline.
 
 ### Stage 25D
 
-- Complete: the strongest existing planner and simulation surfaces are now
-  integrated into the canonical Colony Cockpit on top of the settled
-  shell/context model.
-- Current live 25D slices are the canonical cockpit mode hand-off inside Plan,
-  `B-1` nearest-colonised proximity in Inspect, and `A-1` journal import as
-  bounded staging/evidence ingestion only.
-- The current 25D runtime includes an in-workspace command deck: active
-  cockpit mode continuity in the planner header, mode-aware guidance, and quick
-  next-step hand-offs between Build Plan, Preview, Sequence, Evidence,
-  Validation, and Export.
-- Stage 25E is complete: the live review lanes now share one explicit
-  review-flow rail plus a shared readiness summary across Evidence,
-  Validation, and Export, with preserved selected-system review posture and
-  mode-local next-step guidance.
-- Stage 25F is complete: the cockpit now exposes bounded facility intelligence
-  and explainable next actions built from current planner structure, role
-  signals, preview posture, and observed-evidence state.
-- Stage 25G is complete: the map now carries one explicit product-value
-  posture as a secondary Explore surface, with bounded orientation/inspect
-  hand-offs instead of planner creep.
-- Stage 25H is complete: obsolete direct player entry points now alias into
-  the canonical My Work route, the app shell exposes a skip-link for keyboard
-  navigation, and Stage 25 closes with one coherent Explore/Plan/Review shell.
+- Complete: planner/simulation surfaces were integrated into the canonical
+  Colony Cockpit. Historical Stage 25E–25H slices then completed the review
+  rail, facility intelligence, bounded map-value posture and coherent
+  Explore/Plan/Review shell.
 
 ### Supporting Evidence / Ingestion Lane
 
-- Keep building the source-run ledger, importer safety wrapper, and audit trail.
-- Expand safe source ingestion in priority order:
-  `Spansh -> EDDN -> EDSM -> Inara -> Frontier Journal`.
-- Before personal telemetry opens up, keep raw evidence on a bounded hot-log
-  posture: curated `evidence_records` remain the durable trust layer, while
-  high-volume `observed_facts` must move toward partitioned/archive retention
-  instead of unbounded primary-DB growth.
-- Use `scripts/checks/telemetry_hot_log_snapshot.py` as the read-only
-  posture check for journal telemetry hot-log growth until partition/archive
-  work is actually implemented.
-- Frontier Journal sequencing is explicitly bounded:
-  `A-1` staging/evidence import first, `A-2` guarded canonical promotion only
-  after a separately reviewed write-lane authorization (the migration-ledger
-  and backup foundations are now in place), and `A-3` personal telemetry only
-  after identity continuity is authorised.
+- Keep building source-run ledger, importer safety and audit-trail contracts in
+  lanes explicitly authorized by the current roadmap.
+- Safe source-ingestion history and old `A-*` / `B-*` sequencing remain design
+  evidence, not independent authority to open a production write lane.
 - Keep freshness, coverage, and operator visibility explicit.
 - Prefer reviewable reconciliation candidates over clever automatic mutation.
 - Treat canonical write lanes, rebaseline, scheduler activation, and broad
@@ -490,63 +416,52 @@ authority for what begins after Stage 27A.
 
 ### Bounded Post-25D Feature Incubation
 
-- `B-1` nearest-colonised proximity is now the bounded Inspect-side fact-first
-  product win and should remain evidence-disciplined rather than expanding into
-  corridor routing by stealth.
-- `B-2` hop-count-only colonisation corridor routing is acceptable before the
-  score-weighted variant because it does not depend on ratings trust for its
-  core recommendation quality.
-- `B-3` score-weighted corridor ranking is explicitly gated on completing the
-  archetype-scoring cleanup and CRE confidence reconciliation.
-- `A-1` journal import is now acceptable only as the current client-side parsed,
-  privacy-bounded staging/evidence lane with reviewable receipts and no direct
-  canonical writes.
-- `A-2` journal-driven canonical promotion must reuse guarded reconciliation and
-  remains closed until a separately reviewed write-lane authorization; the
-  migration-ledger and backup/restore prerequisites are now complete.
-- `A-3` personal journal telemetry in My Work / Planner is strategically strong
-  but remains gated on identity continuity; do not invent a third attribution
-  model for it.
+- `B-1` nearest-colonised proximity remains a bounded Inspect-side fact-first
+  product capability.
+- `B-2` / `B-3` corridor-routing history remains design evidence; Stage 27 owns
+  any spatial follow-on authorization.
+- `A-1` journal import remains bounded staging/evidence. `A-2` canonical
+  promotion and later personal-history expansion require their current Stage 27
+  authorizations; old foundation completion does not grant a V3 write lane.
 
 ### Foundation Safety Sequence
 
-1. **Completed:** close out the ratings rebaseline and reconcile production
-   body, ring, station-link, and evidence-lifecycle drift. Preserve the zeroed
-   invariant receipts and monitor the bounded rerating cadence.
-2. **Completed:** activate the checksum migration ledger, verify production
-   ledger/manual-019 bookkeeping, and pin historical migration ownership in CI.
-3. **Completed:** commit backup/restore automation and record the disposable
-   restore rehearsal at
-   `artifacts/restore-rehearsals/local-restore-receipt-2026-07-09.json`.
-4. **Completed:** restore and branch-protect all ten CI checks. Frontend
-   installs are pinned, release artifacts are parity-tested, and Ruff, Knip,
-   strict-pairing, seed, integration, E2E, canonical-safety, and isolated Review
-   Lab gates are active.
-5. **In progress:** continue bounded residue and documentation hygiene. H1
-   removed eight orphaned frontend components and archived the retired
-   score-breakdown one-shot; H2 expanded lint/EOL coverage and closed targeted
-   API, state-store, storage, cache-truthfulness, and accessibility gaps. H3
-   closed the remaining database-operator secret-handling and migration-timeout
-   findings with PostgreSQL 16 rehearsals and CI contracts.
-6. **In progress:** ship the separately approved Frontier identity foundation
-   and owner-only operational access slice; stage plan sync independently.
+This sequence records the historical audit/V2 foundation work. “Completed” does
+not mean its former production-host state automatically exists on V3.
+
+1. **Historical V2 completed:** ratings/body/ring/station/evidence drift was
+   reconciled and receipted.
+2. **Code/process completed:** checksum migration ledger and manual-migration
+   bookkeeping contracts were implemented.
+3. **Historical V2 completed:** backup/restore automation and a disposable
+   restore rehearsal were recorded. V3 PostgreSQL 18 recovery remains governed
+   by the current infrastructure-status boundary and has no in-repo executable
+   recovery runbook today.
+4. **Repository completed:** protected CI/review foundations, pinned frontend
+   installs, image parity, Ruff/Knip, seed/integration/E2E/canonical-safety and
+   isolated Review Lab checks were established. Current required checks are
+   determined by branch protection/current workflows, not this historical
+   count.
+5. **In progress:** bounded residue and documentation hygiene, including V3
+   decommission re-baselining.
+6. **In progress:** the separately approved Frontier identity foundation and
+   owner-only operational-access slice; plan sync remains separately staged.
 
 ## Historical Stage 25/26 priorities
 
 The numbered list below records the priorities at the close of those stages.
 It is not a current queue; the Stage 27 programme above is current authority.
 
-1. Observe the deployed Stage 26E post-cutover boundary/projection polish, then
-   continue bounded orientation and interaction follow-ups on the real route
-   while retaining the explicit disabled build as immediate rollback until a
-   later removal decision.
-2. Preserve production data-integrity receipts and the bounded rerating cadence.
+1. Preserve the inherited Stage 26E product/map baseline while later Stage 27
+   work earns any renderer cutover explicitly.
+2. Preserve historical data-integrity receipts as evidence; require current V3
+   evidence for current-state claims.
 3. Complete dependency-aware documentation triage and historical archiving.
 4. Finish the archetype-scoring pivot and retire legacy score storage safely.
 5. Reconcile CRE confidence/source-authority contracts before runtime integration.
-6. Maintain all ten protected CI checks, reproducible release artifacts, local
-   parity, and the green isolated Review Lab browser workflow.
-7. Preserve the reviewed database-operator secret channels, finite migration
+6. Maintain current protected CI/review checks, reproducible build artifacts,
+   local parity, and the isolated Review Lab browser workflow.
+7. Preserve reviewed database-operator secret channels, finite migration
    timeout policy, and explicit exceptional-run opt-in.
 8. Continue planner trust, evidence clarity, and operator reviewability.
 9. Keep product-shell and selected-system continuity stable while foundations
@@ -561,13 +476,12 @@ It is not a current queue; the Stage 27 programme above is current authority.
 - No canonical database write lane unless a future stage explicitly authorizes it.
 - No scheduler, service, or timer activation for import automation by default.
 - At Stage 26, map redesign was authorized only through its staged sequence;
-  the recorded research, bakeoff, production cutover, and rollback evidence
-  remain valid history. Stage 27 now owns spatial-platform authorization.
-- At Stage 26, planner-map fusion was prohibited. Stage 27 supersedes that
-  global prohibition with explicit cross-journey actions while retaining its
-  essential safety boundary: the spatial platform must not silently mutate a
-  Build Plan or execute Preview, and Colony Planner remains the detailed plan
-  persistence owner.
+  recorded research, bakeoff, V2 cutover, and rollback evidence remain history.
+  Stage 27 now owns spatial-platform authorization.
+- Stage 27 supersedes the old global planner-map fusion prohibition with
+  explicit cross-journey actions while retaining its essential safety boundary:
+  the spatial platform must not silently mutate a Build Plan or execute Preview,
+  and Colony Planner remains the detailed plan persistence owner.
 - No visual cloning, asset copying, or derivative workflow shortcuts from
   external planner references.
 
@@ -579,12 +493,12 @@ It is not a current queue; the Stage 27 programme above is current authority.
   the 2026-08-22 product/identity decision. Collaboration and plan sync remain
   deferred as separate expansion lanes.
 - Journal `A-2` canonical promotion remains deferred pending a separately
-  reviewed write-lane authorization; its former migration and restore
-  prerequisites are now complete.
-- Journal `A-3` personal telemetry remains deferred until identity continuity is
-  authorised through the existing sync/accounts direction.
+  reviewed write-lane authorization; historical migration/restore evidence is
+  not current V3 write authorization.
+- Journal personal-history expansion is governed by Stage 27F/27H/27L rather
+  than old Stage 25 lane labels.
 - Score-weighted colonisation corridor recommendations remain deferred until the
-  archetype-scoring cleanup and CRE confidence reconciliation are complete.
+  current Stage 27 programme explicitly authorizes them.
 - Broad facility-browser work remains deferred until the cockpit is coherent.
 - Automatic canonical apply remains deferred behind explicit review and safety
   gates.
@@ -593,10 +507,16 @@ It is not a current queue; the Stage 27 programme above is current authority.
 
 Read these when a task needs more detail than this roadmap provides:
 
+- [`colonisation-redesign/spatial-platform-product-contract.md`](./colonisation-redesign/spatial-platform-product-contract.md):
+  current Stage 27 product/truth/ownership contract.
+- [`colonisation-redesign/spatial-platform-architecture-decision.md`](./colonisation-redesign/spatial-platform-architecture-decision.md):
+  current renderer-neutral architecture decision.
+- [`colonisation-redesign/stage-27a-stage26-inheritance-matrix.md`](./colonisation-redesign/stage-27a-stage26-inheritance-matrix.md),
+  [`colonisation-redesign/stage-27a-spatial-capability-inventory.md`](./colonisation-redesign/stage-27a-spatial-capability-inventory.md), and
+  [`colonisation-redesign/stage-27a-system-map-data-readiness.md`](./colonisation-redesign/stage-27a-system-map-data-readiness.md):
+  current Stage 27A evidence audits.
 - [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md):
-  historical Stage 26 authorization, non-negotiable region and
-  feature-integration contract, artifact requirements, renderer bakeoff, and
-  completed staged cutover evidence.
+  historical Stage 26 authorization and staged cutover evidence.
 - `docs/colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md`:
   Stage 24A contract checkpoint and evidence-surface ownership baseline.
 - `docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md`:
@@ -606,54 +526,20 @@ Read these when a task needs more detail than this roadmap provides:
 - `docs/colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md`:
   Stage 24D closeout record and post-Stage-24 handoff.
 - `docs/colonisation-redesign/stage-19as2-operator-script-contract.md`:
-  Stage 19AS.2 operator-script contract formalization record.
+  Stage 19AS.2 historical operator-script contract record.
 - [`operations/audit-remediation-plan.md`](./operations/audit-remediation-plan.md):
-  executable checklist for the accepted audit-driven remediation sequence.
+  historical/ongoing audit-remediation checklist; current production operations
+  are still governed by the V3 infrastructure boundary.
 - [`operations/migration-ledger-implementation-plan.md`](./operations/migration-ledger-implementation-plan.md):
-  detailed implementation plan for replacing replay-all SQL deploys with a
-  ledgered migration path.
+  migration-ledger implementation plan and historical rollout rationale.
 - [`colonisation-redesign/journal-import-and-colonisation-routing-design-v1.md`](./colonisation-redesign/journal-import-and-colonisation-routing-design-v1.md):
-  proposed sequencing and guardrails for journal import plus colonisation
-  proximity / corridor features.
-- [`colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md`](./colonisation-redesign/stage-25d-b1-nearest-colonised-proximity-brief.md):
-  bounded implementation brief for the `B-1` Inspect-side nearest-colonised
-  proximity feature.
-- [`colonisation-redesign/stage-25d-a1-journal-import-staging-brief.md`](./colonisation-redesign/stage-25d-a1-journal-import-staging-brief.md):
-  bounded implementation brief for the `A-1` journal import staging/evidence
-  slice.
-- [`colonisation-redesign/stage-25c-product-shell-shared-context-contract.md`](./colonisation-redesign/stage-25c-product-shell-shared-context-contract.md):
-  settled historical shell and selected-system context baseline retained by
-  Stage 27; not current stage authorization.
-- [`colonisation-redesign/stage-25b-evidence-language-visual-primitives.md`](./colonisation-redesign/stage-25b-evidence-language-visual-primitives.md):
-  current evidence-language and visual-system baseline.
-- [`colonisation-redesign/stage-25a-current-state-map-product-visual-baseline.md`](./colonisation-redesign/stage-25a-current-state-map-product-visual-baseline.md):
-  current-state audit and map product baseline.
-- [`colonisation-redesign/stage-17p-current-state-forward-plan.md`](./colonisation-redesign/stage-17p-current-state-forward-plan.md):
-  planner truth, source authority, and non-negotiable product boundaries.
-- [`colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md`](./colonisation-redesign/stage-24d-readonly-evidence-adoption-closeout.md):
-  the closeout of the read-only evidence adoption programme.
-- [`colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md`](./colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md):
-  evidence-surface ownership, language, and fixture-plan contract.
-- [`colonisation-redesign/stage-24b-planner-evidence-discoverability.md`](./colonisation-redesign/stage-24b-planner-evidence-discoverability.md):
-  Stage 24B discoverability implementation record.
-- [`colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md`](./colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md):
-  Stage 24C adjacent-surface consistency implementation record.
-- [`colonisation-redesign/stage-20c-map-planning-surface-foundation.md`](./colonisation-redesign/stage-20c-map-planning-surface-foundation.md):
-  map workspace-mode implementation record.
-- [`colonisation-redesign/stage-20d-planner-sequence-cp-curve-cockpit.md`](./colonisation-redesign/stage-20d-planner-sequence-cp-curve-cockpit.md):
-  sequence workspace-mode implementation record.
-- [`colonisation-redesign/stage-20e-export-operator-pack-closeout-readiness.md`](./colonisation-redesign/stage-20e-export-operator-pack-closeout-readiness.md):
-  export workspace-mode and closeout implementation record.
-- [`colonisation-redesign/stage-19-bounded-production-staging-activation.md`](./colonisation-redesign/stage-19-bounded-production-staging-activation.md):
-  separate bounded production-staging dependency contract.
-- [`colonisation-redesign/stage-19bb-first-production-staging-activation.md`](./colonisation-redesign/stage-19bb-first-production-staging-activation.md):
-  Stage 19BB authorization record.
-- [`colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`](./colonisation-redesign/stage-19bb-production-staging-execution-closeout.md):
-  Stage 19BB bounded execution closeout.
+  historical design input; Stage 27 owns current spatial/Commander History
+  authorization.
 - [`reference/colonisation/README.md`](./reference/colonisation/README.md):
   source-authority entry point for mechanics-heavy work.
 - [`operations/enrichment-warehouse-runbook.md`](./operations/enrichment-warehouse-runbook.md):
-  operational runbook for guarded enrichment and warehouse activity.
+  **retired V2 Stage 18/19 tombstone** retained for historical traceability; it
+  is not a current executable enrichment runbook.
 
 ## Historical Checkpoint Notes
 
@@ -662,46 +548,38 @@ Read these when a task needs more detail than this roadmap provides:
 - Stage 24C is complete as the narrow adjacent-surface consistency slice.
 - Stage 24D is complete as the closeout checkpoint.
 - Stage 24 completed as a docs/static governance lane and the next step required a new explicit post-Stage-24 control document.
-- Stage 19AS.2 now formalizes the operator-script contract.
+- Stage 19AS.2 now formalizes the historical operator-script contract.
 - `stage-19as2-operator-script-contract.md` remains the supporting historical
   contract record.
-- Stage 19AT is the current paused-state decision gate after Stage 19AS.2.
+- Stage 19AT is the recorded paused-state decision gate after Stage 19AS.2.
 - `stage-19at-paused-state-next-operator-decision.md` remains the supporting
   historical decision record.
-- Stage 19AU is the read-only AS-AU safety-gate checkpoint after Stage 19AT.
+- Stage 19AU is the historical read-only AS-AU safety-gate checkpoint after Stage 19AT.
 - `stage-19au-readonly-asau-safety-gate.md` remains the supporting historical
   verification record.
-- The follow-up Stage 19AU read-only DB verification passed against the
+- The Stage 19AU read-only DB verification historically passed against the
   approved safe local target `127.0.0.1:55432`.
-- The historical verification notes preserve the absence of active or failed
+- Historical verification notes preserve the absence of active or failed
   blocking Stage 19 source runs and the absence of canonical apply/write
-  evidence.
-- Stage 19AV is the completed expanded controlled source-run staging pilot lane
-  after Stage 19AU.
+  evidence at that checkpoint.
+- Stage 19AV is the completed expanded controlled source-run staging pilot lane.
 - Historical Stage 19AV evidence records `250` read, `250` staged, `0` rejected, and `0` skipped.
-- Historical Stage 19AV evidence records 250 read, 250 staged, 0 rejected, and 0 skipped.
-- Stage 19AW is the post-AV paused-state decision checkpoint.
-- The historical Stage 19AW checkpoint is docs/static coverage only.
-- The next lane must be selected by a separate explicit operator decision.
-- Stage 19AX is the completed read-only AV safety-gate verification selected after Stage 19AW.
-- Stage 19AX does not authorize any next write lane.
-- Stage 19AY is the completed docs/static test-environment and safety-programme closeout-preparation checkpoint.
-- Stage 19AY closes with closeout classification `stage20_planning_ready`.
-- Stage 19 remains paused.
-- No DB commands, read-only DB queries, artifact checksum commands, or write
-  lanes are authorized by these historical Stage 19 checkpoint summaries.
-- Historical Stage 19BB notes preserve the Stage 19BB authorization dependency,
-  the Stage 19BB bounded execution closeout, and the recorded source refresh
-  reason.
-- Historical Stage 19BB authorization dependency is now satisfied.
-- Historical Stage 19BA dependency notes remain relevant when checking the
-  separate bounded production-staging contract.
-- Stage 19BA dependency remains a preserved historical dependency note.
-- Historical Stage 19BB notes preserve the source refresh reason for the
-  approved EDSM dump rotation after PR #243 authorization.
+- Stage 19AW is the historical post-AV paused-state decision checkpoint.
+- Stage 19AX is the completed historical read-only AV safety-gate verification.
+- Stage 19AX does not authorize any current write lane.
+- Stage 19AY is the historical docs/static test-environment and safety-programme closeout-preparation checkpoint.
+- Stage 19AY closed with closeout classification `stage20_planning_ready`.
+- Stage 19 remains historical and paused; none of these checkpoints authorizes
+  current V3 DB commands, queries or write lanes.
+- Historical Stage 19BB notes preserve the bounded production-staging
+  authorization dependency, execution closeout and recorded EDSM source refresh
+  reason. “Production” in those filenames/text means the former V2 environment.
 
 ## Roadmap Rule
 
 - If another document disagrees with this file about what happens next, this file wins.
-- Historical stage docs remain useful as rationale and implementation records,
-  not as competing roadmap sources.
+- `docs/operations/infrastructure-status.md` is authoritative for the current
+  V3 infrastructure/recovery boundary; this roadmap is authoritative for
+  programme sequencing and authorization.
+- Historical stage docs and pre-cutover receipts remain useful as rationale and
+  implementation evidence, not as current V3 infrastructure state.
