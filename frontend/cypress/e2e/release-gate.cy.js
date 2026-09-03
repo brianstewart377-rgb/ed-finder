@@ -234,9 +234,15 @@ describe('ED Finder release gate — Cypress parity', () => {
     });
 
     // Review Lab already locks Escape-to-close as an accessibility contract.
-    // Use that supported product path instead of guessing implementation-only
-    // backdrop/close-button test ids.
-    cy.get('body').type('{esc}');
+    // Dispatch the key event on window because SystemDetailModal installs its
+    // Escape listener there; typing into body depends on browser event routing.
+    cy.window().then((win) => {
+      win.dispatchEvent(new win.KeyboardEvent('keydown', {
+        key: 'Escape',
+        bubbles: true,
+        cancelable: true,
+      }));
+    });
     cy.get('body').should(($body) => {
       const $modal = $body.find('[data-testid="system-detail-modal"]');
       const closed = $modal.length === 0 || !Cypress.dom.isVisible($modal[0]);
