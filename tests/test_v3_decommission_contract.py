@@ -27,6 +27,29 @@ def test_current_infrastructure_fails_closed_without_pg18_recovery_runbook():
     assert 'repository-driven production database backup restoration, PITR execution, or disaster-recovery commands are **not authorized**' in status
 
 
+def test_destructive_v2_storage_recovery_runbook_is_tombstoned():
+    runbook = _read('docs', 'operations', 'storage-recovery-runbook-2026-07-12.md')
+
+    assert 'RETIRED — V1/V2 production storage recovery runbook' in runbook
+    assert '**Do not execute this file.**' in runbook
+    assert 'not a PostgreSQL 18/V3 production runbook' in runbook
+    assert 'Issue #573' in runbook
+    assert 'DROP INDEX CONCURRENTLY' not in runbook
+    assert 'pg_repack ratings' not in runbook
+
+
+def test_frontier_oauth_doc_fails_closed_away_from_v2_provisioning():
+    oauth = _read('docs', 'operations', 'frontier-oauth.md')
+
+    assert 'V3 production configuration boundary' in oauth
+    assert 'does **not** authorize placing production secrets' in oauth
+    assert 'does not currently contain a reviewed V3 production' in oauth
+    assert 'https://ed-finder.app/api/auth/frontier/callback' in oauth
+    assert 'v3-app-status' in oauth
+    assert 'normal deployment wrapper applies' not in oauth
+    assert 'Set these values in the production `.env`' not in oauth
+
+
 def test_v2_deploy_and_setup_entrypoints_cannot_return():
     deploy = _read('scripts', 'deploy_main.sh')
 
