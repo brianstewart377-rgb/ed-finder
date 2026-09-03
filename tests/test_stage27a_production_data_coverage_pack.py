@@ -11,11 +11,16 @@ COVERAGE_PACK = (
     / 'colonisation-redesign'
     / 'stage-27a-production-data-coverage-queries.sql'
 )
+MAX_RESULT_ROWS = 200
+
+
+def _raw_sql() -> str:
+    return COVERAGE_PACK.read_text(encoding='utf-8')
 
 
 def _sql_without_line_comments() -> str:
     lines = []
-    for raw_line in COVERAGE_PACK.read_text(encoding='utf-8').splitlines():
+    for raw_line in _raw_sql().splitlines():
         line = raw_line.split('--', 1)[0]
         if line.strip():
             lines.append(line)
@@ -26,11 +31,21 @@ def _statements() -> list[str]:
     return [part.strip() for part in _sql_without_line_comments().split(';') if part.strip()]
 
 
+def _statement_limit(statement: str) -> int:
+    limits = re.findall(r'\bLIMIT\s+(\d+)\b', statement, flags=re.IGNORECASE)
+    assert len(limits) == 1, f'every coverage statement must have exactly one literal LIMIT: {statement}'
+    return int(limits[0])
+
+
 def test_stage27a_coverage_pack_is_bounded_select_only_sql():
     statements = _statements()
 
     assert len(statements) == 12
     assert all(statement.upper().startswith('SELECT') for statement in statements)
+
+    for statement in statements:
+        limit = _statement_limit(statement)
+        assert 1 <= limit <= MAX_RESULT_ROWS
 
     sql = _sql_without_line_comments()
     forbidden_patterns = (
@@ -51,7 +66,9 @@ def test_stage27a_coverage_pack_is_bounded_select_only_sql():
         r'\bDO\s+\$\$',
         r'\bCOPY\b',
         r'\bFOR\s+(UPDATE|SHARE)\b',
-        r'pg_advisory_(xact_)?lock',
+        # Block the entire PostgreSQL advisory-lock family, including
+        # pg_try_advisory_lock*, xact/shared variants, and unlock helpers.
+        r'\bpg_(?:try_)?advisory_[a-z_]*\s*\(',
         r'refresh_map_mviews\s*\(',
     )
     for pattern in forbidden_patterns:
@@ -59,7 +76,9 @@ def test_stage27a_coverage_pack_is_bounded_select_only_sql():
 
 
 def test_stage27a_coverage_pack_does_not_expose_credentials_or_commander_keys():
-    sql = _sql_without_line_comments().lower()
+    # Scan the complete checked-in file, comments included. Commented examples
+    # are still repository disclosure and must not be able to hide credentials.
+    sql = _raw_sql().lower()
 
     for forbidden in (
         'password',
