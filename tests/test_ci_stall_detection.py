@@ -35,10 +35,10 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 
 # Every job-bearing workflow file in this repo. New workflow files must be
 # added here explicitly — a file silently excluded from this list would
-# defeat the point of the contract.
+# defeat the point of the contract. Retired V2/Hetzner workflows are
+# intentionally absent because they no longer exist in the V3 control plane.
 CHECKED_WORKFLOWS = (
     'chatgpt-ed-new-ops.yml',
-    'chatgpt-ops.yml',
     'ci.yml',
     'codeql.yml',
     'codex-dispatch.yml',
@@ -46,7 +46,6 @@ CHECKED_WORKFLOWS = (
     'container-image-parity.yml',
     'coverage.yml',
     'cypress-parity.yml',
-    'hetzner-operator.yml',
     'review-lab.yml',
     'semgrep.yml',
 )
