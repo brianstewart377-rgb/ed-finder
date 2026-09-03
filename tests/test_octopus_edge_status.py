@@ -6,7 +6,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ACTION = ROOT / "scripts/operator/actions/octopus-edge-status.sh"
 WORKFLOW = ROOT / ".github/workflows/chatgpt-ed-new-ops.yml"
-DISPATCH = ROOT / "scripts/operator/actions/dispatch.sh"
 OPERATION = "octopus-edge-status"
 
 
@@ -18,16 +17,15 @@ def _python_functions():
     return namespace
 
 
-def test_ed_new_workflow_and_dispatch_allowlist_dedicated_action():
+def test_ed_new_workflow_allowlists_and_routes_dedicated_action():
     workflow = WORKFLOW.read_text(encoding="utf-8")
-    dispatch = DISPATCH.read_text(encoding="utf-8")
     assert workflow.count(f"          - {OPERATION}\n") == 1
     assert f"host-status|{OPERATION}|recover-v3-runtime-contract" in workflow
     assert f"steps.request.outputs.operation == '{OPERATION}'" in workflow
     assert f"trusted-main/scripts/operator/actions/{OPERATION}.sh" in workflow
     assert "ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS" in workflow
-    assert f"{OPERATION})" in dispatch
-    assert f"exec bash scripts/operator/actions/{OPERATION}.sh" in dispatch
+    assert "StrictHostKeyChecking=yes" in workflow
+    assert "UserKnownHostsFile=~/.ssh/known_hosts" in workflow
 
 
 def test_missing_python_still_emits_structured_stopped_receipt():
