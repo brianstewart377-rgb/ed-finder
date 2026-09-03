@@ -23,6 +23,7 @@ PUBLIC = "https://ed-finder.app"
 API_CONTAINER = "edfinder-v3-api"
 HOST_FRONTEND_INDEX = Path("/opt/ed-finder/frontend/dist/index.html")
 MAX_BODY = 65536
+MAX_OPENAPI_BODY = 4 * 1024 * 1024
 
 
 def run(argv, *, timeout=15):
@@ -32,15 +33,20 @@ def run(argv, *, timeout=15):
         return subprocess.CompletedProcess(argv, 125, "", type(exc).__name__)
 
 
-def get(url, *, body=True):
+def get(url, *, body=True, follow_redirects=False, max_body=MAX_BODY):
     argv = [
-        "curl", "--silent", "--show-error", "--location", "--max-time", "10",
-        "--output", "-" if body else "/dev/null", "--write-out", "\n%{http_code}", url,
+        "curl", "--silent", "--show-error", "--max-time", "10",
+        "--output", "-" if body else "/dev/null",
+        "--write-out", "\n%{http_code}",
     ]
-    result = run(argv)
+    if follow_redirects:
+        argv.append("--location")
+    if body:
+        argv.extend(("--max-filesize", str(max_body)))
+    result = run(argv + [url])
     if body:
         payload, sep, raw_code = result.stdout.rpartition("\n")
-        encoded = payload.encode("utf-8")[:MAX_BODY]
+        encoded = payload.encode("utf-8")[:max_body]
         bounded = encoded.decode("utf-8", errors="replace")
     else:
         _, sep, raw_code = result.stdout.rpartition("\n")
@@ -50,12 +56,52 @@ def get(url, *, body=True):
         "status_code": int(raw_code) if sep and raw_code.isdigit() else None,
         "body_bytes": len(bounded.encode("utf-8")),
         "body_sha256": hashlib.sha256(bounded.encode()).hexdigest() if body and sep else None,
+        "redirects_followed": follow_redirects,
     }, bounded
 
 
 def ok_http(item):
     code = item.get("status_code")
-    return item.get("inspection_succeeded") and isinstance(code, int) and 200 <= code < 400
+    return item.get("inspection_succeeded") and isinstance(code, int) and 200 <= code < 300
+
+
+def parse_health_response(body):
+    try:
+        value = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    if value.get("status") != "ok" or value.get("database") != "connected":
+        return None
+    if not isinstance(value.get("version"), str) or not isinstance(value.get("build_sha"), str):
+        return None
+    return {
+        "status": value["status"],
+        "database": value["database"],
+        "version": value["version"],
+        "build_sha": value["build_sha"],
+    }
+
+
+def parse_anonymous_session(body):
+    try:
+        value = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    if value.get("authenticated") is not False:
+        return None
+    if value.get("user") is not None:
+        return None
+    if value.get("owner_claim_available", False) is not False:
+        return None
+    return {
+        "authenticated": False,
+        "owner_claim_available": False,
+        "has_user": False,
+    }
 
 
 def classify_index_bytes(payload: bytes, *, full_size: int) -> dict[str, object]:
@@ -100,7 +146,7 @@ if failures:
 
 head_result = run(["git", "rev-parse", "HEAD"])
 branch_result = run(["git", "branch", "--show-current"])
-dirty_result = run(["git", "status", "--porcelain", "--untracked-files=no"])
+dirty_result = run(["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=no"])
 receipt["repo"] = {
     "inspection_succeeded": head_result.returncode == branch_result.returncode == dirty_result.returncode == 0,
     "head": head_result.stdout.strip() if head_result.returncode == 0 else None,
@@ -138,11 +184,19 @@ if containers_result.returncode == 0:
 receipt["containers"] = {"inspection_succeeded": containers_result.returncode == 0, "items": containers}
 present = {item["name"] for item in containers}
 missing = sorted(wanted - present)
+unhealthy = sorted(
+    item["name"]
+    for item in containers
+    if not item["status"].lower().startswith("up ") or "(unhealthy)" in item["status"].lower()
+)
 if containers_result.returncode != 0:
     failures.append("container_inspection_failed")
 elif missing:
     failures.append("required_v3_container_missing")
+if unhealthy:
+    failures.append("required_v3_container_unhealthy")
 receipt["containers"]["missing"] = missing
+receipt["containers"]["unhealthy"] = unhealthy
 
 host_frontend = {
     "inspection_succeeded": True,
@@ -203,27 +257,19 @@ receipt["frontend_comparison"] = {
     ),
 }
 
-origin_root, _ = get(ORIGIN + "/", body=False)
-origin_health, health_body = get(ORIGIN + "/api/health")
-origin_session, session_body = get(ORIGIN + "/api/auth/session")
-origin_openapi, openapi_body = get(ORIGIN + "/openapi.json")
+# Origin checks deliberately do not follow redirects. A redirect to the public
+# edge must not be mistaken for proof that the loopback V3 origin is healthy.
+origin_root, _ = get(ORIGIN + "/", body=False, follow_redirects=False)
+origin_health, health_body = get(ORIGIN + "/api/health", follow_redirects=False)
+origin_session, session_body = get(ORIGIN + "/api/auth/session", follow_redirects=False)
+origin_openapi, openapi_body = get(
+    ORIGIN + "/openapi.json",
+    follow_redirects=False,
+    max_body=MAX_OPENAPI_BODY,
+)
 
-health_shape = None
-try:
-    health_shape = json.loads(health_body)
-except json.JSONDecodeError:
-    pass
-session_shape = None
-try:
-    parsed_session = json.loads(session_body)
-    if isinstance(parsed_session, dict):
-        session_shape = {
-            "authenticated": bool(parsed_session.get("authenticated")),
-            "owner_claim_available": bool(parsed_session.get("owner_claim_available")),
-            "has_user": parsed_session.get("user") is not None,
-        }
-except json.JSONDecodeError:
-    pass
+health_shape = parse_health_response(health_body)
+session_shape = parse_anonymous_session(session_body)
 required_oauth_paths = {
     "/api/auth/frontier/login",
     "/api/auth/frontier/callback",
@@ -242,7 +288,7 @@ except json.JSONDecodeError:
 receipt["origin"] = {
     "root": origin_root,
     "health": origin_health,
-    "health_response": health_shape if isinstance(health_shape, dict) else None,
+    "health_response": health_shape,
     "session": origin_session,
     "session_response": session_shape,
     "openapi": origin_openapi,
@@ -252,16 +298,34 @@ receipt["origin"] = {
 for label, item in (("root", origin_root), ("health", origin_health), ("session", origin_session), ("openapi", origin_openapi)):
     if not ok_http(item):
         failures.append(f"origin_{label}_failed")
+if health_shape is None:
+    failures.append("origin_health_shape_invalid")
+if session_shape is None:
+    failures.append("origin_session_shape_invalid")
 if required_oauth_paths - openapi_paths:
     failures.append("oauth_routes_missing")
 
-public_root, _ = get(PUBLIC + "/", body=False)
-public_health, _ = get(PUBLIC + "/api/health", body=False)
-public_session, _ = get(PUBLIC + "/api/auth/session", body=False)
-receipt["public"] = {"root": public_root, "health": public_health, "session": public_session}
+# The public root may follow a canonical redirect, but the API probes may not:
+# an HTML SPA fallback or redirect is not a healthy public API/auth surface.
+public_root, _ = get(PUBLIC + "/", body=False, follow_redirects=True)
+public_health, public_health_body = get(PUBLIC + "/api/health", follow_redirects=False)
+public_session, public_session_body = get(PUBLIC + "/api/auth/session", follow_redirects=False)
+public_health_shape = parse_health_response(public_health_body)
+public_session_shape = parse_anonymous_session(public_session_body)
+receipt["public"] = {
+    "root": public_root,
+    "health": public_health,
+    "health_response": public_health_shape,
+    "session": public_session,
+    "session_response": public_session_shape,
+}
 for label, item in (("root", public_root), ("health", public_health), ("session", public_session)):
     if not ok_http(item):
         failures.append(f"public_{label}_failed")
+if public_health_shape is None:
+    failures.append("public_health_shape_invalid")
+if public_session_shape is None:
+    failures.append("public_session_shape_invalid")
 
 receipt["failures"] = sorted(set(failures))
 receipt["status"] = "success" if not failures else "stopped"
