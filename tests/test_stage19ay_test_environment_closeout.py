@@ -159,10 +159,10 @@ def test_stage19ay_doc_and_roadmap_keep_production_activation_deferred():
     ):
         assert fragment in ay_doc
 
-    assert 'Stage 19AY is the completed docs/static test-environment and safety-programme closeout-preparation checkpoint.' in roadmap
-    assert '`stage20_planning_ready`' in roadmap
-    assert 'Stage 19 remains paused.' in roadmap
-    assert 'No DB commands, read-only DB queries, artifact checksum commands' in roadmap
+    assert 'Stage 19AY is the historical docs/static test-environment and safety-programme closeout-preparation checkpoint.' in roadmap
+    assert 'Stage 19AY closed with closeout classification `stage20_planning_ready`.' in roadmap
+    assert 'Stage 19 remains historical and paused' in roadmap
+    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
 
 
 @pytest.mark.unit
