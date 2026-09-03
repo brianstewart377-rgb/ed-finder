@@ -133,7 +133,6 @@ jobs:
 
       - name: Shell syntax check for guarded script paths
         run: |
-          bash -n setup.sh
           bash -n scripts/apply_migrations.sh
           bash -n scripts/baseline_migration_ledger.sh
           bash -n scripts/migrate_postgis.sh
@@ -213,7 +212,7 @@ jobs:
           pip install -r tests/requirements-ci.txt
           pip install httpx
 
-      - name: Apply schema + seed (with invariant checks)
+      - name: Apply schema + seed (with ON_ERROR_STOP)
         env:
           PGPASSWORD: edfinder
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
@@ -328,8 +327,8 @@ jobs:
 
   # ─── Frontend ───────────────────────────────────────────────────────
   # Catches the exact class of "file got swallowed by .gitignore" bug we
-  # hit on Hetzner. If `frontend/src/lib/api/index.ts` ever gets ignored
-  # again, this job fails on PR before it ever reaches production.
+  # hit on the former production host. If `frontend/src/lib/api/index.ts`
+  # ever gets ignored again, this job fails on PR before production promotion.
   v2:
     name: Frontend build
     needs: changes
@@ -398,8 +397,8 @@ jobs:
           bash scripts/package_frontend_bundle.sh --output artifacts/frontend-bundles/frontend-dist-ci.tar.gz
 
       - name: Upload dist artefact
-        # Lets us grab a build out of CI if we ever need to bypass the
-        # Hetzner build step (e.g. node/yarn unavailable on the dedi).
+        # Lets us grab a build out of CI if we ever need to bypass a
+        # host-side frontend build step.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-dist
@@ -412,7 +411,7 @@ jobs:
   # ─── Nginx config ───────────────────────────────────────────────────
   # `nginx -t` against our composed config catches the *other* class of
   # bug we hit (CSP/security-headers misconfiguration, /v2/ alias typos,
-  # etc.) without needing a Hetzner round-trip.
+  # etc.) without needing a production-host round-trip.
   nginx:
     name: Nginx config syntax
     runs-on: ubuntu-latest
