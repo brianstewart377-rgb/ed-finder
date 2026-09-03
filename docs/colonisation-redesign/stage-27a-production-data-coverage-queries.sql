@@ -1,6 +1,8 @@
 -- Stage 27A SELECT-only V3 data-coverage audit pack.
 -- Run only through an already-authorized read-only operator path.
--- This file performs no writes, DDL, locks, settings changes, or function calls.
+-- This file performs no writes, DDL, locks, settings changes, or unsafe function calls.
+-- Every statement has an explicit result-row LIMIT so a later authorized production
+-- run cannot accidentally materialize an unbounded detail set in the client.
 -- Report the database identity/time separately through the authorized wrapper;
 -- never add credentials to this file or command history.
 
@@ -11,7 +13,8 @@ SELECT
   COUNT(*) FILTER (WHERE main_star_type IS NOT NULL) AS with_main_star_type,
   MIN(updated_at) AS oldest_updated_at,
   MAX(updated_at) AS newest_updated_at
-FROM systems;
+FROM systems
+LIMIT 1;
 
 -- 2. Body population and physical/stellar properties.
 SELECT
@@ -36,7 +39,8 @@ SELECT
   COUNT(*) FILTER (WHERE absolute_magnitude IS NOT NULL) AS with_absolute_magnitude,
   MIN(updated_at) AS oldest_updated_at,
   MAX(updated_at) AS newest_updated_at
-FROM bodies;
+FROM bodies
+LIMIT 1;
 
 -- 3. Orbital descriptor coverage. Epoch is absent from the current schema.
 SELECT
@@ -55,7 +59,8 @@ SELECT
       AND ascending_node IS NOT NULL AND arg_of_periapsis IS NOT NULL
       AND mean_anomaly IS NOT NULL
   ) AS with_all_stored_orbital_elements
-FROM bodies;
+FROM bodies
+LIMIT 1;
 
 -- 4. Ring bands, association/provenance, and multiple-band population.
 SELECT association_status, source, confidence,
@@ -67,7 +72,8 @@ SELECT association_status, source, confidence,
        MAX(updated_at) AS newest_updated_at
 FROM body_rings
 GROUP BY association_status, source, confidence
-ORDER BY association_status, source, confidence;
+ORDER BY association_status, source, confidence
+LIMIT 200;
 
 SELECT COUNT(*) AS bodies_with_multiple_ring_rows
 FROM (
@@ -76,7 +82,8 @@ FROM (
   WHERE body_id IS NOT NULL AND association_status = 'local_matched'
   GROUP BY system_id64, body_id
   HAVING COUNT(*) > 1
-) AS multi;
+) AS multi
+LIMIT 1;
 
 -- 5. Station data and body association. Missing links stay missing.
 SELECT
@@ -88,26 +95,30 @@ SELECT
   COUNT(*) FILTER (WHERE has_market OR has_shipyard OR has_outfitting OR has_refuel OR has_repair OR has_rearm) AS with_selected_service,
   MIN(updated_at) AS oldest_updated_at,
   MAX(updated_at) AS newest_updated_at
-FROM stations;
+FROM stations
+LIMIT 1;
 
 SELECT association_status, lane, association_confidence, association_source,
        COUNT(*) AS links,
        COUNT(*) FILTER (WHERE body_id IS NOT NULL) AS with_body_id
 FROM station_body_links
 GROUP BY association_status, lane, association_confidence, association_source
-ORDER BY association_status, lane, association_confidence, association_source;
+ORDER BY association_status, lane, association_confidence, association_source
+LIMIT 200;
 
 -- 6. Defensive identity checks. Non-zero rows are unresolved audit findings;
 -- do not auto-repair or name-match them.
 SELECT COUNT(*) AS cross_system_station_body_links
 FROM station_body_links l
 JOIN bodies b ON b.id = l.body_id
-WHERE l.system_id64 <> b.system_id64;
+WHERE l.system_id64 <> b.system_id64
+LIMIT 1;
 
 SELECT COUNT(*) AS cross_system_ring_body_links
 FROM body_rings r
 JOIN bodies b ON b.id = r.body_id
-WHERE r.system_id64 <> b.system_id64;
+WHERE r.system_id64 <> b.system_id64
+LIMIT 1;
 
 -- 7. Personal exploration population by source/type without exposing sync keys.
 SELECT source, event_type, COUNT(*) AS facts,
@@ -118,7 +129,8 @@ SELECT source, event_type, COUNT(*) AS facts,
        MAX(observed_at) AS last_observed_at
 FROM exploration_facts
 GROUP BY source, event_type
-ORDER BY source, event_type;
+ORDER BY source, event_type
+LIMIT 200;
 
 SELECT
   COUNT(*) AS body_completeness_rows,
@@ -128,11 +140,13 @@ SELECT
   COUNT(*) FILTER (WHERE dss_state = 'mapped') AS mapped,
   COUNT(*) FILTER (WHERE first_discovered) AS first_discovered,
   COUNT(*) FILTER (WHERE first_mapped) AS first_mapped
-FROM exploration_body_completeness;
+FROM exploration_body_completeness
+LIMIT 1;
 
 SELECT
   (SELECT COUNT(*) FROM exploration_visits) AS visits,
   (SELECT COUNT(*) FROM exploration_expedition_routes) AS route_legs,
   (SELECT COUNT(*) FROM exobiology_organisms) AS organism_rows,
   (SELECT COUNT(*) FROM exobiology_sales) AS exobiology_sale_rows,
-  (SELECT COUNT(*) FROM codex_observations) AS codex_rows;
+  (SELECT COUNT(*) FROM codex_observations) AS codex_rows
+LIMIT 1;
