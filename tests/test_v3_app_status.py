@@ -111,6 +111,13 @@ def test_v3_app_status_compares_host_bundle_to_running_api_without_mutation():
     assert 'git pull' not in source
 
 
+def test_v3_app_status_fails_closed_when_repo_inspection_fails():
+    source = _read(ACTION)
+
+    assert 'if not receipt["repo"]["inspection_succeeded"]:' in source
+    assert 'failures.append("repo_inspection_failed")' in source
+
+
 def test_v3_app_status_rejects_unhealthy_required_containers():
     source = _read(ACTION)
 
