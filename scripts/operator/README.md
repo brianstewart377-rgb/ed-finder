@@ -42,6 +42,8 @@ In particular, the surviving Stage 19 staging tools are retained as historical/r
 - `stage19ba_bounded_production_staging_activation.py`
 - `stage19bb_first_production_staging_activation.py`
 
+The historical Stage 19BB execution evidence remains indexed by `docs/colonisation-redesign/stage-19bb-production-staging-execution-closeout.md`. That closeout is evidence of the completed bounded historical run, not permission to repeat it against V3.
+
 Historical shell wrappers that are no longer part of the active operator surface belong under `scripts/operator/archive/`, not back at the top level.
 
 ## Legacy migration data
