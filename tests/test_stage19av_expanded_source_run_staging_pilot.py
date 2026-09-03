@@ -80,7 +80,7 @@ def test_stage19av_records_completed_pilot_while_stage19_remains_paused():
     assert 'Stage 19 remains paused.' in av_doc
     assert 'No canonical apply is complete.' in av_doc
     assert 'No rebaseline is complete.' in av_doc
-    assert 'Stage 19AV is the completed expanded controlled source-run staging pilot lane after Stage 19AU.' in roadmap
+    assert 'Stage 19AV is the completed expanded controlled source-run staging pilot lane.' in roadmap
     assert '250 read, 250 staged, 0 rejected, and 0 skipped' in roadmap
 
 
