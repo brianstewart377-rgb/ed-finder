@@ -64,7 +64,15 @@ If a requested production action is not present in the current V3 operator surfa
 
 ## Operator scripts
 
-`scripts/operator/` contains current replacement-host helpers only. Read `scripts/operator/README.md` before executing anything from that directory.
+`scripts/operator/` is a mixed repository-tooling directory, not a blanket production-operator namespace.
+
+The only current replacement-host helpers presently identified by the V3 control plane are:
+
+- `scripts/operator/actions/octopus-edge-status.sh`;
+- `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
+- `scripts/operator/recover_v3_runtime_contract.py`.
+
+Other scripts in that directory, including surviving Stage 19 staging/research tools, are **not** current V3 production authority merely because they are checked in. Read `scripts/operator/README.md` and require an explicitly current V3 workflow/runbook before executing any operator script against production.
 
 ## Final recommendation
 
