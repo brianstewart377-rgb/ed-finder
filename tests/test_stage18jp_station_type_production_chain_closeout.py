@@ -21,6 +21,7 @@ P18M_PATH = DOCS / 'stage-18j-p18m-dodec-and-bounded-station-type-write-closeout
 P18N_PATH = DOCS / 'stage-18j-p18n-final-state-snapshot.md'
 
 OPERATOR_DRY_RUN_SCRIPT = ROOT / 'scripts' / 'operator' / 'stage18j_run_station_type_dry_run.sh'
+RETIRED_WRAPPER_MANIFEST = ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'README.md'
 MIGRATION_SQL = ROOT / 'sql' / '027_station_external_identity.sql'
 
 
@@ -44,6 +45,8 @@ def test_stage18jp_authority_records_strict_filter_and_bounded_batch_closeout():
     assert stage18jpfilter['identity_proof_sources'] == ['market_id', 'edsm_station_id']
     assert stage18jpfilter['dry_run_only'] is True
 
+    # Historical state-authority records what was true when Stage 18J closed.
+    # It is evidence, not a requirement that the Hetzner-era wrapper remain runnable in V3.
     assert authority['stage18jpdryrunops']['operator_wrapper_present'] is True
     assert authority['stage18jp2']['identity_coverage_summary_supported'] is True
     assert authority['stage18jp7']['station_external_identity_table_present'] is True
@@ -53,10 +56,11 @@ def test_stage18jp_authority_records_strict_filter_and_bounded_batch_closeout():
     assert authority['stage18jp18n']['stage18_complete_for_bounded_batch'] is True
 
 
-def test_stage18jp_docs_scripts_migration_and_ci_parity_exist():
+def test_stage18jp_docs_migration_ci_parity_and_retirement_evidence_exist():
     readme = _read(README_PATH)
     closeout = _read(STAGE21_CLOSEOUT_PATH)
     parity = _read(LOCAL_CI_PARITY)
+    retired_manifest = _read(RETIRED_WRAPPER_MANIFEST)
 
     for path in (
         P_FILTER_PATH,
@@ -67,10 +71,15 @@ def test_stage18jp_docs_scripts_migration_and_ci_parity_exist():
         P16A_PATH,
         P18M_PATH,
         P18N_PATH,
-        OPERATOR_DRY_RUN_SCRIPT,
+        RETIRED_WRAPPER_MANIFEST,
         MIGRATION_SQL,
     ):
         assert path.exists()
+
+    assert not OPERATOR_DRY_RUN_SCRIPT.exists()
+    assert '`stage18j_run_station_type_dry_run.sh`' in retired_manifest
+    assert 'fully retired' in retired_manifest
+    assert 'runnable wrapper bodies are intentionally not carried into the V3 repository surface' in retired_manifest
 
     assert 'stage-18j-p18n-final-state-snapshot.md' in readme
     assert 'Stage 18J-P18 is complete for the bounded reviewed batch' in closeout
