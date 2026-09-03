@@ -42,12 +42,20 @@ def test_root_residue_is_archived_out_of_repo_root():
     assert (ROOT / 'docs' / 'archive' / 'root-residue' / 'full-stack-adversarial-audit-v1-duplicate-download.md').exists()
 
 
-def test_stage18j_historical_wrappers_are_archived_out_of_top_level_operator_surface():
-    assert not (ROOT / 'scripts' / 'operator' / 'stage18j_run_compact_summary.sh').exists()
-    assert not (ROOT / 'scripts' / 'operator' / 'stage18j_run_identity_review_packet.sh').exists()
-    assert not (ROOT / 'scripts' / 'operator' / 'stage18j_run_identity_load_dry_run.sh').exists()
-    assert not (ROOT / 'scripts' / 'operator' / 'stage18j_run_identity_approval_allowlist.sh').exists()
-    assert (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'stage18j_run_compact_summary.sh').exists()
-    assert (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'stage18j_run_identity_review_packet.sh').exists()
-    assert (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'stage18j_run_identity_load_dry_run.sh').exists()
-    assert (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'stage18j_run_identity_approval_allowlist.sh').exists()
+def test_stage18j_historical_wrappers_are_retired_out_of_operator_surface():
+    wrapper_names = (
+        'stage18j_run_compact_summary.sh',
+        'stage18j_run_identity_review_packet.sh',
+        'stage18j_run_identity_load_dry_run.sh',
+        'stage18j_run_identity_approval_allowlist.sh',
+    )
+    for name in wrapper_names:
+        assert not (ROOT / 'scripts' / 'operator' / name).exists()
+        assert not (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / name).exists()
+
+    manifest = (ROOT / 'scripts' / 'operator' / 'archive' / 'stage18j' / 'README.md').read_text(encoding='utf-8')
+    assert 'Hetzner-only operator entry points' in manifest
+    assert 'fully retired' in manifest
+    assert 'runnable wrapper bodies are intentionally not carried into the V3 repository surface' in manifest
+    for name in wrapper_names:
+        assert f'`{name}`' in manifest
