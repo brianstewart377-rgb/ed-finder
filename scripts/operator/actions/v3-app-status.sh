@@ -153,6 +153,8 @@ receipt["repo"] = {
     "branch": branch_result.stdout.strip() if branch_result.returncode == 0 else None,
     "tracked_changes_present": bool(dirty_result.stdout.strip()) if dirty_result.returncode == 0 else None,
 }
+if not receipt["repo"]["inspection_succeeded"]:
+    failures.append("repo_inspection_failed")
 
 listeners_result = run(["ss", "-H", "-lnt"])
 listener_text = listeners_result.stdout
