@@ -21,7 +21,7 @@ The intended spatial direction is a Babylon 9-class workbench. Colony Planner re
 
 ### Named runtime exception: EDDN simulation ingest
 
-The EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, controlled by `EDDN_SIMULATION_INGEST_ENABLED` and defaulting on) is a deliberate named exception to the deferred journal-import automation boundary. It consumes the live public EDDN feed and is not authorization for a general journal-import scheduler, service, or timer. Preserve that distinction when changing ingest or automation behaviour.
+The EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, controlled by `EDDN_SIMULATION_INGEST_ENABLED` and defaulting on) is a deliberate named exception to the deferred journal-import automation boundary. It consumes the live public EDDN feed and is not authorization for a general journal-import scheduler, service, timer, or **journal-import canonical promotion**. Preserve that distinction when changing ingest or automation behaviour.
 
 ## Repository state
 
@@ -122,7 +122,9 @@ The required `Review Lab` GitHub Actions workflow exercises the browser review j
 
 ## CI and acceptance
 
-Every pull request must satisfy the canonical [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md) before merge. Acceptance is fail-closed and must apply to the exact latest PR head SHA.
+Every pull request must satisfy the canonical [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md) before merge. Acceptance is fail-closed and must apply to the **exact latest PR head SHA**.
+
+Both Codex Review (`chatgpt-codex-connector`) and Octopus Review must satisfy that policy for the exact latest PR head SHA. **Green CI alone is insufficient**: every substantive reviewer finding must have an explicit recorded disposition and no substantive unresolved thread may remain before merge.
 
 Required checks are defined by branch protection and current workflows. Do not weaken tests just to make a PR green.
 
