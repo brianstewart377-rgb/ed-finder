@@ -29,12 +29,10 @@ def test_manual_drift_check_is_loud_and_never_deploys():
     assert 'git rev-parse origin/main' in check
     assert 'git rev-list --count "$liveSha..origin/main"' in check
     assert 'DEPLOY DRIFT:' in check
-    assert 'scripts/release-main-to-prod.ps1' in check
-    assert '& scripts/release-main-to-prod.ps1' not in check
+    assert 'Do not use a retired V2/Hetzner release wrapper.' in check
+    assert 'current V3 production runbook/operator path' in check
+    assert 'scripts/release-main-to-prod.ps1' not in check
 
 
-def test_release_wrapper_requires_the_live_sha_to_match():
-    release = _read('scripts', 'release-main-to-prod.ps1')
-
-    assert "$health.build_sha -ne (git rev-parse HEAD).Trim()" in release
-    assert 'Public build SHA matches local HEAD' in release
+def test_v2_release_wrapper_is_retired():
+    assert not (ROOT / 'scripts' / 'release-main-to-prod.ps1').exists()
