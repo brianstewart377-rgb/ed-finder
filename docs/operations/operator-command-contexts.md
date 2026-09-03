@@ -68,6 +68,7 @@ If a requested production action is not present in the current V3 operator surfa
 
 The only current replacement-host helpers presently identified by the V3 control plane are:
 
+- `scripts/operator/actions/v3-app-status.sh`;
 - `scripts/operator/actions/octopus-edge-status.sh`;
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
 - `scripts/operator/recover_v3_runtime_contract.py`.
