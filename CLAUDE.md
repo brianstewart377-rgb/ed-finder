@@ -19,6 +19,10 @@ Stage 27 — One Spatial Platform is current. The roadmap controls which slice i
 
 The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
 
+### Named runtime exception: EDDN simulation ingest
+
+The EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, controlled by `EDDN_SIMULATION_INGEST_ENABLED` and defaulting on) is a deliberate named exception to the deferred journal-import automation boundary. It consumes the live public EDDN feed and is not authorization for a general journal-import scheduler, service, or timer. Preserve that distinction when changing ingest or automation behaviour.
+
 ## Repository state
 
 `main` is protected. Normal changes go through a branch and pull request.
@@ -117,6 +121,8 @@ Run focused map/planner/operator/E2E checks when those surfaces are touched.
 The required `Review Lab` GitHub Actions workflow exercises the browser review journey on pull requests.
 
 ## CI and acceptance
+
+Every pull request must satisfy the canonical [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md) before merge. Acceptance is fail-closed and must apply to the exact latest PR head SHA.
 
 Required checks are defined by branch protection and current workflows. Do not weaken tests just to make a PR green.
 
