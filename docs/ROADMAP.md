@@ -265,8 +265,7 @@ competing roadmap source.
   checksum-ledger implementation closes that code/process gap. Current V3
   production bookkeeping is not inferred from the old V2 ledger receipt.
 - Backup/restore automation and a disposable restore rehearsal established the
-  historical minimum V2 restore-readiness baseline. They do **not** constitute a
-  V3 PostgreSQL 18 recovery runbook; `docs/operations/infrastructure-status.md`
+  historical minimum V2 restore-readiness baseline. They do **not** constitute a V3 PostgreSQL 18 recovery runbook; `docs/operations/infrastructure-status.md`
   explicitly fails closed on that missing current procedure.
 - The V2 ratings rebaseline was operationally incomplete and invisible; its
   eventual repair/receipts remain migration evidence, not a current V3 row-state
@@ -563,14 +562,13 @@ Read these when a task needs more detail than this roadmap provides:
   blocking Stage 19 source runs and the absence of canonical apply/write
   evidence at that checkpoint.
 - Stage 19AV is the completed expanded controlled source-run staging pilot lane.
-- Historical Stage 19AV evidence records `250` read, `250` staged, `0` rejected, and `0` skipped.
+- Historical Stage 19AV evidence records 250 read, 250 staged, 0 rejected, and 0 skipped.
 - Stage 19AW is the historical post-AV paused-state decision checkpoint.
 - Stage 19AX is the completed historical read-only AV safety-gate verification.
 - Stage 19AX does not authorize any current write lane.
 - Stage 19AY is the historical docs/static test-environment and safety-programme closeout-preparation checkpoint.
 - Stage 19AY closed with closeout classification `stage20_planning_ready`.
-- Stage 19 remains historical and paused; none of these checkpoints authorizes
-  current V3 DB commands, queries or write lanes.
+- Stage 19 remains historical and paused; none of these checkpoints authorizes current V3 DB commands, queries or write lanes.
 - Historical Stage 19BB notes preserve the bounded production-staging
   authorization dependency, execution closeout and recorded EDSM source refresh
   reason. “Production” in those filenames/text means the former V2 environment.
