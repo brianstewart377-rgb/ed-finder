@@ -32,12 +32,28 @@ FORBIDDEN_PATTERNS = (
     r'\bDO\s+\$\$',
     r'\bCOPY\b',
     r'\bFOR\s+(UPDATE|SHARE)\b',
-    # SELECT can still cause session side effects through functions. Block the
-    # whole PostgreSQL advisory-lock family plus function-based settings changes.
+    # Defense in depth for known PostgreSQL side-effect families.
     r'\bpg_(?:try_)?advisory_[a-z_]*\s*\(',
     r'\bset_config\s*\(',
     r'refresh_map_mviews\s*\(',
 )
+# Function-like syntax in the pack is deliberately tiny. SQL structural words
+# that can appear immediately before '(' are included here too; any other
+# identifier-call surface (for example pg_notify()) fails closed.
+SAFE_CALL_TOKENS = {
+    'count',
+    'min',
+    'max',
+    'coalesce',
+    'jsonb_agg',
+    'jsonb_build_object',
+    'row_number',
+    'filter',
+    'distinct',
+    'from',
+    'over',
+}
+CALL_TOKEN_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\s*\(')
 
 
 def _raw_sql() -> str:
@@ -71,9 +87,12 @@ def _statement_limit(statement: str) -> int:
     return int(outer.group(1))
 
 
-def _assert_no_forbidden_patterns(statement: str) -> None:
+def _assert_safe_select_surface(statement: str) -> None:
     for pattern in FORBIDDEN_PATTERNS:
         assert re.search(pattern, statement, flags=re.IGNORECASE) is None, pattern
+    call_tokens = {match.group(1).lower() for match in CALL_TOKEN_RE.finditer(statement)}
+    unknown = sorted(call_tokens - SAFE_CALL_TOKENS)
+    assert not unknown, f'coverage statement uses non-allowlisted call surface: {unknown}'
 
 
 def test_stage27a_coverage_pack_is_bounded_select_only_sql():
@@ -85,7 +104,7 @@ def test_stage27a_coverage_pack_is_bounded_select_only_sql():
     for statement in statements:
         limit = _statement_limit(statement)
         assert 1 <= limit <= MAX_RESULT_ROWS
-        _assert_no_forbidden_patterns(statement)
+        _assert_safe_select_surface(statement)
 
 
 def test_stage27a_limit_guard_rejects_nested_only_bounds():
@@ -102,11 +121,23 @@ def test_stage27a_select_guard_blocks_function_side_effects():
         "SELECT set_config('statement_timeout', '0', false) LIMIT 1",
         'SELECT pg_try_advisory_lock(1) LIMIT 1',
         'SELECT pg_try_advisory_xact_lock_shared(1) LIMIT 1',
+        "SELECT pg_notify('audit', 'payload') LIMIT 1",
     ):
-        assert any(
-            re.search(pattern, malicious, flags=re.IGNORECASE)
-            for pattern in FORBIDDEN_PATTERNS
-        ), malicious
+        with pytest.raises(AssertionError):
+            _assert_safe_select_surface(malicious)
+
+
+def test_stage27a_ring_breakdown_accounts_for_every_group_with_bounded_payload():
+    ring_breakdown = _statements()[3]
+
+    assert _statement_limit(ring_breakdown) == 1
+    assert 'COUNT(*) AS provenance_groups' in ring_breakdown
+    assert 'COUNT(*) FILTER (WHERE group_rank > 200) AS omitted_groups' in ring_breakdown
+    assert 'ROW_NUMBER() OVER (' in ring_breakdown
+    assert ') FILTER (WHERE group_rank <= 200)' in ring_breakdown
+    assert 'jsonb_agg(' in ring_breakdown
+    assert 'GROUP BY association_status, source, confidence' in ring_breakdown
+    assert 'LIMIT 200' not in ring_breakdown
 
 
 def test_stage27a_station_association_breakdown_preserves_every_group():
@@ -117,6 +148,19 @@ def test_stage27a_station_association_breakdown_preserves_every_group():
     assert 'jsonb_agg(' in station_breakdown
     assert 'GROUP BY association_status, lane, association_confidence, association_source' in station_breakdown
     assert 'LIMIT 200' not in station_breakdown
+
+
+def test_stage27a_exploration_breakdown_accounts_for_every_group_with_bounded_payload():
+    exploration_breakdown = _statements()[9]
+
+    assert _statement_limit(exploration_breakdown) == 1
+    assert 'COUNT(*) AS event_groups' in exploration_breakdown
+    assert 'COUNT(*) FILTER (WHERE group_rank > 200) AS omitted_groups' in exploration_breakdown
+    assert 'ROW_NUMBER() OVER (ORDER BY source, event_type)' in exploration_breakdown
+    assert ') FILTER (WHERE group_rank <= 200)' in exploration_breakdown
+    assert 'jsonb_agg(' in exploration_breakdown
+    assert 'GROUP BY source, event_type' in exploration_breakdown
+    assert 'LIMIT 200' not in exploration_breakdown
 
 
 def test_stage27a_coverage_pack_does_not_expose_credentials_or_commander_keys():
