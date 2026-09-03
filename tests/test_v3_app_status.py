@@ -30,6 +30,7 @@ def test_v3_app_status_has_fixed_read_only_runtime_targets():
     assert 'ORIGIN = "http://127.0.0.1:58080"' in source
     assert 'PUBLIC = "https://ed-finder.app"' in source
     assert 'API_CONTAINER = "edfinder-v3-api"' in source
+    assert 'HOST_FRONTEND_INDEX = Path("/opt/ed-finder/frontend/dist/index.html")' in source
     assert '"direct_db_access_performed": False' in source
     assert '"application_health_may_read_db": True' in source
     assert '"db_writes_performed": False' in source
@@ -58,7 +59,6 @@ def test_v3_app_status_has_fixed_read_only_runtime_targets():
 def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login():
     source = _read(ACTION)
 
-    assert "get(ORIGIN + '/api/health')" not in source  # double-quoted source stays explicit below
     assert 'get(ORIGIN + "/api/health")' in source
     assert 'get(ORIGIN + "/api/auth/session")' in source
     assert 'get(ORIGIN + "/openapi.json")' in source
@@ -77,6 +77,21 @@ def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login()
         '/api/auth/owner/claim',
     ):
         assert path in source
+
+
+def test_v3_app_status_compares_host_bundle_to_running_api_without_mutation():
+    source = _read(ACTION)
+
+    assert '["git", "rev-parse", "HEAD"]' in source
+    assert '["git", "status", "--porcelain", "--untracked-files=no"]' in source
+    assert 'receipt["host_frontend"]' in source
+    assert '"host_bundle_available"' in source
+    assert '"host_matches_running"' in source
+    assert 'Path("/opt/ed-finder/frontend/dist/index.html")' in source
+    assert '/app/frontend/index.html' in source
+    assert 'git reset' not in source
+    assert 'git checkout' not in source
+    assert 'git pull' not in source
 
 
 def test_v3_app_status_shell_syntax_is_valid():
