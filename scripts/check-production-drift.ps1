@@ -25,7 +25,7 @@ try {
     Write-Host @"
 DEPLOY DRIFT UNKNOWN: $healthUrl did not report a full build_sha.
 Live value: '$liveSha'
-Deploy the build-SHA instrumentation once, then rerun this check.
+Use the current V3 production runbook/operator path to verify the deployed build before taking action.
 "@ -ForegroundColor Red
     exit 2
   }
@@ -42,7 +42,7 @@ Deploy the build-SHA instrumentation once, then rerun this check.
 DEPLOY DRIFT: production is $behind commit(s) behind origin/main.
 Production:  $liveSha
 origin/main: $mainSha
-If the owner has approved promotion, run scripts/release-main-to-prod.ps1.
+Do not use a retired V2/Hetzner release wrapper. Follow the current V3 production runbook/operator path for any approved promotion.
 "@ -ForegroundColor Red
     exit 1
   }
@@ -51,7 +51,7 @@ If the owner has approved promotion, run scripts/release-main-to-prod.ps1.
 DEPLOY DIVERGENCE: production is not an ancestor of origin/main.
 Production:  $liveSha
 origin/main: $mainSha
-Inspect the production checkout before deploying.
+Inspect the current V3 deployment state through the authorized production operator path before taking action.
 "@ -ForegroundColor Red
   exit 3
 }
