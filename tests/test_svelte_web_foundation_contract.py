@@ -33,6 +33,55 @@ def test_v3_web_uses_the_locked_svelte_node_and_pnpm_foundation():
     assert (WEB / "pnpm-lock.yaml").is_file()
 
 
+def test_v3_web_lib_modules_are_not_hidden_by_the_root_python_ignore_rule():
+    root_gitignore = _read(".gitignore").splitlines()
+
+    assert "lib/" in root_gitignore
+    assert "!apps/web/src/lib/" in root_gitignore
+    assert "!apps/web/src/lib/**" in root_gitignore
+
+
+def test_v3_web_uses_locked_lint_and_format_tooling():
+    package = _package_json(WEB / "package.json")
+    dev_dependencies = package["devDependencies"]
+    eslint_config = _read("apps", "web", "eslint.config.js")
+
+    assert dev_dependencies["eslint"].lstrip("^~").startswith("10.")
+    assert "eslint-plugin-svelte" in dev_dependencies
+    assert "typescript-eslint" in dev_dependencies
+    assert dev_dependencies["prettier"].lstrip("^~").startswith("3.")
+    assert "prettier-plugin-svelte" in dev_dependencies
+    assert "eslint" in package["scripts"]["lint"]
+    assert "prettier --check" in package["scripts"]["format:check"]
+    assert "svelte-check" in package["scripts"]["check"]
+    assert "eslint-plugin-svelte" in eslint_config
+
+
+def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
+    client = _read("apps", "web", "src", "lib", "api", "client.ts")
+
+    assert "from './generated/sdk.gen'" in client
+    assert "generatedGetHealth" in client
+    assert "generatedGetAuthSession" in client
+    assert "fetch(" not in client
+    assert "getJson" not in client
+
+
+def test_svelte_ci_checks_generated_client_quality_and_build():
+    workflow = _read(".github", "workflows", "ci.yml")
+
+    for command in (
+        "pnpm generate:api",
+        "git diff --exit-code -- src/lib/api/generated",
+        "pnpm check",
+        "pnpm lint",
+        "pnpm format:check",
+        "pnpm test",
+        "pnpm build",
+    ):
+        assert command in workflow
+
+
 def test_legacy_react_frontend_remains_migration_reference():
     legacy_package = _package_json(ROOT / "frontend" / "package.json")
     readme = _read("README.md")

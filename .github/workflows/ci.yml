@@ -356,10 +356,16 @@ jobs:
           corepack prepare pnpm@11.25.0 --activate
       - name: Install locked Svelte dependencies
         run: pnpm install --frozen-lockfile
+      - name: Check generated bootstrap API client drift
+        run: |
+          pnpm generate:api
+          git diff --exit-code -- src/lib/api/generated
       - name: Type-check Svelte application
         run: pnpm check
       - name: Lint Svelte application
         run: pnpm lint
+      - name: Check Svelte formatting
+        run: pnpm format:check
       - name: Run Svelte unit tests
         run: pnpm test
       - name: Build static Svelte application
