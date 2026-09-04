@@ -4,6 +4,7 @@ import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
 
 const source = process.env.OPENAPI_INPUT?.trim();
+const fetch = globalThis.fetch;
 
 if (!source) {
   throw new Error(
@@ -16,7 +17,7 @@ const output = path.join(webRoot, '.svelte-kit', 'openapi.json');
 
 async function readOpenApiSource(input) {
   if (/^https?:\/\//i.test(input)) {
-    const response = await globalThis.fetch(input, {
+    const response = await fetch(input, {
       headers: { accept: 'application/json' },
     });
 
