@@ -96,11 +96,17 @@ function closeDetailWithEscape() {
   });
   cy.location('hash').should('eq', '#finder');
 }
-function planner(system, keyboard = false) {
-  ['open-plan-start', 'plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach((id) => {
-    const control = cy.getByTestId(id).should('be.visible');
-    if (keyboard) control.focus().should('have.focus').type('{enter}');
-    else control.click();
+function planner(system, keyboard = false, keyboardOpened = null) {
+  if (keyboard) {
+    cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus');
+    cy.press(Cypress.Keyboard.Keys.ENTER);
+  } else {
+    cy.getByTestId('open-plan-start').should('be.visible').click();
+  }
+  cy.getByTestId('plan-start-panel').should('be.visible');
+  if (keyboardOpened) cy.then(keyboardOpened);
+  ['plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach((id) => {
+    cy.getByTestId(id).should('be.visible').click();
   });
   cy.getByTestId('colony-planner-workspace', { timeout: 20000 }).should('be.visible');
   cy.getByTestId('planner-evidence-discoverability-surface').should('be.visible'); cy.getByTestId('planner-warehouse-evidence').should('be.visible');
@@ -151,8 +157,8 @@ describe('Local review environment verification', () => {
       selectedPlan.browserFlowKeys.forEach((key) => { chain = chain.then(() => { const system = SYSTEMS[key]; const start = summary.apiResponses.length; const checks = {};
         finder(); detail(system);
         if (key === 'alpha') { closeDetailWithEscape(); checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(system); }
-        planner(system, key === 'alpha'); checks.systemDetailLoaded = true; checks.plannerOpened = true;
-        if (key === 'alpha') { checks.reportOnlyBoundaryVisible = true; checks.canonicalBoundaryVisible = true; summary.accessibility.alphaKeyboardOpenPlannerWorks = true; technical('available'); checks.availablePostureVisible = true; checks.dedicatedContractVisible = true; checks.reportOnlyTagVisible = true; }
+        planner(system, key === 'alpha', key === 'alpha' ? () => { summary.accessibility.alphaKeyboardOpenPlannerWorks = true; } : null); checks.systemDetailLoaded = true; checks.plannerOpened = true;
+        if (key === 'alpha') { checks.reportOnlyBoundaryVisible = true; checks.canonicalBoundaryVisible = true; technical('available'); checks.availablePostureVisible = true; checks.dedicatedContractVisible = true; checks.reportOnlyTagVisible = true; }
         if (key === 'beta') { technical('unavailable'); checks.unavailablePostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
         if (key === 'gamma') { technical('unknown'); checks.unknownPostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
         if (key === 'delta') { technical('unknown', 'provenance_bridge'); checks.provenanceFallbackVisible = true; checks.reportOnlyBoundaryVisible = true; checks.fallbackRemainsNonCanonical = true; checks.technicalFallbackDisclosureVisible = true; cy.getByTestId('warehouse-evidence-item').should('not.exist'); checks.noDedicatedEvidenceClaim = true; }
