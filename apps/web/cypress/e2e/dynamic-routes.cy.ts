@@ -26,9 +26,7 @@ describe('ED-Finder static dynamic-route fallback', () => {
     const canonical =
       '/colony-planner/system/18446744073709551615/project/project-1/mode/preview';
 
-    cy.visit(
-      `${canonical}/detail/9007199254740993?view=compact&system=42`,
-    );
+    cy.visit(`${canonical}/detail/9007199254740993?view=compact&system=42`);
     cy.location('pathname').should('eq', canonical);
     cy.location('search').should('include', 'view=compact');
     cy.location('search').should('include', 'system=9007199254740993');

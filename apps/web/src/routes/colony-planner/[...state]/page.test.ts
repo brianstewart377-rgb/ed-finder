@@ -28,9 +28,7 @@ function captureThrown(runRoute: () => unknown): {
 describe('Colony Planner route loader', () => {
   it('parses the canonical system, project, and mode grammar losslessly', () => {
     expect(
-      run(
-        'system/18446744073709551615/project/project%20one/mode/preview',
-      ),
+      run('system/18446744073709551615/project/project%20one/mode/preview'),
     ).toEqual({
       system: '18446744073709551615',
       project: 'project one',
