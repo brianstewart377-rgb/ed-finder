@@ -33,7 +33,7 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -42,13 +42,14 @@ jobs:
       update_existing: ${{ steps.request.outputs.update_existing }}
       expected_remote_sha: ${{ steps.request.outputs.expected_remote_sha }}
       base_sha: ${{ steps.request.outputs.base_sha }}
+      main_sha: ${{ steps.request.outputs.main_sha }}
     steps:
       - name: Checkout trusted main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          fetch-depth: 10
+          fetch-depth: 0
           ref: main
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Resolve immutable request routing
         id: request
@@ -68,6 +69,7 @@ jobs:
             *) echo "unsupported mode: $mode" >&2; exit 64 ;;
           esac
 
+          main_sha="$(git rev-parse HEAD)"
           update_existing=false
           expected_remote_sha=""
           if [ -n "$target_branch" ]; then
@@ -85,14 +87,14 @@ jobs:
                 exit 64
                 ;;
             esac
-            git fetch origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch" --depth=20
+            git fetch --no-tags origin "+refs/heads/$target_branch:refs/remotes/origin/$target_branch"
             branch="$target_branch"
             base_sha="$(git rev-parse "refs/remotes/origin/$target_branch")"
             expected_remote_sha="$base_sha"
             update_existing=true
           else
             branch="codex/run-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-            base_sha="$(git rev-parse HEAD)"
+            base_sha="$main_sha"
           fi
 
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
@@ -100,39 +102,183 @@ jobs:
           echo "update_existing=$update_existing" >> "$GITHUB_OUTPUT"
           echo "expected_remote_sha=$expected_remote_sha" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "main_sha=$main_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Seal trusted source bundle
+        id: source
+        shell: bash
+        env:
+          CODEX_UPDATE_EXISTING: ${{ steps.request.outputs.update_existing }}
+          CODEX_BRANCH: ${{ steps.request.outputs.branch }}
+          CODEX_MAIN_SHA: ${{ steps.request.outputs.main_sha }}
+          CODEX_BASE_SHA: ${{ steps.request.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          bundle="$RUNNER_TEMP/codex-source.bundle"
+          rm -f "$bundle"
+          git update-ref refs/heads/codex-source-main "$CODEX_MAIN_SHA"
+          refs=(refs/heads/codex-source-main)
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            observed="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            [ "$observed" = "$CODEX_BASE_SHA" ] || {
+              echo "::error::Prepared target branch changed while sealing source bundle."
+              exit 70
+            }
+            git update-ref refs/heads/codex-source-target "$CODEX_BASE_SHA"
+            refs+=(refs/heads/codex-source-target)
+          fi
+          git bundle create "$bundle" "${refs[@]}"
+          git bundle verify "$bundle" >/dev/null
+          echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+
+      - name: Upload trusted source bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: codex-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.source.outputs.bundle }}
+          if-no-files-found: error
+          retention-days: 1
 
   codex:
     needs: prepare
-    runs-on: [self-hosted, Linux, X64]
+    # The `codex-ephemeral` label must be applied ONLY to disposable single-use
+    # Codex runners (see the boundary gate below). The generic
+    # [self-hosted, Linux, X64] set alone would let an ordinary reused
+    # self-hosted runner in a mixed pool accept the job and then hit the
+    # fail-closed boundary gate, causing nondeterministic dispatch failures.
+    runs-on: [self-hosted, Linux, X64, codex-ephemeral]
     timeout-minutes: 120
     permissions:
-      contents: read
+      actions: read
     steps:
-      - name: Checkout main
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 10
-          ref: main
-          persist-credentials: false
-
-      - name: Switch to main workspace
+      - name: Require disposable single-use execution boundary
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin '+refs/heads/main:refs/remotes/origin/main' --depth=10
-          git checkout -B main refs/remotes/origin/main
-          git reset --hard refs/remotes/origin/main
-          git clean -ffdx
+          # A job cannot establish a fresh trust boundary from inside the
+          # environment it is already running in. It cannot reliably enumerate
+          # or terminate root/other-UID helpers or containers left behind by a
+          # prior arbitrary-code run, and killing every same-UID process would
+          # also destroy sibling runner listeners and unrelated services. So
+          # this job does not attempt in-process quarantine. Instead it
+          # *requires* that trusted host infrastructure provisioned this runner
+          # as a single-use, disposable boundary (an ephemeral runner registered
+          # with --ephemeral on a fresh VM/container that is destroyed after one
+          # job) and attested that with a runner-service environment marker.
+          #
+          # Job-level code cannot forge this marker for a later job: a step can
+          # only affect its own job's later steps (via $GITHUB_ENV), never the
+          # runner service process that a subsequent job inherits its
+          # environment from, and on a genuinely disposable runner there is no
+          # subsequent job to compromise. The value is read from the runner
+          # process environment (the runner .env / service definition), NOT from
+          # any workflow-level GitHub Actions expression, so it stays host-owned
+          # and cannot be set by repository contents.
+          if [ "${CODEX_WORKER_EPHEMERAL_BOUNDARY:-}" != "1" ]; then
+            echo "::error::Refusing to run Codex: this runner is not attested as a disposable single-use boundary. The host owner must provision the Codex runner as an ephemeral one-job runner and set CODEX_WORKER_EPHEMERAL_BOUNDARY=1 in the runner service environment (see docs/development/chatgpt-ops-control-plane.md). Do not set this on a reused runner."
+            exit 72
+          fi
+          echo "CODEX_RUNNER_DISPOSABLE_BOUNDARY=ATTESTED"
+
+      - name: Download trusted source bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: codex-source-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/codex-source
+
+      - name: Reconstruct credential-free workspace
+        id: reconstruct
+        shell: bash
+        env:
+          CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
+          CODEX_MAIN_SHA: ${{ needs.prepare.outputs.main_sha }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
+        run: |
+          set -euo pipefail
+          trusted_git=/usr/bin/git
+          [ -x "$trusted_git" ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          bundle="$RUNNER_TEMP/codex-source/codex-source.bundle"
+          [ -f "$bundle" ] || { echo "::error::Trusted source bundle is missing." >&2; exit 70; }
+
+          # Record where the runner user's Codex CLI login lives BEFORE isolating
+          # HOME, and publish it as a STEP OUTPUT (not $GITHUB_ENV). A step output
+          # is injected only into steps that explicitly reference it via ${{ }},
+          # so only the two sandboxed `codex exec` steps below receive the path.
+          # Writing it to $GITHUB_ENV instead would broadcast it to every later
+          # step in the job — including the untrusted target-branch validator and
+          # pinned-dependency install — which is exactly the pre-sandbox exposure
+          # we are avoiding. HOME stays isolated job-wide, so that untrusted code
+          # also cannot reach the login through the default ~/.codex lookup, and
+          # `codex exec` still authenticates. The disposable single-use runner
+          # bounds any residual same-UID absolute-path read of the login to one
+          # throwaway job; see docs/development/chatgpt-ops-control-plane.md for
+          # the host credential-isolation prerequisite.
+          codex_auth_home="${CODEX_HOME:-$HOME/.codex}"
+          echo "auth_home=$codex_auth_home" >> "$GITHUB_OUTPUT"
+
+          # Isolate HOME/XDG. Git global/system config, attributes, filters and
+          # hooks are additionally neutralized via GIT_CONFIG_* / GIT_ATTR_NOSYSTEM
+          # / per-command core.hooksPath=/dev/null / core.attributesFile=/dev/null
+          # (defense in depth; the isolated HOME already removes the default
+          # ~/.gitconfig and ~/.config/git/attributes lookups).
+          isolated_home="$RUNNER_TEMP/codex-isolated-home-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          rm -rf -- "$isolated_home"
+          mkdir -p "$isolated_home/.config"
+          export HOME="$isolated_home"
+          export XDG_CONFIG_HOME="$isolated_home/.config"
+          export GIT_CONFIG_NOSYSTEM=1
+          export GIT_CONFIG_GLOBAL=/dev/null
+          export GIT_CONFIG_SYSTEM=/dev/null
+          export GIT_ATTR_NOSYSTEM=1
+          export GIT_TERMINAL_PROMPT=0
+          {
+            echo "HOME=$HOME"
+            echo "XDG_CONFIG_HOME=$XDG_CONFIG_HOME"
+            echo "GIT_CONFIG_NOSYSTEM=1"
+            echo "GIT_CONFIG_GLOBAL=/dev/null"
+            echo "GIT_CONFIG_SYSTEM=/dev/null"
+            echo "GIT_ATTR_NOSYSTEM=1"
+            echo "GIT_TERMINAL_PROMPT=0"
+          } >> "$GITHUB_ENV"
+
+          cd "$RUNNER_TEMP"
+          rm -rf -- "$GITHUB_WORKSPACE"
+          mkdir -p "$GITHUB_WORKSPACE"
+          "$trusted_git" -c core.hooksPath=/dev/null init "$GITHUB_WORKSPACE" >/dev/null
+
+          refspecs=("refs/heads/codex-source-main:refs/remotes/origin/main")
+          if [ "$CODEX_UPDATE_EXISTING" = true ]; then
+            refspecs+=("refs/heads/codex-source-target:refs/remotes/origin/$CODEX_BRANCH")
+          fi
+          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null fetch --no-tags "$bundle" "${refspecs[@]}"
+
+          observed_main="$("$trusted_git" -C "$GITHUB_WORKSPACE" rev-parse refs/remotes/origin/main)"
+          [ "$observed_main" = "$CODEX_MAIN_SHA" ] || {
+            echo "::error::Trusted source main SHA mismatch."
+            exit 70
+          }
+          "$trusted_git" -C "$GITHUB_WORKSPACE" -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null checkout -B main refs/remotes/origin/main
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config core.hooksPath /dev/null
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config core.attributesFile /dev/null
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config user.name "codex-worker"
+          "$trusted_git" -C "$GITHUB_WORKSPACE" config user.email "codex-worker@users.noreply.github.com"
+          [ -z "$("$trusted_git" -C "$GITHUB_WORKSPACE" remote)" ] || {
+            echo "::error::Credential-free Codex workspace unexpectedly has a network Git remote."
+            exit 70
+          }
 
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.12"
+          token: ''
 
       - name: Prepare repository state gate
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           if ! command -v python >/dev/null 2>&1; then
             echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
             exit 69
@@ -157,6 +303,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           echo "runner=$RUNNER_NAME"
           echo "workspace=$GITHUB_WORKSPACE"
           id
@@ -167,6 +314,7 @@ jobs:
           fi
           codex --version
           [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+          [ -z "$(/usr/bin/git remote)" ] || { echo "::error::Codex workspace must not have a network Git remote." >&2; exit 70; }
 
       - name: Select immutable implementation base
         if: needs.prepare.outputs.mode == 'implement'
@@ -178,34 +326,31 @@ jobs:
           CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
-          if [ "$(git rev-parse --is-shallow-repository)" = true ]; then
-            git fetch --unshallow --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
-          else
-            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
-          fi
+          cd "$GITHUB_WORKSPACE"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
-            git fetch --no-tags origin "+refs/heads/$CODEX_BRANCH:refs/remotes/origin/$CODEX_BRANCH"
-            observed_sha="$(git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
+            observed_sha="$(/usr/bin/git rev-parse "refs/remotes/origin/$CODEX_BRANCH")"
             [ "$observed_sha" = "$CODEX_EXPECTED_REMOTE_SHA" ] || {
-              echo "::error::Target branch moved before Codex started; refusing stale implementation work."
+              echo "::error::Sealed target branch SHA does not match the immutable prepared head."
               exit 70
             }
           else
-            observed_sha="$(git rev-parse refs/remotes/origin/main)"
+            observed_sha="$(/usr/bin/git rev-parse refs/remotes/origin/main)"
             [ "$observed_sha" = "$CODEX_BASE_SHA" ] || {
-              echo "::error::Main moved after request preparation; refusing stale implementation work."
+              echo "::error::Sealed main SHA does not match the immutable prepared base."
               exit 70
             }
           fi
-          git checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
-          git config user.name "codex-worker"
-          git config user.email "codex-worker@users.noreply.github.com"
+          /usr/bin/git -c core.hooksPath=/dev/null -c core.attributesFile=/dev/null checkout -B "$CODEX_BRANCH" "$CODEX_BASE_SHA"
+          /usr/bin/git config core.hooksPath /dev/null
+          /usr/bin/git config core.attributesFile /dev/null
+          [ -z "$(/usr/bin/git remote)" ] || { echo "::error::Codex workspace gained a network Git remote." >&2; exit 70; }
 
       - name: Validate selected implementation state
         if: needs.prepare.outputs.mode == 'implement'
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -B scripts/dev/resolve_project_state.py --strict
           echo "CODEX_TARGET_STATE_GATE=PASS"
 
@@ -213,6 +358,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           .venv/bin/python -m pip install --requirement tests/requirements-ci.txt
           echo "VIRTUAL_ENV=$GITHUB_WORKSPACE/.venv" >> "$GITHUB_ENV"
           echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
@@ -221,6 +367,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           python -m pip check
           python -m pytest --version
           python -m ruff --version
@@ -230,12 +377,19 @@ jobs:
         shell: bash
         env:
           CODEX_TASK: ${{ inputs.task }}
+          CODEX_WORKER_AUTH_HOME: ${{ steps.reconstruct.outputs.auth_home }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # Expose the Codex login to the sandboxed Codex step only (HOME stays
+          # isolated job-wide so earlier untrusted target code never saw it).
+          codex_home="${CODEX_WORKER_AUTH_HOME:?Codex auth home was not recorded by the reconstruct step}"
+          [ -d "$codex_home" ] || { echo "::error::Codex auth home '$codex_home' is missing; the disposable runner is not logged into Codex (see docs/development/chatgpt-ops-control-plane.md)." >&2; exit 69; }
+          export CODEX_HOME="$codex_home"
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
-          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle and ran the mandatory state-resolution gate successfully on named branch main. There is no network Git remote and no repository credential on this self-hosted job. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
+          codex exec --sandbox workspace-write "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
             echo "Investigation modified the workspace; failing closed." >&2
@@ -252,15 +406,22 @@ jobs:
           CODEX_TASK: ${{ inputs.task }}
           CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_WORKER_AUTH_HOME: ${{ steps.reconstruct.outputs.auth_home }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # Expose the Codex login to the sandboxed Codex step only (HOME stays
+          # isolated job-wide so earlier untrusted target code never saw it).
+          codex_home="${CODEX_WORKER_AUTH_HOME:?Codex auth home was not recorded by the reconstruct step}"
+          [ -d "$codex_home" ] || { echo "::error::Codex auth home '$codex_home' is missing; the disposable runner is not logged into Codex (see docs/development/chatgpt-ops-control-plane.md)." >&2; exit 69; }
+          export CODEX_HOME="$codex_home"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
           else
-            target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
+            target_context="Work on the isolated implementation branch created by the wrapper from current main."
           fi
-          prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          prompt="You are an implementation worker in the ED-Finder repository. The wrapper reconstructed this repository from a trusted GitHub-hosted source bundle, selected the exact immutable implementation base, and ran the mandatory state-resolution gate on that selected branch. There is no network Git remote and no repository credential on this self-hosted job. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
+          codex exec --sandbox workspace-write "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
@@ -280,6 +441,7 @@ jobs:
           CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
+          cd "$GITHUB_WORKSPACE"
           candidate_sha="$(/usr/bin/git -c core.hooksPath=/dev/null rev-parse HEAD)"
           /usr/bin/git -c core.hooksPath=/dev/null merge-base --is-ancestor "$CODEX_BASE_SHA" "$candidate_sha" || {
             echo "::error::Codex result is not descended from its immutable base."
@@ -365,13 +527,13 @@ jobs:
             workflow_diff_base="$CODEX_BASE_SHA"
           fi
           workflow_changes="$("$trusted_git" -C "$trusted_repo" -c core.hooksPath=/dev/null diff --name-only "$workflow_diff_base" "$candidate_sha" -- '.github/workflows/' || true)"
-          requires_privileged=false
           if [ -n "$workflow_changes" ]; then
-            requires_privileged=true
+            echo "::error::Codex result changes .github/workflows; trusted push refuses unreviewed workflow activation."
+            printf '%s\n' "$workflow_changes" >&2
+            exit 71
           fi
           echo "trusted_repo=$trusted_repo" >> "$GITHUB_OUTPUT"
           echo "trusted_home=$trusted_home" >> "$GITHUB_OUTPUT"
-          echo "requires_privileged=$requires_privileged" >> "$GITHUB_OUTPUT"
 
       - name: Push sealed implementation with exact-head lease
         shell: bash
@@ -383,7 +545,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           TRUSTED_REPO: ${{ steps.trusted.outputs.trusted_repo }}
           TRUSTED_HOME: ${{ steps.trusted.outputs.trusted_home }}
-          REQUIRES_PRIVILEGED: ${{ steps.trusted.outputs.requires_privileged }}
         run: |
           set -euo pipefail
           trusted_git=/usr/bin/git
@@ -395,8 +556,8 @@ jobs:
           export GIT_CONFIG_SYSTEM=/dev/null
           export GIT_TERMINAL_PROMPT=0
 
-          if { [ "$CODEX_UPDATE_EXISTING" = true ] || [ "$REQUIRES_PRIVILEGED" = true ]; } && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
-            echo "::error::Existing PR branch updates and workflow-file changes require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
+          if [ "$CODEX_UPDATE_EXISTING" = true ] && [ -z "$CODEX_WORKER_GIT_TOKEN" ]; then
+            echo "::error::Existing PR branch updates require CODEX_WORKER_GIT_TOKEN so the push is isolated from Codex and triggers fresh repository checks."
             exit 68
           fi
           push_token="${CODEX_WORKER_GIT_TOKEN:-$GITHUB_TOKEN}"
