@@ -14,9 +14,10 @@ Use these in this order when deciding what is current:
 
 1. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md) — current production and recovery boundary.
 2. [`docs/ROADMAP.md`](docs/ROADMAP.md) — current programme stage and authorized next work.
-3. [`CLAUDE.md`](CLAUDE.md) — repository engineering/agent constraints and validation expectations.
-4. [`docs/operations/operator-command-contexts.md`](docs/operations/operator-command-contexts.md) — repo/local/production command boundaries.
-5. Current code and tests on reviewed GitHub branches and PRs.
+3. [`docs/development/v3-application-stack-decision.md`](docs/development/v3-application-stack-decision.md) — locked target stack for new V3 application implementation.
+4. [`CLAUDE.md`](CLAUDE.md) — repository engineering/agent constraints and validation expectations.
+5. [`docs/operations/operator-command-contexts.md`](docs/operations/operator-command-contexts.md) — repo/local/production command boundaries.
+6. Current code and tests on reviewed GitHub branches and PRs.
 
 Do not infer authorization from old Git history, archived artifacts, installed dependencies, or removed operational procedures.
 
@@ -30,6 +31,8 @@ The repository's current programme authority is [`docs/ROADMAP.md`](docs/ROADMAP
 - Colony Planner remains the detailed planning workspace and persistence owner; renderer work must not silently mutate plans.
 
 Read the roadmap before starting implementation work.
+
+The locked technology target for new V3 application implementation is defined by the [`V3 application stack decision`](docs/development/v3-application-stack-decision.md). That technology lock does not authorize Stage 27B, Babylon runtime work, or a production cutover.
 
 ## Infrastructure boundary
 
@@ -81,7 +84,7 @@ Prefer the checked-out tree and current roadmap over old setup diagrams or Git h
 
 ## Frontend
 
-The checked-in frontend is under [`frontend/`](frontend/). It is a React/TypeScript application built with Vite and uses the repository's typed API contract.
+The checked-in frontend under [`frontend/`](frontend/) is still a React/TypeScript application built with Vite and remains the migration/reference and current-validation reality. The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6 on Node 24 with pnpm 11; the reviewed migration slices have not landed yet.
 
 The package declares Yarn 1.22.22. Common validation commands are:
 
@@ -103,6 +106,8 @@ The repository uses real PostgreSQL/Redis integration paths for relevant tests a
 
 For broad backend validation, use the repo-local Python environment and the current test/CI instructions in [`CLAUDE.md`](CLAUDE.md).
 
+The checked-in backend validation path remains on Python 3.12. New V3 backend implementation targets CPython 3.14 with uv under the stack decision as reviewed migration slices land.
+
 ## Development workflow
 
 `main` is protected. Normal changes go through a branch and PR with the required backend, integration, frontend, E2E, Review Lab, parity, and security checks.
@@ -111,9 +116,10 @@ Before changing code:
 
 1. read [`docs/ROADMAP.md`](docs/ROADMAP.md);
 2. verify the requested work is authorized by the current stage;
-3. check [`CLAUDE.md`](CLAUDE.md) for repository-specific constraints;
-4. keep local/test data isolated from production;
-5. run the focused checks for the touched surface plus the required protected checks.
+3. follow the [`V3 application stack decision`](docs/development/v3-application-stack-decision.md) for new V3 application implementation;
+4. check [`CLAUDE.md`](CLAUDE.md) for repository-specific constraints;
+5. keep local/test data isolated from production;
+6. run the focused checks for the touched surface plus the required protected checks.
 
 For UI/renderer work, preserve the repository's visual, accessibility, browser, bounded-data, and performance evidence requirements.
 

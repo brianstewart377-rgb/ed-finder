@@ -47,6 +47,13 @@ In particular:
   canonical local test runner, with disposable Postgres/Redis used for local and
   CI verification. Local green proves repository compatibility; it does not
   substitute for V3 production evidence.
+- Application technology authority: after this programme/authorization roadmap,
+  `docs/development/v3-application-stack-decision.md` is authoritative for new
+  V3 application implementation. Its target is Svelte 5/SvelteKit 2/TypeScript
+  6, Node 24/pnpm 11 and CPython 3.14 with uv. The checked-in React/Yarn and
+  Python 3.12 implementation remains migration/reference and current-validation
+  reality until reviewed migration slices land. This stack lock does not open
+  Stage 27B, authorize a Babylon runtime, or alter the Stage 27A boundaries.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Identity posture (2026-08-22): Frontier approved ED-Finder's production
   OAuth client with `AUTH` and `CAPI` scopes and the owner explicitly
