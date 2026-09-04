@@ -1,6 +1,9 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
   import Page from '../../routes/+page.svelte';
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
 </script>
+
 <QueryClientProvider {client}><Page /></QueryClientProvider>

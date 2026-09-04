@@ -32,7 +32,7 @@ The repository's current programme authority is [`docs/ROADMAP.md`](docs/ROADMAP
 
 Read the roadmap before starting implementation work.
 
-The locked technology target for new V3 application implementation is defined by the [`V3 application stack decision`](docs/development/v3-application-stack-decision.md). That technology lock does not authorize Stage 27B, Babylon runtime work, or a production cutover.
+The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6, as defined by the [`V3 application stack decision`](docs/development/v3-application-stack-decision.md). That technology lock does not authorize Stage 27B, Babylon runtime work, or a production cutover.
 
 ## Infrastructure boundary
 
