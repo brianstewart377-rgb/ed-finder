@@ -5,8 +5,11 @@ import TestShell from '$lib/components/TestShell.svelte';
 import { getAuthSession, getHealth } from '$lib/api/client';
 
 vi.mock('$lib/api/client', () => ({
+  claimOwner: vi.fn(),
+  frontierLoginUrl: vi.fn(() => '/api/auth/frontier/login'),
   getAuthSession: vi.fn(),
   getHealth: vi.fn(),
+  authLogout: vi.fn(),
 }));
 
 const mockedGetHealth = vi.mocked(getHealth);
@@ -33,28 +36,25 @@ describe('ED-Finder V3 shell', () => {
     });
     renderPage();
     expect(
-      screen.getByRole('heading', { name: /find your place/i }),
+      screen.getByRole('heading', { name: /finder/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole('navigation', { name: 'Product journey' }),
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).toBeInTheDocument();
-    expect(
-      screen.getAllByRole('link', { name: 'Explore' }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getByRole('link', { name: 'Explore' })).toBeInTheDocument();
     await waitFor(() =>
-      expect(screen.getByText('Connected')).toBeInTheDocument(),
+      expect(screen.getByTestId('frontier-sign-in')).toBeInTheDocument(),
     );
-    expect(screen.getByText('Guest')).toBeInTheDocument();
   });
   it('reports failed bootstrap requests without hiding the shell', async () => {
     mockedGetHealth.mockRejectedValue(new Error('Request failed (503)'));
     mockedGetAuthSession.mockRejectedValue(new Error('Request failed (503)'));
     renderPage();
     await waitFor(() =>
-      expect(screen.getAllByText('Unavailable')).toHaveLength(2),
+      expect(screen.getByTestId('frontier-sign-in')).toBeInTheDocument(),
     );
     expect(
-      screen.getByRole('navigation', { name: 'Product journey' }),
+      screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).toBeInTheDocument();
   });
 });

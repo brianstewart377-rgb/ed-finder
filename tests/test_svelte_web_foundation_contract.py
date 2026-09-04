@@ -99,8 +99,10 @@ def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
     assert "from './generated/sdk.gen'" in client
     assert "generatedGetHealth" in client
     assert "generatedGetAuthSession" in client
-    assert "fetch(" not in client
-    assert "getJson" not in client
+    # Bootstrap calls remain generated while the same adapter also owns the
+    # reviewed lossless-fetch path needed for id64-bearing application calls.
+    assert "runGenerated" in client
+    assert "parseLosslessJson" in client
 
 
 def test_svelte_generation_snapshots_explicit_authoritative_openapi_input():

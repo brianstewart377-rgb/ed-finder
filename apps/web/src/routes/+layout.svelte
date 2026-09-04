@@ -1,5 +1,6 @@
 <script lang="ts">
   import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import AppShell from '$lib/components/AppShell.svelte';
   import '../app.css';
 
   let { children } = $props();
@@ -9,5 +10,5 @@
 </script>
 
 <QueryClientProvider client={queryClient}>
-  {@render children()}
+  <AppShell>{@render children()}</AppShell>
 </QueryClientProvider>
