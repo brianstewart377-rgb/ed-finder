@@ -54,7 +54,7 @@ describe('Colony Planner route loader', () => {
   });
 
   it.each([
-    ['unsafe numeric system', 'system/9007199254740992'],
+    ['out-of-range system', 'system/18446744073709551616'],
     ['unknown mode', 'system/42/mode/not-a-mode'],
     ['missing project identifier', 'system/42/project'],
     ['invalid detail id', 'system/42/detail/not-an-id'],
