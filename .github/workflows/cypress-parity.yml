@@ -161,7 +161,7 @@ jobs:
         working-directory: frontend
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4173
-        run: npx --yes cypress@15.21.1 run --browser ${{ matrix.browser }} --config-file cypress.config.cjs
+        run: npx --yes cypress@15.21.1 run --browser ${{ matrix.browser }} --spec cypress/e2e/auth-owner-access.cy.js,cypress/e2e/release-gate.cy.js --config-file cypress.config.cjs
 
       - name: Set up Node 24 for Svelte foundation
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

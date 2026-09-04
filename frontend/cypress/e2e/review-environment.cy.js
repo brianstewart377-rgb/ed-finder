@@ -16,12 +16,18 @@ const PROFILES = [
 const PLANNER_IDS = ['colony-planner-workspace', 'whole-system-colony-planner', 'workspace-planner-content', 'planner-telemetry-region', 'planner-canvas'];
 
 function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500); }
-function plan() {
-  const raw = Cypress.env('reviewScenariosJson');
-  if (!raw) throw new Error('Review Lab scenario plan is required.');
-  const value = JSON.parse(raw);
+function validateReviewLabConfig(raw) {
+  if (!raw || raw.reviewLabRun !== true || typeof raw.reviewOutputPath !== 'string' || !raw.reviewOutputPath
+      || typeof raw.reviewScenariosJson !== 'string' || !raw.reviewScenariosJson) {
+    throw new Error('Review Lab browser verification requires a complete trusted Node-task handshake.');
+  }
+  const value = JSON.parse(raw.reviewScenariosJson);
   if (!Array.isArray(value.selectedScenarioNames) || !Array.isArray(value.browserFlowKeys)) throw new Error('Review Lab scenario plan is malformed.');
-  return { ...value, includeProductObservations: Boolean(value.includeProductObservations) };
+  return Object.freeze({
+    reviewLabRun: true,
+    reviewOutputPath: raw.reviewOutputPath,
+    selectedPlan: Object.freeze({ ...value, includeProductObservations: Boolean(value.includeProductObservations) }),
+  });
 }
 function summaryFor(selectedPlan) {
   return { summarySchemaVersion: 1, reviewLabRun: true, selectedScenarioNames: selectedPlan.selectedScenarioNames,
@@ -51,6 +57,15 @@ function detail(system) {
   const card = `[data-testid="result-card-${system.id64}"]`;
   cy.get(card).should('be.visible').then(($card) => { if (!$card.find('button:contains("Inspect system")').is(':visible')) cy.wrap($card).find('header').click(); });
   cy.get(card).contains('button', 'Inspect system').click(); cy.getByTestId('system-detail-modal').should('be.visible');
+}
+function closeDetailWithEscape() {
+  cy.window().then((win) => {
+    win.dispatchEvent(new win.KeyboardEvent('keydown', {
+      key: 'Escape', code: 'Escape', bubbles: true, cancelable: true,
+    }));
+  });
+  cy.getByTestId('system-detail-modal').should('not.exist');
+  cy.location('hash').should('eq', '#finder');
 }
 function planner(system, keyboard = false) {
   ['open-plan-start', 'plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach((id) => {
@@ -89,19 +104,24 @@ function profile(summary, metadata, body) {
 }
 
 describe('Local review environment verification', () => {
+  let reviewConfig;
   let activeSummary;
+  before(() => {
+    cy.task('getReviewLabConfig', null, { log: false }).then((raw) => {
+      reviewConfig = validateReviewLabConfig(raw);
+    });
+  });
   afterEach(() => {
-    if (activeSummary && Cypress.env('reviewOutputPath')) cy.task('writeReviewLabSummary', { outputPath: Cypress.env('reviewOutputPath'), summary: activeSummary }, { log: false });
+    if (activeSummary && reviewConfig) cy.task('writeReviewLabSummary', { outputPath: reviewConfig.reviewOutputPath, summary: activeSummary }, { log: false });
   });
   it('captures deterministic browser verification summary', () => {
-    if (!Cypress.env('reviewLabRun') || !Cypress.env('reviewOutputPath') || !Cypress.env('reviewScenariosJson')) throw new Error('Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.');
-    const selectedPlan = plan(); const summary = summaryFor(selectedPlan); activeSummary = summary; instrument(summary);
+    const selectedPlan = reviewConfig.selectedPlan; const summary = summaryFor(selectedPlan); activeSummary = summary; instrument(summary);
     Cypress.on('fail', (error) => { summary.fatalError = clean(error.stack || error.message); throw error; });
 
     profile(summary, PROFILES[0], (result) => { let chain = cy.wrap(null);
       selectedPlan.browserFlowKeys.forEach((key) => { chain = chain.then(() => { const system = SYSTEMS[key]; const start = summary.apiResponses.length; const checks = {};
         finder(); detail(system);
-        if (key === 'alpha') { cy.get('body').type('{esc}'); cy.getByTestId('system-detail-modal').should('not.be.visible'); checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(system); }
+        if (key === 'alpha') { closeDetailWithEscape(); checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(system); }
         planner(system, key === 'alpha'); checks.systemDetailLoaded = true; checks.plannerOpened = true;
         if (key === 'alpha') { checks.reportOnlyBoundaryVisible = true; checks.canonicalBoundaryVisible = true; summary.accessibility.alphaKeyboardOpenPlannerWorks = true; technical('available'); checks.availablePostureVisible = true; checks.dedicatedContractVisible = true; checks.reportOnlyTagVisible = true; }
         if (key === 'beta') { technical('unavailable'); checks.unavailablePostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
@@ -112,8 +132,8 @@ describe('Local review environment verification', () => {
     });
     profile(summary, PROFILES[1], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, reportOnlyBoundaryVisible: true, canonicalBoundaryVisible: true, keyControlsReachable: true, safeFocusAndNavigation: true, noRecoveryScreen: true }); telemetry(r.checks, summary); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; r.checks.documentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.checks.criticalOverflowWithinTolerance = !m.containerOverflow.length; }); return cy.wrap(null); });
     profile(summary, PROFILES[2], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_constrained_layout_compromise_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Constrained planner layout compromise remained bounded and escape-safe at 1024x768.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').should('be.visible').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); });
-    profile(summary, PROFILES[3], (r) => { finder(); Object.assign(r.checks, { finderLoaded: true, reviewCardsAccessible: true }); overflow([], (m) => { r.checks.finderDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.finder_document = m; }); detail(SYSTEMS.alpha); Object.assign(r.checks, { systemDetailOpened: true, systemDetailCloseControlVisible: true }); cy.get('body').type('{esc}'); cy.getByTestId('system-detail-modal').should('not.be.visible'); r.checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(SYSTEMS.alpha); overflow([], (m) => { r.checks.systemDetailDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.system_detail_document = m; }); cy.getByTestId('system-detail-close').click(); Object.assign(r.checks, { closeControlWorks: true, noRecoveryScreen: true }); return cy.wrap(null); });
+    profile(summary, PROFILES[3], (r) => { finder(); Object.assign(r.checks, { finderLoaded: true, reviewCardsAccessible: true }); overflow([], (m) => { r.checks.finderDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.finder_document = m; }); detail(SYSTEMS.alpha); Object.assign(r.checks, { systemDetailOpened: true, systemDetailCloseControlVisible: true }); closeDetailWithEscape(); r.checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(SYSTEMS.alpha); overflow([], (m) => { r.checks.systemDetailDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.system_detail_document = m; }); cy.getByTestId('system-detail-close').click(); Object.assign(r.checks, { closeControlWorks: true, noRecoveryScreen: true }); return cy.wrap(null); });
     profile(summary, PROFILES[4], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, safeExitControlVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_mobile_resilience_overflow_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Phone-width planner overflow remained a bounded resilience diagnostic and did not redefine desktop planner acceptance.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); });
-    cy.then(() => cy.task('writeReviewLabSummary', { outputPath: Cypress.env('reviewOutputPath'), summary }, { log: false }));
+    cy.then(() => cy.task('writeReviewLabSummary', { outputPath: reviewConfig.reviewOutputPath, summary }, { log: false }));
   });
 });

@@ -923,9 +923,13 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'environment_ready: true' in docs
     assert 'product_acceptance_ready: true' in docs
     assert "describe('Local review environment verification'" in review_spec
-    assert 'EDFINDER_REVIEW_LAB_RUN' in review_spec
-    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
-    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
+    assert "cy.task('getReviewLabConfig'" in review_spec
+    assert 'Object.freeze' in review_spec
+    assert 'Cypress.env(' not in review_spec
+    assert 'cy.env(' not in review_spec
+    assert 'EDFINDER_REVIEW_LAB_RUN' not in review_spec
+    assert 'EDFINDER_REVIEW_OUTPUT_PATH' not in review_spec
+    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' not in review_spec
     assert 'summarySchemaVersion' in review_spec
     assert 'reviewLabRun' in review_spec
     assert 'viewportProfiles' in review_spec
@@ -938,8 +942,17 @@ def test_frontend_target_remains_compatible_with_review_api():
         'planner_mobile_resilience',
     ):
         assert profile_name in review_spec
-    assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
-    assert "reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1'" in cypress_config
+    assert 'complete trusted Node-task handshake' in review_spec
+    assert 'allowCypressEnv: false' in cypress_config
+    assert 'getReviewLabConfig' in cypress_config
+    assert "process.env.EDFINDER_REVIEW_LAB_RUN" in cypress_config
+    assert "reviewLabMarker === '1'" in cypress_config
+    assert 'outputPath === configuredOutputPath' in cypress_config
+    assert 'path.isAbsolute(outputPath)' in cypress_config
+    assert "REVIEW_LAB_ROOT = '/tmp/edfinder-local-review'" in cypress_config
+    assert '!Array.isArray(summary)' in cypress_config
+    assert 'summary.summarySchemaVersion === REVIEW_LAB_SUMMARY_SCHEMA_VERSION' in cypress_config
+    assert 'config.env' not in cypress_config
     assert 'writeReviewLabSummary' in cypress_config
 
 

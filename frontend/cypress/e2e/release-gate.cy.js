@@ -318,15 +318,13 @@ describe('ED Finder release gate — Cypress parity', () => {
     cy.window().then((win) => {
       win.dispatchEvent(new win.KeyboardEvent('keydown', {
         key: 'Escape',
+        code: 'Escape',
         bubbles: true,
         cancelable: true,
       }));
     });
-    cy.get('body').should(($body) => {
-      const $modal = $body.find('[data-testid="system-detail-modal"]');
-      const closed = $modal.length === 0 || !Cypress.dom.isVisible($modal[0]);
-      expect(closed, 'system detail modal closed by Escape').to.equal(true);
-    });
+    cy.getByTestId('system-detail-modal').should('not.exist');
+    cy.location('hash').should('eq', '#finder');
   });
 
   it('installs and controls through the cache-neutral service worker', () => {
