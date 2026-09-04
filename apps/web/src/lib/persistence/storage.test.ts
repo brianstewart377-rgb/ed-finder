@@ -8,8 +8,12 @@ import {
   compareCodec,
   createPersistedStore,
   fcCodec,
+  densityCodec,
+  id64StringCodec,
   pinnedCodec,
   rawStringCodec,
+  selectedRouteCodec,
+  syncKeyCodec,
 } from './storage';
 import { legacyPersistenceFixtures } from './fixtures';
 import { adminToken, selectedSystem } from './stores';
@@ -36,6 +40,27 @@ describe('persistence compatibility', () => {
       'ed_admin_token',
       'ed_operator_selected_source_run',
     ]);
+  });
+
+  it('decodes the named legacy React fixtures without data loss', () => {
+    const fixtures = legacyPersistenceFixtures;
+    const cases = [
+      [pinnedCodec, fixtures.pinnedBareArray],
+      [compareCodec, fixtures.compareV2],
+      [syncKeyCodec, fixtures.syncKey],
+      [selectedRouteCodec, fixtures.selectedRoute],
+      [collectionCodec(1), fixtures.myWorkV1],
+      [collectionCodec(3), fixtures.colonyProjectsV1],
+      [collectionCodec(1), fixtures.expansionPlansV1],
+      [fcCodec, fixtures.fcRoute],
+      [rawStringCodec(), fixtures.profileSyncKey],
+      [rawStringCodec(), fixtures.profileSyncLast],
+      [id64StringCodec, fixtures.selectedSystemContext],
+      [densityCodec, fixtures.density],
+      [rawStringCodec(), fixtures.adminToken],
+      [rawStringCodec(), fixtures.operatorSelectedSourceRun],
+    ] as const;
+    for (const [codec, raw] of cases) expect(codec.decode(raw).ok).toBe(true);
   });
 
   it('hydrates and round-trips the exact bare-array pin shape with canonical id64', () => {
@@ -111,7 +136,41 @@ describe('persistence compatibility', () => {
     const result = pinnedCodec.decode(
       '[{"id64":9007199254740992,"name":"lossy","pinned_at":"x"}]',
     );
-    expect(result).toEqual({ ok: true, value: [] });
+    expect(result).toMatchObject({ ok: false, problem: 'invalid-shape' });
+  });
+
+  it.each([
+    ['pinned id', pinnedCodec, '[{"id64":"01","name":"Lave","pinned_at":"x"}]'],
+    ['pinned name', pinnedCodec, '[{"id64":"1","name":" ","pinned_at":"x"}]'],
+    ['pinned timestamp', pinnedCodec, '[{"id64":"1","name":"Lave"}]'],
+    ['compare id', compareCodec, '[{"id64":9007199254740992,"name":"Lave"}]'],
+    ['compare name', compareCodec, '[{"id64":"1","name":""}]'],
+  ])(
+    'diagnoses an invalid %s entry instead of silently dropping it',
+    (_name, codec, raw) => {
+      expect(codec.decode(raw)).toMatchObject({
+        ok: false,
+        problem: 'invalid-shape',
+      });
+    },
+  );
+
+  it('validates the current URL-safe sync-key contract', () => {
+    expect(
+      syncKeyCodec.decode(
+        '{"state":{"syncKey":"abcdefghijklmnop"},"version":0}',
+      ),
+    ).toMatchObject({ ok: true });
+    for (const syncKey of [
+      'legacy',
+      'short',
+      'invalid key!',
+      'a'.repeat(129),
+    ]) {
+      expect(
+        syncKeyCodec.decode(JSON.stringify({ state: { syncKey }, version: 0 })),
+      ).toMatchObject({ ok: false, problem: 'invalid-shape' });
+    }
   });
 
   it('migrates FC waypoint ids and merges legacy config without losing unknown fields', () => {
@@ -181,6 +240,25 @@ describe('persistence compatibility', () => {
     expect(get(store).diagnostic?.problem).toBe('unsupported-version');
     expect(store.set({ state: {}, version: 1 })).toBe(false);
     expect(localStorage.getItem('ed_my_work_v1')).toBe(raw);
+  });
+
+  it('reports private-mode reads during set as unavailable without throwing', () => {
+    const store = createPersistedStore({
+      key: 'ed_profile_sync_last',
+      initial: () => '',
+      codec: rawStringCodec(),
+    });
+    const getItem = vi
+      .spyOn(Storage.prototype, 'getItem')
+      .mockImplementationOnce(() => {
+        throw new DOMException('denied', 'SecurityError');
+      });
+    expect(() => store.set('2026-09-04T00:00:00Z')).not.toThrow();
+    expect(get(store)).toMatchObject({
+      value: '2026-09-04T00:00:00Z',
+      diagnostic: { problem: 'unavailable' },
+    });
+    getItem.mockRestore();
   });
 
   it('reacts to cross-tab storage events', () => {

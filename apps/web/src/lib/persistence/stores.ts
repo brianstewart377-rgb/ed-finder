@@ -124,8 +124,17 @@ export const applicationStores = {
   operatorHandoff,
 };
 
+let applicationStoresHydrated = false;
+
 export function hydrateApplicationStores(): void {
+  if (applicationStoresHydrated) return;
+  applicationStoresHydrated = true;
   for (const store of Object.values(applicationStores)) store.hydrate();
+}
+
+/** Test seam for proving boot idempotence without weakening runtime ownership. */
+export function resetApplicationStoreHydrationForTest(): void {
+  applicationStoresHydrated = false;
 }
 
 /** Diagnostics are safe to render: they never contain persisted values or session tokens. */

@@ -5,10 +5,14 @@
   import { onMount } from 'svelte';
   import { auth } from '$lib/auth/auth';
   import { parseId64, type Id64 } from '$lib/domain/id64';
+  import { usePersistenceContext } from '$lib/persistence/context';
+  import { hydrateApplicationStores } from '$lib/persistence/stores';
   import { applyLegacyHash } from '$lib/routing/legacy-hash';
   import SystemOverlay from './SystemOverlay.svelte';
   let { children } = $props<{ children: import('svelte').Snippet }>();
-  let selectedId = $derived.by((): Id64 | null => {
+  const persistence = usePersistenceContext();
+  const { selectedSystem } = persistence;
+  let overlayId = $derived.by((): Id64 | null => {
     const raw = page.url.searchParams.get('system');
     if (!raw || page.url.pathname.startsWith('/system/')) return null;
     try {
@@ -17,16 +21,33 @@
       return null;
     }
   });
+  let routeSelection = $derived.by((): Id64 | null => {
+    if (!page.url.pathname.startsWith('/system/')) return null;
+    try {
+      return parseId64(
+        page.url.pathname.slice('/system/'.length).split('/')[0],
+      );
+    } catch {
+      return null;
+    }
+  });
+  $effect(() => {
+    const establishedSelection = overlayId ?? routeSelection;
+    if (establishedSelection)
+      persistence.selectedSystem.set(establishedSelection);
+  });
   onMount(() => {
-    if (
-      !applyLegacyHash(
+    hydrateApplicationStores();
+    const normaliseLegacyHash = () =>
+      applyLegacyHash(
         location,
         // eslint-disable-next-line svelte/no-navigation-without-resolve -- validated compatibility URL
         (url) => void goto(url, { replaceState: true }),
-      )
-    )
-      void auth.bootstrap();
-    else void auth.bootstrap();
+      );
+    normaliseLegacyHash();
+    window.addEventListener('hashchange', normaliseLegacyHash);
+    void auth.bootstrap();
+    return () => window.removeEventListener('hashchange', normaliseLegacyHash);
   });
 </script>
 
@@ -63,12 +84,13 @@
       >{/if}
   </div>
 </header>
-{#if selectedId}<aside
+{#if $selectedSystem.hydrated && $selectedSystem.value}<aside
     class="context-chip"
     data-testid="selected-system-context"
   >
-    Selected system <strong>{selectedId}</strong><a
-      href={resolve(`/colony-planner/system/${selectedId}`)}>Open plan</a
+    Selected system <strong>{$selectedSystem.value}</strong><a
+      href={resolve(`/colony-planner/system/${$selectedSystem.value}`)}
+      >Open plan</a
     >
   </aside>{/if}
 <div id="main-content" tabindex="-1">{@render children()}</div>
@@ -82,4 +104,4 @@
     </p>
   </details>
 </footer>
-{#if selectedId}<SystemOverlay id64={selectedId} />{/if}
+{#if overlayId}<SystemOverlay id64={overlayId} />{/if}

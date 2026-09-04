@@ -161,23 +161,35 @@ async function runGenerated<T>(
     return (await request()).data;
   } catch (cause) {
     if (cause instanceof ApiError) throw cause;
-    if (cause instanceof Error) throw cause;
     const candidate = cause as {
       status?: unknown;
       error?: unknown;
       message?: unknown;
       detail?: unknown;
       name?: unknown;
+      response?: unknown;
+      body?: unknown;
     } | null;
-    if (
-      candidate?.name === 'AbortError' &&
-      typeof candidate.message === 'string'
-    ) {
-      const aborted = new Error(candidate.message);
-      aborted.name = 'AbortError';
-      throw aborted;
+    if (candidate?.name === 'AbortError') throw cause;
+
+    const response =
+      cause instanceof Response
+        ? cause
+        : candidate?.response instanceof Response
+          ? candidate.response
+          : null;
+    if (response) {
+      const body = await readResponse(response, path);
+      throw new ApiError(
+        response.status,
+        path,
+        body,
+        usefulMessage(response.status, path, body, response.statusText),
+        { cause },
+      );
     }
-    const detail = candidate?.detail ?? candidate?.error;
+
+    const detail = candidate?.body ?? candidate?.detail ?? candidate?.error;
     const message =
       typeof candidate?.message === 'string'
         ? candidate.message

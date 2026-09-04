@@ -85,7 +85,13 @@ function plannerDestination(
   let pathname = `/colony-planner/system/${system}`;
   let cursor = 3;
   if (parts[cursor] === 'project' && parts[cursor + 1]) {
-    pathname += `/project/${encodeURIComponent(decodeURIComponent(parts[cursor + 1]))}`;
+    let project: string;
+    try {
+      project = decodeURIComponent(parts[cursor + 1]);
+    } catch {
+      return { pathname: '/colony-planner', search: currentSearch };
+    }
+    pathname += `/project/${encodeURIComponent(project)}`;
     cursor += 2;
   }
   if (parts[cursor] === 'mode' && plannerModes.has(parts[cursor + 1] ?? '')) {
@@ -113,6 +119,11 @@ export function applyLegacyHash(
 ): boolean {
   const destination = legacyHashDestination(location.hash, location.search);
   if (!destination) return false;
-  replace(`${destination.pathname}${destination.search}`);
+  const isHostOverlay = /^#\/?system\//.test(location.hash);
+  const pathname =
+    isHostOverlay && location.pathname && location.pathname !== '/'
+      ? location.pathname
+      : destination.pathname;
+  replace(`${pathname}${destination.search}`);
   return true;
 }

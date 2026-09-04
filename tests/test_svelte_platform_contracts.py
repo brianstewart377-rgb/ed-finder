@@ -99,3 +99,23 @@ def test_backend_route_ownership_remains_exact_and_frontend_is_fallback():
 def test_react_tree_is_retained_as_source_evidence_only():
     assert (ROOT / "frontend" / "src" / "App.tsx").is_file()
     assert (WEB / "src" / "routes").is_dir()
+
+
+def test_root_layout_owns_the_configured_query_and_persistence_singletons():
+    layout = (SOURCE / "routes" / "+layout.svelte").read_text(encoding="utf-8")
+    query = (SOURCE / "lib" / "api" / "query.ts").read_text(encoding="utf-8")
+    shell = (SOURCE / "lib" / "components" / "AppShell.svelte").read_text(
+        encoding="utf-8"
+    )
+    assert "new QueryClient" not in layout
+    assert "import { queryClient } from '$lib/api/query'" in layout
+    for accepted_default in (
+        "staleTime: 30_000",
+        "gcTime: 300_000",
+        "retry: 1",
+        "refetchOnWindowFocus: false",
+        "mutations: { retry: 0 }",
+    ):
+        assert accepted_default in query
+    assert "providePersistenceContext()" in layout
+    assert "hydrateApplicationStores()" in shell

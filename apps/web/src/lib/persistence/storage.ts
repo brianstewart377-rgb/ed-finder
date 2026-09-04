@@ -167,7 +167,17 @@ export function createPersistedStore<T>(options: {
       }
     }
     // A future envelope belongs to a newer application. Never erase it.
-    const current = storage.getItem(options.key);
+    let current: string | null;
+    try {
+      current = storage.getItem(options.key);
+    } catch {
+      inner.set({
+        value,
+        hydrated: true,
+        diagnostic: diagnostic('unavailable', 'Storage read failed', true),
+      });
+      return false;
+    }
     if (current) {
       const parsed = safeJson(current);
       if (
@@ -305,6 +315,8 @@ export interface VersionedCollection extends JsonRecord {
   version: number;
 }
 
+const INVALID_PERSISTED_VALUE = Symbol('invalid-persisted-value');
+
 function canonicaliseIds(value: unknown, key = ''): unknown {
   if (key === 'id64' || key.endsWith('_id64')) {
     if (value === null) return null;
@@ -312,36 +324,46 @@ function canonicaliseIds(value: unknown, key = ''): unknown {
       // Safe legacy React snapshots used numbers. Converting only safe integers
       // recovers those records without accepting already-rounded identifiers.
       if (typeof value === 'number') {
-        if (!Number.isSafeInteger(value) || value < 0) return undefined;
+        if (!Number.isSafeInteger(value) || value < 0)
+          return INVALID_PERSISTED_VALUE;
         return parseId64(String(value));
       }
       return parseId64(value as string | bigint);
     } catch {
-      return undefined;
+      return INVALID_PERSISTED_VALUE;
     }
   }
-  if (Array.isArray(value))
-    return value
-      .map((item) => canonicaliseIds(item))
-      .filter((item) => item !== undefined);
+  if (Array.isArray(value)) {
+    const output = value.map((item) => canonicaliseIds(item));
+    return output.includes(INVALID_PERSISTED_VALUE)
+      ? INVALID_PERSISTED_VALUE
+      : output;
+  }
   if (!isRecord(value)) return value;
   const output: JsonRecord = {};
   for (const [childKey, child] of Object.entries(value)) {
     const normalised = canonicaliseIds(child, childKey);
-    if (normalised !== undefined) output[childKey] = normalised;
+    if (normalised === INVALID_PERSISTED_VALUE) return INVALID_PERSISTED_VALUE;
+    output[childKey] = normalised;
   }
   return output;
 }
 
-function arrayWithId(
+function entryArray<T extends JsonRecord & { id64: Id64 }>(
   value: unknown,
-): Array<JsonRecord & { id64: Id64 }> | null {
+  validate: (entry: JsonRecord & { id64: Id64 }) => entry is T,
+): T[] | null {
   if (!Array.isArray(value)) return null;
-  const result: Array<JsonRecord & { id64: Id64 }> = [];
+  const result: T[] = [];
   for (const candidate of value) {
     const normalised = canonicaliseIds(candidate);
-    if (!isRecord(normalised) || typeof normalised.id64 !== 'string') continue;
-    result.push(normalised as JsonRecord & { id64: Id64 });
+    if (
+      !isRecord(normalised) ||
+      typeof normalised.id64 !== 'string' ||
+      !validate(normalised as JsonRecord & { id64: Id64 })
+    )
+      return null;
+    result.push(normalised as T);
   }
   return result;
 }
@@ -354,11 +376,21 @@ function collectionEnvelope(value: unknown): VersionedCollection | null {
   }) as VersionedCollection;
 }
 
-export const pinnedCodec = jsonCodec<PinnedEntry[]>(
-  (value) => arrayWithId(value) as PinnedEntry[] | null,
+export const pinnedCodec = jsonCodec<PinnedEntry[]>((value) =>
+  entryArray<PinnedEntry>(
+    value,
+    (entry): entry is PinnedEntry =>
+      typeof entry.name === 'string' &&
+      entry.name.trim().length > 0 &&
+      typeof entry.pinned_at === 'string',
+  ),
 );
-export const compareCodec = jsonCodec<CompareEntry[]>(
-  (value) => arrayWithId(value) as CompareEntry[] | null,
+export const compareCodec = jsonCodec<CompareEntry[]>((value) =>
+  entryArray<CompareEntry>(
+    value,
+    (entry): entry is CompareEntry =>
+      typeof entry.name === 'string' && entry.name.trim().length > 0,
+  ),
 );
 export const fcCodec = jsonCodec<FcState>((value) => {
   const normalised = canonicaliseIds(value);
@@ -379,7 +411,9 @@ export const syncKeyCodec = jsonCodec<{
   if (
     !isRecord(value) ||
     !isRecord(value.state) ||
-    typeof value.state.syncKey !== 'string'
+    typeof value.state.syncKey !== 'string' ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(value.state.syncKey) ||
+    value.state.syncKey === 'legacy'
   )
     return null;
   return {

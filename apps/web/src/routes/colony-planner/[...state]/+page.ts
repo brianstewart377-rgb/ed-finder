@@ -15,7 +15,11 @@ export function load({ params }) {
   let project: string | null = null;
   let mode: string | null = null;
   if (parts[cursor] === 'project' && parts[cursor + 1]) {
-    project = decodeURIComponent(parts[cursor + 1]);
+    try {
+      project = decodeURIComponent(parts[cursor + 1]);
+    } catch {
+      error(404, 'Invalid project identifier');
+    }
     cursor += 2;
   }
   if (parts[cursor] === 'mode' && plannerModes.has(parts[cursor + 1] ?? '')) {

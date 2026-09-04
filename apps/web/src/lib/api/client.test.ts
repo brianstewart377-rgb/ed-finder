@@ -58,6 +58,69 @@ describe('bootstrap API client', () => {
     });
   });
 
+  it('normalises generated JSON, text, and empty response failures', async () => {
+    mockedGetHealth.mockRejectedValueOnce({
+      response: new Response(
+        '{"detail":"No health","system_id64":18446744073709551615}',
+        {
+          status: 403,
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    });
+    await expect(getHealth()).rejects.toMatchObject({
+      status: 403,
+      path: '/api/health',
+      body: { detail: 'No health', system_id64: '18446744073709551615' },
+      message: 'No health',
+    });
+
+    mockedGetHealth.mockRejectedValueOnce({
+      response: new Response('gateway down', { status: 502 }),
+    });
+    await expect(getHealth()).rejects.toMatchObject({
+      status: 502,
+      body: 'gateway down',
+      message: 'gateway down',
+    });
+
+    mockedGetHealth.mockRejectedValueOnce(
+      new Response(null, { status: 503, statusText: 'Unavailable' }),
+    );
+    await expect(getHealth()).rejects.toMatchObject({
+      status: 503,
+      body: '',
+      message: 'Unavailable',
+    });
+  });
+
+  it('normalises generated network Errors and object failures with causes', async () => {
+    const network = new Error('socket closed');
+    mockedGetHealth.mockRejectedValueOnce(network);
+    const networkFailure = await getHealth().catch((error: unknown) => error);
+    expect(networkFailure).toBeInstanceOf(ApiError);
+    expect(networkFailure).toMatchObject({
+      status: 0,
+      path: '/api/health',
+      body: '',
+      message: 'socket closed',
+      cause: network,
+    });
+
+    const objectFailure = {
+      status: 429,
+      error: { detail: 'bounded' },
+      message: 'Rate limited',
+    };
+    mockedGetHealth.mockRejectedValueOnce(objectFailure);
+    await expect(getHealth()).rejects.toMatchObject({
+      status: 429,
+      body: { detail: 'bounded' },
+      message: 'Rate limited',
+      cause: objectFailure,
+    });
+  });
+
   it('deduplicates /api and rejects cross-origin base URLs', () => {
     expect(canonicalApiPath('/health')).toBe('/api/health');
     expect(canonicalApiPath('/api/health')).toBe('/api/health');
@@ -130,9 +193,6 @@ describe('bootstrap API client', () => {
     );
     mockedGetHealth.mockRejectedValue(aborted);
 
-    await expect(getHealth()).rejects.toMatchObject({
-      message: 'This operation was aborted',
-      name: 'AbortError',
-    });
+    await expect(getHealth()).rejects.toBe(aborted);
   });
 });

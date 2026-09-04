@@ -37,6 +37,24 @@ describe('legacy hash compatibility', () => {
     });
   });
 
+  it('preserves valid encoded project identifiers exactly and fails closed on malformed escapes', () => {
+    expect(
+      legacyHashDestination(
+        '#colony-planner/system/1/project/a%20b%23c',
+        '?from=share&keep=%23fragment',
+      ),
+    ).toEqual({
+      pathname: '/colony-planner/system/1/project/a%20b%23c',
+      search: '?from=share&keep=%23fragment',
+    });
+    expect(
+      legacyHashDestination(
+        '#colony-planner/system/1/project/bad%2',
+        '?from=share',
+      ),
+    ).toEqual({ pathname: '/colony-planner', search: '?from=share' });
+  });
+
   it.each([
     '#system/-1',
     '#system/1e3',
@@ -53,5 +71,38 @@ describe('legacy hash compatibility', () => {
       false,
     );
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it('is idempotent after replacement clears the legacy hash', () => {
+    const replace = vi.fn();
+    const location = {
+      hash: '#system/18446744073709551615',
+      search: '?source=legacy',
+    } as Location;
+    expect(applyLegacyHash(location, replace)).toBe(true);
+    expect(replace).toHaveBeenCalledWith(
+      '/?source=legacy&system=18446744073709551615',
+    );
+    expect(
+      applyLegacyHash({ ...location, hash: '' } as Location, replace),
+    ).toBe(false);
+    expect(replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens a warm system hash over the current host workspace', () => {
+    const replace = vi.fn();
+    expect(
+      applyLegacyHash(
+        {
+          pathname: '/compare',
+          hash: '#system/9007199254740993',
+          search: '?source=warm',
+        } as Location,
+        replace,
+      ),
+    ).toBe(true);
+    expect(replace).toHaveBeenCalledWith(
+      '/compare?source=warm&system=9007199254740993',
+    );
   });
 });

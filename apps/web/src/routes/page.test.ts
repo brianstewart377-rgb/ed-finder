@@ -3,6 +3,11 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import TestShell from '$lib/components/TestShell.svelte';
 import { getAuthSession, getHealth } from '$lib/api/client';
+import {
+  applicationStores,
+  hydrateApplicationStores,
+  resetApplicationStoreHydrationForTest,
+} from '$lib/persistence/stores';
 
 vi.mock('$lib/api/client', () => ({
   claimOwner: vi.fn(),
@@ -20,6 +25,9 @@ const renderPage = () => render(TestShell);
 describe('ED-Finder V3 shell', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+    resetApplicationStoreHydrationForTest();
   });
   afterEach(cleanup);
   it('renders accessible journey navigation and guest status', async () => {
@@ -56,5 +64,32 @@ describe('ED-Finder V3 shell', () => {
     expect(
       screen.getByRole('navigation', { name: 'Primary navigation' }),
     ).toBeInTheDocument();
+  });
+  it('hydrates legacy persisted state during boot before rendering its context', async () => {
+    localStorage.setItem(
+      'ed-finder:selected-system-context',
+      '18446744073709551615',
+    );
+    mockedGetAuthSession.mockResolvedValue({
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByTestId('selected-system-context')).toHaveTextContent(
+        '18446744073709551615',
+      ),
+    );
+  });
+  it('hydrates each singleton persistence service exactly once', () => {
+    resetApplicationStoreHydrationForTest();
+    const hydrateSpies = Object.values(applicationStores).map((store) =>
+      vi.spyOn(store, 'hydrate'),
+    );
+    hydrateApplicationStores();
+    hydrateApplicationStores();
+    for (const hydrate of hydrateSpies)
+      expect(hydrate).toHaveBeenCalledTimes(1);
   });
 });

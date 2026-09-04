@@ -130,9 +130,49 @@ describe('ED-Finder V3 foundation', () => {
         cy.wrap($link).should('be.focused');
       });
     cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '9007199254740993',
+    );
+    cy.window().then((browser) => {
+      expect(
+        browser.localStorage.getItem('ed-finder:selected-system-context'),
+      ).to.eq('9007199254740993');
+    });
     cy.location('pathname').should('eq', '/compare');
     cy.location('search').should('eq', '');
     cy.get('body').should('not.have.css', 'overflow', 'hidden');
+  });
+
+  it('updates durable selected-system context across tabs at uint64 max', () => {
+    cy.intercept('/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    cy.visit('/my-work');
+    cy.window().then((browser) => {
+      browser.localStorage.setItem(
+        'ed-finder:selected-system-context',
+        '18446744073709551615',
+      );
+      browser.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'ed-finder:selected-system-context',
+          newValue: '18446744073709551615',
+          storageArea: browser.localStorage,
+        }),
+      );
+    });
+    cy.get('[data-testid="selected-system-context"]')
+      .should('contain.text', '18446744073709551615')
+      .find('a')
+      .should(
+        'have.attr',
+        'href',
+        '/colony-planner/system/18446744073709551615',
+      );
+    cy.get('[data-testid="system-detail-modal"]').should('not.exist');
   });
 
   it('gates signed-out, non-owner, and owner admin states', () => {

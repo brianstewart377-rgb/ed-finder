@@ -45,4 +45,33 @@ export const legacyPersistenceFixtures = {
     },
     version: 1,
   }),
+  compareV2: JSON.stringify([
+    {
+      id64: 42,
+      name: 'Persisted',
+      population: 0,
+      coords: { x: 0, y: 0, z: 0 },
+    },
+  ]),
+  syncKey: JSON.stringify({
+    state: { syncKey: 'reviewwatchlistkey000000000000' },
+    version: 0,
+  }),
+  selectedRoute: JSON.stringify({
+    state: { selectedRouteId: null },
+    version: 0,
+  }),
+  myWorkV1: JSON.stringify({
+    state: {
+      systems: { '99': { id64: 99, name: 'Sync System', status: 'candidate' } },
+    },
+    version: 1,
+  }),
+  expansionPlansV1: JSON.stringify({ state: { plans: [] }, version: 1 }),
+  profileSyncKey: 'reviewprofilesynckey000000000000',
+  profileSyncLast: '2026-09-04T00:00:00.000Z',
+  selectedSystemContext: '456',
+  density: 'comfortable',
+  adminToken: 'test-admin-token',
+  operatorSelectedSourceRun: 'run-001',
 } as const;
