@@ -7,6 +7,8 @@ reference application and prevent migration tooling choices from drifting.
 import json
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "apps" / "web"
@@ -31,6 +33,14 @@ def test_v3_web_uses_the_locked_svelte_node_and_pnpm_foundation():
     assert packages["svelte"].lstrip("^~").startswith("5.")
     assert packages["@sveltejs/kit"].lstrip("^~").startswith("2.")
     assert (WEB / "pnpm-lock.yaml").is_file()
+
+
+def test_v3_web_pnpm_workspace_enforces_supply_chain_policy():
+    workspace = yaml.safe_load((WEB / "pnpm-workspace.yaml").read_text(encoding="utf-8"))
+
+    assert workspace["blockExoticSubdeps"] is True
+    assert workspace["minimumReleaseAge"] == 10080
+    assert workspace["trustPolicy"] == "no-downgrade"
 
 
 def test_v3_web_lib_modules_are_not_hidden_by_the_root_python_ignore_rule():

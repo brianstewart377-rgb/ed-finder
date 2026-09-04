@@ -3,3 +3,7 @@ packages:
 
 allowBuilds:
   cypress: true
+
+blockExoticSubdeps: true
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
