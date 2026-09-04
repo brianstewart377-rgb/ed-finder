@@ -103,19 +103,30 @@ def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
     assert "getJson" not in client
 
 
-def test_svelte_generation_requires_an_explicit_authoritative_openapi_input():
+def test_svelte_generation_snapshots_explicit_authoritative_openapi_input():
+    package = _package_json(WEB / "package.json")
     config = _read("apps", "web", "openapi-ts.config.ts")
+    capture = _read("apps", "web", "scripts", "capture-openapi.mjs")
     generated_client = _read(
         "apps", "web", "src", "lib", "api", "generated", "client.gen.ts"
     )
+    generated_types = _read(
+        "apps", "web", "src", "lib", "api", "generated", "types.gen.ts"
+    )
 
+    assert "node scripts/capture-openapi.mjs" in package["scripts"]["generate:api"]
     assert "process.env.OPENAPI_INPUT" in config
-    assert "if (!input)" in config
-    assert "input," in config
+    assert "if (!requestedInput)" in config
+    assert "input: './.svelte-kit/openapi.json'" in config
     assert "baseUrl: false" in config
     assert "name: '@hey-api/client-fetch'" in config
+    assert "process.env.OPENAPI_INPUT" in capture
+    assert "await fetch(input" in capture
+    assert "JSON.parse(rawSchema)" in capture
+    assert "'.svelte-kit', 'openapi.json'" in capture
     assert "bootstrap.openapi.json" not in config
     assert "127.0.0.1" not in generated_client
+    assert "127.0.0.1" not in generated_types
     assert not (WEB / "openapi" / "bootstrap.openapi.json").exists()
 
 
