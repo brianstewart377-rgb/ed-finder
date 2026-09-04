@@ -181,7 +181,7 @@ jobs:
               exit 69
             }
           done
-          version="$(codex --version | head -n 1 | tr -cd '[:alnum:]._- ')"
+          version="$(codex --version | head -n 1 | tr -cd '[:alnum:]. _-')"
           [ -n "$version" ] || {
             echo "::error::Unable to obtain a sanitised Codex CLI version."
             exit 69
