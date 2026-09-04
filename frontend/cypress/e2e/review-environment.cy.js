@@ -14,6 +14,12 @@ const PROFILES = [
   profile_name, viewport_width, viewport_height, device_scale_factor: 1, product_scope, acceptance_level,
 }));
 const PLANNER_IDS = ['colony-planner-workspace', 'whole-system-colony-planner', 'workspace-planner-content', 'planner-telemetry-region', 'planner-canvas'];
+const WAREHOUSE_DISCOVERABILITY_SURFACE = '[data-testid="planner-evidence-discoverability-surface"]';
+const WAREHOUSE_EVIDENCE_SURFACE = '[data-testid="planner-warehouse-evidence"]';
+const WAREHOUSE_TECHNICAL_DETAILS = 'details[data-testid="warehouse-evidence-technical-details"]';
+const WAREHOUSE_DISCLOSURE_TOGGLE = 'button[data-testid="warehouse-evidence-disclosure-toggle"]';
+const WAREHOUSE_DISCLOSURE_PANEL = '[data-testid="warehouse-evidence-disclosure-panel"]';
+const WAREHOUSE_TECHNICAL_DISCLOSURES = `${WAREHOUSE_TECHNICAL_DETAILS}, ${WAREHOUSE_DISCLOSURE_TOGGLE}`;
 
 function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500); }
 function validateReviewLabConfig(raw) {
@@ -160,14 +166,129 @@ function planner(system, keyboard = false, keyboardOpened = null) {
   cy.getByTestId('planner-evidence-discoverability-surface').should('be.visible'); cy.getByTestId('planner-warehouse-evidence').should('be.visible');
   cy.getByTestId('workspace-context-header').should('contain.text', system.name).contains('h1,h2,h3', 'Colony Planner').should('be.visible');
 }
-function technical(status, posture) {
-  cy.getByTestId(`warehouse-evidence-envelope-status-${status}`, { timeout: 20000 }).should('exist');
-  if (posture) cy.getByTestId(`warehouse-evidence-source-posture-${posture}`).should('exist');
-  cy.get('body').then(($body) => {
-    const details = $body.find('[data-testid="warehouse-evidence-technical-details"]');
-    if (details.length) { if (!details.attr('open')) cy.wrap(details).find('summary').click(); cy.getByTestId('warehouse-evidence-technical-details').should('have.attr', 'open'); }
-    else cy.getByTestId('warehouse-evidence-disclosure-toggle').then(($t) => { if ($t.attr('aria-expanded') !== 'true') cy.wrap($t).click(); });
+function currentWarehouseEvidenceSurface() {
+  return cy.get(WAREHOUSE_DISCOVERABILITY_SURFACE, { timeout: 20000 })
+    .should('have.length', 1)
+    .and('be.visible')
+    .children(WAREHOUSE_EVIDENCE_SURFACE)
+    .should(($surfaces) => {
+      expect($surfaces, 'current planner warehouse evidence surface').to.have.length(1);
+      expect($surfaces, 'current planner warehouse evidence surface visibility').to.be.visible;
+    });
+}
+function waitForWarehouseEvidenceRender(status, posture) {
+  const statusSelector = `[data-testid="warehouse-evidence-envelope-status-${status}"]`;
+  const postureSelector = `[data-testid="warehouse-evidence-source-posture-${posture}"]`;
+  // Gamma's loading card and final contract are both "unknown", but only the
+  // final render has the expected source posture. Let React commit that render
+  // before discovering which of the card's two native disclosures is current.
+  return currentWarehouseEvidenceSurface().should(($surface) => {
+    expect($surface.find(statusSelector), `current warehouse evidence ${status} status marker`).to.have.length(1);
+    expect($surface.find(postureSelector), `current warehouse evidence ${posture} source-posture marker`).to.have.length(1);
   });
+}
+function currentWarehouseTechnicalDisclosure() {
+  return currentWarehouseEvidenceSurface()
+    .should(($surface) => {
+      const $disclosures = $surface.find(WAREHOUSE_TECHNICAL_DISCLOSURES);
+      expect(
+        $disclosures,
+        'current planner warehouse evidence must expose exactly one supported native technical disclosure',
+      ).to.have.length(1);
+
+      const $disclosure = $disclosures.eq(0);
+      if ($disclosure.is(WAREHOUSE_TECHNICAL_DETAILS)) {
+        expect($disclosure.children('summary'), 'native technical details must have exactly one direct summary').to.have.length(1);
+        return;
+      }
+
+      expect($disclosure.is(WAREHOUSE_DISCLOSURE_TOGGLE), 'custom technical disclosure must use a native button').to.eq(true);
+      expect($disclosure.attr('type'), 'custom technical disclosure native button type').to.eq('button');
+      expect($disclosure.attr('aria-expanded'), 'custom technical disclosure expansion state').to.be.oneOf(['true', 'false']);
+      const panelId = $disclosure.attr('aria-controls');
+      expect(panelId, 'custom technical disclosure controlled panel id').to.be.a('string').and.not.equal('');
+      const $panels = $surface.find(WAREHOUSE_DISCLOSURE_PANEL);
+      expect($panels, 'custom technical disclosure must have exactly one panel in the current evidence surface').to.have.length(1);
+      expect($panels.attr('id'), 'custom technical disclosure panel linkage').to.eq(panelId);
+    })
+    .then(() => currentWarehouseEvidenceSurface())
+    .should(($surface) => {
+      expect(
+        $surface.find(WAREHOUSE_TECHNICAL_DISCLOSURES),
+        're-queried current planner warehouse evidence technical disclosure',
+      ).to.have.length(1);
+    })
+    .then(($surface) => (
+      $surface.find(WAREHOUSE_TECHNICAL_DETAILS).length ? 'details' : 'button'
+    ));
+}
+function openCurrentWarehouseTechnicalDisclosure() {
+  return currentWarehouseTechnicalDisclosure().then((variant) => {
+    if (variant === 'details') {
+      return currentWarehouseEvidenceSurface()
+        .find(WAREHOUSE_TECHNICAL_DETAILS)
+        .should('have.length', 1)
+        .then(($details) => {
+          if ($details[0].open) return undefined;
+          return currentWarehouseEvidenceSurface()
+            .find(WAREHOUSE_TECHNICAL_DETAILS)
+            .should('have.length', 1)
+            .children('summary')
+            .should('have.length', 1)
+            .and('be.visible')
+            .click();
+        })
+        .then(() => currentWarehouseTechnicalDisclosure().should('eq', 'details'))
+        .then(() => currentWarehouseEvidenceSurface()
+          .find(WAREHOUSE_TECHNICAL_DETAILS)
+          .should(($details) => {
+            expect($details, 're-queried native warehouse technical details').to.have.length(1);
+            expect($details[0].open, 'native warehouse technical details open state').to.eq(true);
+          }));
+    }
+
+    return currentWarehouseEvidenceSurface()
+      .find(WAREHOUSE_DISCLOSURE_TOGGLE)
+      .should('have.length', 1)
+      .then(($toggle) => {
+        if ($toggle.attr('aria-expanded') === 'true') return undefined;
+        return currentWarehouseEvidenceSurface()
+          .find(WAREHOUSE_DISCLOSURE_TOGGLE)
+          .should('have.length', 1)
+          .should('be.visible')
+          .and('be.enabled')
+          .click();
+      })
+      .then(() => currentWarehouseTechnicalDisclosure().should('eq', 'button'))
+      .then(() => currentWarehouseEvidenceSurface()
+        .find(WAREHOUSE_DISCLOSURE_TOGGLE)
+        .should('have.attr', 'aria-expanded', 'true'))
+      .then(() => currentWarehouseEvidenceSurface()
+        .find(WAREHOUSE_DISCLOSURE_PANEL)
+        .should(($panel) => {
+          expect($panel, 're-queried custom technical disclosure panel').to.have.length(1);
+          expect($panel[0].hidden, 'custom technical disclosure panel hidden state').to.eq(false);
+          expect($panel.attr('aria-hidden'), 'custom technical disclosure panel aria-hidden state').to.eq('false');
+        })
+        .and('be.visible'));
+  });
+}
+function technical(status, posture) {
+  const statusSelector = `[data-testid="warehouse-evidence-envelope-status-${status}"]`;
+  const postureSelector = `[data-testid="warehouse-evidence-source-posture-${posture}"]`;
+  return waitForWarehouseEvidenceRender(status, posture)
+    .then(() => openCurrentWarehouseTechnicalDisclosure())
+    .then(() => currentWarehouseEvidenceSurface()
+      .find('[data-testid="warehouse-evidence-envelope-summary"]')
+      .should('be.visible'))
+    .then(() => currentWarehouseEvidenceSurface()
+      .find(statusSelector)
+      .should('have.length', 1)
+      .and('be.visible'))
+    .then(() => currentWarehouseEvidenceSurface()
+      .find(postureSelector)
+      .should('have.length', 1)
+      .and('be.visible'));
 }
 function overflow(ids, callback) {
   cy.document().then((doc) => { const width = Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth); const result = {
@@ -206,9 +327,9 @@ describe('Local review environment verification', () => {
         finder(); detail(system);
         if (key === 'alpha') { closeDetailWithEscape(); checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(system); }
         planner(system, key === 'alpha', key === 'alpha' ? () => { summary.accessibility.alphaKeyboardOpenPlannerWorks = true; } : null); checks.systemDetailLoaded = true; checks.plannerOpened = true;
-        if (key === 'alpha') { checks.reportOnlyBoundaryVisible = true; checks.canonicalBoundaryVisible = true; technical('available'); checks.availablePostureVisible = true; checks.dedicatedContractVisible = true; checks.reportOnlyTagVisible = true; }
-        if (key === 'beta') { technical('unavailable'); checks.unavailablePostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
-        if (key === 'gamma') { technical('unknown'); checks.unknownPostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
+        if (key === 'alpha') { checks.reportOnlyBoundaryVisible = true; checks.canonicalBoundaryVisible = true; technical('available', 'dedicated_contract'); checks.availablePostureVisible = true; checks.dedicatedContractVisible = true; checks.reportOnlyTagVisible = true; }
+        if (key === 'beta') { technical('unavailable', 'dedicated_contract'); checks.unavailablePostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
+        if (key === 'gamma') { technical('unknown', 'dedicated_contract'); checks.unknownPostureVisible = true; checks.reportOnlyBoundaryVisible = true; }
         if (key === 'delta') { technical('unknown', 'provenance_bridge'); checks.provenanceFallbackVisible = true; checks.reportOnlyBoundaryVisible = true; checks.fallbackRemainsNonCanonical = true; checks.technicalFallbackDisclosureVisible = true; cy.getByTestId('warehouse-evidence-item').should('not.exist'); checks.noDedicatedEvidenceClaim = true; }
         checks.noRecoveryScreen = true; cy.then(() => { summary.scenarios[key] = { status: 'passed', checks, apiResponses: summary.apiResponses.slice(start), error: null }; });
       }); }); return chain.then(() => { telemetry(result.checks, summary); result.checks.noRecoveryScreen = true; overflow(PLANNER_IDS, (m) => { result.diagnostics = m; result.checks.documentOverflowWithinTolerance = m.documentOverflowPx <= 4; result.checks.criticalOverflowWithinTolerance = !m.containerOverflow.length; expect(m.documentOverflowPx).to.be.at.most(4); expect(m.containerOverflow).to.have.length(0); }); });

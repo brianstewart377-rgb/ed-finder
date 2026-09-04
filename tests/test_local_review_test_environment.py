@@ -1209,25 +1209,91 @@ def test_browser_result_card_expansion_helper_is_idempotent():
     assert "if (!$card.find('button:contains(\"Inspect system\")').is(':visible'))" in source
     for test_id in ('open-plan-start', 'plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'):
         assert test_id in source
-    assert 'warehouse-evidence-technical-details' in source
-    assert "find('summary').click()" in source
 
 
 @pytest.mark.unit
-def test_browser_technical_details_requeries_after_disclosure_click():
+def test_browser_technical_details_are_surface_scoped_requeried_and_fail_closed():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
-    helper = source[source.index('function technical'):source.index('function overflow')]
-    selector = "cy.getByTestId('warehouse-evidence-technical-details')"
-    click = "cy.wrap(details).find('summary').click()"
-    open_assertion = f"{selector}.should('have.attr', 'open')"
+    helper = source[source.index('function currentWarehouseEvidenceSurface'):source.index('function overflow')]
+    disclosure = source[
+        source.index('function currentWarehouseTechnicalDisclosure'):
+        source.index('function openCurrentWarehouseTechnicalDisclosure')
+    ]
+    opener = source[
+        source.index('function openCurrentWarehouseTechnicalDisclosure'):
+        source.index('function technical')
+    ]
+    technical = source[source.index('function technical'):source.index('function overflow')]
 
-    assert click in helper
-    assert open_assertion in helper
-    assert helper.index(click) < helper.index(open_assertion)
-    assert "cy.wrap(details).should('have.attr', 'open')" not in helper
+    assert "cy.get('body')" not in helper
+    assert 'cy.wrap(details)' not in helper
+    assert 'cy.wrap($t)' not in helper
+    assert 'details[data-testid="warehouse-evidence-technical-details"]' in source
+    assert 'button[data-testid="warehouse-evidence-disclosure-toggle"]' in source
+    assert '[data-testid="warehouse-evidence-disclosure-panel"]' in source
+    assert not re.search(
+        r"cy\.getByTestId\(\s*['\"]warehouse-evidence-(?:technical-details|disclosure-toggle|disclosure-panel)['\"]",
+        helper,
+    )
+    for child_selector in (
+        'WAREHOUSE_TECHNICAL_DETAILS',
+        'WAREHOUSE_DISCLOSURE_TOGGLE',
+        'WAREHOUSE_DISCLOSURE_PANEL',
+    ):
+        assert f'cy.get({child_selector}' not in helper
+
+    root_count = helper.index('current planner warehouse evidence surface')
+    assert '.to.have.length(1)' in helper[root_count:root_count + 160]
+    assert '$surface.find(WAREHOUSE_TECHNICAL_DISCLOSURES)' in disclosure
+    disclosure_count = disclosure.index('exactly one supported native technical disclosure')
+    disclosure_requery = disclosure.index('re-queried current planner warehouse evidence technical disclosure')
+    assert '.to.have.length(1)' in disclosure[disclosure_count:disclosure_count + 180]
+    assert '.to.have.length(1)' in disclosure[disclosure_requery:disclosure_requery + 180]
+    assert ".children('summary')" in disclosure
+    assert 'custom technical disclosure must use a native button' in disclosure
+    button_type = disclosure.index('custom technical disclosure native button type')
+    assert ".to.eq('button')" in disclosure[button_type:button_type + 140]
+    assert "aria-expanded" in disclosure
+    assert "aria-controls" in disclosure
+    assert '$surface.find(WAREHOUSE_DISCLOSURE_PANEL)' in disclosure
+
+    summary_click = opener.index(".children('summary')")
+    summary_activation = opener.index('.click()', summary_click)
+    details_requery = opener.index("currentWarehouseTechnicalDisclosure().should('eq', 'details')")
+    details_open = opener.index('native warehouse technical details open state')
+    button_click = opener.index(".find(WAREHOUSE_DISCLOSURE_TOGGLE)", details_open)
+    button_activation = opener.index('.click()', button_click)
+    button_requery = opener.index("currentWarehouseTechnicalDisclosure().should('eq', 'button')")
+    button_expanded = opener.index(".should('have.attr', 'aria-expanded', 'true')")
+    panel_visible = opener.index(".and('be.visible')", button_expanded)
+    assert summary_click < summary_activation < details_requery < details_open
+    assert button_click < button_activation < button_requery < button_expanded < panel_visible
+    assert '.to.eq(true)' in opener[details_open:details_open + 140]
+    panel_state = opener[button_expanded:panel_visible]
+    panel_hidden = panel_state.index('custom technical disclosure panel hidden state')
+    panel_aria_hidden = panel_state.index('custom technical disclosure panel aria-hidden state')
+    assert '.to.eq(false)' in panel_state[panel_hidden:panel_hidden + 140]
+    assert ".to.eq('false')" in panel_state[panel_aria_hidden:panel_aria_hidden + 160]
+
+    render_wait = technical.index('waitForWarehouseEvidenceRender(status, posture)')
+    open_call = technical.index('openCurrentWarehouseTechnicalDisclosure()')
+    envelope_visible = technical.index('warehouse-evidence-envelope-summary')
+    status_visible = technical.index('.find(statusSelector)', open_call)
+    posture_visible = technical.index('.find(postureSelector)', open_call)
+    assert render_wait < open_call < envelope_visible < status_visible < posture_visible
+    assert ".should('be.visible')" in technical[envelope_visible:status_visible]
+    assert ".and('be.visible')" in technical[status_visible:posture_visible]
+    assert ".and('be.visible')" in technical[posture_visible:]
     assert "warehouse-evidence-envelope-status-${status}" in helper
     assert "warehouse-evidence-source-posture-${posture}" in helper
-    assert 'warehouse-evidence-disclosure-toggle' in helper
+    assert 'function technical(status, posture)' in technical
+    for call in (
+        "technical('available', 'dedicated_contract')",
+        "technical('unavailable', 'dedicated_contract')",
+        "technical('unknown', 'dedicated_contract')",
+        "technical('unknown', 'provenance_bridge')",
+    ):
+        assert call in source
 
 
 @pytest.mark.unit
