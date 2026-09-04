@@ -3,10 +3,7 @@ import { parseLosslessJson } from './lossless-json';
 export const LIVE_EVENTS_PATH = '/api/events/live';
 
 export type EventStreamStatus =
-  | 'connecting'
-  | 'open'
-  | 'reconnecting'
-  | 'closed';
+  'connecting' | 'open' | 'reconnecting' | 'closed';
 
 export interface EventStreamContract {
   close(): void;

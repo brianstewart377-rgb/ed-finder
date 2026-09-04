@@ -37,9 +37,9 @@ describe('SessionAdminTokenControl', () => {
     );
     expect(localStorage.getItem(ADMIN_TOKEN_SESSION_KEY)).toBeNull();
     await waitFor(() =>
-      expect(screen.getByTestId('session-admin-token-status')).toHaveTextContent(
-        'A session token is configured.',
-      ),
+      expect(
+        screen.getByTestId('session-admin-token-status'),
+      ).toHaveTextContent('A session token is configured.'),
     );
     expect(screen.getByRole('status')).toHaveTextContent(
       'Session admin token saved.',

@@ -59,7 +59,9 @@ describe('SystemOverlay', () => {
 
     render(SystemOverlay, { props: { id64: '42' as Id64 } });
     await waitFor(() =>
-      expect(screen.getByRole('dialog', { name: 'System Detail' })).toHaveFocus(),
+      expect(
+        screen.getByRole('dialog', { name: 'System Detail' }),
+      ).toHaveFocus(),
     );
 
     await fireEvent.keyDown(window, { key: 'Escape' });

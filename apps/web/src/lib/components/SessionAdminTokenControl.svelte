@@ -42,7 +42,9 @@
     in profile sync, and is cleared when the browser session ends.
   </p>
   <p aria-live="polite" data-testid="session-admin-token-status">
-    {$adminToken.value ? 'A session token is configured.' : 'No session token is configured.'}
+    {$adminToken.value
+      ? 'A session token is configured.'
+      : 'No session token is configured.'}
   </p>
   <form
     onsubmit={(event) => {

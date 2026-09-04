@@ -61,12 +61,7 @@ describe('SSE contract', () => {
     stream.close();
     stream.close();
     expect(instance.close).toHaveBeenCalledOnce();
-    expect(statuses).toEqual([
-      'connecting',
-      'open',
-      'reconnecting',
-      'closed',
-    ]);
+    expect(statuses).toEqual(['connecting', 'open', 'reconnecting', 'closed']);
   });
 
   it('reports and ignores malformed frames without terminating the stream', () => {
@@ -95,9 +90,7 @@ describe('SSE contract', () => {
     expect(received).toHaveBeenCalledWith({ id64: '9007199254740993' });
 
     stream.close();
-    instance.onmessage?.(
-      new MessageEvent('message', { data: '{"id64":42}' }),
-    );
+    instance.onmessage?.(new MessageEvent('message', { data: '{"id64":42}' }));
     expect(received).toHaveBeenCalledTimes(1);
   });
 });
