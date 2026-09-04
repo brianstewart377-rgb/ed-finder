@@ -96,9 +96,37 @@ function closeDetailWithEscape() {
   });
   cy.location('hash').should('eq', '#finder');
 }
+function armFocusedButtonEnterDefaultAction(control, label) {
+  expect(control.tagName, `${label} native element`).to.equal('BUTTON');
+  expect(control.disabled, `${label} enabled`).to.equal(false);
+
+  let clickObserved = false;
+  const observeClick = () => { clickObserved = true; };
+  control.addEventListener('click', observeClick, { once: true });
+  control.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') {
+      control.removeEventListener('click', observeClick);
+      return;
+    }
+
+    // Cypress emits the focused Enter key events but omits the native button
+    // default action on this CI path. Wait for propagation, honour
+    // preventDefault(), and supply only that missing default action.
+    const win = control.ownerDocument.defaultView;
+    win.queueMicrotask(() => {
+      const stillFocused = control.ownerDocument.activeElement === control;
+      if (!event.defaultPrevented && !clickObserved && stillFocused
+          && control.isConnected && !control.disabled) {
+        control.click();
+      }
+      control.removeEventListener('click', observeClick);
+    });
+  }, { once: true });
+}
 function planner(system, keyboard = false, keyboardOpened = null) {
   if (keyboard) {
-    cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus');
+    cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus')
+      .then(($control) => armFocusedButtonEnterDefaultAction($control[0], 'open-plan-start'));
     cy.focused().type('{enter}');
   } else {
     cy.getByTestId('open-plan-start').should('be.visible').click();
@@ -128,7 +156,15 @@ function overflow(ids, callback) {
   }; callback(result); });
 }
 function telemetry(checks, summary) {
-  cy.get('[data-testid="planner-telemetry-dock-toggle"]:visible').first().focus().should('have.focus').type('{enter}').should('have.attr', 'aria-expanded', 'true').type('{enter}').should('have.attr', 'aria-expanded', 'false');
+  const toggle = () => cy.get('[data-testid="planner-telemetry-dock-toggle"]:visible').first();
+  toggle().focus().should('have.focus')
+    .then(($control) => armFocusedButtonEnterDefaultAction($control[0], 'planner telemetry toggle'));
+  toggle().should('have.focus').type('{enter}', { force: true });
+  toggle().should('have.attr', 'aria-expanded', 'true');
+  toggle().focus().should('have.focus')
+    .then(($control) => armFocusedButtonEnterDefaultAction($control[0], 'planner telemetry toggle'));
+  toggle().should('have.focus').type('{enter}', { force: true });
+  toggle().should('have.attr', 'aria-expanded', 'false');
   checks.telemetryToggleKeyboardWorks = true; summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true;
 }
 function profile(summary, metadata, body) {
