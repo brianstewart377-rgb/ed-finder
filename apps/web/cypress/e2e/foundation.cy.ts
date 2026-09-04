@@ -30,10 +30,14 @@ describe('ED-Finder V3 foundation', () => {
       expect(headers.location).to.include('/#system/0');
     });
 
-    cy.request('/apiary').then(({ headers, status }) => {
-      expect(status).to.eq(200);
-      expect(headers['content-type']).to.include('text/html');
-    });
+    cy.request({ url: '/apiary', failOnStatusCode: false }).then(
+      ({ headers, status }) => {
+        // This near-prefix must remain on the Svelte side. Because it is not a
+        // real application route, the correct frontend response is its HTML 404.
+        expect(status).to.eq(404);
+        expect(headers['content-type']).to.include('text/html');
+      },
+    );
   });
 
   it('supports direct navigation and refresh through the SPA fallback', () => {
