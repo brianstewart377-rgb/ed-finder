@@ -20,6 +20,10 @@ const WAREHOUSE_TECHNICAL_DETAILS = 'details[data-testid="warehouse-evidence-tec
 const WAREHOUSE_DISCLOSURE_TOGGLE = 'button[data-testid="warehouse-evidence-disclosure-toggle"]';
 const WAREHOUSE_DISCLOSURE_PANEL = '[data-testid="warehouse-evidence-disclosure-panel"]';
 const WAREHOUSE_TECHNICAL_DISCLOSURES = `${WAREHOUSE_TECHNICAL_DETAILS}, ${WAREHOUSE_DISCLOSURE_TOGGLE}`;
+const WHOLE_SYSTEM_PLANNER = 'section[data-testid="whole-system-colony-planner"]';
+const PLANNER_TELEMETRY_REGION = 'div[data-testid="planner-telemetry-region"]';
+const PLANNER_TELEMETRY_TOGGLE = 'button[data-testid="planner-telemetry-dock-toggle"]';
+const PLANNER_TELEMETRY_CONTENT = 'div[data-testid="planner-telemetry-dock-content"]';
 
 function clean(value) { return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500); }
 function validateReviewLabConfig(raw) {
@@ -173,8 +177,8 @@ function currentWarehouseEvidenceSurface() {
     .children(WAREHOUSE_EVIDENCE_SURFACE)
     .should(($surfaces) => {
       expect($surfaces, 'current planner warehouse evidence surface').to.have.length(1);
-      expect($surfaces, 'current planner warehouse evidence surface visibility').to.be.visible;
-    });
+    })
+    .and('be.visible');
 }
 function waitForWarehouseEvidenceRender(status, posture) {
   const statusSelector = `[data-testid="warehouse-evidence-envelope-status-${status}"]`;
@@ -296,15 +300,108 @@ function overflow(ids, callback) {
     containerOverflow: ids.map((testId) => { const n = doc.querySelector(`[data-testid="${testId}"]`); return n && { testId, clientWidth: n.clientWidth, scrollWidth: n.scrollWidth, overflowPx: Math.max(0, n.scrollWidth - n.clientWidth) }; }).filter((v) => v && v.overflowPx > 4),
   }; callback(result); });
 }
-function telemetry(checks, summary) {
-  cy.get('[data-testid="planner-telemetry-dock-toggle"]:visible').first().focus().should('have.focus').type('{enter}').should('have.attr', 'aria-expanded', 'true').type('{enter}').should('have.attr', 'aria-expanded', 'false');
-  checks.telemetryToggleKeyboardWorks = true; summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true;
+function currentWholeSystemPlanner() {
+  return cy.get(WHOLE_SYSTEM_PLANNER, { timeout: 20000 })
+    .should(($planners) => {
+      expect($planners, 'current visible whole-system colony planner').to.have.length(1);
+      expect($planners.attr('aria-label'), 'whole-system colony planner accessible name').to.eq('Whole-system colony planner');
+    })
+    .and('be.visible');
 }
-function profile(summary, metadata, body) {
+function currentPlannerTelemetryRegion() {
+  return currentWholeSystemPlanner()
+    .find(PLANNER_TELEMETRY_REGION)
+    .should(($regions) => {
+      expect($regions, 'current planner telemetry region').to.have.length(1);
+      expect($regions.attr('data-layout'), 'current planner telemetry region layout').to.eq('plan-details-panel');
+    })
+    .and('be.visible');
+}
+function currentPlannerTelemetryToggle() {
+  return currentPlannerTelemetryRegion()
+    .find(PLANNER_TELEMETRY_TOGGLE)
+    .should('have.length', 1);
+}
+function assertCurrentPlannerTelemetryState(expanded) {
+  const dockState = expanded === 'true' ? 'open' : 'closed';
+  return currentPlannerTelemetryRegion()
+    .should(($region) => {
+      expect(expanded, 'expected planner telemetry expansion state').to.be.oneOf(['true', 'false']);
+      expect($region.attr('data-mobile-dock'), 'planner telemetry region dock state').to.eq(dockState);
+
+      const $toggles = $region.find(PLANNER_TELEMETRY_TOGGLE);
+      expect($toggles, 'current planner telemetry native toggle').to.have.length(1);
+      const $toggle = $toggles.eq(0);
+      expect($toggle.prop('tagName'), 'planner telemetry toggle native element').to.eq('BUTTON');
+      expect($toggle.attr('type'), 'planner telemetry toggle native button type').to.eq('button');
+      expect($toggle.prop('disabled'), 'planner telemetry toggle enabled state').to.eq(false);
+      expect($toggle.attr('aria-expanded'), 'planner telemetry toggle expansion state').to.eq(expanded);
+
+      const panelId = $toggle.attr('aria-controls');
+      expect(panelId, 'planner telemetry controlled panel id').to.be.a('string').and.not.equal('');
+      const $panels = $region.find(PLANNER_TELEMETRY_CONTENT);
+      expect($panels, 'current planner telemetry controlled panel').to.have.length(1);
+      expect($panels.attr('id'), 'planner telemetry controlled panel linkage').to.eq(panelId);
+      expect($region.find(`#${Cypress.$.escapeSelector(panelId)}`), 'unique linked planner telemetry panel').to.have.length(1);
+      expect($panels.attr('data-open'), 'planner telemetry controlled panel state').to.eq(expanded);
+    })
+    .then(() => currentPlannerTelemetryToggle()
+      .should('have.attr', 'aria-expanded', expanded));
+}
+function exposeCurrentPlannerTelemetryToggle() {
+  return currentPlannerTelemetryRegion()
+    .scrollTo(0, 0, { duration: 0, ensureScrollable: false })
+    .should(($region) => {
+      expect($region[0].scrollTop, 'planner telemetry region reset scroll position').to.eq(0);
+    })
+    .then(() => currentPlannerTelemetryToggle().scrollIntoView({ duration: 0 }))
+    .then(() => currentPlannerTelemetryToggle()
+      .should('be.visible')
+      .and('be.enabled'));
+}
+function telemetry(checks, summary) {
+  assertCurrentPlannerTelemetryState('false');
+  exposeCurrentPlannerTelemetryToggle();
+  currentPlannerTelemetryToggle().focus();
+  currentPlannerTelemetryToggle().should('have.focus');
+  cy.focused().should(($control) => {
+    expect($control, 'focused planner telemetry toggle').to.have.length(1);
+    expect($control.attr('data-testid'), 'focused planner telemetry test id').to.eq('planner-telemetry-dock-toggle');
+    expect($control.is(PLANNER_TELEMETRY_TOGGLE), 'focused control is the native planner telemetry toggle').to.eq(true);
+    expect($control.closest(PLANNER_TELEMETRY_REGION), 'focused toggle belongs to the current telemetry region').to.have.length(1);
+    expect($control.closest(WHOLE_SYSTEM_PLANNER), 'focused toggle belongs to the current whole-system planner').to.have.length(1);
+  }).type('{enter}');
+  assertCurrentPlannerTelemetryState('true');
+
+  exposeCurrentPlannerTelemetryToggle();
+  currentPlannerTelemetryToggle().focus();
+  currentPlannerTelemetryToggle().should('have.focus');
+  cy.focused().should(($control) => {
+    expect($control, 're-focused planner telemetry toggle').to.have.length(1);
+    expect($control.is(PLANNER_TELEMETRY_TOGGLE), 're-focused control is the native planner telemetry toggle').to.eq(true);
+    expect($control.closest(PLANNER_TELEMETRY_REGION), 're-focused toggle belongs to the current telemetry region').to.have.length(1);
+    expect($control.closest(WHOLE_SYSTEM_PLANNER), 're-focused toggle belongs to the current whole-system planner').to.have.length(1);
+  }).type('{enter}');
+  assertCurrentPlannerTelemetryState('false');
+  cy.then(() => {
+    checks.telemetryToggleKeyboardWorks = true;
+    summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true;
+  });
+}
+function profile(summary, metadata, body, execution) {
   summary.viewportProfiles.push(metadata); const result = { status: 'failed', checks: { effectiveViewportApplied: false }, diagnostics: {}, error: null };
+  cy.then(() => {
+    execution.current = { profileName: metadata.profile_name, result };
+    summary.profileResults[metadata.profile_name] = result;
+  });
   cy.viewport(metadata.viewport_width, metadata.viewport_height); cy.visit('/'); cy.clearLocalStorage(); cy.reload();
   cy.window().then((win) => { expect(win.innerWidth).to.eq(metadata.viewport_width); expect(win.innerHeight).to.eq(metadata.viewport_height); result.checks.effectiveViewportApplied = true; });
-  body(result).then(() => { result.status = 'passed'; summary.profileResults[metadata.profile_name] = result; });
+  body(result).then(() => {
+    expect(execution.current?.profileName, 'completed viewport profile attribution').to.eq(metadata.profile_name);
+    expect(execution.current?.result, 'completed viewport profile result').to.equal(result);
+    result.status = 'passed';
+    execution.current = null;
+  });
 }
 
 describe('Local review environment verification', () => {
@@ -320,7 +417,17 @@ describe('Local review environment verification', () => {
   });
   it('captures deterministic browser verification summary', () => {
     const selectedPlan = reviewConfig.selectedPlan; const summary = summaryFor(selectedPlan); activeSummary = summary; instrument(summary);
-    Cypress.on('fail', (error) => { summary.fatalError = clean(error.stack || error.message); throw error; });
+    const execution = { current: null };
+    Cypress.on('fail', (error) => {
+      const firstError = clean(error?.stack || error?.message || String(error));
+      if (summary.fatalError === null) summary.fatalError = firstError;
+      if (execution.current) {
+        execution.current.result.status = 'failed';
+        if (execution.current.result.error === null) execution.current.result.error = summary.fatalError;
+        summary.profileResults[execution.current.profileName] = execution.current.result;
+      }
+      throw error;
+    });
 
     profile(summary, PROFILES[0], (result) => { let chain = cy.wrap(null);
       selectedPlan.browserFlowKeys.forEach((key) => { chain = chain.then(() => { const system = SYSTEMS[key]; const start = summary.apiResponses.length; const checks = {};
@@ -333,11 +440,11 @@ describe('Local review environment verification', () => {
         if (key === 'delta') { technical('unknown', 'provenance_bridge'); checks.provenanceFallbackVisible = true; checks.reportOnlyBoundaryVisible = true; checks.fallbackRemainsNonCanonical = true; checks.technicalFallbackDisclosureVisible = true; cy.getByTestId('warehouse-evidence-item').should('not.exist'); checks.noDedicatedEvidenceClaim = true; }
         checks.noRecoveryScreen = true; cy.then(() => { summary.scenarios[key] = { status: 'passed', checks, apiResponses: summary.apiResponses.slice(start), error: null }; });
       }); }); return chain.then(() => { telemetry(result.checks, summary); result.checks.noRecoveryScreen = true; overflow(PLANNER_IDS, (m) => { result.diagnostics = m; result.checks.documentOverflowWithinTolerance = m.documentOverflowPx <= 4; result.checks.criticalOverflowWithinTolerance = !m.containerOverflow.length; expect(m.documentOverflowPx).to.be.at.most(4); expect(m.containerOverflow).to.have.length(0); }); });
-    });
-    profile(summary, PROFILES[1], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, reportOnlyBoundaryVisible: true, canonicalBoundaryVisible: true, keyControlsReachable: true, safeFocusAndNavigation: true, noRecoveryScreen: true }); telemetry(r.checks, summary); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; r.checks.documentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.checks.criticalOverflowWithinTolerance = !m.containerOverflow.length; }); return cy.wrap(null); });
-    profile(summary, PROFILES[2], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_constrained_layout_compromise_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Constrained planner layout compromise remained bounded and escape-safe at 1024x768.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').should('be.visible').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); });
-    profile(summary, PROFILES[3], (r) => { finder(); Object.assign(r.checks, { finderLoaded: true, reviewCardsAccessible: true }); overflow([], (m) => { r.checks.finderDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.finder_document = m; }); detail(SYSTEMS.alpha); Object.assign(r.checks, { systemDetailOpened: true, systemDetailCloseControlVisible: true }); closeDetailWithEscape(); r.checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(SYSTEMS.alpha); overflow([], (m) => { r.checks.systemDetailDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.system_detail_document = m; }); cy.getByTestId('system-detail-close').click(); Object.assign(r.checks, { closeControlWorks: true, noRecoveryScreen: true }); return cy.wrap(null); });
-    profile(summary, PROFILES[4], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, safeExitControlVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_mobile_resilience_overflow_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Phone-width planner overflow remained a bounded resilience diagnostic and did not redefine desktop planner acceptance.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); });
+    }, execution);
+    profile(summary, PROFILES[1], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, reportOnlyBoundaryVisible: true, canonicalBoundaryVisible: true, keyControlsReachable: true, safeFocusAndNavigation: true, noRecoveryScreen: true }); telemetry(r.checks, summary); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; r.checks.documentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.checks.criticalOverflowWithinTolerance = !m.containerOverflow.length; }); return cy.wrap(null); }, execution);
+    profile(summary, PROFILES[2], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_constrained_layout_compromise_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Constrained planner layout compromise remained bounded and escape-safe at 1024x768.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').should('be.visible').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); }, execution);
+    profile(summary, PROFILES[3], (r) => { finder(); Object.assign(r.checks, { finderLoaded: true, reviewCardsAccessible: true }); overflow([], (m) => { r.checks.finderDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.finder_document = m; }); detail(SYSTEMS.alpha); Object.assign(r.checks, { systemDetailOpened: true, systemDetailCloseControlVisible: true }); closeDetailWithEscape(); r.checks.modalEscapeCloseWorks = true; summary.accessibility.modalEscapeCloseWorks = true; detail(SYSTEMS.alpha); overflow([], (m) => { r.checks.systemDetailDocumentOverflowWithinTolerance = m.documentOverflowPx <= 4; r.diagnostics.system_detail_document = m; }); cy.getByTestId('system-detail-close').click(); Object.assign(r.checks, { closeControlWorks: true, noRecoveryScreen: true }); return cy.wrap(null); }, execution);
+    profile(summary, PROFILES[4], (r) => { finder(); detail(SYSTEMS.alpha); planner(SYSTEMS.alpha); Object.assign(r.checks, { plannerOpened: true, selectedSystemContextVisible: true, safeExitControlVisible: true, noRecoveryScreen: true }); overflow(PLANNER_IDS, (m) => { r.diagnostics = m; if (m.documentOverflowPx > 4 || m.containerOverflow.length) summary.productObservations.push({ key: 'planner_mobile_resilience_overflow_diagnostic', classification: 'KNOWN_VIEWPORT_DIAGNOSTIC', owner: 'PR #259', environmentReady: true, productAcceptanceReady: true, description: 'Phone-width planner overflow remained a bounded resilience diagnostic and did not redefine desktop planner acceptance.', metrics: m }); }); cy.contains('button', /Back to Finder/i).click(); cy.getByTestId('search-summary').then(() => { r.checks.safeReturnToFinder = true; }); return cy.wrap(null); }, execution);
     cy.then(() => cy.task('writeReviewLabSummary', { outputPath: reviewConfig.reviewOutputPath, summary }, { log: false }));
   });
 });
