@@ -315,18 +315,26 @@ describe('ED Finder release gate — Cypress parity', () => {
     // Review Lab already locks Escape-to-close as an accessibility contract.
     // Dispatch the key event on window because SystemDetailModal installs its
     // Escape listener there; typing into body depends on browser event routing.
+    // The body scroll lock is installed by the same effect, so it is the
+    // observable readiness signal that prevents Firefox racing the listener.
+    cy.get('body').should(($body) => {
+      expect($body[0].style.overflow, 'modal Escape listener readiness').to.eq('hidden');
+    });
     cy.window().then((win) => {
       win.dispatchEvent(new win.KeyboardEvent('keydown', {
         key: 'Escape',
+        code: 'Escape',
+        which: 27,
+        keyCode: 27,
         bubbles: true,
         cancelable: true,
       }));
     });
+    cy.getByTestId('system-detail-modal').should('not.exist');
     cy.get('body').should(($body) => {
-      const $modal = $body.find('[data-testid="system-detail-modal"]');
-      const closed = $modal.length === 0 || !Cypress.dom.isVisible($modal[0]);
-      expect(closed, 'system detail modal closed by Escape').to.equal(true);
+      expect($body[0].style.overflow, 'body overflow restored after modal close').to.eq('');
     });
+    cy.location('hash').should('eq', '#finder');
   });
 
   it('installs and controls through the cache-neutral service worker', () => {

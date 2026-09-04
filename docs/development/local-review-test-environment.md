@@ -81,10 +81,14 @@ Windows equivalent:
 ```
 
 - The dedicated Review Lab lane does not call normal `yarn e2e` as a substitute
-  for isolated review validation.
-- The Review Lab browser collector receives
-  `EDFINDER_REVIEW_OUTPUT_PATH` and `EDFINDER_REVIEW_SCENARIOS_JSON` only from
-  the wrapper. Partial Review Lab configuration fails closed.
+  for isolated review validation. Normal Cypress parity explicitly selects only
+  the auth-owner and release-gate product specs.
+- The Python runner explicitly selects the Review Lab collector. A Node-side
+  Cypress task snapshots the wrapper-owned marker, output path, and scenario
+  plan and returns that trusted handshake without using the Cypress environment
+  API. Summary writes are limited to the exact configured absolute path beneath
+  `/tmp/edfinder-local-review` and require the expected summary schema. Partial
+  or mismatched Review Lab configuration fails closed before browser journeys.
 
 ## Safety Boundary
 

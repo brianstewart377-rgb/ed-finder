@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND = ROOT / "frontend"
 E2E = FRONTEND / "e2e"
 WORKFLOWS = ROOT / ".github" / "workflows"
+PRODUCT_SPECS = "cypress/e2e/auth-owner-access.cy.js,cypress/e2e/release-gate.cy.js"
 
 
 def _read(path: Path) -> str:
@@ -24,8 +25,8 @@ def test_cypress_is_the_only_active_strict_browser_release_gate():
     cypress_config = _read(FRONTEND / "cypress.config.cjs")
     assert "retries: 0" in cypress_config
     package = _read(FRONTEND / "package.json")
-    assert '"e2e": "cypress run --browser chrome"' in package
-    assert '"e2e:firefox": "cypress run --browser firefox"' in package
+    assert f'"e2e": "cypress run --browser chrome --spec {PRODUCT_SPECS}"' in package
+    assert f'"e2e:firefox": "cypress run --browser firefox --spec {PRODUCT_SPECS}"' in package
     assert "playwright" not in package.lower()
 
 
@@ -33,11 +34,49 @@ def test_cypress_gate_preserves_browser_accessibility_visual_and_renderer_covera
     workflow = _read(WORKFLOWS / "cypress-parity.yml")
     release_spec = _read(FRONTEND / "cypress/e2e/release-gate.cy.js")
     assert "browser: [chrome, firefox]" in workflow
+    assert f"--spec {PRODUCT_SPECS}" in workflow
+    assert "review-environment.cy.js" not in workflow
     assert "cypress-axe" in _read(FRONTEND / "cypress/support/e2e.js")
     assert "cy.checkA11y" in release_spec
     assert "home-1280x720" in release_spec
     assert "orders renderer sync invalidation before resize revalidation" in release_spec
     assert "same-size ResizeObserver notification" in release_spec
+
+
+def test_system_detail_escape_uses_the_modal_window_keyboard_path():
+    release_spec = _read(FRONTEND / "cypress/e2e/release-gate.cy.js")
+    test_body = release_spec[
+        release_spec.index("it('opens and closes a system detail modal from a real search result'"):
+        release_spec.index("it('installs and controls through the cache-neutral service worker'")
+    ]
+    dispatch = "win.dispatchEvent(new win.KeyboardEvent('keydown'"
+    readiness = ".to.eq('hidden')"
+    assert readiness in test_body
+    assert dispatch in test_body
+    assert ".style.overflow" in test_body
+    assert test_body.index(readiness) < test_body.index(dispatch)
+    for option in (
+        "key: 'Escape'",
+        "code: 'Escape'",
+        "which: 27",
+        "keyCode: 27",
+        "bubbles: true",
+        "cancelable: true",
+    ):
+        assert option in test_body
+    modal_absent = "cy.getByTestId('system-detail-modal').should('not.exist')"
+    overflow_restored = ".to.eq('')"
+    route_restored = "cy.location('hash').should('eq', '#finder')"
+    assert modal_absent in test_body
+    assert overflow_restored in test_body
+    assert route_restored in test_body
+    assert test_body.index(dispatch) < test_body.index(modal_absent) < test_body.index(overflow_restored) < test_body.index(route_restored)
+
+
+def test_review_lab_runner_is_the_only_lane_selecting_the_collector():
+    runner = _read(ROOT / "scripts/dev/review_lab/browser_runner.py")
+    assert "'--spec', 'cypress/e2e/review-environment.cy.js'" in runner
+    assert "playwright" not in runner.lower()
 
 
 def test_required_check_compatibility_alias_is_backed_by_real_cypress_job():
