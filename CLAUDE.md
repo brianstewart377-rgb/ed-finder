@@ -97,7 +97,9 @@ Rules:
 
 ## Frontend
 
-The checked-in frontend under `frontend/` still uses React, TypeScript and Vite. It remains migration/reference and current-validation reality until reviewed replacement slices land. New V3 application implementation must follow the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`.
+New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
+
+The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 
 - package manager: Yarn 1.22.22;
 - `yarn.lock` is committed and authoritative;

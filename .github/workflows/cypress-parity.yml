@@ -13,6 +13,9 @@ concurrency:
 
 jobs:
   cypress-release-gate:
+    # The misleading name is retained temporarily because main branch protection
+    # requires this exact context. Rename it only in the same administrative
+    # change that repoints the required check.
     name: Frontend v2 E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -98,7 +101,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
           REDIS_URL: redis://localhost:6379/0
-          CORS_ORIGINS: http://127.0.0.1:4173,http://localhost:4173
+          CORS_ORIGINS: http://127.0.0.1:4173,http://localhost:4173,http://127.0.0.1:4174,http://localhost:4174
           ADMIN_TOKEN: test-admin-token
           LOG_LEVEL: WARNING
           PYTHONPATH: ${{ github.workspace }}
@@ -159,6 +162,47 @@ jobs:
           CYPRESS_BASE_URL: http://127.0.0.1:4173
         run: npx --yes cypress@15.21.1 run --browser chrome --config-file cypress.config.cjs
 
+      - name: Set up Node 24 for Svelte foundation
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+
+      - name: Enable pnpm 11.25.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+
+      - name: Install locked Svelte dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Svelte static bundle
+        working-directory: apps/web
+        run: pnpm build
+
+      - name: Start Svelte production preview
+        working-directory: apps/web
+        env:
+          VITE_DEV_API_TARGET: http://127.0.0.1:8002
+        run: |
+          nohup pnpm preview --host 127.0.0.1 --port 4174 --strictPort > /tmp/cypress-svelte-preview.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:4174 >/dev/null 2>&1; then
+              echo "Svelte preview ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::Svelte preview failed to start within 60s"
+          tail -80 /tmp/cypress-svelte-preview.log || true
+          exit 1
+
+      - name: Run Svelte foundation Cypress smoke
+        working-directory: apps/web
+        env:
+          CYPRESS_BASE_URL: http://127.0.0.1:4174
+        run: pnpm exec cypress run --browser chrome
+
       - name: Preserve Cypress evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -168,5 +212,7 @@ jobs:
             frontend/cypress/artifacts
             /tmp/cypress-uvicorn.log
             /tmp/cypress-vite-preview.log
+            /tmp/cypress-svelte-preview.log
+            apps/web/cypress/artifacts
           if-no-files-found: warn
           retention-days: 7

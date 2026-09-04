@@ -42,6 +42,8 @@ htmlcov/
 !frontend/src/lib/**
 !frontend/src/_redesign/lib/
 !frontend/src/_redesign/lib/**
+!apps/web/src/lib/
+!apps/web/src/lib/**
 .tox/
 .coverage
 .coverage.*

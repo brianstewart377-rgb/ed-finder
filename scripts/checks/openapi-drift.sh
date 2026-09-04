@@ -6,8 +6,8 @@
 #   1. require a local/disposable Postgres + Redis;
 #   2. apply schema/seed with scripts/seed_check.sh;
 #   3. boot the API locally;
-#   4. regenerate frontend/src/types/api.gen.ts from /openapi.json;
-#   5. fail if git sees drift.
+#   4. regenerate both frontend API clients from the same /openapi.json;
+#   5. fail if git sees drift in either checked-in client.
 #
 # This script deliberately refuses production-looking DATABASE_URL values.
 set -euo pipefail
@@ -64,6 +64,16 @@ pick_yarn() {
   fi
 }
 
+pick_pnpm() {
+  if [ -n "${PNPM:-}" ]; then
+    printf '%s\n' "$PNPM"
+  elif command -v pnpm >/dev/null 2>&1; then
+    command -v pnpm
+  else
+    die "missing pnpm. Install pnpm 11.25.0 and apps/web dependencies before running this check."
+  fi
+}
+
 assert_safe_db_url() {
   case "$DATABASE_URL" in
     *prod*|*production*|*live*|*hetzner*|*ed-finder.app*|*edfinder.app*)
@@ -87,6 +97,7 @@ trap cleanup EXIT
 
 PYTHON_BIN="$(pick_python)"
 YARN_BIN="$(pick_yarn)"
+PNPM_BIN="$(pick_pnpm)"
 
 need_cmd git "Git is required to detect generated type drift."
 need_cmd curl "curl is required to wait for the local API."
@@ -132,11 +143,20 @@ section "Regenerate frontend OpenAPI types"
   VITE_OPENAPI_URL="$OPENAPI_URL" "$YARN_BIN" types:gen
 )
 
+section "Regenerate Svelte Hey API client"
+(
+  cd "$ROOT/apps/web"
+  OPENAPI_INPUT="$OPENAPI_URL" "$PNPM_BIN" generate:api
+)
+
 section "Check generated type drift"
 (
   cd "$ROOT"
   if ! git diff --exit-code frontend/src/types/api.gen.ts; then
     die "OpenAPI type drift detected. Commit the regenerated frontend/src/types/api.gen.ts."
+  fi
+  if ! git diff --exit-code -- apps/web/src/lib/api/generated; then
+    die "OpenAPI client drift detected. Commit the regenerated apps/web/src/lib/api/generated tree."
   fi
 )
 
