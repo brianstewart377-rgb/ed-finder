@@ -11,4 +11,12 @@ if (!input) {
 export default defineConfig({
   input,
   output: './src/lib/api/generated',
+  plugins: [
+    {
+      baseUrl: false,
+      name: '@hey-api/client-fetch',
+    },
+    '@hey-api/sdk',
+    '@hey-api/typescript',
+  ],
 });
