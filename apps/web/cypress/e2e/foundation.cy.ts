@@ -106,6 +106,92 @@ describe('ED-Finder V3 foundation', () => {
     );
   });
 
+  it('lets a cold URL overlay replace an older durable selection', () => {
+    cy.intercept('/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    cy.visit('/explore?system=18446744073709551615', {
+      onBeforeLoad(browser) {
+        browser.localStorage.setItem(
+          'ed-finder:selected-system-context',
+          '9007199254740993',
+        );
+      },
+    });
+    cy.get('[data-testid="system-detail-modal"]')
+      .should('contain.text', '18446744073709551615')
+      .and('be.visible');
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '18446744073709551615',
+    );
+    cy.window().then((browser) => {
+      expect(
+        browser.localStorage.getItem('ed-finder:selected-system-context'),
+      ).to.eq('18446744073709551615');
+    });
+  });
+
+  it('establishes a cold direct system route without opening an overlay', () => {
+    cy.intercept('/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    cy.visit('/system/18446744073709551615', {
+      onBeforeLoad(browser) {
+        browser.localStorage.setItem(
+          'ed-finder:selected-system-context',
+          '9007199254740993',
+        );
+      },
+    });
+    cy.get('h1').should('have.text', 'System Detail');
+    cy.get('[data-testid="system-detail-modal"]').should('not.exist');
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '18446744073709551615',
+    );
+    cy.window().then((browser) => {
+      expect(
+        browser.localStorage.getItem('ed-finder:selected-system-context'),
+      ).to.eq('18446744073709551615');
+    });
+  });
+
+  it('hydrates the selected-system singleton exactly once on bootstrap', () => {
+    cy.intercept('/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    let selectedSystemReads = 0;
+    cy.visit('/my-work', {
+      onBeforeLoad(browser) {
+        browser.localStorage.setItem(
+          'ed-finder:selected-system-context',
+          '9007199254740993',
+        );
+        const storagePrototype = Object.getPrototypeOf(
+          browser.localStorage,
+        ) as Storage;
+        const getItem = storagePrototype.getItem;
+        storagePrototype.getItem = function (key: string) {
+          if (key === 'ed-finder:selected-system-context')
+            selectedSystemReads += 1;
+          return getItem.call(this, key);
+        };
+      },
+    });
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '9007199254740993',
+    );
+    cy.then(() => expect(selectedSystemReads).to.eq(1));
+  });
+
   it('restores the host URL and scroll contract when Escape closes detail', () => {
     cy.intercept('/api/auth/session', {
       authenticated: false,

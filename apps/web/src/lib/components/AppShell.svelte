@@ -12,6 +12,7 @@
   let { children } = $props<{ children: import('svelte').Snippet }>();
   const persistence = usePersistenceContext();
   const { selectedSystem } = persistence;
+  let persistenceReady = $state(false);
   let overlayId = $derived.by((): Id64 | null => {
     const raw = page.url.searchParams.get('system');
     if (!raw || page.url.pathname.startsWith('/system/')) return null;
@@ -32,12 +33,14 @@
     }
   });
   $effect(() => {
+    if (!persistenceReady) return;
     const establishedSelection = overlayId ?? routeSelection;
     if (establishedSelection)
       persistence.selectedSystem.set(establishedSelection);
   });
   onMount(() => {
     hydrateApplicationStores();
+    persistenceReady = true;
     const normaliseLegacyHash = () =>
       applyLegacyHash(
         location,
@@ -84,7 +87,7 @@
       >{/if}
   </div>
 </header>
-{#if $selectedSystem.hydrated && $selectedSystem.value}<aside
+{#if persistenceReady && $selectedSystem.hydrated && $selectedSystem.value}<aside
     class="context-chip"
     data-testid="selected-system-context"
   >

@@ -184,6 +184,9 @@ export function createPersistedStore<T>(options: {
         parsed.ok &&
         isRecord(parsed.value) &&
         typeof parsed.value.version === 'number' &&
+        Number.isFinite(parsed.value.version) &&
+        Number.isInteger(parsed.value.version) &&
+        parsed.value.version >= 0 &&
         parsed.value.version > options.codec.version
       ) {
         inner.set({
@@ -262,6 +265,9 @@ const jsonCodec = <T>(
     if (
       isRecord(parsed.value) &&
       typeof parsed.value.version === 'number' &&
+      Number.isFinite(parsed.value.version) &&
+      Number.isInteger(parsed.value.version) &&
+      parsed.value.version >= 0 &&
       parsed.value.version > version
     ) {
       return {
@@ -368,12 +374,22 @@ function entryArray<T extends JsonRecord & { id64: Id64 }>(
   return result;
 }
 
-function collectionEnvelope(value: unknown): VersionedCollection | null {
-  if (!isRecord(value) || !isRecord(value.state)) return null;
-  return canonicaliseIds({
-    ...value,
-    version: typeof value.version === 'number' ? value.version : 0,
-  }) as VersionedCollection;
+function collectionEnvelope(
+  value: unknown,
+  acceptedVersion: number,
+): VersionedCollection | null {
+  const normalised = canonicaliseIds(value);
+  if (
+    !isRecord(normalised) ||
+    !isRecord(normalised.state) ||
+    typeof normalised.version !== 'number' ||
+    !Number.isFinite(normalised.version) ||
+    !Number.isInteger(normalised.version) ||
+    normalised.version < 0 ||
+    normalised.version > acceptedVersion
+  )
+    return null;
+  return normalised as VersionedCollection;
 }
 
 export const pinnedCodec = jsonCodec<PinnedEntry[]>((value) =>
@@ -403,7 +419,10 @@ export const fcCodec = jsonCodec<FcState>((value) => {
   return normalised as FcState;
 });
 export const collectionCodec = (version: number) =>
-  jsonCodec<VersionedCollection>(collectionEnvelope, version);
+  jsonCodec<VersionedCollection>(
+    (value) => collectionEnvelope(value, version),
+    version,
+  );
 export const syncKeyCodec = jsonCodec<{
   state: { syncKey: string };
   version: number;

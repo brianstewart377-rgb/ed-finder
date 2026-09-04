@@ -208,6 +208,75 @@ describe('persistence compatibility', () => {
     });
   });
 
+  it.each([
+    ['unsafe numeric id64', { state: { id64: 9007199254740992 }, version: 1 }],
+    ['malformed string id64', { state: { id64: '01' }, version: 1 }],
+    [
+      'unsafe id64 nested in arrays and records',
+      {
+        state: { groups: [{ systems: [{ system_id64: 'not-an-id' }] }] },
+        version: 1,
+      },
+    ],
+  ])('rejects a collection with %s', (_name, envelope) => {
+    expect(collectionCodec(1).decode(JSON.stringify(envelope))).toMatchObject({
+      ok: false,
+      problem: 'invalid-shape',
+    });
+  });
+
+  it('normalises valid ids throughout nested arrays and records, including uint64 max', () => {
+    const result = collectionCodec(1).decode(
+      JSON.stringify({
+        state: {
+          groups: [
+            {
+              system_id64: 123,
+              systems: [{ id64: '18446744073709551615', future: 'kept' }],
+            },
+          ],
+        },
+        version: 1,
+        future: { preserved: true },
+      }),
+    );
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        state: {
+          groups: [
+            {
+              system_id64: '123',
+              systems: [{ id64: '18446744073709551615', future: 'kept' }],
+            },
+          ],
+        },
+        version: 1,
+        future: { preserved: true },
+      },
+    });
+  });
+
+  it.each([
+    ['missing state', { version: 1 }],
+    ['array state', { state: [], version: 1 }],
+    ['missing version', { state: {} }],
+    ['string version', { state: {}, version: '1' }],
+    ['fractional version', { state: {}, version: 0.5 }],
+    ['negative version', { state: {}, version: -1 }],
+  ])('rejects a collection envelope with %s', (_name, envelope) => {
+    expect(collectionCodec(1).decode(JSON.stringify(envelope))).toMatchObject({
+      ok: false,
+      problem: 'invalid-shape',
+    });
+  });
+
+  it('rejects a non-finite JSON number as an invalid collection version', () => {
+    expect(
+      collectionCodec(1).decode('{"state":{},"version":1e400}'),
+    ).toMatchObject({ ok: false, problem: 'invalid-shape' });
+  });
+
   it('reports corrupt JSON and wrong types without crashing or erasing the entry', () => {
     localStorage.setItem('ed_compare_v2', '{broken');
     const store = createPersistedStore({

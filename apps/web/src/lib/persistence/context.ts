@@ -7,11 +7,9 @@ const PERSISTENCE_CONTEXT = Symbol('ed-finder-persistence');
 export type PersistenceContext = typeof applicationStores;
 
 /** Install once at the application shell; children receive typed services, not Storage globals. */
-export function providePersistenceContext(
-  services: PersistenceContext = applicationStores,
-): PersistenceContext {
-  setContext(PERSISTENCE_CONTEXT, services);
-  return services;
+export function providePersistenceContext(): PersistenceContext {
+  setContext(PERSISTENCE_CONTEXT, applicationStores);
+  return applicationStores;
 }
 
 export function usePersistenceContext(): PersistenceContext {

@@ -1,4 +1,10 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte';
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import TestShell from '$lib/components/TestShell.svelte';
@@ -9,12 +15,20 @@ import {
   resetApplicationStoreHydrationForTest,
 } from '$lib/persistence/stores';
 
+const { mockedPage } = vi.hoisted(() => ({
+  mockedPage: { url: new URL('http://localhost/') },
+}));
+
 vi.mock('$lib/api/client', () => ({
   claimOwner: vi.fn(),
   frontierLoginUrl: vi.fn(() => '/api/auth/frontier/login'),
   getAuthSession: vi.fn(),
   getHealth: vi.fn(),
   authLogout: vi.fn(),
+}));
+vi.mock('$app/state', () => ({ page: mockedPage }));
+vi.mock('$app/navigation', () => ({
+  goto: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockedGetHealth = vi.mocked(getHealth);
@@ -24,12 +38,16 @@ const renderPage = () => render(TestShell);
 
 describe('ED-Finder V3 shell', () => {
   beforeEach(() => {
-    vi.resetAllMocks();
+    vi.clearAllMocks();
     localStorage.clear();
     sessionStorage.clear();
+    mockedPage.url = new URL('http://localhost/');
     resetApplicationStoreHydrationForTest();
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    resetApplicationStoreHydrationForTest();
+  });
   it('renders accessible journey navigation and guest status', async () => {
     mockedGetHealth.mockResolvedValue({
       status: 'ok',
@@ -80,6 +98,68 @@ describe('ED-Finder V3 shell', () => {
       expect(screen.getByTestId('selected-system-context')).toHaveTextContent(
         '18446744073709551615',
       ),
+    );
+  });
+  it('lets an overlay URL selection win after durable state hydrates', async () => {
+    localStorage.setItem('ed-finder:selected-system-context', '42');
+    mockedPage.url = new URL('http://localhost/?system=18446744073709551615');
+    mockedGetAuthSession.mockResolvedValue({
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('selected-system-context')).toHaveTextContent(
+        '18446744073709551615',
+      ),
+    );
+    expect(localStorage.getItem('ed-finder:selected-system-context')).toBe(
+      '18446744073709551615',
+    );
+  });
+  it('lets a cold system route establish and persist its selected system', async () => {
+    mockedPage.url = new URL('http://localhost/system/12345678901234567890');
+    mockedGetAuthSession.mockResolvedValue({
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByTestId('selected-system-context')).toHaveTextContent(
+        '12345678901234567890',
+      ),
+    );
+    expect(localStorage.getItem('ed-finder:selected-system-context')).toBe(
+      '12345678901234567890',
+    );
+  });
+  it('closing an overlay preserves its durable selected-system context', async () => {
+    localStorage.setItem('ed-finder:selected-system-context', '42');
+    mockedPage.url = new URL('http://localhost/?system=99');
+    mockedGetAuthSession.mockResolvedValue({
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    renderPage();
+    await waitFor(() =>
+      expect(localStorage.getItem('ed-finder:selected-system-context')).toBe(
+        '99',
+      ),
+    );
+
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'Close system detail' }),
+    );
+
+    expect(localStorage.getItem('ed-finder:selected-system-context')).toBe(
+      '99',
     );
   });
   it('hydrates each singleton persistence service exactly once', () => {

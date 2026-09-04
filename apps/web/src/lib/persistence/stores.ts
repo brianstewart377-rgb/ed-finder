@@ -134,6 +134,8 @@ export function hydrateApplicationStores(): void {
 
 /** Test seam for proving boot idempotence without weakening runtime ownership. */
 export function resetApplicationStoreHydrationForTest(): void {
+  if (import.meta.env.MODE !== 'test')
+    throw new Error('Application-store hydration can only be reset in tests');
   applicationStoresHydrated = false;
 }
 
