@@ -1,15 +1,15 @@
 import { defineConfig } from '@hey-api/openapi-ts';
 
-const input = process.env.OPENAPI_INPUT?.trim();
+const requestedInput = process.env.OPENAPI_INPUT?.trim();
 
-if (!input) {
+if (!requestedInput) {
   throw new Error(
     'OPENAPI_INPUT is required and must point to an authoritative FastAPI OpenAPI URL or file',
   );
 }
 
 export default defineConfig({
-  input,
+  input: './.svelte-kit/openapi.json',
   output: './src/lib/api/generated',
   plugins: [
     {
