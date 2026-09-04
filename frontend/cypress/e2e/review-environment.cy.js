@@ -152,7 +152,7 @@ function technical(status, posture) {
   if (posture) cy.getByTestId(`warehouse-evidence-source-posture-${posture}`).should('exist');
   cy.get('body').then(($body) => {
     const details = $body.find('[data-testid="warehouse-evidence-technical-details"]');
-    if (details.length) { if (!details.attr('open')) cy.wrap(details).find('summary').click(); cy.wrap(details).should('have.attr', 'open'); }
+    if (details.length) { if (!details.attr('open')) cy.wrap(details).find('summary').click(); cy.getByTestId('warehouse-evidence-technical-details').should('have.attr', 'open'); }
     else cy.getByTestId('warehouse-evidence-disclosure-toggle').then(($t) => { if ($t.attr('aria-expanded') !== 'true') cy.wrap($t).click(); });
   });
 }

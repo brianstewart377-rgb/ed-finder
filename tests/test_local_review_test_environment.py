@@ -1214,6 +1214,23 @@ def test_browser_result_card_expansion_helper_is_idempotent():
 
 
 @pytest.mark.unit
+def test_browser_technical_details_requeries_after_disclosure_click():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function technical'):source.index('function overflow')]
+    selector = "cy.getByTestId('warehouse-evidence-technical-details')"
+    click = "cy.wrap(details).find('summary').click()"
+    open_assertion = f"{selector}.should('have.attr', 'open')"
+
+    assert click in helper
+    assert open_assertion in helper
+    assert helper.index(click) < helper.index(open_assertion)
+    assert "cy.wrap(details).should('have.attr', 'open')" not in helper
+    assert "warehouse-evidence-envelope-status-${status}" in helper
+    assert "warehouse-evidence-source-posture-${posture}" in helper
+    assert 'warehouse-evidence-disclosure-toggle' in helper
+
+
+@pytest.mark.unit
 def test_review_lab_planner_keyboard_entry_uses_native_enter_and_waits_for_panel():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
     helper = source[source.index('function planner'):source.index('function technical')]
