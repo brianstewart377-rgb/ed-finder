@@ -120,7 +120,6 @@ export const applicationStores = {
   profileSyncLast,
   selectedSystem,
   density,
-  adminToken,
   operatorHandoff,
 };
 
@@ -129,6 +128,9 @@ let applicationStoresHydrated = false;
 export function hydrateApplicationStores(): void {
   if (applicationStoresHydrated) return;
   applicationStoresHydrated = true;
+  // Credentials are hydrated for their dedicated control, but never exposed
+  // through the application/profile-sync store inventory.
+  adminToken.hydrate();
   for (const store of Object.values(applicationStores)) store.hydrate();
 }
 

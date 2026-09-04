@@ -19,9 +19,18 @@ export function canonicalApiPath(path: string): string {
   if (/^https?:\/\//i.test(path))
     throw new TypeError('API paths must be same-origin');
   const rooted = path.startsWith('/') ? path : `/${path}`;
-  return rooted === '/api' || rooted.startsWith('/api/')
-    ? rooted
-    : `/api${rooted}`;
+  const rootedPath = rooted.split(/[?#]/, 1)[0];
+  const apiPath =
+    rootedPath === '/api' || rootedPath.startsWith('/api/')
+      ? rooted
+      : `/api${rooted}`;
+  const normalised = new URL(apiPath, 'http://ed-finder.invalid');
+  if (
+    normalised.pathname !== '/api' &&
+    !normalised.pathname.startsWith('/api/')
+  )
+    throw new TypeError('API paths must stay under /api');
+  return `${normalised.pathname}${normalised.search}${normalised.hash}`;
 }
 
 export type AdminEndpointClass =
@@ -40,7 +49,8 @@ export function adminEndpointClass(
   )
     return 'owner-maintenance';
   if (
-    canonical.startsWith('/api/observations/facts') &&
+    (canonical === '/api/observations/facts' ||
+      canonical.startsWith('/api/observations/facts/')) &&
     ['POST', 'PATCH', 'DELETE'].includes(method.toUpperCase())
   )
     return 'operator';
@@ -122,10 +132,11 @@ export async function apiRequest<T>(
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (init.body != null && !headers.has('Content-Type'))
     headers.set('Content-Type', 'application/json');
+  headers.delete('X-Admin-Token');
   if (adminEndpointClass(canonicalPath, init.method ?? 'GET')) {
     const token = sessionAdminToken();
     if (token) headers.set('X-Admin-Token', token);
-  } else headers.delete('X-Admin-Token');
+  }
   let response: Response;
   try {
     response = await fetch(canonicalPath, {
