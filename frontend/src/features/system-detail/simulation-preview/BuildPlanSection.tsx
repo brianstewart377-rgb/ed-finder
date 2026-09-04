@@ -7,11 +7,11 @@ import { BuildPlanBodyView } from './BuildPlanBodyView';
 import { BuildPlanEditor } from './BuildPlanEditor';
 import { ModeIntro, StartModes } from './StartModes';
 import { Message } from './components';
-import { ARCHETYPES, type StartMode } from './types';
-import type { TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
-import type { PlannerWorkspaceCommand } from '@/features/colony-planner/workspaceUtils';
-import { bodyDisplayName } from './buildPlanLayoutUtils';
-import { layoutImportInvalidationKeys } from './layoutImportQueryKeys';
+import { ARCHETYPES, type StartMode } from '@ed-finder/planner-core/simulationTypes';
+import type { TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import type { PlannerWorkspaceCommand } from '@ed-finder/planner-core/workspace';
+import { bodyDisplayName } from '@ed-finder/planner-core/buildPlanLayout';
+import { layoutImportInvalidationKeys } from '@ed-finder/planner-core/layoutImportQueryKeys';
 
 type BuildPlanViewMode = 'list' | 'body';
 

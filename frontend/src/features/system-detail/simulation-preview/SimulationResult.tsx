@@ -1,6 +1,6 @@
 import type { SimulateBuildResponse } from '@/types/api';
 import { Message, Metric } from './components';
-import { confidenceLabel, titleCase } from './utils/formatters';
+import { confidenceLabel, titleCase } from '@ed-finder/planner-core/formatters';
 import { confidenceTone, complexityTone } from './utils/toneHelpers';
 import {
   CpRepairPanel,

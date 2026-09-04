@@ -3,10 +3,10 @@ import type { ReactElement, ReactNode } from 'react';
 import { vi, describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BuildPlanSection } from './BuildPlanSection';
-import { layoutImportInvalidationKeys } from './layoutImportQueryKeys';
+import { layoutImportInvalidationKeys } from '@ed-finder/planner-core/layoutImportQueryKeys';
 import { importSystemLayout } from '@/lib/api';
 import type { FacilityTemplate, SystemBody, SimulateBuildResponse, LayoutImportResponse } from '@/types/api';
-import type { StartMode } from './types';
+import type { StartMode } from '@ed-finder/planner-core/simulationTypes';
 
 vi.mock('@/lib/api', () => ({
   importSystemLayout: vi.fn(),

@@ -5,21 +5,21 @@ import type {
   FacilityTemplate,
   OptimiserCandidate,
   RecommendedBuildPlan,
-  SimulateBuildPlacement,
   SimulateBuildRequest,
   SimulationSummary,
   SystemDetail,
 } from '@/types/api';
-import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
-import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import type { DeclaredColonyRole } from '@ed-finder/planner-core/colonyRoles';
 import {
   buildObservedRolesFromFacts,
   buildRoleReview,
-} from '@/features/colony-planner/colonyRoleReview';
-import { getPlanningFocusLabel } from '@/features/colony-planner/workspaceUtils';
-import { bodyIdKey } from './bodyIdUtils';
-import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
-import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from './buildPlanLayoutUtils';
+} from '@ed-finder/planner-core/colonyRoleReview';
+import { getPlanningFocusLabel } from '@ed-finder/planner-core/workspace';
+import { bodyIdKey } from '@ed-finder/planner-core/bodyId';
+import type { PlannerWorkspaceCommand, ReviewDrawer } from '@ed-finder/planner-core/workspace';
+import { planSnapshotEmissionFingerprint } from '@ed-finder/planner-core/simulationFingerprints';
+import { compactBodyDisplayName, groupPlacementsByBody, type BodyGroup } from '@ed-finder/planner-core/buildPlanLayout';
 import { BuildPlanWorkspaceView } from './BuildPlanWorkspaceView';
 import { ColonyPlannerHeader } from './ColonyPlannerHeader';
 import { CockpitIntelligencePanel } from './CockpitIntelligencePanel';
@@ -36,14 +36,14 @@ import {
   primaryRoleHint,
   roleConfidenceLabel,
   type ColonyRoleSummary,
-} from './colonyRoleHintUtils';
+} from '@ed-finder/planner-core/colonyRoleHints';
 import { useSimulationPreviewPlan } from './hooks/useSimulationPreviewPlan';
 import { useSimulationPreviewRun } from './hooks/useSimulationPreviewRun';
 import {
   archetypeFromEconomy,
   buildRecommendedPlacements,
   simulationBodies,
-} from './utils/placementHelpers';
+} from '@ed-finder/planner-core/placementHelpers';
 
 export function SimulationPreview({
   system,
@@ -605,31 +605,6 @@ function WorkspaceRoleContext({
       </p>
     </section>
   );
-}
-
-function planSnapshotEmissionFingerprint(
-  placements: SimulateBuildPlacement[],
-  targetArchetype: string,
-  projection: TopologyPlanSnapshot['projection'],
-): string {
-  return JSON.stringify({
-    targetArchetype,
-    placements: placements.map(snapshotPlacementFingerprint),
-    projection: projection ? {
-      candidateId: projection.candidateId,
-      label: projection.label,
-      placements: projection.placements.map(snapshotPlacementFingerprint),
-    } : null,
-  });
-}
-
-function snapshotPlacementFingerprint(placement: SimulateBuildPlacement) {
-  return {
-    facility_template_id: placement.facility_template_id,
-    local_body_id: placement.local_body_id ?? null,
-    is_primary_port: Boolean(placement.is_primary_port),
-    build_order: placement.build_order,
-  };
 }
 
 function buildWorkspaceRoleSummary(

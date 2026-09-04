@@ -1,8 +1,8 @@
 import type { RecommendedBuildPlan, SimulateBuildRequest, SystemDetail } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
-import type { TopologyPlanSnapshot, TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
-import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
-import type { PlannerWorkspaceCommand, ReviewDrawer } from '@/features/colony-planner/workspaceUtils';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import type { DeclaredColonyRole } from '@ed-finder/planner-core/colonyRoles';
+import type { PlannerWorkspaceCommand, ReviewDrawer } from '@ed-finder/planner-core/workspace';
 import type { SimulationWorkspaceMode } from './simulation-preview/WorkspaceModeTabs';
 
 export function SimulationPreviewPanel({

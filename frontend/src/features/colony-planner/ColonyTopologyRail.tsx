@@ -1,8 +1,6 @@
 import { Network } from 'lucide-react';
 import type {
   FacilityTemplate,
-  SimulateBuildPlacement,
-  SystemBody,
   SystemDetail,
 } from '@/types/api';
 import {
@@ -11,11 +9,10 @@ import {
   bodyTags,
   getBodyGroupWarnings,
   type GroupedPlacement,
-} from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
-import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
+} from '@ed-finder/planner-core/buildPlanLayout';
+import { bodyIdKey, sameBodyId } from '@ed-finder/planner-core/bodyId';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import { buildPlanningEconomyLedger } from './planningEconomy';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 import {
   ESTIMATED_SLOT_LAYOUT_DISCLAIMER,
   buildBodyDataSlotEstimateMap,
@@ -23,10 +20,20 @@ import {
   resolveSlotCapacity,
   systemBodyData,
   type BodyDataSlotEstimate,
-} from './slotCapacityFallback';
-import { bucketPlacements } from './topologySelectionUtils';
-import type { TopologyPlanSnapshot, TopologySelection } from './topologySelectionUtils';
-export type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './topologySelectionUtils';
+} from '@ed-finder/planner-core/slotCapacity';
+import { bucketPlacements } from '@ed-finder/planner-core/topologySelection';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+export type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from '@ed-finder/planner-core/topologySelection';
+import {
+  bodyIcon,
+  bucketProjectedPlacements,
+  buildBodyNodes,
+  buildSlotLaneCells,
+  compactBodyKind,
+  placementLaneKind,
+  type ProjectedPlacementItem,
+  type TopologyBodyNode,
+} from '@ed-finder/planner-core/topologyModel';
 
 interface ColonyTopologyRailProps {
   system: SystemDetail;
@@ -34,20 +41,6 @@ interface ColonyTopologyRailProps {
   selection: TopologySelection;
   onSelect: (selection: TopologySelection) => void;
 }
-
-interface BodyNode {
-  body: SystemBody;
-  id: string;
-  depth: number;
-}
-
-interface ProjectedPlacementItem {
-  index: number;
-  placement: SimulateBuildPlacement;
-  template?: FacilityTemplate;
-}
-
-type SlotLaneKind = 'orbital' | 'ground' | 'unknown';
 
 export function ColonyTopologyRail({
   system,
@@ -201,7 +194,7 @@ function BodyTreeRow({
   projected,
   onSelect,
 }: {
-  node: BodyNode;
+  node: TopologyBodyNode;
   systemName?: string | null;
   slotPrediction: NonNullable<TopologyPlanSnapshot['slotPredictions']>['predictions'][number] | null;
   bodyDataSlotEstimate?: BodyDataSlotEstimate | null;
@@ -417,15 +410,6 @@ function PlacementButton({
   );
 }
 
-function placementLaneKind(template?: FacilityTemplate): SlotLaneKind {
-  const value = (template?.allowed_location ?? '').toLowerCase();
-  const hasOrbital = value.includes('orbit');
-  const hasGround = value.includes('surface') || value.includes('ground');
-  if (hasOrbital && !hasGround) return 'orbital';
-  if (hasGround && !hasOrbital) return 'ground';
-  return 'unknown';
-}
-
 function SlotLaneRow({
   laneKey,
   label,
@@ -448,30 +432,7 @@ function SlotLaneRow({
     );
   }
 
-  const cells = Array.from({ length: Math.max(0, capacity) }, (_unused, index) => {
-    if (index < planned.length) {
-      const value = planned[index] ?? '';
-      return {
-        key: `planned-${laneKey}-${index}`,
-        label: compactFacilityName(value),
-        tone: 'planned' as const,
-      };
-    }
-    const projectedIndex = index - planned.length;
-    if (projectedIndex >= 0 && projectedIndex < projected.length) {
-      const value = projected[projectedIndex] ?? '';
-      return {
-        key: `projected-${laneKey}-${index}`,
-        label: compactFacilityName(value),
-        tone: 'projected' as const,
-      };
-    }
-    return {
-      key: `empty-${laneKey}-${index}`,
-      label: '',
-      tone: 'empty' as const,
-    };
-  });
+  const cells = buildSlotLaneCells(laneKey, capacity, planned, projected);
 
   return (
     <div className="flex items-center gap-1.5 font-mono text-[9px] text-silver">
@@ -499,14 +460,6 @@ function SlotLaneRow({
   );
 }
 
-function compactFacilityName(value: string): string {
-  const clean = value.trim();
-  if (!clean) return '';
-  const parts = clean.split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 6);
-  return parts[0].slice(0, 5);
-}
-
 function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {
   const label = item.template?.name ?? item.placement.facility_template_id;
   return (
@@ -521,88 +474,6 @@ function ProjectedPlacementRow({ item }: { item: ProjectedPlacementItem }) {
   );
 }
 
-function bucketProjectedPlacements(
-  placements: SimulateBuildPlacement[],
-  templates: FacilityTemplate[],
-  bodies: SystemBody[],
-): Map<string, ProjectedPlacementItem[]> {
-  const bodyIds = new Set(
-    bodies
-      .filter((body) => body.id != null)
-      .map((body) => bodyIdKey(body.id)),
-  );
-  const templatesById = new Map(templates.map((template) => [template.id, template]));
-  const buckets = new Map<string, ProjectedPlacementItem[]>();
-  placements.forEach((placement, index) => {
-    const bodyId = placement.local_body_id != null ? bodyIdKey(placement.local_body_id) : null;
-    if (!bodyId || !bodyIds.has(bodyId)) return;
-    const list = buckets.get(bodyId) ?? [];
-    list.push({
-      index,
-      placement,
-      template: templatesById.get(placement.facility_template_id),
-    });
-    buckets.set(bodyId, list);
-  });
-  return buckets;
-}
-
-function buildBodyNodes(bodies: SystemBody[], systemName?: string | null): BodyNode[] {
-  const withIds = bodies
-    .filter((body) => body.id != null)
-    .map((body) => ({ body, id: bodyIdKey(body.id) }));
-  const knownIds = new Set(withIds.map((item) => item.id));
-  const children = new Map<string, Array<{ body: SystemBody; id: string }>>();
-  const roots: Array<{ body: SystemBody; id: string }> = [];
-
-  for (const item of withIds) {
-    const parentId = bodyParentId(item.body);
-    if (parentId && knownIds.has(parentId)) {
-      const list = children.get(parentId) ?? [];
-      list.push(item);
-      children.set(parentId, list);
-    } else {
-      roots.push(item);
-    }
-  }
-
-  const nodes: BodyNode[] = [];
-  const visit = (item: { body: SystemBody; id: string }, depth: number) => {
-    nodes.push({ ...item, depth });
-    for (const child of sortBodies(children.get(item.id) ?? [], systemName)) {
-      visit(child, depth + 1);
-    }
-  };
-
-  for (const root of sortBodies(roots, systemName)) {
-    visit(root, 0);
-  }
-  return nodes;
-}
-
-function bodyParentId(body: SystemBody): string | null {
-  const raw = body.parent_body_id
-    ?? body.parentBodyId
-    ?? body.parent_id
-    ?? body.parentId
-    ?? body.orbiting_body_id
-    ?? body.orbitingBodyId
-    ?? null;
-  if (typeof raw === 'number' || typeof raw === 'string') return bodyIdKey(raw);
-  return null;
-}
-
-function sortBodies(items: Array<{ body: SystemBody; id: string }>, systemName?: string | null) {
-  return items
-    .map((item, index) => ({ item, index }))
-    .sort((a, b) => {
-      const rank = (body: SystemBody) => body.body_type === 'Star' ? 0 : body.body_type === 'Planet' ? 1 : 2;
-      if (rank(a.item.body) !== rank(b.item.body)) return rank(a.item.body) - rank(b.item.body);
-      return compareBodiesByHierarchy(a.item.body, b.item.body, systemName) || a.index - b.index;
-    })
-    .map(({ item }) => item);
-}
-
 function rowClass(selected: boolean, projected = false) {
   return [
     'flex w-full min-w-0 cursor-pointer items-start gap-2 rounded border px-2 py-1.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange/70',
@@ -612,25 +483,6 @@ function rowClass(selected: boolean, projected = false) {
         ? 'border-cyan/45 bg-cyan/6 hover:border-cyan/70 hover:bg-cyan/10 text-silver'
         : 'border-border/55 bg-bg3/35 hover:border-orange/45 hover:bg-orange/8 hover:text-silver',
   ].join(' ');
-}
-
-function bodyIcon(body: SystemBody) {
-  if (body.body_type === 'Star') return 'S';
-  if (body.body_type === 'Planet' && bodyParentId(body)) return 'M';
-  if (body.body_type === 'Planet') return 'P';
-  return 'B';
-}
-
-function compactBodyKind(body: SystemBody) {
-  const type = body.body_type ?? 'Body';
-  const subtype = body.subtype?.replace(/\bworld\b/i, '').trim();
-  const kind = subtype || type;
-  const flags = [
-    body.is_landable ? 'landable' : null,
-    body.is_water_world ? 'water' : null,
-    body.is_terraformable ? 'terraformable' : null,
-  ].filter(Boolean);
-  return flags.length > 0 ? `${kind} / ${flags.slice(0, 1).join(', ')}` : kind;
 }
 
 function CountChip({ children }: { children: React.ReactNode }) {

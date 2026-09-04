@@ -8,7 +8,7 @@ import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WholeSystemColonyPlanner } from './WholeSystemColonyPlanner';
 import { WarehouseEvidenceCard } from './WarehouseEvidenceCard';
 import { WorkspaceHeader, WorkspaceHeaderSkeleton } from './WorkspaceHeader';
-import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from './warehouseEvidenceBridge';
+import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from '@ed-finder/planner-core/warehouseEvidenceBridge';
 import type { ColonyProject } from './colonyProjectStore';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 

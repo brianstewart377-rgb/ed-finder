@@ -11,7 +11,7 @@ import {
   objectiveSummaryLabel,
   plannerNextActionCopy,
   startApproachLabel,
-} from './plannerDraftContext';
+} from '@ed-finder/planner-core/plannerDraftContext';
 import { workspaceModeLabel, type SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 
 function projectStatusLabel(status?: ColonyProject['status'] | null) {

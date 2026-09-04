@@ -18,6 +18,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "cypress run --browser chrome",
+    "shared:build": "tsc -p ../../packages/api-client/tsconfig.build.json && tsc -p ../../packages/planner-core/tsconfig.build.json",
+    "shared:check": "tsc -p ../../packages/api-client/tsconfig.json && tsc -p ../../packages/planner-core/tsconfig.json",
+    "shared:lint": "cd ../.. && eslint --config apps/web/eslint.shared.config.js packages/api-client/src packages/planner-core/src",
+    "shared:test": "cd ../.. && vitest run --config apps/web/vitest.shared.config.ts",
     "generate:api": "svelte-kit sync && node scripts/capture-openapi.mjs && openapi-ts"
   },
   "devDependencies": {
@@ -33,6 +37,7 @@
     "eslint": "10.9.1",
     "eslint-plugin-svelte": "3.23.0",
     "jsdom": "27.4.0",
+    "json-with-bigint": "3.5.11",
     "prettier": "3.9.6",
     "prettier-plugin-svelte": "4.1.1",
     "svelte": "5.56.10",

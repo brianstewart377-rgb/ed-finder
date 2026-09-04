@@ -1,5 +1,5 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { titleCase } from '../utils/formatters';
+import { titleCase } from '@ed-finder/planner-core/formatters';
 import { serviceTone } from '../utils/toneHelpers';
 
 export function ServicesPanel({ services }: { services: SimulateBuildResponse['services'] }) {

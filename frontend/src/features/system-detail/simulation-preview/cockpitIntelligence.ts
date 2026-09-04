@@ -1,6 +1,6 @@
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import { groupPlacementsByBody } from './buildPlanLayoutUtils';
-import { buildColonyRoleSummaryForGroup } from './colonyRoleHintUtils';
+import { groupPlacementsByBody } from '@ed-finder/planner-core/buildPlanLayout';
+import { buildColonyRoleSummaryForGroup } from '@ed-finder/planner-core/colonyRoleHints';
 import type { ReviewPreviewStatus } from './ReviewWorkflowRail';
 
 export interface CockpitIntelligenceAction {

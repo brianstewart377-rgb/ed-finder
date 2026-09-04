@@ -8,8 +8,8 @@ import {
   COMPARISON_STATUSES,
   EMPTY_COMPARISONS_COPY,
   comparisonStatusLabel,
-} from './validationLabels';
-import { filterComparisonsByStatus } from './validationUtils';
+} from '@ed-finder/planner-core/validation/validationLabels';
+import { filterComparisonsByStatus } from '@ed-finder/planner-core/validation/validationUtils';
 
 interface ValidationComparisonListProps {
   comparisons: PredictionObservationComparison[];

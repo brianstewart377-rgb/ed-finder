@@ -5,8 +5,8 @@ import type {
 import {
   objectiveSummaryLabel,
   startApproachLabel,
-} from '@/features/colony-planner/plannerDraftContext';
-import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
+} from '@ed-finder/planner-core/plannerDraftContext';
+import { humanizeArchetype } from '@ed-finder/planner-core/workspace';
 import { formatTimestamp, projectStatusLabel } from '../myWorkWorkspaceUtils';
 
 export function PlanCard({
