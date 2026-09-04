@@ -105,11 +105,17 @@ def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
 
 def test_svelte_generation_requires_an_explicit_authoritative_openapi_input():
     config = _read("apps", "web", "openapi-ts.config.ts")
+    generated_client = _read(
+        "apps", "web", "src", "lib", "api", "generated", "client.gen.ts"
+    )
 
     assert "process.env.OPENAPI_INPUT" in config
     assert "if (!input)" in config
     assert "input," in config
+    assert "baseUrl: false" in config
+    assert "name: '@hey-api/client-fetch'" in config
     assert "bootstrap.openapi.json" not in config
+    assert "127.0.0.1" not in generated_client
     assert not (WEB / "openapi" / "bootstrap.openapi.json").exists()
 
 
