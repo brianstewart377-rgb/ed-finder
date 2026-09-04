@@ -184,7 +184,7 @@ jobs:
       - name: Start Svelte production preview
         working-directory: apps/web
         env:
-          VITE_DEV_API_TARGET: http://127.0.0.1:8002
+          ED_FINDER_PREVIEW_API_TARGET: http://127.0.0.1:8002
         run: |
           nohup pnpm preview --host 127.0.0.1 --port 4174 --strictPort > /tmp/cypress-svelte-preview.log 2>&1 &
           for i in $(seq 1 60); do

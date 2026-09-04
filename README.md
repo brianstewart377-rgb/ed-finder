@@ -87,12 +87,12 @@ The target application is same-origin, but ownership is intentionally split:
 
 | Route | Owner |
 |---|---|
-| `/api/*` | FastAPI |
+| `/api` and `/api/*` | FastAPI |
 | exact `/openapi.json` | FastAPI |
 | numeric `/s/{id64}` | FastAPI OpenGraph/share stop page |
 | application pages, static assets, and SPA fallback | Static SvelteKit application |
 
-Do not add a broad backend catch-all that steals SvelteKit routes. Do not add a frontend route that captures the backend-owned paths above.
+Do not add a broad backend catch-all that steals SvelteKit routes. Do not add a frontend route that captures the backend-owned paths above. Near-prefixes such as `/apiary`, `/openapi.jsonx`, `/openapi.json/extra`, and non-numeric or nested `/s/...` paths remain frontend-owned and use the static SPA fallback.
 
 ## Repository layout
 
@@ -150,8 +150,17 @@ Run the Cypress foundation suite only with the expected local API and preview en
 
 ```bash
 cd apps/web
+ED_FINDER_PREVIEW_API_TARGET=http://127.0.0.1:8002 pnpm preview --host 127.0.0.1 --port 4174 --strictPort
+```
+
+Then, in another terminal:
+
+```bash
+cd apps/web
 pnpm test:e2e
 ```
+
+`pnpm preview` runs the dependency-free Node 24 static-build contract used by Cypress, not the production server. It serves existing files from `build/` and returns `200.html` with HTTP 200 for every other frontend-owned route. Backend-owned requests proxy only when `ED_FINDER_PREVIEW_API_TARGET` explicitly names a credential-free loopback/disposable API origin; without it they fail closed with HTTP 503. Production static delivery remains nginx-owned.
 
 ### Generated API client
 

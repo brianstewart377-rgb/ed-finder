@@ -35,12 +35,10 @@ describe('ED-Finder static dynamic-route fallback', () => {
       .and('be.visible');
   });
 
-  it('does not turn a near-prefix typo into a successful SPA response', () => {
-    cy.request({
-      url: '/colony-plannerish/system/1',
-      failOnStatusCode: false,
-    }).then(({ status }) => {
-      expect(status).to.eq(404);
+  it('keeps a near-prefix typo frontend-owned', () => {
+    cy.request('/colony-plannerish/system/1').then(({ headers, status }) => {
+      expect(status).to.eq(200);
+      expect(headers['content-type']).to.include('text/html');
     });
   });
 });

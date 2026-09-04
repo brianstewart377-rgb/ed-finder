@@ -32,7 +32,7 @@ def _vite_backend_proxy_patterns() -> list[re.Pattern[str]]:
     patterns = [json.loads(f'"{value[1:-1]}"') for value in encoded_patterns]
 
     assert "server: { proxy: backendProxy }" in config
-    assert "preview: { proxy: backendProxy }" in config
+    assert "preview: { proxy: backendProxy }" not in config
     return [re.compile(pattern) for pattern in patterns]
 
 
@@ -207,7 +207,7 @@ def test_v3_web_is_static_spa_and_backend_route_ownership_is_explicit():
     assert "SvelteKit" in readme
 
 
-def test_vite_proxy_claims_only_backend_owned_route_boundaries():
+def test_vite_dev_proxy_claims_only_backend_owned_route_boundaries():
     patterns = _vite_backend_proxy_patterns()
 
     backend_urls = (

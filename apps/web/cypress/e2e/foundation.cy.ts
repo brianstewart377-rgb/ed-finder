@@ -27,14 +27,13 @@ describe('ED-Finder V3 foundation', () => {
       expect(headers.location).to.include('/#system/0');
     });
 
-    cy.request({ url: '/apiary', failOnStatusCode: false }).then(
-      ({ headers, status }) => {
-        // This near-prefix must remain on the Svelte side. Because it is not a
-        // real application route, the correct frontend response is its HTML 404.
-        expect(status).to.eq(404);
-        expect(headers['content-type']).to.include('text/html');
-      },
-    );
+    cy.request('/apiary').then(({ body, headers, status }) => {
+      // This near-prefix remains on the Svelte side and receives the same
+      // transport-level SPA fallback as every other frontend-owned route.
+      expect(status).to.eq(200);
+      expect(headers['content-type']).to.include('text/html');
+      expect(body).to.include('<!doctype html>');
+    });
   });
 
   it('supports direct navigation and refresh through the SPA fallback', () => {
@@ -47,7 +46,7 @@ describe('ED-Finder V3 foundation', () => {
   });
 
   it('rejects unknown journey routes instead of rendering a placeholder', () => {
-    cy.visit('/explroe', { failOnStatusCode: false });
+    cy.visit('/explroe');
     cy.contains('This product surface has not been ported yet.').should(
       'not.exist',
     );
@@ -78,6 +77,9 @@ describe('ED-Finder V3 foundation', () => {
       owner_claim_available: false,
     });
     cy.visit('/compare');
+    // Wait for AppShell.onMount to install the hashchange listener before
+    // simulating a hash assigned by an already-running legacy integration.
+    cy.get('[data-testid="frontier-sign-in"]').should('be.visible');
     cy.window().then((browser) => {
       browser.location.hash = '#system/9007199254740993';
     });
@@ -159,6 +161,32 @@ describe('ED-Finder V3 foundation', () => {
         browser.localStorage.getItem('ed-finder:selected-system-context'),
       ).to.eq('18446744073709551615');
     });
+
+    cy.reload();
+    cy.location('pathname').should('eq', '/system/18446744073709551615');
+    cy.get('h1').should('have.text', 'System Detail');
+    cy.get('[data-testid="selected-system-context"]').should(
+      'contain.text',
+      '18446744073709551615',
+    );
+  });
+
+  it('rejects malformed and traversal-like cold paths without exposing files', () => {
+    const unsafePaths = [
+      '/bad%E0%A4%A',
+      '/bad%00path',
+      '/%5c..%5cpackage.json',
+      '/safe%2f..%2f..%2fpackage.json',
+    ];
+
+    for (const url of unsafePaths) {
+      cy.request({ url, failOnStatusCode: false }).then(({ body, status }) => {
+        expect(status, url).to.eq(400);
+        expect(String(body), url).to.eq('Bad request path\n');
+        expect(String(body), url).not.to.include('@ed-finder/web');
+        expect(String(body), url).not.to.include('ED-Finder Agent Contract');
+      });
+    }
   });
 
   it('hydrates the selected-system singleton exactly once on bootstrap', () => {
