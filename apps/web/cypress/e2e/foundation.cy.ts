@@ -1,59 +1,63 @@
-describe('ED-Finder V3 foundation', () => {
-  it('loads the shell and exercises the real same-origin bootstrap', () => {
-    cy.intercept('/api/health').as('health');
-    cy.intercept('/api/auth/session').as('session');
-    cy.visit('/');
-    cy.get('h1').should('contain.text', 'Find your place').and('be.visible');
-    cy.wait('@health').its('response.statusCode').should('eq', 200);
-    cy.wait('@session').its('response.statusCode').should('eq', 200);
-    cy.contains('dd', 'Connected').should('be.visible');
-    cy.contains('dd', 'Guest').should('be.visible');
-  });
-
-  it('proxies backend-owned routes to the disposable FastAPI service', () => {
-    cy.request('/openapi.json?format=json').then(
-      ({ body, headers, status }) => {
-        expect(status).to.eq(200);
-        expect(headers['content-type']).to.include('application/json');
-        expect(body.paths).to.have.property('/api/health');
-      },
-    );
-
-    cy.request({
-      url: '/s/0?utm=x',
-      followRedirect: false,
-      failOnStatusCode: false,
-    }).then(({ headers, status }) => {
-      // FastAPI currently owns this valid numeric share route and redirects
-      // browser user agents. A Svelte fallback would instead return HTML 200.
-      expect(status).to.eq(302);
-      expect(headers.location).to.include('/#system/0');
+describe('Svelte direct-cutover vertical', () => {
+  beforeEach(() => {
+    cy.intercept('GET', '/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
     });
-
-    cy.request({ url: '/apiary', failOnStatusCode: false }).then(
-      ({ headers, status }) => {
-        // This near-prefix must remain on the Svelte side. Because it is not a
-        // real application route, the correct frontend response is its HTML 404.
-        expect(status).to.eq(404);
-        expect(headers['content-type']).to.include('text/html');
+    cy.intercept('GET', '/api/v2/watchlist/*', { watchlist: [] });
+  });
+  it('renders the accessible shell and Finder', () => {
+    cy.visit('/');
+    cy.get('[data-testid=app-shell]').should('be.visible');
+    cy.contains('a', 'Skip to main content').focus().should('be.visible');
+    cy.get('[data-testid=finder-page-heading]').should(
+      'contain',
+      'System Finder',
+    );
+  });
+  it('redirects legacy hashes without retaining hash routing', () => {
+    cy.visit('/#watchlist');
+    cy.location('pathname').should('eq', '/my-work');
+    cy.location('hash').should('eq', '');
+    cy.contains('h1', 'My Work').should('be.visible');
+  });
+  it('preserves legacy bare-array pins', () => {
+    cy.visit('/my-work', {
+      onBeforeLoad(win) {
+        win.localStorage.setItem(
+          'ed_pinned',
+          JSON.stringify([{ id64: '9223372036854775807', name: 'Far Reach' }]),
+        );
       },
-    );
-  });
-
-  it('supports direct navigation and refresh through the SPA fallback', () => {
-    cy.visit('/explore');
-    cy.get('h1').should('have.text', 'Explore').and('be.visible');
+    });
+    cy.contains('Far Reach').should('be.visible');
     cy.reload();
-    cy.contains('This product surface has not been ported yet.').should(
-      'be.visible',
-    );
+    cy.contains('Far Reach').should('be.visible');
   });
-
-  it('rejects unknown journey routes instead of rendering a placeholder', () => {
-    cy.visit('/explroe', { failOnStatusCode: false });
-    cy.contains('This product surface has not been ported yet.').should(
-      'not.exist',
-    );
-    cy.contains(/not found/i).should('be.visible');
+  it('searches, pins and uses the scoped watchlist contract', () => {
+    cy.intercept('POST', '/api/local/search', {
+      count: 1,
+      total: 1,
+      results: [{ id64: 9223372036854775807, name: 'Far Reach' }],
+    }).as('search');
+    cy.intercept('POST', '/api/v2/watchlist/*/9223372036854775807', {
+      ok: true,
+    }).as('save');
+    cy.visit('/finder');
+    cy.get('[data-testid=search-submit]').click();
+    cy.wait('@search');
+    cy.contains('Far Reach').should('be.visible');
+    cy.get('[data-testid=pin-system]')
+      .click()
+      .should('have.attr', 'aria-pressed', 'true');
+    cy.get('[data-testid=watchlist-system]').click();
+    cy.wait('@save');
+  });
+  it('gates admin and survives direct refresh', () => {
+    cy.visit('/admin');
+    cy.get('[data-testid=owner-sign-in-required]').should('be.visible');
+    cy.reload();
+    cy.get('[data-testid=owner-sign-in-required]').should('be.visible');
   });
 });

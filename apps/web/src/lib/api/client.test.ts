@@ -1,66 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  authSessionApiAuthSessionGet as generatedGetAuthSession,
-  healthApiHealthGet as generatedGetHealth,
-} from './generated/sdk.gen';
-import { getAuthSession, getHealth } from './client';
-
-vi.mock('./generated/sdk.gen', () => ({
-  authSessionApiAuthSessionGet: vi.fn(),
-  healthApiHealthGet: vi.fn(),
-}));
-
-const mockedGetHealth = vi.mocked(generatedGetHealth);
-const mockedGetAuthSession = vi.mocked(generatedGetAuthSession);
-
-describe('bootstrap API client', () => {
-  beforeEach(() => vi.resetAllMocks());
-
-  it('calls the generated health SDK with same-origin credentials and cancellation', async () => {
-    const health = {
-      status: 'ok',
-      database: 'connected',
-      version: 'test',
-      build_sha: 'abc',
-    };
-    const controller = new AbortController();
-    mockedGetHealth.mockResolvedValue({
-      data: health,
-      request: new Request('http://localhost/api/health', {
-        signal: controller.signal,
+import { ApiError, apiRequest, parseApiJson } from './client';
+describe('application API client', () => {
+  beforeEach(() => {
+    sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
+  it('preserves every id64 as text before JSON parsing', () => {
+    expect(
+      parseApiJson(
+        '{"id64":9223372036854775807,"system_id64":10477373803,"score":12}',
+      ),
+    ).toEqual({
+      id64: '9223372036854775807',
+      system_id64: '10477373803',
+      score: 12,
+    });
+  });
+  it('uses included credentials and injects the session admin token', async () => {
+    sessionStorage.setItem('ed_admin_token', 'secret');
+    const fetcher = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('{"ok":true}'));
+    await apiRequest('/api/admin/status');
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/admin/status',
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.objectContaining({ 'X-Admin-Token': 'secret' }),
       }),
-      response: new Response(),
-    });
-
-    await expect(getHealth(controller.signal)).resolves.toEqual(health);
-    expect(mockedGetHealth).toHaveBeenCalledWith({
-      credentials: 'same-origin',
-      signal: controller.signal,
-      throwOnError: true,
-    });
-  });
-
-  it('calls the generated session SDK and normalises structured failures', async () => {
-    mockedGetAuthSession.mockRejectedValue({ detail: 'Session unavailable' });
-
-    await expect(getAuthSession()).rejects.toThrow('Session unavailable');
-    expect(mockedGetAuthSession).toHaveBeenCalledWith({
-      credentials: 'same-origin',
-      signal: undefined,
-      throwOnError: true,
-    });
-  });
-
-  it('preserves abort failure identity when normalising cross-realm errors', async () => {
-    const aborted = new DOMException(
-      'This operation was aborted',
-      'AbortError',
     );
-    mockedGetHealth.mockRejectedValue(aborted);
-
-    await expect(getHealth()).rejects.toMatchObject({
-      message: 'This operation was aborted',
-      name: 'AbortError',
+  });
+  it('unwraps system envelopes and exposes structured errors', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response('{"system":{"id64":9007199254740993,"name":"Far"}}'),
+      )
+      .mockResolvedValueOnce(new Response('{"detail":"no"}', { status: 403 }));
+    await expect(apiRequest('/api/system/1')).resolves.toEqual({
+      id64: '9007199254740993',
+      name: 'Far',
     });
+    const failure = apiRequest('/api/private');
+    await expect(failure).rejects.toBeInstanceOf(ApiError);
+    await failure.catch((error) =>
+      expect(error).toMatchObject({
+        status: 403,
+        path: '/api/private',
+        body: '{"detail":"no"}',
+      }),
+    );
   });
 });

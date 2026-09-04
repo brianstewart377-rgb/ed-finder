@@ -1,51 +1,70 @@
-/** Stable application-facing bootstrap API backed by the generated Hey API SDK. */
+/** Stable application API boundary; generated types remain the schema authority. */
+import type { AuthSessionResponse } from './generated';
 import {
   authSessionApiAuthSessionGet as generatedGetAuthSession,
   healthApiHealthGet as generatedGetHealth,
 } from './generated/sdk.gen';
-import type { AuthSessionResponse, HealthResponse } from './generated';
-
-const requestOptions = (signal?: AbortSignal) => ({
-  credentials: 'same-origin' as const,
+import { apiRequest } from './transport';
+export {
+  ADMIN_TOKEN_SESSION_KEY,
+  ApiError,
+  apiRequest,
+  parseApiJson,
+} from './transport';
+const defaults = (signal?: AbortSignal) => ({
+  credentials: 'include' as const,
   signal,
   throwOnError: true as const,
 });
-
-function normaliseFailure(error: unknown): Error {
-  if (error instanceof Error) return error;
-  if (typeof error === 'string' && error.trim()) return new Error(error);
-  if (error && typeof error === 'object' && 'message' in error) {
-    const message = error.message;
-    if (typeof message === 'string' && message.trim()) {
-      const normalised = new Error(message);
-      if ('name' in error && typeof error.name === 'string')
-        normalised.name = error.name;
-      return normalised;
-    }
-  }
-  if (error && typeof error === 'object' && 'detail' in error) {
-    const detail = error.detail;
-    if (typeof detail === 'string' && detail.trim()) return new Error(detail);
-  }
-  return new Error('Bootstrap API request failed');
-}
-
-async function runRequest<T>(request: () => Promise<T>): Promise<T> {
-  try {
-    return await request();
-  } catch (error) {
-    throw normaliseFailure(error);
-  }
-}
-
-export const getHealth = (signal?: AbortSignal): Promise<HealthResponse> =>
-  runRequest(
-    async () => (await generatedGetHealth(requestOptions(signal))).data,
+export const getHealth = async (signal?: AbortSignal) =>
+  (await generatedGetHealth(defaults(signal))).data;
+export const getAuthSession = async (signal?: AbortSignal) =>
+  (await generatedGetAuthSession(defaults(signal))).data;
+export const logout = () =>
+  apiRequest<AuthSessionResponse>('/api/auth/logout', { method: 'POST' });
+export const claimOwner = (admin_token: string) =>
+  apiRequest<AuthSessionResponse>('/api/auth/owner/claim', {
+    method: 'POST',
+    body: JSON.stringify({ admin_token }),
+  });
+export type Id64 = string;
+export type SearchHit = Record<string, unknown> & { id64: Id64; name: string };
+export type SearchResponse = {
+  count: number;
+  total?: number;
+  results: SearchHit[];
+};
+export const autocomplete = (q: string, limit = 8) =>
+  apiRequest<{
+    results: Array<{
+      id64: Id64;
+      name: string;
+      x: number;
+      y: number;
+      z: number;
+    }>;
+  }>(
+    `/api/local/autocomplete?${new URLSearchParams({ q, limit: String(limit) })}`,
   );
-
-export const getAuthSession = (
-  signal?: AbortSignal,
-): Promise<AuthSessionResponse> =>
-  runRequest(
-    async () => (await generatedGetAuthSession(requestOptions(signal))).data,
-  );
+export const localSearch = (body: unknown) =>
+  apiRequest<SearchResponse>('/api/local/search', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const clusterSearch = (body: unknown) =>
+  apiRequest<Record<string, unknown>>('/api/search/cluster', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+export const getWatchlist = (syncKey: string) =>
+  apiRequest<{
+    watchlist: Array<Record<string, unknown> & { system_id64: Id64 }>;
+  }>(`/api/v2/watchlist/${encodeURIComponent(syncKey)}`);
+export const addWatchlist = (syncKey: string, id64: Id64) =>
+  apiRequest(`/api/v2/watchlist/${encodeURIComponent(syncKey)}/${id64}`, {
+    method: 'POST',
+  });
+export const removeWatchlist = (syncKey: string, id64: Id64) =>
+  apiRequest(`/api/v2/watchlist/${encodeURIComponent(syncKey)}/${id64}`, {
+    method: 'DELETE',
+  });

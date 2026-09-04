@@ -23,5 +23,11 @@ export default tseslint.config(
         svelteConfig,
       },
     },
+    rules: { 'svelte/no-navigation-without-resolve': 'off' },
+  },
+  {
+    files: ['**/*.svelte.ts'],
+    languageOptions: { parser: tseslint.parser },
+    rules: { 'svelte/prefer-svelte-reactivity': 'off' },
   },
 );
