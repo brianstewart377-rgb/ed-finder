@@ -1,12 +1,23 @@
 # ChatGPT Operations Control Plane
 
+> **DESIGN DOCUMENT — PROPOSED MUTATIONS ARE NOT IMPLEMENTED**
+>
+> This document records a control-plane design; it is not an executable V3
+> production runbook. In particular, the mutating operations proposed below
+> (`restart-api`, `restart-worker`, `deploy-commit`, and
+> `run-governed-migrations`) are not implemented in the current V3 allowlist and
+> are not authorized by this document. The actual repository allowlist is the
+> one enforced by [`.github/workflows/chatgpt-ed-new-ops.yml`](../../.github/workflows/chatgpt-ed-new-ops.yml),
+> subject to the current boundary in
+> [`docs/operations/infrastructure-status.md`](../operations/infrastructure-status.md).
+
 ## Purpose
 
 Provide a small, auditable operations interface that lets ChatGPT manage routine ED-Finder operational tasks without requiring the owner to relay commands between ChatGPT and a shell session.
 
 This is deliberately **not** an unrestricted remote shell. It exposes named, fail-closed operations that wrap existing guarded scripts and runbooks.
 
-## Initial operation set
+## Proposed initial operation set (design only)
 
 - `production-status`
 - `backup-status`
@@ -17,6 +28,10 @@ This is deliberately **not** an unrestricted remote shell. It exposes named, fai
 - `restart-worker`
 - `deploy-commit`
 - `run-governed-migrations`
+
+These names describe the proposed interface, not the current workflow
+allowlist. Their presence here must not be treated as evidence that an operation
+exists or is authorized.
 
 Destructive operations such as deleting volumes, pruning Docker data, dropping databases, reinitializing PostgreSQL, or rerunning Phase 4C are intentionally excluded.
 
@@ -31,7 +46,10 @@ Every mutating operation must:
 5. emit a machine-readable receipt;
 6. never print credentials, tokens, passwords, or private keys.
 
-The retained r5 production candidate remains protected by the existing `RETENTION_HOLD` and cleanup guards. No control-plane operation may bypass those protections.
+The reference to the retained r5 production candidate and `RETENTION_HOLD`
+below is historical design context, not a claim about current V3 runtime state.
+No current or future control-plane operation may bypass an applicable retention
+or cleanup guard.
 
 ## Delivery model
 

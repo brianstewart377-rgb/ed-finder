@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Monthly backup rehearsal: validate that production backups can actually restore
+# LEGACY/SELF-HOST/LOCAL REHEARSAL ONLY; NOT V3 BACKUP AUTHORITY.
+# Monthly rehearsal of the retained Compose stack's backup restoreability.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

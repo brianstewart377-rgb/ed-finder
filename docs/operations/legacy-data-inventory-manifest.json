@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "authority": "inventory_only_not_a_recovery_or_migration_runbook",
+  "production_database_access_authorized": false,
+  "migration_complete": false,
+  "completeness_evidence": null,
+  "retained_dump": {
+    "filename": "edfinder_20260823T021001Z.dump",
+    "format": "postgresql_custom",
+    "size_bytes": 75931356521,
+    "sha256": "20ff06a2e3d2bca2dfa05fc01d38200ca90db028e4b1f4b530d5f394f97514c1",
+    "offsite_sync_recorded_at": "2026-08-23T05:32:41Z",
+    "identity_reverified_at": null
+  },
+  "inspection_boundary": {
+    "required_environment": "explicitly_confirmed_disposable_offline_restore",
+    "production_forbidden": true,
+    "dump_catalogue_inspected": false,
+    "unknown_tables_default_to": "unresolved_requires_evidence"
+  },
+  "required_evidence_fields": [
+    "source_table_count",
+    "source_record_count",
+    "selection_record_count",
+    "selection_definition_or_artifact",
+    "target_table",
+    "target_record_count_before",
+    "target_record_count_after",
+    "primary_key_validation",
+    "referential_integrity_validation",
+    "domain_validation",
+    "privacy_and_ownership_review",
+    "reconciliation_result",
+    "reviewer",
+    "evidence_references"
+  ],
+  "inventory": [
+    {
+      "classification": "public_reconstructable",
+      "tables": [
+        "attractions", "bodies", "body_rings", "body_scan_facts",
+        "codex_observations", "economy_pair_synergy", "enrichment_raw_records",
+        "enrichment_source_files", "enrichment_source_runs", "exobiology_organisms",
+        "facility_templates", "factions", "galaxy_regions", "pair_synergy_constants",
+        "source_runs", "station_body_links", "station_economies",
+        "station_external_identity", "stations", "system_factions", "systems"
+      ],
+      "default_disposition": "rebuild_from_current_public_sources",
+      "evidence": null
+    },
+    {
+      "classification": "irreplaceable_private_manual_history",
+      "tables": [
+        "app_users", "commander_powerplay_events", "commander_powerplay_state",
+        "evidence_records", "exobiology_sales", "exploration_expedition_routes",
+        "exploration_facts", "exploration_visits", "journal_events",
+        "powerplay_observations", "profile_sync", "route_events", "routes",
+        "rule_decisions", "rule_proposals", "score_history", "system_notes",
+        "watchlist", "watchlist_changelog"
+      ],
+      "default_disposition": "candidate_for_reviewed_selective_migration",
+      "evidence": null
+    },
+    {
+      "classification": "transient_or_operational",
+      "tables": [
+        "admin_job_runs", "api_cache", "app_meta", "eddn_log", "import_errors",
+        "import_meta", "journal_import_staging", "oauth_login_states",
+        "staging_body_rings", "staging_body_signals", "staging_codex_entries",
+        "staging_edsm_bodies", "staging_edsm_stations", "staging_factions",
+        "staging_market_commodities", "staging_station_economies",
+        "staging_station_services", "staging_system_states", "web_sessions"
+      ],
+      "default_disposition": "discard_or_recreate",
+      "evidence": null
+    },
+    {
+      "classification": "unresolved_requires_evidence",
+      "tables": [
+        "body_slot_predictions", "buildability_analysis", "cluster_summary",
+        "colony_simulations", "derived_alert_candidates",
+        "derived_colonisation_economy_intelligence", "derived_exploration_intelligence",
+        "derived_features", "derived_mission_intelligence",
+        "exploration_body_completeness", "macro_grid", "observed_facts",
+        "powerplay_cycles", "ratings", "spatial_grid", "system_archetype_scores",
+        "system_archetype_traits", "system_regional_analysis", "system_slot_topology"
+      ],
+      "default_disposition": "exclude_until_evidence_backed_reclassification",
+      "evidence": null
+    }
+  ],
+  "selective_extraction_record_template": {
+    "source_schema": null,
+    "source_table": null,
+    "source_table_count": null,
+    "source_record_count": null,
+    "selection_record_count": null,
+    "selection_definition_or_artifact": null,
+    "target_table": null,
+    "target_record_count_before": null,
+    "target_record_count_after": null,
+    "primary_key_validation": "not_run",
+    "referential_integrity_validation": "not_run",
+    "domain_validation": "not_run",
+    "privacy_and_ownership_review": "not_run",
+    "reconciliation_result": "not_run",
+    "reviewer": null,
+    "evidence_references": []
+  },
+  "selective_extraction_records": []
+}

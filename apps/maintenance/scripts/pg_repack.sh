@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# LEGACY/SELF-HOST/LOCAL COMPOSE HELPER ONLY; NOT V3 PRODUCTION AUTHORITY.
 # Weekly pg_repack maintenance: compact tables and reclaim dead space
 set -euo pipefail
 

@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
+# LEGACY/SELF-HOST/LOCAL COMPOSE MIGRATION ONLY; NOT V3 PRODUCTION AUTHORITY.
 # migrate_postgis.sh  v1.0
 # Run AFTER the full Spansh import has completed.
 # Adds PostGIS geometry column to the systems table and builds a spatial index.
 # This enables fast radius searches and replaces the Python-side grid-cell math.
 #
-# Runtime: ~45-90 minutes on 41M rows (Hetzner AX41-SSD)
+# Historical estimate: ~45-90 minutes on the former 41M-row host.
 # Disk:    ~12 GB additional (geometry column + GIST index)
 #
 # Usage:
-#   cd /opt/ed-finder
+#   cd /path/to/ed-finder
 #   bash scripts/migrate_postgis.sh
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail

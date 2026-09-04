@@ -281,7 +281,7 @@ def test_backup_helpers_remain_in_legacy_maintenance_compose_without_v2_storageb
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
-    assert 'this Compose file is NOT current production authority' in compose
+    assert 'LEGACY / SELF-HOST / LOCAL APPLICATION STACK — NOT V3 PRODUCTION' in compose
     assert 'context: .' in compose
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose

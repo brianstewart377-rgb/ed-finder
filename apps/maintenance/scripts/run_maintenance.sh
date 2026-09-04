@@ -1,5 +1,7 @@
 #!/bin/bash
 #
+# LEGACY/SELF-HOST/LOCAL COMPOSE HELPER ONLY; NOT V3 PRODUCTION AUTHORITY.
+#
 # scripts/run_maintenance.sh — nightly + weekly DB maintenance tasks.
 #
 # This is what stops the "search worked yesterday and now it 503s"

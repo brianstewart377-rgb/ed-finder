@@ -29,9 +29,6 @@ Why psycopg2 COPY instead of INSERT ... ON CONFLICT:
   • Strategy: COPY into a temp table, then INSERT ... ON CONFLICT from temp
     into the real table. This gives us both speed AND upsert semantics.
 
-Server:   Hetzner AX41-SSD — i7-8700 (6C/12T), 128 GB RAM, 3×1 TB NVMe RAID-5
-Database: PostgreSQL 16
-
 Usage:
     python3 import_spansh.py --all                   # import all dumps
     python3 import_spansh.py --file galaxy.json.gz   # import one file

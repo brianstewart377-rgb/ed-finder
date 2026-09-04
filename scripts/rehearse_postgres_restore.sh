@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# LOCAL-DEV/CI REHEARSAL ONLY — NEVER V3 PRODUCTION.
+# V3 database recovery remains fail-closed under
+# docs/operations/infrastructure-status.md.
+#
 # Run a full backup + restore rehearsal against the local docker-compose stack.
 # This stays non-destructive by default: it restores into a disposable database
 # and drops that database again unless --keep-db is supplied.

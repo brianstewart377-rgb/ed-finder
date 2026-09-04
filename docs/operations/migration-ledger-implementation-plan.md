@@ -1,5 +1,16 @@
 # Migration Ledger Implementation Plan
 
+> **SUPERSEDED / NON-AUTHORITATIVE PLAN**
+>
+> This document preserves the design and rollout history of the migration
+> ledger. It is not a current production runbook and does not authorize V3
+> database access or migration execution. Several release paths named below,
+> including `scripts/release-main-to-prod.ps1`, have been deleted; the surviving
+> `scripts/deploy_main.sh` is a retired V2 entrypoint. Current V3 production and
+> recovery authority is defined by
+> [`infrastructure-status.md`](./infrastructure-status.md) and an explicitly
+> current V3 workflow/runbook. Stop if no such procedure exists.
+
 This document turns the audit finding around migration replay into a concrete
 implementation plan for ED-Finder.
 
@@ -22,16 +33,17 @@ a ledgered migration path that:
 
 ## Current State Audit
 
-### What the repo does today
+### What the repo did when this plan was written
 
 - `scripts/deploy_main.sh` finds every `sql/[0-9][0-9][0-9]_*.sql`, excludes
   `019_nullable_coords.sql`, sorts lexically, and pipes each file into `psql`
   on every deploy.
 - `scripts/seed_check.sh` applies every `sql/*.sql` except `seed_preview.sql`
   against a fresh database in lexical order.
-- `scripts/release-main-to-prod.ps1` shells into the server and runs
+- The since-deleted `scripts/release-main-to-prod.ps1` shelled into the server and ran
   `bash scripts/deploy_main.sh`, so the replay-all behavior is the canonical
-  production path.
+  production path described by this historical plan. It is not a V3 release
+  path.
 
 ### Why that is unsafe
 
@@ -81,7 +93,7 @@ a ledgered migration path that:
 - This is an operational convenience file, not a schema migration.
 - It should move out of the ledgered migration sequence entirely.
 
-## Recommendation
+## Historical recommendation
 
 Use a small in-repo migration ledger first, not a full toolchain migration.
 
@@ -96,7 +108,7 @@ Reasoning:
 This is not anti-`dbmate`; it is sequencing. The urgent fix is ledgered
 application behavior, not tool branding.
 
-## Proposed Design
+## Proposed design (subsequently implemented for the legacy path)
 
 ### 1. Add a ledger table
 
@@ -187,9 +199,9 @@ The production cutover should therefore be:
 This baseline step should be a reviewed one-time operator action, not an
 implicit side effect of normal deploys.
 
-### 5. Update the current callers
+### 5. Update the callers current at the time
 
-#### `scripts/deploy_main.sh`
+#### `scripts/deploy_main.sh` (now retired V2 entrypoint)
 
 - Replace the current `find sql ... | sort` loop with the canonical applier.
 - Remove the hardcoded `! -name '019_nullable_coords.sql'` filter.
@@ -331,9 +343,11 @@ Current committed operator path:
 - Migration sessions cannot wait indefinitely unless an operator makes the
   explicit reviewed unbounded-timeout acknowledgement.
 
-## Current Status
+## Historical outcome
 
 The manifest, checksum ledger, canonical applier, production baseline, manual
 019 record, CI runtime rehearsal, and finite timeout policy are implemented and
-production-proven. Future changes extend this path; they do not replay or
-replace it ad hoc.
+were proven on the former V2 environment. This is implementation history, not
+evidence of V3 database state or authority to execute migrations. Future
+changes must follow current V3 authority rather than replay or replace this
+path ad hoc.

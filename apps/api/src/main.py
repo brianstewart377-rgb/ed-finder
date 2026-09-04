@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-ED Finder — Hetzner Backend
-Version: 3.1 (PostgreSQL 16 / asyncpg)
+ED Finder — API Backend
+Version: 3.1
 
 This file is the **composition root**. It wires config, state, middleware,
 lifespan, exception handlers, and router mounts. All business logic lives
@@ -88,7 +88,7 @@ _eddn_simulation_ingest_task: Optional[asyncio.Task] = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _sse_pubsub_task, _eddn_simulation_ingest_task
-    log.info(f"ED Finder Hetzner backend v{settings.app_version} starting ...")
+    log.info(f"ED Finder API backend v{settings.app_version} starting ...")
 
     async def _init_conn(conn: asyncpg.Connection) -> None:
         """Per-connection initialiser.

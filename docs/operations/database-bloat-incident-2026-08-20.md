@@ -1,5 +1,11 @@
 # Database Bloat Incident & Alpine→Debian Migration (2026-08-20)
 
+> **Historical V2 incident record.** The observations and actions below are
+> preserved as dated evidence; they do not describe the current V3 PostgreSQL
+> 18 environment and do not authorize current production or recovery commands.
+> See [Infrastructure Status](./infrastructure-status.md) for the current,
+> fail-closed boundary.
+
 ## Incident Summary
 
 Production database filled to 95% capacity (1.4TB on 1.9TB volume) due to accumulated dead tuples from repeated EDDN writes. Root cause: Alpine PostgreSQL lacks pg_repack package, preventing bloat reclamation. Resolved via migration to Debian-based PostgreSQL 16 with pg_repack installed.
@@ -114,6 +120,8 @@ Production database filled to 95% capacity (1.4TB on 1.9TB volume) due to accumu
 
 ## References
 
-- Backup & restore runbook: `docs/operations/postgres-backup-and-restore.md`
-- Monitoring setup: `docs/operations/monitoring.md`
+- Historical V2 backup/restore contract:
+  [postgres-backup-and-restore.md](./postgres-backup-and-restore.md)
+- Current production/recovery boundary:
+  [infrastructure-status.md](./infrastructure-status.md)
 - CLAUDE.md deployment notes: root of repo

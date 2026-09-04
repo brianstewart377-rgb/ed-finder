@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# LEGACY/SELF-HOST/LOCAL COMPOSE HELPER; NOT V3 PRODUCTION AUTHORITY.
 set -euo pipefail
 
 usage() {
   cat <<'EOF'
 Usage: bash scripts/prepare_monitoring.sh [--check]
 
-Prepare the production-only local monitoring files for their non-root
+Prepare retained local/self-host monitoring files for their non-root
 containers. The default mode fixes ownership and permissions. --check is
 read-only and exits non-zero when a file is missing or incorrectly protected.
 EOF
@@ -32,7 +33,7 @@ ok() {
   printf '[OK] %s\n' "$*"
 }
 
-[[ "$(uname -s)" == Linux* ]] || die 'this production permission helper requires Linux'
+[[ "$(uname -s)" == Linux* ]] || die 'this local monitoring permission helper requires Linux'
 [[ -f "$env_file" ]] || die "$env_file is missing"
 command -v stat >/dev/null || die 'stat is required'
 

@@ -48,12 +48,16 @@ cd frontend
 npm install -D openapi-typescript
 ```
 
-If the API is not already running locally, start the backend first. In Docker-based deployments:
+If the API is not already running locally, start the backend first from the
+repository root against an explicitly local/disposable Compose environment:
 
 ```bash
-cd /opt/ed-finder
 docker compose up -d postgres redis api
 ```
+
+The root Compose stack is retained for legacy/self-host/local development and
+is not V3 production authority. Do not use this type-generation example to
+infer a production path; see `docs/operations/infrastructure-status.md`.
 
 Then run the type generation command from `frontend`.
 

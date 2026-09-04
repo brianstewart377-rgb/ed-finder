@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 #
+# LOCAL-DEV/CI REHEARSAL ONLY — NEVER V3 PRODUCTION.
+# V3 database recovery remains fail-closed under
+# docs/operations/infrastructure-status.md.
+#
 # Restore a custom-format Postgres backup into the local docker-compose postgres
 # service. Defaults to a disposable database so the normal path is non-destructive.
 #

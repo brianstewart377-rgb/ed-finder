@@ -1,5 +1,8 @@
 #!/bin/bash
 #
+# LEGACY/SELF-HOST/LOCAL COMPOSE HELPER ONLY; NOT V3 BACKUP AUTHORITY.
+# V3 database recovery remains fail-closed under infrastructure-status.md.
+#
 # scripts/run_backup.sh — scheduled Postgres backups for the maintenance sidecar.
 #
 # This is the immediate, committed stopgap requested by the audit:

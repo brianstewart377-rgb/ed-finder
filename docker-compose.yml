@@ -1,8 +1,11 @@
-# V3 STATUS: this Compose file is NOT current production authority.
-# It is retained for repository/local/CI and legacy compatibility while V3
-# runtime topology is re-baselined. Production uses PostgreSQL 18 and only an
-# explicitly current V3 runbook/workflow may define host/service/storage truth.
-# Do not infer V3 deployment or recovery procedure from this file.
+# LEGACY / SELF-HOST / LOCAL APPLICATION STACK — NOT V3 PRODUCTION.
+# This file is retained for repository, local-development, self-host, importer,
+# CI, monitoring, and rehearsal dependencies. Its PostgreSQL 16 services exist
+# for compatibility; current V3 production uses PostgreSQL 18.
+# apps/maintenance is a legacy/local sidecar, not the V3 backup/PITR design.
+# Only an explicitly current V3 runbook/workflow may define production
+# host/service/storage or database-recovery truth; see
+# docs/operations/infrastructure-status.md.
 #
 # Shared logging config — applied to every long-lived service via YAML anchor.
 # Without this, container stdout/stderr accumulates in /var/lib/docker/containers

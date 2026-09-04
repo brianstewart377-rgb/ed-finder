@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -110,3 +111,111 @@ def test_backend_coverage_lane_exercises_postgresql_18():
     assert 'bash scripts/seed_check.sh' in backend
     assert 'Validate seeded coverage database' in backend
     assert 'Append integration coverage' in backend
+
+
+def test_legacy_data_inventory_is_fail_closed_and_identifies_retained_dump():
+    inventory_doc = _read('docs', 'operations', 'legacy-data-inventory.md')
+    manifest = json.loads(
+        _read('docs', 'operations', 'legacy-data-inventory-manifest.json')
+    )
+
+    assert 'Inventory only — not a V3 production recovery or migration runbook' in inventory_doc
+    assert 'explicitly confirmed disposable/offline restore, never production' in inventory_doc
+    assert 'Unknown, estimated, or blank counts do not pass the gate' in inventory_doc
+    assert 'makes no claim' in inventory_doc
+
+    assert manifest['authority'] == 'inventory_only_not_a_recovery_or_migration_runbook'
+    assert manifest['production_database_access_authorized'] is False
+    assert manifest['migration_complete'] is False
+    assert manifest['completeness_evidence'] is None
+    assert manifest['retained_dump'] == {
+        'filename': 'edfinder_20260823T021001Z.dump',
+        'format': 'postgresql_custom',
+        'size_bytes': 75931356521,
+        'sha256': '20ff06a2e3d2bca2dfa05fc01d38200ca90db028e4b1f4b530d5f394f97514c1',
+        'offsite_sync_recorded_at': '2026-08-23T05:32:41Z',
+        'identity_reverified_at': None,
+    }
+
+
+def test_legacy_data_manifest_requires_counts_validation_and_dispositions():
+    manifest = json.loads(
+        _read('docs', 'operations', 'legacy-data-inventory-manifest.json')
+    )
+    required = set(manifest['required_evidence_fields'])
+
+    assert {
+        'source_table_count', 'source_record_count', 'selection_record_count',
+        'target_record_count_before', 'target_record_count_after',
+        'primary_key_validation', 'referential_integrity_validation',
+        'domain_validation', 'privacy_and_ownership_review',
+        'reconciliation_result', 'reviewer', 'evidence_references',
+    } <= required
+    assert manifest['inspection_boundary']['production_forbidden'] is True
+    assert manifest['inspection_boundary']['dump_catalogue_inspected'] is False
+
+    groups = {item['classification']: item for item in manifest['inventory']}
+    assert set(groups) == {
+        'public_reconstructable', 'irreplaceable_private_manual_history',
+        'transient_or_operational', 'unresolved_requires_evidence',
+    }
+    assert 'systems' in groups['public_reconstructable']['tables']
+    assert 'app_users' in groups['irreplaceable_private_manual_history']['tables']
+    assert 'web_sessions' in groups['transient_or_operational']['tables']
+    assert 'ratings' in groups['unresolved_requires_evidence']['tables']
+    assert all(group['evidence'] is None for group in groups.values())
+    template = manifest['selective_extraction_record_template']
+    assert required <= set(template)
+    assert template['source_record_count'] is None
+    assert template['domain_validation'] == 'not_run'
+    assert template['evidence_references'] == []
+    assert manifest['selective_extraction_records'] == []
+
+
+def test_live_runtime_identity_is_host_neutral():
+    config = _read('apps', 'api', 'src', 'config.py')
+    main = _read('apps', 'api', 'src', 'main.py')
+    importer = _read('apps', 'importer', 'src', 'import_spansh.py')
+
+    assert "app_version:        str  = '3.1.0'" in config
+    assert 'ED Finder — API Backend' in main
+    assert 'ED Finder API backend v{settings.app_version} starting' in main
+    assert 'Hetzner' not in config
+    assert 'Hetzner' not in main
+    assert 'Hetzner' not in importer
+    assert 'Server:' not in importer
+
+
+def test_local_restore_helpers_are_explicitly_never_v3_production():
+    for script_name in ('restore_postgres_backup.sh', 'rehearse_postgres_restore.sh'):
+        script = _read('scripts', script_name)
+        assert 'LOCAL-DEV/CI REHEARSAL ONLY — NEVER V3 PRODUCTION.' in script
+        assert 'V3 database recovery remains fail-closed' in script
+        assert 'docs/operations/infrastructure-status.md' in script
+
+
+def test_root_compose_and_maintenance_are_legacy_local_not_v3_authority():
+    compose = _read('docker-compose.yml')
+    maintenance_files = (
+        _read('apps', 'maintenance', 'Dockerfile'),
+        *(
+            _read('apps', 'maintenance', 'scripts', name)
+            for name in (
+                'backup_rehearsal.sh',
+                'crontab',
+                'pg_repack.sh',
+                'run_backup.sh',
+                'run_disk_watchdog.sh',
+                'run_ingest_watchdog.sh',
+                'run_maintenance.sh',
+            )
+        ),
+    )
+
+    assert compose.startswith('# LEGACY / SELF-HOST / LOCAL APPLICATION STACK — NOT V3 PRODUCTION.')
+    assert 'PostgreSQL 16 services exist' in compose
+    assert 'current V3 production uses PostgreSQL 18' in compose
+    assert 'apps/maintenance is a legacy/local sidecar, not the V3 backup/PITR design' in compose
+    for source in maintenance_files:
+        assert 'LEGACY/SELF-HOST/LOCAL' in source
+        assert 'V3' in source

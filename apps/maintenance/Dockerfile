@@ -1,5 +1,8 @@
 FROM postgres:16-alpine
 
+# LEGACY/SELF-HOST/LOCAL COMPOSE SIDECAR ONLY; NOT V3 BACKUP AUTHORITY.
+# V3 database recovery remains fail-closed under infrastructure-status.md.
+
 # We use the official postgres:16-alpine image as a base because it
 # already has psql, libpq, and a thin runtime — no point pulling
 # alpine then re-installing 100 MB of psql client packages on top.

@@ -1,3 +1,4 @@
+# LEGACY/SELF-HOST/LOCAL Compose crontab; not V3 production or backup authority.
 # Crontab for ed-finder maintenance sidecar.
 #
 # Format: m h dom mon dow command

@@ -198,10 +198,11 @@ Goals:
 - Stop replaying the full `sql/` tree on every deploy.
 - Make migration order explicit, auditable, and machine-enforced.
 
-Reference:
-- See `docs/operations/migration-ledger-implementation-plan.md` for the
-  proposed ledger design, manifest approach, rollout phases, and production
-  baseline strategy.
+Historical reference:
+- See the superseded
+  [migration-ledger implementation plan](./migration-ledger-implementation-plan.md)
+  for the design, manifest approach, rollout phases, and former V2 production
+  baseline strategy. It is not current V3 execution authority.
 
 Checklist:
 - [x] Introduce a migration ledger (`schema_migrations` or equivalent).
@@ -277,7 +278,8 @@ Definition of done:
   - `apps/maintenance/scripts/crontab`
   - `scripts/restore_postgres_backup.sh`
   - `scripts/rehearse_postgres_restore.sh`
-  - `docs/operations/postgres-backup-and-restore.md`
+  - the retired V2
+    [PostgreSQL backup and restore contract](./postgres-backup-and-restore.md)
 
 Checkpoint note (2026-07-09):
 - A real local disposable restore rehearsal was executed and recorded via
