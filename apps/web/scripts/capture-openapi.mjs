@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import process from 'node:process';
+import { fileURLToPath, URL } from 'node:url';
 
 const source = process.env.OPENAPI_INPUT?.trim();
 
@@ -15,7 +16,7 @@ const output = path.join(webRoot, '.svelte-kit', 'openapi.json');
 
 async function readOpenApiSource(input) {
   if (/^https?:\/\//i.test(input)) {
-    const response = await fetch(input, {
+    const response = await globalThis.fetch(input, {
       headers: { accept: 'application/json' },
     });
 
