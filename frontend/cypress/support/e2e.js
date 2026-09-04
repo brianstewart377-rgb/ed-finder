@@ -19,6 +19,29 @@ Cypress.Commands.add('assertCanvasSynced', () => {
   });
 });
 
+Cypress.Commands.add('captureDeterministicBaseline', (name, options = {}) => {
+  cy.document().then((document) => {
+    const style = document.createElement('style');
+    style.dataset.cypressVisualBaseline = 'true';
+    style.textContent = `
+      *, *::before, *::after {
+        animation-delay: 0s !important;
+        animation-duration: 0s !important;
+        caret-color: transparent !important;
+        transition-delay: 0s !important;
+        transition-duration: 0s !important;
+      }
+    `;
+    document.head.appendChild(style);
+  });
+  cy.screenshot(name, {
+    capture: 'viewport',
+    overwrite: true,
+    scale: false,
+    ...options,
+  });
+});
+
 before(() => {
   cy.request({
     url: '/api/health',
@@ -26,3 +49,4 @@ before(() => {
     retryOnStatusCodeFailure: true,
   }).its('status').should('eq', 200);
 });
+import 'cypress-axe';

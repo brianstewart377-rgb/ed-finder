@@ -174,6 +174,103 @@ describe('ED Finder release gate — Cypress parity', () => {
     cy.assertCanvasSynced();
   });
 
+  it('invalidates renderer sync telemetry before revalidating a resize', () => {
+    openProductionMap();
+    cy.getByTestId('map-view-galaxy').click();
+    cy.get('.map-foundation-renderer')
+      .should('have.attr', 'data-galaxy-point-count', '18000');
+    cy.get('.map-foundation-renderer canvas')
+      .should('have.attr', 'data-drawing-buffer-synced', 'true')
+      .then(($canvas) => {
+        const canvas = $canvas[0];
+        canvas.resizeTelemetrySequence = [canvas.dataset.drawingBufferSynced ?? 'missing'];
+        canvas.resizeTelemetryObserver = new MutationObserver(() => {
+          canvas.resizeTelemetrySequence.push(
+            canvas.dataset.drawingBufferSynced ?? 'missing',
+          );
+        });
+        canvas.resizeTelemetryObserver.observe(canvas, {
+          attributes: true,
+          attributeFilter: ['data-drawing-buffer-synced'],
+        });
+      });
+
+    cy.viewport(1111, 733);
+    cy.get('.map-foundation-renderer canvas').should(($canvas) => {
+      const sequence = $canvas[0].resizeTelemetrySequence ?? [];
+      const invalidatedAt = sequence.indexOf('false');
+      const revalidatedAt = sequence.indexOf('true', invalidatedAt + 1);
+      expect(invalidatedAt, 'resize telemetry invalidation index').to.be.at.least(0);
+      expect(revalidatedAt, 'resize telemetry revalidation index').to.be.greaterThan(invalidatedAt);
+    });
+  });
+
+  it('does not invalidate renderer sync telemetry for a same-size observer fire', () => {
+    cy.intercept('GET', '**/stage26e/authoritative-regions.json').as('regions');
+    cy.intercept('GET', '**/api/map/heatmap*').as('heatmap');
+    cy.visit('/', {
+      onBeforeLoad(win) {
+        const NativeResizeObserver = win.ResizeObserver;
+        if (!NativeResizeObserver) return;
+        const callbacks = new WeakMap();
+        win.ResizeObserver = class TestResizeObserver extends NativeResizeObserver {
+          constructor(callback) {
+            super(callback);
+            callbacks.set(this, callback);
+          }
+
+          observe(target, options) {
+            super.observe(target, options);
+            if (
+              target instanceof win.HTMLCanvasElement
+              && target.closest('.map-foundation-renderer')
+            ) {
+              win.triggerMapResizeObserver = () => callbacks.get(this)?.([], this);
+            }
+          }
+        };
+      },
+    });
+    cy.getByTestId('nav-map').click();
+    cy.wait('@regions');
+    cy.wait('@heatmap').its('response.statusCode').should('eq', 200);
+    cy.getByTestId('map-view-galaxy').click();
+    cy.get('.map-foundation-renderer')
+      .should('have.attr', 'data-galaxy-point-count', '18000');
+    cy.get('.map-foundation-renderer canvas')
+      .should('have.attr', 'data-drawing-buffer-synced', 'true')
+      .then(($canvas) => {
+        const canvas = $canvas[0];
+        const before = canvas.getBoundingClientRect();
+        const sequence = [canvas.dataset.drawingBufferSynced ?? 'missing'];
+        const observer = new MutationObserver(() => {
+          sequence.push(canvas.dataset.drawingBufferSynced ?? 'missing');
+        });
+        observer.observe(canvas, {
+          attributes: true,
+          attributeFilter: ['data-drawing-buffer-synced'],
+        });
+        expect(canvas.ownerDocument.defaultView.triggerMapResizeObserver)
+          .to.be.a('function');
+        canvas.ownerDocument.defaultView.triggerMapResizeObserver();
+
+        cy.wrap(null).then(() => new Cypress.Promise((resolve) => {
+          canvas.ownerDocument.defaultView.requestAnimationFrame(() => {
+            canvas.ownerDocument.defaultView.requestAnimationFrame(resolve);
+          });
+        })).then(() => {
+          const after = canvas.getBoundingClientRect();
+          observer.disconnect();
+          expect({ width: after.width, height: after.height }).to.deep.equal({
+            width: before.width,
+            height: before.height,
+          });
+          expect(sequence.length).to.be.greaterThan(1);
+          expect(sequence).not.to.include('false');
+        });
+      });
+  });
+
   it('crosses the real-star LOD and loads detailed systems', () => {
     cy.intercept('GET', '**/api/map/systems*').as('realStars');
     openProductionMap();

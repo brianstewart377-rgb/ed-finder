@@ -75,7 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-window
 Optional browser test setup:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -InstallPlaywright
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -VerifyCypress
 ```
 
 Notes:

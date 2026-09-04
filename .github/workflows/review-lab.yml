@@ -32,10 +32,10 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
 
@@ -50,9 +50,9 @@ jobs:
         working-directory: frontend
         run: yarn install --frozen-lockfile --no-progress --non-interactive
 
-      - name: Install Playwright Chromium
+      - name: Verify locked Cypress browser harness
         working-directory: frontend
-        run: yarn e2e:install
+        run: npx --no-install cypress verify
 
       - name: Confirm Docker Compose support
         run: docker compose version
@@ -156,12 +156,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Upload isolated Review Lab Playwright artifacts on failure
+      - name: Upload isolated Review Lab Cypress artifacts on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: review-lab-playwright-failure
+          name: review-lab-cypress-failure
           path: |
-            frontend/test-results
+            frontend/cypress/artifacts
           if-no-files-found: warn
           retention-days: 7

@@ -77,7 +77,7 @@ The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/
 | Messaging | Existing runtime/history may contain NATS | NATS is not part of the new baseline without a newly justified durable-stream responsibility |
 | EDDN | Existing ingestion surfaces | Converge on one dedicated EDDN worker rather than duplicate long-lived consumers |
 | Spatial renderer | React/R3F/Three.js remains parity and rollback evidence | Babylon.js 9-class, introduced only through the Stage 27 contract and bake-off sequence |
-| Browser tests | Cypress is the future protected authority; useful Playwright coverage remains during migration | Port unique coverage before removing Playwright; do not delete historical Stage 26 evidence receipts |
+| Browser tests | Cypress is the protected authority for Chromium-family and Firefox coverage | Historical Stage 26 receipts remain immutable evidence; WebKit is explicitly retired from the runnable harness |
 | Delivery | V3 release foundation is being established | Immutable OCI images and an exact release manifest; no production build, dependency resolution, or `git pull` |
 | Production orchestration | Current V3 authority is documented outside the root legacy Compose file | A reviewed, explicitly V3 Compose/runtime authority; root legacy Compose is not production authority |
 
@@ -182,9 +182,9 @@ yarn test
 yarn build
 ```
 
-The package declares Yarn 1.22.22. Focused map, planner, operator, Cypress, Playwright, Storybook, accessibility, and evidence scripts remain under [`frontend/package.json`](frontend/package.json) until each is explicitly ported, archived, or retired.
+The package declares Yarn 1.22.22. Focused map, planner, operator, Cypress, Storybook, accessibility, and evidence scripts are defined in [`frontend/package.json`](frontend/package.json).
 
-Do not remove the React application, R3F baseline, Playwright configuration, or Stage 26 evidence merely because the V3 foundation exists. Replacement requires equivalent accepted behaviour or an explicit governed retirement decision.
+Do not remove the React application, R3F baseline, or preserved Stage 26 receipts merely because the V3 foundation exists. The runnable Playwright toolchain has been retired after its current coverage moved to Cypress; historical evidence remains unchanged.
 
 ## Backend, database, and importer work
 
@@ -221,7 +221,7 @@ The protected system includes backend unit/integration tests, script and migrati
 Key principles:
 
 - **Cypress is the V3 browser/E2E authority.**
-- Existing Playwright coverage remains migration evidence where it still supplies unique Review Lab, accessibility, visual, browser, or Stage 26 evidence.
+- Cypress supplies Review Lab, accessibility, visual, Chromium-family, and Firefox browser coverage. WebKit is explicitly outside the protected runnable harness.
 - Do not remove a test before its behaviour is reproduced or explicitly retired by the governing contract.
 - Pure domain tests are valuable parity anchors and should move with framework-neutral code.
 - User-visible changes require appropriate visual and accessibility evidence.

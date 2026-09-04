@@ -94,14 +94,14 @@ lint:  ## ruff backend + eslint frontend
 	ruff check apps tests
 	cd frontend && yarn lint
 
-dev-test:  ## Run interactive dev tests (Playwright headed mode with screenshots)
-	cd frontend && npx playwright test e2e/dev.spec.ts --headed --debug
+dev-test:  ## Open Cypress for interactive browser tests
+	cd frontend && yarn e2e:open
 
 dev-test-video:  ## Run dev tests with video recording
-	cd frontend && npx playwright test e2e/dev.spec.ts --headed --debug --record-video=on
+	cd frontend && yarn e2e
 
 # ── Cleanup ──────────────────────────────────────────────────────────────────
 clean:  ## Remove caches
 	find . -type d -name __pycache__ -exec rm -rf {} +
 	find . -type d -name .pytest_cache -exec rm -rf {} +
-	rm -rf frontend/dist frontend/playwright-report
+	rm -rf frontend/dist frontend/cypress/artifacts

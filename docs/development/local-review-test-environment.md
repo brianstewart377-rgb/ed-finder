@@ -36,7 +36,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/doctor.ps1 -RunP
   capture/restore.
 - `api_contracts.py` validates real route contracts against the isolated review
   API.
-- `browser_runner.py` runs the real frontend build, preview, and Playwright
+- `browser_runner.py` runs the real frontend build, preview, and Cypress
   collector.
 - `network_policy.py` classifies allowed versus unexpected browser/API noise.
 - `observations.py` separates environment readiness from product observations.
@@ -53,8 +53,8 @@ credentials, or `.env` files.
 
 Review Lab CI is separate from the normal frontend E2E lane for the canonical `frontend/` app.
 
-- Normal frontend E2E continues to test normal application behaviour only.
-- `frontend/e2e/review-environment.spec.js` intentionally skips outside
+- Normal frontend Cypress E2E continues to test normal application behaviour only.
+- `frontend/cypress/e2e/review-environment.cy.js` intentionally skips outside
   Review Lab execution.
 - The dedicated GitHub Actions workflow is `Review Lab` in
   `.github/workflows/review-lab.yml`.
@@ -64,6 +64,9 @@ Review Lab CI is separate from the normal frontend E2E lane for the canonical `f
   checks permanently pending on unrelated changes.
 - It uses least-privilege `contents: read` permissions and cancels stale runs on
   the same branch.
+- Chrome is the Review Lab collector browser. The protected Cypress release
+  gate also runs Firefox. WebKit is explicitly retired from the executable
+  harness; it is not preserved through a parallel Playwright fallback.
 - The workflow authority remains the wrapper command:
 
 ```bash
@@ -80,7 +83,7 @@ Windows equivalent:
 .venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
 ```
 
-- The dedicated Review Lab lane does not call normal `yarn e2e` as a substitute
+- The dedicated Review Lab lane does not call the normal Cypress release gate as a substitute
   for isolated review validation.
 - The Review Lab browser collector receives
   `EDFINDER_REVIEW_OUTPUT_PATH` and `EDFINDER_REVIEW_SCENARIOS_JSON` only from
@@ -218,7 +221,7 @@ full mode adds:
 
 - frontend build
 - preview readiness
-- Playwright/browser verification
+- Cypress/browser verification
 - accessibility checks
 - network and console policy enforcement
 - product observations
@@ -235,7 +238,7 @@ All operations are bounded:
 - API contracts: `30s`
 - frontend build: `90s`
 - preview readiness: `30s`
-- Playwright: `120s`
+- Cypress: `120s`
 - teardown: `60s`
 
 The process registry records only processes started by the current verify run.
@@ -375,7 +378,7 @@ GitHub Actions uploads failure-only, sanitised Review Lab artifacts:
 
 - final JSON report and latest-report pointer
 - sanitised browser summary
-- isolated Playwright test results from synthetic review scenarios only
+- isolated Cypress screenshots and videos from synthetic review scenarios only
 
 It does not upload `.env` files, Docker inspect output, container environment
 data, DSNs, tokens, passwords, database dumps, operator artifacts, or raw logs
@@ -384,4 +387,3 @@ that could carry credentials.
 The Actions job summary records only safe high-level facts such as full verify
 pass/fail state, duration, Delta fallback correlation, unexpected console/API
 error summary, Docker baseline restoration, and review-owned resource absence.
-

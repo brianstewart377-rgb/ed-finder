@@ -36,7 +36,7 @@ export default tseslint.config(
       'dist/**',
       'node_modules/**',
       'src/types/api.gen.ts',
-      'playwright-report/**',
+      'cypress/artifacts/**',
       'test-results/**',
       'coverage/**',
       '**/*.d.ts',

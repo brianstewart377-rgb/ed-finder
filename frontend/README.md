@@ -67,7 +67,7 @@ npm run dev:doctor
 npm run dev:doctor:strict
 ```
 
-Additional focused map, planner, operator, Playwright, Storybook and accessibility scripts are defined in `package.json`.
+Additional focused map, planner, operator, Cypress, Storybook and accessibility scripts are defined in `package.json`.
 
 ## API target for local development
 

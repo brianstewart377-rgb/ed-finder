@@ -20,47 +20,50 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def test_cypress_owns_release_gate_while_playwright_flakes_are_diagnostic():
-    playwright_config = _read(FRONTEND / "playwright.config.ts")
+def test_cypress_is_the_only_runnable_browser_authority():
     cypress_config = _read(FRONTEND / "cypress.config.cjs")
+    package = _read(FRONTEND / "package.json")
 
-    # Ordinary legacy Playwright remains useful as a diagnostic suite during
-    # migration: deterministic failures still fail both attempts, while a
-    # retry-only WebGL timing flake does not overrule the Cypress release gate.
-    # Review Lab remains strict until its separate browser collector migrates.
-    assert "retries: isCI ? 1 : 0" in playwright_config
-    assert "failOnFlakyTests: reviewLabRun" in playwright_config
-    assert "trace: 'on-first-retry'" in playwright_config
-    assert "globalTimeout: isCI ?" in playwright_config
-    assert "['html', { open: 'never', outputFolder: 'playwright-report' }]" in playwright_config
-
-    # Cypress is the authoritative release signal and therefore remains strict:
-    # no test retries are allowed to turn a failing journey green.
     assert "retries: 0" in cypress_config
+    assert '"cypress"' in package
+    assert '"cypress-axe"' in package
+    assert "playwright" not in package.lower()
+    assert not list(FRONTEND.glob("playwright*.config.*"))
 
 
-def test_e2e_backend_lifecycle_is_ownership_aware_and_non_destructive():
-    setup = _read(E2E / "globalSetup.ts")
+def test_cypress_has_accessibility_and_deterministic_visual_evidence_capabilities():
+    support = _read(FRONTEND / "cypress" / "support" / "e2e.js")
+    specs = "\n".join(_read(path) for path in sorted((FRONTEND / "cypress" / "e2e").glob("*.cy.js")))
 
-    assert "EDFINDER_E2E_BACKEND_MODE" in setup
-    assert "externally managed; verifying readiness" in setup
-    assert "return async () =>" in setup
-    assert "down --remove-orphans" in setup
-    assert "down --volumes" not in setup
+    assert "cypress-axe" in support
+    assert "injectAxe" in specs
+    assert "checkA11y" in specs
+    assert "captureDeterministicBaseline" in specs
+    assert "cy.screenshot" in support
 
 
-def test_e2e_specs_do_not_use_never_resolving_promises_as_failure_simulation():
+def test_cypress_specs_do_not_use_never_resolving_promises_as_failure_simulation():
     offenders = []
-    for spec in sorted(E2E.glob("*.spec.*")):
+    for spec in sorted((FRONTEND / "cypress" / "e2e").glob("*.cy.js")):
         text = _read(spec)
         if "new Promise(() => {})" in text or "new Promise(() => { })" in text:
             offenders.append(spec.name)
 
     assert not offenders, (
-        "E2E specs must use bounded Playwright route abort/fulfill behaviour, "
+        "E2E specs must use bounded Cypress intercept behaviour, "
         "not a Promise that can strand a worker until the job timeout: "
         + ", ".join(offenders)
     )
+
+
+def test_protected_cypress_job_covers_chrome_and_firefox_under_compatibility_label():
+    workflow = _read(WORKFLOWS / "cypress-parity.yml")
+
+    assert "Compatibility label only: this job is Cypress-only" in workflow
+    assert "name: Frontend v2 E2E (Playwright)" in workflow
+    assert "--browser chrome" in workflow
+    assert "--browser firefox" in workflow
+    assert "playwright install" not in workflow.lower()
 
 
 def test_coverage_workflow_uses_an_explicit_frontend_coverage_runner():

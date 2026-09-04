@@ -205,20 +205,20 @@ def _port_available(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) != 0
 
 
-def _playwright_status_hint(text: str) -> str:
+def _cypress_status_hint(text: str) -> str:
     lowered = (text or '').lower()
     if not lowered.strip():
         return 'none'
-    if 'already used' in lowered and 'reuseexistingserver' in lowered:
-        return 'playwright_web_server_conflict'
+    if 'cannot connect' in lowered or 'could not verify that this server is running' in lowered:
+        return 'cypress_base_url_unavailable'
     if 'no tests found' in lowered:
         return 'no_tests_found'
-    if '1 skipped' in lowered or 'skipped' in lowered:
+    if 'pending' in lowered or 'skipped' in lowered:
         return 'test_skipped'
     if 'review lab browser verification requires' in lowered or 'edfinder_review_lab_run' in lowered:
         return 'review_lab_configuration_error'
     if 'error:' in lowered:
-        return 'playwright_error'
+        return 'cypress_error'
     return 'unknown'
 
 
@@ -232,14 +232,14 @@ def _browser_runner_diagnostics(
     summary_schema_valid: bool,
 ) -> dict[str, Any]:
     return {
-        'playwright_return_code': completed.returncode if completed is not None else None,
+        'cypress_return_code': completed.returncode if completed is not None else None,
         'review_marker_present': review_marker_present,
         'output_path_configured': output_path_configured,
         'scenario_plan_configured': scenario_plan_configured,
         'summary_exists': summary_exists,
         'summary_schema_valid': summary_schema_valid,
-        'stdout_status_hint': _playwright_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
-        'stderr_status_hint': _playwright_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
+        'stdout_status_hint': _cypress_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
+        'stderr_status_hint': _cypress_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
     }
 
 
@@ -312,6 +312,9 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         REVIEW_LAB_BROWSER_MARKER: '1',
         'EDFINDER_REVIEW_OUTPUT_PATH': str(output_path),
         'EDFINDER_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
+        'CYPRESS_REVIEW_LAB_RUN': '1',
+        'CYPRESS_REVIEW_OUTPUT_PATH': str(output_path),
+        'CYPRESS_REVIEW_SCENARIOS_JSON': json.dumps(browser_plan, sort_keys=True),
         'VITE_DEV_API_TARGET': review_api_origin(),
     }
 
@@ -332,10 +335,10 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     )
     _wait_for_preview_ready(TIMEOUTS.preview_readiness)
     completed = run_subprocess(
-        ['npx', 'playwright', 'test', 'e2e/review-environment.spec.js', '--config', 'playwright.config.ts', '--project', 'chromium', '--reporter=line'],
+        ['yarn', 'cypress', 'run', '--browser', 'chrome', '--spec', 'cypress/e2e/review-environment.cy.js'],
         cwd=FRONTEND_DIR,
         env_overrides=env,
-        timeout_seconds=TIMEOUTS.playwright,
+        timeout_seconds=TIMEOUTS.cypress,
         allow_failure=True,
         failure_code='BROWSER_PHASE_TIMEOUT',
     )

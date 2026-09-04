@@ -1,6 +1,6 @@
 param(
   [switch]$StartServices,
-  [switch]$InstallPlaywright,
+  [switch]$VerifyCypress,
   [switch]$RunDoctor,
   [switch]$ForceEnvFile
 )
@@ -117,11 +117,11 @@ Invoke-Checked -FilePath $venvPython -Arguments @(
 $frontendInstall = Get-FrontendInstallCommand
 Invoke-Checked -FilePath $frontendInstall.command -Arguments $frontendInstall.args -WorkingDirectory $frontendDir
 
-if ($InstallPlaywright) {
+if ($VerifyCypress) {
   if ($frontendInstall.command -like '*corepack*') {
-    Invoke-Checked -FilePath $frontendInstall.command -Arguments @('yarn', 'e2e:install') -WorkingDirectory $frontendDir
+    Invoke-Checked -FilePath $frontendInstall.command -Arguments @('yarn', 'exec', 'cypress', 'verify') -WorkingDirectory $frontendDir
   } else {
-    Invoke-Checked -FilePath $frontendInstall.command -Arguments @('e2e:install') -WorkingDirectory $frontendDir
+    Invoke-Checked -FilePath $frontendInstall.command -Arguments @('exec', 'cypress', 'verify') -WorkingDirectory $frontendDir
   }
 }
 
