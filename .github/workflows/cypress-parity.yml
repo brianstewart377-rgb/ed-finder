@@ -13,7 +13,10 @@ concurrency:
 
 jobs:
   cypress-release-gate:
-    name: Frontend v2 Cypress E2E
+    # The misleading name is retained temporarily because main branch protection
+    # requires this exact context. Rename it only in the same administrative
+    # change that repoints the required check.
+    name: Frontend v2 E2E (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
