@@ -1,0 +1,5 @@
+{
+  "task": "On the exact latest tip of migration/svelte-platform-contracts, perform a formatting-only repair for the two files reported by the exact-head Svelte format gate: apps/web/cypress/e2e/dynamic-routes.cy.ts and apps/web/src/routes/colony-planner/[...state]/page.test.ts. Run cd apps/web && pnpm install --frozen-lockfile && pnpm exec prettier --write cypress/e2e/dynamic-routes.cy.ts 'src/routes/colony-planner/[...state]/page.test.ts'. Inspect the diff and commit only formatter output in those two files. Do not alter behaviour, assertions, dependencies, lockfiles, routes, workflows, backend, React code, or other files. Then run pnpm format:check and pnpm check. Push with exact-head lease directly to migration/svelte-platform-contracts. No production, database, deployment, recovery, secret, or live-data action.",
+  "mode": "implement",
+  "target_branch": "migration/svelte-platform-contracts"
+}
