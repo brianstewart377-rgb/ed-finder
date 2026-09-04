@@ -246,12 +246,6 @@ Before the new application can replace the stale Phase4C runtime, require at min
 - service restart/recreate limited to explicitly selected V3 application services;
 - receipt records images/digests, routes, health and rollback target without exposing secrets.
 
-## Governance while Codex review quota is unavailable
-
-Until the Codex code-review allowance resets on 2026-09-07, Claude may be used as the implementation/coding agent. That does not make Claude an independent sole reviewer of its own implementation.
-
-Where Codex is genuinely unavailable, any merge must follow the repository's existing reviewer-failure/owner-waiver policy on that exact PR/head: explicit owner waiver, exact-head protected checks, exact-head Octopus, complete review-thread inspection and independent exact-head manual review. No standing or blanket reviewer waiver is created by this stack decision.
-
 ## Revisit triggers
 
 A locked technology may be reconsidered when one of these occurs:
