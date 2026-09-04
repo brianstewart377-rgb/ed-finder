@@ -52,7 +52,8 @@ def test_v3_web_uses_locked_lint_and_format_tooling():
     assert dev_dependencies["prettier"].lstrip("^~").startswith("3.")
     assert "prettier-plugin-svelte" in dev_dependencies
     assert "eslint" in package["scripts"]["lint"]
-    assert "prettier --check" in package["scripts"]["format:check"]
+    assert package["scripts"]["format"] == "prettier --write ."
+    assert package["scripts"]["format:check"] == "prettier --check ."
     assert "svelte-check" in package["scripts"]["check"]
     assert "eslint-plugin-svelte" in eslint_config
 
