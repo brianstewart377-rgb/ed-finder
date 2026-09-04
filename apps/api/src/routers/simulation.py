@@ -104,7 +104,7 @@ async def get_slot_predictions(
 
     Data source priority:
       1. body_scan_facts (EDDN-derived, highest confidence)
-      2. bodies table (Spansh-imported, moderate confidence)
+      2. bodies table (external-source imported, moderate confidence)
       3. No data → empty predictions with explanation
     """
     cache_key = f'sim:v3:slots:{id64}'

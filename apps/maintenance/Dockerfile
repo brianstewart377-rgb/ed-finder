@@ -1,5 +1,10 @@
 FROM postgres:16-alpine
 
+# LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY.
+# PostgreSQL 16 matches the retained root Compose environment only. Current V3
+# production uses PostgreSQL 18 and requires an explicitly current backup/PITR
+# runbook and runtime definition; this image deliberately does not define them.
+
 # We use the official postgres:16-alpine image as a base because it
 # already has psql, libpq, and a thin runtime — no point pulling
 # alpine then re-installing 100 MB of psql client packages on top.
@@ -8,7 +13,7 @@ FROM postgres:16-alpine
 # the full BusyBox cron — dcron's `crond -f` runs in foreground which
 # plays nicely with `docker logs`.
 #
-# `python3` + `py3-psycopg2` let the sidecar run the production-safe
+# `python3` + `py3-psycopg2` let this legacy sidecar run its guarded
 # invariants wrapper directly on its weekly schedule, `rclone`
 # provides the optional offsite backup sync path, and `curl` sends the
 # optional dead-man's-switch heartbeats.

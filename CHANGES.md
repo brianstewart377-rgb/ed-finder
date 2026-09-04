@@ -13,6 +13,14 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-09-04 — Issue #577 hard replacement tranche
+
+- Made `apps/web/` the sole browser-application destination; React is temporary source evidence only, and this branch remains unmerged until replacement parity is complete.
+- Made Cypress the sole active browser framework for Review Lab, Chrome/Firefox, axe accessibility, and deterministic screenshot evidence. Playwright survives only in static historical provenance.
+- Preserved the Python Review Lab evaluator as the acceptance and browser-summary schema owner; Cypress is only its browser driver.
+- This tranche does not authorize production deployment, database work, OAuth activation, a Babylon runtime, or later Stage 27 work.
+- Marked root Compose, its PostgreSQL 16 maintenance image, and restore/rehearsal helpers as legacy local/CI tooling, never PostgreSQL 18 V3 production or backup authority.
+
 ## 2026-09-04 — V3 application stack lock and implementation foundation
 
 ### One deliberate application baseline
@@ -28,7 +36,7 @@ The new browser-application target is:
 - Tailwind CSS 4, Bits UI v2, and Lucide Svelte;
 - TanStack Svelte Query for server state;
 - Hey API + Fetch for generated FastAPI clients;
-- Cypress as the future protected browser/E2E authority;
+- Cypress as the sole active protected browser/E2E authority;
 - static SvelteKit output served through the same-origin V3 web boundary.
 
 The backend/data direction remains FastAPI, Pydantic 2, PostgreSQL 18, reviewed SQL migrations, and an eventual CPython 3.14 + `uv` baseline. Valkey is the locked cache/pub-sub direction; NATS is not part of the new baseline without a newly justified responsibility.
@@ -48,7 +56,7 @@ A parallel V3 application foundation now lives under [`apps/web/`](apps/web/). I
 - CI checks for generation drift, type/check, lint, format, unit tests, build, and browser smoke;
 - explicit same-origin route ownership: `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}` remain FastAPI-owned while other application/static routes belong to SvelteKit.
 
-The existing [`frontend/`](frontend/) React/R3F application remains intact as the behavioural, accessibility, browser, visual, and parity reference. It must not be removed until equivalent coverage exists or a governing contract explicitly retires a capability.
+The existing [`frontend/`](frontend/) React/R3F tree is temporary source evidence only during the hard replacement, not an active runnable or validation lane.
 
 ### Scope deliberately not claimed
 
@@ -69,7 +77,7 @@ Those remain separate reviewed slices with their own acceptance and rollback bou
 
 While both frontend lanes exist, both generated API clients must come from the same authoritative FastAPI `/openapi.json` document. The repository drift check regenerates both and fails if checked-in output differs.
 
-Cypress is the target browser authority, but useful Playwright coverage remains migration evidence until its unique Review Lab, accessibility, visual, Firefox/browser, and historical Stage 26 responsibilities are ported, archived, or explicitly retired. A dependency appearing “old” is not sufficient reason to remove its last accepted evidence.
+Cypress is the only active browser authority. Review Lab, accessibility, visual, and Chrome/Firefox responsibilities are Cypress-owned; Playwright remains only as wording inside clearly historical evidence.
 
 ### Root documentation re-baseline
 

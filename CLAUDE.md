@@ -97,7 +97,7 @@ Rules:
 
 ## Frontend
 
-New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
+New V3 application implementation lives solely under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in React tree under `frontend/` is temporary source evidence only, not a runnable destination or parallel validation lane. The hard-cut branch must remain unmerged until replacement parity is complete. Cypress is the only active browser automation framework; historical Playwright receipts remain provenance only.
 
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 

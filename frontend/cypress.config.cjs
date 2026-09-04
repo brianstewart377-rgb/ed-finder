@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs/promises');
 
 module.exports = {
   retries: 0,
@@ -23,6 +24,20 @@ module.exports = {
     videosFolder: 'cypress/artifacts/videos',
     downloadsFolder: 'cypress/artifacts/downloads',
     setupNodeEvents(on, config) {
+      const reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === '1';
+      config.env.reviewLabRun = reviewLabRun;
+      config.env.reviewOutputPath = process.env.EDFINDER_REVIEW_OUTPUT_PATH || '';
+      config.env.reviewScenariosJson = process.env.EDFINDER_REVIEW_SCENARIOS_JSON || '';
+      on('task', {
+        async writeReviewLabSummary({ outputPath, summary }) {
+          if (!reviewLabRun || outputPath !== process.env.EDFINDER_REVIEW_OUTPUT_PATH) {
+            throw new Error('Refusing an unverified Review Lab summary path.');
+          }
+          await fs.mkdir(path.dirname(outputPath), { recursive: true });
+          await fs.writeFile(outputPath, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+          return null;
+        },
+      });
       on('before:browser:launch', (browser, launchOptions) => {
         if (browser.family === 'chromium') {
           // E2E should assert the observable final camera state rather than race

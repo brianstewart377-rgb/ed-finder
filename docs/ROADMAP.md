@@ -51,8 +51,11 @@ In particular:
   `docs/development/v3-application-stack-decision.md` is authoritative for new
   V3 application implementation. Its target is Svelte 5/SvelteKit 2/TypeScript
   6, Node 24/pnpm 11 and CPython 3.14 with uv. The checked-in React/Yarn and
-  Python 3.12 implementation remains migration/reference and current-validation
-  reality until reviewed migration slices land. This stack lock does not open
+  Python 3.12 implementation remains temporary source evidence while reviewed
+  migration slices land. `apps/web/` is the sole browser destination; React is
+  not a runnable parallel lane, and the hard-cut branch remains unmerged until
+  replacement parity is complete. Cypress is the only active browser automation
+  framework. This stack lock does not open
   Stage 27B, authorize a Babylon runtime, or alter the Stage 27A boundaries.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Identity posture (2026-08-22): Frontier approved ED-Finder's production
@@ -180,6 +183,13 @@ Stage 25 has exactly one primary objective:
   map labels, or technical provenance surfaces.
 
 ## What We Are Doing Now
+
+Issue #577's first tranche is a pre-merge hard replacement while no public
+frontend is running. It migrates browser evidence and Review Lab to Cypress and
+keeps the Python evaluator contract authoritative. It does **not** authorize
+production deployment, database work, OAuth activation, a Babylon runtime, or
+any later Stage 27 slice. Static Stage 26 artifacts remain historical provenance,
+not runnable browser harnesses.
 
 1. Complete Stage 27A's product, architecture, data-readiness, migration and
    governance contracts before any new Babylon runtime implementation.

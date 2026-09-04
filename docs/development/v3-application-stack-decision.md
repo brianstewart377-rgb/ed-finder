@@ -11,7 +11,7 @@ ED-Finder is using the V3 infrastructure cutover as the point to make one delibe
 
 This document is the technology authority for the new application baseline. It does not itself authorize production deployment, database mutation, a Babylon production cutover, or any later Stage 27 slice. Those actions still require their normal reviewed stage/operator boundaries.
 
-The current React/R3F application remains a migration reference for behaviour, user journeys, accessibility expectations, screenshots and parity evidence until equivalent coverage exists. It is not the architecture target for new frontend implementation.
+`apps/web/` is the sole destination for browser application implementation. The current React/R3F tree is temporary source evidence for behaviour and parity while the hard replacement is completed; it is not a runnable parallel lane. The replacement branch must remain unmerged until equivalent accepted coverage and behaviour exist.
 
 ## Post-cutover runtime evidence
 
@@ -179,7 +179,7 @@ New baseline:
 - Vitest/Testing Library owns fast component/unit tests;
 - Cypress Svelte component testing may be reconsidered when its Svelte integration has proved stable for this repository.
 
-Existing Playwright coverage is migration evidence, not future authority. Do not delete a still-useful parity check before equivalent Cypress coverage exists. Port or retire deliberately, then remove Playwright configs/dependencies/workflow installation steps and misleading labels. In particular, the current `Cypress Parity` workflow already runs Cypress but still carries an obsolete Playwright job name; Review Lab and historical map/bakeoff suites also retain Playwright-specific machinery that must be dispositioned explicitly.
+Playwright is not active tooling. Its unique Review Lab, accessibility, visual, browser, and renderer-ordering responsibilities are replaced by Cypress in the issue #577 hard cut. Stage 26 artifacts and receipts may retain clearly historical Playwright wording as provenance, but no Playwright configuration, dependency, invocation, or runnable harness remains. Cypress is only the browser driver for Review Lab; the Python evaluator remains the acceptance brain and schema owner.
 
 ## Frontend/renderer ownership amendment
 
@@ -204,7 +204,7 @@ Do not carry these into the new baseline by inertia:
 - legacy monolithic `babylonjs` package;
 - Yarn 1;
 - Tailwind 3 configuration/plumbing;
-- Playwright after equivalent Cypress coverage is established;
+- Playwright (equivalent Cypress coverage is required before this hard-cut branch merges);
 - NATS without a new justified responsibility;
 - duplicated EDDN consumers;
 - API-served frontend bundle as the target deployment model;
@@ -227,7 +227,7 @@ The reset is deliberately serialized to avoid half a dozen simultaneous producti
 5. **Port Svelte application surfaces in bounded slices:** shell/auth/shared API context -> Finder -> Inspect/System Detail -> Planner -> evidence/review -> Admin/Ops.
 6. **Introduce Babylon only through the existing Stage 27 authorization/bakeoff sequence.** The Svelte rebuild does not silently accelerate the renderer production cutover.
 7. **Run V3 data-coverage audit** and repair only data/functions actually shown missing.
-8. **Retire old React/R3F/Playwright/Redis/NATS artifacts only after equivalent accepted replacement coverage/runtime exists.**
+8. **Complete the React/R3F and Playwright hard replacement before merging its branch.** Preserve useful source/history as non-runnable evidence; do not preserve a parallel Playwright lane for gradual retirement. Redis/NATS retirement remains separately staged.
 
 ## Initial release-foundation acceptance
 
