@@ -1,6 +1,7 @@
 <script lang="ts">
   import { auth } from '$lib/auth/auth';
   import OwnerAccessGate from '$lib/components/OwnerAccessGate.svelte';
+  import SessionAdminTokenControl from '$lib/components/SessionAdminTokenControl.svelte';
 </script>
 
 <main class="placeholder">
@@ -9,10 +10,12 @@
     signIn={auth.signIn}
     signOut={auth.signOut}
     claimOwner={auth.claimOwner}
-    ><section data-testid="admin-tab">
+  >
+    <section data-testid="admin-tab">
       <p class="eyebrow">Separate owner mode</p>
       <h1>Admin</h1>
       <p>Admin features have not been ported yet.</p>
-    </section></OwnerAccessGate
-  >
+    </section>
+    <SessionAdminTokenControl />
+  </OwnerAccessGate>
 </main>
