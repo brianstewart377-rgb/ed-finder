@@ -1252,6 +1252,33 @@ def test_review_lab_planner_keyboard_entry_uses_native_enter_and_waits_for_panel
 
 
 @pytest.mark.unit
+def test_review_lab_planner_waits_for_evidence_and_ordered_provenance_fallback():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function planner'):source.index('function technical')]
+
+    evidence_route = "cy.intercept('GET', `/api/colony-planner/system/${system.id64}/warehouse-planner-evidence`).as(evidenceAlias)"
+    provenance_route = "cy.intercept('GET', `/api/colony-planner/system/${system.id64}/provenance-cockpit`).as(provenanceAlias)"
+    activation = "cy.get('[data-testid=\"open-plan-start\"]:visible')"
+    workspace = "cy.getByTestId('colony-planner-workspace', { timeout: 20000 }).should('be.visible')"
+    evidence_wait = 'cy.wait(`@${evidenceAlias}`)'
+    status_contract = ".to.be.oneOf([200, 503])"
+    fallback_condition = 'if (status === 503)'
+    delta_only = ".to.eq(SYSTEMS.delta.id64)"
+    provenance_wait = 'return cy.wait(`@${provenanceAlias}`)'
+    fallback_success = ".its('response.statusCode').should('eq', 200)"
+
+    assert evidence_route in helper
+    assert provenance_route in helper
+    assert helper.index(evidence_route) < helper.index(activation)
+    assert helper.index(provenance_route) < helper.index(activation)
+    assert helper.index(workspace) < helper.index(evidence_wait)
+    assert helper.index(evidence_wait) < helper.index(status_contract)
+    assert helper.index(status_contract) < helper.index(fallback_condition)
+    assert helper.index(fallback_condition) < helper.index(delta_only) < helper.index(provenance_wait)
+    assert helper.index(provenance_wait) < helper.index(fallback_success)
+
+
+@pytest.mark.unit
 def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
     labelled_control = source[source.index('function labelledControl'):source.index('function finder()')]

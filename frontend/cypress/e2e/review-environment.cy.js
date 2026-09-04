@@ -131,6 +131,10 @@ function supplyPlannerEnterDefaultActionIfNeeded() {
   });
 }
 function planner(system, keyboard = false, keyboardOpened = null) {
+  const evidenceAlias = `warehouseEvidence${system.id64}`;
+  const provenanceAlias = `provenanceCockpit${system.id64}`;
+  cy.intercept('GET', `/api/colony-planner/system/${system.id64}/warehouse-planner-evidence`).as(evidenceAlias);
+  cy.intercept('GET', `/api/colony-planner/system/${system.id64}/provenance-cockpit`).as(provenanceAlias);
   if (keyboard) {
     cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus');
     cy.focused().type('{enter}');
@@ -144,6 +148,15 @@ function planner(system, keyboard = false, keyboardOpened = null) {
     cy.getByTestId(id).should('be.visible').click();
   });
   cy.getByTestId('colony-planner-workspace', { timeout: 20000 }).should('be.visible');
+  cy.wait(`@${evidenceAlias}`).then((interception) => {
+    const status = interception.response?.statusCode;
+    expect(status, 'warehouse planner evidence response status').to.be.oneOf([200, 503]);
+    if (status === 503) {
+      expect(system.id64, '503 evidence response is confined to Review Delta').to.eq(SYSTEMS.delta.id64);
+      return cy.wait(`@${provenanceAlias}`).its('response.statusCode').should('eq', 200);
+    }
+    return undefined;
+  });
   cy.getByTestId('planner-evidence-discoverability-surface').should('be.visible'); cy.getByTestId('planner-warehouse-evidence').should('be.visible');
   cy.getByTestId('workspace-context-header').should('contain.text', system.name).contains('h1,h2,h3', 'Colony Planner').should('be.visible');
 }
