@@ -40,3 +40,18 @@ def test_confirmed_target_or_skip_is_pytest8_safe_for_module_level_smokes():
     helper = _read('tests', 'helpers', 'db_isolation.py')
 
     assert 'allow_module_level=True' in helper
+
+
+def test_cypress_cache_action_targets_node24_without_unsafe_opt_out():
+    workflow = _read('.github', 'workflows', 'cypress-parity.yml')
+    all_workflows = '\n'.join(
+        path.read_text(encoding='utf-8')
+        for path in sorted((ROOT / '.github' / 'workflows').glob('*.y*ml'))
+    )
+
+    assert (
+        'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 '
+        '# v6.1.0, Node 24'
+    ) in workflow
+    assert 'actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809' not in all_workflows
+    assert 'ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION' not in all_workflows

@@ -99,7 +99,7 @@ function closeDetailWithEscape() {
 function planner(system, keyboard = false, keyboardOpened = null) {
   if (keyboard) {
     cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus');
-    cy.press(Cypress.Keyboard.Keys.ENTER);
+    cy.focused().type('{enter}');
   } else {
     cy.getByTestId('open-plan-start').should('be.visible').click();
   }
