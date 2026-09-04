@@ -5,6 +5,7 @@ reference application and prevent migration tooling choices from drifting.
 """
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -37,10 +38,21 @@ def test_v3_web_uses_the_locked_svelte_node_and_pnpm_foundation():
 
 def test_v3_web_pnpm_workspace_enforces_supply_chain_policy():
     workspace = yaml.safe_load((WEB / "pnpm-workspace.yaml").read_text(encoding="utf-8"))
+    exclusions = workspace["minimumReleaseAgeExclude"]
 
     assert workspace["blockExoticSubdeps"] is True
     assert workspace["minimumReleaseAge"] == 10080
     assert workspace["trustPolicy"] == "no-downgrade"
+    assert exclusions
+    assert all(isinstance(exclusion, str) for exclusion in exclusions)
+    assert not any("*" in exclusion for exclusion in exclusions)
+    assert all(
+        re.fullmatch(
+            r"(?:@[^/@\s]+/)?[^@/\s]+@\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+            exclusion,
+        )
+        for exclusion in exclusions
+    )
 
 
 def test_v3_web_lib_modules_are_not_hidden_by_the_root_python_ignore_rule():
