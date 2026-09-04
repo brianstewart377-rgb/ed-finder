@@ -30,7 +30,7 @@ def test_long_codex_worker_only_runs_from_explicit_dispatch() -> None:
     assert "target_branch:" in trigger
     assert "run-name: Codex Worker · ${{ inputs.request_id }}" in text
     assert "timeout-minutes: 120" in text
-    assert "codex exec --sandbox danger-full-access" in text
+    assert text.count("codex exec --ignore-user-config --strict-config") == 2
     assert "codex-task-requests" not in trigger
 
 

@@ -107,6 +107,8 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
+    outputs:
+      result_sha: ${{ steps.sealed.outputs.result_sha }}
     steps:
       - name: Checkout main
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -167,6 +169,24 @@ jobs:
           fi
           codex --version
           [ -x /usr/bin/git ] || { echo "::error::Trusted /usr/bin/git is unavailable." >&2; exit 69; }
+
+      - name: Verify required Codex model contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          help="$(codex exec --help)"
+          for required_option in '--model <MODEL>' '--config <key=value>' '--strict-config' '--ignore-user-config'; do
+            grep -F -- "$required_option" <<<"$help" >/dev/null || {
+              echo "::error::Installed Codex CLI does not support required option: $required_option"
+              exit 69
+            }
+          done
+          version="$(codex --version | head -n 1 | tr -cd '[:alnum:]._- ')"
+          [ -n "$version" ] || {
+            echo "::error::Unable to obtain a sanitised Codex CLI version."
+            exit 69
+          }
+          echo "CODEX_CLI_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Select immutable implementation base
         if: needs.prepare.outputs.mode == 'implement'
@@ -230,12 +250,25 @@ jobs:
         shell: bash
         env:
           CODEX_TASK: ${{ inputs.task }}
+          CODEX_REQUEST_ID: ${{ inputs.request_id }}
+          CODEX_BRANCH: main
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
+          readonly REQUIRED_CODEX_MODEL='gpt-6-astra'
+          readonly REQUIRED_CODEX_REASONING_EFFORT='xhigh'
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
+          safe_request_id="$(printf '%s' "$CODEX_REQUEST_ID" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-160)"
+          [ -n "$safe_request_id" ] || safe_request_id=unspecified
+          printf 'CODEX_ATTESTATION cli_version=%s model=%s reasoning_effort=%s request_id=%s mode=investigate branch=%s base_sha=%s\n' \
+            "$CODEX_CLI_VERSION" "$REQUIRED_CODEX_MODEL" "$REQUIRED_CODEX_REASONING_EFFORT" \
+            "$safe_request_id" "$CODEX_BRANCH" "$CODEX_BASE_SHA"
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          codex exec --ignore-user-config --strict-config \
+            --model 'gpt-6-astra' \
+            --config 'model_reasoning_effort="xhigh"' \
+            --sandbox danger-full-access "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
             echo "Investigation modified the workspace; failing closed." >&2
@@ -250,17 +283,29 @@ jobs:
         shell: bash
         env:
           CODEX_TASK: ${{ inputs.task }}
+          CODEX_REQUEST_ID: ${{ inputs.request_id }}
           CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_BASE_SHA: ${{ needs.prepare.outputs.base_sha }}
         run: |
           set -euo pipefail
+          readonly REQUIRED_CODEX_MODEL='gpt-6-astra'
+          readonly REQUIRED_CODEX_REASONING_EFFORT='xhigh'
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
           else
             target_context="Work on the isolated implementation branch created by the wrapper from current origin/main."
           fi
+          safe_request_id="$(printf '%s' "$CODEX_REQUEST_ID" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-160)"
+          [ -n "$safe_request_id" ] || safe_request_id=unspecified
+          printf 'CODEX_ATTESTATION cli_version=%s model=%s reasoning_effort=%s request_id=%s mode=implement branch=%s base_sha=%s\n' \
+            "$CODEX_CLI_VERSION" "$REQUIRED_CODEX_MODEL" "$REQUIRED_CODEX_REASONING_EFFORT" \
+            "$safe_request_id" "$CODEX_BRANCH" "$CODEX_BASE_SHA"
           prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
-          codex exec --sandbox danger-full-access "$prompt"
+          codex exec --ignore-user-config --strict-config \
+            --model 'gpt-6-astra' \
+            --config 'model_reasoning_effort="xhigh"' \
+            --sandbox danger-full-access "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
           if [ -z "$changes" ]; then
@@ -295,6 +340,8 @@ jobs:
           /usr/bin/git -c core.hooksPath=/dev/null -c credential.helper= bundle create "$bundle" refs/heads/codex-sealed-result
           /usr/bin/git bundle verify "$bundle" >/dev/null
           echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
+          echo "result_sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "CODEX_RESULT_SHA=$candidate_sha"
 
       - name: Upload sealed implementation result
         if: needs.prepare.outputs.mode == 'implement'
@@ -431,8 +478,10 @@ jobs:
         env:
           CODEX_BRANCH: ${{ needs.prepare.outputs.branch }}
           CODEX_UPDATE_EXISTING: ${{ needs.prepare.outputs.update_existing }}
+          CODEX_RESULT_SHA: ${{ needs.codex.outputs.result_sha }}
         run: |
           set -euo pipefail
+          echo "CODEX_RESULT_SHA=$CODEX_RESULT_SHA"
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             echo "Existing implementation branch updated: $CODEX_BRANCH"
             echo "The existing pull request will pick up the pushed commit and fresh checks automatically."
@@ -440,3 +489,9 @@ jobs:
             echo "Implementation branch pushed: $CODEX_BRANCH"
             echo "Open a PR only after review of the diff and test evidence."
           fi
+          {
+            echo "## Codex implementation result"
+            echo
+            echo "- Branch: \`$CODEX_BRANCH\`"
+            echo "- Result SHA: \`$CODEX_RESULT_SHA\`"
+          } >> "$GITHUB_STEP_SUMMARY"
