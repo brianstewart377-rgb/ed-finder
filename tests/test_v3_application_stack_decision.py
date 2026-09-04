@@ -6,6 +6,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DECISION = ROOT / "docs" / "development" / "v3-application-stack-decision.md"
+README = ROOT / "README.md"
+ROADMAP = ROOT / "docs" / "ROADMAP.md"
+AGENT_CONTRACT = ROOT / "CLAUDE.md"
 ARCHITECTURE = (
     ROOT
     / "docs"
@@ -66,6 +69,50 @@ def test_production_releases_are_immutable_ci_built_artifacts():
         in decision
     )
     assert "reproducible CI build from frozen pnpm/uv locks" in decision
+
+
+def test_backend_owned_non_api_routes_are_explicit_and_bounded():
+    decision = _contract(DECISION)
+
+    assert "`/api/*`, exact `/openapi.json` and numeric `/s/{id64}` route to FastAPI" in decision
+    assert "SvelteKit retains every other application/static route" in decision
+    assert "no backend catch-all may steal SvelteKit routes" in decision
+    assert "same-origin routing sends `/api/*`, exact `/openapi.json` and numeric `/s/{id64}`" in decision
+    assert "FastAPI OpenAPI for CI and client generation" in decision
+    assert "OpenGraph share stop page" in decision
+
+
+def test_rollback_requires_proven_schema_compatibility():
+    decision = _contract(DECISION)
+
+    assert "backward compatibility with the current database schema has been proved" in decision
+    assert "migration-set/schema identity, schema-compatibility evidence and rollback eligibility" in decision
+    assert "promotion of the old application fails closed" in decision
+    assert "Incompatible or destructive migrations must never advertise one-click application-only rollback" in decision
+    assert "does not invent the currently absent executable V3 database recovery procedure" in decision
+
+
+def test_authority_chain_registers_stack_lock_and_distinguishes_current_from_target():
+    decision_path = "docs/development/v3-application-stack-decision.md"
+    readme = _contract(README)
+    roadmap = _contract(ROADMAP)
+    agent_contract = _contract(AGENT_CONTRACT)
+
+    assert readme.index("docs/ROADMAP.md") < readme.index(decision_path)
+    assert readme.index(decision_path) < readme.index("CLAUDE.md")
+    assert agent_contract.index("docs/ROADMAP.md") < agent_contract.index(decision_path)
+    assert agent_contract.index(decision_path) < agent_contract.index("this file")
+
+    assert "authoritative for new V3 application implementation" in roadmap
+    assert "checked-in React/Yarn and Python 3.12 implementation remains migration/reference and current-validation reality" in roadmap
+    assert "does not open Stage 27B, authorize a Babylon runtime" in roadmap
+    assert "checked-in frontend" in readme and "React/TypeScript" in readme
+    assert "locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6" in readme
+    assert "checked-in backend validation path remains on Python 3.12" in readme
+    assert "targets CPython 3.14 with uv" in readme
+    assert "Use these legacy-toolchain commands only to validate" in agent_contract
+    assert "checked-in backend still uses Python 3.12" in agent_contract
+    assert "targets CPython 3.14 with uv" in agent_contract
 
 
 def test_stage_27_docs_assign_future_application_ownership_to_svelte():

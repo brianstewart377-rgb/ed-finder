@@ -8,8 +8,9 @@ Before making changes, use these sources in order:
 
 1. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
 2. `docs/ROADMAP.md` — current programme stage and authorized work.
-3. this file — engineering and agent constraints.
-4. current code/tests on the target branch.
+3. `docs/development/v3-application-stack-decision.md` — locked target stack for new V3 application implementation.
+4. this file — engineering and agent constraints.
+5. current code/tests on the target branch.
 
 Git history, removed workflows, old artifacts, and superseded design documents are evidence only. They are not current execution authority.
 
@@ -18,6 +19,8 @@ Git history, removed workflows, old artifacts, and superseded design documents a
 Stage 27 — One Spatial Platform is current. The roadmap controls which slice is authorized. Do not infer authorization from installed dependencies, old branches, previous production state, or unfinished experiments.
 
 The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
+
+The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A remains docs/audit/contracts only and does not authorize a Babylon runtime, a production map change, or any later Stage 27 slice.
 
 ### Named runtime exception: EDDN simulation ingest
 
@@ -80,7 +83,7 @@ Never expose repository write credentials to the Codex execution environment.
 
 ## Python/backend
 
-Use Python 3.12 and the repository-pinned test dependencies.
+The checked-in backend still uses Python 3.12 and the repository-pinned test dependencies; use that toolchain when validating still-current legacy code. New V3 application implementation targets CPython 3.14 with uv as locked by `docs/development/v3-application-stack-decision.md`. Do not claim the migration has landed before its reviewed slices do.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 
@@ -94,7 +97,7 @@ Rules:
 
 ## Frontend
 
-The frontend is under `frontend/` and uses React, TypeScript and Vite.
+The checked-in frontend under `frontend/` still uses React, TypeScript and Vite. It remains migration/reference and current-validation reality until reviewed replacement slices land. New V3 application implementation must follow the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`.
 
 - package manager: Yarn 1.22.22;
 - `yarn.lock` is committed and authoritative;
@@ -102,7 +105,7 @@ The frontend is under `frontend/` and uses React, TypeScript and Vite.
 - do not introduce a flat `frontend/src/lib/api.ts` that shadows the API barrel;
 - preserve typed API contracts and regenerate/check OpenAPI types when backend response shapes change.
 
-Typical checks:
+Use these legacy-toolchain commands only to validate the still-current checked-in frontend:
 
 ```bash
 cd frontend
@@ -155,4 +158,4 @@ Use scoped secrets and existing current credential paths. Keep secrets off comma
 
 ## Final rule
 
-When instructions conflict, prefer the current infrastructure status, current roadmap, current branch code/tests, and fail-closed safety. If a requested action depends on a procedure that no longer exists in the current tree, stop rather than recreating it from history.
+When instructions conflict, prefer the current infrastructure status, current roadmap authorization, the V3 application stack decision for new implementation, current branch code/tests, and fail-closed safety. If a requested action depends on a procedure that no longer exists in the current tree, stop rather than recreating it from history.

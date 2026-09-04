@@ -111,14 +111,14 @@ Valkey persistence is not required to recover canonical product data. Restart ma
 | Layer | Locked decision |
 |---|---|
 | Static web server | **nginx** |
-| Public/application routing | Same-origin web + API; `/api/*` routes to FastAPI, application/static routes to the SvelteKit build |
+| Public/application routing | Same-origin web + API; `/api/*`, exact `/openapi.json` and numeric `/s/{id64}` route to FastAPI, while all other application/static routes route to the SvelteKit build; no backend catch-all may steal SvelteKit routes |
 | Container runtime | **Docker Engine** |
 | Host orchestration | **Docker Compose v2**, through a new explicitly V3 production authority file; root legacy/local Compose is not production authority |
 | Alternative orchestrators | No Kubernetes/Swarm/Traefik/Caddy migration as part of this rebuild |
 | Production build behaviour | **No builds, dependency resolution or `git pull` on production** |
-| Release artifacts | Immutable OCI web/backend images plus a release manifest containing exact Git SHA, image digests and migration-set identity |
+| Release artifacts | Immutable OCI web/backend images plus a release manifest containing exact Git SHA, image digests, migration-set/schema identity, schema-compatibility evidence and rollback eligibility |
 | API/worker image | Prefer one versioned backend image with different commands/entrypoints for API and worker responsibilities where practical |
-| Rollback | Select a previously accepted immutable application release manifest; database rollback remains separately governed |
+| Rollback | A previously accepted immutable application release manifest is eligible only when backward compatibility with the current database schema has been proved; otherwise fail closed pending an explicitly reviewed and rehearsed database rollback/recovery path |
 
 Target request shape:
 
@@ -131,6 +131,8 @@ V3 web nginx
    |-------------------- static SvelteKit assets/routes
    |
    +---- /api/* ---- FastAPI
+   +---- /openapi.json ---- FastAPI
+   +---- /s/{id64} -------- FastAPI
                          |
                   PostgreSQL 18
                          |
@@ -139,7 +141,9 @@ V3 web nginx
 EDDN relay ---- dedicated EDDN worker ---- PostgreSQL 18 / Valkey pub-sub
 ```
 
-The exact host ports/network names are deployment details and must come from reviewed V3 topology evidence, not from V2 configuration guesses.
+These are the retained backend-owned non-application routes, not a broad FastAPI catch-all: exact `/openapi.json` serves FastAPI OpenAPI for CI and client generation, and numeric `/s/{id64}` serves the OpenGraph share stop page. SvelteKit retains every other application/static route. The exact host ports/network names are deployment details and must come from reviewed V3 topology evidence, not from V2 configuration guesses.
+
+Application rollback must prefer expand/contract and backward-compatible migration discipline. Selecting an old application manifest is safe only when evidence proves that release remains compatible with the database's current migration set and schema. If compatibility is absent or unknown, promotion of the old application fails closed until an explicitly reviewed and rehearsed database rollback/recovery path exists. Incompatible or destructive migrations must never advertise one-click application-only rollback. This decision defines that gate; it does not invent the currently absent executable V3 database recovery procedure.
 
 ### Secrets and configuration
 
@@ -233,18 +237,21 @@ Before the new application can replace the stale Phase4C runtime, require at min
 - reproducible CI build from frozen pnpm/uv locks;
 - dedicated reviewed V3 production Compose/runtime authority;
 - no production build or source pull;
-- exact host/target guard and rollback release manifest;
+- exact host/target guard and release manifest recording migration-set/schema identity, compatibility evidence and rollback eligibility;
 - PostgreSQL 18 retained in place, with no V2 wholesale restore;
 - API reports exact `build_sha` and version;
 - origin and public health both valid;
-- valid OpenAPI document;
+- same-origin routing sends `/api/*`, exact `/openapi.json` and numeric `/s/{id64}` to FastAPI while leaving every other application/static route with SvelteKit;
+- valid FastAPI OpenAPI document at the backend-owned `/openapi.json` route;
+- backend-owned numeric `/s/{id64}` OpenGraph stop page remains reachable without capturing other SvelteKit routes;
 - anonymous session endpoint valid;
 - all current Frontier OAuth routes present before attempting login;
 - frontend static shell served through the same-origin application path;
 - Cypress smoke for root, health, anonymous session and representative navigation;
 - secret values absent from source, image metadata, Compose literals and logs;
 - service restart/recreate limited to explicitly selected V3 application services;
-- receipt records images/digests, routes, health and rollback target without exposing secrets.
+- receipt records images/digests, routes, health, migration-set/schema identity, schema compatibility and only an eligible rollback target without exposing secrets;
+- application-only rollback fails closed when backward schema compatibility is absent or unproved, and incompatible destructive migrations do not advertise one-click rollback.
 
 ## Revisit triggers
 
