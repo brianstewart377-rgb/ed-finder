@@ -54,6 +54,8 @@ That product scope is the migration/parity target. The presence of a route, comp
 - It does not yet port Finder, Inspect, Colony Planner, Review, Admin/Ops, or the spatial renderer.
 - [`frontend/`](frontend/) remains the React 19 / Vite 8 migration reference and continues to carry protected validation until deliberate retirement criteria are met.
 
+The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6. The checked-in frontend under [`frontend/`](frontend/) remains a React/TypeScript migration/reference and current-validation lane until equivalent accepted coverage exists.
+
 ### Programme
 
 - **Stage 27 — One Spatial Platform** is current.
@@ -188,7 +190,7 @@ Do not remove the React application, R3F baseline, Playwright configuration, or 
 
 Backend and worker code lives primarily under [`apps/`](apps/); SQL and migration history lives under [`sql/`](sql/).
 
-The checked-in backend still validates on Python 3.12 and the repository-pinned dependency path. CPython 3.14 with `uv`, `pyproject.toml`, and `uv.lock` is the locked V3 target as reviewed migration slices land; do not claim that migration has completed before the repository proves it.
+The checked-in backend validation path remains on Python 3.12. New V3 backend implementation targets CPython 3.14 with uv as reviewed migration slices land. Do not claim that migration has completed before the repository proves it.
 
 Rules for backend/data work:
 
