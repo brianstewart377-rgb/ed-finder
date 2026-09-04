@@ -1,0 +1,5 @@
+{
+  "task": "Read-only worker handshake. Inspect README.md and tests/test_codex_model_governance.py. Report the README first heading, the exact expected Codex model ID and reasoning effort from the governance test, and confirm the workspace stayed unmodified. Do not edit files, commit, push, deploy, access production, or use credentials.",
+  "mode": "investigate",
+  "target_branch": ""
+}
