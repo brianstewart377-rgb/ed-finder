@@ -1,0 +1,4 @@
+{
+  "task": "Read-only worker launch handshake. Read CLAUDE.md and report its first Markdown heading plus the exact current main SHA. Do not modify files, create commits, push, deploy, access production, use secrets, or broaden the task. The wrapper attestation is the authority for model and reasoning effort.",
+  "mode": "investigate"
+}
