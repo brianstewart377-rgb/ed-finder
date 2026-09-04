@@ -38,17 +38,22 @@ describe('SystemOverlay', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'System Detail' });
     const close = screen.getByRole('button', { name: 'Close system detail' });
+    const finalControl = document.createElement('button');
+    finalControl.textContent = 'Last dialog action';
+    dialog.append(finalControl);
     await waitFor(() => expect(dialog).toHaveFocus());
     expect(document.body.style.overflow).toBe('hidden');
 
     await fireEvent.keyDown(window, { key: 'Tab' });
     expect(close).toHaveFocus();
 
+    finalControl.focus();
     await fireEvent.keyDown(window, { key: 'Tab' });
     expect(close).toHaveFocus();
 
+    close.focus();
     await fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
-    expect(close).toHaveFocus();
+    expect(finalControl).toHaveFocus();
   });
 
   it('closes on Escape, preserves the host URL, and restores prior focus', async () => {
@@ -71,6 +76,30 @@ describe('SystemOverlay', () => {
       noScroll: true,
     });
     await waitFor(() => expect(opener).toHaveFocus());
+    opener.remove();
+  });
+
+  it('restores body scroll and prior focus when host navigation unmounts it', async () => {
+    document.body.style.overflow = 'scroll';
+    const opener = document.createElement('button');
+    opener.textContent = 'Navigate to detail';
+    document.body.append(opener);
+    opener.focus();
+
+    const { unmount } = render(SystemOverlay, {
+      props: { id64: '42' as Id64 },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole('dialog', { name: 'System Detail' }),
+      ).toHaveFocus(),
+    );
+    expect(document.body.style.overflow).toBe('hidden');
+
+    unmount();
+
+    expect(document.body.style.overflow).toBe('scroll');
+    expect(opener).toHaveFocus();
     opener.remove();
   });
 });

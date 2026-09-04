@@ -1,19 +1,10 @@
 /** Application-facing API facade. Generated declarations stay behind this module. */
-import {
-  authSessionApiAuthSessionGet as generatedGetAuthSession,
-  healthApiHealthGet as generatedGetHealth,
-} from './generated/sdk.gen';
 import type { AuthSessionResponse, HealthResponse } from './generated';
 import type { Id64 } from '$lib/domain/id64';
 import { parseId64 } from '$lib/domain/id64';
 import { parseLosslessJson } from './lossless-json';
 
 export const ADMIN_TOKEN_SESSION_KEY = 'ed_admin_token';
-const generatedOptions = (signal?: AbortSignal) => ({
-  credentials: 'include' as const,
-  signal,
-  throwOnError: true as const,
-});
 
 export function canonicalApiPath(path: string): string {
   if (/^https?:\/\//i.test(path))
@@ -26,25 +17,188 @@ export function canonicalApiPath(path: string): string {
 
 export type AdminEndpointClass =
   'admin' | 'operator' | 'owner-maintenance' | null;
+
+type LegacyAdminEndpoint = {
+  readonly method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  readonly path: `/api/${string}`;
+  readonly endpointClass: Exclude<AdminEndpointClass, null>;
+};
+
+/**
+ * Exact browser compatibility boundary for backend routes guarded by
+ * `require_admin`. Keep this method-specific inventory in sync with the API
+ * decorators; broad route prefixes could disclose the reusable session token
+ * to an unrelated endpoint added later.
+ */
+export const LEGACY_ADMIN_ENDPOINTS = [
+  {
+    method: 'GET',
+    path: '/api/cache/stats',
+    endpointClass: 'owner-maintenance',
+  },
+  {
+    method: 'POST',
+    path: '/api/cache/clear',
+    endpointClass: 'owner-maintenance',
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/rebuild-clusters',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/rebuild-ratings',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/operations/{operation_key}',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/operations/history',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/cron-status',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/enrichment/station-status',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/enrichment/warehouse-status',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/data-status',
+    endpointClass: 'admin',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence/records',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence/features',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence/rule-proposals',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence/rule-proposals/{proposal_key}/decisions',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'POST',
+    path: '/api/evidence/systems/{system_id64}/promote-canonical',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'POST',
+    path: '/api/journal/imports/{run_key}/promote',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/status',
+    endpointClass: 'owner-maintenance',
+  },
+  {
+    method: 'GET',
+    path: '/api/local/status',
+    endpointClass: 'owner-maintenance',
+  },
+  {
+    method: 'POST',
+    path: '/api/observations/facts',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'PATCH',
+    path: '/api/observations/facts/{observation_id}',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'DELETE',
+    path: '/api/observations/facts/{observation_id}',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/source-runs',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/source-run-detail',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/source-run-artifacts',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/source-run-bridge',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/source-run-staging-impact',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/diagnostic-staging-rows',
+    endpointClass: 'operator',
+  },
+  {
+    method: 'GET',
+    path: '/api/operator/safety-gates',
+    endpointClass: 'operator',
+  },
+] as const satisfies readonly LegacyAdminEndpoint[];
+
+function matchesEndpointPath(template: string, path: string): boolean {
+  const templateParts = template.split('/');
+  const pathParts = path.split('/');
+  return (
+    templateParts.length === pathParts.length &&
+    templateParts.every(
+      (part, index) =>
+        (/^\{[^{}]+\}$/.test(part) && Boolean(pathParts[index])) ||
+        part === pathParts[index],
+    )
+  );
+}
+
 export function adminEndpointClass(
   path: string,
   method = 'GET',
 ): AdminEndpointClass {
   const canonical = canonicalApiPath(path).split(/[?#]/, 1)[0];
-  if (canonical.startsWith('/api/admin/')) return 'admin';
-  if (canonical.startsWith('/api/operator/')) return 'operator';
-  if (
-    canonical === '/api/status' ||
-    canonical.startsWith('/api/cache/') ||
-    canonical.startsWith('/api/enrichment/')
-  )
-    return 'owner-maintenance';
-  if (
-    canonical.startsWith('/api/observations/facts') &&
-    ['POST', 'PATCH', 'DELETE'].includes(method.toUpperCase())
-  )
-    return 'operator';
-  return null;
+  const normalizedMethod = method.toUpperCase();
+  return (
+    LEGACY_ADMIN_ENDPOINTS.find(
+      (endpoint) =>
+        endpoint.method === normalizedMethod &&
+        matchesEndpointPath(endpoint.path, canonical),
+    )?.endpointClass ?? null
+  );
 }
 
 function sessionAdminToken(): string {
@@ -122,10 +276,13 @@ export async function apiRequest<T>(
   if (!headers.has('Accept')) headers.set('Accept', 'application/json');
   if (init.body != null && !headers.has('Content-Type'))
     headers.set('Content-Type', 'application/json');
+  // The browser transport accepts only the bounded session value. Never let a
+  // caller smuggle an owner-link secret into a reusable admin header.
+  headers.delete('X-Admin-Token');
   if (adminEndpointClass(canonicalPath, init.method ?? 'GET')) {
     const token = sessionAdminToken();
     if (token) headers.set('X-Admin-Token', token);
-  } else headers.delete('X-Admin-Token');
+  }
   let response: Response;
   try {
     response = await fetch(canonicalPath, {
@@ -134,6 +291,13 @@ export async function apiRequest<T>(
       headers,
     });
   } catch (cause) {
+    if (
+      cause &&
+      typeof cause === 'object' &&
+      'name' in cause &&
+      cause.name === 'AbortError'
+    )
+      throw cause;
     throw new ApiError(
       0,
       canonicalPath,
@@ -153,69 +317,11 @@ export async function apiRequest<T>(
   return body as T;
 }
 
-async function runGenerated<T>(
-  path: string,
-  request: () => Promise<{ data: T }>,
-): Promise<T> {
-  try {
-    return (await request()).data;
-  } catch (cause) {
-    if (cause instanceof ApiError) throw cause;
-    const candidate = cause as {
-      status?: unknown;
-      error?: unknown;
-      message?: unknown;
-      detail?: unknown;
-      name?: unknown;
-      response?: unknown;
-      body?: unknown;
-    } | null;
-    if (candidate?.name === 'AbortError') throw cause;
-
-    const response =
-      cause instanceof Response
-        ? cause
-        : candidate?.response instanceof Response
-          ? candidate.response
-          : null;
-    if (response) {
-      const body = await readResponse(response, path);
-      throw new ApiError(
-        response.status,
-        path,
-        body,
-        usefulMessage(response.status, path, body, response.statusText),
-        { cause },
-      );
-    }
-
-    const detail = candidate?.body ?? candidate?.detail ?? candidate?.error;
-    const message =
-      typeof candidate?.message === 'string'
-        ? candidate.message
-        : typeof candidate?.detail === 'string'
-          ? candidate.detail
-          : 'API request failed';
-    throw new ApiError(
-      typeof candidate?.status === 'number' ? candidate.status : 0,
-      path,
-      detail ?? '',
-      message,
-      { cause },
-    );
-  }
-}
-
 export const getHealth = (signal?: AbortSignal): Promise<HealthResponse> =>
-  runGenerated('/api/health', () =>
-    generatedGetHealth(generatedOptions(signal)),
-  );
+  apiRequest('/health', { signal });
 export const getAuthSession = (
   signal?: AbortSignal,
-): Promise<AuthSessionResponse> =>
-  runGenerated('/api/auth/session', () =>
-    generatedGetAuthSession(generatedOptions(signal)),
-  );
+): Promise<AuthSessionResponse> => apiRequest('/auth/session', { signal });
 
 export async function getSystem<T extends Record<string, unknown>>(
   id64: Id64,

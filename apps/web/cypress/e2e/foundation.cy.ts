@@ -258,6 +258,37 @@ describe('ED-Finder V3 foundation', () => {
     cy.get('body').should('not.have.css', 'overflow', 'hidden');
   });
 
+  it('keeps forward and reverse keyboard focus inside system detail', () => {
+    cy.intercept('/api/auth/session', {
+      authenticated: false,
+      user: null,
+      owner_claim_available: false,
+    });
+    cy.visit('/explore?system=9007199254740993');
+    cy.get('[data-testid="system-detail-modal"]').should('be.focused');
+
+    cy.press(Cypress.Keyboard.Keys.TAB);
+    cy.get('button[aria-label="Close system detail"]').should('be.focused');
+
+    cy.press(Cypress.Keyboard.Keys.TAB);
+    cy.get('button[aria-label="Close system detail"]').should('be.focused');
+
+    cy.focused().then(($control) => {
+      const control = $control[0];
+      const browser = control.ownerDocument.defaultView;
+      if (!browser) throw new Error('System detail has no browser window');
+      const reverseTab = new browser.KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Tab',
+        shiftKey: true,
+      });
+      expect(control.dispatchEvent(reverseTab)).to.eq(false);
+      expect(reverseTab.defaultPrevented).to.eq(true);
+    });
+    cy.get('button[aria-label="Close system detail"]').should('be.focused');
+  });
+
   it('updates durable selected-system context across tabs at uint64 max', () => {
     cy.intercept('/api/auth/session', {
       authenticated: false,

@@ -29,8 +29,10 @@ export function load({ params, url }) {
     cursor += 2;
   }
 
-  if (parts[cursor] === 'mode' && plannerModes.has(parts[cursor + 1] ?? '')) {
-    mode = parts[cursor + 1];
+  if (parts[cursor] === 'mode') {
+    const requestedMode = parts[cursor + 1] ?? '';
+    if (!plannerModes.has(requestedMode)) error(404, 'Invalid planner mode');
+    mode = requestedMode;
     canonicalPath += `/mode/${mode}`;
     cursor += 2;
   }

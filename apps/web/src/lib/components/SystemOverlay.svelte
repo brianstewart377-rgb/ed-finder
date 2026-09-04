@@ -26,6 +26,12 @@
     );
   }
 
+  function restoreFocus() {
+    const target = returnFocus;
+    returnFocus = null;
+    if (target?.isConnected) target.focus({ preventScroll: true });
+  }
+
   function close() {
     const url = new URL(page.url);
     url.searchParams.delete('system');
@@ -33,7 +39,7 @@
     void goto(`${url.pathname}${url.search}${url.hash}`, {
       replaceState: true,
       noScroll: true,
-    }).then(() => returnFocus?.focus());
+    }).then(restoreFocus);
   }
 
   function containTab(event: KeyboardEvent) {
@@ -78,6 +84,9 @@
     queueMicrotask(() => dialog?.focus());
     return () => {
       document.body.style.overflow = previous;
+      // Route changes can remove the overlay without invoking close(). The
+      // modal still owns focus restoration in that lifecycle path.
+      restoreFocus();
     };
   });
 </script>

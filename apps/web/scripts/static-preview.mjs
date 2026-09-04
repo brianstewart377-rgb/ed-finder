@@ -1,5 +1,5 @@
 import { createReadStream } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import {
   createServer as createHttpServer,
   request as createHttpRequest,
@@ -151,16 +151,6 @@ function isWithinRoot(root, candidate) {
   );
 }
 
-export function resolveStaticPath(buildRoot, pathname) {
-  validateDecodedPathname(pathname);
-  const absoluteRoot = resolve(buildRoot);
-  const candidate = resolve(absoluteRoot, `.${pathname}`);
-  if (!isWithinRoot(absoluteRoot, candidate)) {
-    throw new UnsafeRequestTargetError('Resolved path escaped the static root');
-  }
-  return candidate;
-}
-
 function contentHeaders(filePath, metadata, fallback) {
   let typePath = filePath;
   const headers = {
@@ -187,26 +177,51 @@ function contentHeaders(filePath, metadata, fallback) {
   return headers;
 }
 
-async function locateStaticFile(buildRoot, pathname) {
-  let candidate = resolveStaticPath(buildRoot, pathname);
-  let metadata;
-  try {
-    metadata = await stat(candidate);
-    if (metadata.isDirectory()) {
-      candidate = resolve(candidate, 'index.html');
-      metadata = await stat(candidate);
+async function indexStaticFiles(buildRoot) {
+  const files = new Map();
+
+  async function visit(directory, pathname) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = resolve(directory, entry.name);
+      if (!isWithinRoot(buildRoot, entryPath)) {
+        throw new Error('Static build entry escaped the build root');
+      }
+
+      const entryPathname =
+        pathname === '/' ? `/${entry.name}` : `${pathname}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await visit(entryPath, entryPathname);
+        continue;
+      }
+      // Static build output is immutable and consists of regular files. Ignore
+      // symlinks and other special entries so a request can select only a file
+      // which was proved to be inside the canonical build root at startup.
+      if (!entry.isFile()) continue;
+
+      const canonicalPath = await realpath(entryPath);
+      if (!isWithinRoot(buildRoot, canonicalPath)) {
+        throw new Error('Static build file escaped the build root');
+      }
+      const metadata = await stat(canonicalPath);
+      if (!metadata.isFile()) continue;
+
+      const file = { filePath: canonicalPath, metadata };
+      files.set(entryPathname, file);
+      if (entry.name === 'index.html') {
+        files.set(pathname, file);
+        if (pathname !== '/') files.set(`${pathname}/`, file);
+      }
     }
-  } catch (error) {
-    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return null;
-    throw error;
   }
 
-  if (!metadata.isFile()) return null;
-  const canonicalPath = await realpath(candidate);
-  if (!isWithinRoot(buildRoot, canonicalPath)) {
-    throw new UnsafeRequestTargetError('Static file escaped the build root');
-  }
-  return { filePath: canonicalPath, metadata };
+  await visit(buildRoot, '/');
+  return files;
+}
+
+function normalizeStaticLookupPathname(pathname) {
+  validateDecodedPathname(pathname);
+  return pathname.replace(/\/{2,}/gu, '/');
 }
 
 function sendText(request, response, statusCode, message, extraHeaders = {}) {
@@ -367,7 +382,8 @@ export async function createStaticPreviewServer({
   buildRoot = DEFAULT_BUILD_ROOT,
 } = {}) {
   const canonicalBuildRoot = await realpath(buildRoot);
-  const fallback = await locateStaticFile(canonicalBuildRoot, '/200.html');
+  const staticFiles = await indexStaticFiles(canonicalBuildRoot);
+  const fallback = staticFiles.get('/200.html');
   if (!fallback) {
     throw new Error(
       `Static SPA fallback is missing from ${canonicalBuildRoot}`,
@@ -394,10 +410,9 @@ export async function createStaticPreviewServer({
         return;
       }
 
-      const file = await locateStaticFile(
-        canonicalBuildRoot,
-        parsedTarget.pathname,
-      );
+      const file =
+        staticFiles.get(normalizeStaticLookupPathname(parsedTarget.pathname)) ??
+        null;
       serveFile(request, response, file ?? fallback, file === null);
     } catch (error) {
       request.resume();

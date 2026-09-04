@@ -55,4 +55,30 @@ describe('auth store', () => {
       error: 'offline',
     });
   });
+
+  it('preserves the signed-in session when an owner claim is rejected', async () => {
+    const signedIn = {
+      authenticated: true,
+      user: { commander_name: 'Commander', is_owner: false },
+      owner_claim_available: true,
+    };
+    const rejection = new Error('Invalid admin token');
+    const api = {
+      session: vi.fn().mockResolvedValue(signedIn),
+      logout: vi.fn(),
+      claimOwner: vi.fn().mockRejectedValue(rejection),
+    };
+    const store = createAuthStore(api);
+    await store.bootstrap();
+
+    await expect(store.claimOwner('wrong-token')).rejects.toBe(rejection);
+    expect(get(store)).toEqual({
+      loading: false,
+      authenticated: true,
+      user: { commander_name: 'Commander', is_owner: false },
+      ownerClaimAvailable: true,
+      error: 'Invalid admin token',
+    });
+    expect(get(store.owner)).toBe(false);
+  });
 });

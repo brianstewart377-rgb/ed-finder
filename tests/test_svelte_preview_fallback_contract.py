@@ -25,7 +25,8 @@ def test_svelte_preview_uses_the_built_static_server_contract():
     assert "ED_FINDER_PREVIEW_API_TARGET: http://127.0.0.1:8002" in workflow
     assert "pnpm preview --host 127.0.0.1 --port 4174 --strictPort" in workflow
 
-    assert "locateStaticFile(canonicalBuildRoot, '/200.html')" in source
+    assert "const staticFiles = await indexStaticFiles(canonicalBuildRoot)" in source
+    assert "const fallback = staticFiles.get('/200.html')" in source
     assert "request.method !== 'GET' && request.method !== 'HEAD'" in source
     assert "serveFile(request, response, file ?? fallback, file === null)" in source
     serve_file = source[
@@ -61,15 +62,25 @@ def test_svelte_preview_keeps_backend_ownership_exact_and_fails_closed():
 
 
 @pytest.mark.unit
-def test_svelte_preview_validates_and_contains_static_paths_before_serving():
+def test_svelte_preview_indexes_static_paths_before_handling_requests():
     source = PREVIEW_SERVER.read_text(encoding="utf-8")
 
     assert "requestTarget.indexOf('?')" in source
     assert "decodeUrlComponent(rawPathname, 'request path')" in source
     assert "pathname.includes('\\\\')" in source
     assert "segment === '.' || segment === '..'" in source
-    assert "resolveStaticPath(buildRoot, pathname)" in source
-    assert "relative(root, candidate)" in source
-    assert "const canonicalPath = await realpath(candidate)" in source
+    assert "await readdir(directory, { withFileTypes: true })" in source
+    assert "const canonicalPath = await realpath(entryPath)" in source
+    assert "staticFiles.get(" in source
+    assert "normalizeStaticLookupPathname(parsedTarget.pathname)" in source
+    assert "resolveStaticPath(buildRoot, pathname)" not in source
+
+    request_handler = source[
+        source.index(
+            "return createHttpServer(async (request, response)"
+        ) : source.index("function readOptionValue")
+    ]
+    assert "stat(" not in request_handler
+    assert "realpath(" not in request_handler
     assert "'Content-Type'" in source
     assert "'Content-Length'" in source

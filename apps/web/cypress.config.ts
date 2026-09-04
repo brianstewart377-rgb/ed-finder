@@ -1,5 +1,6 @@
 import { defineConfig } from 'cypress';
 export default defineConfig({
+  allowCypressEnv: false,
   video: true,
   screenshotOnRunFailure: true,
   screenshotsFolder: 'cypress/artifacts/screenshots',

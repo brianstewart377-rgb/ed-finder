@@ -5,7 +5,7 @@ import {
   request as httpRequest,
 } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { after, before, describe, test } from 'node:test';
 
 import {
@@ -15,7 +15,6 @@ import {
   parseApiTarget,
   parseCliArguments,
   parseRequestTarget,
-  resolveStaticPath,
   safeProxyHeaders,
 } from './static-preview.mjs';
 
@@ -102,17 +101,12 @@ describe('static preview route ownership', () => {
     assert.equal(classifyRoute('/api%2fhealth'), 'frontend');
   });
 
-  test('keeps the query out of static path resolution', () => {
-    const root = resolve('/tmp/ed-finder-static-root');
+  test('keeps the query out of the static lookup pathname', () => {
     const parsed = parseRequestTarget(
       '/assets/app.js?file=../../package.json&route=/api/health',
     );
 
     assert.equal(parsed.pathname, '/assets/app.js');
-    assert.equal(
-      resolveStaticPath(root, parsed.pathname),
-      join(root, 'assets', 'app.js'),
-    );
     assert.equal(parsed.search, '?file=../../package.json&route=/api/health');
   });
 
@@ -137,23 +131,6 @@ describe('static preview route ownership', () => {
         target,
       );
     }
-  });
-
-  test('never resolves a decoded path outside the static root', () => {
-    const root = resolve('/tmp/ed-finder-static-root');
-    assert.equal(resolveStaticPath(root, '/'), root);
-    assert.equal(
-      resolveStaticPath(root, '/_app/immutable/app.js'),
-      join(root, '_app', 'immutable', 'app.js'),
-    );
-    assert.throws(
-      () => resolveStaticPath(root, '/../package.json'),
-      UnsafeRequestTargetError,
-    );
-    assert.throws(
-      () => resolveStaticPath(root, '/bad\\package.json'),
-      UnsafeRequestTargetError,
-    );
   });
 });
 
@@ -213,6 +190,7 @@ describe('static preview HTTP contract', () => {
   before(async () => {
     buildRoot = await mkdtemp(join(tmpdir(), 'ed-finder-static-preview-'));
     await mkdir(join(buildRoot, 'assets'));
+    await mkdir(join(buildRoot, 'guide'));
     await writeFile(join(buildRoot, '200.html'), FALLBACK_HTML);
     await writeFile(
       join(buildRoot, 'index.html'),
@@ -221,6 +199,10 @@ describe('static preview HTTP contract', () => {
     await writeFile(
       join(buildRoot, 'assets', 'app.css'),
       'body { color: red; }',
+    );
+    await writeFile(
+      join(buildRoot, 'guide', 'index.html'),
+      '<!doctype html><title>guide</title>',
     );
     previewServer = await createStaticPreviewServer({ buildRoot });
     previewOrigin = await listen(previewServer);
@@ -238,15 +220,46 @@ describe('static preview HTTP contract', () => {
     assert.equal(response.status, 200);
     assert.match(response.headers.get('content-type'), /^text\/css/u);
     assert.equal(await response.text(), 'body { color: red; }');
+
+    const repeatedSlashResponse = await fetch(
+      `${previewOrigin}/assets//app.css`,
+    );
+    assert.equal(repeatedSlashResponse.status, 200);
+    assert.match(
+      repeatedSlashResponse.headers.get('content-type'),
+      /^text\/css/u,
+    );
+    assert.equal(await repeatedSlashResponse.text(), 'body { color: red; }');
+
+    for (const path of ['/guide', '/guide/', '/guide/index.html']) {
+      const indexResponse = await fetch(`${previewOrigin}${path}`);
+      assert.equal(indexResponse.status, 200, path);
+      assert.equal(
+        await indexResponse.text(),
+        '<!doctype html><title>guide</title>',
+        path,
+      );
+    }
   });
 
   test('serves unknown frontend routes from 200.html for GET and HEAD', async () => {
-    const getResponse = await fetch(
-      `${previewOrigin}/system/18446744073709551615`,
-    );
-    assert.equal(getResponse.status, 200);
-    assert.match(getResponse.headers.get('content-type'), /^text\/html/u);
-    assert.equal(await getResponse.text(), FALLBACK_HTML);
+    for (const path of [
+      '/system/18446744073709551615',
+      '/colony-planner/system/18446744073709551615/project/a/mode/preview',
+      '/apiary',
+      '/openapi.jsonx',
+      '/s/not-a-number',
+      '/unknown-frontend-route',
+    ]) {
+      const getResponse = await fetch(`${previewOrigin}${path}`);
+      assert.equal(getResponse.status, 200, path);
+      assert.match(
+        getResponse.headers.get('content-type'),
+        /^text\/html/u,
+        path,
+      );
+      assert.equal(await getResponse.text(), FALLBACK_HTML, path);
+    }
 
     const headResponse = await fetch(`${previewOrigin}/apiary`, {
       method: 'HEAD',
@@ -260,11 +273,27 @@ describe('static preview HTTP contract', () => {
     assert.equal(await headResponse.text(), '');
   });
 
-  test('fails closed for backend routes without an explicit target', async () => {
-    const response = await fetch(`${previewOrigin}/api/health`);
-    assert.equal(response.status, 503);
-    assert.match(response.headers.get('content-type'), /^text\/plain/u);
-    assert.doesNotMatch(await response.text(), /ED-Finder fallback/u);
+  test('fails closed for every backend-owned route without an explicit target', async () => {
+    for (const path of [
+      '/api',
+      '/api/health?fresh=1',
+      '/openapi.json?format=json',
+      '/s/18446744073709551615',
+    ]) {
+      const response = await fetch(`${previewOrigin}${path}`);
+      assert.equal(response.status, 503, path);
+      assert.match(response.headers.get('content-type'), /^text\/plain/u, path);
+      assert.doesNotMatch(await response.text(), /ED-Finder fallback/u, path);
+    }
+  });
+
+  test('does not expose files added after the startup index is sealed', async () => {
+    await writeFile(join(buildRoot, 'late.txt'), 'not indexed');
+
+    const response = await fetch(`${previewOrigin}/late.txt`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /^text\/html/u);
+    assert.equal(await response.text(), FALLBACK_HTML);
   });
 
   test('rejects traversal-like request bytes without exposing repository files', async () => {
@@ -347,5 +376,18 @@ describe('static preview streaming proxy', () => {
       new URL(apiOrigin).host,
     );
     assert.equal(await response.text(), payload);
+  });
+
+  test('proxies every exact backend route shape', async () => {
+    for (const path of [
+      '/api',
+      '/api/health?fresh=1',
+      '/openapi.json?format=json',
+      '/s/18446744073709551615',
+    ]) {
+      const response = await fetch(`${previewOrigin}${path}`);
+      assert.equal(response.status, 201, path);
+      assert.equal(response.headers.get('x-observed-path'), path, path);
+    }
   });
 });

@@ -12,6 +12,7 @@
   let { children } = $props<{ children: import('svelte').Snippet }>();
   const persistence = usePersistenceContext();
   const { selectedSystem } = persistence;
+  const urlSelectionState: { last: Id64 | null } = { last: null };
   let persistenceReady = $state(false);
   let overlayId = $derived.by((): Id64 | null => {
     const raw = page.url.searchParams.get('system');
@@ -32,14 +33,27 @@
       return null;
     }
   });
+
+  function establishUrlSelection(): void {
+    const establishedSelection = overlayId ?? routeSelection;
+    if (!establishedSelection) {
+      urlSelectionState.last = null;
+      return;
+    }
+    if (establishedSelection === urlSelectionState.last) return;
+    persistence.selectedSystem.set(establishedSelection);
+    urlSelectionState.last = establishedSelection;
+  }
+
   $effect(() => {
     if (!persistenceReady) return;
-    const establishedSelection = overlayId ?? routeSelection;
-    if (establishedSelection)
-      persistence.selectedSystem.set(establishedSelection);
+    establishUrlSelection();
   });
   onMount(() => {
     hydrateApplicationStores();
+    // Hydration is synchronous. Apply the current URL before exposing hydrated
+    // context so an older durable value can never win the cold-navigation race.
+    establishUrlSelection();
     persistenceReady = true;
     const normaliseLegacyHash = () =>
       applyLegacyHash(
