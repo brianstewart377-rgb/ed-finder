@@ -1204,6 +1204,27 @@ def test_browser_result_card_expansion_helper_is_idempotent():
 
 
 @pytest.mark.unit
+def test_review_lab_planner_keyboard_entry_uses_native_enter_and_waits_for_panel():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function planner'):source.index('function technical')]
+    keyboard_branch = helper[helper.index('if (keyboard)'):helper.index('} else {')]
+    panel_assertion = "cy.getByTestId('plan-start-panel').should('be.visible')"
+
+    assert "cy.get('[data-testid=\"open-plan-start\"]:visible')" in keyboard_branch
+    assert ".focus().should('have.focus')" in keyboard_branch
+    assert 'cy.press(Cypress.Keyboard.Keys.ENTER)' in keyboard_branch
+    assert ".type('{enter}')" not in keyboard_branch
+    assert '.click()' not in keyboard_branch
+    assert panel_assertion in helper
+    assert helper.index('cy.press(Cypress.Keyboard.Keys.ENTER)') < helper.index(panel_assertion)
+    assert helper.index(panel_assertion) < helper.index("'plan-objective-decide_later'")
+    assert helper.index(panel_assertion) < helper.index('cy.then(keyboardOpened)')
+    assert "['plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach" in helper
+    assert "cy.getByTestId(id).should('be.visible').click()" in helper
+    assert "() => { summary.accessibility.alphaKeyboardOpenPlannerWorks = true; }" in source
+
+
+@pytest.mark.unit
 def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
     labelled_control = source[source.index('function labelledControl'):source.index('function finder()')]
