@@ -30,9 +30,9 @@ function staticSpaPreviewFallback(): Plugin {
         const method = request.method ?? 'GET';
         if (method !== 'GET' && method !== 'HEAD') return next();
 
-        const accept = request.headers.accept ?? '';
-        if (!accept.includes('text/html')) return next();
-
+        // Cypress cold visits and other valid navigation clients are not
+        // required to advertise Accept: text/html. The exact route match is
+        // the safety boundary; backend and unknown paths remain untouched.
         const url = new URL(request.url ?? '/', 'http://127.0.0.1');
         if (isStaticSpaRoute(url.pathname)) {
           request.url = `/200.html${url.search}`;
