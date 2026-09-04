@@ -1,0 +1,7 @@
+<script lang="ts">
+  import { page } from '$app/state';
+  const names: Record<string, string> = { explore: 'Explore', inspect: 'Inspect', plan: 'Plan', review: 'Review / Export' };
+  const title = $derived(names[page.params.journey ?? ''] ?? 'ED-Finder');
+</script>
+<svelte:head><title>{title} — ED-Finder V3</title></svelte:head>
+<main class="placeholder"><a href="/">← ED-Finder V3</a><p class="eyebrow">Migration placeholder</p><h1>{title}</h1><p>This product surface has not been ported yet.</p></main>

@@ -68,8 +68,9 @@ ed-finder/
 ├── apps/
 │   ├── api/                 # FastAPI service and API composition
 │   ├── eddn/                # EDDN ingestion
-│   └── importer/            # Source import/enrichment/build tooling
-├── frontend/                # React + TypeScript + Vite application
+│   ├── importer/            # Source import/enrichment/build tooling
+│   └── web/                 # New V3 SvelteKit application foundation
+├── frontend/                # Retained React migration/reference application
 ├── docs/                    # Product, architecture, research and operations docs
 ├── scripts/                 # Development, validation, migration and operator tooling
 ├── sql/                     # Schema/migration history
@@ -84,7 +85,11 @@ Prefer the checked-out tree and current roadmap over old setup diagrams or Git h
 
 ## Frontend
 
-The checked-in frontend under [`frontend/`](frontend/) is still a React/TypeScript application built with Vite and remains the migration/reference and current-validation reality. The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6 on Node 24 with pnpm 11; the reviewed migration slices have not landed yet.
+The new V3 implementation path is [`apps/web/`](apps/web/), a static Svelte 5/SvelteKit 2 application using TypeScript 6, Node 24 and pnpm 11. Its initial shell establishes the application boundary and test foundation only; it does not port Finder, Planner, the spatial renderer, or other product features.
+
+Same-origin routing keeps `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}` under FastAPI ownership. SvelteKit owns every other application/static route through its static SPA fallback.
+
+The checked-in frontend under [`frontend/`](frontend/) remains the React/TypeScript/Vite migration/reference application and retains its protected validation while the replacement proceeds in reviewed slices.
 
 The package declares Yarn 1.22.22. Common validation commands are:
 
