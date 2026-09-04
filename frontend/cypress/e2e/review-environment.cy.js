@@ -46,10 +46,29 @@ function instrument(summary) {
     }
   });
 }
+function labelledControl(labelText) {
+  const exactLabel = new RegExp(`^${Cypress._.escapeRegExp(labelText)}$`);
+  return cy.contains('label', exactLabel).should(($label) => {
+    const controlId = $label.attr('for');
+    expect(controlId, `${labelText} label control id`).to.be.a('string');
+    expect(controlId, `${labelText} label control id`).not.to.equal('');
+  }).then(($label) => {
+    const controlId = $label.attr('for');
+    return cy.get(`#${Cypress.$.escapeSelector(controlId)}`)
+      .should(($control) => {
+        expect(
+          $control.is('button') || $control.attr('role') === 'combobox',
+          `${labelText} control has button or combobox semantics`,
+        ).to.eq(true);
+      })
+      .should('be.visible')
+      .and('be.enabled');
+  });
+}
 function finder() {
   cy.visit('/#finder'); cy.getByTestId('finder-page-heading').should('be.visible');
-  cy.getByTestId('filter-module-system').click(); cy.contains('label', 'Colony status').find('button,[role="combobox"]').click();
-  cy.get('[role="option"]').contains(/^Any$/).click(); cy.get('body').type('{esc}'); cy.getByTestId('search-submit').click();
+  cy.getByTestId('filter-module-system').click(); labelledControl('Colony status').click();
+  cy.contains('[role="option"]', /^Any$/).should('be.visible').click(); cy.get('body').type('{esc}'); cy.getByTestId('search-submit').click();
   cy.getByTestId('search-summary', { timeout: 20000 }).should('be.visible');
   Object.values(SYSTEMS).forEach(({ id64, name }) => { cy.getByTestId(`result-card-${id64}`).scrollIntoView().should('be.visible'); cy.contains(name).should('be.visible'); });
 }
@@ -59,12 +78,22 @@ function detail(system) {
   cy.get(card).contains('button', 'Inspect system').click(); cy.getByTestId('system-detail-modal').should('be.visible');
 }
 function closeDetailWithEscape() {
+  // SystemDetailModal locks body scrolling in the same effect that installs
+  // its window keydown listener. Wait for that observable side effect so the
+  // real Escape event cannot race the listener installation (notably in
+  // Firefox).
+  cy.get('body').should(($body) => {
+    expect($body[0].style.overflow, 'modal Escape listener readiness').to.eq('hidden');
+  });
   cy.window().then((win) => {
     win.dispatchEvent(new win.KeyboardEvent('keydown', {
-      key: 'Escape', code: 'Escape', bubbles: true, cancelable: true,
+      key: 'Escape', code: 'Escape', which: 27, keyCode: 27, bubbles: true, cancelable: true,
     }));
   });
   cy.getByTestId('system-detail-modal').should('not.exist');
+  cy.get('body').should(($body) => {
+    expect($body[0].style.overflow, 'body overflow restored after modal close').to.eq('');
+  });
   cy.location('hash').should('eq', '#finder');
 }
 function planner(system, keyboard = false) {

@@ -1206,11 +1206,45 @@ def test_browser_result_card_expansion_helper_is_idempotent():
 @pytest.mark.unit
 def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    labelled_control = source[source.index('function labelledControl'):source.index('function finder()')]
     helper = source[source.index('function finder()'):source.index('function detail')]
 
     for marker in ("cy.visit('/#finder')", 'finder-page-heading', 'filter-module-system', 'Colony status', 'role="option"', 'search-submit', 'search-summary'):
         assert marker in helper
     assert helper.index('filter-module-system') < helper.index('Colony status') < helper.index('role="option"') < helper.index('search-submit') < helper.index('search-summary')
+    assert ".find('button,[role=\"combobox\"]')" not in helper
+    assert "labelledControl('Colony status')" in helper
+    assert "cy.contains('[role=\"option\"]', /^Any$/).should('be.visible').click()" in helper
+    assert "const controlId = $label.attr('for')" in labelled_control
+    assert ".to.be.a('string')" in labelled_control
+    assert ".not.to.equal('')" in labelled_control
+    assert "$label.attr('for')" in labelled_control
+    assert 'escapeSelector(controlId)' in labelled_control
+    assert "$control.is('button') || $control.attr('role') === 'combobox'" in labelled_control
+    assert "should('be.visible')" in labelled_control
+    assert ".and('be.enabled')" in labelled_control
+
+
+@pytest.mark.unit
+def test_review_lab_escape_waits_for_modal_effect_before_window_dispatch():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function closeDetailWithEscape()'):source.index('function planner')]
+    readiness = ".to.eq('hidden')"
+    dispatch = "win.dispatchEvent(new win.KeyboardEvent('keydown'"
+
+    assert readiness in helper
+    assert dispatch in helper
+    assert '.style.overflow' in helper
+    assert helper.index(readiness) < helper.index(dispatch)
+    for option in ("key: 'Escape'", "code: 'Escape'", 'which: 27', 'keyCode: 27', 'bubbles: true', 'cancelable: true'):
+        assert option in helper
+    modal_absent = "cy.getByTestId('system-detail-modal').should('not.exist')"
+    overflow_restored = ".to.eq('')"
+    route_restored = "cy.location('hash').should('eq', '#finder')"
+    assert modal_absent in helper
+    assert overflow_restored in helper
+    assert route_restored in helper
+    assert helper.index(dispatch) < helper.index(modal_absent) < helper.index(overflow_restored) < helper.index(route_restored)
 
 
 @pytest.mark.unit

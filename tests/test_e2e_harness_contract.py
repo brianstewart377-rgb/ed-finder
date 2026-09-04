@@ -45,11 +45,32 @@ def test_cypress_gate_preserves_browser_accessibility_visual_and_renderer_covera
 
 def test_system_detail_escape_uses_the_modal_window_keyboard_path():
     release_spec = _read(FRONTEND / "cypress/e2e/release-gate.cy.js")
-    assert "win.dispatchEvent(new win.KeyboardEvent('keydown'" in release_spec
-    for option in ("key: 'Escape'", "code: 'Escape'", "bubbles: true", "cancelable: true"):
-        assert option in release_spec
-    assert "cy.getByTestId('system-detail-modal').should('not.exist')" in release_spec
-    assert "cy.location('hash').should('eq', '#finder')" in release_spec
+    test_body = release_spec[
+        release_spec.index("it('opens and closes a system detail modal from a real search result'"):
+        release_spec.index("it('installs and controls through the cache-neutral service worker'")
+    ]
+    dispatch = "win.dispatchEvent(new win.KeyboardEvent('keydown'"
+    readiness = ".to.eq('hidden')"
+    assert readiness in test_body
+    assert dispatch in test_body
+    assert ".style.overflow" in test_body
+    assert test_body.index(readiness) < test_body.index(dispatch)
+    for option in (
+        "key: 'Escape'",
+        "code: 'Escape'",
+        "which: 27",
+        "keyCode: 27",
+        "bubbles: true",
+        "cancelable: true",
+    ):
+        assert option in test_body
+    modal_absent = "cy.getByTestId('system-detail-modal').should('not.exist')"
+    overflow_restored = ".to.eq('')"
+    route_restored = "cy.location('hash').should('eq', '#finder')"
+    assert modal_absent in test_body
+    assert overflow_restored in test_body
+    assert route_restored in test_body
+    assert test_body.index(dispatch) < test_body.index(modal_absent) < test_body.index(overflow_restored) < test_body.index(route_restored)
 
 
 def test_review_lab_runner_is_the_only_lane_selecting_the_collector():
