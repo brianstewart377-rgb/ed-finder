@@ -11,14 +11,16 @@ describe('ED-Finder V3 foundation', () => {
   });
 
   it('proxies backend-owned routes to the disposable FastAPI service', () => {
-    cy.request('/openapi.json').then(({ body, headers, status }) => {
-      expect(status).to.eq(200);
-      expect(headers['content-type']).to.include('application/json');
-      expect(body.paths).to.have.property('/api/health');
-    });
+    cy.request('/openapi.json?format=json').then(
+      ({ body, headers, status }) => {
+        expect(status).to.eq(200);
+        expect(headers['content-type']).to.include('application/json');
+        expect(body.paths).to.have.property('/api/health');
+      },
+    );
 
     cy.request({
-      url: '/s/0',
+      url: '/s/0?utm=x',
       followRedirect: false,
       failOnStatusCode: false,
     }).then(({ headers, status }) => {
@@ -26,6 +28,11 @@ describe('ED-Finder V3 foundation', () => {
       // browser user agents. A Svelte fallback would instead return HTML 200.
       expect(status).to.eq(302);
       expect(headers.location).to.include('/#system/0');
+    });
+
+    cy.request('/apiary').then(({ headers, status }) => {
+      expect(status).to.eq(200);
+      expect(headers['content-type']).to.include('text/html');
     });
   });
 

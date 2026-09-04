@@ -4,9 +4,9 @@ import { defineConfig } from 'vitest/config';
 
 const apiTarget = process.env.VITE_DEV_API_TARGET ?? 'http://127.0.0.1:8002';
 const backendProxy = {
-  '/api': apiTarget,
-  '^/openapi\\.json$': apiTarget,
-  '^/s/\\d+$': apiTarget,
+  '^/api(?:$|[/?])': apiTarget,
+  '^/openapi\\.json(?:\\?.*)?$': apiTarget,
+  '^/s/\\d+(?:\\?.*)?$': apiTarget,
 };
 
 export default defineConfig({

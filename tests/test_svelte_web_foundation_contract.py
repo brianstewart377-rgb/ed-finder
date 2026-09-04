@@ -23,6 +23,19 @@ def _package_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _vite_backend_proxy_patterns() -> list[re.Pattern[str]]:
+    config = _read("apps", "web", "vite.config.ts")
+    proxy_block = config.split("const backendProxy = {", 1)[1].split("};", 1)[0]
+    encoded_patterns = re.findall(
+        r"^\s*('(?:[^'\\]|\\.)*')\s*:", proxy_block, re.MULTILINE
+    )
+    patterns = [json.loads(f'"{value[1:-1]}"') for value in encoded_patterns]
+
+    assert "server: { proxy: backendProxy }" in config
+    assert "preview: { proxy: backendProxy }" in config
+    return [re.compile(pattern) for pattern in patterns]
+
+
 def test_v3_web_uses_the_locked_svelte_node_and_pnpm_foundation():
     package = _package_json(WEB / "package.json")
     dependencies = package.get("dependencies", {})
@@ -172,3 +185,30 @@ def test_v3_web_is_static_spa_and_backend_route_ownership_is_explicit():
     assert "exact `/openapi.json`" in readme
     assert "numeric `/s/{id64}`" in readme
     assert "SvelteKit" in readme
+
+
+def test_vite_proxy_claims_only_backend_owned_route_boundaries():
+    patterns = _vite_backend_proxy_patterns()
+
+    backend_urls = (
+        "/api",
+        "/api?fresh=1",
+        "/api/health",
+        "/api/health?fresh=1",
+        "/openapi.json",
+        "/openapi.json?format=json",
+        "/s/0",
+        "/s/0?utm=x",
+        "/s/18446744073709551615",
+    )
+    frontend_urls = (
+        "/apiary",
+        "/openapi.json/extra",
+        "/openapi.jsonx",
+        "/s/not-a-number",
+        "/s/0/extra",
+        "/s/0x",
+    )
+
+    assert all(any(pattern.match(url) for pattern in patterns) for url in backend_urls)
+    assert all(not any(pattern.match(url) for pattern in patterns) for url in frontend_urls)
