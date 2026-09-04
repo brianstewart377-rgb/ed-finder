@@ -45,12 +45,12 @@ Finder / CRE / CPE / Commander History (Exploration) / Powerplay / Routes
                         GPU
 ```
 
-Domain and feature code **must not import Babylon**. React owns app/domain
-orchestration, routing, panels, accessible DOM UI, keyboard and text. The
-runtime owns the long-lived spatial scene, GPU resources, layers, camera
-implementation, picking/projection and transitions. CRE owns mechanics and
-Digital Twin reasoning. CPE owns plan construction/persistence. ED-Finder owns
-orchestration/presentation. Babylon renders.
+Domain and feature code **must not import Babylon**. Svelte/SvelteKit owns
+app/domain orchestration, routing, panels, accessible DOM UI, keyboard and
+text. The runtime owns the long-lived spatial scene, GPU resources, layers,
+camera implementation, picking/projection and transitions. CRE owns mechanics
+and Digital Twin reasoning. CPE owns plan construction/persistence. ED-Finder
+owns orchestration/presentation. Babylon renders.
 
 Dependency enforcement in 27B must include import-boundary tests and a single
 renderer adapter package. No `@babylonjs/*` type may leak into public contracts.
@@ -199,8 +199,8 @@ completeness or ranking rules.
 
 Commands are ordered, revisioned and idempotent where possible. Runtime events
 describe renderer observations and user intent; they do not mutate domain
-models directly. React/domain handlers decide whether an explicit action is
-allowed.
+models directly. Renderer-neutral domain handlers decide whether an explicit
+action is allowed.
 
 ## Coordinates, camera and scale
 
@@ -241,10 +241,11 @@ rendering and picking support, but built-in picking remains a benchmark
 candidate, not a predetermined winner:
 <https://github.com/BabylonJS/Documentation/blob/master/content/features/featuresDeepDive/mesh/copies/instances.md>.
 
-Scene data is normalized into typed struct-of-arrays/buffers. React sends
-revisioned contributions; it does not rebuild GPU arrays per render. LOD is
-semantic, hysteretic and backend-aware. Wide aggregates, regional systems,
-local relationships and System scene are distinct budgets.
+Scene data is normalized into typed struct-of-arrays/buffers. The
+Svelte/SvelteKit application sends revisioned contributions; it does not
+rebuild GPU arrays per render. LOD is semantic, hysteretic and backend-aware.
+Wide aggregates, regional systems, local relationships and System scene are
+distinct budgets.
 
 The runtime is long-lived and renders on demand when idle. Camera motion,
 transitions, animations, streaming, hover/picking and dirty layers schedule
