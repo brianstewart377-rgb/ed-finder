@@ -1,0 +1,79 @@
+{
+  "registry_version": 1,
+  "scope": "Objects declared by sql/001_schema.sql through sql/048_frontier_accounts.sql",
+  "default_disposition": "unclassified_blocker",
+  "profiles": {
+    "public_source": {
+      "classification": "public_reconstructable",
+      "rationale": "Public galaxy/source-domain data can be reacquired through reviewed import paths.",
+      "authoritative_source_or_rebuild": "Current EDSM/EDDN/importer source paths and ordered SQL migrations.",
+      "candidate_key_columns": [],
+      "relationship_columns": [],
+      "row_content_inspection_permitted": false,
+      "proposed_disposition": "reimport_or_rebuild; do not extract from the legacy dump"
+    },
+    "derived": {
+      "classification": "derived_rebuildable",
+      "rationale": "Derived, staging, cache, transport, index, or executable schema state is reproducible and is not canonical legacy data.",
+      "authoritative_source_or_rebuild": "Ordered SQL migrations and current derivation/import jobs.",
+      "candidate_key_columns": [],
+      "relationship_columns": [],
+      "row_content_inspection_permitted": false,
+      "proposed_disposition": "rebuild from authoritative inputs; never extract rows"
+    },
+    "candidate": {
+      "classification": "candidate_private_manual_user_history",
+      "rationale": "May contain irreplaceable user, manual, or historical records; eligibility requires a separately approved bounded manifest.",
+      "authoritative_source_or_rebuild": "Selective retained-vault extraction only after Phase 2 owner authorization and relationship validation.",
+      "candidate_key_columns": ["id"],
+      "relationship_columns": ["sync_key", "system_id64", "commander_id"],
+      "row_content_inspection_permitted": true,
+      "proposed_disposition": "candidate only; inspect and extract only through an approved exact-column manifest"
+    },
+    "never": {
+      "classification": "never_migrate_credentials_operational_security",
+      "rationale": "Authentication, credential-adjacent, ephemeral operational, or security state must not cross the legacy boundary.",
+      "authoritative_source_or_rebuild": "Recreate through current V3 identity, security, and operations controls.",
+      "candidate_key_columns": [],
+      "relationship_columns": [],
+      "row_content_inspection_permitted": false,
+      "proposed_disposition": "exclude permanently; never inspect row content or migrate"
+    }
+  },
+  "entries": [
+    {"object_type":"SCHEMA","schema":"","name":"public","profile":"derived"},
+    {"object_type":"EXTENSION","schema":"","name_pattern":"^(pg_trgm|btree_gin)$","profile":"derived"},
+
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(galaxy_regions|systems|bodies|body_rings|stations|station_economies|factions|system_factions|attractions)$","profile":"public_source"},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(ratings|spatial_grid|macro_grid|cluster_summary|api_cache|eddn_log|source_runs|enrichment_source_runs|enrichment_source_files|enrichment_raw_records|staging_[a-z0-9_]+|system_slot_topology|economy_pair_synergy|pair_synergy_constants|system_archetype_scores|system_archetype_traits|system_regional_analysis|body_slot_predictions|buildability_analysis|facility_templates|colony_simulations|derived_[a-z0-9_]+|journal_import_staging)$","profile":"derived"},
+    {"object_type":"TABLE","schema":"public","name":"watchlist","profile":"candidate","candidate_key_columns":["id","system_id64"],"relationship_columns":["system_id64"]},
+    {"object_type":"TABLE","schema":"public","name":"watchlist_changelog","profile":"candidate","candidate_key_columns":["id"],"relationship_columns":["system_id64"]},
+    {"object_type":"TABLE","schema":"public","name":"system_notes","profile":"candidate","candidate_key_columns":["system_id64"],"relationship_columns":["system_id64"]},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(score_history|journal_events|body_scan_facts|observed_facts)$","profile":"candidate","candidate_key_columns":["id","observation_id"],"relationship_columns":["system_id64","body_id"]},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(station_body_links|evidence_records|rule_proposals|rule_decisions)$","profile":"candidate","candidate_key_columns":["id"],"relationship_columns":["system_id64","body_id","source_run_id","proposal_id"]},
+    {"object_type":"TABLE","schema":"public","name":"station_external_identity","profile":"candidate","candidate_key_columns":["id","canonical_station_id","source","market_id","edsm_station_id"],"relationship_columns":["canonical_station_id","system_id64","source_run_key","source_file_key"]},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(exploration_facts|exploration_visits|exploration_expedition_routes|exploration_body_completeness|exobiology_sales|exobiology_organisms|codex_observations)$","profile":"candidate","candidate_key_columns":["id","sync_key"],"relationship_columns":["sync_key","system_id64","body_id"]},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(powerplay_observations|commander_powerplay_events|commander_powerplay_state|powerplay_cycles)$","profile":"candidate","candidate_key_columns":["id","commander_id"],"relationship_columns":["commander_id","system_id64"]},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(routes|route_events)$","profile":"candidate","candidate_key_columns":["id","route_id"],"relationship_columns":["commander_id","route_id","system_id64"]},
+    {"object_type":"TABLE","schema":"public","name":"app_users","profile":"candidate","candidate_key_columns":["id","frontier_customer_id"],"relationship_columns":[],"row_content_inspection_permitted":false},
+    {"object_type":"TABLE","schema":"public","name_pattern":"^(profile_sync|web_sessions|oauth_login_states|app_meta|admin_job_runs|import_meta|import_errors)$","profile":"never"},
+
+    {"object_type":"MATERIALIZED VIEW","schema":"public","name_pattern":"^(mv_map_regions|mv_map_heat_(20|50|100)ly|mv_map_timeline_month|mv_archetype_rankings)$","profile":"derived"},
+    {"object_type":"VIEW","schema":"public","name_pattern":"^(top_uncolonised|top_clusters|import_progress|system_detail|score_trends|body_rings_eddn_identity_report)$","profile":"derived"},
+    {"object_type":"TYPE","schema":"public","name_pattern":"^(economy_type|security_type|allegiance_type|government_type|body_type|station_type|import_status|colony_archetype|build_complexity)$","profile":"derived"},
+    {"object_type":"FUNCTION","schema":"public","name_pattern":"^(_build_heatmap_mv|compute_coverage_score|distance_ly|exploration_jsonb_(bigint|boolean|number)|fn_(downgrade_station_body_links_for_deleted_body|mark_body_system_dirty|mark_system_dirty|station_body_link_contract_guard)|in_bounding_box|rebuild_exploration_projections|record_score_snapshots|refresh_map_mviews|search_cluster|search_economy_near|search_galaxy_economy)(\\([a-z0-9_, ]*\\))?$","profile":"derived"},
+    {"object_type":"TRIGGER","schema":"public","name_pattern":"^trg_(body_dirty_(delete|insert|update)|station_body_link_(body_delete_guard|contract_guard)|system_dirty)$","profile":"derived"},
+    {"object_type":"INDEX","schema":"public","name_pattern":"^(idx|ix|uq|mv)_[a-z0-9_]+$","profile":"derived"},
+    {"object_type":"INDEX","schema":"public","name_pattern":"^(oauth_login_states_expiry_idx|watchlist_sync_system_uq|web_sessions_user_active_idx)$","profile":"derived"},
+    {"object_type":"SEQUENCE","schema":"public","name_pattern":"^[a-z][a-z0-9_]*_id_seq$","profile":"derived"},
+    {"object_type":"CONSTRAINT","schema":"public","name_pattern":"^[a-z][a-z0-9_]*(_(pkey|key|fkey|check)|_fk_[a-z0-9_]+|_unique)$","profile":"derived"},
+    {"object_type":"FK CONSTRAINT","schema":"public","name_pattern":"^[a-z][a-z0-9_]*$","profile":"derived"},
+    {"object_type":"CHECK CONSTRAINT","schema":"public","name_pattern":"^[a-z][a-z0-9_]*$","profile":"derived"},
+    {"object_type":"DEFAULT","schema":"public","name_pattern":"^[a-z][a-z0-9_]*$","profile":"derived"},
+    {"object_type":"SEQUENCE OWNED BY","schema":"public","name_pattern":"^[a-z][a-z0-9_]*_id_seq$","profile":"derived"},
+    {"object_type":"SEQUENCE SET","schema":"public","name_pattern":"^[a-z][a-z0-9_]*_id_seq$","profile":"derived"},
+    {"object_type":"COMMENT","schema":"public","name_pattern":"^((TABLE|COLUMN|FUNCTION) [A-Za-z_][A-Za-z0-9_$.,() ]*|SCHEMA public|[a-z][a-z0-9_]*)$","profile":"derived"},
+    {"object_type":"ACL","schema":"public","name_pattern":"^[A-Za-z_][A-Za-z0-9_$.,() ]*$","profile":"never"},
+    {"object_type":"DEFAULT ACL","schema":"public","name_pattern":"^[A-Za-z_][A-Za-z0-9_$.,() ]*$","profile":"never"}
+  ]
+}

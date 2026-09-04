@@ -252,6 +252,12 @@ A validated PostgreSQL custom-format dump is retained offsite solely as a select
 
 The dump is not the operating database and is not a general disaster-recovery shortcut. Any extraction requires an explicit inventory, reviewed migration path, target verification, and validation of the selected records.
 
+Phase 1's fail-closed, offline inventory and extraction-proposal boundary is
+documented in [`docs/operations/legacy-selective-migration.md`](docs/operations/legacy-selective-migration.md).
+It includes the four data classes, the three separately authorized phases, and
+the synthetic-test path. No retained dump was inspected in Phase 1, and data
+completeness remains unproven until an owner-authorized Phase 2 inspection.
+
 ## Production and recovery boundary
 
 Before any production or recovery action, read:

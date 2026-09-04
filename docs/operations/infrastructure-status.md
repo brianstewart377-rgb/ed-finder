@@ -29,6 +29,13 @@ Validated dump identity:
 
 The dump is not the operating database. Do not restore it wholesale into production and do not copy an older PostgreSQL physical data directory into PostgreSQL 18.
 
+The fail-closed Phase 1 inventory, classification, manifest, and future
+disposable-inspection boundaries are documented in
+[`legacy-selective-migration.md`](legacy-selective-migration.md). That document
+is not a recovery runbook. Phase 1 did not inspect the retained dump and cannot
+certify legacy-record completeness; any Phase 2 inspection requires the actual
+validated dump and explicit repository-owner authorization.
+
 ## Current sources of truth
 
 - Application and infrastructure code: reviewed GitHub branches and PRs.
