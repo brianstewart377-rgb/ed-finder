@@ -8,7 +8,7 @@ VITE_CONFIG = ROOT / 'apps' / 'web' / 'vite.config.ts'
 
 
 @pytest.mark.unit
-def test_svelte_preview_rewrites_only_known_dynamic_application_namespaces():
+def test_svelte_preview_serves_only_known_dynamic_application_namespaces():
     source = VITE_CONFIG.read_text(encoding='utf-8')
 
     assert "name: 'ed-finder-static-spa-preview-fallback'" in source
@@ -17,7 +17,12 @@ def test_svelte_preview_rewrites_only_known_dynamic_application_namespaces():
     assert "request.headers.accept" not in source
     assert r'/^\/system\/\d+\/?$/' in source
     assert r'/^\/colony-planner(?:\/.*)?\/?$/' in source
-    assert 'request.url = `/200.html${url.search}`;' in source
+    assert "new URL('./build/200.html', import.meta.url)" in source
+    assert "readFile(staticSpaFallbackFile, 'utf8')" in source
+    assert "response.statusCode = 200" in source
+    assert "response.setHeader('Content-Type', 'text/html; charset=utf-8')" in source
+    assert "response.end(method === 'HEAD' ? undefined : html)" in source
+    assert 'request.url = `/200.html${url.search}`;' not in source
 
 
 @pytest.mark.unit
