@@ -14,7 +14,7 @@ def test_svelte_preview_rewrites_only_known_dynamic_application_namespaces():
     assert "name: 'ed-finder-static-spa-preview-fallback'" in source
     assert 'configurePreviewServer(server)' in source
     assert "method !== 'GET' && method !== 'HEAD'" in source
-    assert "accept.includes('text/html')" in source
+    assert "request.headers.accept" not in source
     assert r'/^\/system\/\d+\/?$/' in source
     assert r'/^\/colony-planner(?:\/.*)?\/?$/' in source
     assert 'request.url = `/200.html${url.search}`;' in source
