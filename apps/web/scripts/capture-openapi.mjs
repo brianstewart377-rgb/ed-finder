@@ -57,5 +57,11 @@ if (
 }
 
 await mkdir(path.dirname(output), { recursive: true });
-await writeFile(output, rawSchema.endsWith('\n') ? rawSchema : `${rawSchema}\n`, 'utf8');
-process.stdout.write('Captured authoritative OpenAPI schema for deterministic generation.\n');
+await writeFile(
+  output,
+  rawSchema.endsWith('\n') ? rawSchema : `${rawSchema}\n`,
+  'utf8',
+);
+process.stdout.write(
+  'Captured authoritative OpenAPI schema for deterministic generation.\n',
+);
