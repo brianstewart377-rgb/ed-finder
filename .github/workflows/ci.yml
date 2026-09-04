@@ -356,10 +356,6 @@ jobs:
           corepack prepare pnpm@11.25.0 --activate
       - name: Install locked Svelte dependencies
         run: pnpm install --frozen-lockfile
-      - name: Check generated bootstrap API client drift
-        run: |
-          pnpm generate:api
-          git diff --exit-code -- src/lib/api/generated
       - name: Type-check Svelte application
         run: pnpm check
       - name: Lint Svelte application
@@ -479,3 +475,26 @@ jobs:
             exit 1
           fi
           echo "✓ types match checked-in baseline"
+      - name: Set up Node 24 for Svelte OpenAPI generation
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Enable pnpm 11.25.0
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
+      - name: Install locked Svelte dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
+      - name: Regenerate Svelte client from running API
+        working-directory: apps/web
+        env:
+          OPENAPI_INPUT: http://127.0.0.1:8000/openapi.json
+        run: pnpm generate:api
+      - name: Check for drift in checked-in Svelte client
+        run: |
+          if ! git diff --exit-code -- apps/web/src/lib/api/generated; then
+            echo "::error::Svelte API client is out of date. Run scripts/checks/openapi-drift.sh locally and commit apps/web/src/lib/api/generated."
+            exit 1
+          fi
+          echo "✓ Svelte client matches the running FastAPI contract"

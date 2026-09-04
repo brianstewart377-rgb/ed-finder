@@ -78,19 +78,45 @@ def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
     assert "getJson" not in client
 
 
+def test_svelte_generation_requires_an_explicit_authoritative_openapi_input():
+    config = _read("apps", "web", "openapi-ts.config.ts")
+
+    assert "process.env.OPENAPI_INPUT" in config
+    assert "if (!input)" in config
+    assert "input," in config
+    assert "bootstrap.openapi.json" not in config
+    assert not (WEB / "openapi" / "bootstrap.openapi.json").exists()
+
+
 def test_svelte_ci_checks_generated_client_quality_and_build():
     workflow = _read(".github", "workflows", "ci.yml")
+    web_job = workflow.split("  web:\n", 1)[1].split("  nginx:\n", 1)[0]
 
     for command in (
-        "pnpm generate:api",
-        "git diff --exit-code -- src/lib/api/generated",
         "pnpm check",
         "pnpm lint",
         "pnpm format:check",
         "pnpm test",
         "pnpm build",
     ):
-        assert command in workflow
+        assert command in web_job
+
+    assert "pnpm generate:api" not in web_job
+
+
+def test_openapi_drift_lane_generates_both_clients_from_the_running_api():
+    workflow = _read(".github", "workflows", "ci.yml")
+    drift_job = workflow.split("  openapi-types:\n", 1)[1]
+    script = _read("scripts", "checks", "openapi-drift.sh")
+
+    assert 'node-version: "24"' in drift_job
+    assert "corepack prepare pnpm@11.25.0 --activate" in drift_job
+    assert "pnpm install --frozen-lockfile" in drift_job
+    assert "OPENAPI_INPUT: http://127.0.0.1:8000/openapi.json" in drift_job
+    assert "git diff --exit-code -- apps/web/src/lib/api/generated" in drift_job
+    assert 'VITE_OPENAPI_URL="$OPENAPI_URL"' in script
+    assert 'OPENAPI_INPUT="$OPENAPI_URL"' in script
+    assert "apps/web/src/lib/api/generated" in script
 
 
 def test_legacy_react_frontend_remains_migration_reference():

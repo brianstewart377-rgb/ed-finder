@@ -4,52 +4,10398 @@ export type ClientOptions = {
     baseUrl: `${string}://${string}` | (string & {});
 };
 
-export type HealthResponse = {
-    status: string;
-    database: string;
-    version: string;
-    build_sha: string;
+/**
+ * ArchetypeProfile
+ */
+export type ArchetypeProfile = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Archetype
+     */
+    archetype?: string | null;
+    weights: ArchetypeRerankWeights;
+    [key: string]: unknown;
 };
 
-export type AuthUserResponse = {
-    commander_name: string | null;
-    is_owner: boolean;
+/**
+ * ArchetypeRankingRow
+ *
+ * One result row inside ArchetypeRankingsResponse.
+ */
+export type ArchetypeRankingRow = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name: string;
+    coords?: CoordsModel | null;
+    /**
+     * Distance To Sol
+     */
+    distance_to_sol?: number | null;
+    /**
+     * Score
+     */
+    score: number;
+    /**
+     * Tier
+     */
+    tier: 'S' | 'A' | 'B' | 'C' | 'D';
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Archetype Confidence
+     */
+    archetype_confidence?: number | null;
+    /**
+     * Overall Development Potential
+     */
+    overall_development_potential?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
+     * Has Elw
+     */
+    has_elw?: boolean | null;
+    /**
+     * Elw Count
+     */
+    elw_count?: number | null;
+    /**
+     * Landable Count
+     */
+    landable_count?: number | null;
+    /**
+     * Est Total Slots
+     */
+    est_total_slots?: number | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    [key: string]: unknown;
 };
 
+/**
+ * ArchetypeRankingsResponse
+ */
+export type ArchetypeRankingsResponse = {
+    /**
+     * Archetype
+     */
+    archetype: string;
+    /**
+     * Archetype Label
+     */
+    archetype_label: string;
+    /**
+     * Results
+     */
+    results: Array<ArchetypeRankingRow>;
+    /**
+     * Total
+     */
+    total?: number;
+    /**
+     * Count
+     */
+    count?: number;
+    /**
+     * Source
+     */
+    source?: string | null;
+    /**
+     * Query Ms
+     */
+    query_ms?: number | null;
+};
+
+/**
+ * ArchetypeRationale
+ *
+ * Structured JSONB rationale for a system's primary archetype.
+ * Schema is intentionally flexible (extra='allow') so Frontier
+ * mechanic changes can be absorbed without breaking existing consumers.
+ */
+export type ArchetypeRationale = {
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Tier
+     */
+    tier?: 'S' | 'A' | 'B' | 'C' | 'D' | null;
+    /**
+     * Headline
+     */
+    headline?: string | null;
+    /**
+     * Positives
+     */
+    positives?: Array<string>;
+    /**
+     * Risks
+     */
+    risks?: Array<string>;
+    /**
+     * Complexity
+     */
+    complexity?: string | null;
+    /**
+     * Build Path
+     */
+    build_path?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    score_breakdown?: ArchetypeScoreBreakdown | null;
+    /**
+     * Data Confidence
+     */
+    data_confidence?: number | null;
+    /**
+     * Canonical Confidence
+     */
+    canonical_confidence?: {
+        [key: string]: unknown;
+    } | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ArchetypeRerankRequest
+ *
+ * Rerank a set of systems by custom archetype weights.
+ *
+ * Either provide explicit weights OR a profile ID.
+ * If both are given, the profile takes precedence.
+ * If neither, default ArchetypeRerankWeights are applied.
+ */
+export type ArchetypeRerankRequest = {
+    /**
+     * Id64S
+     */
+    id64s: Array<number>;
+    /**
+     * Archetype
+     */
+    archetype?: 'refinery_industrial' | 'extraction_refinery' | 'agriculture_terraforming' | 'hitech_tourism' | 'expansion_capital' | 'trade_logistics' | 'population_capital' | 'ax_forward_base' | 'military_industrial' | 'flexible_multirole' | null;
+    weights?: ArchetypeRerankWeights | null;
+    /**
+     * Profile
+     */
+    profile?: string | null;
+};
+
+/**
+ * ArchetypeRerankResponse
+ */
+export type ArchetypeRerankResponse = {
+    /**
+     * Archetype
+     */
+    archetype?: string | null;
+    /**
+     * Profile Applied
+     */
+    profile_applied?: string | null;
+    weights_applied: ArchetypeRerankWeights;
+    /**
+     * Results
+     */
+    results: Array<ArchetypeRerankRow>;
+    /**
+     * Query Ms
+     */
+    query_ms?: number | null;
+};
+
+/**
+ * ArchetypeRerankRow
+ */
+export type ArchetypeRerankRow = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Reranked Score
+     */
+    reranked_score: number;
+    /**
+     * Original Score
+     */
+    original_score?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    rationale?: ArchetypeRationale | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ArchetypeRerankWeights
+ *
+ * Weight dimensions for archetype-based reranking.
+ * All weights should sum to ~1.0 but are not enforced to do so
+ * (allows intentional emphasis on a single dimension).
+ *
+ * Default profile: balanced across purity, buildability, slots, expansion, logistics.
+ */
+export type ArchetypeRerankWeights = {
+    /**
+     * Purity
+     *
+     * Clean economy stack, low contamination
+     */
+    purity?: number;
+    /**
+     * Buildability
+     *
+     * Ease of build, CP efficiency, T3 scaling
+     */
+    buildability?: number;
+    /**
+     * Slots
+     *
+     * Total slot count and topology quality
+     */
+    slots?: number;
+    /**
+     * Expansion
+     *
+     * Overall development potential, growth headroom
+     */
+    expansion?: number;
+    /**
+     * Logistics
+     *
+     * Distance from hub, scoopable star accessibility
+     */
+    logistics?: number;
+};
+
+/**
+ * ArchetypeScore
+ *
+ * One archetype entry inside SystemArchetypeResponse.archetypes.
+ */
+export type ArchetypeScore = {
+    /**
+     * Score
+     */
+    score: number;
+    /**
+     * Tier
+     */
+    tier: 'S' | 'A' | 'B' | 'C' | 'D';
+    /**
+     * Label
+     */
+    label: string;
+    rationale?: ArchetypeRationale | null;
+    /**
+     * Rank Global
+     */
+    rank_global?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ArchetypeScoreBreakdown
+ *
+ * Per-component score decomposition for a single archetype.
+ */
+export type ArchetypeScoreBreakdown = {
+    /**
+     * Body Composition
+     */
+    body_composition?: number | null;
+    /**
+     * Topology
+     */
+    topology?: number | null;
+    /**
+     * Pair Synergy Pts
+     */
+    pair_synergy_pts?: number | null;
+    /**
+     * Purity Factor
+     */
+    purity_factor?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Diversity Factor
+     */
+    diversity_factor?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ArchetypesProfilesResponse
+ */
+export type ArchetypesProfilesResponse = {
+    /**
+     * Profiles
+     */
+    profiles: Array<ArchetypeProfile>;
+};
+
+/**
+ * AuthSessionResponse
+ */
 export type AuthSessionResponse = {
+    /**
+     * Authenticated
+     */
     authenticated: boolean;
     user?: AuthUserResponse | null;
+    /**
+     * Owner Claim Available
+     */
     owner_claim_available?: boolean;
 };
 
-export type GetHealthData = {
+/**
+ * AuthUserResponse
+ */
+export type AuthUserResponse = {
+    /**
+     * Commander Name
+     */
+    commander_name?: string | null;
+    /**
+     * Is Owner
+     */
+    is_owner: boolean;
+};
+
+/**
+ * AutocompleteHit
+ */
+export type AutocompleteHit = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Population
+     */
+    population?: number | null;
+    /**
+     * Primaryeconomy
+     */
+    primaryEconomy?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * AutocompleteResponse
+ */
+export type AutocompleteResponse = {
+    /**
+     * Results
+     */
+    results: Array<AutocompleteHit>;
+    /**
+     * Source
+     */
+    source?: string | null;
+};
+
+/**
+ * BodyCountFilter
+ *
+ * One body-count slider in `LocalSearchRequest.body_filters`. Each
+ * body-type key (`elw_count`, `ww_count`, …) maps to a min/max range,
+ * same shape as `RangeFilter` — duplicated here for naming clarity in
+ * the generated TS.
+ */
+export type BodyCountFilter = {
+    /**
+     * Min
+     */
+    min?: number | null;
+    /**
+     * Max
+     */
+    max?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BodyFilters
+ *
+ * `LocalSearchRequest.body_filters`. Keys mirror the
+ * `helpers.sys_row_to_dict` body-count column names. All optional —
+ * a missing key means "no filter on that body type".
+ */
+export type BodyFilters = {
+    elw_count?: BodyCountFilter | null;
+    ww_count?: BodyCountFilter | null;
+    ammonia_count?: BodyCountFilter | null;
+    gas_giant_count?: BodyCountFilter | null;
+    landable_count?: BodyCountFilter | null;
+    terraformable_count?: BodyCountFilter | null;
+    bio_signal_total?: BodyCountFilter | null;
+    geo_signal_total?: BodyCountFilter | null;
+    neutron_count?: BodyCountFilter | null;
+    black_hole_count?: BodyCountFilter | null;
+    white_dwarf_count?: BodyCountFilter | null;
+    hmc_count?: BodyCountFilter | null;
+    metal_rich_count?: BodyCountFilter | null;
+    rocky_count?: BodyCountFilter | null;
+    rocky_ice_count?: BodyCountFilter | null;
+    icy_count?: BodyCountFilter | null;
+    other_star_count?: BodyCountFilter | null;
+    ring_count?: BodyCountFilter | null;
+    walkable_count?: BodyCountFilter | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BodyModel
+ */
+export type BodyModel = {
+    /**
+     * Id
+     */
+    id?: number | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Subtype
+     */
+    subtype?: string | null;
+    /**
+     * Body Type
+     */
+    body_type?: string | null;
+    /**
+     * Distance From Star
+     */
+    distance_from_star?: number | null;
+    /**
+     * Is Landable
+     */
+    is_landable?: boolean | null;
+    /**
+     * Is Terraformable
+     */
+    is_terraformable?: boolean | null;
+    /**
+     * Is Earth Like
+     */
+    is_earth_like?: boolean | null;
+    /**
+     * Is Water World
+     */
+    is_water_world?: boolean | null;
+    /**
+     * Is Ammonia World
+     */
+    is_ammonia_world?: boolean | null;
+    /**
+     * Bio Signal Count
+     */
+    bio_signal_count?: number | null;
+    /**
+     * Geo Signal Count
+     */
+    geo_signal_count?: number | null;
+    /**
+     * Surface Temp
+     */
+    surface_temp?: number | null;
+    /**
+     * Radius
+     */
+    radius?: number | null;
+    /**
+     * Mass
+     */
+    mass?: number | null;
+    /**
+     * Gravity
+     */
+    gravity?: number | null;
+    /**
+     * Estimated Mapping Value
+     */
+    estimated_mapping_value?: number | null;
+    /**
+     * Estimated Scan Value
+     */
+    estimated_scan_value?: number | null;
+    /**
+     * Is Main Star
+     */
+    is_main_star?: boolean | null;
+    /**
+     * Spectral Class
+     */
+    spectral_class?: string | null;
+    /**
+     * Is Scoopable
+     */
+    is_scoopable?: boolean | null;
+    /**
+     * Is Ringed
+     */
+    is_ringed?: boolean | null;
+    /**
+     * Ring State
+     */
+    ring_state?: 'ringed' | 'not_ringed' | 'unknown' | null;
+    /**
+     * Rings
+     */
+    rings?: Array<BodyRingModel> | null;
+    /**
+     * Ring Count
+     */
+    ring_count?: number | null;
+    /**
+     * Ring Source
+     */
+    ring_source?: string | null;
+    /**
+     * Ring Confidence
+     */
+    ring_confidence?: string | null;
+    /**
+     * Body Sort Key
+     */
+    body_sort_key?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BodyRingModel
+ */
+export type BodyRingModel = {
+    /**
+     * Ring Name
+     */
+    ring_name?: string | null;
+    /**
+     * Ring Type
+     */
+    ring_type?: string | null;
+    /**
+     * Ring Class
+     */
+    ring_class?: string | null;
+    /**
+     * Mass Mt
+     */
+    mass_mt?: number | null;
+    /**
+     * Inner Radius
+     */
+    inner_radius?: number | null;
+    /**
+     * Outer Radius
+     */
+    outer_radius?: number | null;
+    /**
+     * Source
+     */
+    source?: string | null;
+    /**
+     * Confidence
+     */
+    confidence?: string | null;
+    /**
+     * Updated At
+     */
+    updated_at?: unknown | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BodySlotPrediction
+ *
+ * One body row returned by GET /api/systems/{id64}/slot-predictions.
+ */
+export type BodySlotPrediction = {
+    /**
+     * System Address
+     */
+    system_address: number;
+    /**
+     * Body Id
+     */
+    body_id: number;
+    /**
+     * Body Name
+     */
+    body_name?: string | null;
+    /**
+     * Planet Class
+     */
+    planet_class?: string | null;
+    /**
+     * Predicted Ground Slots
+     */
+    predicted_ground_slots?: number | null;
+    /**
+     * Predicted Orbital Slots
+     */
+    predicted_orbital_slots?: number | null;
+    /**
+     * Prediction Status
+     */
+    prediction_status?: 'predicted' | 'unknown' | 'observed';
+    /**
+     * Confidence Label
+     */
+    confidence_label?: string | null;
+    /**
+     * Prediction Version
+     */
+    prediction_version?: string | null;
+    /**
+     * Validation Note
+     */
+    validation_note?: string | null;
+    /**
+     * Required Input Missing
+     */
+    required_input_missing?: Array<string>;
+    /**
+     * Missing Inputs
+     */
+    missing_inputs?: Array<string>;
+    /**
+     * Source Label
+     */
+    source_label?: string | null;
+    /**
+     * Estimated Surface Slots
+     */
+    estimated_surface_slots?: number | null;
+    /**
+     * Estimated Orbital Slots
+     */
+    estimated_orbital_slots?: number | null;
+    /**
+     * Slot Confidence
+     */
+    slot_confidence?: number | null;
+    /**
+     * Slot Source
+     */
+    slot_source?: string | null;
+    /**
+     * Reasons
+     */
+    reasons?: Array<SlotReason>;
+    /**
+     * Is Ringed
+     */
+    is_ringed?: boolean | null;
+    /**
+     * Is Landable
+     */
+    is_landable?: boolean | null;
+    /**
+     * Radius
+     */
+    radius?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BuildSimulateRequest
+ */
+export type BuildSimulateRequest = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Planned Archetype
+     */
+    planned_archetype: 'refinery_industrial' | 'extraction_refinery' | 'agriculture_terraforming' | 'hitech_tourism' | 'expansion_capital' | 'trade_logistics' | 'population_capital' | 'ax_forward_base' | 'military_industrial' | 'flexible_multirole';
+    /**
+     * Planned Facilities
+     */
+    planned_facilities?: Array<PlannedFacility>;
+};
+
+/**
+ * BuildSimulateResponse
+ */
+export type BuildSimulateResponse = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Planned Archetype
+     */
+    planned_archetype: string;
+    /**
+     * Simulation Score
+     */
+    simulation_score: number;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Recommendations
+     */
+    recommendations?: Array<string>;
+    /**
+     * Disclaimer
+     */
+    disclaimer?: string | null;
+};
+
+/**
+ * BuildabilityBottleneck
+ *
+ * A buildability limitation surfaced to the frontend.
+ */
+export type BuildabilityBottleneck = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Severity
+     */
+    severity?: string | null;
+    /**
+     * Detail
+     */
+    detail?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BuildabilityData
+ *
+ * Stable buildability payload used both directly and inside summaries.
+ */
+export type BuildabilityData = {
+    /**
+     * Source
+     */
+    source: 'precomputed' | 'computed' | 'insufficient_data';
+    /**
+     * Estimated Orbital Slots
+     */
+    estimated_orbital_slots?: number | null;
+    /**
+     * Estimated Ground Slots
+     */
+    estimated_ground_slots?: number | null;
+    /**
+     * Slot Confidence
+     */
+    slot_confidence?: number | null;
+    /**
+     * Slot Confidence Label
+     */
+    slot_confidence_label?: string | null;
+    /**
+     * Estimated Yellow Cp
+     */
+    estimated_yellow_cp?: number | null;
+    /**
+     * Estimated Green Cp
+     */
+    estimated_green_cp?: number | null;
+    /**
+     * Max T2 Ports
+     */
+    max_t2_ports?: number | null;
+    /**
+     * Max T3 Ports
+     */
+    max_t3_ports?: number | null;
+    /**
+     * Cp Bottleneck Score
+     */
+    cp_bottleneck_score?: number | null;
+    /**
+     * Slot Exhaustion Risk
+     */
+    slot_exhaustion_risk?: number | null;
+    /**
+     * Build Order Sensitivity
+     */
+    build_order_sensitivity?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Bottlenecks
+     */
+    bottlenecks?: Array<BuildabilityBottleneck>;
+    /**
+     * Opportunities
+     */
+    opportunities?: Array<BuildabilityOpportunity>;
+    /**
+     * Recommended Build Order
+     */
+    recommended_build_order?: Array<RecommendedBuildStep>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Note
+     */
+    note?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BuildabilityOpportunity
+ *
+ * A buildability advantage surfaced to the frontend.
+ */
+export type BuildabilityOpportunity = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Description
+     */
+    description: string;
+    /**
+     * Severity
+     */
+    severity?: string | null;
+    /**
+     * Detail
+     */
+    detail?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * BuildabilityResponse
+ */
+export type BuildabilityResponse = {
+    /**
+     * Source
+     */
+    source: 'precomputed' | 'computed' | 'insufficient_data';
+    /**
+     * Estimated Orbital Slots
+     */
+    estimated_orbital_slots?: number | null;
+    /**
+     * Estimated Ground Slots
+     */
+    estimated_ground_slots?: number | null;
+    /**
+     * Slot Confidence
+     */
+    slot_confidence?: number | null;
+    /**
+     * Slot Confidence Label
+     */
+    slot_confidence_label?: string | null;
+    /**
+     * Estimated Yellow Cp
+     */
+    estimated_yellow_cp?: number | null;
+    /**
+     * Estimated Green Cp
+     */
+    estimated_green_cp?: number | null;
+    /**
+     * Max T2 Ports
+     */
+    max_t2_ports?: number | null;
+    /**
+     * Max T3 Ports
+     */
+    max_t3_ports?: number | null;
+    /**
+     * Cp Bottleneck Score
+     */
+    cp_bottleneck_score?: number | null;
+    /**
+     * Slot Exhaustion Risk
+     */
+    slot_exhaustion_risk?: number | null;
+    /**
+     * Build Order Sensitivity
+     */
+    build_order_sensitivity?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Bottlenecks
+     */
+    bottlenecks?: Array<BuildabilityBottleneck>;
+    /**
+     * Opportunities
+     */
+    opportunities?: Array<BuildabilityOpportunity>;
+    /**
+     * Recommended Build Order
+     */
+    recommended_build_order?: Array<RecommendedBuildStep>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Note
+     */
+    note?: string | null;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Archetype
+     */
+    archetype?: string | null;
+    /**
+     * Topology Summary
+     */
+    topology_summary?: Array<string>;
+    topology?: TopologyContextResponse | null;
+};
+
+/**
+ * CacheStatsResponse
+ */
+export type CacheStatsResponse = {
+    /**
+     * Cache Hits
+     */
+    cache_hits?: number;
+    /**
+     * Cache Misses
+     */
+    cache_misses?: number;
+    /**
+     * Redis Hits
+     */
+    redis_hits?: number | null;
+    /**
+     * Redis Misses
+     */
+    redis_misses?: number | null;
+    /**
+     * Redis Memory Mb
+     */
+    redis_memory_mb?: number | null;
+    /**
+     * Db Cache Rows
+     */
+    db_cache_rows?: number;
+};
+
+/**
+ * CanonicalEvidencePromotionRequest
+ */
+export type CanonicalEvidencePromotionRequest = {
+    /**
+     * Evidence Types
+     */
+    evidence_types?: Array<string>;
+};
+
+/**
+ * CanonicalEvidencePromotionResponse
+ */
+export type CanonicalEvidencePromotionResponse = {
+    /**
+     * Schema Version
+     */
+    schema_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Promoted Count
+     */
+    promoted_count: number;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Records
+     */
+    records?: Array<EvidenceRecordResponse>;
+};
+
+/**
+ * ClusterRequirement
+ */
+export type ClusterRequirement = {
+    /**
+     * Economy
+     */
+    economy: 'Agriculture' | 'Refinery' | 'Industrial' | 'HighTech' | 'Military' | 'Tourism' | 'Extraction';
+    /**
+     * Min Count
+     */
+    min_count?: number;
+    /**
+     * Min Score
+     */
+    min_score?: number;
+};
+
+/**
+ * ClusterResult
+ */
+export type ClusterResult = {
+    /**
+     * Anchor Id64
+     */
+    anchor_id64: number;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Anchor Name
+     */
+    anchor_name: string;
+    /**
+     * Anchor X
+     */
+    anchor_x: number;
+    /**
+     * Anchor Y
+     */
+    anchor_y: number;
+    /**
+     * Anchor Z
+     */
+    anchor_z: number;
+    anchor_coords: CoordsModel;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    /**
+     * Galaxy Region
+     */
+    galaxy_region?: string | null;
+    /**
+     * Coverage Score
+     */
+    coverage_score?: number | null;
+    /**
+     * Economy Diversity
+     */
+    economy_diversity: number;
+    /**
+     * Total Viable
+     */
+    total_viable: number;
+    /**
+     * Agriculture Count
+     */
+    agriculture_count: number;
+    /**
+     * Agriculture Best
+     */
+    agriculture_best?: number | null;
+    /**
+     * Agriculture Top Id
+     */
+    agriculture_top_id?: number | null;
+    /**
+     * Refinery Count
+     */
+    refinery_count: number;
+    /**
+     * Refinery Best
+     */
+    refinery_best?: number | null;
+    /**
+     * Refinery Top Id
+     */
+    refinery_top_id?: number | null;
+    /**
+     * Industrial Count
+     */
+    industrial_count: number;
+    /**
+     * Industrial Best
+     */
+    industrial_best?: number | null;
+    /**
+     * Industrial Top Id
+     */
+    industrial_top_id?: number | null;
+    /**
+     * Hightech Count
+     */
+    hightech_count: number;
+    /**
+     * Hightech Best
+     */
+    hightech_best?: number | null;
+    /**
+     * Hightech Top Id
+     */
+    hightech_top_id?: number | null;
+    /**
+     * Military Count
+     */
+    military_count: number;
+    /**
+     * Military Best
+     */
+    military_best?: number | null;
+    /**
+     * Military Top Id
+     */
+    military_top_id?: number | null;
+    /**
+     * Tourism Count
+     */
+    tourism_count: number;
+    /**
+     * Tourism Best
+     */
+    tourism_best?: number | null;
+    /**
+     * Tourism Top Id
+     */
+    tourism_top_id?: number | null;
+    /**
+     * Distance Ly
+     */
+    distance_ly?: number | null;
+    /**
+     * Cluster Radius Ly
+     */
+    cluster_radius_ly: number;
+    /**
+     * Slots
+     */
+    slots?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ClusterSearchRequest
+ */
+export type ClusterSearchRequest = {
+    /**
+     * Requirements
+     */
+    requirements?: Array<ClusterRequirement>;
+    /**
+     * Slots
+     */
+    slots?: Array<SlotRequirement>;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Offset
+     */
+    offset?: number;
+    reference_coords?: CoordsModel | null;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+};
+
+/**
+ * ClusterSearchResponse
+ */
+export type ClusterSearchResponse = {
+    /**
+     * Clusters
+     */
+    clusters?: Array<ClusterResult>;
+    /**
+     * Count
+     */
+    count?: number | null;
+    /**
+     * Cluster Radius Ly
+     */
+    cluster_radius_ly?: number | null;
+    /**
+     * Query Ms
+     */
+    query_ms?: number | null;
+    /**
+     * Slots
+     */
+    slots?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Requirements
+     */
+    requirements?: Array<{
+        [key: string]: unknown;
+    }> | null;
+    /**
+     * Error
+     */
+    error?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * CommanderPowerplayResponse
+ */
+export type CommanderPowerplayResponse = {
+    /**
+     * Commander Key
+     */
+    commander_key: string;
+    /**
+     * Pledge
+     */
+    pledge?: unknown;
+    /**
+     * Rank
+     */
+    rank?: unknown;
+    /**
+     * Merits
+     */
+    merits?: unknown;
+    /**
+     * Last Updated
+     */
+    last_updated?: string | null;
+    /**
+     * Cycle Start
+     */
+    cycle_start: string;
+    /**
+     * Cycle Merits Earned
+     */
+    cycle_merits_earned?: unknown;
+    /**
+     * Value Provenance
+     */
+    value_provenance?: {
+        [key: string]: PowerplayValueEvidence;
+    };
+    /**
+     * Recent Contributions
+     */
+    recent_contributions?: Array<PowerplayContribution>;
+    /**
+     * Snapshot Version
+     */
+    snapshot_version?: string;
+};
+
+/**
+ * CoordsModel
+ */
+export type CoordsModel = {
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+};
+
+/**
+ * DerivedFeatureCreateRequest
+ */
+export type DerivedFeatureCreateRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Feature Name
+     */
+    feature_name: string;
+    /**
+     * Feature Version
+     */
+    feature_version?: string;
+    /**
+     * Feature Status
+     */
+    feature_status?: string;
+    /**
+     * Confidence
+     */
+    confidence?: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Derived From Run Key
+     */
+    derived_from_run_key?: string | null;
+    /**
+     * Derived At
+     */
+    derived_at?: string | null;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Value
+     */
+    value?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * DerivedFeatureListResponse
+ */
+export type DerivedFeatureListResponse = {
+    /**
+     * Features
+     */
+    features: Array<DerivedFeatureResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * DerivedFeatureResponse
+ */
+export type DerivedFeatureResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Feature Name
+     */
+    feature_name: string;
+    /**
+     * Feature Version
+     */
+    feature_version?: string;
+    /**
+     * Feature Status
+     */
+    feature_status?: string;
+    /**
+     * Confidence
+     */
+    confidence?: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Derived From Run Key
+     */
+    derived_from_run_key?: string | null;
+    /**
+     * Derived At
+     */
+    derived_at?: string | null;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Value
+     */
+    value?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Feature Key
+     */
+    feature_key: string;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+    /**
+     * Updated At
+     */
+    updated_at?: string | null;
+};
+
+/**
+ * EconomyPairDetail
+ *
+ * One economy pair synergy entry inside SystemArchetypeResponse.
+ */
+export type EconomyPairDetail = {
+    /**
+     * Economy A
+     */
+    economy_a: string;
+    /**
+     * Economy B
+     */
+    economy_b: string;
+    /**
+     * Synergy Score
+     */
+    synergy_score: number;
+    /**
+     * Purity Achievable
+     */
+    purity_achievable?: number | null;
+    /**
+     * Contamination Paths
+     */
+    contamination_paths?: Array<unknown>;
+    [key: string]: unknown;
+};
+
+/**
+ * EvidenceRecordCreateRequest
+ */
+export type EvidenceRecordCreateRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Origin
+     */
+    origin?: string;
+    /**
+     * Subject Type
+     */
+    subject_type: string;
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    /**
+     * Evidence Type
+     */
+    evidence_type: string;
+    /**
+     * Record Status
+     */
+    record_status?: string;
+    /**
+     * Freshness Status
+     */
+    freshness_status?: string;
+    /**
+     * Confidence
+     */
+    confidence?: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Source Record Id
+     */
+    source_record_id?: string | null;
+    /**
+     * Source Run Key
+     */
+    source_run_key?: string | null;
+    /**
+     * Observed At
+     */
+    observed_at?: string | null;
+    /**
+     * Collected At
+     */
+    collected_at?: string | null;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Value
+     */
+    value?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Provenance
+     */
+    provenance?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * EvidenceRecordListResponse
+ */
+export type EvidenceRecordListResponse = {
+    /**
+     * Records
+     */
+    records: Array<EvidenceRecordResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * EvidenceRecordResponse
+ */
+export type EvidenceRecordResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Origin
+     */
+    origin?: string;
+    /**
+     * Subject Type
+     */
+    subject_type: string;
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    /**
+     * Evidence Type
+     */
+    evidence_type: string;
+    /**
+     * Record Status
+     */
+    record_status?: string;
+    /**
+     * Freshness Status
+     */
+    freshness_status?: string;
+    /**
+     * Confidence
+     */
+    confidence?: string;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Source Record Id
+     */
+    source_record_id?: string | null;
+    /**
+     * Source Run Key
+     */
+    source_run_key?: string | null;
+    /**
+     * Observed At
+     */
+    observed_at?: string | null;
+    /**
+     * Collected At
+     */
+    collected_at?: string | null;
+    /**
+     * Expires At
+     */
+    expires_at?: string | null;
+    /**
+     * Value
+     */
+    value?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Provenance
+     */
+    provenance?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Evidence Key
+     */
+    evidence_key: string;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+    /**
+     * Updated At
+     */
+    updated_at?: string | null;
+};
+
+/**
+ * EvidenceSourceCatalogEntryResponse
+ */
+export type EvidenceSourceCatalogEntryResponse = {
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Site Url
+     */
+    site_url: string;
+    /**
+     * Implementation Status
+     */
+    implementation_status: string;
+    /**
+     * Current Usage
+     */
+    current_usage: string;
+    /**
+     * Source Category
+     */
+    source_category: string;
+    /**
+     * Domains
+     */
+    domains: Array<string>;
+    /**
+     * Recommended Priority
+     */
+    recommended_priority: number;
+    /**
+     * Ingestion Modes
+     */
+    ingestion_modes: Array<string>;
+    /**
+     * Repo Surfaces
+     */
+    repo_surfaces: Array<string>;
+    /**
+     * Why This Matters
+     */
+    why_this_matters: string;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+};
+
+/**
+ * EvidenceSourceCatalogResponse
+ */
+export type EvidenceSourceCatalogResponse = {
+    /**
+     * Schema Version
+     */
+    schema_version: string;
+    /**
+     * Sources
+     */
+    sources: Array<EvidenceSourceCatalogEntryResponse>;
+};
+
+/**
+ * EvidenceSystemFocusAreaResponse
+ */
+export type EvidenceSystemFocusAreaResponse = {
+    /**
+     * Key
+     */
+    key: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Posture
+     */
+    posture: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Evidence Type
+     */
+    evidence_type?: string | null;
+    /**
+     * Evidence Key
+     */
+    evidence_key?: string | null;
+};
+
+/**
+ * EvidenceSystemSummaryResponse
+ */
+export type EvidenceSystemSummaryResponse = {
+    /**
+     * Schema Version
+     */
+    schema_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Observed Fact Count
+     */
+    observed_fact_count: number;
+    /**
+     * Imported Record Count
+     */
+    imported_record_count: number;
+    /**
+     * Derived Feature Count
+     */
+    derived_feature_count: number;
+    /**
+     * Open Rule Proposal Count
+     */
+    open_rule_proposal_count: number;
+    /**
+     * Focus Areas
+     */
+    focus_areas: Array<EvidenceSystemFocusAreaResponse>;
+    /**
+     * Records
+     */
+    records: Array<EvidenceRecordResponse>;
+    /**
+     * Derived Features
+     */
+    derived_features: Array<DerivedFeatureResponse>;
+    /**
+     * Open Rule Proposals
+     */
+    open_rule_proposals: Array<RuleProposalResponse>;
+};
+
+/**
+ * ExpeditionImport
+ */
+export type ExpeditionImport = {
+    /**
+     * Commander Id
+     */
+    commander_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * External Id
+     */
+    external_id?: string | null;
+    /**
+     * Waypoints
+     */
+    waypoints: Array<RouteWaypointInput>;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Organizer
+     */
+    organizer?: string | null;
+    /**
+     * Departure At
+     */
+    departure_at?: string | null;
+    /**
+     * Return At
+     */
+    return_at?: string | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ExplorationBodySummary
+ */
+export type ExplorationBodySummary = {
+    /**
+     * Expected
+     */
+    expected?: number | null;
+    /**
+     * Observed
+     */
+    observed?: number;
+    /**
+     * Scanned
+     */
+    scanned?: number;
+    /**
+     * Mapped
+     */
+    mapped?: number;
+    /**
+     * Fss Complete
+     */
+    fss_complete?: boolean;
+    /**
+     * Dss Complete
+     */
+    dss_complete?: boolean;
+    /**
+     * Map Progress
+     */
+    map_progress?: number;
+};
+
+/**
+ * ExplorationCodexByRegionResponse
+ */
+export type ExplorationCodexByRegionResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Regions
+     */
+    regions?: Array<ExplorationCodexRegion>;
+    /**
+     * Global Entries
+     */
+    global_entries: number;
+    /**
+     * Personal Entries
+     */
+    personal_entries: number;
+    /**
+     * Completion Percent
+     */
+    completion_percent?: number | null;
+};
+
+/**
+ * ExplorationCodexRegion
+ */
+export type ExplorationCodexRegion = {
+    /**
+     * Region
+     */
+    region: string;
+    /**
+     * Region Id
+     */
+    region_id?: number | null;
+    /**
+     * Global Entries
+     */
+    global_entries: number;
+    /**
+     * Personal Entries
+     */
+    personal_entries: number;
+    /**
+     * Sold Entries
+     */
+    sold_entries: number;
+    /**
+     * Completion Percent
+     */
+    completion_percent?: number | null;
+    /**
+     * Categories
+     */
+    categories?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ExplorationCodexSummary
+ */
+export type ExplorationCodexSummary = {
+    /**
+     * Observed
+     */
+    observed?: number;
+    /**
+     * Pending
+     */
+    pending?: number;
+    /**
+     * Sold
+     */
+    sold?: number;
+};
+
+/**
+ * ExplorationFactRow
+ */
+export type ExplorationFactRow = {
+    /**
+     * Fact Id
+     */
+    fact_id: number;
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Body Id
+     */
+    body_id?: number | null;
+    /**
+     * Body Name
+     */
+    body_name?: string | null;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Payload
+     */
+    payload?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Source
+     */
+    source: string;
+};
+
+/**
+ * ExplorationFactsResponse
+ */
+export type ExplorationFactsResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Facts
+     */
+    facts?: Array<ExplorationFactRow>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Next Cursor
+     */
+    next_cursor?: string | null;
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ExplorationImportReceipt
+ */
+export type ExplorationImportReceipt = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Status
+     */
+    status: string;
+    summary: ExplorationImportSummary;
+};
+
+/**
+ * ExplorationImportRequest
+ */
+export type ExplorationImportRequest = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Source
+     */
+    source?: 'journal' | 'edsm';
+    /**
+     * Observations
+     */
+    observations?: Array<ExplorationObservationInput>;
+};
+
+/**
+ * ExplorationImportSummary
+ */
+export type ExplorationImportSummary = {
+    /**
+     * Observations Received
+     */
+    observations_received: number;
+    /**
+     * Observations Staged
+     */
+    observations_staged: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+    /**
+     * Projections Rebuilt
+     */
+    projections_rebuilt?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ExplorationObservationInput
+ */
+export type ExplorationObservationInput = {
+    /**
+     * Observation Key
+     */
+    observation_key: string;
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Body Id
+     */
+    body_id?: string | null;
+    /**
+     * Body Name
+     */
+    body_name?: string | null;
+    /**
+     * Payload
+     */
+    payload?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ExplorationOrganicSummary
+ */
+export type ExplorationOrganicSummary = {
+    /**
+     * Organisms
+     */
+    organisms?: number;
+    /**
+     * Logged
+     */
+    logged?: number;
+    /**
+     * Sampled
+     */
+    sampled?: number;
+    /**
+     * Analysed
+     */
+    analysed?: number;
+    /**
+     * Sold
+     */
+    sold?: number;
+    /**
+     * Sale Value
+     */
+    sale_value?: number;
+};
+
+/**
+ * ExplorationSystemSummaryResponse
+ */
+export type ExplorationSystemSummaryResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    visits: ExplorationVisitSummary;
+    bodies: ExplorationBodySummary;
+    organics: ExplorationOrganicSummary;
+    codex: ExplorationCodexSummary;
+};
+
+/**
+ * ExplorationTrailPoint
+ */
+export type ExplorationTrailPoint = {
+    /**
+     * Sequence
+     */
+    sequence: number;
+    /**
+     * Fact Id
+     */
+    fact_id: number;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Visited At
+     */
+    visited_at: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    /**
+     * From System Id64
+     */
+    from_system_id64?: number | null;
+    /**
+     * Distance Ly
+     */
+    distance_ly?: number | null;
+};
+
+/**
+ * ExplorationTrailResponse
+ */
+export type ExplorationTrailResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Points
+     */
+    points?: Array<ExplorationTrailPoint>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Next Cursor
+     */
+    next_cursor?: number | null;
+};
+
+/**
+ * ExplorationValueModel
+ */
+export type ExplorationValueModel = {
+    /**
+     * Total Scan Value
+     */
+    total_scan_value?: number;
+    /**
+     * Total Mapping Value
+     */
+    total_mapping_value?: number;
+    /**
+     * Combined Value
+     */
+    combined_value?: number;
+    [key: string]: unknown;
+};
+
+/**
+ * ExplorationViewportVisit
+ */
+export type ExplorationViewportVisit = {
+    /**
+     * Kind
+     */
+    kind: 'marker' | 'density';
+    /**
+     * System Id64
+     */
+    system_id64?: number | null;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
+    /**
+     * Z
+     */
+    z: number;
+    /**
+     * Galaxy Region Id
+     */
+    galaxy_region_id?: number | null;
+    /**
+     * Visit Count
+     */
+    visit_count: number;
+    /**
+     * First Visited At
+     */
+    first_visited_at: string;
+    /**
+     * Last Visited At
+     */
+    last_visited_at: string;
+    /**
+     * Completion State
+     */
+    completion_state: 'complete' | 'partial';
+    /**
+     * Cell Size
+     */
+    cell_size?: number | null;
+};
+
+/**
+ * ExplorationViewportVisitsResponse
+ */
+export type ExplorationViewportVisitsResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Mode
+     */
+    mode: 'markers' | 'density';
+    /**
+     * Visits
+     */
+    visits?: Array<ExplorationViewportVisit>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Cell Size
+     */
+    cell_size?: number | null;
+};
+
+/**
+ * ExplorationVisitSummary
+ */
+export type ExplorationVisitSummary = {
+    /**
+     * Visit Count
+     */
+    visit_count?: number;
+    /**
+     * First Visited At
+     */
+    first_visited_at?: string | null;
+    /**
+     * Last Visited At
+     */
+    last_visited_at?: string | null;
+};
+
+/**
+ * FacilityTemplateResponse
+ */
+export type FacilityTemplateResponse = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Category
+     */
+    category: string;
+    /**
+     * Tier
+     */
+    tier: number;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Is Port
+     */
+    is_port: boolean;
+    /**
+     * Is Support Facility
+     */
+    is_support_facility: boolean;
+    /**
+     * Allowed Location
+     */
+    allowed_location: string;
+    /**
+     * Pad Size
+     */
+    pad_size?: string | null;
+    /**
+     * Confidence
+     */
+    confidence?: string | null;
+    /**
+     * Canonical Confidence
+     */
+    canonical_confidence?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Prerequisites
+     */
+    prerequisites?: Array<unknown>;
+    /**
+     * Economy Effects
+     */
+    economy_effects?: unknown;
+    /**
+     * Yellow Cp Generated
+     */
+    yellow_cp_generated?: number;
+    /**
+     * Green Cp Generated
+     */
+    green_cp_generated?: number;
+    /**
+     * Yellow Cp Cost
+     */
+    yellow_cp_cost?: number;
+    /**
+     * Green Cp Cost
+     */
+    green_cp_cost?: number;
+    /**
+     * Stat Effects
+     */
+    stat_effects?: unknown;
+};
+
+/**
+ * GalaxySearchRequest
+ */
+export type GalaxySearchRequest = {
+    /**
+     * Economy
+     */
+    economy?: 'any' | 'Agriculture' | 'Refinery' | 'Industrial' | 'HighTech' | 'Military' | 'Tourism' | 'Extraction' | null;
+    /**
+     * Min Score
+     */
+    min_score?: number;
+    /**
+     * Limit
+     */
+    limit?: number;
+    /**
+     * Offset
+     */
+    offset?: number;
+};
+
+/**
+ * HTTPValidationError
+ */
+export type HttpValidationError = {
+    /**
+     * Detail
+     */
+    detail?: Array<ValidationError>;
+};
+
+/**
+ * HealthResponse
+ */
+export type HealthResponse = {
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Database
+     */
+    database: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Build Sha
+     */
+    build_sha: string;
+};
+
+/**
+ * JournalImportClientManifest
+ */
+export type JournalImportClientManifest = {
+    /**
+     * Parser Version
+     */
+    parser_version: string;
+    /**
+     * Files
+     */
+    files?: Array<JournalImportFileRef>;
+};
+
+/**
+ * JournalImportFileRef
+ */
+export type JournalImportFileRef = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Event Count
+     */
+    event_count: number;
+};
+
+/**
+ * JournalImportReceipt
+ */
+export type JournalImportReceipt = {
+    /**
+     * Run Key
+     */
+    run_key: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Parser Version
+     */
+    parser_version: string;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Finished At
+     */
+    finished_at?: string | null;
+    /**
+     * Files
+     */
+    files?: Array<JournalImportFileRef>;
+    summary: JournalImportSummary;
+};
+
+/**
+ * JournalImportRequest
+ */
+export type JournalImportRequest = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    client_manifest: JournalImportClientManifest;
+    /**
+     * Evidence Mode
+     */
+    evidence_mode?: 'staging_only';
+    /**
+     * Observations
+     */
+    observations?: Array<JournalObservationInput>;
+};
+
+/**
+ * JournalImportSummary
+ */
+export type JournalImportSummary = {
+    /**
+     * Observations Received
+     */
+    observations_received: number;
+    /**
+     * Observations Staged
+     */
+    observations_staged: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped: number;
+    /**
+     * Conflicts Flagged
+     */
+    conflicts_flagged?: number;
+    /**
+     * Files Seen
+     */
+    files_seen: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * JournalObservationInput
+ */
+export type JournalObservationInput = {
+    /**
+     * Observation Key
+     */
+    observation_key: string;
+    /**
+     * Source File
+     */
+    source_file: string;
+    /**
+     * Source Offset
+     */
+    source_offset?: number;
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * Observed At
+     */
+    observed_at?: string | null;
+    /**
+     * System Id64
+     */
+    system_id64?: string | null;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Subject Type
+     */
+    subject_type: 'system' | 'body' | 'route';
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    /**
+     * Summary
+     */
+    summary?: string | null;
+    /**
+     * Payload
+     */
+    payload?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Privacy Boundary
+     */
+    privacy_boundary?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * JournalPromotionReceipt
+ */
+export type JournalPromotionReceipt = {
+    /**
+     * Run Key
+     */
+    run_key: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Promoted At
+     */
+    promoted_at?: string | null;
+    /**
+     * Duration Ms
+     */
+    duration_ms?: number;
+    summary: JournalPromotionSummary;
+};
+
+/**
+ * JournalPromotionSummary
+ */
+export type JournalPromotionSummary = {
+    /**
+     * Staged Rows Seen
+     */
+    staged_rows_seen: number;
+    /**
+     * Eligible Rows
+     */
+    eligible_rows: number;
+    /**
+     * Skipped Rows
+     */
+    skipped_rows: number;
+    /**
+     * Facts Promoted
+     */
+    facts_promoted: number;
+    /**
+     * Ring Rows Promoted
+     */
+    ring_rows_promoted: number;
+    /**
+     * Ring Rows Unresolved
+     */
+    ring_rows_unresolved: number;
+    /**
+     * Dirty Systems Marked
+     */
+    dirty_systems_marked: number;
+    /**
+     * Canonical Evidence Promoted
+     */
+    canonical_evidence_promoted?: number;
+    /**
+     * Canonical Evidence Deduped
+     */
+    canonical_evidence_deduped?: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+    /**
+     * Resolution Counts
+     */
+    resolution_counts?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * JournalTelemetryRecentRun
+ */
+export type JournalTelemetryRecentRun = {
+    /**
+     * Run Key
+     */
+    run_key: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Started At
+     */
+    started_at?: string | null;
+    /**
+     * Finished At
+     */
+    finished_at?: string | null;
+    /**
+     * Observations Staged
+     */
+    observations_staged?: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped?: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * JournalTelemetryRecentSystem
+ */
+export type JournalTelemetryRecentSystem = {
+    /**
+     * System Id64
+     */
+    system_id64: string;
+    /**
+     * System Name
+     */
+    system_name: string;
+    /**
+     * Last Observed At
+     */
+    last_observed_at?: string | null;
+    /**
+     * Event Count
+     */
+    event_count?: number;
+    /**
+     * Event Types
+     */
+    event_types?: Array<string>;
+};
+
+/**
+ * JournalTelemetrySummaryResponse
+ */
+export type JournalTelemetrySummaryResponse = {
+    /**
+     * Sync Key
+     */
+    sync_key: string;
+    /**
+     * Runs Count
+     */
+    runs_count?: number;
+    /**
+     * Last Imported At
+     */
+    last_imported_at?: string | null;
+    /**
+     * Observations Staged
+     */
+    observations_staged?: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped?: number;
+    /**
+     * Systems Observed
+     */
+    systems_observed?: number;
+    /**
+     * Body Observation Count
+     */
+    body_observation_count?: number;
+    /**
+     * Docked Observation Count
+     */
+    docked_observation_count?: number;
+    /**
+     * Event Counts
+     */
+    event_counts?: {
+        [key: string]: number;
+    };
+    /**
+     * Recent Runs
+     */
+    recent_runs?: Array<JournalTelemetryRecentRun>;
+    /**
+     * Recent Systems
+     */
+    recent_systems?: Array<JournalTelemetryRecentSystem>;
+};
+
+/**
+ * LayoutImportRequest
+ */
+export type LayoutImportRequest = {
+    /**
+     * Source
+     */
+    source?: 'spansh';
+};
+
+/**
+ * LayoutImportResponse
+ */
+export type LayoutImportResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Source
+     */
+    source: 'spansh';
+    /**
+     * Status
+     */
+    status: 'success' | 'partial' | 'failed';
+    /**
+     * Fetched At
+     */
+    fetched_at: string;
+    summary: LayoutImportSummary;
+    /**
+     * Warnings
+     */
+    warnings: Array<string>;
+    /**
+     * Errors
+     */
+    errors: Array<string>;
+};
+
+/**
+ * LayoutImportSummary
+ */
+export type LayoutImportSummary = {
+    /**
+     * Bodies Found
+     */
+    bodies_found: number;
+    /**
+     * Stations Found
+     */
+    stations_found: number;
+    /**
+     * Bodies Upserted
+     */
+    bodies_upserted: number;
+    /**
+     * Stations Upserted
+     */
+    stations_upserted: number;
+    /**
+     * Warnings Count
+     */
+    warnings_count: number;
+};
+
+/**
+ * LocalSearchRequest
+ */
+export type LocalSearchRequest = {
+    filters?: SearchFilters | null;
+    reference_coords?: CoordsModel | null;
+    /**
+     * Sort By
+     */
+    sort_by?: string | null;
+    /**
+     * Size
+     */
+    size?: number;
+    /**
+     * From
+     */
+    from?: number;
+    body_filters?: BodyFilters | null;
+    /**
+     * Require Bio
+     */
+    require_bio?: boolean | null;
+    /**
+     * Require Geo
+     */
+    require_geo?: boolean | null;
+    /**
+     * Require Terra
+     */
+    require_terra?: boolean | null;
+    /**
+     * Star Types
+     */
+    star_types?: Array<string> | null;
+    /**
+     * Min Development Score
+     */
+    min_development_score?: number | null;
+    /**
+     * Galaxy Wide
+     */
+    galaxy_wide?: boolean;
+};
+
+/**
+ * MapViewportResponse
+ *
+ * Response envelope for viewport system query.
+ */
+export type MapViewportResponse = {
+    /**
+     * Systems
+     */
+    systems: Array<MapViewportSystem>;
+    /**
+     * Truncated
+     */
+    truncated?: boolean;
+};
+
+/**
+ * MapViewportSystem
+ *
+ * Individual system in a viewport query result.
+ */
+export type MapViewportSystem = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * X
+     */
+    x: number;
+    /**
+     * Y
+     */
+    y: number;
+    /**
+     * Z
+     */
+    z: number;
+    /**
+     * Main Star Class
+     */
+    main_star_class?: string | null;
+    /**
+     * Populated
+     */
+    populated: boolean;
+    [key: string]: unknown;
+};
+
+/**
+ * NoteBody
+ */
+export type NoteBody = {
+    /**
+     * Note
+     */
+    note: string;
+};
+
+/**
+ * ObservationEvidenceMatchResponse
+ */
+export type ObservationEvidenceMatchResponse = {
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Fact Type
+     */
+    fact_type: string;
+    /**
+     * Subject Type
+     */
+    subject_type: string;
+    /**
+     * Subject Id
+     */
+    subject_id: string | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Confidence
+     */
+    confidence: string;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Expected Value
+     */
+    expected_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+};
+
+/**
+ * ObservationFactSummaryResponse
+ */
+export type ObservationFactSummaryResponse = {
+    /**
+     * Total Count
+     */
+    total_count: number;
+    /**
+     * By Fact Type
+     */
+    by_fact_type: {
+        [key: string]: number;
+    };
+    /**
+     * By Status
+     */
+    by_status: {
+        [key: string]: number;
+    };
+    /**
+     * By Confidence
+     */
+    by_confidence: {
+        [key: string]: number;
+    };
+    /**
+     * Latest Observed At
+     */
+    latest_observed_at: string | null;
+};
+
+/**
+ * ObservationSource
+ */
+export type ObservationSource = 'manual' | 'imported' | 'inferred' | 'test_fixture';
+
+/**
+ * ObservedConfidence
+ *
+ * User-submitted observation confidence (3-value scale).
+ *
+ * Maps to CRE confidence bands via from_canonical().
+ * Ref: docs/reference/colonisation/confidence-vocabulary-reconciliation.md §7.2
+ */
+export type ObservedConfidence = 'low' | 'medium' | 'high';
+
+/**
+ * ObservedFactCreateRequest
+ */
+export type ObservedFactCreateRequest = {
+    source?: ObservationSource;
+    fact_type: ObservedFactType;
+    subject_type: ObservedSubjectType;
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    status: ObservedStatus;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Expected Value
+     */
+    expected_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    confidence?: ObservedConfidence;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Build Fingerprint
+     */
+    build_fingerprint?: string | null;
+    /**
+     * Simulation Fingerprint
+     */
+    simulation_fingerprint?: string | null;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Facility Template Id
+     */
+    facility_template_id?: string | null;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Service Id
+     */
+    service_id?: string | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * System Id64
+     */
+    system_id64: number;
+};
+
+/**
+ * ObservedFactDeleteResponse
+ */
+export type ObservedFactDeleteResponse = {
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Deleted
+     */
+    deleted: boolean;
+};
+
+/**
+ * ObservedFactInput
+ *
+ * Fact-shaped object accepted by the Stage 6C compare endpoint.
+ */
+export type ObservedFactInput = {
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at?: string | null;
+    source?: ObservationSource;
+    fact_type: ObservedFactType;
+    subject_type: ObservedSubjectType;
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    status: ObservedStatus;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Expected Value
+     */
+    expected_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    confidence?: ObservedConfidence;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Build Fingerprint
+     */
+    build_fingerprint?: string | null;
+    /**
+     * Simulation Fingerprint
+     */
+    simulation_fingerprint?: string | null;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Facility Template Id
+     */
+    facility_template_id?: string | null;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Service Id
+     */
+    service_id?: string | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ObservedFactListResponse
+ */
+export type ObservedFactListResponse = {
+    /**
+     * Facts
+     */
+    facts: Array<ObservedFactResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+    summary: ObservationFactSummaryResponse;
+};
+
+/**
+ * ObservedFactResponse
+ */
+export type ObservedFactResponse = {
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string | null;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Fact Type
+     */
+    fact_type: string;
+    /**
+     * Subject Type
+     */
+    subject_type: string;
+    /**
+     * Subject Id
+     */
+    subject_id: string | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Expected Value
+     */
+    expected_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Confidence
+     */
+    confidence: string;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Build Fingerprint
+     */
+    build_fingerprint?: string | null;
+    /**
+     * Simulation Fingerprint
+     */
+    simulation_fingerprint?: string | null;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Facility Template Id
+     */
+    facility_template_id?: string | null;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Service Id
+     */
+    service_id?: string | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Canonical Confidence
+     */
+    canonical_confidence?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * ObservedFactType
+ */
+export type ObservedFactType = 'service_presence' | 'economy_presence' | 'facility_state' | 'cp_value' | 'build_outcome' | 'prediction_match' | 'prediction_mismatch' | 'note';
+
+/**
+ * ObservedFactUpdateRequest
+ */
+export type ObservedFactUpdateRequest = {
+    source?: ObservationSource | null;
+    fact_type?: ObservedFactType | null;
+    subject_type?: ObservedSubjectType | null;
+    /**
+     * Subject Id
+     */
+    subject_id?: string | null;
+    status?: ObservedStatus | null;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Expected Value
+     */
+    expected_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    confidence?: ObservedConfidence | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Build Fingerprint
+     */
+    build_fingerprint?: string | null;
+    /**
+     * Simulation Fingerprint
+     */
+    simulation_fingerprint?: string | null;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Facility Template Id
+     */
+    facility_template_id?: string | null;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Service Id
+     */
+    service_id?: string | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string> | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * ObservedStatus
+ */
+export type ObservedStatus = 'observed_present' | 'observed_absent' | 'confirmed' | 'contradicted' | 'unknown' | 'unverified';
+
+/**
+ * ObservedSubjectType
+ */
+export type ObservedSubjectType = 'system' | 'body' | 'facility' | 'service' | 'economy' | 'build' | 'simulation' | 'cp';
+
+/**
+ * OptimiserCandidate
+ *
+ * A single bounded Stage 5A candidate plan.
+ */
+export type OptimiserCandidate = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Strategy
+     */
+    strategy: string;
+    /**
+     * Placements
+     */
+    placements: Array<OptimiserCandidatePlacement>;
+    /**
+     * Rationale
+     */
+    rationale?: Array<string>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    preview_summary?: OptimiserCandidatePreviewSummary | null;
+};
+
+/**
+ * OptimiserCandidatePlacement
+ *
+ * One facility placement in an optimiser candidate.
+ */
+export type OptimiserCandidatePlacement = {
+    /**
+     * Facility Template Id
+     */
+    facility_template_id: string;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Is Primary Port
+     */
+    is_primary_port?: boolean;
+    /**
+     * Build Order
+     */
+    build_order?: number;
+};
+
+/**
+ * OptimiserCandidatePreviewSummary
+ *
+ * Lightweight optimiser-specific summary of Simulation Preview output.
+ */
+export type OptimiserCandidatePreviewSummary = {
+    /**
+     * Final Score
+     */
+    final_score?: number | null;
+    /**
+     * Composition Score
+     */
+    composition_score?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Warnings Count
+     */
+    warnings_count?: number;
+    /**
+     * Cp Negative
+     */
+    cp_negative?: boolean | null;
+    /**
+     * Top Two Alignment
+     */
+    top_two_alignment?: string | null;
+};
+
+/**
+ * OptimiserCandidatesRequest
+ *
+ * Request for bounded deterministic Stage 5A candidate generation.
+ */
+export type OptimiserCandidatesRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Target Archetype Key
+     */
+    target_archetype_key?: string | null;
+    /**
+     * Max Candidates
+     */
+    max_candidates?: number;
+    /**
+     * Preferred Body Ids
+     */
+    preferred_body_ids?: Array<string>;
+    /**
+     * Allow Estimated Data
+     */
+    allow_estimated_data?: boolean;
+    /**
+     * Run Preview
+     */
+    run_preview?: boolean;
+    /**
+     * Include Ranking
+     */
+    include_ranking?: boolean;
+};
+
+/**
+ * OptimiserCandidatesResponse
+ *
+ * Response envelope for bounded deterministic Stage 5A candidates.
+ */
+export type OptimiserCandidatesResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Candidate Count
+     */
+    candidate_count: number;
+    /**
+     * Candidates
+     */
+    candidates: Array<OptimiserCandidate>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+    ranking?: OptimiserRankingResponse | null;
+};
+
+/**
+ * OptimiserRankBreakdown
+ *
+ * Structured explanation for a ranked optimiser candidate.
+ */
+export type OptimiserRankBreakdown = {
+    /**
+     * Preview Score Component
+     */
+    preview_score_component?: number;
+    /**
+     * Composition Component
+     */
+    composition_component?: number;
+    /**
+     * Buildability Component
+     */
+    buildability_component?: number;
+    /**
+     * Confidence Component
+     */
+    confidence_component?: number;
+    /**
+     * Alignment Component
+     */
+    alignment_component?: number;
+    /**
+     * Warning Penalty
+     */
+    warning_penalty?: number;
+    /**
+     * Cp Penalty
+     */
+    cp_penalty?: number;
+    /**
+     * Strategy Modifier
+     */
+    strategy_modifier?: number;
+    /**
+     * Total Score
+     */
+    total_score?: number;
+    /**
+     * Reasons
+     */
+    reasons?: Array<string>;
+};
+
+/**
+ * OptimiserRankedCandidate
+ *
+ * Ranking entry that references a candidate by ID without duplicating it.
+ */
+export type OptimiserRankedCandidate = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Rank
+     */
+    rank: number;
+    /**
+     * Rank Score
+     */
+    rank_score: number;
+    /**
+     * Rank Tier
+     */
+    rank_tier: string;
+    rank_breakdown: OptimiserRankBreakdown;
+};
+
+/**
+ * OptimiserRankingResponse
+ *
+ * Top-level optional Stage 5B ranking result.
+ */
+export type OptimiserRankingResponse = {
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Ranked Candidates
+     */
+    ranked_candidates: Array<OptimiserRankedCandidate>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+};
+
+/**
+ * OwnerClaimRequest
+ */
+export type OwnerClaimRequest = {
+    /**
+     * Admin Token
+     */
+    admin_token: string;
+};
+
+/**
+ * PlannedFacility
+ *
+ * One facility in a build simulation plan.
+ */
+export type PlannedFacility = {
+    /**
+     * Type
+     */
+    type: string;
+    /**
+     * Tier
+     */
+    tier?: number | null;
+    /**
+     * Body
+     */
+    body?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * PlannedRouteImport
+ */
+export type PlannedRouteImport = {
+    /**
+     * Commander Id
+     */
+    commander_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * External Id
+     */
+    external_id?: string | null;
+    /**
+     * Route Mode
+     */
+    route_mode?: 'exact' | 'neutron' | 'carrier';
+    /**
+     * Waypoints
+     */
+    waypoints: Array<RouteWaypointInput>;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * PowerplayChangeEvent
+ */
+export type PowerplayChangeEvent = {
+    /**
+     * System Address
+     */
+    system_address: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Cycle Start
+     */
+    cycle_start: string;
+    /**
+     * Changes
+     */
+    changes: {
+        [key: string]: {
+            [key: string]: unknown;
+        };
+    };
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+};
+
+/**
+ * PowerplayContribution
+ */
+export type PowerplayContribution = {
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Power
+     */
+    power?: unknown;
+    /**
+     * Merits Gained
+     */
+    merits_gained?: unknown;
+    /**
+     * Total Merits
+     */
+    total_merits?: unknown;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+};
+
+/**
+ * PowerplayCycleSnapshot
+ */
+export type PowerplayCycleSnapshot = {
+    /**
+     * Week
+     */
+    week: string;
+    /**
+     * Cycle Start
+     */
+    cycle_start: string;
+    /**
+     * Captured At
+     */
+    captured_at: string;
+    /**
+     * Control Snapshot
+     */
+    control_snapshot: {
+        [key: string]: unknown;
+    };
+    /**
+     * Snapshot Hash
+     */
+    snapshot_hash: string;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+};
+
+/**
+ * PowerplayHistoryResponse
+ */
+export type PowerplayHistoryResponse = {
+    /**
+     * Commander Key
+     */
+    commander_key: string;
+    /**
+     * Cycles
+     */
+    cycles: Array<PowerplayCycleSnapshot>;
+    /**
+     * Change Events
+     */
+    change_events: Array<PowerplayChangeEvent>;
+    /**
+     * Snapshot Version
+     */
+    snapshot_version?: string;
+};
+
+/**
+ * PowerplayImportReceipt
+ */
+export type PowerplayImportReceipt = {
+    /**
+     * Commander Key
+     */
+    commander_key: string;
+    /**
+     * Events Received
+     */
+    events_received: number;
+    /**
+     * System Observations Staged
+     */
+    system_observations_staged: number;
+    /**
+     * Commander Events Staged
+     */
+    commander_events_staged: number;
+    /**
+     * Duplicates Skipped
+     */
+    duplicates_skipped: number;
+    /**
+     * Cycles Versioned
+     */
+    cycles_versioned: number;
+};
+
+/**
+ * PowerplayImportRequest
+ */
+export type PowerplayImportRequest = {
+    /**
+     * Commander Key
+     */
+    commander_key: string;
+    /**
+     * Source
+     */
+    source?: 'journal';
+    /**
+     * Source Version
+     */
+    source_version: string;
+    /**
+     * Events
+     */
+    events?: Array<PowerplayJournalEventInput>;
+};
+
+/**
+ * PowerplayJournalEventInput
+ */
+export type PowerplayJournalEventInput = {
+    /**
+     * Observation Key
+     */
+    observation_key: string;
+    /**
+     * Event Type
+     */
+    event_type: string;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Game Build
+     */
+    game_build?: string | null;
+    /**
+     * Source Payload
+     */
+    source_payload: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * PowerplaySystemState
+ */
+export type PowerplaySystemState = {
+    /**
+     * System Address
+     */
+    system_address: number;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Controlling Power
+     */
+    controlling_power?: unknown;
+    /**
+     * Control State
+     */
+    control_state?: unknown;
+    /**
+     * Control Progress
+     */
+    control_progress?: unknown;
+    /**
+     * Reinforcement Points
+     */
+    reinforcement_points?: unknown;
+    /**
+     * Undermining Points
+     */
+    undermining_points?: unknown;
+    /**
+     * Powers
+     */
+    powers?: Array<unknown>;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Cycle Start
+     */
+    cycle_start: string;
+    /**
+     * Game Build
+     */
+    game_build?: string | null;
+    /**
+     * Source Payload
+     */
+    source_payload: {
+        [key: string]: unknown;
+    };
+    /**
+     * Observation Age Seconds
+     */
+    observation_age_seconds: number;
+    /**
+     * Uncertainty
+     */
+    uncertainty: 'low' | 'medium' | 'high';
+    /**
+     * Uncertainty Reasons
+     */
+    uncertainty_reasons?: Array<string>;
+    /**
+     * Value Provenance
+     */
+    value_provenance?: {
+        [key: string]: PowerplayValueEvidence;
+    };
+};
+
+/**
+ * PowerplaySystemsResponse
+ */
+export type PowerplaySystemsResponse = {
+    /**
+     * Commander Key
+     */
+    commander_key: string;
+    /**
+     * Systems
+     */
+    systems: Array<PowerplaySystemState>;
+    /**
+     * Count
+     */
+    count: number;
+    /**
+     * Truncated
+     */
+    truncated: boolean;
+    /**
+     * Snapshot Version
+     */
+    snapshot_version?: string;
+};
+
+/**
+ * PowerplayValueEvidence
+ */
+export type PowerplayValueEvidence = {
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    [key: string]: unknown;
+};
+
+/**
+ * PredictionObservationCompareRequest
+ *
+ * Request payload for ``POST /api/observations/compare``.
+ *
+ * Two modes:
+ *
+ * * **Mode A** — supply only ``system_id64``, ``target_archetype`` and
+ * ``prediction``. The router loads observed facts for the system
+ * from the persisted Stage 6A store.
+ * * **Mode B** — supply ``observed_facts`` explicitly (in addition to
+ * the other fields). The router will NOT hit the database for facts
+ * and will use the supplied list verbatim.
+ */
+export type PredictionObservationCompareRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Prediction
+     */
+    prediction: {
+        [key: string]: unknown;
+    };
+    /**
+     * Observed Facts
+     */
+    observed_facts?: Array<ObservedFactInput> | null;
+    /**
+     * Fact Load Limit
+     */
+    fact_load_limit?: number;
+};
+
+/**
+ * PredictionObservationCompareResponse
+ */
+export type PredictionObservationCompareResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string | null;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    summary: PredictionObservationComparisonSummaryResponse;
+    /**
+     * Comparisons
+     */
+    comparisons?: Array<PredictionObservationComparisonResponse>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+};
+
+/**
+ * PredictionObservationComparisonResponse
+ */
+export type PredictionObservationComparisonResponse = {
+    /**
+     * Comparison Id
+     */
+    comparison_id: string;
+    /**
+     * Area
+     */
+    area: string;
+    /**
+     * Subject Type
+     */
+    subject_type: string;
+    /**
+     * Subject Id
+     */
+    subject_id: string | null;
+    /**
+     * Predicted Value
+     */
+    predicted_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Observed Value
+     */
+    observed_value?: string | number | number | boolean | {
+        [key: string]: unknown;
+    } | Array<unknown> | null;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Severity
+     */
+    severity: string;
+    /**
+     * Confidence
+     */
+    confidence: string;
+    /**
+     * Reason
+     */
+    reason: string;
+    /**
+     * Recommended Action
+     */
+    recommended_action?: string | null;
+    /**
+     * Evidence
+     */
+    evidence?: Array<ObservationEvidenceMatchResponse>;
+    /**
+     * Prediction Source
+     */
+    prediction_source?: string | null;
+    /**
+     * Canonical Confidence
+     */
+    canonical_confidence?: {
+        [key: string]: unknown;
+    } | null;
+};
+
+/**
+ * PredictionObservationComparisonSummaryResponse
+ */
+export type PredictionObservationComparisonSummaryResponse = {
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Observed Facts Count
+     */
+    observed_facts_count: number;
+    /**
+     * Compared Predictions Count
+     */
+    compared_predictions_count: number;
+    /**
+     * Confirmed Count
+     */
+    confirmed_count: number;
+    /**
+     * Contradicted Count
+     */
+    contradicted_count: number;
+    /**
+     * Observed Only Count
+     */
+    observed_only_count: number;
+    /**
+     * Predicted Only Count
+     */
+    predicted_only_count: number;
+    /**
+     * Unknown Count
+     */
+    unknown_count: number;
+    /**
+     * Unverified Count
+     */
+    unverified_count: number;
+    /**
+     * Confidence Impact
+     */
+    confidence_impact: string;
+    /**
+     * Summary
+     */
+    summary: string;
+};
+
+/**
+ * ProfileSyncBlob
+ *
+ * The shape is intentionally `Any` — the frontend owns the schema.
+ *
+ * This is a pastebin slot; we don't validate sub-fields because the
+ * feature set evolves on the client and the backend shouldn't be a
+ * moving target every time we add a new tab.
+ */
+export type ProfileSyncBlob = {
+    /**
+     * Blob
+     *
+     * Arbitrary client-managed payload.
+     */
+    blob: unknown;
+};
+
+/**
+ * RangeFilter
+ *
+ * Inclusive numeric range used by `SearchFilters.distance` /
+ * `.population`. Either bound is optional — omit `min` for an upper-
+ * only filter, omit `max` for a lower-only one. (Frontend always
+ * sends both today; keep them optional so a future client can omit.)
+ */
+export type RangeFilter = {
+    /**
+     * Min
+     */
+    min?: number | null;
+    /**
+     * Max
+     */
+    max?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * RecommendedBuildPlan
+ */
+export type RecommendedBuildPlan = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Complexity
+     */
+    complexity: 'simple' | 'moderate' | 'advanced' | 'expert';
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Final Score
+     */
+    final_score: number;
+    /**
+     * Composition Score
+     */
+    composition_score: number;
+    /**
+     * Buildability Score
+     */
+    buildability_score: number;
+    /**
+     * Economy Result
+     */
+    economy_result?: {
+        [key: string]: number;
+    };
+    /**
+     * Port Economy Summary
+     */
+    port_economy_summary?: Array<string>;
+    cp_result: SimulationCpResult;
+    /**
+     * Build Order
+     */
+    build_order?: Array<SimulateBuildPlacement>;
+    /**
+     * Strengths
+     */
+    strengths?: Array<string>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Tradeoffs
+     */
+    tradeoffs?: Array<string>;
+    /**
+     * Next Actions
+     */
+    next_actions?: Array<string>;
+    /**
+     * Selected Body Id
+     */
+    selected_body_id?: string | null;
+    /**
+     * Selected Body Name
+     */
+    selected_body_name?: string | null;
+    /**
+     * Body Selection Reason
+     */
+    body_selection_reason?: string;
+    /**
+     * Mechanics Basis
+     */
+    mechanics_basis?: Array<string>;
+    /**
+     * Economy Caveats
+     */
+    economy_caveats?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+    /**
+     * Regional Role
+     */
+    regional_role?: string | null;
+    /**
+     * Nearest Colony Distance
+     */
+    nearest_colony_distance?: number | null;
+    /**
+     * Archetype Regional Fit
+     */
+    archetype_regional_fit?: number | null;
+    /**
+     * Regional Rationale
+     */
+    regional_rationale?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Decision Explanation
+     */
+    decision_explanation?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Rank Breakdown
+     */
+    rank_breakdown?: {
+        [key: string]: number;
+    };
+    simulation_request: SimulateBuildRequest;
+    /**
+     * Is Default
+     */
+    is_default?: boolean;
+};
+
+/**
+ * RecommendedBuildStep
+ */
+export type RecommendedBuildStep = {
+    /**
+     * Step
+     */
+    step: number;
+    /**
+     * Facility Id
+     */
+    facility_id?: string | null;
+    /**
+     * Facility Name
+     */
+    facility_name?: string | null;
+    /**
+     * Location
+     */
+    location?: string | null;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Cumulative Yellow Cp
+     */
+    cumulative_yellow_cp?: number | null;
+    /**
+     * Cumulative Green Cp
+     */
+    cumulative_green_cp?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * RecommendedBuildsResponse
+ */
+export type RecommendedBuildsResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version?: string;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Best Suggested Archetype
+     */
+    best_suggested_archetype: string;
+    /**
+     * Recommended Next Action
+     */
+    recommended_next_action: string;
+    /**
+     * Plans
+     */
+    plans?: Array<RecommendedBuildPlan>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+};
+
+/**
+ * RegionalAnalysisResponse
+ */
+export type RegionalAnalysisResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version?: string;
+    /**
+     * Claim Range Ly
+     */
+    claim_range_ly?: number;
+    /**
+     * Analysis Radius Ly
+     */
+    analysis_radius_ly?: number;
+    /**
+     * Nearest Colonised System
+     */
+    nearest_colonised_system?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Counts
+     */
+    counts?: {
+        [key: string]: number;
+    };
+    /**
+     * Scores
+     */
+    scores?: {
+        [key: string]: number;
+    };
+    /**
+     * Regional Role
+     */
+    regional_role?: string;
+    /**
+     * Archetype Regional Fit
+     */
+    archetype_regional_fit?: {
+        [key: string]: number;
+    };
+    /**
+     * Rationale
+     */
+    rationale?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Data Quality
+     */
+    data_quality?: {
+        [key: string]: string;
+    };
+    /**
+     * Confidence Signals
+     */
+    confidence_signals?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Computed At
+     */
+    computed_at?: unknown | null;
+};
+
+/**
+ * RouteAlignment
+ */
+export type RouteAlignment = {
+    /**
+     * Planned Order
+     */
+    planned_order: number;
+    waypoint: RouteWaypointOutput;
+    /**
+     * Visited
+     */
+    visited: boolean;
+    /**
+     * Actual Event Order
+     */
+    actual_event_order?: number | null;
+    /**
+     * Visited At
+     */
+    visited_at?: string | null;
+    /**
+     * Distance From Planned
+     */
+    distance_from_planned?: number | null;
+};
+
+/**
+ * RouteDetail
+ */
+export type RouteDetail = {
+    /**
+     * Route Id
+     */
+    route_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Type
+     */
+    type: 'personal' | 'journal' | 'spansh' | 'expedition';
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Waypoint Count
+     */
+    waypoint_count: number;
+    /**
+     * Visited Count
+     */
+    visited_count: number;
+    /**
+     * Completion Percent
+     */
+    completion_percent: number;
+    /**
+     * Remaining Distance
+     */
+    remaining_distance: number;
+    /**
+     * Current Waypoint Index
+     */
+    current_waypoint_index?: number | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Waypoints
+     */
+    waypoints?: Array<RouteWaypointOutput>;
+    /**
+     * Events
+     */
+    events?: Array<RouteEvent>;
+    /**
+     * Planned Actual Alignment
+     */
+    planned_actual_alignment?: Array<RouteAlignment>;
+};
+
+/**
+ * RouteEvent
+ */
+export type RouteEvent = {
+    /**
+     * System Id64
+     */
+    system_id64?: number | null;
+    /**
+     * System Name
+     */
+    system_name: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Visited At
+     */
+    visited_at: string;
+    /**
+     * Distance From Planned
+     */
+    distance_from_planned?: number | null;
+    /**
+     * Order
+     */
+    order: number;
+    /**
+     * Context
+     */
+    context?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * RouteListResponse
+ */
+export type RouteListResponse = {
+    /**
+     * Routes
+     */
+    routes?: Array<RouteSummary>;
+    /**
+     * Count
+     */
+    count: number;
+};
+
+/**
+ * RouteSummary
+ */
+export type RouteSummary = {
+    /**
+     * Route Id
+     */
+    route_id: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Source
+     */
+    source: string;
+    /**
+     * Type
+     */
+    type: 'personal' | 'journal' | 'spansh' | 'expedition';
+    /**
+     * Created At
+     */
+    created_at: string;
+    /**
+     * Updated At
+     */
+    updated_at: string;
+    /**
+     * Waypoint Count
+     */
+    waypoint_count: number;
+    /**
+     * Visited Count
+     */
+    visited_count: number;
+    /**
+     * Completion Percent
+     */
+    completion_percent: number;
+    /**
+     * Remaining Distance
+     */
+    remaining_distance: number;
+    /**
+     * Current Waypoint Index
+     */
+    current_waypoint_index?: number | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * RouteWaypoint
+ */
+export type RouteWaypointInput = {
+    /**
+     * Order
+     */
+    order: number;
+    /**
+     * System Id64
+     */
+    system_id64?: number | null;
+    /**
+     * System Name
+     */
+    system_name: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Distance From Previous
+     */
+    distance_from_previous?: number | null;
+    /**
+     * Bookmarked
+     */
+    bookmarked?: boolean;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+    /**
+     * Source Event Key
+     */
+    source_event_key?: string | null;
+};
+
+/**
+ * RouteWaypoint
+ */
+export type RouteWaypointOutput = {
+    /**
+     * Order
+     */
+    order: number;
+    /**
+     * System Id64
+     */
+    system_id64?: number | null;
+    /**
+     * System Name
+     */
+    system_name: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Distance From Previous
+     */
+    distance_from_previous?: number | null;
+    /**
+     * Bookmarked
+     */
+    bookmarked?: boolean;
+    /**
+     * Notes
+     */
+    notes?: string | null;
+};
+
+/**
+ * RuleDecisionRequest
+ */
+export type RuleDecisionRequest = {
+    /**
+     * Decision
+     */
+    decision: string;
+    /**
+     * Decided By
+     */
+    decided_by: string;
+    /**
+     * Reason
+     */
+    reason?: string | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * RuleDecisionResponse
+ */
+export type RuleDecisionResponse = {
+    /**
+     * Decision Id
+     */
+    decision_id: number;
+    /**
+     * Proposal Key
+     */
+    proposal_key: string;
+    /**
+     * Decision
+     */
+    decision: string;
+    /**
+     * Decided By
+     */
+    decided_by: string;
+    /**
+     * Reason
+     */
+    reason?: string | null;
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+};
+
+/**
+ * RuleProposalCreateRequest
+ */
+export type RuleProposalCreateRequest = {
+    /**
+     * Proposal Type
+     */
+    proposal_type: string;
+    /**
+     * Domain
+     */
+    domain: string;
+    /**
+     * Scope Type
+     */
+    scope_type: string;
+    /**
+     * Scope Key
+     */
+    scope_key: string;
+    /**
+     * Status
+     */
+    status?: string;
+    /**
+     * Priority
+     */
+    priority?: string;
+    /**
+     * Risk Level
+     */
+    risk_level?: string;
+    /**
+     * Auto Approval Eligible
+     */
+    auto_approval_eligible?: boolean;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Proposed By
+     */
+    proposed_by: string;
+    /**
+     * Decision Notes
+     */
+    decision_notes?: string | null;
+    /**
+     * Proposed Change
+     */
+    proposed_change?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<string>;
+    /**
+     * Impact Summary
+     */
+    impact_summary?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * RuleProposalListResponse
+ */
+export type RuleProposalListResponse = {
+    /**
+     * Proposals
+     */
+    proposals: Array<RuleProposalResponse>;
+    /**
+     * Total
+     */
+    total: number;
+    /**
+     * Limit
+     */
+    limit: number;
+    /**
+     * Offset
+     */
+    offset: number;
+};
+
+/**
+ * RuleProposalResponse
+ */
+export type RuleProposalResponse = {
+    /**
+     * Proposal Type
+     */
+    proposal_type: string;
+    /**
+     * Domain
+     */
+    domain: string;
+    /**
+     * Scope Type
+     */
+    scope_type: string;
+    /**
+     * Scope Key
+     */
+    scope_key: string;
+    /**
+     * Status
+     */
+    status?: string;
+    /**
+     * Priority
+     */
+    priority?: string;
+    /**
+     * Risk Level
+     */
+    risk_level?: string;
+    /**
+     * Auto Approval Eligible
+     */
+    auto_approval_eligible?: boolean;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Proposed By
+     */
+    proposed_by: string;
+    /**
+     * Decision Notes
+     */
+    decision_notes?: string | null;
+    /**
+     * Proposed Change
+     */
+    proposed_change?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<string>;
+    /**
+     * Impact Summary
+     */
+    impact_summary?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Metadata
+     */
+    metadata?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Proposal Key
+     */
+    proposal_key: string;
+    /**
+     * Decided By
+     */
+    decided_by?: string | null;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+    /**
+     * Updated At
+     */
+    updated_at?: string | null;
+    /**
+     * Decided At
+     */
+    decided_at?: string | null;
+};
+
+/**
+ * SearchFilters
+ */
+export type SearchFilters = {
+    distance?: RangeFilter | null;
+    population?: RangeFilter | null;
+    /**
+     * Economy
+     */
+    economy?: 'any' | 'Agriculture' | 'Refinery' | 'Industrial' | 'HighTech' | 'Military' | 'Tourism' | 'Extraction' | null;
+};
+
+/**
+ * SearchResponse
+ *
+ * `/api/local/search` response.
+ */
+export type SearchResponse = {
+    /**
+     * Results
+     */
+    results: Array<SystemRow>;
+    /**
+     * Total
+     */
+    total?: number;
+    /**
+     * Count
+     */
+    count?: number;
+    /**
+     * Source
+     */
+    source?: string | null;
+    /**
+     * Query Ms
+     */
+    query_ms?: number | null;
+    /**
+     * Display Economy
+     */
+    display_economy?: string | null;
+    /**
+     * Total Is Capped
+     */
+    total_is_capped?: boolean | null;
+    /**
+     * Warning
+     */
+    warning?: string | null;
+};
+
+/**
+ * SimulateBuildPlacement
+ *
+ * One user-selected facility placement in Simulation Preview.
+ */
+export type SimulateBuildPlacement = {
+    /**
+     * Facility Template Id
+     */
+    facility_template_id: string;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Is Primary Port
+     */
+    is_primary_port?: boolean;
+    /**
+     * Build Order
+     */
+    build_order?: number;
+};
+
+/**
+ * SimulateBuildRequest
+ */
+export type SimulateBuildRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Placements
+     */
+    placements?: Array<SimulateBuildPlacement>;
+};
+
+/**
+ * SimulateBuildResponse
+ */
+export type SimulateBuildResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version?: string;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string;
+    /**
+     * Final Score
+     */
+    final_score: number;
+    /**
+     * Composition Score
+     */
+    composition_score: number;
+    /**
+     * Buildability Score
+     */
+    buildability_score: number;
+    /**
+     * Build Complexity
+     */
+    build_complexity: 'simple' | 'moderate' | 'advanced' | 'expert';
+    /**
+     * Confidence
+     */
+    confidence: number;
+    cp: SimulationCpResult;
+    /**
+     * Cp Timeline
+     */
+    cp_timeline?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Cp Repair Suggestions
+     */
+    cp_repair_suggestions?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Observation Summary
+     */
+    observation_summary?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Prediction Observation Diffs
+     */
+    prediction_observation_diffs?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Economy Composition
+     */
+    economy_composition?: {
+        [key: string]: number;
+    };
+    /**
+     * Economy Order
+     */
+    economy_order?: Array<string>;
+    /**
+     * Economy Stack
+     */
+    economy_stack?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Port Economy States
+     */
+    port_economy_states?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Influence Ledger
+     */
+    influence_ledger?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Inherited Economies
+     */
+    inherited_economies?: Array<SimulationInheritedEconomy>;
+    /**
+     * Topology
+     */
+    topology?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Services
+     */
+    services?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Port Service States
+     */
+    port_service_states?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Service Unlock Ledger
+     */
+    service_unlock_ledger?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Data Quality
+     */
+    data_quality?: {
+        [key: string]: string;
+    };
+    /**
+     * Confidence Signals
+     */
+    confidence_signals?: Array<{
+        [key: string]: unknown;
+    }>;
+    /**
+     * Mechanics Trace
+     */
+    mechanics_trace?: {
+        [key: string]: Array<{
+            [key: string]: unknown;
+        }>;
+    };
+    /**
+     * Top Two Alignment
+     */
+    top_two_alignment: string;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk: string;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Strengths
+     */
+    strengths?: Array<string>;
+    /**
+     * Recommendations
+     */
+    recommendations?: Array<string>;
+    /**
+     * Mechanics Notes
+     */
+    mechanics_notes?: Array<string>;
+    links: SimulationLinks;
+};
+
+/**
+ * SimulationBodySummary
+ */
+export type SimulationBodySummary = {
+    /**
+     * Elw Count
+     */
+    elw_count?: number;
+    /**
+     * Hmc Count
+     */
+    hmc_count?: number;
+    /**
+     * Gas Giant Count
+     */
+    gas_giant_count?: number;
+    /**
+     * Terraformable Count
+     */
+    terraformable_count?: number;
+    /**
+     * Bio Signal Total
+     */
+    bio_signal_total?: number;
+    /**
+     * Geo Signal Total
+     */
+    geo_signal_total?: number;
+    /**
+     * Scanned Body Count
+     */
+    scanned_body_count?: number;
+};
+
+/**
+ * SimulationCPResult
+ */
+export type SimulationCpResult = {
+    /**
+     * Yellow Cp Final
+     */
+    yellow_cp_final: number;
+    /**
+     * Green Cp Final
+     */
+    green_cp_final: number;
+    /**
+     * Yellow Cp Generated
+     */
+    yellow_cp_generated?: number;
+    /**
+     * Green Cp Generated
+     */
+    green_cp_generated?: number;
+    /**
+     * Yellow Cp Spent
+     */
+    yellow_cp_spent?: number;
+    /**
+     * Green Cp Spent
+     */
+    green_cp_spent?: number;
+    /**
+     * T2 Ports
+     */
+    t2_ports: number;
+    /**
+     * T3 Ports
+     */
+    t3_ports: number;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+};
+
+/**
+ * SimulationClassification
+ */
+export type SimulationClassification = {
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
+     * Overall Potential
+     */
+    overall_potential?: number | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Display Tags
+     */
+    display_tags?: Array<string>;
+    /**
+     * Data Confidence
+     */
+    data_confidence?: number | null;
+    /**
+     * Rationale
+     */
+    rationale?: unknown | null;
+    [key: string]: unknown;
+};
+
+/**
+ * SimulationInheritedEconomy
+ */
+export type SimulationInheritedEconomy = {
+    /**
+     * Source Body Id
+     */
+    source_body_id?: string | null;
+    /**
+     * Source Body Name
+     */
+    source_body_name?: string | null;
+    /**
+     * Base Economies
+     */
+    base_economies?: Array<string>;
+    /**
+     * Modifier Economies
+     */
+    modifier_economies?: Array<string>;
+    /**
+     * Weights
+     */
+    weights?: {
+        [key: string]: number;
+    };
+    /**
+     * Purity
+     */
+    purity: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Caveats
+     */
+    caveats?: Array<string>;
+    /**
+     * Strategic Tags
+     */
+    strategic_tags?: Array<string>;
+};
+
+/**
+ * SimulationLink
+ */
+export type SimulationLink = {
+    /**
+     * Port Facility Id
+     */
+    port_facility_id?: string | null;
+    /**
+     * Support Facility Id
+     */
+    support_facility_id: string;
+    /**
+     * Local Body Id
+     */
+    local_body_id?: string | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+    /**
+     * Value
+     */
+    value?: number;
+    /**
+     * Note
+     */
+    note: string;
+};
+
+/**
+ * SimulationLinks
+ */
+export type SimulationLinks = {
+    /**
+     * Strong Links
+     */
+    strong_links?: Array<SimulationLink>;
+    /**
+     * Weak Links
+     */
+    weak_links?: Array<SimulationLink>;
+};
+
+/**
+ * SimulationSummaryResponse
+ */
+export type SimulationSummaryResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version?: string;
+    /**
+     * System Name
+     */
+    system_name?: string | null;
+    /**
+     * Archetype
+     */
+    archetype?: string | null;
+    classification?: SimulationClassification | null;
+    /**
+     * Archetype Scores
+     */
+    archetype_scores?: {
+        [key: string]: number;
+    };
+    body_summary?: SimulationBodySummary | null;
+    buildability: BuildabilityData;
+    /**
+     * Topology Summary
+     */
+    topology_summary?: Array<string>;
+    regional_context?: RegionalAnalysisResponse | null;
+    /**
+     * Distance To Sol
+     */
+    distance_to_sol?: number | null;
+    /**
+     * Main Star Type
+     */
+    main_star_type?: string | null;
+};
+
+/**
+ * SlotPredictionResponse
+ */
+export type SlotPredictionResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Data Source
+     */
+    data_source: 'eddn' | 'spansh' | 'none';
+    /**
+     * Body Count
+     */
+    body_count: number;
+    /**
+     * Predicted Orbital Slots Total
+     */
+    predicted_orbital_slots_total?: number | null;
+    /**
+     * Predicted Ground Slots Total
+     */
+    predicted_ground_slots_total?: number | null;
+    /**
+     * Prediction Status
+     */
+    prediction_status?: 'predicted' | 'unknown' | 'observed';
+    /**
+     * Prediction Version
+     */
+    prediction_version: string;
+    /**
+     * Confidence Label
+     */
+    confidence_label?: string | null;
+    /**
+     * Disclaimer
+     */
+    disclaimer: string;
+    /**
+     * Validation Note
+     */
+    validation_note: string;
+    /**
+     * Required Input Missing
+     */
+    required_input_missing?: Array<string>;
+    /**
+     * Missing Inputs
+     */
+    missing_inputs?: Array<string>;
+    /**
+     * Source Label
+     */
+    source_label?: string | null;
+    /**
+     * Estimated Orbital Slots
+     */
+    estimated_orbital_slots?: number | null;
+    /**
+     * Estimated Ground Slots
+     */
+    estimated_ground_slots?: number | null;
+    /**
+     * Slot Confidence
+     */
+    slot_confidence?: number | null;
+    /**
+     * Slot Confidence Label
+     */
+    slot_confidence_label?: string | null;
+    /**
+     * Predictions
+     */
+    predictions?: Array<BodySlotPrediction>;
+    /**
+     * Note
+     */
+    note?: string | null;
+};
+
+/**
+ * SlotReason
+ *
+ * One explainability note for a per-body slot prediction.
+ */
+export type SlotReason = {
+    /**
+     * Factor
+     */
+    factor: string;
+    /**
+     * Delta
+     */
+    delta?: number | null;
+    /**
+     * Note
+     */
+    note?: string | null;
+    [key: string]: unknown;
+};
+
+/**
+ * SlotRequirement
+ *
+ * One colony world the user wants to build.
+ *
+ * economies: 1-2 economy names that must ALL score >= min_score
+ * on a single system (same-world constraint).
+ *
+ * archetype_key: optional shorthand — if provided, economies and
+ * min_score are derived from TARGET_PROFILES and can be omitted.
+ */
+export type SlotRequirement = {
+    /**
+     * Economies
+     */
+    economies?: Array<'Agriculture' | 'Refinery' | 'Industrial' | 'HighTech' | 'Military' | 'Tourism' | 'Extraction'>;
+    /**
+     * Archetype Key
+     */
+    archetype_key?: string | null;
+    /**
+     * Min Score
+     */
+    min_score?: number;
+    /**
+     * Label
+     */
+    label?: string | null;
+};
+
+/**
+ * StationModel
+ */
+export type StationModel = {
+    /**
+     * Id
+     */
+    id?: number | null;
+    /**
+     * Market Id
+     */
+    market_id?: number | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+    /**
+     * Station Type
+     */
+    station_type?: string | null;
+    /**
+     * Distance From Star
+     */
+    distance_from_star?: number | null;
+    /**
+     * Distance Source
+     */
+    distance_source?: string | null;
+    /**
+     * Distance Confidence
+     */
+    distance_confidence?: string | null;
+    /**
+     * Distance Updated At
+     */
+    distance_updated_at?: unknown | null;
+    /**
+     * Station Type Source
+     */
+    station_type_source?: string | null;
+    /**
+     * Station Type Confidence
+     */
+    station_type_confidence?: string | null;
+    /**
+     * Station Type Updated At
+     */
+    station_type_updated_at?: unknown | null;
+    /**
+     * Body Id
+     */
+    body_id?: number | null;
+    /**
+     * Body Name
+     */
+    body_name?: string | null;
+    /**
+     * Station Body Name
+     */
+    station_body_name?: string | null;
+    /**
+     * Body Name Source
+     */
+    body_name_source?: string | null;
+    /**
+     * Body Name Confidence
+     */
+    body_name_confidence?: string | null;
+    /**
+     * Body Name Updated At
+     */
+    body_name_updated_at?: unknown | null;
+    /**
+     * Lane
+     */
+    lane?: string | null;
+    /**
+     * Association Status
+     */
+    association_status?: string | null;
+    /**
+     * Association Confidence
+     */
+    association_confidence?: string | null;
+    /**
+     * Association Source
+     */
+    association_source?: string | null;
+    /**
+     * Resolver Notes
+     */
+    resolver_notes?: string | null;
+    /**
+     * Landing Pad Size
+     */
+    landing_pad_size?: string | null;
+    /**
+     * Primary Economy
+     */
+    primary_economy?: string | null;
+    /**
+     * Secondary Economy
+     */
+    secondary_economy?: string | null;
+    /**
+     * Has Market
+     */
+    has_market?: boolean | null;
+    /**
+     * Has Shipyard
+     */
+    has_shipyard?: boolean | null;
+    /**
+     * Has Outfitting
+     */
+    has_outfitting?: boolean | null;
+    /**
+     * Has Refuel
+     */
+    has_refuel?: boolean | null;
+    /**
+     * Has Repair
+     */
+    has_repair?: boolean | null;
+    /**
+     * Has Rearm
+     */
+    has_rearm?: boolean | null;
+    [key: string]: unknown;
+};
+
+/**
+ * StatusResponse
+ *
+ * `/api/status` and `/api/local/status`.
+ */
+export type StatusResponse = {
+    /**
+     * Available
+     */
+    available: boolean;
+    /**
+     * Systems Count
+     */
+    systems_count?: number;
+    /**
+     * Body Count
+     */
+    body_count?: number;
+    /**
+     * Rated Count
+     */
+    rated_count?: number;
+    /**
+     * Clustered Count
+     */
+    clustered_count?: number;
+    /**
+     * Import Complete
+     */
+    import_complete?: boolean;
+    /**
+     * Ratings Built
+     */
+    ratings_built?: boolean;
+    /**
+     * Grid Built
+     */
+    grid_built?: boolean;
+    /**
+     * Clusters Built
+     */
+    clusters_built?: boolean;
+    /**
+     * Eddn Enabled
+     */
+    eddn_enabled?: boolean;
+    /**
+     * Last Nightly Update
+     */
+    last_nightly_update?: string;
+    /**
+     * Schema Version
+     */
+    schema_version?: string;
+    /**
+     * Max Search Radius Ly
+     */
+    max_search_radius_ly?: number;
+    /**
+     * Has Body Data
+     */
+    has_body_data?: boolean;
+    /**
+     * Version
+     */
+    version?: string;
+    /**
+     * Backend
+     */
+    backend?: string | null;
+    /**
+     * Pg Version
+     */
+    pg_version?: string | null;
+    /**
+     * Station Count
+     */
+    station_count?: number | null;
+    /**
+     * Cluster Count
+     */
+    cluster_count?: number | null;
+    /**
+     * Grid Cells
+     */
+    grid_cells?: number | null;
+    /**
+     * Macro Grid Cells
+     */
+    macro_grid_cells?: number | null;
+    /**
+     * Galaxy Regions
+     */
+    galaxy_regions?: number | null;
+    /**
+     * Db Size Mb
+     */
+    db_size_mb?: number | null;
+    /**
+     * Import Status
+     */
+    import_status?: unknown | null;
+    /**
+     * Cluster Radius Ly
+     */
+    cluster_radius_ly?: number | null;
+    /**
+     * Has Cluster Summary
+     */
+    has_cluster_summary?: boolean | null;
+    /**
+     * Has Bodies
+     */
+    has_bodies?: boolean | null;
+    /**
+     * Reason
+     */
+    reason?: string | null;
+};
+
+/**
+ * SystemArchetypeResponse
+ *
+ * Full archetype breakdown for one system.
+ */
+export type SystemArchetypeResponse = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name: string;
+    coords?: CoordsModel | null;
+    /**
+     * Distance To Sol
+     */
+    distance_to_sol?: number | null;
+    /**
+     * Main Star Type
+     */
+    main_star_type?: string | null;
+    /**
+     * Archetypes
+     */
+    archetypes: {
+        [key: string]: ArchetypeScore;
+    };
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Archetype Confidence
+     */
+    archetype_confidence?: number | null;
+    /**
+     * Overall Development Potential
+     */
+    overall_development_potential?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Cp Efficiency
+     */
+    cp_efficiency?: number | null;
+    /**
+     * T3 Scaling Viability
+     */
+    t3_scaling_viability?: number | null;
+    /**
+     * Slot Efficiency
+     */
+    slot_efficiency?: number | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Stable Top Two Prob
+     */
+    stable_top_two_prob?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    topology?: TopologyDetail | null;
+    /**
+     * Economy Pairs
+     */
+    economy_pairs?: Array<EconomyPairDetail>;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Query Ms
+     */
+    query_ms?: number | null;
+};
+
+/**
+ * SystemDetailResponse
+ *
+ * `/api/system/{id64}` response. Backend returns the same row
+ * twice under `record` and `system` for legacy compat.
+ */
+export type SystemDetailResponse = {
+    record: SystemDetailRow;
+    system: SystemDetailRow;
+};
+
+/**
+ * SystemDetailRow
+ *
+ * Full system detail returned by `/api/system/{id64}`.
+ *
+ * The detail endpoint does *not* go through the camelCase translator —
+ * it returns the joined ratings + bodies + stations rows snake_case
+ * as PostgreSQL emits them (see `routers/systems.py::get_system`).
+ * Frontend renders these strings directly.
+ */
+export type SystemDetailRow = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * X
+     */
+    x?: number | null;
+    /**
+     * Y
+     */
+    y?: number | null;
+    /**
+     * Z
+     */
+    z?: number | null;
+    /**
+     * Population
+     */
+    population?: number | null;
+    /**
+     * Primary Economy
+     */
+    primary_economy?: string | null;
+    /**
+     * Secondary Economy
+     */
+    secondary_economy?: string | null;
+    /**
+     * Security
+     */
+    security?: string | null;
+    /**
+     * Allegiance
+     */
+    allegiance?: string | null;
+    /**
+     * Government
+     */
+    government?: string | null;
+    /**
+     * Is Colonised
+     */
+    is_colonised?: boolean | null;
+    /**
+     * Is Being Colonised
+     */
+    is_being_colonised?: boolean | null;
+    /**
+     * Main Star Type
+     */
+    main_star_type?: string | null;
+    /**
+     * Main Star Subtype
+     */
+    main_star_subtype?: string | null;
+    /**
+     * Body Data Updated At
+     */
+    body_data_updated_at?: string | null;
+    /**
+     * Body Data Sources
+     */
+    body_data_sources?: Array<string> | null;
+    /**
+     * Status Updated At
+     */
+    status_updated_at?: string | null;
+    /**
+     * Status Source
+     */
+    status_source?: string | null;
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Archetype Confidence
+     */
+    archetype_confidence?: number | null;
+    /**
+     * Overall Development Potential
+     */
+    overall_development_potential?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Est Total Slots
+     */
+    est_total_slots?: number | null;
+    /**
+     * Score
+     */
+    score?: number | null;
+    /**
+     * Score Agriculture
+     */
+    score_agriculture?: number | null;
+    /**
+     * Score Refinery
+     */
+    score_refinery?: number | null;
+    /**
+     * Score Industrial
+     */
+    score_industrial?: number | null;
+    /**
+     * Score Hightech
+     */
+    score_hightech?: number | null;
+    /**
+     * Score Military
+     */
+    score_military?: number | null;
+    /**
+     * Score Tourism
+     */
+    score_tourism?: number | null;
+    /**
+     * Score Extraction
+     */
+    score_extraction?: number | null;
+    /**
+     * Economy Suggestion
+     */
+    economy_suggestion?: string | null;
+    /**
+     * Rating Version
+     */
+    rating_version?: string | null;
+    /**
+     * Elw Count
+     */
+    elw_count?: number | null;
+    /**
+     * Ww Count
+     */
+    ww_count?: number | null;
+    /**
+     * Ammonia Count
+     */
+    ammonia_count?: number | null;
+    /**
+     * Gas Giant Count
+     */
+    gas_giant_count?: number | null;
+    /**
+     * Landable Count
+     */
+    landable_count?: number | null;
+    /**
+     * Terraformable Count
+     */
+    terraformable_count?: number | null;
+    /**
+     * Bio Signal Total
+     */
+    bio_signal_total?: number | null;
+    /**
+     * Geo Signal Total
+     */
+    geo_signal_total?: number | null;
+    /**
+     * Neutron Count
+     */
+    neutron_count?: number | null;
+    /**
+     * Black Hole Count
+     */
+    black_hole_count?: number | null;
+    /**
+     * White Dwarf Count
+     */
+    white_dwarf_count?: number | null;
+    /**
+     * Terraforming Potential
+     */
+    terraforming_potential?: number | null;
+    /**
+     * Body Diversity
+     */
+    body_diversity?: number | null;
+    /**
+     * Confidence
+     */
+    confidence?: number | null;
+    /**
+     * Rationale
+     */
+    rationale?: string | null;
+    /**
+     * Bodies
+     */
+    bodies?: Array<BodyModel>;
+    /**
+     * Stations
+     */
+    stations?: Array<StationModel>;
+    exploration_value?: ExplorationValueModel | null;
+    [key: string]: unknown;
+};
+
+/**
+ * SystemRow
+ *
+ * One result row inside `SearchResponse.results`.
+ *
+ * Keep aligned with `helpers.sys_row_to_dict` (single source of truth
+ * for the camelCase translator).
+ */
+export type SystemRow = {
+    /**
+     * Id64
+     */
+    id64: number;
+    /**
+     * Name
+     */
+    name?: string;
+    coords?: CoordsModel | null;
+    /**
+     * Distance
+     */
+    distance?: number | null;
+    /**
+     * Population
+     */
+    population?: number | null;
+    /**
+     * Primaryeconomy
+     */
+    primaryEconomy?: string | null;
+    /**
+     * Secondaryeconomy
+     */
+    secondaryEconomy?: string | null;
+    /**
+     * Security
+     */
+    security?: string | null;
+    /**
+     * Allegiance
+     */
+    allegiance?: string | null;
+    /**
+     * Government
+     */
+    government?: string | null;
+    /**
+     * Is Colonised
+     */
+    is_colonised?: boolean | null;
+    /**
+     * Is Being Colonised
+     */
+    is_being_colonised?: boolean | null;
+    /**
+     * Main Star Type
+     */
+    main_star_type?: string | null;
+    /**
+     * Main Star Subtype
+     */
+    main_star_subtype?: string | null;
+    /**
+     * Archetype Score
+     */
+    archetype_score?: number | null;
+    /**
+     * Archetype Tier
+     */
+    archetype_tier?: 'S' | 'A' | 'B' | 'C' | 'D' | null;
+    /**
+     * Primary Archetype
+     */
+    primary_archetype?: string | null;
+    /**
+     * Secondary Archetype
+     */
+    secondary_archetype?: string | null;
+    /**
+     * Archetype Confidence
+     */
+    archetype_confidence?: number | null;
+    /**
+     * Overall Development Potential
+     */
+    overall_development_potential?: number | null;
+    /**
+     * Buildability Score
+     */
+    buildability_score?: number | null;
+    /**
+     * Build Complexity
+     */
+    build_complexity?: string | null;
+    /**
+     * Purity Score
+     */
+    purity_score?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Est Total Slots
+     */
+    est_total_slots?: number | null;
+    /**
+     * Tags
+     */
+    tags?: Array<string>;
+    /**
+     * Elw Count
+     */
+    elw_count?: number | null;
+    /**
+     * Ww Count
+     */
+    ww_count?: number | null;
+    /**
+     * Ammonia Count
+     */
+    ammonia_count?: number | null;
+    /**
+     * Gas Giant Count
+     */
+    gas_giant_count?: number | null;
+    /**
+     * Landable Count
+     */
+    landable_count?: number | null;
+    /**
+     * Terraformable Count
+     */
+    terraformable_count?: number | null;
+    /**
+     * Bio Signal Total
+     */
+    bio_signal_total?: number | null;
+    /**
+     * Geo Signal Total
+     */
+    geo_signal_total?: number | null;
+    /**
+     * Neutron Count
+     */
+    neutron_count?: number | null;
+    /**
+     * Black Hole Count
+     */
+    black_hole_count?: number | null;
+    /**
+     * White Dwarf Count
+     */
+    white_dwarf_count?: number | null;
+    [key: string]: unknown;
+};
+
+/**
+ * TopologyContextResponse
+ */
+export type TopologyContextResponse = {
+    /**
+     * Orbital Slots
+     */
+    orbital_slots?: number;
+    /**
+     * Surface Slots
+     */
+    surface_slots?: number;
+    /**
+     * Has Ringed Body
+     */
+    has_ringed_body?: boolean;
+    /**
+     * Has Viable Surface
+     */
+    has_viable_surface?: boolean;
+    /**
+     * Has Deep Anchor
+     */
+    has_deep_anchor?: boolean;
+    /**
+     * Orbital Synergy
+     */
+    orbital_synergy?: number;
+    /**
+     * Ground Synergy
+     */
+    ground_synergy?: number;
+    /**
+     * Build Flexibility
+     */
+    build_flexibility?: number;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number;
+    /**
+     * Strong Link Potential
+     */
+    strong_link_potential?: number;
+    /**
+     * Weak Link Stability
+     */
+    weak_link_stability?: number;
+    /**
+     * Nesting Potential
+     */
+    nesting_potential?: number;
+    /**
+     * Slot Confidence
+     */
+    slot_confidence?: number;
+    [key: string]: unknown;
+};
+
+/**
+ * TopologyDetail
+ *
+ * Topology metrics block inside SystemArchetypeResponse.
+ */
+export type TopologyDetail = {
+    /**
+     * Estimated Orbital Slots
+     */
+    estimated_orbital_slots?: number | null;
+    /**
+     * Estimated Ground Slots
+     */
+    estimated_ground_slots?: number | null;
+    /**
+     * Estimated Total Slots
+     */
+    estimated_total_slots?: number | null;
+    /**
+     * Strong Link Potential
+     */
+    strong_link_potential?: number | null;
+    /**
+     * Weak Link Stability
+     */
+    weak_link_stability?: number | null;
+    /**
+     * Contamination Risk
+     */
+    contamination_risk?: number | null;
+    /**
+     * Orbital Synergy
+     */
+    orbital_synergy?: number | null;
+    /**
+     * Ground Synergy
+     */
+    ground_synergy?: number | null;
+    /**
+     * Nesting Potential
+     */
+    nesting_potential?: number | null;
+    /**
+     * Build Flexibility
+     */
+    build_flexibility?: number | null;
+    /**
+     * Has Viable Surface Port
+     */
+    has_viable_surface_port?: boolean | null;
+    /**
+     * Has Deep Orbital Anchor
+     */
+    has_deep_orbital_anchor?: boolean | null;
+    [key: string]: unknown;
+};
+
+/**
+ * ValidationError
+ */
+export type ValidationError = {
+    /**
+     * Location
+     */
+    loc: Array<string | number>;
+    /**
+     * Message
+     */
+    msg: string;
+    /**
+     * Error Type
+     */
+    type: string;
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
+};
+
+/**
+ * ValidationReviewRequest
+ *
+ * Request payload for ``POST /api/observations/review``.
+ *
+ * Callers may supply either the Stage 6C compare inputs (legacy/direct
+ * mode) or a pre-computed Stage 6C response. The frontend uses the
+ * pre-computed form so Validation does not load observations and run
+ * the comparison engine twice.
+ */
+export type ValidationReviewRequest = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype?: string | null;
+    /**
+     * Prediction
+     */
+    prediction?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Observed Facts
+     */
+    observed_facts?: Array<ObservedFactInput> | null;
+    /**
+     * Fact Load Limit
+     */
+    fact_load_limit?: number;
+    comparison_result?: PredictionObservationCompareResponse | null;
+};
+
+/**
+ * ValidationReviewResponse
+ */
+export type ValidationReviewResponse = {
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Target Archetype
+     */
+    target_archetype: string | null;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    summary: ValidationReviewSummaryResponse;
+    /**
+     * Signals
+     */
+    signals?: Array<ValidationReviewSignalResponse>;
+    /**
+     * Warnings
+     */
+    warnings?: Array<string>;
+    /**
+     * Assumptions
+     */
+    assumptions?: Array<string>;
+};
+
+/**
+ * ValidationReviewSignalResponse
+ */
+export type ValidationReviewSignalResponse = {
+    /**
+     * Signal Id
+     */
+    signal_id: string;
+    /**
+     * Area
+     */
+    area: string;
+    /**
+     * Severity
+     */
+    severity: string;
+    /**
+     * Confidence
+     */
+    confidence: string;
+    /**
+     * Status
+     */
+    status: string;
+    /**
+     * Title
+     */
+    title: string;
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Recommended Action
+     */
+    recommended_action?: string | null;
+    /**
+     * Comparison Ids
+     */
+    comparison_ids?: Array<string>;
+};
+
+/**
+ * ValidationReviewSummaryResponse
+ */
+export type ValidationReviewSummaryResponse = {
+    /**
+     * Overall Review Status
+     */
+    overall_review_status: string;
+    /**
+     * Confidence Impact
+     */
+    confidence_impact: string;
+    /**
+     * Highest Severity
+     */
+    highest_severity: string;
+    /**
+     * Review Needed Count
+     */
+    review_needed_count: number;
+    /**
+     * Evidence Strength
+     */
+    evidence_strength: string;
+    /**
+     * Primary Review Areas
+     */
+    primary_review_areas?: Array<string>;
+    /**
+     * Summary
+     */
+    summary: string;
+};
+
+/**
+ * WatchlistAlert
+ */
+export type WatchlistAlert = {
+    /**
+     * Min Development Score
+     */
+    min_development_score?: number | null;
+    /**
+     * Economy
+     */
+    economy?: string | null;
+};
+
+export type ShareStopPageSId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/s/{id64}';
+};
+
+export type ShareStopPageSId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ShareStopPageSId64GetError = ShareStopPageSId64GetErrors[keyof ShareStopPageSId64GetErrors];
+
+export type ShareStopPageSId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OgImageApiShareOgId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/share/og/{id64}';
+};
+
+export type OgImageApiShareOgId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OgImageApiShareOgId64GetError = OgImageApiShareOgId64GetErrors[keyof OgImageApiShareOgId64GetErrors];
+
+export type OgImageApiShareOgId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type FrontierLoginApiAuthFrontierLoginGetData = {
     body?: never;
     path?: never;
-    query?: never;
-    url: '/api/health';
+    query?: {
+        /**
+         * Return To
+         */
+        return_to?: string | null;
+    };
+    url: '/api/auth/frontier/login';
 };
 
-export type GetHealthResponses = {
+export type FrontierLoginApiAuthFrontierLoginGetErrors = {
     /**
-     * Healthy
+     * Validation Error
      */
-    200: HealthResponse;
+    422: HttpValidationError;
 };
 
-export type GetHealthResponse = GetHealthResponses[keyof GetHealthResponses];
+export type FrontierLoginApiAuthFrontierLoginGetError = FrontierLoginApiAuthFrontierLoginGetErrors[keyof FrontierLoginApiAuthFrontierLoginGetErrors];
 
-export type GetAuthSessionData = {
+export type FrontierLoginApiAuthFrontierLoginGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type FrontierCallbackApiAuthFrontierCallbackGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Code
+         */
+        code?: string | null;
+        /**
+         * State
+         */
+        state?: string | null;
+        /**
+         * Error
+         */
+        error?: string | null;
+    };
+    url: '/api/auth/frontier/callback';
+};
+
+export type FrontierCallbackApiAuthFrontierCallbackGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FrontierCallbackApiAuthFrontierCallbackGetError = FrontierCallbackApiAuthFrontierCallbackGetErrors[keyof FrontierCallbackApiAuthFrontierCallbackGetErrors];
+
+export type FrontierCallbackApiAuthFrontierCallbackGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type AuthSessionApiAuthSessionGetData = {
     body?: never;
     path?: never;
     query?: never;
     url: '/api/auth/session';
 };
 
-export type GetAuthSessionResponses = {
+export type AuthSessionApiAuthSessionGetResponses = {
     /**
-     * Session
+     * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type GetAuthSessionResponse = GetAuthSessionResponses[keyof GetAuthSessionResponses];
+export type AuthSessionApiAuthSessionGetResponse = AuthSessionApiAuthSessionGetResponses[keyof AuthSessionApiAuthSessionGetResponses];
+
+export type AuthLogoutApiAuthLogoutPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/auth/logout';
+};
+
+export type AuthLogoutApiAuthLogoutPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthSessionResponse;
+};
+
+export type AuthLogoutApiAuthLogoutPostResponse = AuthLogoutApiAuthLogoutPostResponses[keyof AuthLogoutApiAuthLogoutPostResponses];
+
+export type ClaimOwnerApiAuthOwnerClaimPostData = {
+    body: OwnerClaimRequest;
+    path?: never;
+    query?: never;
+    url: '/api/auth/owner/claim';
+};
+
+export type ClaimOwnerApiAuthOwnerClaimPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ClaimOwnerApiAuthOwnerClaimPostError = ClaimOwnerApiAuthOwnerClaimPostErrors[keyof ClaimOwnerApiAuthOwnerClaimPostErrors];
+
+export type ClaimOwnerApiAuthOwnerClaimPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthSessionResponse;
+};
+
+export type ClaimOwnerApiAuthOwnerClaimPostResponse = ClaimOwnerApiAuthOwnerClaimPostResponses[keyof ClaimOwnerApiAuthOwnerClaimPostResponses];
+
+export type HealthApiHealthGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/health';
+};
+
+export type HealthApiHealthGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: HealthResponse;
+};
+
+export type HealthApiHealthGetResponse = HealthApiHealthGetResponses[keyof HealthApiHealthGetResponses];
+
+export type StatusApiStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/status';
+};
+
+export type StatusApiStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: StatusResponse;
+};
+
+export type StatusApiStatusGetResponse = StatusApiStatusGetResponses[keyof StatusApiStatusGetResponses];
+
+export type LocalStatusApiLocalStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/local/status';
+};
+
+export type LocalStatusApiLocalStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: StatusResponse;
+};
+
+export type LocalStatusApiLocalStatusGetResponse = LocalStatusApiLocalStatusGetResponses[keyof LocalStatusApiLocalStatusGetResponses];
+
+export type LatestNewsApiNewsLatestGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/news/latest';
+};
+
+export type LatestNewsApiNewsLatestGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LatestNewsApiNewsLatestGetError = LatestNewsApiNewsLatestGetErrors[keyof LatestNewsApiNewsLatestGetErrors];
+
+export type LatestNewsApiNewsLatestGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetWatchlistApiV2WatchlistSyncKeyGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/watchlist/{sync_key}';
+};
+
+export type GetWatchlistApiV2WatchlistSyncKeyGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetWatchlistApiV2WatchlistSyncKeyGetError = GetWatchlistApiV2WatchlistSyncKeyGetErrors[keyof GetWatchlistApiV2WatchlistSyncKeyGetErrors];
+
+export type GetWatchlistApiV2WatchlistSyncKeyGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/watchlist/{sync_key}/{id64}';
+};
+
+export type RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteError = RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteErrors[keyof RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteErrors];
+
+export type RemoveWatchlistApiV2WatchlistSyncKeyId64DeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type AddWatchlistApiV2WatchlistSyncKeyId64PostData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/watchlist/{sync_key}/{id64}';
+};
+
+export type AddWatchlistApiV2WatchlistSyncKeyId64PostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AddWatchlistApiV2WatchlistSyncKeyId64PostError = AddWatchlistApiV2WatchlistSyncKeyId64PostErrors[keyof AddWatchlistApiV2WatchlistSyncKeyId64PostErrors];
+
+export type AddWatchlistApiV2WatchlistSyncKeyId64PostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchData = {
+    body: WatchlistAlert;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/watchlist/{sync_key}/{id64}/alert';
+};
+
+export type UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchError = UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchErrors[keyof UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchErrors];
+
+export type UpdateAlertApiV2WatchlistSyncKeyId64AlertPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type WatchlistChangesApiV2WatchlistSyncKeyChangesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/watchlist/{sync_key}/changes';
+};
+
+export type WatchlistChangesApiV2WatchlistSyncKeyChangesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type WatchlistChangesApiV2WatchlistSyncKeyChangesGetError = WatchlistChangesApiV2WatchlistSyncKeyChangesGetErrors[keyof WatchlistChangesApiV2WatchlistSyncKeyChangesGetErrors];
+
+export type WatchlistChangesApiV2WatchlistSyncKeyChangesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyGetApiWatchlistGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/watchlist';
+};
+
+export type LegacyGetApiWatchlistGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyDeleteApiWatchlistId64DeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/watchlist/{id64}';
+};
+
+export type LegacyDeleteApiWatchlistId64DeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyDeleteApiWatchlistId64DeleteError = LegacyDeleteApiWatchlistId64DeleteErrors[keyof LegacyDeleteApiWatchlistId64DeleteErrors];
+
+export type LegacyDeleteApiWatchlistId64DeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyPostApiWatchlistId64PostData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/watchlist/{id64}';
+};
+
+export type LegacyPostApiWatchlistId64PostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyPostApiWatchlistId64PostError = LegacyPostApiWatchlistId64PostErrors[keyof LegacyPostApiWatchlistId64PostErrors];
+
+export type LegacyPostApiWatchlistId64PostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyPatchApiWatchlistId64AlertPatchData = {
+    body: WatchlistAlert;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/watchlist/{id64}/alert';
+};
+
+export type LegacyPatchApiWatchlistId64AlertPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyPatchApiWatchlistId64AlertPatchError = LegacyPatchApiWatchlistId64AlertPatchErrors[keyof LegacyPatchApiWatchlistId64AlertPatchErrors];
+
+export type LegacyPatchApiWatchlistId64AlertPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyChangesApiWatchlistChangesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/watchlist/changes';
+};
+
+export type LegacyChangesApiWatchlistChangesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyChangelogApiWatchlistChangelogGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/watchlist/changelog';
+};
+
+export type LegacyChangelogApiWatchlistChangelogGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/systems/{sync_key}/{id64}/note';
+};
+
+export type DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteError = DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteErrors[keyof DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteErrors];
+
+export type DeleteNoteApiV2SystemsSyncKeyId64NoteDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetNoteApiV2SystemsSyncKeyId64NoteGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/systems/{sync_key}/{id64}/note';
+};
+
+export type GetNoteApiV2SystemsSyncKeyId64NoteGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetNoteApiV2SystemsSyncKeyId64NoteGetError = GetNoteApiV2SystemsSyncKeyId64NoteGetErrors[keyof GetNoteApiV2SystemsSyncKeyId64NoteGetErrors];
+
+export type GetNoteApiV2SystemsSyncKeyId64NoteGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type SaveNoteApiV2SystemsSyncKeyId64NotePostData = {
+    body: NoteBody;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/systems/{sync_key}/{id64}/note';
+};
+
+export type SaveNoteApiV2SystemsSyncKeyId64NotePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveNoteApiV2SystemsSyncKeyId64NotePostError = SaveNoteApiV2SystemsSyncKeyId64NotePostErrors[keyof SaveNoteApiV2SystemsSyncKeyId64NotePostErrors];
+
+export type SaveNoteApiV2SystemsSyncKeyId64NotePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ListAllNotesApiV2SystemsSyncKeyNotesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/v2/systems/{sync_key}/notes';
+};
+
+export type ListAllNotesApiV2SystemsSyncKeyNotesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListAllNotesApiV2SystemsSyncKeyNotesGetError = ListAllNotesApiV2SystemsSyncKeyNotesGetErrors[keyof ListAllNotesApiV2SystemsSyncKeyNotesGetErrors];
+
+export type ListAllNotesApiV2SystemsSyncKeyNotesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyDeleteApiSystemsId64NoteDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/systems/{id64}/note';
+};
+
+export type LegacyDeleteApiSystemsId64NoteDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyDeleteApiSystemsId64NoteDeleteError = LegacyDeleteApiSystemsId64NoteDeleteErrors[keyof LegacyDeleteApiSystemsId64NoteDeleteErrors];
+
+export type LegacyDeleteApiSystemsId64NoteDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyGetApiSystemsId64NoteGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/systems/{id64}/note';
+};
+
+export type LegacyGetApiSystemsId64NoteGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyGetApiSystemsId64NoteGetError = LegacyGetApiSystemsId64NoteGetErrors[keyof LegacyGetApiSystemsId64NoteGetErrors];
+
+export type LegacyGetApiSystemsId64NoteGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LegacyPostApiSystemsId64NotePostData = {
+    body: NoteBody;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/systems/{id64}/note';
+};
+
+export type LegacyPostApiSystemsId64NotePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LegacyPostApiSystemsId64NotePostError = LegacyPostApiSystemsId64NotePostErrors[keyof LegacyPostApiSystemsId64NotePostErrors];
+
+export type LegacyPostApiSystemsId64NotePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type DeleteProfileSyncApiProfileSyncSyncKeyDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/profile/sync/{sync_key}';
+};
+
+export type DeleteProfileSyncApiProfileSyncSyncKeyDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteProfileSyncApiProfileSyncSyncKeyDeleteError = DeleteProfileSyncApiProfileSyncSyncKeyDeleteErrors[keyof DeleteProfileSyncApiProfileSyncSyncKeyDeleteErrors];
+
+export type DeleteProfileSyncApiProfileSyncSyncKeyDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetProfileSyncApiProfileSyncSyncKeyGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/profile/sync/{sync_key}';
+};
+
+export type GetProfileSyncApiProfileSyncSyncKeyGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetProfileSyncApiProfileSyncSyncKeyGetError = GetProfileSyncApiProfileSyncSyncKeyGetErrors[keyof GetProfileSyncApiProfileSyncSyncKeyGetErrors];
+
+export type GetProfileSyncApiProfileSyncSyncKeyGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type PutProfileSyncApiProfileSyncSyncKeyPutData = {
+    body: ProfileSyncBlob;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/profile/sync/{sync_key}';
+};
+
+export type PutProfileSyncApiProfileSyncSyncKeyPutErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PutProfileSyncApiProfileSyncSyncKeyPutError = PutProfileSyncApiProfileSyncSyncKeyPutErrors[keyof PutProfileSyncApiProfileSyncSyncKeyPutErrors];
+
+export type PutProfileSyncApiProfileSyncSyncKeyPutResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ImportPowerplayJournalApiPowerplayImportPostData = {
+    body: PowerplayImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/powerplay/import';
+};
+
+export type ImportPowerplayJournalApiPowerplayImportPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportPowerplayJournalApiPowerplayImportPostError = ImportPowerplayJournalApiPowerplayImportPostErrors[keyof ImportPowerplayJournalApiPowerplayImportPostErrors];
+
+export type ImportPowerplayJournalApiPowerplayImportPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PowerplayImportReceipt;
+};
+
+export type ImportPowerplayJournalApiPowerplayImportPostResponse = ImportPowerplayJournalApiPowerplayImportPostResponses[keyof ImportPowerplayJournalApiPowerplayImportPostResponses];
+
+export type PowerplaySystemsApiPowerplaySystemsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Key
+         */
+        commander_key: string;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/powerplay/systems';
+};
+
+export type PowerplaySystemsApiPowerplaySystemsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PowerplaySystemsApiPowerplaySystemsGetError = PowerplaySystemsApiPowerplaySystemsGetErrors[keyof PowerplaySystemsApiPowerplaySystemsGetErrors];
+
+export type PowerplaySystemsApiPowerplaySystemsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PowerplaySystemsResponse;
+};
+
+export type PowerplaySystemsApiPowerplaySystemsGetResponse = PowerplaySystemsApiPowerplaySystemsGetResponses[keyof PowerplaySystemsApiPowerplaySystemsGetResponses];
+
+export type PowerplayCommanderApiPowerplayCommanderGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Key
+         */
+        commander_key: string;
+    };
+    url: '/api/powerplay/commander';
+};
+
+export type PowerplayCommanderApiPowerplayCommanderGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PowerplayCommanderApiPowerplayCommanderGetError = PowerplayCommanderApiPowerplayCommanderGetErrors[keyof PowerplayCommanderApiPowerplayCommanderGetErrors];
+
+export type PowerplayCommanderApiPowerplayCommanderGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CommanderPowerplayResponse;
+};
+
+export type PowerplayCommanderApiPowerplayCommanderGetResponse = PowerplayCommanderApiPowerplayCommanderGetResponses[keyof PowerplayCommanderApiPowerplayCommanderGetResponses];
+
+export type PowerplayHistoryApiPowerplayHistoryGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Key
+         */
+        commander_key: string;
+        /**
+         * Cycle Limit
+         */
+        cycle_limit?: number;
+        /**
+         * Change Limit
+         */
+        change_limit?: number;
+    };
+    url: '/api/powerplay/history';
+};
+
+export type PowerplayHistoryApiPowerplayHistoryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PowerplayHistoryApiPowerplayHistoryGetError = PowerplayHistoryApiPowerplayHistoryGetErrors[keyof PowerplayHistoryApiPowerplayHistoryGetErrors];
+
+export type PowerplayHistoryApiPowerplayHistoryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: PowerplayHistoryResponse;
+};
+
+export type PowerplayHistoryApiPowerplayHistoryGetResponse = PowerplayHistoryApiPowerplayHistoryGetResponses[keyof PowerplayHistoryApiPowerplayHistoryGetResponses];
+
+export type CacheStatsApiCacheStatsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/cache/stats';
+};
+
+export type CacheStatsApiCacheStatsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: CacheStatsResponse;
+};
+
+export type CacheStatsApiCacheStatsGetResponse = CacheStatsApiCacheStatsGetResponses[keyof CacheStatsApiCacheStatsGetResponses];
+
+export type CacheClearApiCacheClearPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/cache/clear';
+};
+
+export type CacheClearApiCacheClearPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type TriggerRebuildClustersApiAdminRebuildClustersPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/rebuild-clusters';
+};
+
+export type TriggerRebuildClustersApiAdminRebuildClustersPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type TriggerRebuildRatingsApiAdminRebuildRatingsPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/rebuild-ratings';
+};
+
+export type TriggerRebuildRatingsApiAdminRebuildRatingsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type RunAdminOperationApiAdminOperationsOperationKeyPostData = {
+    body?: never;
+    path: {
+        /**
+         * Operation Key
+         */
+        operation_key: string;
+    };
+    query?: never;
+    url: '/api/admin/operations/{operation_key}';
+};
+
+export type RunAdminOperationApiAdminOperationsOperationKeyPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RunAdminOperationApiAdminOperationsOperationKeyPostError = RunAdminOperationApiAdminOperationsOperationKeyPostErrors[keyof RunAdminOperationApiAdminOperationsOperationKeyPostErrors];
+
+export type RunAdminOperationApiAdminOperationsOperationKeyPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type AdminOperationHistoryApiAdminOperationsHistoryGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/admin/operations/history';
+};
+
+export type AdminOperationHistoryApiAdminOperationsHistoryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AdminOperationHistoryApiAdminOperationsHistoryGetError = AdminOperationHistoryApiAdminOperationsHistoryGetErrors[keyof AdminOperationHistoryApiAdminOperationsHistoryGetErrors];
+
+export type AdminOperationHistoryApiAdminOperationsHistoryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type AdminCronStatusApiAdminCronStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/cron-status';
+};
+
+export type AdminCronStatusApiAdminCronStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type StationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/enrichment/station-status';
+};
+
+export type StationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type WarehouseEnrichmentOperatorStatusApiAdminEnrichmentWarehouseStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/enrichment/warehouse-status';
+};
+
+export type WarehouseEnrichmentOperatorStatusApiAdminEnrichmentWarehouseStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type AdminDataStatusApiAdminDataStatusGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/admin/data-status';
+};
+
+export type AdminDataStatusApiAdminDataStatusGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type LiveEventsApiEventsLiveGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/events/live';
+};
+
+export type LiveEventsApiEventsLiveGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type RecentEventsApiEventsRecentGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/events/recent';
+};
+
+export type RecentEventsApiEventsRecentGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type RecentEventsApiEventsRecentGetError = RecentEventsApiEventsRecentGetErrors[keyof RecentEventsApiEventsRecentGetErrors];
+
+export type RecentEventsApiEventsRecentGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type EvidenceSourceCatalogApiEvidenceSourcesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/evidence/sources';
+};
+
+export type EvidenceSourceCatalogApiEvidenceSourcesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvidenceSourceCatalogResponse;
+};
+
+export type EvidenceSourceCatalogApiEvidenceSourcesGetResponse = EvidenceSourceCatalogApiEvidenceSourcesGetResponses[keyof EvidenceSourceCatalogApiEvidenceSourcesGetResponses];
+
+export type ListEvidenceRecordsApiEvidenceRecordsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * System Id64
+         */
+        system_id64?: number | null;
+        /**
+         * Source Name
+         */
+        source_name?: string | null;
+        /**
+         * Origin
+         */
+        origin?: string | null;
+        /**
+         * Record Status
+         */
+        record_status?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/evidence/records';
+};
+
+export type ListEvidenceRecordsApiEvidenceRecordsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListEvidenceRecordsApiEvidenceRecordsGetError = ListEvidenceRecordsApiEvidenceRecordsGetErrors[keyof ListEvidenceRecordsApiEvidenceRecordsGetErrors];
+
+export type ListEvidenceRecordsApiEvidenceRecordsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvidenceRecordListResponse;
+};
+
+export type ListEvidenceRecordsApiEvidenceRecordsGetResponse = ListEvidenceRecordsApiEvidenceRecordsGetResponses[keyof ListEvidenceRecordsApiEvidenceRecordsGetResponses];
+
+export type CreateEvidenceRecordApiEvidenceRecordsPostData = {
+    body: EvidenceRecordCreateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/evidence/records';
+};
+
+export type CreateEvidenceRecordApiEvidenceRecordsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateEvidenceRecordApiEvidenceRecordsPostError = CreateEvidenceRecordApiEvidenceRecordsPostErrors[keyof CreateEvidenceRecordApiEvidenceRecordsPostErrors];
+
+export type CreateEvidenceRecordApiEvidenceRecordsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvidenceRecordResponse;
+};
+
+export type CreateEvidenceRecordApiEvidenceRecordsPostResponse = CreateEvidenceRecordApiEvidenceRecordsPostResponses[keyof CreateEvidenceRecordApiEvidenceRecordsPostResponses];
+
+export type ListDerivedFeaturesApiEvidenceFeaturesGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * System Id64
+         */
+        system_id64?: number | null;
+        /**
+         * Feature Name
+         */
+        feature_name?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/evidence/features';
+};
+
+export type ListDerivedFeaturesApiEvidenceFeaturesGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListDerivedFeaturesApiEvidenceFeaturesGetError = ListDerivedFeaturesApiEvidenceFeaturesGetErrors[keyof ListDerivedFeaturesApiEvidenceFeaturesGetErrors];
+
+export type ListDerivedFeaturesApiEvidenceFeaturesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: DerivedFeatureListResponse;
+};
+
+export type ListDerivedFeaturesApiEvidenceFeaturesGetResponse = ListDerivedFeaturesApiEvidenceFeaturesGetResponses[keyof ListDerivedFeaturesApiEvidenceFeaturesGetResponses];
+
+export type CreateDerivedFeatureApiEvidenceFeaturesPostData = {
+    body: DerivedFeatureCreateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/evidence/features';
+};
+
+export type CreateDerivedFeatureApiEvidenceFeaturesPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateDerivedFeatureApiEvidenceFeaturesPostError = CreateDerivedFeatureApiEvidenceFeaturesPostErrors[keyof CreateDerivedFeatureApiEvidenceFeaturesPostErrors];
+
+export type CreateDerivedFeatureApiEvidenceFeaturesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: DerivedFeatureResponse;
+};
+
+export type CreateDerivedFeatureApiEvidenceFeaturesPostResponse = CreateDerivedFeatureApiEvidenceFeaturesPostResponses[keyof CreateDerivedFeatureApiEvidenceFeaturesPostResponses];
+
+export type ListRuleProposalsApiEvidenceRuleProposalsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Status
+         */
+        status?: string | null;
+        /**
+         * Domain
+         */
+        domain?: string | null;
+        /**
+         * Scope Key
+         */
+        scope_key?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/evidence/rule-proposals';
+};
+
+export type ListRuleProposalsApiEvidenceRuleProposalsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListRuleProposalsApiEvidenceRuleProposalsGetError = ListRuleProposalsApiEvidenceRuleProposalsGetErrors[keyof ListRuleProposalsApiEvidenceRuleProposalsGetErrors];
+
+export type ListRuleProposalsApiEvidenceRuleProposalsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RuleProposalListResponse;
+};
+
+export type ListRuleProposalsApiEvidenceRuleProposalsGetResponse = ListRuleProposalsApiEvidenceRuleProposalsGetResponses[keyof ListRuleProposalsApiEvidenceRuleProposalsGetResponses];
+
+export type CreateRuleProposalApiEvidenceRuleProposalsPostData = {
+    body: RuleProposalCreateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/evidence/rule-proposals';
+};
+
+export type CreateRuleProposalApiEvidenceRuleProposalsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateRuleProposalApiEvidenceRuleProposalsPostError = CreateRuleProposalApiEvidenceRuleProposalsPostErrors[keyof CreateRuleProposalApiEvidenceRuleProposalsPostErrors];
+
+export type CreateRuleProposalApiEvidenceRuleProposalsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RuleProposalResponse;
+};
+
+export type CreateRuleProposalApiEvidenceRuleProposalsPostResponse = CreateRuleProposalApiEvidenceRuleProposalsPostResponses[keyof CreateRuleProposalApiEvidenceRuleProposalsPostResponses];
+
+export type DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostData = {
+    body: RuleDecisionRequest;
+    path: {
+        /**
+         * Proposal Key
+         */
+        proposal_key: string;
+    };
+    query?: never;
+    url: '/api/evidence/rule-proposals/{proposal_key}/decisions';
+};
+
+export type DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostError = DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostErrors[keyof DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostErrors];
+
+export type DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RuleDecisionResponse;
+};
+
+export type DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostResponse = DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostResponses[keyof DecideRuleProposalApiEvidenceRuleProposalsProposalKeyDecisionsPostResponses];
+
+export type EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/evidence/systems/{system_id64}/summary';
+};
+
+export type EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetError = EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetErrors[keyof EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetErrors];
+
+export type EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: EvidenceSystemSummaryResponse;
+};
+
+export type EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetResponse = EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetResponses[keyof EvidenceSystemSummaryApiEvidenceSystemsSystemId64SummaryGetResponses];
+
+export type PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostData = {
+    body: CanonicalEvidencePromotionRequest;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/evidence/systems/{system_id64}/promote-canonical';
+};
+
+export type PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostError = PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostErrors[keyof PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostErrors];
+
+export type PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: CanonicalEvidencePromotionResponse;
+};
+
+export type PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostResponse = PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostResponses[keyof PromoteSystemCanonicalEvidenceApiEvidenceSystemsSystemId64PromoteCanonicalPostResponses];
+
+export type ImportFrontierJournalApiJournalImportPostData = {
+    body: JournalImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/journal/import';
+};
+
+export type ImportFrontierJournalApiJournalImportPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportFrontierJournalApiJournalImportPostError = ImportFrontierJournalApiJournalImportPostErrors[keyof ImportFrontierJournalApiJournalImportPostErrors];
+
+export type ImportFrontierJournalApiJournalImportPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: JournalImportReceipt;
+};
+
+export type ImportFrontierJournalApiJournalImportPostResponse = ImportFrontierJournalApiJournalImportPostResponses[keyof ImportFrontierJournalApiJournalImportPostResponses];
+
+export type GetFrontierJournalImportApiJournalImportsRunKeyGetData = {
+    body?: never;
+    path: {
+        /**
+         * Run Key
+         */
+        run_key: string;
+    };
+    query?: never;
+    url: '/api/journal/imports/{run_key}';
+};
+
+export type GetFrontierJournalImportApiJournalImportsRunKeyGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetFrontierJournalImportApiJournalImportsRunKeyGetError = GetFrontierJournalImportApiJournalImportsRunKeyGetErrors[keyof GetFrontierJournalImportApiJournalImportsRunKeyGetErrors];
+
+export type GetFrontierJournalImportApiJournalImportsRunKeyGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: JournalImportReceipt;
+};
+
+export type GetFrontierJournalImportApiJournalImportsRunKeyGetResponse = GetFrontierJournalImportApiJournalImportsRunKeyGetResponses[keyof GetFrontierJournalImportApiJournalImportsRunKeyGetResponses];
+
+export type GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: never;
+    url: '/api/journal/telemetry/{sync_key}';
+};
+
+export type GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetError = GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetErrors[keyof GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetErrors];
+
+export type GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: JournalTelemetrySummaryResponse;
+};
+
+export type GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetResponse = GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetResponses[keyof GetFrontierJournalTelemetryApiJournalTelemetrySyncKeyGetResponses];
+
+export type PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostData = {
+    body?: never;
+    path: {
+        /**
+         * Run Key
+         */
+        run_key: string;
+    };
+    query?: never;
+    url: '/api/journal/imports/{run_key}/promote';
+};
+
+export type PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostError = PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostErrors[keyof PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostErrors];
+
+export type PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: JournalPromotionReceipt;
+};
+
+export type PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostResponse = PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostResponses[keyof PromoteFrontierJournalImportApiJournalImportsRunKeyPromotePostResponses];
+
+export type ImportExplorationApiExplorationImportPostData = {
+    body: ExplorationImportRequest;
+    path?: never;
+    query?: never;
+    url: '/api/exploration/import';
+};
+
+export type ImportExplorationApiExplorationImportPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportExplorationApiExplorationImportPostError = ImportExplorationApiExplorationImportPostErrors[keyof ImportExplorationApiExplorationImportPostErrors];
+
+export type ImportExplorationApiExplorationImportPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationImportReceipt;
+};
+
+export type ImportExplorationApiExplorationImportPostResponse = ImportExplorationApiExplorationImportPostResponses[keyof ImportExplorationApiExplorationImportPostResponses];
+
+export type GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetData = {
+    body?: never;
+    path: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Cursor
+         */
+        cursor?: string | null;
+        /**
+         * Event Type
+         */
+        event_type?: Array<string> | null;
+        /**
+         * System Id64
+         */
+        system_id64?: number | null;
+        /**
+         * From At
+         */
+        from_at?: string | null;
+        /**
+         * To At
+         */
+        to_at?: string | null;
+    };
+    url: '/api/exploration/facts/{sync_key}';
+};
+
+export type GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetError = GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetErrors[keyof GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetErrors];
+
+export type GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationFactsResponse;
+};
+
+export type GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetResponse = GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetResponses[keyof GetExplorationFactsForSyncKeyApiExplorationFactsSyncKeyGetResponses];
+
+export type GetExplorationTrailApiExplorationTrailGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Cursor
+         */
+        cursor?: number | null;
+        /**
+         * From At
+         */
+        from_at?: string | null;
+        /**
+         * To At
+         */
+        to_at?: string | null;
+    };
+    url: '/api/exploration/trail';
+};
+
+export type GetExplorationTrailApiExplorationTrailGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetExplorationTrailApiExplorationTrailGetError = GetExplorationTrailApiExplorationTrailGetErrors[keyof GetExplorationTrailApiExplorationTrailGetErrors];
+
+export type GetExplorationTrailApiExplorationTrailGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationTrailResponse;
+};
+
+export type GetExplorationTrailApiExplorationTrailGetResponse = GetExplorationTrailApiExplorationTrailGetResponses[keyof GetExplorationTrailApiExplorationTrailGetResponses];
+
+export type GetExplorationViewportVisitsApiExplorationViewportVisitsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+        /**
+         * Min X
+         */
+        min_x: number;
+        /**
+         * Max X
+         */
+        max_x: number;
+        /**
+         * Min Y
+         */
+        min_y: number;
+        /**
+         * Max Y
+         */
+        max_y: number;
+        /**
+         * Min Z
+         */
+        min_z: number;
+        /**
+         * Max Z
+         */
+        max_z: number;
+        /**
+         * Zoom
+         */
+        zoom: number;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/exploration/viewport-visits';
+};
+
+export type GetExplorationViewportVisitsApiExplorationViewportVisitsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetExplorationViewportVisitsApiExplorationViewportVisitsGetError = GetExplorationViewportVisitsApiExplorationViewportVisitsGetErrors[keyof GetExplorationViewportVisitsApiExplorationViewportVisitsGetErrors];
+
+export type GetExplorationViewportVisitsApiExplorationViewportVisitsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationViewportVisitsResponse;
+};
+
+export type GetExplorationViewportVisitsApiExplorationViewportVisitsGetResponse = GetExplorationViewportVisitsApiExplorationViewportVisitsGetResponses[keyof GetExplorationViewportVisitsApiExplorationViewportVisitsGetResponses];
+
+export type GetExplorationSummaryApiExplorationSummaryGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    url: '/api/exploration/summary';
+};
+
+export type GetExplorationSummaryApiExplorationSummaryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetExplorationSummaryApiExplorationSummaryGetError = GetExplorationSummaryApiExplorationSummaryGetErrors[keyof GetExplorationSummaryApiExplorationSummaryGetErrors];
+
+export type GetExplorationSummaryApiExplorationSummaryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationSystemSummaryResponse;
+};
+
+export type GetExplorationSummaryApiExplorationSummaryGetResponse = GetExplorationSummaryApiExplorationSummaryGetResponses[keyof GetExplorationSummaryApiExplorationSummaryGetResponses];
+
+export type GetExplorationCodexByRegionApiExplorationCodexByRegionGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Sync Key
+         */
+        sync_key: string;
+    };
+    url: '/api/exploration/codex-by-region';
+};
+
+export type GetExplorationCodexByRegionApiExplorationCodexByRegionGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetExplorationCodexByRegionApiExplorationCodexByRegionGetError = GetExplorationCodexByRegionApiExplorationCodexByRegionGetErrors[keyof GetExplorationCodexByRegionApiExplorationCodexByRegionGetErrors];
+
+export type GetExplorationCodexByRegionApiExplorationCodexByRegionGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ExplorationCodexByRegionResponse;
+};
+
+export type GetExplorationCodexByRegionApiExplorationCodexByRegionGetResponse = GetExplorationCodexByRegionApiExplorationCodexByRegionGetResponses[keyof GetExplorationCodexByRegionApiExplorationCodexByRegionGetResponses];
+
+export type ListCommanderRoutesApiRoutesListGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Id
+         */
+        commander_id: string;
+        /**
+         * Type
+         */
+        type?: string | null;
+    };
+    url: '/api/routes/list';
+};
+
+export type ListCommanderRoutesApiRoutesListGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListCommanderRoutesApiRoutesListGetError = ListCommanderRoutesApiRoutesListGetErrors[keyof ListCommanderRoutesApiRoutesListGetErrors];
+
+export type ListCommanderRoutesApiRoutesListGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteListResponse;
+};
+
+export type ListCommanderRoutesApiRoutesListGetResponse = ListCommanderRoutesApiRoutesListGetResponses[keyof ListCommanderRoutesApiRoutesListGetResponses];
+
+export type GetPersonalJumpTrailApiRoutesTrailGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Id
+         */
+        commander_id: string;
+        /**
+         * From Date
+         */
+        from_date?: string | null;
+        /**
+         * To Date
+         */
+        to_date?: string | null;
+    };
+    url: '/api/routes/trail';
+};
+
+export type GetPersonalJumpTrailApiRoutesTrailGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetPersonalJumpTrailApiRoutesTrailGetError = GetPersonalJumpTrailApiRoutesTrailGetErrors[keyof GetPersonalJumpTrailApiRoutesTrailGetErrors];
+
+export type GetPersonalJumpTrailApiRoutesTrailGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteDetail;
+};
+
+export type GetPersonalJumpTrailApiRoutesTrailGetResponse = GetPersonalJumpTrailApiRoutesTrailGetResponses[keyof GetPersonalJumpTrailApiRoutesTrailGetResponses];
+
+export type ListExpeditionsApiRoutesExpeditionsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Commander Id
+         */
+        commander_id: string;
+    };
+    url: '/api/routes/expeditions';
+};
+
+export type ListExpeditionsApiRoutesExpeditionsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListExpeditionsApiRoutesExpeditionsGetError = ListExpeditionsApiRoutesExpeditionsGetErrors[keyof ListExpeditionsApiRoutesExpeditionsGetErrors];
+
+export type ListExpeditionsApiRoutesExpeditionsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteListResponse;
+};
+
+export type ListExpeditionsApiRoutesExpeditionsGetResponse = ListExpeditionsApiRoutesExpeditionsGetResponses[keyof ListExpeditionsApiRoutesExpeditionsGetResponses];
+
+export type SaveExpeditionApiRoutesExpeditionsPostData = {
+    body: ExpeditionImport;
+    path?: never;
+    query?: never;
+    url: '/api/routes/expeditions';
+};
+
+export type SaveExpeditionApiRoutesExpeditionsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SaveExpeditionApiRoutesExpeditionsPostError = SaveExpeditionApiRoutesExpeditionsPostErrors[keyof SaveExpeditionApiRoutesExpeditionsPostErrors];
+
+export type SaveExpeditionApiRoutesExpeditionsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteDetail;
+};
+
+export type SaveExpeditionApiRoutesExpeditionsPostResponse = SaveExpeditionApiRoutesExpeditionsPostResponses[keyof SaveExpeditionApiRoutesExpeditionsPostResponses];
+
+export type ImportSpanshRouteApiRoutesImportSpanshPostData = {
+    body: PlannedRouteImport;
+    path?: never;
+    query?: never;
+    url: '/api/routes/import/spansh';
+};
+
+export type ImportSpanshRouteApiRoutesImportSpanshPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportSpanshRouteApiRoutesImportSpanshPostError = ImportSpanshRouteApiRoutesImportSpanshPostErrors[keyof ImportSpanshRouteApiRoutesImportSpanshPostErrors];
+
+export type ImportSpanshRouteApiRoutesImportSpanshPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteDetail;
+};
+
+export type ImportSpanshRouteApiRoutesImportSpanshPostResponse = ImportSpanshRouteApiRoutesImportSpanshPostResponses[keyof ImportSpanshRouteApiRoutesImportSpanshPostResponses];
+
+export type GetRouteDetailApiRoutesRouteIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Route Id
+         */
+        route_id: string;
+    };
+    query: {
+        /**
+         * Commander Id
+         */
+        commander_id: string;
+    };
+    url: '/api/routes/{route_id}';
+};
+
+export type GetRouteDetailApiRoutesRouteIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetRouteDetailApiRoutesRouteIdGetError = GetRouteDetailApiRoutesRouteIdGetErrors[keyof GetRouteDetailApiRoutesRouteIdGetErrors];
+
+export type GetRouteDetailApiRoutesRouteIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RouteDetail;
+};
+
+export type GetRouteDetailApiRoutesRouteIdGetResponse = GetRouteDetailApiRoutesRouteIdGetResponses[keyof GetRouteDetailApiRoutesRouteIdGetResponses];
+
+export type AutocompleteApiLocalAutocompleteGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Q
+         */
+        q?: string;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/local/autocomplete';
+};
+
+export type AutocompleteApiLocalAutocompleteGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type AutocompleteApiLocalAutocompleteGetError = AutocompleteApiLocalAutocompleteGetErrors[keyof AutocompleteApiLocalAutocompleteGetErrors];
+
+export type AutocompleteApiLocalAutocompleteGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: AutocompleteResponse;
+};
+
+export type AutocompleteApiLocalAutocompleteGetResponse = AutocompleteApiLocalAutocompleteGetResponses[keyof AutocompleteApiLocalAutocompleteGetResponses];
+
+export type LocalSearchEndpointApiLocalSearchPostData = {
+    body: LocalSearchRequest;
+    path?: never;
+    query?: never;
+    url: '/api/local/search';
+};
+
+export type LocalSearchEndpointApiLocalSearchPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LocalSearchEndpointApiLocalSearchPostError = LocalSearchEndpointApiLocalSearchPostErrors[keyof LocalSearchEndpointApiLocalSearchPostErrors];
+
+export type LocalSearchEndpointApiLocalSearchPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SearchResponse;
+};
+
+export type LocalSearchEndpointApiLocalSearchPostResponse = LocalSearchEndpointApiLocalSearchPostResponses[keyof LocalSearchEndpointApiLocalSearchPostResponses];
+
+export type GalaxySearchApiSearchGalaxyPostData = {
+    body: GalaxySearchRequest;
+    path?: never;
+    query?: never;
+    url: '/api/search/galaxy';
+};
+
+export type GalaxySearchApiSearchGalaxyPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GalaxySearchApiSearchGalaxyPostError = GalaxySearchApiSearchGalaxyPostErrors[keyof GalaxySearchApiSearchGalaxyPostErrors];
+
+export type GalaxySearchApiSearchGalaxyPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type ClusterSearchApiSearchClusterPostData = {
+    body: ClusterSearchRequest;
+    path?: never;
+    query?: never;
+    url: '/api/search/cluster';
+};
+
+export type ClusterSearchApiSearchClusterPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ClusterSearchApiSearchClusterPostError = ClusterSearchApiSearchClusterPostErrors[keyof ClusterSearchApiSearchClusterPostErrors];
+
+export type ClusterSearchApiSearchClusterPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ClusterSearchResponse;
+};
+
+export type ClusterSearchApiSearchClusterPostResponse = ClusterSearchApiSearchClusterPostResponses[keyof ClusterSearchApiSearchClusterPostResponses];
+
+export type GetSystemApiSystemId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/system/{id64}';
+};
+
+export type GetSystemApiSystemId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSystemApiSystemId64GetError = GetSystemApiSystemId64GetErrors[keyof GetSystemApiSystemId64GetErrors];
+
+export type GetSystemApiSystemId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemDetailResponse;
+};
+
+export type GetSystemApiSystemId64GetResponse = GetSystemApiSystemId64GetResponses[keyof GetSystemApiSystemId64GetResponses];
+
+export type LocalGetSystemApiLocalSystemId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/local/system/{id64}';
+};
+
+export type LocalGetSystemApiLocalSystemId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type LocalGetSystemApiLocalSystemId64GetError = LocalGetSystemApiLocalSystemId64GetErrors[keyof LocalGetSystemApiLocalSystemId64GetErrors];
+
+export type LocalGetSystemApiLocalSystemId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type GetBodyApiBodyBodyIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Body Id
+         */
+        body_id: number;
+    };
+    query?: never;
+    url: '/api/body/{body_id}';
+};
+
+export type GetBodyApiBodyBodyIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBodyApiBodyBodyIdGetError = GetBodyApiBodyBodyIdGetErrors[keyof GetBodyApiBodyBodyIdGetErrors];
+
+export type GetBodyApiBodyBodyIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type BatchSystemsApiSystemsBatchPostData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/systems/batch';
+};
+
+export type BatchSystemsApiSystemsBatchPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type MapRegionsApiMapRegionsGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/map/regions';
+};
+
+export type MapRegionsApiMapRegionsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type MapClusterHullsApiMapClustersHullsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Min Count
+         *
+         * Minimum systems per cluster
+         */
+        min_count?: number;
+        /**
+         * Max Hulls
+         *
+         * Cap on returned hulls
+         */
+        max_hulls?: number;
+    };
+    url: '/api/map/clusters/hulls';
+};
+
+export type MapClusterHullsApiMapClustersHullsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MapClusterHullsApiMapClustersHullsGetError = MapClusterHullsApiMapClustersHullsGetErrors[keyof MapClusterHullsApiMapClustersHullsGetErrors];
+
+export type MapClusterHullsApiMapClustersHullsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type MapHeatmapApiMapHeatmapGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Voxel Size
+         *
+         * Voxel cell size in LY
+         */
+        voxel_size?: number;
+        /**
+         * Min Systems
+         *
+         * Minimum systems per voxel
+         */
+        min_systems?: number;
+        /**
+         * Max Cells
+         *
+         * Maximum heatmap cells returned
+         */
+        max_cells?: number;
+        /**
+         * Economy
+         *
+         * Filter to a specific economy score
+         */
+        economy?: string | null;
+    };
+    url: '/api/map/heatmap';
+};
+
+export type MapHeatmapApiMapHeatmapGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MapHeatmapApiMapHeatmapGetError = MapHeatmapApiMapHeatmapGetErrors[keyof MapHeatmapApiMapHeatmapGetErrors];
+
+export type MapHeatmapApiMapHeatmapGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type MapTimelineApiMapTimelineGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Bucket
+         */
+        bucket?: string;
+    };
+    url: '/api/map/timeline';
+};
+
+export type MapTimelineApiMapTimelineGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MapTimelineApiMapTimelineGetError = MapTimelineApiMapTimelineGetErrors[keyof MapTimelineApiMapTimelineGetErrors];
+
+export type MapTimelineApiMapTimelineGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type MapSystemsApiMapSystemsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Min X
+         *
+         * Viewport bounding-box min X (LY)
+         */
+        min_x: number;
+        /**
+         * Max X
+         *
+         * Viewport bounding-box max X (LY)
+         */
+        max_x: number;
+        /**
+         * Min Y
+         *
+         * Viewport bounding-box min Y (LY)
+         */
+        min_y: number;
+        /**
+         * Max Y
+         *
+         * Viewport bounding-box max Y (LY)
+         */
+        max_y: number;
+        /**
+         * Min Z
+         *
+         * Viewport bounding-box min Z (LY)
+         */
+        min_z: number;
+        /**
+         * Max Z
+         *
+         * Viewport bounding-box max Z (LY)
+         */
+        max_z: number;
+        /**
+         * Limit
+         *
+         * Maximum individual systems returned
+         */
+        limit?: number;
+    };
+    url: '/api/map/systems';
+};
+
+export type MapSystemsApiMapSystemsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type MapSystemsApiMapSystemsGetError = MapSystemsApiMapSystemsGetErrors[keyof MapSystemsApiMapSystemsGetErrors];
+
+export type MapSystemsApiMapSystemsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MapViewportResponse;
+};
+
+export type MapSystemsApiMapSystemsGetResponse = MapSystemsApiMapSystemsGetResponses[keyof MapSystemsApiMapSystemsGetResponses];
+
+export type GetArchetypeRankingsApiArchetypesRankingsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Archetype
+         *
+         * Colony archetype key
+         */
+        archetype: string;
+        /**
+         * Min Score
+         */
+        min_score?: number;
+        /**
+         * Galaxy Region
+         */
+        galaxy_region?: number | null;
+        /**
+         * Max Distance Ly
+         */
+        max_distance_ly?: number | null;
+        /**
+         * Has Elw
+         */
+        has_elw?: boolean | null;
+        /**
+         * Min Slots
+         */
+        min_slots?: number | null;
+        /**
+         * Max Contamination
+         */
+        max_contamination?: number | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/archetypes/rankings';
+};
+
+export type GetArchetypeRankingsApiArchetypesRankingsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetArchetypeRankingsApiArchetypesRankingsGetError = GetArchetypeRankingsApiArchetypesRankingsGetErrors[keyof GetArchetypeRankingsApiArchetypesRankingsGetErrors];
+
+export type GetArchetypeRankingsApiArchetypesRankingsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArchetypeRankingsResponse;
+};
+
+export type GetArchetypeRankingsApiArchetypesRankingsGetResponse = GetArchetypeRankingsApiArchetypesRankingsGetResponses[keyof GetArchetypeRankingsApiArchetypesRankingsGetResponses];
+
+export type PostArchetypeRerankApiArchetypesRerankPostData = {
+    body: ArchetypeRerankRequest;
+    path?: never;
+    query?: never;
+    url: '/api/archetypes/rerank';
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostError = PostArchetypeRerankApiArchetypesRerankPostErrors[keyof PostArchetypeRerankApiArchetypesRerankPostErrors];
+
+export type PostArchetypeRerankApiArchetypesRerankPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArchetypeRerankResponse;
+};
+
+export type PostArchetypeRerankApiArchetypesRerankPostResponse = PostArchetypeRerankApiArchetypesRerankPostResponses[keyof PostArchetypeRerankApiArchetypesRerankPostResponses];
+
+export type GetSystemArchetypesApiArchetypesSystemId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/archetypes/system/{id64}';
+};
+
+export type GetSystemArchetypesApiArchetypesSystemId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSystemArchetypesApiArchetypesSystemId64GetError = GetSystemArchetypesApiArchetypesSystemId64GetErrors[keyof GetSystemArchetypesApiArchetypesSystemId64GetErrors];
+
+export type GetSystemArchetypesApiArchetypesSystemId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemArchetypeResponse;
+};
+
+export type GetSystemArchetypesApiArchetypesSystemId64GetResponse = GetSystemArchetypesApiArchetypesSystemId64GetResponses[keyof GetSystemArchetypesApiArchetypesSystemId64GetResponses];
+
+export type PostSimulateApiArchetypesSimulatePostData = {
+    body: BuildSimulateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/archetypes/simulate';
+};
+
+export type PostSimulateApiArchetypesSimulatePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostSimulateApiArchetypesSimulatePostError = PostSimulateApiArchetypesSimulatePostErrors[keyof PostSimulateApiArchetypesSimulatePostErrors];
+
+export type PostSimulateApiArchetypesSimulatePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuildSimulateResponse;
+};
+
+export type PostSimulateApiArchetypesSimulatePostResponse = PostSimulateApiArchetypesSimulatePostResponses[keyof PostSimulateApiArchetypesSimulatePostResponses];
+
+export type GetProfilesApiArchetypesProfilesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/archetypes/profiles';
+};
+
+export type GetProfilesApiArchetypesProfilesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ArchetypesProfilesResponse;
+};
+
+export type GetProfilesApiArchetypesProfilesGetResponse = GetProfilesApiArchetypesProfilesGetResponses[keyof GetProfilesApiArchetypesProfilesGetResponses];
+
+export type GetFacilityTemplatesApiFacilityTemplatesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/facility-templates';
+};
+
+export type GetFacilityTemplatesApiFacilityTemplatesGetResponses = {
+    /**
+     * Response Get Facility Templates Api Facility Templates Get
+     *
+     * Successful Response
+     */
+    200: Array<FacilityTemplateResponse>;
+};
+
+export type GetFacilityTemplatesApiFacilityTemplatesGetResponse = GetFacilityTemplatesApiFacilityTemplatesGetResponses[keyof GetFacilityTemplatesApiFacilityTemplatesGetResponses];
+
+export type PostSimulateBuildApiSimulateBuildPostData = {
+    body: SimulateBuildRequest;
+    path?: never;
+    query?: never;
+    url: '/api/simulate/build';
+};
+
+export type PostSimulateBuildApiSimulateBuildPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostSimulateBuildApiSimulateBuildPostError = PostSimulateBuildApiSimulateBuildPostErrors[keyof PostSimulateBuildApiSimulateBuildPostErrors];
+
+export type PostSimulateBuildApiSimulateBuildPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: SimulateBuildResponse;
+};
+
+export type PostSimulateBuildApiSimulateBuildPostResponse = PostSimulateBuildApiSimulateBuildPostResponses[keyof PostSimulateBuildApiSimulateBuildPostResponses];
+
+export type GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: {
+        /**
+         * Archetype
+         */
+        archetype?: string | null;
+    };
+    url: '/api/systems/{system_id64}/recommended-builds';
+};
+
+export type GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetError = GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetErrors[keyof GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetErrors];
+
+export type GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RecommendedBuildsResponse;
+};
+
+export type GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetResponse = GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetResponses[keyof GetRecommendedBuildsApiSystemsSystemId64RecommendedBuildsGetResponses];
+
+export type GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/systems/{id64}/regional-analysis';
+};
+
+export type GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetError = GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetErrors[keyof GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetErrors];
+
+export type GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: RegionalAnalysisResponse;
+};
+
+export type GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetResponse = GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetResponses[keyof GetRegionalAnalysisApiSystemsId64RegionalAnalysisGetResponses];
+
+export type GetSlotPredictionsApiSystemsId64SlotPredictionsGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/systems/{id64}/slot-predictions';
+};
+
+export type GetSlotPredictionsApiSystemsId64SlotPredictionsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSlotPredictionsApiSystemsId64SlotPredictionsGetError = GetSlotPredictionsApiSystemsId64SlotPredictionsGetErrors[keyof GetSlotPredictionsApiSystemsId64SlotPredictionsGetErrors];
+
+export type GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SlotPredictionResponse;
+};
+
+export type GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponse = GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponses[keyof GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponses];
+
+export type GetBuildabilityApiSystemsId64BuildabilityGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: {
+        /**
+         * Archetype
+         *
+         * Target archetype key
+         */
+        archetype?: string | null;
+    };
+    url: '/api/systems/{id64}/buildability';
+};
+
+export type GetBuildabilityApiSystemsId64BuildabilityGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetBuildabilityApiSystemsId64BuildabilityGetError = GetBuildabilityApiSystemsId64BuildabilityGetErrors[keyof GetBuildabilityApiSystemsId64BuildabilityGetErrors];
+
+export type GetBuildabilityApiSystemsId64BuildabilityGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: BuildabilityResponse;
+};
+
+export type GetBuildabilityApiSystemsId64BuildabilityGetResponse = GetBuildabilityApiSystemsId64BuildabilityGetResponses[keyof GetBuildabilityApiSystemsId64BuildabilityGetResponses];
+
+export type GetSimulationSummaryApiSystemsId64SimulationSummaryGetData = {
+    body?: never;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: {
+        /**
+         * Archetype
+         *
+         * Target archetype key
+         */
+        archetype?: string | null;
+    };
+    url: '/api/systems/{id64}/simulation-summary';
+};
+
+export type GetSimulationSummaryApiSystemsId64SimulationSummaryGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetSimulationSummaryApiSystemsId64SimulationSummaryGetError = GetSimulationSummaryApiSystemsId64SimulationSummaryGetErrors[keyof GetSimulationSummaryApiSystemsId64SimulationSummaryGetErrors];
+
+export type GetSimulationSummaryApiSystemsId64SimulationSummaryGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SimulationSummaryResponse;
+};
+
+export type GetSimulationSummaryApiSystemsId64SimulationSummaryGetResponse = GetSimulationSummaryApiSystemsId64SimulationSummaryGetResponses[keyof GetSimulationSummaryApiSystemsId64SimulationSummaryGetResponses];
+
+export type PostOptimiserCandidatesApiOptimiserCandidatesPostData = {
+    body: OptimiserCandidatesRequest;
+    path?: never;
+    query?: never;
+    url: '/api/optimiser/candidates';
+};
+
+export type PostOptimiserCandidatesApiOptimiserCandidatesPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type PostOptimiserCandidatesApiOptimiserCandidatesPostError = PostOptimiserCandidatesApiOptimiserCandidatesPostErrors[keyof PostOptimiserCandidatesApiOptimiserCandidatesPostErrors];
+
+export type PostOptimiserCandidatesApiOptimiserCandidatesPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: OptimiserCandidatesResponse;
+};
+
+export type PostOptimiserCandidatesApiOptimiserCandidatesPostResponse = PostOptimiserCandidatesApiOptimiserCandidatesPostResponses[keyof PostOptimiserCandidatesApiOptimiserCandidatesPostResponses];
+
+export type ListObservedFactsApiObservationsFactsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+        /**
+         * Fact Type
+         */
+        fact_type?: string | null;
+        /**
+         * Subject Type
+         */
+        subject_type?: string | null;
+        /**
+         * Status
+         */
+        status?: string | null;
+        /**
+         * Target Archetype
+         */
+        target_archetype?: string | null;
+        /**
+         * Build Fingerprint
+         */
+        build_fingerprint?: string | null;
+        /**
+         * Simulation Fingerprint
+         */
+        simulation_fingerprint?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Offset
+         */
+        offset?: number;
+    };
+    url: '/api/observations/facts';
+};
+
+export type ListObservedFactsApiObservationsFactsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ListObservedFactsApiObservationsFactsGetError = ListObservedFactsApiObservationsFactsGetErrors[keyof ListObservedFactsApiObservationsFactsGetErrors];
+
+export type ListObservedFactsApiObservationsFactsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ObservedFactListResponse;
+};
+
+export type ListObservedFactsApiObservationsFactsGetResponse = ListObservedFactsApiObservationsFactsGetResponses[keyof ListObservedFactsApiObservationsFactsGetResponses];
+
+export type CreateObservedFactApiObservationsFactsPostData = {
+    body: ObservedFactCreateRequest;
+    path?: never;
+    query?: never;
+    url: '/api/observations/facts';
+};
+
+export type CreateObservedFactApiObservationsFactsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type CreateObservedFactApiObservationsFactsPostError = CreateObservedFactApiObservationsFactsPostErrors[keyof CreateObservedFactApiObservationsFactsPostErrors];
+
+export type CreateObservedFactApiObservationsFactsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ObservedFactResponse;
+};
+
+export type CreateObservedFactApiObservationsFactsPostResponse = CreateObservedFactApiObservationsFactsPostResponses[keyof CreateObservedFactApiObservationsFactsPostResponses];
+
+export type DeleteObservedFactApiObservationsFactsObservationIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Observation Id
+         */
+        observation_id: string;
+    };
+    query?: never;
+    url: '/api/observations/facts/{observation_id}';
+};
+
+export type DeleteObservedFactApiObservationsFactsObservationIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type DeleteObservedFactApiObservationsFactsObservationIdDeleteError = DeleteObservedFactApiObservationsFactsObservationIdDeleteErrors[keyof DeleteObservedFactApiObservationsFactsObservationIdDeleteErrors];
+
+export type DeleteObservedFactApiObservationsFactsObservationIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: ObservedFactDeleteResponse;
+};
+
+export type DeleteObservedFactApiObservationsFactsObservationIdDeleteResponse = DeleteObservedFactApiObservationsFactsObservationIdDeleteResponses[keyof DeleteObservedFactApiObservationsFactsObservationIdDeleteResponses];
+
+export type GetObservedFactApiObservationsFactsObservationIdGetData = {
+    body?: never;
+    path: {
+        /**
+         * Observation Id
+         */
+        observation_id: string;
+    };
+    query?: never;
+    url: '/api/observations/facts/{observation_id}';
+};
+
+export type GetObservedFactApiObservationsFactsObservationIdGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type GetObservedFactApiObservationsFactsObservationIdGetError = GetObservedFactApiObservationsFactsObservationIdGetErrors[keyof GetObservedFactApiObservationsFactsObservationIdGetErrors];
+
+export type GetObservedFactApiObservationsFactsObservationIdGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: ObservedFactResponse;
+};
+
+export type GetObservedFactApiObservationsFactsObservationIdGetResponse = GetObservedFactApiObservationsFactsObservationIdGetResponses[keyof GetObservedFactApiObservationsFactsObservationIdGetResponses];
+
+export type UpdateObservedFactApiObservationsFactsObservationIdPatchData = {
+    body: ObservedFactUpdateRequest;
+    path: {
+        /**
+         * Observation Id
+         */
+        observation_id: string;
+    };
+    query?: never;
+    url: '/api/observations/facts/{observation_id}';
+};
+
+export type UpdateObservedFactApiObservationsFactsObservationIdPatchErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UpdateObservedFactApiObservationsFactsObservationIdPatchError = UpdateObservedFactApiObservationsFactsObservationIdPatchErrors[keyof UpdateObservedFactApiObservationsFactsObservationIdPatchErrors];
+
+export type UpdateObservedFactApiObservationsFactsObservationIdPatchResponses = {
+    /**
+     * Successful Response
+     */
+    200: ObservedFactResponse;
+};
+
+export type UpdateObservedFactApiObservationsFactsObservationIdPatchResponse = UpdateObservedFactApiObservationsFactsObservationIdPatchResponses[keyof UpdateObservedFactApiObservationsFactsObservationIdPatchResponses];
+
+export type ComparePredictionAgainstObservationsApiObservationsComparePostData = {
+    body: PredictionObservationCompareRequest;
+    path?: never;
+    query?: never;
+    url: '/api/observations/compare';
+};
+
+export type ComparePredictionAgainstObservationsApiObservationsComparePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ComparePredictionAgainstObservationsApiObservationsComparePostError = ComparePredictionAgainstObservationsApiObservationsComparePostErrors[keyof ComparePredictionAgainstObservationsApiObservationsComparePostErrors];
+
+export type ComparePredictionAgainstObservationsApiObservationsComparePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: PredictionObservationCompareResponse;
+};
+
+export type ComparePredictionAgainstObservationsApiObservationsComparePostResponse = ComparePredictionAgainstObservationsApiObservationsComparePostResponses[keyof ComparePredictionAgainstObservationsApiObservationsComparePostResponses];
+
+export type ReviewPredictionValidationApiObservationsReviewPostData = {
+    body: ValidationReviewRequest;
+    path?: never;
+    query?: never;
+    url: '/api/observations/review';
+};
+
+export type ReviewPredictionValidationApiObservationsReviewPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ReviewPredictionValidationApiObservationsReviewPostError = ReviewPredictionValidationApiObservationsReviewPostErrors[keyof ReviewPredictionValidationApiObservationsReviewPostErrors];
+
+export type ReviewPredictionValidationApiObservationsReviewPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: ValidationReviewResponse;
+};
+
+export type ReviewPredictionValidationApiObservationsReviewPostResponse = ReviewPredictionValidationApiObservationsReviewPostResponses[keyof ReviewPredictionValidationApiObservationsReviewPostResponses];
+
+export type ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostData = {
+    /**
+     * Body
+     */
+    body?: LayoutImportRequest | null;
+    path: {
+        /**
+         * Id64
+         */
+        id64: number;
+    };
+    query?: never;
+    url: '/api/colony-planner/system/{id64}/import-layout';
+};
+
+export type ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostError = ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostErrors[keyof ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostErrors];
+
+export type ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: LayoutImportResponse;
+};
+
+export type ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostResponse = ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostResponses[keyof ImportSystemLayoutApiColonyPlannerSystemId64ImportLayoutPostResponses];
+
+export type OperatorSourceRunsApiOperatorSourceRunsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Limit
+         */
+        limit?: number;
+        /**
+         * Status
+         */
+        status?: string | null;
+        /**
+         * Source Name
+         */
+        source_name?: string | null;
+        /**
+         * Domain
+         */
+        domain?: string | null;
+    };
+    url: '/api/operator/source-runs';
+};
+
+export type OperatorSourceRunsApiOperatorSourceRunsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorSourceRunsApiOperatorSourceRunsGetError = OperatorSourceRunsApiOperatorSourceRunsGetErrors[keyof OperatorSourceRunsApiOperatorSourceRunsGetErrors];
+
+export type OperatorSourceRunsApiOperatorSourceRunsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorSourceRunDetailApiOperatorSourceRunDetailGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Source Run Key
+         */
+        source_run_key: string;
+    };
+    url: '/api/operator/source-run-detail';
+};
+
+export type OperatorSourceRunDetailApiOperatorSourceRunDetailGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorSourceRunDetailApiOperatorSourceRunDetailGetError = OperatorSourceRunDetailApiOperatorSourceRunDetailGetErrors[keyof OperatorSourceRunDetailApiOperatorSourceRunDetailGetErrors];
+
+export type OperatorSourceRunDetailApiOperatorSourceRunDetailGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Source Run Key
+         */
+        source_run_key: string;
+    };
+    url: '/api/operator/source-run-artifacts';
+};
+
+export type OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetError = OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetErrors[keyof OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetErrors];
+
+export type OperatorSourceRunArtifactsApiOperatorSourceRunArtifactsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Source Run Key
+         */
+        source_run_key: string;
+    };
+    url: '/api/operator/source-run-bridge';
+};
+
+export type OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetError = OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetErrors[keyof OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetErrors];
+
+export type OperatorSourceRunBridgeApiOperatorSourceRunBridgeGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetData = {
+    body?: never;
+    path?: never;
+    query: {
+        /**
+         * Source Run Key
+         */
+        source_run_key: string;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/operator/source-run-staging-impact';
+};
+
+export type OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetError = OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetErrors[keyof OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetErrors];
+
+export type OperatorSourceRunStagingImpactApiOperatorSourceRunStagingImpactGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Source Run Key
+         */
+        source_run_key?: string | null;
+        /**
+         * Limit
+         */
+        limit?: number;
+    };
+    url: '/api/operator/diagnostic-staging-rows';
+};
+
+export type OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetError = OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetErrors[keyof OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetErrors];
+
+export type OperatorDiagnosticStagingRowsApiOperatorDiagnosticStagingRowsGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};
+
+export type OperatorSafetyGatesApiOperatorSafetyGatesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/operator/safety-gates';
+};
+
+export type OperatorSafetyGatesApiOperatorSafetyGatesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+};

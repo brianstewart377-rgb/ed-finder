@@ -1,7 +1,7 @@
 /** Stable application-facing bootstrap API backed by the generated Hey API SDK. */
 import {
-  getAuthSession as generatedGetAuthSession,
-  getHealth as generatedGetHealth,
+  authSessionApiAuthSessionGet as generatedGetAuthSession,
+  healthApiHealthGet as generatedGetHealth,
 } from './generated/sdk.gen';
 import type { AuthSessionResponse, HealthResponse } from './generated';
 

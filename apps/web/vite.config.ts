@@ -3,12 +3,17 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
 
 const apiTarget = process.env.VITE_DEV_API_TARGET ?? 'http://127.0.0.1:8002';
+const backendProxy = {
+  '/api': apiTarget,
+  '^/openapi\\.json$': apiTarget,
+  '^/s/\\d+$': apiTarget,
+};
 
 export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   resolve: { conditions: ['browser'] },
-  server: { proxy: { '/api': apiTarget } },
-  preview: { proxy: { '/api': apiTarget } },
+  server: { proxy: backendProxy },
+  preview: { proxy: backendProxy },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.ts'],

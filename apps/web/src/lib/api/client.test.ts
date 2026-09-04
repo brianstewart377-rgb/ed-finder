@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  getAuthSession as generatedGetAuthSession,
-  getHealth as generatedGetHealth,
+  authSessionApiAuthSessionGet as generatedGetAuthSession,
+  healthApiHealthGet as generatedGetHealth,
 } from './generated/sdk.gen';
 import { getAuthSession, getHealth } from './client';
 
 vi.mock('./generated/sdk.gen', () => ({
-  getAuthSession: vi.fn(),
-  getHealth: vi.fn(),
+  authSessionApiAuthSessionGet: vi.fn(),
+  healthApiHealthGet: vi.fn(),
 }));
 
 const mockedGetHealth = vi.mocked(generatedGetHealth);
