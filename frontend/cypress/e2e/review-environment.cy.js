@@ -96,10 +96,37 @@ function closeDetailWithEscape() {
   });
   cy.location('hash').should('eq', '#finder');
 }
-function pressNativeEnterIfPlannerDidNotOpen() {
+function emulateFocusedButtonEnterDefaultAction(control, label) {
+  expect(control.tagName, `${label} native element`).to.equal('BUTTON');
+  expect(control.disabled, `${label} enabled`).to.equal(false);
+  expect(control.ownerDocument.activeElement, `${label} focused`).to.equal(control);
+
+  const win = control.ownerDocument.defaultView;
+  let clickObserved = false;
+  const observeClick = () => { clickObserved = true; };
+  control.addEventListener('click', observeClick, { once: true });
+  const keydown = new win.KeyboardEvent('keydown', {
+    key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true, cancelable: true,
+  });
+  const allowed = control.dispatchEvent(keydown);
+  if (allowed && !keydown.defaultPrevented && !clickObserved
+      && control.ownerDocument.activeElement === control
+      && control.isConnected && !control.disabled) {
+    control.dispatchEvent(new win.MouseEvent('click', {
+      bubbles: true, cancelable: true, composed: true, detail: 0, view: win,
+    }));
+  }
+  control.dispatchEvent(new win.KeyboardEvent('keyup', {
+    key: 'Enter', code: 'Enter', which: 13, keyCode: 13, bubbles: true, cancelable: true,
+  }));
+  control.removeEventListener('click', observeClick);
+}
+function supplyPlannerEnterDefaultActionIfNeeded() {
   cy.get('body').then(($body) => {
     if (!$body.find('[data-testid="plan-start-panel"]').length) {
-      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().then(($control) => {
+        emulateFocusedButtonEnterDefaultAction($control[0], 'open-plan-start');
+      });
     }
   });
 }
@@ -107,7 +134,7 @@ function planner(system, keyboard = false, keyboardOpened = null) {
   if (keyboard) {
     cy.get('[data-testid="open-plan-start"]:visible').should('have.length', 1).focus().should('have.focus');
     cy.focused().type('{enter}');
-    pressNativeEnterIfPlannerDidNotOpen();
+    supplyPlannerEnterDefaultActionIfNeeded();
   } else {
     cy.getByTestId('open-plan-start').should('be.visible').click();
   }
