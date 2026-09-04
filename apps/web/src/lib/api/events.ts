@@ -2,6 +2,12 @@ import { parseLosslessJson } from './lossless-json';
 
 export const LIVE_EVENTS_PATH = '/api/events/live';
 
+export type EventStreamStatus =
+  | 'connecting'
+  | 'open'
+  | 'reconnecting'
+  | 'closed';
+
 export interface EventStreamContract {
   close(): void;
 }
@@ -11,6 +17,10 @@ export interface EventStreamOptions<T> {
   onOpen?(): void;
   /** Native EventSource reconnects. Consumers may start bounded polling here. */
   onDisconnected?(event: Event): void;
+  /** Observable connection state for status UI and polling-fallback ownership. */
+  onStatusChange?(status: EventStreamStatus): void;
+  /** Malformed frames are reported and ignored rather than escaping the handler. */
+  onParseError?(error: Error): void;
   eventSource?: typeof EventSource;
 }
 
@@ -24,12 +34,42 @@ export function openLiveEventStream<T>(
   const EventSourceClass = options.eventSource ?? globalThis.EventSource;
   if (!EventSourceClass)
     throw new Error('EventSource is unavailable; use the polling fallback');
+
+  let closed = false;
+  options.onStatusChange?.('connecting');
   const source = new EventSourceClass(LIVE_EVENTS_PATH, {
     withCredentials: true,
   });
-  source.onopen = () => options.onOpen?.();
-  source.onmessage = (event) =>
-    options.onEvent(parseLosslessJson(event.data) as T);
-  source.onerror = (event) => options.onDisconnected?.(event);
-  return { close: () => source.close() };
+
+  source.onopen = () => {
+    if (closed) return;
+    options.onStatusChange?.('open');
+    options.onOpen?.();
+  };
+  source.onmessage = (event) => {
+    if (closed) return;
+    try {
+      options.onEvent(parseLosslessJson(event.data) as T);
+    } catch (cause) {
+      options.onParseError?.(
+        cause instanceof Error
+          ? cause
+          : new Error('Live event frame could not be parsed', { cause }),
+      );
+    }
+  };
+  source.onerror = (event) => {
+    if (closed) return;
+    options.onStatusChange?.('reconnecting');
+    options.onDisconnected?.(event);
+  };
+
+  return {
+    close() {
+      if (closed) return;
+      closed = true;
+      source.close();
+      options.onStatusChange?.('closed');
+    },
+  };
 }
