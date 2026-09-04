@@ -6,6 +6,26 @@
   let dialog: HTMLDivElement;
   let returnFocus: HTMLElement | null = null;
 
+  const focusableSelector = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ].join(',');
+
+  function focusableElements(): HTMLElement[] {
+    if (!dialog) return [];
+    return Array.from(
+      dialog.querySelectorAll<HTMLElement>(focusableSelector),
+    ).filter(
+      (element) =>
+        element.getAttribute('aria-hidden') !== 'true' &&
+        !element.hasAttribute('hidden'),
+    );
+  }
+
   function close() {
     const url = new URL(page.url);
     url.searchParams.delete('system');
@@ -15,12 +35,39 @@
       noScroll: true,
     }).then(() => returnFocus?.focus());
   }
+
+  function containTab(event: KeyboardEvent) {
+    const focusable = focusableElements();
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog?.focus();
+      return;
+    }
+
+    const active = document.activeElement;
+    const first = focusable[0];
+    const last = focusable.at(-1) ?? first;
+    if (!focusable.includes(active as HTMLElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
   function keydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       event.preventDefault();
       close();
+    } else if (event.key === 'Tab') {
+      containTab(event);
     }
   }
+
   $effect(() => {
     returnFocus =
       document.activeElement instanceof HTMLElement
