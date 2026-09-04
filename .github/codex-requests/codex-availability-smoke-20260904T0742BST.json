@@ -1,0 +1,1 @@
+{"mode":"investigate","task":"No-write Codex availability smoke. Inspect the repository at current main, report the current main commit SHA and confirm that the Codex worker can execute normally. Do not modify files, create commits, push branches, open pull requests, access production, or perform any deployment/database/server action."}
