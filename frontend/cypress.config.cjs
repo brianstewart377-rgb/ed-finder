@@ -23,7 +23,6 @@ module.exports = {
   pageLoadTimeout: 30000,
   numTestsKeptInMemory: 0,
   chromeWebSecurity: true,
-  allowCypressEnv: false,
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://127.0.0.1:4173',
     specPattern: 'cypress/e2e/**/*.cy.js',
@@ -34,7 +33,8 @@ module.exports = {
     downloadsFolder: 'cypress/artifacts/downloads',
     setupNodeEvents(on, config) {
       // Snapshot the trusted runner-owned handshake before any spec executes.
-      // None of these values travel through Cypress.env(), which is disabled.
+      // None of these values travel through Cypress.env(); browser specs receive
+      // Review Lab authority only through this trusted Node-task handshake.
       const reviewLabMarker = process.env.EDFINDER_REVIEW_LAB_RUN || '';
       const configuredOutputPath = process.env.EDFINDER_REVIEW_OUTPUT_PATH || '';
       const configuredScenariosJson = process.env.EDFINDER_REVIEW_SCENARIOS_JSON || '';

@@ -943,7 +943,7 @@ def test_frontend_target_remains_compatible_with_review_api():
     ):
         assert profile_name in review_spec
     assert 'complete trusted Node-task handshake' in review_spec
-    assert 'allowCypressEnv: false' in cypress_config
+    assert 'allowCypressEnv' not in cypress_config
     assert 'getReviewLabConfig' in cypress_config
     assert "process.env.EDFINDER_REVIEW_LAB_RUN" in cypress_config
     assert "reviewLabMarker === '1'" in cypress_config
@@ -954,6 +954,16 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'summary.summarySchemaVersion === REVIEW_LAB_SUMMARY_SCHEMA_VERSION' in cypress_config
     assert 'config.env' not in cypress_config
     assert 'writeReviewLabSummary' in cypress_config
+
+
+@pytest.mark.unit
+def test_browser_specs_do_not_read_review_lab_authority_from_cypress_env():
+    browser_specs = sorted((ROOT / 'frontend' / 'cypress' / 'e2e').rglob('*.cy.js'))
+    assert browser_specs
+    for spec_path in browser_specs:
+        source = _read(spec_path)
+        assert 'Cypress.env(' not in source, spec_path
+        assert 'cy.env(' not in source, spec_path
 
 
 @pytest.mark.unit
@@ -1212,11 +1222,11 @@ def test_review_lab_planner_keyboard_entry_uses_native_enter_and_waits_for_panel
 
     assert "cy.get('[data-testid=\"open-plan-start\"]:visible')" in keyboard_branch
     assert ".focus().should('have.focus')" in keyboard_branch
-    assert 'cy.press(Cypress.Keyboard.Keys.ENTER)' in keyboard_branch
-    assert ".type('{enter}')" not in keyboard_branch
+    assert "cy.focused().type('{enter}')" in keyboard_branch
+    assert 'cy.press(' not in keyboard_branch
     assert '.click()' not in keyboard_branch
     assert panel_assertion in helper
-    assert helper.index('cy.press(Cypress.Keyboard.Keys.ENTER)') < helper.index(panel_assertion)
+    assert helper.index("cy.focused().type('{enter}')") < helper.index(panel_assertion)
     assert helper.index(panel_assertion) < helper.index("'plan-objective-decide_later'")
     assert helper.index(panel_assertion) < helper.index('cy.then(keyboardOpened)')
     assert "['plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach" in helper
