@@ -16,10 +16,20 @@ import {
   syncKeyCodec,
 } from './storage';
 import { legacyPersistenceFixtures } from './fixtures';
-import { adminToken, selectedSystem } from './stores';
+import {
+  adminToken,
+  applicationStores,
+  hydrateApplicationStores,
+  resetApplicationStoreHydrationForTest,
+  selectedSystem,
+} from './stores';
 
 describe('persistence compatibility', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
+  });
 
   it('locks the exact local and session key inventory', () => {
     expect(LOCAL_STORAGE_KEYS).toEqual([
@@ -123,13 +133,29 @@ describe('persistence compatibility', () => {
   });
 
   it('keeps the admin token session-only', () => {
-    sessionStorage.clear();
     expect(adminToken.set('temporary-admin-token')).toBe(true);
     expect(sessionStorage.getItem('ed_admin_token')).toBe(
       'temporary-admin-token',
     );
     expect(localStorage.getItem('ed_admin_token')).toBeNull();
     adminToken.clear();
+  });
+
+  it('keeps admin credentials out of the application sync inventory', () => {
+    expect(Object.keys(applicationStores)).not.toContain('adminToken');
+    expect(Object.values(applicationStores)).not.toContain(adminToken);
+    expect(LOCAL_STORAGE_KEYS).not.toContain('ed_admin_token');
+  });
+
+  it('hydrates the standalone session credential outside that inventory', () => {
+    sessionStorage.setItem('ed_admin_token', 'existing-session-token');
+    resetApplicationStoreHydrationForTest();
+    const hydrateToken = vi.spyOn(adminToken, 'hydrate');
+
+    hydrateApplicationStores();
+
+    expect(hydrateToken).toHaveBeenCalledOnce();
+    expect(get(adminToken).value).toBe('existing-session-token');
   });
 
   it('drops an unsafe legacy numeric id instead of preserving a rounded value', () => {

@@ -54,6 +54,7 @@ describe('Colony Planner route loader', () => {
   it.each([
     ['out-of-range system', 'system/18446744073709551616'],
     ['missing mode', 'system/42/mode'],
+    ['unknown mode with trailing data', 'system/42/mode/not-a-mode/extra'],
     ['missing project identifier', 'system/42/project'],
     ['invalid detail id', 'system/42/detail/not-an-id'],
     ['trailing detail data', 'system/42/detail/99/extra'],

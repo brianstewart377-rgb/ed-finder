@@ -10,9 +10,18 @@ export function canonicalApiPath(path: string): string {
   if (/^https?:\/\//i.test(path))
     throw new TypeError('API paths must be same-origin');
   const rooted = path.startsWith('/') ? path : `/${path}`;
-  return rooted === '/api' || rooted.startsWith('/api/')
-    ? rooted
-    : `/api${rooted}`;
+  const rootedPath = rooted.split(/[?#]/, 1)[0];
+  const apiPath =
+    rootedPath === '/api' || rootedPath.startsWith('/api/')
+      ? rooted
+      : `/api${rooted}`;
+  const normalised = new URL(apiPath, 'http://ed-finder.invalid');
+  if (
+    normalised.pathname !== '/api' &&
+    !normalised.pathname.startsWith('/api/')
+  )
+    throw new TypeError('API paths must stay under /api');
+  return `${normalised.pathname}${normalised.search}${normalised.hash}`;
 }
 
 export type AdminEndpointClass =

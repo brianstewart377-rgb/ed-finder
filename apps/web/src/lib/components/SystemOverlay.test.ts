@@ -61,8 +61,11 @@ describe('SystemOverlay', () => {
     opener.textContent = 'Open detail';
     document.body.append(opener);
     opener.focus();
+    const focusOpener = vi.spyOn(opener, 'focus');
 
-    render(SystemOverlay, { props: { id64: '42' as Id64 } });
+    const { unmount } = render(SystemOverlay, {
+      props: { id64: '42' as Id64 },
+    });
     await waitFor(() =>
       expect(
         screen.getByRole('dialog', { name: 'System Detail' }),
@@ -76,6 +79,11 @@ describe('SystemOverlay', () => {
       noScroll: true,
     });
     await waitFor(() => expect(opener).toHaveFocus());
+    expect(focusOpener).toHaveBeenCalledOnce();
+    expect(focusOpener).toHaveBeenCalledWith({ preventScroll: true });
+
+    unmount();
+    expect(focusOpener).toHaveBeenCalledOnce();
     opener.remove();
   });
 

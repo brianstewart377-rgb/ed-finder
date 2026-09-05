@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  ADMIN_TOKEN_SESSION_KEY,
   ApiError,
   LEGACY_ADMIN_ENDPOINTS,
   adminEndpointClass,
@@ -22,6 +23,7 @@ const concretePath = (template: string) =>
 describe('bootstrap API client', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    localStorage.clear();
     sessionStorage.clear();
   });
 
@@ -130,8 +132,15 @@ describe('bootstrap API client', () => {
   it('deduplicates /api and rejects cross-origin base URLs', () => {
     expect(canonicalApiPath('/health')).toBe('/api/health');
     expect(canonicalApiPath('/api/health')).toBe('/api/health');
+    expect(canonicalApiPath('/api?probe=1')).toBe('/api?probe=1');
+    expect(canonicalApiPath('/api/admin/../auth/session')).toBe(
+      '/api/auth/session',
+    );
     expect(() => canonicalApiPath('https://example.test/api/health')).toThrow(
       'same-origin',
+    );
+    expect(() => canonicalApiPath('/admin/../../outside')).toThrow(
+      'stay under /api',
     );
   });
 
@@ -151,11 +160,13 @@ describe('bootstrap API client', () => {
     expect(adminEndpointClass('/api/cache/stats', 'POST')).toBeNull();
     expect(adminEndpointClass('/api/evidence/records', 'GET')).toBeNull();
     expect(adminEndpointClass('/api/observations/facts/id', 'POST')).toBeNull();
+    expect(adminEndpointClass('/api/admin/../auth/session')).toBeNull();
+    expect(adminEndpointClass('/operator/..\\auth/session')).toBeNull();
     expect(adminEndpointClass('/api/static/app.js')).toBeNull();
   });
 
   it('injects only the bounded session token on allowlisted routes', async () => {
-    sessionStorage.setItem('ed_admin_token', ' token-123 ');
+    sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, ' token-123 ');
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
       .mockImplementation(async () => jsonResponse({}));
@@ -177,14 +188,32 @@ describe('bootstrap API client', () => {
     await apiRequest('/observations/facts', {
       headers: { 'X-Admin-Token': 'must-not-leak' },
     });
+    await apiRequest('/api/admin/../auth/session', {
+      headers: { 'X-Admin-Token': 'must-not-leak' },
+    });
     await claimOwner('one-time-owner-link-secret');
     for (const [, init] of fetchMock.mock.calls) {
       expect(new Headers(init?.headers).has('X-Admin-Token')).toBe(false);
     }
-    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/auth/owner/claim');
-    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/auth/session');
+    expect(fetchMock.mock.calls[3]?.[0]).toBe('/api/auth/owner/claim');
+    expect(fetchMock.mock.calls[3]?.[1]?.body).toBe(
       JSON.stringify({ admin_token: 'one-time-owner-link-secret' }),
     );
+  });
+
+  it('removes a caller-supplied token when no bounded session token exists', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({}));
+
+    await apiRequest('/admin/data-status', {
+      headers: { 'X-Admin-Token': 'caller-supplied-secret' },
+    });
+
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('X-Admin-Token'),
+    ).toBe(false);
   });
 
   it('preserves structured, text, and empty error responses', async () => {
