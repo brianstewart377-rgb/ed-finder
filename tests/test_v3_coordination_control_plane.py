@@ -6,6 +6,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CONTROL_PLANE = ROOT / 'docs' / 'development' / 'v3-coordination-control-plane.md'
 BROWSER_LANES = ROOT / 'docs' / 'development' / 'v3-browser-validation-lanes.md'
+HISTORICAL_OPS_DESIGN = ROOT / 'docs' / 'development' / 'chatgpt-ops-control-plane.md'
 CODEX_DISPATCH = ROOT / '.github' / 'workflows' / 'codex-dispatch.yml'
 CODEX_WORKER = ROOT / '.github' / 'workflows' / 'codex-laptop.yml'
 OPS_WORKFLOW = ROOT / '.github' / 'workflows' / 'chatgpt-ed-new-ops.yml'
@@ -47,6 +48,15 @@ def test_live_checkpoint_path_is_main_immutable_and_receipted():
     assert 'deployment receipt' in text
     assert 'No worker branch deploy' in text
     assert 'no `git pull`' in text
+
+
+@pytest.mark.unit
+def test_historical_ops_design_cannot_be_mistaken_for_current_authority():
+    historical = HISTORICAL_OPS_DESIGN.read_text(encoding='utf-8')
+    current = CONTROL_PLANE.read_text(encoding='utf-8')
+
+    assert 'DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK' in historical
+    assert 'older `chatgpt-ops-control-plane.md` contains useful design history but is not the current authority' in current
 
 
 @pytest.mark.unit
