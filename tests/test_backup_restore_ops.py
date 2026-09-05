@@ -281,7 +281,9 @@ def test_backup_helpers_remain_in_legacy_maintenance_compose_without_v2_storageb
     crontab = _read('apps', 'maintenance', 'scripts', 'crontab')
     dockerfile = _read('apps', 'maintenance', 'Dockerfile')
 
-    assert 'this Compose file is NOT current production authority' in compose
+    assert 'LEGACY SELF-HOST / LOCAL-CI COMPOSE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in compose
+    assert 'PostgreSQL 16 services' in compose
+    assert 'current V3 production uses PostgreSQL 18' in compose
     assert 'context: .' in compose
     assert 'dockerfile: apps/maintenance/Dockerfile' in compose
     assert 'BACKUP_DIR:    /data/backups/postgres' in compose
@@ -326,6 +328,10 @@ def test_restore_helper_defaults_to_safe_non_live_target():
     assert '--compose-file' in restore
     assert 'dc() {' in restore
     assert 'pg_restore' in restore
+    assert 'LOCAL/CI ONLY — NEVER V3 PRODUCTION' in restore
+    assert 'PostgreSQL 16' in restore
+    assert 'PostgreSQL 18' in restore
+    assert 'not V3 PostgreSQL 18 backup, restore' in restore
 
 
 def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
@@ -344,6 +350,10 @@ def test_restore_rehearsal_helper_wraps_backup_restore_and_readiness_checks():
     assert 'SELECT COUNT(*) FROM schema_migrations;' in rehearsal
     assert 'dropdb -U edfinder --if-exists "$TARGET_DB"' in rehearsal
     assert '--receipt-file' in rehearsal
+    assert 'LOCAL/CI ONLY — NEVER V3 PRODUCTION' in rehearsal
+    assert 'retained legacy' in rehearsal
+    assert 'Compose PostgreSQL 16 tooling only' in rehearsal
+    assert 'says nothing about V3' in rehearsal
 
 
 def test_backup_script_can_optionally_mirror_archives_offsite():

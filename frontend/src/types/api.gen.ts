@@ -681,7 +681,7 @@ export interface paths {
          *
          *     This endpoint deliberately reads only a configured JSON artifact produced
          *     by `station_enrichment_status.py --json`. It never invokes the enrichment
-         *     script, Docker, EDSM, or the database.
+         *     script, Docker, external data providers, or the database.
          */
         get: operations["station_enrichment_operator_status_api_admin_enrichment_station_status_get"];
         put?: never;
@@ -1595,7 +1595,7 @@ export interface paths {
          *
          *     Data source priority:
          *       1. body_scan_facts (EDDN-derived, highest confidence)
-         *       2. bodies table (Spansh-imported, moderate confidence)
+         *       2. bodies table (external-source imported, moderate confidence)
          *       3. No data → empty predictions with explanation
          */
         get: operations["get_slot_predictions_api_systems__id64__slot_predictions_get"];

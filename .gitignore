@@ -169,7 +169,6 @@ artifacts/restore-rehearsals/latest.dump
 
 # Tool and session artifacts
 .mcp.json
-.playwright-mcp/
 .superpowers/
 # Some Windows tooling has historically flattened an absolute Superpowers path
 # into a single root filename (for example C:Users...superpowerssddtask-1-diff.patch).

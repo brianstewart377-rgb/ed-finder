@@ -174,6 +174,85 @@ describe('ED Finder release gate — Cypress parity', () => {
     cy.assertCanvasSynced();
   });
 
+  it('orders renderer sync invalidation before resize revalidation', () => {
+    openProductionMap();
+    cy.getByTestId('map-view-galaxy').click();
+    cy.get('.map-foundation-renderer canvas').should('have.attr', 'data-drawing-buffer-synced', 'true')
+      .then(($canvas) => {
+        const canvas = $canvas[0];
+        canvas.__resizeTelemetrySequence = [canvas.dataset.drawingBufferSynced ?? 'missing'];
+        canvas.__resizeTelemetryObserver = new MutationObserver(() => {
+          canvas.__resizeTelemetrySequence.push(canvas.dataset.drawingBufferSynced ?? 'missing');
+        });
+        canvas.__resizeTelemetryObserver.observe(canvas, {
+          attributes: true,
+          attributeFilter: ['data-drawing-buffer-synced'],
+        });
+      });
+
+    cy.viewport(1111, 733);
+    cy.get('.map-foundation-renderer canvas').should(($canvas) => {
+      const sequence = $canvas[0].__resizeTelemetrySequence ?? [];
+      const invalidatedAt = sequence.indexOf('false');
+      const revalidatedAt = sequence.indexOf('true', invalidatedAt + 1);
+      expect(invalidatedAt, JSON.stringify(sequence)).to.be.at.least(0);
+      expect(revalidatedAt, JSON.stringify(sequence)).to.be.greaterThan(invalidatedAt);
+    });
+  });
+
+  it('does not invalidate renderer sync for a same-size ResizeObserver notification', () => {
+    openProductionMap();
+    cy.getByTestId('map-view-galaxy').click();
+    cy.get('.map-foundation-renderer canvas').should('have.attr', 'data-drawing-buffer-synced', 'true')
+      .then(($canvas) => {
+        const canvas = $canvas[0];
+        const before = canvas.getBoundingClientRect();
+        const sequence = [canvas.dataset.drawingBufferSynced ?? 'missing'];
+        const observer = new MutationObserver(() => {
+          sequence.push(canvas.dataset.drawingBufferSynced ?? 'missing');
+        });
+        observer.observe(canvas, { attributes: true, attributeFilter: ['data-drawing-buffer-synced'] });
+        expect(canvas.ownerDocument.defaultView.__triggerMapResizeObserver).to.be.a('function');
+        canvas.ownerDocument.defaultView.__triggerMapResizeObserver();
+        cy.wrap(null).then(() => new Cypress.Promise((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(resolve));
+        })).then(() => {
+          const after = canvas.getBoundingClientRect();
+          observer.disconnect();
+          expect({ width: after.width, height: after.height }).to.deep.equal({
+            width: before.width, height: before.height,
+          });
+          expect(sequence.length).to.be.greaterThan(1);
+          expect(sequence).not.to.include('false');
+        });
+      });
+  });
+
+  it('meets the automated accessibility gate', () => {
+    cy.visit('/');
+    cy.injectAxe();
+    cy.checkA11y(undefined, {
+      runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] },
+    });
+  });
+
+  it('captures deterministic visual-baseline evidence', () => {
+    cy.viewport(1280, 720);
+    cy.clock(Date.UTC(2026, 0, 1));
+    cy.visit('/', {
+      onBeforeLoad(win) {
+        win.document.documentElement.dataset.visualBaseline = 'cypress';
+      },
+    });
+    cy.getByTestId('search-submit').should('be.visible');
+    cy.document().then((doc) => {
+      const style = doc.createElement('style');
+      style.textContent = '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}';
+      doc.head.appendChild(style);
+    });
+    cy.screenshot('release-gate/home-1280x720', { capture: 'viewport', overwrite: true });
+  });
+
   it('crosses the real-star LOD and loads detailed systems', () => {
     cy.intercept('GET', '**/api/map/systems*').as('realStars');
     openProductionMap();
@@ -236,18 +315,26 @@ describe('ED Finder release gate — Cypress parity', () => {
     // Review Lab already locks Escape-to-close as an accessibility contract.
     // Dispatch the key event on window because SystemDetailModal installs its
     // Escape listener there; typing into body depends on browser event routing.
+    // The body scroll lock is installed by the same effect, so it is the
+    // observable readiness signal that prevents Firefox racing the listener.
+    cy.get('body').should(($body) => {
+      expect($body[0].style.overflow, 'modal Escape listener readiness').to.eq('hidden');
+    });
     cy.window().then((win) => {
       win.dispatchEvent(new win.KeyboardEvent('keydown', {
         key: 'Escape',
+        code: 'Escape',
+        which: 27,
+        keyCode: 27,
         bubbles: true,
         cancelable: true,
       }));
     });
+    cy.getByTestId('system-detail-modal').should('not.exist');
     cy.get('body').should(($body) => {
-      const $modal = $body.find('[data-testid="system-detail-modal"]');
-      const closed = $modal.length === 0 || !Cypress.dom.isVisible($modal[0]);
-      expect(closed, 'system detail modal closed by Escape').to.equal(true);
+      expect($body[0].style.overflow, 'body overflow restored after modal close').to.eq('');
     });
+    cy.location('hash').should('eq', '#finder');
   });
 
   it('installs and controls through the cache-neutral service worker', () => {
@@ -259,7 +346,7 @@ describe('ED Finder release gate — Cypress parity', () => {
 
     cy.visit('/?service-worker-install=clean');
     cy.window({ timeout: 15000 }).should((win) => {
-      expect(win.navigator.serviceWorker, 'serviceWorker API').to.exist;
+      expect(win.navigator.serviceWorker, 'serviceWorker API').not.to.equal(undefined);
       expect(win.navigator.serviceWorker.controller?.scriptURL, 'active controller')
         .to.match(/\/sw\.js$/);
     });

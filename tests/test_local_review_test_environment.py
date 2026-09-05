@@ -22,7 +22,7 @@ SCRIPT_DIR = ROOT / 'scripts' / 'dev'
 DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend' / 'vite.config.ts'
-FRONTEND_PLAYWRIGHT_CONFIG = ROOT / 'frontend' / 'playwright.config.ts'
+FRONTEND_CYPRESS_CONFIG = ROOT / 'frontend' / 'cypress.config.cjs'
 FRONTEND_API = ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'core.ts'
 PLANNER_WORKSPACE = ROOT / 'frontend' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
@@ -908,9 +908,9 @@ def test_review_main_import_succeeds_only_with_exact_review_guards(monkeypatch: 
 @pytest.mark.unit
 def test_frontend_target_remains_compatible_with_review_api():
     vite_config = _read(FRONTEND_VITE_CONFIG)
-    playwright_config = _read(FRONTEND_PLAYWRIGHT_CONFIG)
+    cypress_config = _read(FRONTEND_CYPRESS_CONFIG)
     docs = _read(DOC_PATH)
-    review_spec = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
+    review_spec = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
     assert "|| 'http://127.0.0.1:8000';" in vite_config
     assert 'verify --mode quick --scenario planner_core --confirm-local-review-environment' in docs
     assert 'verify --mode full --scenario all --confirm-local-review-environment' in docs
@@ -922,10 +922,14 @@ def test_frontend_target_remains_compatible_with_review_api():
     assert 'No product observation is currently expected or allowlisted' in docs
     assert 'environment_ready: true' in docs
     assert 'product_acceptance_ready: true' in docs
-    assert 'test.skip(' in review_spec
-    assert 'EDFINDER_REVIEW_LAB_RUN' in review_spec
-    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in review_spec
-    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in review_spec
+    assert "describe('Local review environment verification'" in review_spec
+    assert "cy.task('getReviewLabConfig'" in review_spec
+    assert 'Object.freeze' in review_spec
+    assert 'Cypress.env(' not in review_spec
+    assert 'cy.env(' not in review_spec
+    assert 'EDFINDER_REVIEW_LAB_RUN' not in review_spec
+    assert 'EDFINDER_REVIEW_OUTPUT_PATH' not in review_spec
+    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' not in review_spec
     assert 'summarySchemaVersion' in review_spec
     assert 'reviewLabRun' in review_spec
     assert 'viewportProfiles' in review_spec
@@ -938,10 +942,28 @@ def test_frontend_target_remains_compatible_with_review_api():
         'planner_mobile_resilience',
     ):
         assert profile_name in review_spec
-    assert 'Review Lab browser verification requires EDFINDER_REVIEW_LAB_RUN=1 together with EDFINDER_REVIEW_OUTPUT_PATH and EDFINDER_REVIEW_SCENARIOS_JSON.' in review_spec
-    assert 'shouldSkipReviewLabCollector()' in review_spec
-    assert 'reviewLabRun = process.env.EDFINDER_REVIEW_LAB_RUN === \'1\'' in playwright_config
-    assert 'webServer: reviewLabRun ? undefined :' in playwright_config
+    assert 'complete trusted Node-task handshake' in review_spec
+    assert 'allowCypressEnv' not in cypress_config
+    assert 'getReviewLabConfig' in cypress_config
+    assert "process.env.EDFINDER_REVIEW_LAB_RUN" in cypress_config
+    assert "reviewLabMarker === '1'" in cypress_config
+    assert 'outputPath === configuredOutputPath' in cypress_config
+    assert 'path.isAbsolute(outputPath)' in cypress_config
+    assert "REVIEW_LAB_ROOT = '/tmp/edfinder-local-review'" in cypress_config
+    assert '!Array.isArray(summary)' in cypress_config
+    assert 'summary.summarySchemaVersion === REVIEW_LAB_SUMMARY_SCHEMA_VERSION' in cypress_config
+    assert 'config.env' not in cypress_config
+    assert 'writeReviewLabSummary' in cypress_config
+
+
+@pytest.mark.unit
+def test_browser_specs_do_not_read_review_lab_authority_from_cypress_env():
+    browser_specs = sorted((ROOT / 'frontend' / 'cypress' / 'e2e').rglob('*.cy.js'))
+    assert browser_specs
+    for spec_path in browser_specs:
+        source = _read(spec_path)
+        assert 'Cypress.env(' not in source, spec_path
+        assert 'cy.env(' not in source, spec_path
 
 
 @pytest.mark.unit
@@ -1000,11 +1022,11 @@ def test_review_lab_workflow_uses_failure_only_sanitised_artifacts_and_summary()
     workflow_lower = workflow.lower()
     assert workflow.count('if: failure()') >= 2
     assert 'review-lab-report' in workflow
-    assert 'review-lab-playwright-failure' in workflow
+    assert 'review-lab-cypress-failure' in workflow
     assert '/tmp/edfinder-local-review/latest-report.json' in workflow
     assert '/tmp/edfinder-local-review/*/report.json' in workflow
     assert '/tmp/edfinder-local-review/*/browser-summary.json' in workflow
-    assert 'frontend/test-results' in workflow
+    assert 'frontend/cypress/artifacts' in workflow
     assert 'GITHUB_STEP_SUMMARY' in workflow
     assert 'docker ps -a --filter "label=com.docker.compose.project=edfinder-review"' in workflow
     assert 'docker volume ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
@@ -1183,35 +1205,382 @@ def test_system_detail_contract_shape_accepts_valid_payload_and_rejects_malforme
 
 @pytest.mark.unit
 def test_browser_result_card_expansion_helper_is_idempotent():
-    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
-    assert "card.getByRole('button', { name: 'Inspect system' })" in source
-    assert "if (await actionButton.isVisible().catch(() => false)) {" in source
-    assert 'return;' in source
-    assert 'await header.evaluate((node) => {' in source
-    assert "await expect(actionButton).toBeVisible({ timeout: 10_000 });" in source
-    assert "page.getByTestId('open-plan-start')" in source
-    assert "page.getByTestId('plan-objective-decide_later')" in source
-    assert "page.getByTestId('plan-approach-manual')" in source
-    assert "page.getByTestId('confirm-start-plan')" in source
-    assert "page.getByTestId('warehouse-evidence-technical-details')" in source
-    assert "compactDetails.locator('summary').click()" in source
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    assert "if (!$card.find('button:contains(\"Inspect system\")').is(':visible'))" in source
+    for test_id in ('open-plan-start', 'plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'):
+        assert test_id in source
+
+
+@pytest.mark.unit
+def test_browser_technical_details_are_surface_scoped_requeried_and_fail_closed():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function currentWarehouseEvidenceSurface'):source.index('function overflow')]
+    disclosure = source[
+        source.index('function currentWarehouseTechnicalDisclosure'):
+        source.index('function openCurrentWarehouseTechnicalDisclosure')
+    ]
+    opener = source[
+        source.index('function openCurrentWarehouseTechnicalDisclosure'):
+        source.index('function technical')
+    ]
+    technical = source[source.index('function technical'):source.index('function overflow')]
+
+    assert "cy.get('body')" not in helper
+    assert 'cy.wrap(details)' not in helper
+    assert 'cy.wrap($t)' not in helper
+    assert 'details[data-testid="warehouse-evidence-technical-details"]' in source
+    assert 'button[data-testid="warehouse-evidence-disclosure-toggle"]' in source
+    assert '[data-testid="warehouse-evidence-disclosure-panel"]' in source
+    assert not re.search(
+        r"cy\.getByTestId\(\s*['\"]warehouse-evidence-(?:technical-details|disclosure-toggle|disclosure-panel)['\"]",
+        helper,
+    )
+    for child_selector in (
+        'WAREHOUSE_TECHNICAL_DETAILS',
+        'WAREHOUSE_DISCLOSURE_TOGGLE',
+        'WAREHOUSE_DISCLOSURE_PANEL',
+    ):
+        assert f'cy.get({child_selector}' not in helper
+
+    root_count = helper.index('current planner warehouse evidence surface')
+    assert '.to.have.length(1)' in helper[root_count:root_count + 160]
+    assert '$surface.find(WAREHOUSE_TECHNICAL_DISCLOSURES)' in disclosure
+    disclosure_count = disclosure.index('exactly one supported native technical disclosure')
+    disclosure_requery = disclosure.index('re-queried current planner warehouse evidence technical disclosure')
+    assert '.to.have.length(1)' in disclosure[disclosure_count:disclosure_count + 180]
+    assert '.to.have.length(1)' in disclosure[disclosure_requery:disclosure_requery + 180]
+    assert ".children('summary')" in disclosure
+    assert 'custom technical disclosure must use a native button' in disclosure
+    button_type = disclosure.index('custom technical disclosure native button type')
+    assert ".to.eq('button')" in disclosure[button_type:button_type + 140]
+    assert "aria-expanded" in disclosure
+    assert "aria-controls" in disclosure
+    assert '$surface.find(WAREHOUSE_DISCLOSURE_PANEL)' in disclosure
+
+    summary_click = opener.index(".children('summary')")
+    summary_activation = opener.index('.click()', summary_click)
+    details_requery = opener.index("currentWarehouseTechnicalDisclosure().should('eq', 'details')")
+    details_open = opener.index('native warehouse technical details open state')
+    button_click = opener.index(".find(WAREHOUSE_DISCLOSURE_TOGGLE)", details_open)
+    button_activation = opener.index('.click()', button_click)
+    button_requery = opener.index("currentWarehouseTechnicalDisclosure().should('eq', 'button')")
+    button_expanded = opener.index(".should('have.attr', 'aria-expanded', 'true')")
+    panel_visible = opener.index(".and('be.visible')", button_expanded)
+    assert summary_click < summary_activation < details_requery < details_open
+    assert button_click < button_activation < button_requery < button_expanded < panel_visible
+    assert '.to.eq(true)' in opener[details_open:details_open + 140]
+    panel_state = opener[button_expanded:panel_visible]
+    panel_hidden = panel_state.index('custom technical disclosure panel hidden state')
+    panel_aria_hidden = panel_state.index('custom technical disclosure panel aria-hidden state')
+    assert '.to.eq(false)' in panel_state[panel_hidden:panel_hidden + 140]
+    assert ".to.eq('false')" in panel_state[panel_aria_hidden:panel_aria_hidden + 160]
+
+    render_wait = technical.index('waitForWarehouseEvidenceRender(status, posture)')
+    open_call = technical.index('openCurrentWarehouseTechnicalDisclosure()')
+    envelope_visible = technical.index('warehouse-evidence-envelope-summary')
+    status_visible = technical.index('.find(statusSelector)', open_call)
+    posture_visible = technical.index('.find(postureSelector)', open_call)
+    assert render_wait < open_call < envelope_visible < status_visible < posture_visible
+    assert ".should('be.visible')" in technical[envelope_visible:status_visible]
+    assert ".and('be.visible')" in technical[status_visible:posture_visible]
+    assert ".and('be.visible')" in technical[posture_visible:]
+    assert "warehouse-evidence-envelope-status-${status}" in helper
+    assert "warehouse-evidence-source-posture-${posture}" in helper
+    assert 'function technical(status, posture)' in technical
+    for call in (
+        "technical('available', 'dedicated_contract')",
+        "technical('unavailable', 'dedicated_contract')",
+        "technical('unknown', 'dedicated_contract')",
+        "technical('unknown', 'provenance_bridge')",
+    ):
+        assert call in source
+
+
+@pytest.mark.unit
+def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    root = source[source.index('function currentWholeSystemPlanner'):source.index('function currentPlannerTelemetryRegion')]
+    region = source[source.index('function currentPlannerTelemetryRegion'):source.index('function currentPlannerTelemetryToggle')]
+    toggle = source[source.index('function currentPlannerTelemetryToggle'):source.index('function assertCurrentPlannerTelemetryState')]
+    state = source[
+        source.index('function assertCurrentPlannerTelemetryState'):
+        source.index('function resetDocumentScrollForPlannerTelemetry')
+    ]
+    telemetry = source[source.index('function telemetry'):source.index('function profile')]
+
+    assert '[data-testid="planner-telemetry-dock-toggle"]:visible' not in source
+    assert ':visible' not in '\n'.join((root, region, toggle, state, telemetry))
+    assert '.first()' not in '\n'.join((root, region, toggle, state, telemetry))
+    assert 'cy.get(WHOLE_SYSTEM_PLANNER, { timeout: 20000 })' in root
+    assert 'current visible whole-system colony planner' in root
+    assert '.to.have.length(1)' in root
+    assert ".and('be.visible')" in root
+    assert "whole-system colony planner accessible name').to.eq('Whole-system colony planner')" in root
+
+    assert 'currentWholeSystemPlanner()' in region
+    assert '.find(PLANNER_TELEMETRY_REGION)' in region
+    assert 'current planner telemetry region' in region
+    assert '.to.have.length(1)' in region
+    assert ".and('be.visible')" not in region
+    assert ".should('be.visible')" not in region
+    assert "current planner telemetry region layout').to.eq('plan-details-panel')" in region
+    assert '$regions.closest(WHOLE_SYSTEM_PLANNER)' in region
+    assert 'current planner telemetry region owner' in region
+    owner_check = region.index('current planner telemetry region owner')
+    assert '.to.have.length(1)' in region[owner_check:owner_check + 140]
+    assert "current planner telemetry region owner accessible name').to.eq('Whole-system colony planner')" in region
+    attachment_check = region.index("region.isConnected, 'current planner telemetry region attachment'")
+    assert '.to.eq(true)' in region[attachment_check:attachment_check + 140]
+    assert 'region.getBoundingClientRect()' in region
+    width_check = region.index("bounds.width, 'current planner telemetry region rendered width'")
+    height_check = region.index("bounds.height, 'current planner telemetry region rendered height'")
+    assert '.to.be.greaterThan(0)' in region[width_check:width_check + 160]
+    assert '.to.be.greaterThan(0)' in region[height_check:height_check + 160]
+    assert "region.ownerDocument.defaultView.getComputedStyle(region)" in region
+    assert "styles.display, 'current planner telemetry region computed display').not.to.eq('none')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('hidden')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('collapse')" in region
+    assert 'currentPlannerTelemetryRegion()' in toggle
+    assert '.find(PLANNER_TELEMETRY_TOGGLE)' in toggle
+    assert ".should('have.length', 1)" in toggle
+
+    assert '$region.find(PLANNER_TELEMETRY_TOGGLE)' in state
+    assert 'current planner telemetry native toggle' in state
+    assert "planner telemetry toggle native element').to.eq('BUTTON')" in state
+    assert "planner telemetry toggle native button type').to.eq('button')" in state
+    assert "planner telemetry toggle enabled state').to.eq(false)" in state
+    assert "planner telemetry toggle expansion state').to.eq(expanded)" in state
+    assert "planner telemetry region dock state').to.eq(dockState)" in state
+    assert "$toggle.attr('aria-controls')" in state
+    assert 'planner telemetry controlled panel id' in state
+    assert '.and.not.equal(\'\')' in state
+    assert '$region.find(PLANNER_TELEMETRY_CONTENT)' in state
+    assert 'current planner telemetry controlled panel' in state
+    assert "planner telemetry controlled panel linkage').to.eq(panelId)" in state
+    assert 'unique linked planner telemetry panel' in state
+    assert "planner telemetry controlled panel state').to.eq(expanded)" in state
+    assert ".then(() => currentPlannerTelemetryToggle()" in state
+
+
+@pytest.mark.unit
+def test_review_lab_telemetry_resets_document_scroll_and_proves_requeried_toggle_actionability():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    scroll_reset = source[
+        source.index('function resetDocumentScrollForPlannerTelemetry'):
+        source.index('function exposeCurrentPlannerTelemetryToggle')
+    ]
+    exposure = source[source.index('function exposeCurrentPlannerTelemetryToggle'):source.index('function telemetry')]
+    telemetry = source[source.index('function telemetry'):source.index('function profile')]
+
+    assert scroll_reset.count('win.document.scrollingElement') == 2
+    scroll_action = scroll_reset.index('scrollingElement.scrollTo(0, 0)')
+    retryable_reset_assertion = scroll_reset.index('cy.window().should((win)', scroll_action)
+    document_scroll_top = scroll_reset.index('scrollingElement.scrollTop', retryable_reset_assertion)
+    document_scroll_left = scroll_reset.index('scrollingElement.scrollLeft', document_scroll_top)
+    window_scroll_y = scroll_reset.index('win.scrollY', document_scroll_left)
+    window_scroll_x = scroll_reset.index('win.scrollX', window_scroll_y)
+    assert scroll_action < retryable_reset_assertion < document_scroll_top < document_scroll_left
+    assert document_scroll_left < window_scroll_y < window_scroll_x
+    for reset_label in (
+        'planner telemetry document vertical scroll reset',
+        'planner telemetry document horizontal scroll reset',
+        'planner telemetry window vertical scroll reset',
+        'planner telemetry window horizontal scroll reset',
+    ):
+        reset_check = scroll_reset.index(reset_label, retryable_reset_assertion)
+        assert '.to.eq(0)' in scroll_reset[reset_check:reset_check + 140]
+
+    reset_call = exposure.index('return resetDocumentScrollForPlannerTelemetry()')
+    planner_requery = exposure.index('currentWholeSystemPlanner()', reset_call)
+    region_requery = exposure.index('currentPlannerTelemetryRegion()', planner_requery)
+    toggle_requery = exposure.index('currentPlannerTelemetryToggle()', region_requery)
+    geometry = exposure.index('toggle.getBoundingClientRect()', toggle_requery)
+    width_check = exposure.index("bounds.width, 'planner telemetry toggle rendered width'", geometry)
+    height_check = exposure.index("bounds.height, 'planner telemetry toggle rendered height'", width_check)
+    hit_target = exposure.index('toggle.ownerDocument.elementFromPoint(interiorX, interiorY)', height_check)
+    hit_target_present = exposure.index('planner telemetry toggle interior hit target', hit_target)
+    hit_target_owned = exposure.index('topmost === toggle || toggle.contains(topmost)', hit_target_present)
+    button_visible = exposure.index(".should('be.visible')", hit_target_owned)
+    button_enabled = exposure.index(".and('be.enabled')", button_visible)
+    assert reset_call < planner_requery < region_requery < toggle_requery < geometry
+    assert geometry < width_check < height_check < hit_target < hit_target_present < hit_target_owned
+    assert hit_target_owned < button_visible < button_enabled
+    assert '.to.be.greaterThan(0)' in exposure[width_check:width_check + 150]
+    assert '.to.be.greaterThan(0)' in exposure[height_check:height_check + 150]
+    assert '.not.to.equal(null)' in exposure[hit_target_present:hit_target_present + 150]
+    assert '.to.eq(true)' in exposure[hit_target_owned:hit_target_owned + 220]
+
+    assert telemetry.count('exposeCurrentPlannerTelemetryToggle()') == 2
+    assert telemetry.count('currentPlannerTelemetryToggle().focus()') == 2
+    assert telemetry.count("currentPlannerTelemetryToggle().should('have.focus')") == 2
+    assert telemetry.count("}).type('{enter}')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('false')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('true')") == 1
+    assert '.click()' not in telemetry
+    collector = '\n'.join((scroll_reset, exposure, telemetry))
+    assert ':visible' not in collector
+    assert '.first()' not in collector
+    assert '.scrollIntoView(' not in collector
+    assert 'force:' not in collector
+    assert '.invoke(' not in collector
+    assert '.trigger(' not in collector
+    assert '.click()' not in exposure
+    assert '.style.' not in collector
+    assert '.css(' not in collector
+    assert 'setTimeout' not in collector
+    assert 'cy.wait(' not in collector
+    assert 'dispatchEvent' not in collector
+    assert 'frontier-sign-in' not in collector
+    assert '__react' not in collector.lower()
+    assert 'onClick' not in collector
+    assert 'setAttribute' not in collector
+    assert 'removeAttribute' not in collector
+    assert not re.search(r"\.attr\(\s*['\"][^'\"]+['\"]\s*,", collector)
+    assert 'supplyPlannerEnterDefaultActionIfNeeded' not in telemetry
+    assert '$toggle' not in telemetry
+    assert not re.search(r"\.type\('\{enter\}'\)\s*\.should", telemetry)
+
+    initially_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')")
+    first_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', initially_collapsed)
+    first_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', first_exposure)
+    first_enter = telemetry.index("}).type('{enter}')")
+    expanded = telemetry.index("assertCurrentPlannerTelemetryState('true')", first_enter)
+    second_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', expanded)
+    second_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', second_exposure)
+    second_enter = telemetry.index("}).type('{enter}')", first_enter + 1)
+    finally_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')", second_enter)
+    success_continuation = telemetry.index('cy.then(() => {', finally_collapsed)
+    success_check = telemetry.index('checks.telemetryToggleKeyboardWorks = true', success_continuation)
+    accessibility_check = telemetry.index(
+        'summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true',
+        success_check,
+    )
+    assert initially_collapsed < first_exposure < first_focus < first_enter < expanded
+    assert expanded < second_exposure < second_focus < second_enter < finally_collapsed
+    assert finally_collapsed < success_continuation < success_check < accessibility_check
+
+
+@pytest.mark.unit
+def test_review_lab_failed_profile_is_registered_and_attributed_before_summary_emission():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    profile = source[source.index('function profile'):source.index("describe('Local review environment verification'")]
+    test_body = source[source.index("it('captures deterministic browser verification summary'"):]
+    failure_handler = test_body[test_body.index("Cypress.on('fail'"):test_body.index('profile(summary, PROFILES[0]')]
+
+    failed_default = profile.index("status: 'failed'")
+    queued_registration = profile.index('cy.then(() => {', failed_default)
+    active_assignment = profile.index('execution.current = { profileName: metadata.profile_name, result }', queued_registration)
+    result_registration = profile.index('summary.profileResults[metadata.profile_name] = result', active_assignment)
+    viewport = profile.index('cy.viewport', result_registration)
+    body = profile.index('body(result).then(() => {', viewport)
+    passed = profile.index("result.status = 'passed'", body)
+    clear_active = profile.index('execution.current = null', passed)
+
+    assert failed_default < queued_registration < active_assignment < result_registration < viewport < body < passed < clear_active
+    assert profile.count('summary.profileResults[metadata.profile_name] = result') == 1
+    assert source.count('profile(summary, PROFILES[') == 5
+    assert source.count('}, execution);') == 5
+
+    assert "if (summary.fatalError === null) summary.fatalError = firstError" in failure_handler
+    assert "execution.current.result.status = 'failed'" in failure_handler
+    assert 'if (execution.current.result.error === null)' in failure_handler
+    assert 'summary.profileResults[execution.current.profileName] = execution.current.result' in failure_handler
+    assert 'throw error' in failure_handler
+    assert 'return false' not in failure_handler
+    assert "afterEach(() =>" in source
+    assert "cy.task('writeReviewLabSummary'" in source
+
+
+@pytest.mark.unit
+def test_review_lab_planner_keyboard_entry_uses_native_enter_and_waits_for_panel():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function planner'):source.index('function technical')]
+    keyboard_branch = helper[helper.index('if (keyboard)'):helper.index('} else {')]
+    panel_assertion = "cy.getByTestId('plan-start-panel').should('be.visible')"
+
+    assert "cy.get('[data-testid=\"open-plan-start\"]:visible')" in keyboard_branch
+    assert ".focus().should('have.focus')" in keyboard_branch
+    assert "cy.focused().type('{enter}')" in keyboard_branch
+    assert 'cy.press(' not in keyboard_branch
+    assert '.click()' not in keyboard_branch
+    assert panel_assertion in helper
+    assert helper.index("cy.focused().type('{enter}')") < helper.index(panel_assertion)
+    assert helper.index(panel_assertion) < helper.index("'plan-objective-decide_later'")
+    assert helper.index(panel_assertion) < helper.index('cy.then(keyboardOpened)')
+    assert "['plan-objective-decide_later', 'plan-approach-manual', 'confirm-start-plan'].forEach" in helper
+    assert "cy.getByTestId(id).should('be.visible').click()" in helper
+    assert "() => { summary.accessibility.alphaKeyboardOpenPlannerWorks = true; }" in source
+
+
+@pytest.mark.unit
+def test_review_lab_planner_waits_for_evidence_and_ordered_provenance_fallback():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function planner'):source.index('function technical')]
+
+    evidence_route = "cy.intercept('GET', `/api/colony-planner/system/${system.id64}/warehouse-planner-evidence`).as(evidenceAlias)"
+    provenance_route = "cy.intercept('GET', `/api/colony-planner/system/${system.id64}/provenance-cockpit`).as(provenanceAlias)"
+    activation = "cy.get('[data-testid=\"open-plan-start\"]:visible')"
+    workspace = "cy.getByTestId('colony-planner-workspace', { timeout: 20000 }).should('be.visible')"
+    evidence_wait = 'cy.wait(`@${evidenceAlias}`)'
+    status_contract = ".to.be.oneOf([200, 503])"
+    fallback_condition = 'if (status === 503)'
+    delta_only = ".to.eq(SYSTEMS.delta.id64)"
+    provenance_wait = 'return cy.wait(`@${provenanceAlias}`)'
+    fallback_success = ".its('response.statusCode').should('eq', 200)"
+
+    assert evidence_route in helper
+    assert provenance_route in helper
+    assert helper.index(evidence_route) < helper.index(activation)
+    assert helper.index(provenance_route) < helper.index(activation)
+    assert helper.index(workspace) < helper.index(evidence_wait)
+    assert helper.index(evidence_wait) < helper.index(status_contract)
+    assert helper.index(status_contract) < helper.index(fallback_condition)
+    assert helper.index(fallback_condition) < helper.index(delta_only) < helper.index(provenance_wait)
+    assert helper.index(provenance_wait) < helper.index(fallback_success)
 
 
 @pytest.mark.unit
 def test_browser_finder_helper_performs_explicit_search_before_asserting_results():
-    source = _read(ROOT / 'frontend' / 'e2e' / 'review-environment.spec.js')
-    helper = source[source.index('async function gotoFinder'):source.index('async function clearState')]
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    labelled_control = source[source.index('function labelledControl'):source.index('function finder()')]
+    helper = source[source.index('function finder()'):source.index('function detail')]
 
-    assert "resolveUrl(baseURL, '/#finder')" in helper
-    assert "page.getByTestId('finder-page-heading')" in helper
-    assert "page.getByTestId('filter-module-system')" in helper
-    assert "page.getByLabel('Colony status')" in helper
-    assert "page.getByRole('option', { name: 'Any', exact: true })" in helper
-    assert "page.getByTestId('search-submit')" in helper
-    assert helper.index("page.getByTestId('filter-module-system')") < helper.index("page.getByLabel('Colony status')")
-    assert helper.index("page.getByRole('option', { name: 'Any', exact: true })") < helper.index("page.getByTestId('search-submit')")
-    assert helper.index("page.getByTestId('search-submit')") < helper.index('search-summary')
-    assert helper.index('search-summary') < helper.index('expectReviewCardsAccessible(page)')
+    for marker in ("cy.visit('/#finder')", 'finder-page-heading', 'filter-module-system', 'Colony status', 'role="option"', 'search-submit', 'search-summary'):
+        assert marker in helper
+    assert helper.index('filter-module-system') < helper.index('Colony status') < helper.index('role="option"') < helper.index('search-submit') < helper.index('search-summary')
+    assert ".find('button,[role=\"combobox\"]')" not in helper
+    assert "labelledControl('Colony status')" in helper
+    assert "cy.contains('[role=\"option\"]', /^Any$/).should('be.visible').click()" in helper
+    assert "const controlId = $label.attr('for')" in labelled_control
+    assert ".to.be.a('string')" in labelled_control
+    assert ".not.to.equal('')" in labelled_control
+    assert "$label.attr('for')" in labelled_control
+    assert 'escapeSelector(controlId)' in labelled_control
+    assert "$control.is('button') || $control.attr('role') === 'combobox'" in labelled_control
+    assert "should('be.visible')" in labelled_control
+    assert ".and('be.enabled')" in labelled_control
+
+
+@pytest.mark.unit
+def test_review_lab_escape_waits_for_modal_effect_before_window_dispatch():
+    source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    helper = source[source.index('function closeDetailWithEscape()'):source.index('function planner')]
+    readiness = ".to.eq('hidden')"
+    dispatch = "win.dispatchEvent(new win.KeyboardEvent('keydown'"
+
+    assert readiness in helper
+    assert dispatch in helper
+    assert '.style.overflow' in helper
+    assert helper.index(readiness) < helper.index(dispatch)
+    for option in ("key: 'Escape'", "code: 'Escape'", 'which: 27', 'keyCode: 27', 'bubbles: true', 'cancelable: true'):
+        assert option in helper
+    modal_absent = "cy.getByTestId('system-detail-modal').should('not.exist')"
+    overflow_restored = ".to.eq('')"
+    route_restored = "cy.location('hash').should('eq', '#finder')"
+    assert modal_absent in helper
+    assert overflow_restored in helper
+    assert route_restored in helper
+    assert helper.index(dispatch) < helper.index(modal_absent) < helper.index(overflow_restored) < helper.index(route_restored)
 
 
 @pytest.mark.unit
@@ -1522,7 +1891,7 @@ def test_run_browser_phase_passes_review_lab_marker_and_validates_summary_contra
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
         subprocess_envs.append(env)
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:3] == ['yarn', 'cypress', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             output_path.write_text(json.dumps(_valid_browser_summary(selected)), encoding='utf-8')
         return subprocess.CompletedProcess(command, 0, stdout='1 passed\n', stderr='')
@@ -1578,14 +1947,14 @@ def test_run_browser_phase_missing_summary_fails_with_bounded_configuration_diag
     error = exc_info.value
     assert error.failure_code == 'BROWSER_SUMMARY_MISSING'
     assert error.safe_diagnostics == {
-        'playwright_return_code': 1,
+        'cypress_return_code': 1,
         'review_marker_present': True,
         'output_path_configured': True,
         'scenario_plan_configured': True,
         'summary_exists': False,
         'summary_schema_valid': False,
         'stdout_status_hint': 'none',
-        'stderr_status_hint': 'playwright_web_server_conflict',
+        'stderr_status_hint': 'cypress_error',
     }
 
 
@@ -1598,7 +1967,7 @@ def test_run_browser_phase_invalid_summary_fails_handshake_validation(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:3] == ['yarn', 'cypress', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['reviewLabRun'] = False
@@ -1619,7 +1988,7 @@ def test_run_browser_phase_invalid_summary_fails_handshake_validation(
     error = exc_info.value
     assert error.failure_code == 'BROWSER_RUNNER_CONFIGURATION_FAILED'
     assert error.safe_diagnostics == {
-        'playwright_return_code': 0,
+        'cypress_return_code': 0,
         'review_marker_present': True,
         'output_path_configured': True,
         'scenario_plan_configured': True,
@@ -1639,7 +2008,7 @@ def test_run_browser_phase_rejects_mismatched_summary_selection(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:3] == ['yarn', 'cypress', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['selectedScenarioNames'] = ['planner_core']
@@ -1667,7 +2036,7 @@ def test_run_browser_phase_rejects_mismatched_summary_flow_keys(
 
     def _fake_run_subprocess(command, *, cwd, env_overrides=None, **kwargs):
         env = dict(env_overrides or {})
-        if command[:3] == ['npx', 'playwright', 'test']:
+        if command[:3] == ['yarn', 'cypress', 'run']:
             output_path = Path(env['EDFINDER_REVIEW_OUTPUT_PATH'])
             invalid = _valid_browser_summary(selected)
             invalid['browserFlowKeys'] = ['alpha']
@@ -2270,6 +2639,30 @@ def test_browser_desktop_evaluation_accepts_constrained_diagnostic_and_mobile_re
     phase = review_env.browser_runner.evaluate_browser_desktop(_valid_browser_summary(selected), selected)
     assert phase['status'] == 'passed'
     assert phase['failure_code'] is None
+
+
+@pytest.mark.unit
+def test_browser_desktop_evaluation_rejects_fatal_summary_with_empty_profile_results():
+    selected = review_env.scenarios.resolve_scenarios('all')
+    summary = _valid_browser_summary(selected)
+    summary['profileResults'] = {}
+    summary['fatalError'] = 'planner telemetry assertion failed'
+
+    phase = review_env.browser_runner.evaluate_browser_desktop(summary, selected)
+
+    assert phase['status'] == 'failed'
+    assert phase['failure_code'] == 'BROWSER_VIEWPORT_CONTRACT_FAILED'
+    assert set(phase['safe_diagnostics']['missing_profile_checks']) == {
+        'planner_desktop_primary',
+        'planner_laptop_minimum',
+        'planner_constrained_diagnostic',
+        'finder_mobile',
+        'planner_mobile_resilience',
+    }
+    assert all(
+        missing == ['profile_failed']
+        for missing in phase['safe_diagnostics']['missing_profile_checks'].values()
+    )
 
 
 @pytest.mark.unit

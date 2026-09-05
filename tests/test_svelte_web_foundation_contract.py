@@ -161,14 +161,15 @@ def test_openapi_drift_lane_generates_both_clients_from_the_running_api():
     assert "apps/web/src/lib/api/generated" in script
 
 
-def test_legacy_react_frontend_remains_migration_reference():
+def test_legacy_react_frontend_remains_temporary_source_evidence():
     legacy_package = _package_json(ROOT / "frontend" / "package.json")
     readme = _read("README.md")
 
     assert (ROOT / "frontend").is_dir()
     assert "react" in legacy_package["dependencies"]
     assert legacy_package["packageManager"] == "yarn@1.22.22"
-    assert "migration/reference" in readme
+    assert "temporary source evidence" in readme
+    assert "apps/web/" in readme
 
 
 def test_cypress_is_the_v3_web_browser_authority():

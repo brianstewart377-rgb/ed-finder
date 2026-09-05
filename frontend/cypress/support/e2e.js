@@ -26,3 +26,24 @@ before(() => {
     retryOnStatusCodeFailure: true,
   }).its('status').should('eq', 200);
 });
+Cypress.on('window:before:load', (win) => {
+  const NativeResizeObserver = win.ResizeObserver;
+  if (!NativeResizeObserver) return;
+  const callbacks = new WeakMap();
+  win.ResizeObserver = class TestResizeObserver extends NativeResizeObserver {
+    constructor(callback) {
+      super(callback);
+      callbacks.set(this, callback);
+    }
+
+    observe(target, options) {
+      super.observe(target, options);
+      if (target instanceof win.HTMLCanvasElement
+        && target.closest('.map-foundation-renderer')) {
+        win.__triggerMapResizeObserver = () => callbacks.get(this)?.([], this);
+      }
+    }
+  };
+});
+
+import 'cypress-axe';

@@ -74,7 +74,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    // Preview server (used by Playwright E2E and `yarn preview`) proxies
+    // Preview server (used by Cypress E2E and `yarn preview`) proxies
     // /api the same way the dev server does. Without this, the production
     // bundle served by `vite preview` would 404 every API call.
     preview: {
