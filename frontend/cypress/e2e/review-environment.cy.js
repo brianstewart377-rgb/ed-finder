@@ -140,19 +140,18 @@ function supplyPlannerEnterDefaultActionIfNeeded() {
     }
   });
 }
-// Cypress `.type('{enter}')` does not reliably synthesise the native button
-// activation click (this is why the open-plan control above needs its own
-// default-action fallback). The planner telemetry dock toggle is a genuine
-// native <button>, so mirror that fallback: only emulate the Enter default
-// action when the toggle state did not already flip, to avoid double-toggling
-// when the synthetic Enter did land a click.
-function supplyTelemetryToggleEnterDefaultActionIfNeeded(expectedExpanded) {
-  currentPlannerTelemetryToggle().then(($toggle) => {
-    const toggle = $toggle[0];
-    if (toggle.getAttribute('aria-expanded') !== expectedExpanded) {
-      toggle.focus();
-      emulateFocusedButtonEnterDefaultAction(toggle, 'planner-telemetry-dock-toggle');
-    }
+// Activate the focused planner telemetry dock toggle by keyboard. `.type('{enter}')`
+// enforces pointer-actionability (visible + not covered) and re-scrolls the sticky
+// toggle after focus, which can leave it under sticky app chrome and abort the
+// command — but keyboard activation does not require an unobstructed pointer target.
+// Emulate the native Enter default action directly on the focused element instead
+// (the same helper the open-plan control uses), which still asserts the control is a
+// focused, enabled, native <button>.
+function activateFocusedTelemetryToggleByKeyboard() {
+  cy.focused().then(($control) => {
+    const control = $control[0];
+    control.focus();
+    emulateFocusedButtonEnterDefaultAction(control, 'planner-telemetry-dock-toggle');
   });
 }
 function planner(system, keyboard = false, keyboardOpened = null) {
@@ -430,8 +429,8 @@ function telemetry(checks, summary) {
     expect($control.is(PLANNER_TELEMETRY_TOGGLE), 'focused control is the native planner telemetry toggle').to.eq(true);
     expect($control.closest(PLANNER_TELEMETRY_REGION), 'focused toggle belongs to the current telemetry region').to.have.length(1);
     expect($control.closest(WHOLE_SYSTEM_PLANNER), 'focused toggle belongs to the current whole-system planner').to.have.length(1);
-  }).type('{enter}');
-  supplyTelemetryToggleEnterDefaultActionIfNeeded('true');
+  });
+  activateFocusedTelemetryToggleByKeyboard();
   assertCurrentPlannerTelemetryState('true');
 
   exposeCurrentPlannerTelemetryToggle();
@@ -442,8 +441,8 @@ function telemetry(checks, summary) {
     expect($control.is(PLANNER_TELEMETRY_TOGGLE), 're-focused control is the native planner telemetry toggle').to.eq(true);
     expect($control.closest(PLANNER_TELEMETRY_REGION), 're-focused toggle belongs to the current telemetry region').to.have.length(1);
     expect($control.closest(WHOLE_SYSTEM_PLANNER), 're-focused toggle belongs to the current whole-system planner').to.have.length(1);
-  }).type('{enter}');
-  supplyTelemetryToggleEnterDefaultActionIfNeeded('false');
+  });
+  activateFocusedTelemetryToggleByKeyboard();
   assertCurrentPlannerTelemetryState('false');
   cy.then(() => {
     checks.telemetryToggleKeyboardWorks = true;
