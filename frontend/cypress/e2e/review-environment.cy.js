@@ -365,10 +365,42 @@ function assertCurrentPlannerTelemetryState(expanded) {
     .then(() => currentPlannerTelemetryToggle()
       .should('have.attr', 'aria-expanded', expanded));
 }
+function resetDocumentScrollForPlannerTelemetry() {
+  // Evidence checks finish below the planner. Reset the document instead of
+  // aligning this sticky control to a viewport edge beneath sticky app chrome.
+  return cy.window().then((win) => {
+    const scrollingElement = win.document.scrollingElement;
+    expect(scrollingElement, 'planner telemetry document scrolling element').not.to.equal(null);
+    scrollingElement.scrollTo(0, 0);
+  }).then(() => cy.window().should((win) => {
+    const scrollingElement = win.document.scrollingElement;
+    expect(scrollingElement, 're-queried planner telemetry document scrolling element').not.to.equal(null);
+    expect(scrollingElement.scrollTop, 'planner telemetry document vertical scroll reset').to.eq(0);
+    expect(scrollingElement.scrollLeft, 'planner telemetry document horizontal scroll reset').to.eq(0);
+    expect(win.scrollY, 'planner telemetry window vertical scroll reset').to.eq(0);
+    expect(win.scrollX, 'planner telemetry window horizontal scroll reset').to.eq(0);
+  }));
+}
 function exposeCurrentPlannerTelemetryToggle() {
-  return currentPlannerTelemetryToggle()
-    .scrollIntoView({ duration: 0 })
+  return resetDocumentScrollForPlannerTelemetry()
+    .then(() => currentWholeSystemPlanner())
+    .then(() => currentPlannerTelemetryRegion())
     .then(() => currentPlannerTelemetryToggle()
+      .should(($toggles) => {
+        const toggle = $toggles[0];
+        const bounds = toggle.getBoundingClientRect();
+        expect(bounds.width, 'planner telemetry toggle rendered width').to.be.greaterThan(0);
+        expect(bounds.height, 'planner telemetry toggle rendered height').to.be.greaterThan(0);
+
+        const interiorX = bounds.left + bounds.width / 2;
+        const interiorY = bounds.top + bounds.height / 2;
+        const topmost = toggle.ownerDocument.elementFromPoint(interiorX, interiorY);
+        expect(topmost, 'planner telemetry toggle interior hit target').not.to.equal(null);
+        expect(
+          topmost === toggle || toggle.contains(topmost),
+          'planner telemetry toggle owns its interior hit target',
+        ).to.eq(true);
+      })
       .should('be.visible')
       .and('be.enabled'));
 }
