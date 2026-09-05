@@ -1318,8 +1318,25 @@ def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
     assert '.find(PLANNER_TELEMETRY_REGION)' in region
     assert 'current planner telemetry region' in region
     assert '.to.have.length(1)' in region
-    assert ".and('be.visible')" in region
+    assert ".and('be.visible')" not in region
+    assert ".should('be.visible')" not in region
     assert "current planner telemetry region layout').to.eq('plan-details-panel')" in region
+    assert '$regions.closest(WHOLE_SYSTEM_PLANNER)' in region
+    assert 'current planner telemetry region owner' in region
+    owner_check = region.index('current planner telemetry region owner')
+    assert '.to.have.length(1)' in region[owner_check:owner_check + 140]
+    assert "current planner telemetry region owner accessible name').to.eq('Whole-system colony planner')" in region
+    attachment_check = region.index("region.isConnected, 'current planner telemetry region attachment'")
+    assert '.to.eq(true)' in region[attachment_check:attachment_check + 140]
+    assert 'region.getBoundingClientRect()' in region
+    width_check = region.index("bounds.width, 'current planner telemetry region rendered width'")
+    height_check = region.index("bounds.height, 'current planner telemetry region rendered height'")
+    assert '.to.be.greaterThan(0)' in region[width_check:width_check + 160]
+    assert '.to.be.greaterThan(0)' in region[height_check:height_check + 160]
+    assert "region.ownerDocument.defaultView.getComputedStyle(region)" in region
+    assert "styles.display, 'current planner telemetry region computed display').not.to.eq('none')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('hidden')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('collapse')" in region
     assert 'currentPlannerTelemetryRegion()' in toggle
     assert '.find(PLANNER_TELEMETRY_TOGGLE)' in toggle
     assert ".should('have.length', 1)" in toggle
@@ -1343,20 +1360,30 @@ def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
 
 
 @pytest.mark.unit
-def test_review_lab_telemetry_resets_scroll_and_requeries_across_native_enter_transitions():
+def test_review_lab_telemetry_applies_actionability_to_requeried_toggle_across_native_enter_transitions():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
     exposure = source[source.index('function exposeCurrentPlannerTelemetryToggle'):source.index('function telemetry')]
     telemetry = source[source.index('function telemetry'):source.index('function profile')]
 
-    assert '.scrollTo(0, 0, { duration: 0, ensureScrollable: false })' in exposure
-    assert 'planner telemetry region reset scroll position' in exposure
-    assert '.scrollIntoView({ duration: 0 })' in exposure
+    assert 'currentPlannerTelemetryRegion()' not in exposure
+    assert '.scrollTo(' not in exposure
+    initial_toggle_query = exposure.index('return currentPlannerTelemetryToggle()')
+    button_scroll = exposure.index('.scrollIntoView({ duration: 0 })', initial_toggle_query)
     assert exposure.count('currentPlannerTelemetryToggle()') >= 2
+    post_scroll_requery = exposure.index('currentPlannerTelemetryToggle()', button_scroll)
+    button_visible = exposure.index(".should('be.visible')", post_scroll_requery)
+    button_enabled = exposure.index(".and('be.enabled')", button_visible)
+    assert initial_toggle_query < button_scroll < post_scroll_requery < button_visible < button_enabled
     assert telemetry.count('exposeCurrentPlannerTelemetryToggle()') == 2
     assert telemetry.count('currentPlannerTelemetryToggle().focus()') == 2
     assert telemetry.count("currentPlannerTelemetryToggle().should('have.focus')") == 2
     assert telemetry.count("}).type('{enter}')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('false')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('true')") == 1
     assert '.click()' not in telemetry
+    assert 'force:' not in '\n'.join((exposure, telemetry))
+    assert '.invoke(' not in '\n'.join((exposure, telemetry))
+    assert '.trigger(' not in '\n'.join((exposure, telemetry))
     assert 'setAttribute' not in telemetry
     assert not re.search(r"\.attr\(['\"]aria-expanded['\"]\s*,", '\n'.join((exposure, telemetry)))
     assert 'supplyPlannerEnterDefaultActionIfNeeded' not in telemetry
@@ -1364,8 +1391,12 @@ def test_review_lab_telemetry_resets_scroll_and_requeries_across_native_enter_tr
     assert not re.search(r"\.type\('\{enter\}'\)\s*\.should", telemetry)
 
     initially_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')")
+    first_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', initially_collapsed)
+    first_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', first_exposure)
     first_enter = telemetry.index("}).type('{enter}')")
     expanded = telemetry.index("assertCurrentPlannerTelemetryState('true')", first_enter)
+    second_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', expanded)
+    second_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', second_exposure)
     second_enter = telemetry.index("}).type('{enter}')", first_enter + 1)
     finally_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')", second_enter)
     success_continuation = telemetry.index('cy.then(() => {', finally_collapsed)
@@ -1374,7 +1405,8 @@ def test_review_lab_telemetry_resets_scroll_and_requeries_across_native_enter_tr
         'summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true',
         success_check,
     )
-    assert initially_collapsed < first_enter < expanded < second_enter < finally_collapsed
+    assert initially_collapsed < first_exposure < first_focus < first_enter < expanded
+    assert expanded < second_exposure < second_focus < second_enter < finally_collapsed
     assert finally_collapsed < success_continuation < success_check < accessibility_check
 
 

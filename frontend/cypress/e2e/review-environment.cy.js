@@ -314,8 +314,25 @@ function currentPlannerTelemetryRegion() {
     .should(($regions) => {
       expect($regions, 'current planner telemetry region').to.have.length(1);
       expect($regions.attr('data-layout'), 'current planner telemetry region layout').to.eq('plan-details-panel');
-    })
-    .and('be.visible');
+
+      // This sticky layout region is not an action target. Cypress's visibility
+      // predicate can treat its own descendants as covering its centre point,
+      // so prove native renderability here and reserve actionability for the button.
+      const region = $regions[0];
+      const $planner = $regions.closest(WHOLE_SYSTEM_PLANNER);
+      expect($planner, 'current planner telemetry region owner').to.have.length(1);
+      expect($planner.attr('aria-label'), 'current planner telemetry region owner accessible name').to.eq('Whole-system colony planner');
+      expect(region.isConnected, 'current planner telemetry region attachment').to.eq(true);
+
+      const bounds = region.getBoundingClientRect();
+      expect(bounds.width, 'current planner telemetry region rendered width').to.be.greaterThan(0);
+      expect(bounds.height, 'current planner telemetry region rendered height').to.be.greaterThan(0);
+
+      const styles = region.ownerDocument.defaultView.getComputedStyle(region);
+      expect(styles.display, 'current planner telemetry region computed display').not.to.eq('none');
+      expect(styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('hidden');
+      expect(styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('collapse');
+    });
 }
 function currentPlannerTelemetryToggle() {
   return currentPlannerTelemetryRegion()
@@ -349,12 +366,8 @@ function assertCurrentPlannerTelemetryState(expanded) {
       .should('have.attr', 'aria-expanded', expanded));
 }
 function exposeCurrentPlannerTelemetryToggle() {
-  return currentPlannerTelemetryRegion()
-    .scrollTo(0, 0, { duration: 0, ensureScrollable: false })
-    .should(($region) => {
-      expect($region[0].scrollTop, 'planner telemetry region reset scroll position').to.eq(0);
-    })
-    .then(() => currentPlannerTelemetryToggle().scrollIntoView({ duration: 0 }))
+  return currentPlannerTelemetryToggle()
+    .scrollIntoView({ duration: 0 })
     .then(() => currentPlannerTelemetryToggle()
       .should('be.visible')
       .and('be.enabled'));
