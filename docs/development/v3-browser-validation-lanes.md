@@ -144,18 +144,20 @@ As of PR #601:
 
 - normal Cypress E2E already exercises both retained React migration evidence and the new `apps/web/` foundation;
 - `apps/web/` coverage is still smoke/foundation-level and does not yet provide the intended Finder/Inspect visual acceptance;
-- Review Lab is structurally separate, but its browser collector is still wired to the retained `frontend/` React application and old Planner-heavy scenario matrix.
+- Review Lab is structurally separate, but its browser collector is still wired to the retained `frontend/` React application and old Planner-heavy scenario matrix;
+- the Review Lab workflow still carries some general resolver/project-state/stage checks and a formatting check from its history as a broad required gate. Those checks are also migration debt: they must move to normal CI where appropriate, leaving only tests that directly prove Review Lab containment/lifecycle/contracts.
 
-That last point is **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/`, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance.
+Those last two points are **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/`, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance. The existing generic checks must not be used as precedent for adding more code-review responsibility to Review Lab.
 
 Before the first meaningful Finder/Inspect live checkpoint, PR #601 must:
 
 1. make `apps/web/` the normal product E2E/visual authority for the checkpoint journeys;
 2. add meaningful Finder -> results -> Inspect user journeys and stable visual assertions;
 3. retarget the Review Lab browser collector to `apps/web/` for the synthetic Finder/Inspect scenarios that are relevant to that checkpoint;
-4. keep Review Lab synthetic data/routes/lifecycle separate from normal E2E;
-5. remove or explicitly archive legacy React-only Review Lab assumptions once equivalent V3 coverage is accepted;
-6. run one batched stabilisation pass across the two browser lanes before promotion.
+4. move general code-quality/project-state checks out of Review Lab unless they directly prove Review Lab containment/lifecycle/contracts;
+5. keep Review Lab synthetic data/routes/lifecycle separate from normal E2E;
+6. remove or explicitly archive legacy React-only Review Lab assumptions once equivalent V3 coverage is accepted;
+7. run one batched stabilisation pass across the two browser lanes before promotion.
 
 ## Live checkpoint terminology
 
