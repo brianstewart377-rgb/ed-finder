@@ -26,14 +26,17 @@ def test_product_e2e_lane_does_not_invoke_review_lab_runtime():
 
     # During migration the workflow may still carry retained React evidence,
     # but the V3 lane itself must remain present and execute apps/web Cypress.
+    assert 'This workflow owns normal Product E2E / Visual Acceptance.' in workflow
     assert 'working-directory: apps/web' in workflow
     assert 'pnpm exec cypress run' in workflow
+    assert 'Run V3 Svelte Product E2E / Visual Acceptance' in workflow
 
 
 @pytest.mark.unit
 def test_review_lab_lane_uses_wrapper_authority_not_normal_product_e2e_specs():
     workflow = REVIEW_LAB_WORKFLOW.read_text(encoding='utf-8')
 
+    assert 'This workflow owns the isolated deterministic Review Lab only.' in workflow
     assert 'scripts/dev/review_environment.py verify' in workflow
     assert '--confirm-local-review-environment' in workflow
 
@@ -46,6 +49,11 @@ def test_review_lab_lane_uses_wrapper_authority_not_normal_product_e2e_specs():
         'cypress/e2e/release-gate.cy.js',
     ):
         assert forbidden not in workflow
+
+    # Until the re-base is complete, legacy overlap must be labelled as debt so
+    # it cannot silently become the accepted V3 ownership model.
+    assert 'TEMPORARY MIGRATION DEBT' in workflow
+    assert 'a green legacy Lab run is not V3 acceptance' in workflow
 
 
 @pytest.mark.unit
