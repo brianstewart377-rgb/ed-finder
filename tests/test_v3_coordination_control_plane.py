@@ -18,6 +18,7 @@ def test_v3_coordination_control_plane_is_not_an_application_runtime_bus():
 
     assert 'coordination and evidence' in text
     assert 'not a new application runtime service' in text
+    assert 'PR #601 is the single active Svelte V3 integration lane' in text
     assert 'Svelte / SvelteKit' in text
     assert 'renderer-neutral spatial contracts' in text
     assert 'Babylon runtime adapter' in text
