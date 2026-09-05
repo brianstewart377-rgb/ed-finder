@@ -27,9 +27,12 @@ describe('id64-bearing application API facade', () => {
       system_id64: '9007199254740993',
       name: 'Lossless',
     });
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/system/18446744073709551615',
-      expect.objectContaining({ credentials: 'include' }),
-    );
+    // The generated Hey API transport dispatches a single same-origin,
+    // credentialed Request object rather than a (url, init) pair.
+    const request = fetchMock.mock.calls[0]?.[0] as Request;
+    expect(request).toBeInstanceOf(Request);
+    expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
+    expect(request.url).toContain('/api/system/18446744073709551615');
+    expect(request.credentials).toBe('include');
   });
 });

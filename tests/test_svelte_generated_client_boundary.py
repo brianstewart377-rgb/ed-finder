@@ -33,20 +33,54 @@ def test_generated_hey_api_modules_are_private_to_the_application_facade():
 
 
 @pytest.mark.unit
-def test_facade_documents_and_implements_the_lossless_id64_lane():
+def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalization():
+    """Lock the intended V3 API boundary rather than merely accepting generated
+    type imports plus handwritten raw-route operations.
+
+    Ordinary API operations MUST delegate to the generated Hey API SDK
+    operations; the facade layers the application normalization (lossless Id64,
+    structured ApiError, same-origin credentials, bounded session-only admin
+    token, system-envelope unwrapping) on top by configuring the generated
+    client. The raw shared transport is NOT the operation lane for bootstrap
+    operations any more.
+    """
     source = FACADE.read_text(encoding="utf-8")
     transport = (
         ROOT / "packages" / "api-client" / "src" / "core.ts"
     ).read_text(encoding="utf-8")
 
-    assert "from '@ed-finder/api-client/core'" in source
-    assert "export async function getSystem" in source
+    # Ordinary operations delegate to the GENERATED Hey API SDK operations.
+    assert "from './generated/sdk.gen'" in source
+    assert "healthApiHealthGet(" in source
+    assert "authSessionApiAuthSessionGet(" in source
+    assert "getSystemApiSystemId64Get(" in source
+
+    # ...not the raw shared transport hand-rolling the route any more.
+    assert "apiRequest('/health'" not in source
+    assert "apiRequest('/auth/session'" not in source
+
+    # The facade configures the generated client with the application transport
+    # contract (same-origin credentials, interceptors) and keeps the generated
+    # response TYPES for its public return types.
+    assert "from './generated/client.gen'" in source
+    assert "credentials: 'include'" in source
+    assert "interceptors" in source
     assert (
         "import type { AuthSessionResponse, HealthResponse } from './generated'"
         in source
     )
-    assert "apiRequest('/health', { signal })" in source
-    assert "apiRequest('/auth/session', { signal })" in source
+
+    # Application normalization stays a facade responsibility: lossless Id64
+    # before unsafe number coercion, structured ApiError, system-envelope
+    # unwrapping, and the shared normalization primitives from the api-client
+    # core package.
+    assert "from '@ed-finder/api-client/core'" in source
+    assert "parseLosslessJson" in source
+    assert "ApiError" in source
+    assert "export async function getSystem" in source
+
+    # The shared browser transport keeps the same lossless + credentialed
+    # contract for the retained React migration-evidence consumer.
     assert "export async function apiRequest" in transport
     assert "parseLosslessJson" in transport
     assert "credentials: 'include'" in transport

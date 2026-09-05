@@ -965,6 +965,8 @@
 
 "@ed-finder/api-client@file:../packages/api-client":
   version "0.1.0"
+  dependencies:
+    json-with-bigint "3.5.11"
 
 "@ed-finder/planner-core@file:../packages/planner-core":
   version "0.1.0"
