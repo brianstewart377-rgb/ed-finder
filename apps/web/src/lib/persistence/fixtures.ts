@@ -53,6 +53,22 @@ export const legacyPersistenceFixtures = {
       coords: { x: 0, y: 0, z: 0 },
     },
   ]),
+  legacyColonyV2: JSON.stringify([
+    {
+      id: 'legacy-colony',
+      name: 'Legacy Colony',
+      phase: 'planning',
+      target_population: null,
+      notes: 'Opaque compatibility record',
+      id64: 42,
+      x: 0,
+      y: 0,
+      z: 0,
+      current_population: null,
+      claimed_at: '2026-05-01T00:00:00.000Z',
+      updated_at: '2026-05-01T00:00:00.000Z',
+    },
+  ]),
   syncKey: JSON.stringify({
     state: { syncKey: 'reviewwatchlistkey000000000000' },
     version: 0,

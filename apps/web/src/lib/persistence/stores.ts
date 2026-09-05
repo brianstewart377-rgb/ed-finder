@@ -1,110 +1,140 @@
 import { get } from 'svelte/store';
 
 import {
-  collectionCodec,
+  DEFAULT_FC_CONFIG,
+  PERSISTENCE_KEYS,
+  colonyProjectsCodec,
   compareCodec,
   createPersistedStore,
   densityCodec,
+  expansionPlansCodec,
   fcCodec,
+  generateSyncKey,
   id64StringCodec,
+  myWorkCodec,
   nullableCodec,
+  opaqueJsonCodec,
   pinnedCodec,
+  profileSyncKeyCodec,
   rawStringCodec,
   selectedRouteCodec,
   syncKeyCodec,
+  type ColonyProjectCollection,
   type CompareEntry,
+  type ExpansionPlanCollection,
   type FcState,
-  type JsonRecord,
+  type MyWorkCollection,
   type PinnedEntry,
-  type VersionedCollection,
 } from './storage';
 import type { Id64 } from '../domain/id64';
 
-const emptyCollection = (): VersionedCollection => ({ state: {}, version: 0 });
+/**
+ * Active local stores use one native-storage-event listener per singleton.
+ * Same-tab callers use `.set`; listeners only re-read and never write, so
+ * profile imports do not need synthetic events and cannot form feedback loops.
+ */
+export const CROSS_TAB_POLICY = 'guarded-native-storage-event' as const;
+const CROSS_TAB = true;
+const initialSyncKey = generateSyncKey();
 
 export const pins = createPersistedStore<PinnedEntry[]>({
-  key: 'ed_pinned',
+  key: PERSISTENCE_KEYS.pins,
   initial: () => [],
   codec: pinnedCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
 export const compare = createPersistedStore<CompareEntry[]>({
-  key: 'ed_compare_v2',
+  key: PERSISTENCE_KEYS.compare,
   initial: () => [],
   codec: compareCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
 export const syncKey = createPersistedStore({
-  key: 'ed_sync_key',
-  initial: () => ({ state: { syncKey: '' }, version: 0 }),
+  key: PERSISTENCE_KEYS.syncKey,
+  initial: () => ({ state: { syncKey: initialSyncKey }, version: 0 }),
   codec: syncKeyCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
+  persistInitial: true,
 });
 export const selectedRoute = createPersistedStore({
-  key: 'ed_selected_route',
+  key: PERSISTENCE_KEYS.selectedRoute,
   initial: () => ({ state: { selectedRouteId: null }, version: 0 }),
   codec: selectedRouteCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
 });
-export const myWork = createPersistedStore({
-  key: 'ed_my_work_v1',
-  initial: emptyCollection,
-  codec: collectionCodec(1),
-  crossTab: true,
+export const myWork = createPersistedStore<MyWorkCollection>({
+  key: PERSISTENCE_KEYS.myWork,
+  initial: () => ({ state: { systems: {} }, version: 1 }),
+  codec: myWorkCodec,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
-export const colonyProjects = createPersistedStore({
-  key: 'ed_colony_projects_v1',
-  initial: emptyCollection,
-  codec: collectionCodec(3),
-  crossTab: true,
+export const colonyProjects = createPersistedStore<ColonyProjectCollection>({
+  key: PERSISTENCE_KEYS.colonyProjects,
+  initial: () => ({ state: { projects: {} }, version: 3 }),
+  codec: colonyProjectsCodec,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
-export const expansionPlans = createPersistedStore({
-  key: 'ed_expansion_plans_v1',
-  initial: emptyCollection,
-  codec: collectionCodec(1),
-  crossTab: true,
+export const expansionPlans = createPersistedStore<ExpansionPlanCollection>({
+  key: PERSISTENCE_KEYS.expansionPlans,
+  initial: () => ({ state: { plans: {} }, version: 1 }),
+  codec: expansionPlansCodec,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
 export const fcRoute = createPersistedStore<FcState>({
-  key: 'ed_fc_v2',
-  initial: () => ({ waypoints: [], config: {} }),
+  key: PERSISTENCE_KEYS.fcRoute,
+  initial: () => ({ waypoints: [], config: { ...DEFAULT_FC_CONFIG } }),
   codec: fcCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
+  migrateOnHydrate: true,
 });
 export const profileSyncKey = createPersistedStore({
-  key: 'ed_profile_sync_key',
+  key: PERSISTENCE_KEYS.profileSyncKey,
   initial: () => '',
-  codec: rawStringCodec(),
-  crossTab: true,
+  codec: profileSyncKeyCodec,
+  crossTab: CROSS_TAB,
 });
 export const profileSyncLast = createPersistedStore({
-  key: 'ed_profile_sync_last',
+  key: PERSISTENCE_KEYS.profileSyncLast,
   initial: () => '',
   codec: rawStringCodec(),
-  crossTab: true,
+  crossTab: CROSS_TAB,
 });
 export const selectedSystem = createPersistedStore<Id64 | null>({
-  key: 'ed-finder:selected-system-context',
+  key: PERSISTENCE_KEYS.selectedSystem,
   initial: () => null,
   codec: nullableCodec(id64StringCodec),
-  crossTab: true,
+  crossTab: CROSS_TAB,
 });
 export const density = createPersistedStore({
-  key: 'ed_density_v1',
+  key: PERSISTENCE_KEYS.density,
   initial: () => 'comfortable',
   codec: densityCodec,
-  crossTab: true,
+  crossTab: CROSS_TAB,
+  persistInitial: true,
 });
 export const adminToken = createPersistedStore({
-  key: 'ed_admin_token',
+  key: PERSISTENCE_KEYS.adminToken,
   area: 'session',
   initial: () => '',
   codec: rawStringCodec(),
 });
 export const operatorHandoff = createPersistedStore({
-  key: 'ed_operator_selected_source_run',
+  key: PERSISTENCE_KEYS.operatorHandoff,
   area: 'session',
   initial: () => '',
   codec: rawStringCodec(),
+});
+
+/** Opaque legacy profile payload; there is deliberately no active feature store. */
+export const legacyColonyPassthrough = createPersistedStore<unknown | null>({
+  key: PERSISTENCE_KEYS.legacyColony,
+  initial: () => null,
+  codec: nullableCodec(opaqueJsonCodec),
 });
 
 export const applicationStores = {
@@ -152,6 +182,4 @@ export function persistenceDiagnostics() {
   });
 }
 
-export type MyWorkState = VersionedCollection & {
-  state: JsonRecord & { systems?: Record<string, JsonRecord> };
-};
+export type MyWorkState = MyWorkCollection;
