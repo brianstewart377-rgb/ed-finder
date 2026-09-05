@@ -10,6 +10,12 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Current replacement-host helpers
 
+- `actions/v3-app-deploy-preflight.sh`: fail-closed, read-only checkpoint
+  deployment preflight. The environment-gated workflow invokes it only after
+  verifying digest release and rollback manifests. It verifies the fixed V3
+  host identity, emits every unresolved topology/secret/schema/rollback fact,
+  and always stops without reading secrets, accessing the database, pulling
+  images, writing files, or changing services.
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,

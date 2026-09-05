@@ -1,0 +1,107 @@
+name: V3 application deploy preflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Release workflow run containing the candidate manifest
+        required: true
+        type: string
+      rollback_run_id:
+        description: Accepted prior release run containing the rollback manifest
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: v3-application-deploy
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify candidate and stop before mutation
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout trusted operator implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Download candidate release manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: v3-application-release-manifest
+          path: ${{ runner.temp }}/candidate
+          run-id: ${{ inputs.release_run_id }}
+          github-token: ${{ github.token }}
+      - name: Download accepted rollback manifest
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: v3-application-release-manifest
+          path: ${{ runner.temp }}/rollback
+          run-id: ${{ inputs.rollback_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify release and eligible rollback manifests
+        shell: bash
+        env:
+          CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
+          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
+        run: |
+          set -euo pipefail
+          (cd "$(dirname "$CANDIDATE")" && sha256sum --check v3-application-release.json.sha256)
+          (cd "$(dirname "$ROLLBACK")" && sha256sum --check v3-application-release.json.sha256)
+          python scripts/release/v3_release_manifest.py verify "$CANDIDATE" --purpose deploy-candidate
+          python scripts/release/v3_release_manifest.py verify "$ROLLBACK" --purpose rollback-candidate
+          candidate_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$CANDIDATE")"
+          rollback_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$ROLLBACK")"
+          [ "$candidate_sha" != "$rollback_sha" ] || { echo "Candidate cannot be its own rollback" >&2; exit 64; }
+      - name: Prepare existing ed-new SSH trust boundary
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned ed-new known-hosts secret" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = "22" ]; then
+            known_host_lookup="$SSH_HOST"
+          else
+            known_host_lookup="[$SSH_HOST]:$SSH_PORT"
+          fi
+          ssh-keygen -F "$known_host_lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "Pinned known-host trust does not cover the configured host and port" >&2
+            exit 1
+          }
+      - name: Run deliberately stopped host/topology preflight
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'bash -s' \
+              < scripts/operator/actions/v3-app-deploy-preflight.sh

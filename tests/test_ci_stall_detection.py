@@ -48,6 +48,8 @@ CHECKED_WORKFLOWS = (
     'cypress-parity.yml',
     'review-lab.yml',
     'semgrep.yml',
+    'v3-application-deploy-preflight.yml',
+    'v3-application-release.yml',
 )
 
 

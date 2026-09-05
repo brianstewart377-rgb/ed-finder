@@ -62,6 +62,9 @@ It uses the `ED_NEW_OPERATOR_*` credential boundary and pinned known-host trust.
 
 Current operator helpers include:
 
+- `scripts/operator/actions/v3-app-deploy-preflight.sh` (deliberately stopped,
+  read-only preflight; it does not deploy);
+- `scripts/operator/actions/v3-app-status.sh`
 - `scripts/operator/actions/octopus-edge-status.sh`
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
 - `scripts/operator/recover_v3_runtime_contract.py`
