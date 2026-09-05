@@ -66,7 +66,7 @@ The retained `frontend/` Cypress coverage is migration evidence only while equiv
 
 The retained React/R3F map is not a screenshot-baseline source for the fresh Babylon design. V3 map baselines are established from explicitly accepted V3 states after the new design is coherent enough to review.
 
-The `apps/web/` suite is currently foundation/smoke coverage. Before the first meaningful Finder/Inspect/map live checkpoint it must grow into real product E2E and visual acceptance, including meaningful screenshots/assertions for stable user-visible Babylon states.
+The `apps/web/` suite now includes Chrome/Firefox coverage of the explicitly non-product Babylon foundation: canvas readiness, bounded backend status, resize, navigation/remount stability, uncaught-failure protection, and a deterministic diagnostic screenshot retained as evidence only. This remains foundation/smoke coverage, not an approved product visual baseline. Before the first meaningful Finder/Inspect/map live checkpoint it must grow into real product E2E and visual acceptance, including meaningful screenshots/assertions for stable user-visible Babylon states.
 
 ## Lane 2 — Review Lab
 
@@ -166,12 +166,14 @@ For the fresh Babylon map, a checkpoint cannot claim Review Lab coverage unless 
 As of PR #601:
 
 - normal Cypress E2E already exercises both retained React migration evidence and the new `apps/web/` foundation;
-- `apps/web/` coverage is still smoke/foundation-level and does not yet provide the intended Finder/Inspect/Babylon visual acceptance;
+- `apps/web/` coverage now proves the isolated Babylon runtime lifecycle in Chrome and Firefox, but remains smoke/foundation-level and does not yet provide Finder/Inspect/product-map visual acceptance;
 - the new V3 map is being designed fresh around Babylon rather than copied visually from the retained React/R3F map;
 - Review Lab is structurally separate, but its browser collector is still wired to the retained `frontend/` React application and old Planner-heavy scenario matrix;
 - the Review Lab workflow still carries some general resolver/project-state/stage checks and a formatting check from its history as a broad required gate. Those checks are also migration debt: they must move to normal CI where appropriate, leaving only tests that directly prove Review Lab containment/lifecycle/contracts.
 
 Those last two points are **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/` and uses the Babylon renderer for V3 map scenarios, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance. The existing generic checks must not be used as precedent for adding more code-review responsibility to Review Lab.
+
+The non-product foundation screenshot is a run artifact for executable-renderer evidence only. It is not a V3 map visual baseline, makes no map design decision, and does not reduce the later Finder/Inspect or Review Lab re-base requirements.
 
 Before the first meaningful Finder/Inspect/Babylon live checkpoint, PR #601 must:
 

@@ -4,11 +4,13 @@ This folder contains the active contracts, closeout records, architecture notes,
 and historical implementation docs for ED-Finder's colonisation, planner,
 evidence, and enrichment work.
 
-## Active Stage 27A Control
+## Active Stage 27 Control
 
-**Stage 27A Spatial Platform Contract and Audit is current. It is
-documentation/audit work only and authorizes Stage 27B only; no Babylon runtime
-or production map change is authorized here.**
+**Stage 27A Spatial Platform Contract and Audit is accepted. Its authority was
+documentation/audit only and it authorized Stage 27B as the sole follow-on.
+The current governed PR #601 packet implements only the minimum isolated,
+explicitly non-product 27B Babylon runtime foundation; no product map change,
+Finder/Inspect port, production wiring, or renderer cutover is authorized.**
 
 Commander History / Journal is a first-class cross-cutting capability in these
 contracts: Journal page = history/statistics/records/filters/expeditions,

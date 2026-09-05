@@ -181,16 +181,34 @@ def test_cypress_is_the_v3_web_browser_authority():
     assert any((WEB / "cypress").glob("e2e/*.cy.ts"))
 
 
-def test_v3_web_does_not_import_retired_or_deferred_runtime_dependencies():
+def test_v3_web_uses_only_the_authorized_modular_babylon_runtime_dependency():
     package = _package_json(WEB / "package.json")
-    package_names = set(package.get("dependencies", {})) | set(
-        package.get("devDependencies", {})
-    )
+    packages = package.get("dependencies", {}) | package.get("devDependencies", {})
+    package_names = set(packages)
     forbidden_names = {"babylonjs", "playwright", "react", "react-dom", "three"}
-    forbidden_prefixes = ("@babylonjs/", "@playwright/", "@react-three/")
+    forbidden_prefixes = ("@playwright/", "@react-three/")
 
     assert package_names.isdisjoint(forbidden_names)
     assert not [name for name in package_names if name.startswith(forbidden_prefixes)]
+    assert {name for name in package_names if name.startswith("@babylonjs/")} == {
+        "@babylonjs/core"
+    }
+    assert packages["@babylonjs/core"].startswith("9.")
+
+
+def test_babylon_imports_stay_behind_the_renderer_adapter():
+    source_root = WEB / "src"
+    adapter_root = source_root / "lib" / "spatial" / "babylon"
+    offenders = []
+
+    for suffix in ("*.ts", "*.svelte"):
+        for path in source_root.rglob(suffix):
+            if path.is_relative_to(adapter_root):
+                continue
+            if "@babylonjs/" in path.read_text(encoding="utf-8"):
+                offenders.append(path.relative_to(ROOT).as_posix())
+
+    assert offenders == []
 
 
 def test_v3_web_is_static_spa_and_backend_route_ownership_is_explicit():

@@ -20,7 +20,7 @@ Stage 27 — One Spatial Platform is current. The roadmap controls which slice i
 
 The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
 
-The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A remains docs/audit/contracts only and does not authorize a Babylon runtime, a production map change, or any later Stage 27 slice.
+The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A itself remains docs/audit/contracts only and did not authorize a Babylon runtime, a production map change, or any later Stage 27 slice. The later governed PR #601 packet authorizes only the isolated, explicitly non-product Svelte/Babylon executable foundation recorded in the current roadmap; it does not authorize Finder/Inspect implementation, product map design, production wiring, or a renderer cutover.
 
 ### Named runtime exception: EDDN simulation ingest
 

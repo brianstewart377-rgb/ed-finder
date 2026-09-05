@@ -2,7 +2,7 @@
 
 ED-Finder is an Elite Dangerous exploration, system-finding, colony-planning, evidence-review, and spatial-analysis project.
 
-> **V3 status — 4 September 2026**
+> **V3 status — 5 September 2026**
 >
 > The infrastructure cutover is complete and the application rebuild has begun. [`apps/web/`](apps/web/) is the sole V3 browser destination. This hard-replacement branch must remain unmerged until replacement parity is complete. It is **not** a production cutover. The React tree under [`frontend/`](frontend/) is temporary source evidence only, not a runnable parallel lane.
 
@@ -50,8 +50,8 @@ That product scope is the migration/parity target. The presence of a route, comp
 
 - [`apps/web/`](apps/web/) is the sole V3 browser-application destination.
 - It uses the locked Svelte 5 / SvelteKit 2 / TypeScript 6 / Vite 8 / Node 24 / pnpm 11 baseline.
-- Its initial foundation proves a static application shell, route ownership, typed FastAPI client generation, query-state wiring, unit checks, and Cypress smoke coverage.
-- It does not yet port Finder, Inspect, Colony Planner, Review, Admin/Ops, or the spatial renderer.
+- Its initial foundation proves a static application shell, route ownership, typed FastAPI client generation, query-state wiring, unit checks, Cypress smoke coverage, and an isolated renderer-neutral Babylon 9 runtime adapter.
+- The Babylon adapter is exposed only through an explicitly non-product diagnostic surface. Finder, Inspect, the fresh V3 product map design, Colony Planner, Review, and Admin/Ops have not been ported.
 - [`frontend/`](frontend/) is temporary React 19 / Vite 8 source evidence, not an active implementation or browser-validation destination.
 
 The locked and sole target for V3 browser implementation is Svelte 5/SvelteKit 2/TypeScript 6. The hard-cut branch remains unmerged until equivalent accepted behaviour and evidence exist.

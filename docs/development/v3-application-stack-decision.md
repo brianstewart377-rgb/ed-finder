@@ -191,6 +191,10 @@ This is a frontend-framework authority amendment, not a change to the renderer-n
 
 The same replacement applies to references that say React/DOM owns accessible UI: the durable contract is **Svelte/DOM** accessibility ownership. Renderer-neutral domain handlers, rather than React-specific handlers, decide whether runtime events are permitted to mutate application/domain state.
 
+### Current executable foundation
+
+The later governed PR #601 packet establishes the minimum executable baseline selected here: an isolated Svelte canvas host and Babylon 9 adapter using modular `@babylonjs/core` imports, WebGPU preference, explicit WebGL2 fallback, bounded renderer status, and deterministic diagnostic geometry. It is explicitly **non-product**. It introduces no application `worldScale`, Finder/Inspect behaviour, fresh map visual design, production wiring, or renderer cutover; those remain later reviewed work.
+
 ## Explicit retirements / negative decisions
 
 Do not carry these into the new baseline by inertia:

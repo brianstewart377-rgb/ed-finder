@@ -82,3 +82,20 @@ def test_v3_map_validation_uses_fresh_babylon_stack_in_both_browser_lanes():
     assert 'It must not substitute a different frontend framework or renderer.' in authority
     assert 'A React/R3F Review Lab therefore cannot gate a Babylon V3 map checkpoint.' in authority
     assert 'Before the first meaningful Finder/Inspect/Babylon live checkpoint' in authority
+
+
+@pytest.mark.unit
+def test_product_e2e_covers_the_non_product_spatial_foundation_lifecycle():
+    workflow = PRODUCT_E2E_WORKFLOW.read_text(encoding='utf-8')
+    spec = (
+        ROOT / 'apps' / 'web' / 'cypress' / 'e2e' / 'spatial-foundation.cy.ts'
+    ).read_text(encoding='utf-8')
+
+    assert 'browser: [chrome, firefox]' in workflow
+    assert "cy.visit('/spatial-foundation'" in spec
+    assert 'data-renderer-state="ready"' in spec
+    assert 'WEBGPU|WEBGL2' in spec
+    assert 'cy.viewport(' in spec
+    assert "cy.go('back')" in spec
+    assert '__spatialRuntimeFailures' in spec
+    assert 'cy.screenshot(' in spec

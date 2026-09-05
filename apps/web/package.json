@@ -26,9 +26,9 @@
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.0.0",
     "@tailwindcss/vite": "4.3.3",
-    "@types/node": "24.10.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/svelte": "5.4.2",
+    "@types/node": "24.10.0",
     "cypress": "15.21.1",
     "eslint": "10.9.1",
     "eslint-plugin-svelte": "3.23.0",
@@ -44,6 +44,7 @@
     "vitest": "4.1.0"
   },
   "dependencies": {
+    "@babylonjs/core": "9.23.0",
     "@lucide/svelte": "1.37.0",
     "@tanstack/svelte-query": "6.1.48",
     "bits-ui": "2.19.0"

@@ -4,6 +4,12 @@
 **Implementation status:** contract only; Babylon runtime is not authorized in
 this stage.
 
+**Current implementation addendum, 2026-09-05:** the later governed PR #601
+packet establishes only the minimum isolated, explicitly non-product executable
+Svelte/Babylon foundation behind these renderer-neutral boundaries. It does not
+authorize Finder/Inspect, product map design, real-system rendering, production
+wiring, or cutover, and it does not change the historical Stage 27A scope above.
+
 ## Context and historically accurate decision
 
 Stage 26 followed this sequence: requirements contract → equal renderer bakeoff
