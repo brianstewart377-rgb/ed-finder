@@ -75,7 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-window
 Optional browser test setup:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -InstallPlaywright
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -InstallCypress
 ```
 
 Notes:
@@ -113,7 +113,7 @@ Common Unix-style commands translate to:
 .venv\Scripts\python.exe -B scripts/dev/test_env_preflight.py
 .venv\Scripts\python.exe -B scripts/dev/resolve_project_state.py --strict
 .venv\Scripts\python.exe -B scripts/dev/review_environment.py preflight
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode quick --scenario planner_core --confirm-local-review-environment
+.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode quick --scenario explore_inspect --confirm-local-review-environment
 ```
 
 If you prefer a single verification pass after bootstrap:

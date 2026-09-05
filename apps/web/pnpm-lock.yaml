@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@babylonjs/core':
+        specifier: 9.23.0
+        version: 9.23.0
+      '@ed-finder/api-client':
+        specifier: file:../../packages/api-client
+        version: file:../../packages/api-client
       '@lucide/svelte':
         specifier: 1.37.0
         version: 1.37.0(svelte@5.56.10(@typescript-eslint/types@8.69.0))
@@ -17,6 +23,9 @@ importers:
       bits-ui:
         specifier: 2.19.0
         version: 2.19.0(@internationalized/date@3.12.4)(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.0.0(svelte@5.56.10(@typescript-eslint/types@8.69.0))(vite@8.2.2(@types/node@24.10.0)(jiti@2.7.0)))(svelte@5.56.10(@typescript-eslint/types@8.69.0))(typescript@6.0.2)(vite@8.2.2(@types/node@24.10.0)(jiti@2.7.0)))(svelte@5.56.10(@typescript-eslint/types@8.69.0))
+      json-with-bigint:
+        specifier: 3.5.11
+        version: 3.5.11
     devDependencies:
       '@hey-api/openapi-ts':
         specifier: 0.99.0
@@ -42,9 +51,15 @@ importers:
       '@types/node':
         specifier: 24.10.0
         version: 24.10.0
+      axe-core:
+        specifier: 4.12.1
+        version: 4.12.1
       cypress:
         specifier: 15.21.1
         version: 15.21.1
+      cypress-axe:
+        specifier: 1.7.0
+        version: 1.7.0(axe-core@4.12.1)(cypress@15.21.1)
       eslint:
         specifier: 10.9.1
         version: 10.9.1(jiti@2.7.0)(supports-color@8.1.1)
@@ -111,6 +126,9 @@ packages:
     resolution: {integrity: sha512-Nq8OhGWiZIZGV6hLHoyAKLLcJihP/xFeBMGJoUrxTX2psI8dCifzLhZISFb+VWS3wFMRDmCGw5R+dOySCqPLhw==}
     engines: {node: '>=6.9.0'}
 
+  '@babylonjs/core@9.23.0':
+    resolution: {integrity: sha512-FpDaTPx485J1H0AEJpoJ785Z1CwCkEPNnZFu7WzHTy0ByGCy75bkZZILh4QFU4LLnzK1iuHwUfecCguATIeKSA==}
+
   '@csstools/color-helpers@6.1.1':
     resolution: {integrity: sha512-gLNsunvwf3mCi5u5o46/Z/JcJMnhbHSaZ69rkgPzNM3J4s8hWwpPUQB6/tt0EDFyCiWzxANlx+2LJwpYj4zS1w==}
     engines: {node: '>=20.19.0'}
@@ -153,6 +171,9 @@ packages:
 
   '@cypress/xvfb@1.2.4':
     resolution: {integrity: sha512-skbBzPggOVYCbnGgV+0dmBdW/s77ZkAOXIC1knS8NagwDjBrNC1LuXtQJeiN6l+m7lzmHtaoUw/ctJKdqkG57Q==}
+
+  '@ed-finder/api-client@file:../../packages/api-client':
+    resolution: {directory: ../../packages/api-client, type: directory}
 
   '@eslint-community/eslint-utils@4.10.1':
     resolution: {integrity: sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==}
@@ -765,6 +786,10 @@ packages:
   aws4@1.13.2:
     resolution: {integrity: sha512-lHe62zvbTB5eEABUVi/AwVh0ZKY9rMMDhmm+eeyuuUQbQ3+J+fONVQOZyj+DdrvD4BY33uYniyRJ4UJIaSKAfw==}
 
+  axe-core@4.12.1:
+    resolution: {integrity: sha512-s7iGf5GaVMxEG0ENN9x+xTr7GFZCb1ZP/1uATUpCEK2X78nDB3RwbtFCo9pGAf9ru+VwoQ464DkaLEeRM08wJA==}
+    engines: {node: '>=4'}
+
   axobject-query@4.1.0:
     resolution: {integrity: sha512-qIj0G9wZbMGNLjLmg1PT6v2mE9AH2zlnADJD/2tC6E00hgmhUOfEB6greHPAfLRSufHqROIUTkw6E+M3lH0PTQ==}
     engines: {node: '>= 0.4'}
@@ -938,6 +963,13 @@ packages:
   cssstyle@5.3.7:
     resolution: {integrity: sha512-7D2EPVltRrsTkhpQmksIu+LxeWAIEk6wRDMJ1qljlv+CKHJM+cJLlfhWIzNA44eAsHXSNe3+vO6DW1yCYx8SuQ==}
     engines: {node: '>=20'}
+
+  cypress-axe@1.7.0:
+    resolution: {integrity: sha512-zzJpvAAjauEB3GZl0KYXb8i3w6MztWAt2WM3czYTFyNVC30alDmqCm9E7GwZ4bgkldZJlmHakaVEyu73R5St4w==}
+    engines: {node: '>=10'}
+    peerDependencies:
+      axe-core: ^3 || ^4
+      cypress: ^10 || ^11 || ^12 || ^13 || ^14 || ^15
 
   cypress@15.21.1:
     resolution: {integrity: sha512-ogHpHMj0XNlZA5MGzjg8SWHf0eMw9lTwVQRKjpcT1GzNTxNUjwnHA8YCG6nOJ8ThU+XZaUxJgpMYZnJ//8aDaw==}
@@ -1447,6 +1479,9 @@ packages:
 
   json-stringify-safe@5.0.1:
     resolution: {integrity: sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==}
+
+  json-with-bigint@3.5.11:
+    resolution: {integrity: sha512-WvkM9Hfb9kqzCcbsvpwfWDvdfGZDhYuCoaCwHRe5q3LtULKkbrI/L6JYcN8owflgA3di5dP2yVAV2NVCXkgtkA==}
 
   jsonfile@6.2.1:
     resolution: {integrity: sha512-zwOTdL3rFQ/lRdBnntKVOX6k5cKJwEc1HdilT71BWEu7J41gXIB2MRp+vxduPSwZJPWBxEzv4yH1wYLJGUHX4Q==}
@@ -2417,6 +2452,8 @@ snapshots:
 
   '@babel/runtime@7.29.7': {}
 
+  '@babylonjs/core@9.23.0': {}
+
   '@csstools/color-helpers@6.1.1': {}
 
   '@csstools/css-calc@3.3.0(@csstools/css-parser-algorithms@4.0.0(@csstools/css-tokenizer@4.0.0))(@csstools/css-tokenizer@4.0.0)':
@@ -2467,6 +2504,10 @@ snapshots:
       lodash.once: 4.1.1
     transitivePeerDependencies:
       - supports-color
+
+  '@ed-finder/api-client@file:../../packages/api-client':
+    dependencies:
+      json-with-bigint: 3.5.11
 
   '@eslint-community/eslint-utils@4.10.1(eslint@10.9.1(jiti@2.7.0)(supports-color@8.1.1))':
     dependencies:
@@ -3034,6 +3075,8 @@ snapshots:
 
   aws4@1.13.2: {}
 
+  axe-core@4.12.1: {}
+
   axobject-query@4.1.0: {}
 
   balanced-match@4.0.4: {}
@@ -3203,6 +3246,11 @@ snapshots:
       '@csstools/css-syntax-patches-for-csstree': 1.1.12(css-tree@3.2.1)
       css-tree: 3.2.1
       lru-cache: 11.5.2
+
+  cypress-axe@1.7.0(axe-core@4.12.1)(cypress@15.21.1):
+    dependencies:
+      axe-core: 4.12.1
+      cypress: 15.21.1
 
   cypress@15.21.1:
     dependencies:
@@ -3738,6 +3786,8 @@ snapshots:
   json-stable-stringify-without-jsonify@1.0.1: {}
 
   json-stringify-safe@5.0.1: {}
+
+  json-with-bigint@3.5.11: {}
 
   jsonfile@6.2.1:
     dependencies:

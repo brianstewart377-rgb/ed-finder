@@ -2,9 +2,9 @@
 
 ED-Finder is an Elite Dangerous exploration, system-finding, colony-planning, evidence-review, and spatial-analysis project.
 
-> **V3 status — 4 September 2026**
+> **V3 status — 5 September 2026**
 >
-> The infrastructure cutover is complete and the application rebuild has begun. The V3 implementation lane lives under [`apps/web/`](apps/web/) and starts with a static SvelteKit foundation. It is **not** a production cutover and it does not yet reproduce the complete React product. The existing application under [`frontend/`](frontend/) remains the behavioural, accessibility, browser, and parity reference until equivalent accepted coverage exists.
+> The infrastructure cutover is complete and the application rebuild has begun. [`apps/web/`](apps/web/) is the sole V3 browser destination. This hard-replacement branch must remain unmerged until replacement parity is complete. It is **not** a production cutover. The React tree under [`frontend/`](frontend/) is temporary source evidence only, not a runnable parallel lane.
 
 ## Read this first
 
@@ -48,13 +48,13 @@ That product scope is the migration/parity target. The presence of a route, comp
 
 ### Application
 
-- [`apps/web/`](apps/web/) is the new V3 browser-application lane.
+- [`apps/web/`](apps/web/) is the sole V3 browser-application destination.
 - It uses the locked Svelte 5 / SvelteKit 2 / TypeScript 6 / Vite 8 / Node 24 / pnpm 11 baseline.
-- Its initial foundation proves a static application shell, route ownership, typed FastAPI client generation, query-state wiring, unit checks, and Cypress smoke coverage.
-- It does not yet port Finder, Inspect, Colony Planner, Review, Admin/Ops, or the spatial renderer.
-- [`frontend/`](frontend/) remains the React 19 / Vite 8 migration reference and continues to carry protected validation until deliberate retirement criteria are met.
+- Its initial foundation proves a static application shell, route ownership, typed FastAPI client generation, query-state wiring, unit checks, Cypress smoke coverage, and an isolated renderer-neutral Babylon 9 runtime adapter.
+- The Babylon adapter is exposed only through an explicitly non-product diagnostic surface. Finder, Inspect, the fresh V3 product map design, Colony Planner, Review, and Admin/Ops have not been ported.
+- [`frontend/`](frontend/) is temporary React 19 / Vite 8 source evidence, not an active implementation or browser-validation destination.
 
-The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6. The checked-in frontend under [`frontend/`](frontend/) remains a React/TypeScript migration/reference and current-validation lane until equivalent accepted coverage exists.
+The locked and sole target for V3 browser implementation is Svelte 5/SvelteKit 2/TypeScript 6. The hard-cut branch remains unmerged until equivalent accepted behaviour and evidence exist.
 
 ### Programme
 
@@ -69,7 +69,7 @@ The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/
 | Concern | Current repository baseline | Locked direction / boundary |
 |---|---|---|
 | V3 web application | `apps/web/` static SvelteKit foundation | Svelte 5, SvelteKit 2, TypeScript 6, Tailwind 4, Bits UI, Lucide Svelte |
-| Product/parity reference | `frontend/` React 19 + Vite application | Retain until equivalent V3 behaviour and evidence are accepted; do not build new architecture into it by inertia |
+| Temporary source evidence | `frontend/` React 19 + Vite sources | Read for parity, but do not treat as a runnable application or validation destination |
 | API | FastAPI under `apps/api/` | FastAPI + Pydantic 2 + OpenAPI; exact release provenance required |
 | Generated clients | Existing React OpenAPI types plus the V3 Hey API client | Both generated from the same authoritative FastAPI `/openapi.json` while both lanes exist |
 | Database | PostgreSQL 18 | Retain the V3 database; never attach or wholesale-restore a V2 physical data directory |
@@ -77,7 +77,7 @@ The locked target for new V3 application implementation is Svelte 5/SvelteKit 2/
 | Messaging | Existing runtime/history may contain NATS | NATS is not part of the new baseline without a newly justified durable-stream responsibility |
 | EDDN | Existing ingestion surfaces | Converge on one dedicated EDDN worker rather than duplicate long-lived consumers |
 | Spatial renderer | React/R3F/Three.js remains parity and rollback evidence | Babylon.js 9-class, introduced only through the Stage 27 contract and bake-off sequence |
-| Browser tests | Cypress is the future protected authority; useful Playwright coverage remains during migration | Port unique coverage before removing Playwright; do not delete historical Stage 26 evidence receipts |
+| Browser tests | Cypress is the only active browser automation authority | Historical Stage 26 receipts remain provenance, not runnable Playwright tooling |
 | Delivery | V3 release foundation is being established | Immutable OCI images and an exact release manifest; no production build, dependency resolution, or `git pull` |
 | Production orchestration | Current V3 authority is documented outside the root legacy Compose file | A reviewed, explicitly V3 Compose/runtime authority; root legacy Compose is not production authority |
 
@@ -170,9 +170,9 @@ bash scripts/checks/openapi-drift.sh
 
 That helper refuses production-looking database targets; do not bypass the guard.
 
-## Working on the retained React reference
+## Reading retained React source evidence
 
-The React application remains live migration evidence, so changes that affect parity or shared contracts may still require its checks.
+The React tree is temporary source evidence for parity. It is not a second implementation destination and is not kept runnable for gradual retirement.
 
 ```bash
 cd frontend
@@ -182,9 +182,7 @@ yarn test
 yarn build
 ```
 
-The package declares Yarn 1.22.22. Focused map, planner, operator, Cypress, Playwright, Storybook, accessibility, and evidence scripts remain under [`frontend/package.json`](frontend/package.json) until each is explicitly ported, archived, or retired.
-
-Do not remove the React application, R3F baseline, Playwright configuration, or Stage 26 evidence merely because the V3 foundation exists. Replacement requires equivalent accepted behaviour or an explicit governed retirement decision.
+Historical Stage 26 artifacts and receipts remain committed provenance. Active browser journeys, accessibility checks, screenshots, and visual baselines belong to Cypress; no Playwright dependency or invocation is current tooling.
 
 ## Backend, database, and importer work
 
@@ -220,8 +218,8 @@ The protected system includes backend unit/integration tests, script and migrati
 
 Key principles:
 
-- **Cypress is the V3 browser/E2E authority.**
-- Existing Playwright coverage remains migration evidence where it still supplies unique Review Lab, accessibility, visual, browser, or Stage 26 evidence.
+- **Cypress is the sole active V3 browser/E2E authority**, including Review Lab, accessibility, Chrome/Firefox execution, and deterministic screenshot evidence.
+- Playwright may appear only in clearly historical artifacts and receipts, never active instructions or dependencies.
 - Do not remove a test before its behaviour is reproduced or explicitly retired by the governing contract.
 - Pure domain tests are valuable parity anchors and should move with framework-neutral code.
 - User-visible changes require appropriate visual and accessibility evidence.

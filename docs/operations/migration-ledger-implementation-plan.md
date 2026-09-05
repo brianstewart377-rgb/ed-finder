@@ -1,5 +1,12 @@
 # Migration Ledger Implementation Plan
 
+> **SUPERSEDED DESIGN-ONLY PLAN. DO NOT EXECUTE.** The replay-all V2 deployment
+> paths described below have been retired. The ledger design subsequently
+> landed, but this file is neither a current V3 migration procedure nor authority
+> to inspect or mutate PostgreSQL 18. Current boundaries are in
+> [`infrastructure-status.md`](infrastructure-status.md), and any operation must
+> be authorized by an explicitly current V3 workflow/runbook.
+
 This document turns the audit finding around migration replay into a concrete
 implementation plan for ED-Finder.
 

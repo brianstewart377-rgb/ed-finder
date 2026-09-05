@@ -340,7 +340,7 @@ export const adminCronStatusApiAdminCronStatusGet = <ThrowOnError extends boolea
  *
  * This endpoint deliberately reads only a configured JSON artifact produced
  * by `station_enrichment_status.py --json`. It never invokes the enrichment
- * script, Docker, EDSM, or the database.
+ * script, Docker, external data providers, or the database.
  */
 export const stationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGet = <ThrowOnError extends boolean = false>(options?: Options<StationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGetData, ThrowOnError>): RequestResult<StationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGetResponses, unknown, ThrowOnError> => (options?.client ?? client).get<StationEnrichmentOperatorStatusApiAdminEnrichmentStationStatusGetResponses, unknown, ThrowOnError>({ url: '/api/admin/enrichment/station-status', ...options });
 
@@ -777,7 +777,7 @@ export const getRegionalAnalysisApiSystemsId64RegionalAnalysisGet = <ThrowOnErro
  *
  * Data source priority:
  * 1. body_scan_facts (EDDN-derived, highest confidence)
- * 2. bodies table (Spansh-imported, moderate confidence)
+ * 2. bodies table (external-source imported, moderate confidence)
  * 3. No data → empty predictions with explanation
  */
 export const getSlotPredictionsApiSystemsId64SlotPredictionsGet = <ThrowOnError extends boolean = false>(options: Options<GetSlotPredictionsApiSystemsId64SlotPredictionsGetData, ThrowOnError>): RequestResult<GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponses, GetSlotPredictionsApiSystemsId64SlotPredictionsGetErrors, ThrowOnError> => (options.client ?? client).get<GetSlotPredictionsApiSystemsId64SlotPredictionsGetResponses, GetSlotPredictionsApiSystemsId64SlotPredictionsGetErrors, ThrowOnError>({ url: '/api/systems/{id64}/slot-predictions', ...options });

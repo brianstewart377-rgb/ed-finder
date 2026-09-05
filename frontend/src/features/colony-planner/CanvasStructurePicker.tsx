@@ -1,9 +1,9 @@
 import { Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import { bodyDisplayName } from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
-import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
-import type { BodyPlannerLane } from './BodySlotPlanner';
+import { bodyDisplayName } from '@ed-finder/planner-core/buildPlanLayout';
+import { templateLocationKind } from '@ed-finder/planner-core/structurePicker';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 import {
   contextualEconomyLabel,
   isContextualEconomyTemplate,
@@ -14,7 +14,7 @@ import {
   templateDisplayName,
   templateMatchesLane,
   templatePrerequisiteDescriptions,
-} from './structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 
 export function CanvasStructurePicker({
   body,

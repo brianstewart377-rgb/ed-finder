@@ -28,12 +28,7 @@ describe('map API helpers', () => {
     expect(res.regions[0].name).toBe('Inner Orion Spur');
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/map/regions',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        }),
-      }),
+      expect.objectContaining({ credentials: 'include' }),
     );
   });
 

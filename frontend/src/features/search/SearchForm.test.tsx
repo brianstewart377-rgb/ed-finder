@@ -26,7 +26,11 @@ describe('SearchForm reference autocomplete data trust', () => {
     );
 
     fireEvent.click(screen.getByTestId('filter-module-system'));
+    const colonyStatusLabel = screen.getByText('Colony status', { selector: 'label' });
     const colonyStatus = screen.getByLabelText('Colony status');
+    expect(colonyStatusLabel.getAttribute('for')).toBeTruthy();
+    expect(colonyStatus.id).toBe(colonyStatusLabel.getAttribute('for'));
+    expect(colonyStatusLabel.contains(colonyStatus)).toBe(false);
     expect(colonyStatus.textContent).toBe('Non-colonised only');
   });
 

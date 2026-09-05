@@ -3,22 +3,23 @@ import {
   bodyDisplayName,
   bodyTags,
   getPlacementWarnings,
-} from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
+} from '@ed-finder/planner-core/buildPlanLayout';
 import {
   existingStructureDisplayType,
   type ExistingStructure,
-} from './existingInfrastructure';
+} from '@ed-finder/planner-core/existingInfrastructure';
 import { BodySlotLane } from './BodySlotLane';
 import { BodyStructureSlot, type BodyStructureSlotItem } from './BodyStructureSlot';
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import { buildPlanningEconomyLedger } from './planningEconomy';
-import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity, type BodyDataSlotEstimate } from './slotCapacityFallback';
-import { laneDisabledReason, missingPrerequisitesForPlacement, placementLaneForTemplate, type PlacementLaneAssignment } from './structurePlanningRules';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
+import { ESTIMATED_SLOT_LAYOUT_DISCLAIMER, resolveSlotCapacity, type BodyDataSlotEstimate } from '@ed-finder/planner-core/slotCapacity';
+import { laneDisabledReason, missingPrerequisitesForPlacement, placementLaneForTemplate, type PlacementLaneAssignment } from '@ed-finder/planner-core/structurePlanning';
 import { BodyRingMap, type RingNodeKind } from './BodySlotPlannerRingMap';
-import { existingSlotLabel, slotLabel } from './bodySlotPlannerLabels';
+import { existingSlotLabel, slotLabel } from '@ed-finder/planner-core/bodySlotPlannerLabels';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 
-export type BodyPlannerLane = 'orbital' | 'surface';
+export type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 
 export interface BodyPlannerPlacementItem {
   placement: SimulateBuildPlacement;

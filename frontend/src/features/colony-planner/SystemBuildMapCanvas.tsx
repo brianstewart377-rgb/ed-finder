@@ -1,14 +1,19 @@
 import { Network, Plus } from 'lucide-react';
 import type { CSSProperties } from 'react';
 import type { SystemDetail } from '@/types/api';
-import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
-import type { BodyPlannerLane } from './BodySlotPlanner';
-import { economyColor, economySoftColor } from './economyVisuals';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
+import {
+  existingAssociationLabel,
+  formatShare,
+  plannerCanvasLaneToPlannerLane,
+} from '@ed-finder/planner-core/plannerCanvasPresentation';
+import { economyColor, economySoftColor } from '@ed-finder/planner-core/economyVisuals';
 import {
   existingStructureDisplayType,
   resolveExistingInfrastructure,
   type ExistingStructure,
-} from './existingInfrastructure';
+} from '@ed-finder/planner-core/existingInfrastructure';
 import type {
   PlannerEconomySegment,
   PlannerCanvasLane,
@@ -16,7 +21,7 @@ import type {
   PlannerLaneOccupancySummary,
   PlannerStructureSlot,
   VisiblePlannerCanvasLane,
-} from './plannerCanvasTypes';
+} from '@ed-finder/planner-core/plannerCanvasTypes';
 export type {
   PlannerEconomySegment,
   PlannerCanvasLane,
@@ -24,16 +29,16 @@ export type {
   PlannerLaneOccupancySummary,
   PlannerStructureSlot,
   VisiblePlannerCanvasLane,
-} from './plannerCanvasTypes';
+} from '@ed-finder/planner-core/plannerCanvasTypes';
 import {
   type PrerequisiteIssue,
-} from './structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 import {
   bodyMarker,
   buildPlannerCanvasRows,
   placementBodyId,
   summarizePlannerCanvasRows,
-} from './plannerCanvasUtils';
+} from '@ed-finder/planner-core/plannerCanvas';
 
 export function SystemBuildMapCanvas({
   system,
@@ -290,14 +295,6 @@ function UnresolvedExistingInfrastructure({ structures }: { structures: Existing
       </div>
     </section>
   );
-}
-
-function existingAssociationLabel(structure: ExistingStructure): string {
-  if (structure.transient) return 'transient';
-  if (structure.association_status === 'unresolved') return 'unresolved';
-  if (structure.lane === 'unknown') return 'lane unknown';
-  if (structure.association_status === 'inferred') return 'verify';
-  return 'confirmed';
 }
 
 function TreeCell({
@@ -720,10 +717,6 @@ function PlannerSlotBox({
   );
 }
 
-function plannerCanvasLaneToPlannerLane(lane: VisiblePlannerCanvasLane): BodyPlannerLane {
-  return lane === 'ground' ? 'surface' : 'orbital';
-}
-
 function StructureEconomyMicroBar({ segments }: { segments: PlannerEconomySegment[] }) {
   const hasInherited = segments.some((segment) => segment.inherited);
   const total = Math.max(1, segments.reduce((sum, segment) => sum + segment.share, 0));
@@ -755,10 +748,6 @@ function StructureEconomyMicroBar({ segments }: { segments: PlannerEconomySegmen
       ))}
     </span>
   );
-}
-
-function formatShare(value: number): string {
-  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 function CanvasPill({ label, tone }: { label: string; tone: 'silver' | 'orange' | 'cyan' | 'green' | 'gold' }) {

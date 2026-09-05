@@ -36,7 +36,7 @@ export default tseslint.config(
       'dist/**',
       'node_modules/**',
       'src/types/api.gen.ts',
-      'playwright-report/**',
+      'cypress/artifacts/**',
       'test-results/**',
       'coverage/**',
       '**/*.d.ts',
@@ -105,6 +105,24 @@ export default tseslint.config(
     files: ['*.config.{js,ts,mjs,cjs}', 'vite.config.ts'],
     languageOptions: {
       globals: { ...globals.node },
+    },
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  // Cypress is the sole active browser harness. Lint its specs with the
+  // browser, Mocha, and Cypress command globals made explicit.
+  {
+    files: ['cypress/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.mocha,
+        Cypress: 'readonly',
+        cy: 'readonly',
+        expect: 'readonly',
+      },
     },
   },
 );

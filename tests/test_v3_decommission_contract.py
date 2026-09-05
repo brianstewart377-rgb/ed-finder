@@ -81,6 +81,62 @@ def test_hosted_review_is_absent_from_active_runtime_configs():
         assert retired not in active
 
 
+def test_legacy_compose_and_maintenance_are_not_v3_pg18_authority():
+    compose = _read('docker-compose.yml')
+    maintenance = _read('apps', 'maintenance', 'Dockerfile')
+
+    assert 'LEGACY SELF-HOST / LOCAL-CI COMPOSE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in compose
+    assert 'PostgreSQL 16 — legacy/local Compose compatibility' in compose
+    assert 'PostgreSQL 18' in compose
+    assert 'LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in maintenance
+    assert 'PostgreSQL 16 matches the retained root Compose environment only' in maintenance
+    assert 'Current V3' in maintenance and 'PostgreSQL 18' in maintenance
+
+
+def test_stale_operational_design_docs_fail_closed():
+    ledger = _read('docs', 'operations', 'migration-ledger-implementation-plan.md')
+    control_plane = _read('docs', 'development', 'chatgpt-ops-control-plane.md')
+
+    assert 'SUPERSEDED DESIGN-ONLY PLAN. DO NOT EXECUTE.' in ledger
+    assert 'neither a current V3 migration procedure nor authority' in ledger
+    assert 'DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK.' in control_plane
+    assert 'operations proposed below were never implemented' in control_plane
+    assert 'chatgpt-ed-new-ops.yml' in control_plane
+
+
+def test_application_hard_cut_is_current_authority():
+    roadmap = _read('docs', 'ROADMAP.md')
+    stack = _read('docs', 'development', 'v3-application-stack-decision.md')
+    agent_contract = _read('CLAUDE.md')
+    readme = _read('README.md')
+
+    for authority in (roadmap, stack, agent_contract, readme):
+        assert 'apps/web/' in authority
+        assert 'sole' in authority
+        assert 'Cypress' in authority
+    assert 'hard-cut branch remains unmerged until' in roadmap
+    assert 'replacement parity is complete' in roadmap
+    assert 'not a runnable parallel lane' in stack
+    assert 'temporary source evidence only' in agent_contract
+    assert 'no Playwright dependency or invocation is current tooling' in readme
+
+
+def test_live_api_and_layout_importer_copy_is_provider_neutral():
+    layout_provider = _read('apps', 'api', 'src', 'colony_planner', 'layout_import_provider.py')
+    admin_router = _read('apps', 'api', 'src', 'routers', 'admin.py')
+    simulation_router = _read('apps', 'api', 'src', 'routers', 'simulation.py')
+    main = _read('apps', 'api', 'src', 'main.py')
+    config = _read('apps', 'api', 'src', 'config.py')
+
+    assert 'Live layout-source import is not wired yet' in layout_provider
+    assert 'Live Spansh layout import is not wired yet' not in layout_provider
+    assert 'external data providers' in admin_router
+    assert 'external-source imported' in simulation_router
+    assert 'Spansh-imported' not in simulation_router
+    assert 'Hetzner' not in main
+    assert 'hetzner' not in config.lower()
+
+
 def test_active_env_example_does_not_publish_v2_storagebox_credentials():
     env_example = _read('env.example')
 

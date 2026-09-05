@@ -1,14 +1,11 @@
 <script lang="ts">
   import { createQuery } from '@tanstack/svelte-query';
-  import { getAuthSession, getHealth } from '$lib/api/client';
+  import { getHealth } from '$lib/api/client';
+  import { auth } from '$lib/auth/auth';
 
   const health = createQuery(() => ({
     queryKey: ['bootstrap', 'health'],
     queryFn: ({ signal }) => getHealth(signal),
-  }));
-  const session = createQuery(() => ({
-    queryKey: ['bootstrap', 'session'],
-    queryFn: ({ signal }) => getAuthSession(signal),
   }));
 </script>
 
@@ -30,8 +27,8 @@
     <div>
       <dt>Session</dt>
       <dd aria-live="polite">
-        {#if session.isPending}Checking…{:else if session.isError}Unavailable{:else if session.data.authenticated}{session
-            .data.user?.commander_name ?? 'Signed in'}{:else}Guest{/if}
+        {#if $auth.loading}Checking…{:else if $auth.error}Unavailable{:else if $auth.authenticated}{$auth
+            .user?.commander_name ?? 'Signed in'}{:else}Guest{/if}
       </dd>
     </div>
   </dl>

@@ -54,6 +54,13 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
       preserveSymlinks: true,
+      // The shared @ed-finder/* packages are consumed as source and import
+      // json-with-bigint at runtime. Under yarn's symlinked file: deps that
+      // import resolves from the package's real path (packages/*/), which has
+      // no node_modules — so pin json-with-bigint to the single copy hoisted in
+      // the frontend root. (pnpm consumers populate packages/*/node_modules and
+      // do not need this.)
+      dedupe: ['json-with-bigint'],
       alias: {
         '@': path.resolve(rootDir, './src'),
       },
@@ -74,7 +81,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    // Preview server (used by Playwright E2E and `yarn preview`) proxies
+    // Preview server (used by Cypress E2E and `yarn preview`) proxies
     // /api the same way the dev server does. Without this, the production
     // bundle served by `vite preview` would 404 every API call.
     preview: {

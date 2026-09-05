@@ -489,7 +489,7 @@ describe('AdminTab enrichment status', () => {
     );
 
     expect(screen.getByText(/Enrichment status artifact is not configured/i)).toBeTruthy();
-    expect(screen.getByText(/It does not run enrichment, Docker, EDSM, or database work/i)).toBeTruthy();
+    expect(screen.getByText(/It does not run enrichment, Docker, external provider, or database work/i)).toBeTruthy();
   });
 
   it('keeps warehouse status behind the admin token state', () => {

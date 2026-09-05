@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 
 describe('admin API helpers', () => {
+  beforeEach(() => {
+    sessionStorage.setItem('ed_admin_token', 'token-123');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    sessionStorage.clear();
   });
 
   it('calls cron status with a GET/read-only request only', async () => {
@@ -11,6 +16,7 @@ describe('admin API helpers', () => {
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({}),
+      text: async () => JSON.stringify({}),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -21,7 +27,7 @@ describe('admin API helpers', () => {
     expect(String(calls[0][0])).toBe('/api/admin/cron-status');
     expect(['GET', undefined]).toContain(calls[0][1]?.method);
     expect(String(calls[0][1]?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
-    expect(calls[0][1]?.headers).toMatchObject({ 'X-Admin-Token': 'token-123' });
+    expect(new Headers(calls[0][1]?.headers).get('X-Admin-Token')).toBe('token-123');
   });
 
   it('calls approved admin operations through the token-gated admin endpoint', async () => {
@@ -29,6 +35,15 @@ describe('admin API helpers', () => {
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
+        ok: true,
+        message: 'Telemetry hot-log snapshot completed.',
+        operation_key: 'telemetry_hot_log_snapshot',
+        job_run_id: 77,
+        status: 'completed',
+        exit_code: 0,
+        output_text: 'snapshot output',
+      }),
+      text: async () => JSON.stringify({
         ok: true,
         message: 'Telemetry hot-log snapshot completed.',
         operation_key: 'telemetry_hot_log_snapshot',
@@ -46,7 +61,7 @@ describe('admin API helpers', () => {
     expect(calls).toHaveLength(1);
     expect(String(calls[0][0])).toBe('/api/admin/operations/telemetry_hot_log_snapshot');
     expect(calls[0][1]?.method).toBe('POST');
-    expect(calls[0][1]?.headers).toMatchObject({ 'X-Admin-Token': 'token-123' });
+    expect(new Headers(calls[0][1]?.headers).get('X-Admin-Token')).toBe('token-123');
   });
 
   it('calls admin operation history through the token-gated read-only endpoint', async () => {
@@ -54,6 +69,11 @@ describe('admin API helpers', () => {
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
+        schema_version: 'admin_operation_history/v1',
+        read_only: true,
+        operations: [],
+      }),
+      text: async () => JSON.stringify({
         schema_version: 'admin_operation_history/v1',
         read_only: true,
         operations: [],
@@ -68,6 +88,6 @@ describe('admin API helpers', () => {
     expect(String(calls[0][0])).toBe('/api/admin/operations/history?limit=5');
     expect(['GET', undefined]).toContain(calls[0][1]?.method);
     expect(String(calls[0][1]?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
-    expect(calls[0][1]?.headers).toMatchObject({ 'X-Admin-Token': 'token-123' });
+    expect(new Headers(calls[0][1]?.headers).get('X-Admin-Token')).toBe('token-123');
   });
 });

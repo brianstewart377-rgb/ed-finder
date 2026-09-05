@@ -1,387 +1,108 @@
-﻿# Local Review Test Environment
+# Local Review Test Environment
 
 ## Purpose
 
-The Review Lab is a reusable, deterministic proving ground for the real review
-journey:
+Review Lab is the isolated deterministic browser lane for synthetic V3 edge
+cases. It runs the real `apps/web` Svelte frontend and Babylon renderer against
+the disposable `review_main.py` API and synthetic Review Lab database. It is
+separate from normal Product E2E and does not own product visual baselines.
 
-- Finder
-- System Detail
-- Colony Planner
+It never authorizes deployment, production access, canonical database changes,
+external data acquisition, scheduling, or background ingest.
 
-It is DevEx and test infrastructure only. It does not authorize Stage 19,
-source acquisition, canonical apply, rebaseline, scheduler, or production
-database work.
+## Architecture
 
-## Windows Entry Points
+`scripts/dev/review_environment.py` is a thin CLI over
+`scripts/dev/review_lab/`:
 
-On Windows, use the PowerShell wrappers and `.venv\Scripts\python.exe`
-equivalents documented in `docs/development/windows-dev-environment.md`.
-Recommended prep:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/bootstrap-windows.ps1 -RunDoctor
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/doctor.ps1 -RunPreflight
-```
-
-## Review Lab Architecture
-
-`scripts/dev/review_environment.py` is a thin CLI over the Review Lab modules in
-`scripts/dev/review_lab/`.
-
-- `contract.py` defines fixed constants, dataclasses, and run metadata.
-- `scenarios.py` owns the finite scenario registry and deterministic ordering.
-- `support_matrix.py` owns the review-only support-route matrix.
-- `lifecycle.py` owns static checks, stack lifecycle, and Docker baseline
-  capture/restore.
-- `api_contracts.py` validates real route contracts against the isolated review
-  API.
-- `browser_runner.py` runs the real frontend build, preview, and Playwright
-  collector.
-- `network_policy.py` classifies allowed versus unexpected browser/API noise.
-- `observations.py` separates environment readiness from product observations.
-- `process_registry.py` tracks only review-owned preview/browser child
-  processes.
-- `reporting.py` writes sanitised results beneath
+- `contract.py` pins paths, ports, resource names, and the apps/web collector.
+- `scenarios.py` defines the finite synthetic V3 scenario registry.
+- `support_matrix.py` records only routes used by Explore and Inspect.
+- `lifecycle.py` owns containment, Docker lifecycle, and baseline restoration.
+- `api_contracts.py` checks the isolated health, autocomplete, search, and
+  detail contracts.
+- `browser_runner.py` builds and previews `apps/web`, then invokes only
+  `cypress/e2e/review-lab.cy.ts` with `cypress.review.config.ts`.
+- `network_policy.py` allows only explicitly tagged synthetic failures.
+- `process_registry.py` owns and tears down the preview process group.
+- `reporting.py` writes sanitised evidence below
   `/tmp/edfinder-local-review/<run-id>/`.
-- `timeouts.py` centralises finite phase timeouts.
 
-The Review Lab never loads arbitrary scenarios, shell fragments, endpoints,
-credentials, or `.env` files.
-
-## GitHub Actions
-
-Review Lab CI is separate from the normal frontend E2E lane for the canonical `frontend/` app.
-
-- Normal frontend E2E continues to test normal application behaviour only.
-- `frontend/e2e/review-environment.spec.js` intentionally skips outside
-  Review Lab execution.
-- The dedicated GitHub Actions workflow is `Review Lab` in
-  `.github/workflows/review-lab.yml`.
-- It is manually triggerable via `workflow_dispatch`.
-- Its `pull_request` trigger runs on every pull request because `Review Lab` is
-  a required branch-protection context. Path filtering would leave required
-  checks permanently pending on unrelated changes.
-- It uses least-privilege `contents: read` permissions and cancels stale runs on
-  the same branch.
-- The workflow authority remains the wrapper command:
-
-```bash
-PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
-  scripts/dev/review_environment.py verify \
-  --mode full \
-  --scenario all \
-  --confirm-local-review-environment
-```
-
-Windows equivalent:
-
-```powershell
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
-```
-
-- The dedicated Review Lab lane does not call normal `yarn e2e` as a substitute
-  for isolated review validation.
-- The Review Lab browser collector receives
-  `EDFINDER_REVIEW_OUTPUT_PATH` and `EDFINDER_REVIEW_SCENARIOS_JSON` only from
-  the wrapper. Partial Review Lab configuration fails closed.
+The retained `frontend/` React/R3F tree is not part of Review Lab. Its old
+Review Lab collector and Planner viewport expectations have been removed.
 
 ## Safety Boundary
 
-The review environment is isolated, disposable, and fail-closed.
+The Compose project name is `edfinder-review`. It starts only
+`review-postgres`, `review-redis`, and `review-api`, uses database
+`edfinder_local_review`, and binds only the API to `127.0.0.1:8001`. Postgres
+and Redis expose no host ports. The stack reads no `.env` file and uses no
+external network or volume.
 
-- It does not reuse `ed-postgres`.
-- It starts only `review-postgres`, `review-redis`, and `review-api`.
-- It uses only the dedicated review database `edfinder_local_review`.
-- It binds the review API only to `127.0.0.1:8001`.
-- It does not publish host ports for Postgres or Redis.
-- It never reads a developer `.env` file and never uses `env_file`.
-- It never accepts passwords, DSNs, tokens, secret paths, or arbitrary shell
-  text as CLI input.
-- It does not use public endpoints or external data.
-- It does not start Stage 19, source acquisition, canonical apply, rebaseline,
-  scheduler, or background ingestion work.
-- Synthetic review data is reachable only inside the isolated review stack.
-- Normal API runtime cannot serve synthetic review fixtures or review-only
-  routes.
+`review_main.py` fails closed unless the marker, database host/name, and Redis
+host exactly match the Review Lab contract. Normal `main.py` does not import
+the review entrypoint or synthetic fixtures.
+
+The Cypress collector also fails closed. Its marker, summary path, and scenario
+plan are captured by a Node-side task rather than `Cypress.env`. Summary writes
+must match the wrapper-selected absolute path and remain beneath
+`/tmp/edfinder-local-review`.
 
 ## Commands
 
-Run commands from the repository root with the project virtualenv:
+From the repository root:
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py preflight
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py list-scenarios
-PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py verify --mode quick --scenario planner_core --confirm-local-review-environment
+PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py verify --mode quick --scenario explore_inspect --confirm-local-review-environment
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py report --latest
 PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/review_environment.py down --confirm-local-review-environment
 ```
 
-Windows equivalents:
+`preflight`, `list-scenarios`, and `report` are read-only. Stack mutations
+require the exact confirmation flag. Quick mode runs Review Lab contract, stack,
+API, and teardown phases. Full mode adds the apps/web browser collector.
 
-```powershell
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py preflight
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py list-scenarios
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode quick --scenario planner_core --confirm-local-review-environment
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py verify --mode full --scenario all --confirm-local-review-environment
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py report --latest
-.venv\Scripts\python.exe -B scripts/dev/review_environment.py down --confirm-local-review-environment
-```
+## Synthetic Scenarios
 
-- `preflight` is read-only and validates containment, review-only routing,
-  support-route matrix coverage, scenario registry validity, and Compose safety
-  before Docker startup.
-- `list-scenarios` is read-only and prints the finite scenario registry. Future
-  coverage should add a declarative scenario or contract, not one-off browser
-  logic.
-- `verify` defaults to `--mode full`. `--scenario all` runs the registry in
-  deterministic order.
-- `verify --mode quick --scenario planner_core --confirm-local-review-environment`
-  is the fast stack and contract smoke path.
-- `verify --mode full --scenario all --confirm-local-review-environment` is the
-  complete proving run.
-- `report --latest` is read-only and prints the latest sanitised JSON report.
-- `down --confirm-local-review-environment` removes only the isolated
-  `edfinder-review` stack resources.
+The finite registry is:
 
-The dedicated `Review Lab` GitHub Actions workflow runs the same full-mode
-wrapper command against synthetic review data only.
+- `explore_inspect`: synthetic system discovery, keyboard typeahead, Babylon
+  readiness, exact ID64 selection, and canonical Inspect detail.
+- `api_failure`: two bounded 503 responses cover the query retry contract and
+  prove the Explore error state without changing the backend.
+- `empty_results`: a contract-shaped empty response proves the empty UI and
+  zero-target Babylon scene.
+- `renderer_recovery`: uses `WEBGL_lose_context` when the active Babylon backend
+  exposes it; otherwise records the renderer-neutral resize lifecycle fallback.
+- `navigation_containment`: direct Inspect and return navigation, heading focus,
+  and absence of external resource origins.
 
-## Scenario Registry
+These are diagnostic synthetic states. Review Lab does not invoke the normal
+Product E2E command or `product-journey.cy.ts`, and normal Product E2E does not
+invoke this wrapper, `review_main.py`, Review Lab markers, or synthetic data.
 
-The Review Lab uses a validated finite registry with no arbitrary scenario
-execution. Each scenario declares:
+## Lifecycle and Teardown
 
-- name
-- purpose
-- synthetic data profile
-- required review-only routes
-- API contracts
-- browser journey
-- expected network and console policy
-- evidence and provenance posture
-- accessibility and viewport checks
-- product-observation policy and owner
+Every operation has a finite timeout. Verify always captures the pre-run Docker
+container, volume, and network baseline; stops its owned preview process group;
+runs `docker compose down -v --remove-orphans`; compares the non-review baseline;
+and then asserts no labelled or named Review Lab container, volume, or network
+remains. A mismatch fails closed.
 
-The initial deterministic registry is:
+The required GitHub workflow installs Node 24 and pinned pnpm 11, installs
+`apps/web` from its frozen lockfile, runs only focused Review Lab
+containment/lifecycle tests, and invokes the same full wrapper command. Generic
+lint, formatting, project-state, stage, security, and product checks remain in
+normal CI.
 
-- `planner_core`
-- `evidence_available`
-- `evidence_unavailable`
-- `evidence_unknown`
-- `evidence_not_evaluated`
-- `provenance_fallback`
-- `empty_optional_support_data`
-- `large_result_set`
-- `partial_optional_data`
-- `support_route_compatibility`
+## Diagnostics
 
-Only synthetic `Review Alpha`, `Review Beta`, `Review Gamma`, and `Review Delta`
-data are valid. `Review Delta` remains the deliberate fallback-only case.
-
-## Quick And Full
-
-Every verify run writes a sanitised result beneath
-`/tmp/edfinder-local-review/<run-id>/`.
-
-The exact phase groups are:
-
-- `static`
-- `stack`
-- `api_contracts`
-- `browser_desktop`
-- `browser_accessibility`
-- `browser_console`
-- `teardown`
-- `product_observations`
-
-Each phase records:
-
-- `status`
-- `duration_ms`
-- `summary`
-- `failure_code`
-- `safe_diagnostics`
-
-quick mode runs:
-
-- `static`
-- `stack`
-- `api_contracts`
-- `teardown`
-
-quick mode skips browser, accessibility, console, and product observation
-phases by design.
-
-full mode adds:
-
-- frontend build
-- preview readiness
-- Playwright/browser verification
-- accessibility checks
-- network and console policy enforcement
-- product observations
-
-Dependent phases become skipped after an upstream failure, teardown still runs,
-the final JSON report still writes, and the CLI exits non-zero.
-
-## Timeouts And Cleanup
-
-All operations are bounded:
-
-- static: `60s`
-- stack readiness: `60s`
-- API contracts: `30s`
-- frontend build: `90s`
-- preview readiness: `30s`
-- Playwright: `120s`
-- teardown: `60s`
-
-The process registry records only processes started by the current verify run.
-It stores only review-owned PID and process-group data in the run directory,
-stops only review-owned preview/browser children, and never kills arbitrary host
-Node, Vite, Docker, database, or browser processes.
-On Windows it resolves Node package executables through their `.cmd`/`.exe`
-launchers, decodes subprocess output as UTF-8, and terminates only the managed
-process tree so wrapper children cannot leave Vite bound to the preview port.
-
-Verify always:
-
-- captures a Docker baseline before startup
-- tears the review stack down in `finally`
-- compares the non-review Docker baseline after teardown
-- fails closed if review-owned resources already exist before verify
-- fails with `DOCKER_BASELINE_NOT_RESTORED` if the non-review baseline changes
-- fails with `REVIEW_RESOURCES_NOT_REMOVED` if any review-owned container or
-  volume remains after teardown
-
-## What Verify Proves
-
-The Review Lab proves isolated review-environment readiness for the real
-frontend and the loopback review API on `127.0.0.1:8001`.
-
-It validates all of the following:
-
-- Finder explicitly searches the inclusive `Any` colony-status scope and
-  returns `Review Alpha`, `Review Beta`, `Review Gamma`, and `Review Delta`.
-- System Detail loads each synthetic review system through `Inspect system`.
-- Colony Planner is entered through the current staged flow: `Start a plan`,
-  choose the objective and approach, then confirm the plan.
-- Colony Planner loads using the real support routes
-  `/api/facility-templates`,
-  `/api/systems/{id64}/simulation-summary`, and
-  `/api/systems/{id64}/slot-predictions`.
-- Required review-only support routes return contract-shaped responses instead
-  of avoidable 404 or 5xx noise.
-- Optional noisy routes may return safe empty or zeroed review responses.
-- Review Alpha preserves available evidence without claiming canonical truth.
-- Review Beta preserves unavailable evidence.
-- Review Gamma preserves unknown evidence.
-- Review Delta deliberately returns a dedicated-evidence `503`, then triggers
-  the provenance fallback path.
-- The Delta sequence is accepted only when the browser shows:
-  dedicated evidence `503` -> provenance fallback request -> provenance
-  fallback `200` -> visible fallback posture.
-- Any uncoupled Delta `503` fails verification.
-- No unexpected browser console error, uncaught exception, reviewed-flow 404,
-  unexpected API 4xx/5xx response, or app-wide recovery screen appears.
-- The review stack tears down safely and the Docker baseline is restored.
-
-## Delta Rule
-
-`Review Delta` is review-only and must never leak into normal runtime.
-
-- The dedicated warehouse-evidence request must fail with `503`.
-- That `503` is valid only when it correlates to a successful provenance
-  fallback request and a visible fallback disclosure.
-- The UI must not claim dedicated evidence is available.
-- The fallback remains report-only, non-canonical, and explicit about technical
-  provenance details.
-- An uncoupled `503` fails with `DELTA_FALLBACK_NOT_TRIGGERED` or
-  `DELTA_FALLBACK_PROVENANCE_FAILED`.
-
-## Support-Route Matrix
-
-The Review Lab test-enforces a support-route matrix with route, frontend caller,
-required status, review-only handling, allowed response characteristics,
-scenario coverage, and explicit validation mode.
-
-At minimum it covers:
-
-- `/api/events/live`
-- `/api/events/recent`
-- `/api/news/latest`
-- `/api/watchlist`
-- `/api/cache/stats`
-- `/api/archetypes/system/{id64}`
-- `/api/evidence/systems/{id64}/summary`
-- `/api/facility-templates`
-- `/api/systems/{id64}/simulation-summary`
-- `/api/systems/{id64}/slot-predictions`
-
-Rules:
-
-- Normal runtime never mounts review-only routes.
-- Every route must be classified as `api_contract_validated`,
-  `browser_only_validated`, or `intentionally_not_exercised`.
-- `/api/events/live` is validated through a bounded loopback SSE handshake that
-  asserts `200` plus `text/event-stream` without consuming an unbounded stream.
-- Required routes must return contract-shaped review responses.
-- Optional noisy routes may return safe empty or zeroed responses.
-- No fake operational or source claims are allowed.
-- Unexpected reviewed-flow 404 or 5xx responses fail verification.
-
-## Product Observations
-
-The Review Lab separates environment readiness from product acceptance.
-
-- Broken stack startup, missing routes, malformed contracts, unexpected browser
-  console errors, unexpected network errors, or failed teardown are environment
-  failures.
-- Product observations are reported separately and do not hide environment
-  readiness.
-
-No product observation is currently expected or allowlisted. Full verification
-must finish with both `environment_ready: true` and
-`product_acceptance_ready: true`; any product observation fails as
-`UNEXPECTED_PRODUCT_OBSERVATION`.
-
-## Review Runtime
-
-The review API entrypoint is `apps/api/src/review_main.py`.
-
-- It is not imported by normal `apps/api/src/main.py`.
-- It fails closed unless the review stack marker is exactly
-  `edfinder-review`.
-- It fails closed unless the database target is exactly
-  `review-postgres` / `edfinder_local_review`.
-- It serves the real Finder, System Detail, and Colony Planner routes with the
-  normal database-backed application code.
-- It serves review-only planner evidence, provenance contracts, and support
-  routes from the isolated review database.
-
-## Temporary Artifacts
-
-Review Lab artifacts are temporary and sanitised.
-
-- Reports, logs, screenshots, traces, and process-registry data live only under
-  `/tmp/edfinder-local-review/<run-id>/`.
-- Never commit artifacts, logs, screenshots, traces, or browser dumps.
-- Safe diagnostics must not include credentials, DSNs, tokens, passwords,
-  secret paths, private local paths, or unredacted stack traces.
-
-GitHub Actions uploads failure-only, sanitised Review Lab artifacts:
-
-- final JSON report and latest-report pointer
-- sanitised browser summary
-- isolated Playwright test results from synthetic review scenarios only
-
-It does not upload `.env` files, Docker inspect output, container environment
-data, DSNs, tokens, passwords, database dumps, operator artifacts, or raw logs
-that could carry credentials.
-
-The Actions job summary records only safe high-level facts such as full verify
-pass/fail state, duration, Delta fallback correlation, unexpected console/API
-error summary, Docker baseline restoration, and review-owned resource absence.
-
+Reports and browser summaries contain bounded status, scenario, route, phase,
+and teardown facts. Cypress screenshots/videos are failure-only diagnostic
+artifacts under `apps/web/cypress/artifacts/review-lab`; they are not approved
+product visual baselines. Credentials, DSNs, tokens, Docker inspect output,
+database dumps, raw environment data, and production identifiers must never be
+written or uploaded.

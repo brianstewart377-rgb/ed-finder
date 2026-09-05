@@ -33,7 +33,9 @@ def test_locked_frontend_and_browser_authority():
     for choice in ("**TypeScript**", "**Svelte 5**", "**SvelteKit 2**"):
         assert choice in decision
     assert "**Cypress is the protected browser/E2E authority**" in decision
-    assert "Existing Playwright coverage is migration evidence, not future authority" in decision
+    assert "Playwright is not active tooling" in decision
+    assert "no Playwright configuration, dependency, invocation, or runnable harness remains" in decision
+    assert "Python evaluator remains the acceptance brain and schema owner" in decision
 
 
 def test_babylon_stays_modular_and_behind_renderer_neutral_contracts():
@@ -104,13 +106,12 @@ def test_authority_chain_registers_stack_lock_and_distinguishes_current_from_tar
     assert agent_contract.index(decision_path) < agent_contract.index("this file")
 
     assert "authoritative for new V3 application implementation" in roadmap
-    assert "checked-in React/Yarn and Python 3.12 implementation remains migration/reference and current-validation reality" in roadmap
+    assert "checked-in React/Yarn and Python 3.12 implementation remains temporary source evidence" in roadmap
     assert "does not open Stage 27B, authorize a Babylon runtime" in roadmap
-    assert "checked-in frontend" in readme and "React/TypeScript" in readme
-    assert "locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6" in readme
-    assert "checked-in backend validation path remains on Python 3.12" in readme
+    assert "apps/web/" in readme and "sole V3 browser destination" in readme
+    assert "temporary source evidence only" in readme
     assert "targets CPython 3.14 with uv" in readme
-    assert "Use these legacy-toolchain commands only to validate" in agent_contract
+    assert "not a runnable destination or parallel validation lane" in agent_contract
     assert "checked-in backend still uses Python 3.12" in agent_contract
     assert "targets CPython 3.14 with uv" in agent_contract
 

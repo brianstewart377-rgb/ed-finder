@@ -13,7 +13,6 @@ module.exports = {
   pageLoadTimeout: 30000,
   numTestsKeptInMemory: 0,
   chromeWebSecurity: true,
-  allowCypressEnv: false,
   e2e: {
     baseUrl: process.env.CYPRESS_BASE_URL || 'http://127.0.0.1:4173',
     specPattern: 'cypress/e2e/**/*.cy.js',
@@ -25,24 +24,17 @@ module.exports = {
     setupNodeEvents(on, config) {
       on('before:browser:launch', (browser, launchOptions) => {
         if (browser.family === 'chromium') {
-          // E2E should assert the observable final camera state rather than race
-          // the 500 ms cosmetic zoom transition. Animation maths stays covered
-          // by the focused Vitest camera/useSmoothMapZoom tests.
           launchOptions.args.push('--force-prefers-reduced-motion');
         }
         return launchOptions;
       });
-
       on('after:spec', (_spec, results) => {
         if (!results) return;
         const failed = results.tests.filter((test) => test.state === 'failed');
         if (failed.length > 0) {
-          // Keep a terse machine-readable signal in the Actions log while the
-          // screenshots/video retain full browser evidence.
           console.error(`Cypress spec failed: ${failed.length} test(s)`);
         }
       });
-
       config.projectRoot = path.resolve(__dirname);
       return config;
     },

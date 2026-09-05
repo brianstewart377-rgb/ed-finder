@@ -1,5 +1,13 @@
 name: Cypress Parity
 
+# Validation lane authority:
+# - This workflow owns normal Product E2E / Visual Acceptance.
+# - It must not invoke Review Lab runtime, review-only routes, or synthetic Lab
+#   fixtures. Review Lab is a separate deterministic proving environment.
+# - Retained frontend/ React coverage below is migration evidence only; apps/web
+#   is the V3 authority as equivalent journeys and visual assertions land.
+# See docs/development/v3-browser-validation-lanes.md.
+
 on:
   pull_request:
   workflow_dispatch:
@@ -13,12 +21,13 @@ concurrency:
 
 jobs:
   cypress-release-gate:
-    # The misleading name is retained temporarily because main branch protection
-    # requires this exact context. Rename it only in the same administrative
-    # change that repoints the required check.
-    name: Frontend v2 E2E (Playwright)
+    name: Frontend E2E (Cypress, ${{ matrix.browser }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chrome, firefox]
     services:
       postgres:
         image: postgres:16-alpine
@@ -72,6 +81,16 @@ jobs:
           PGPASSWORD: edfinder
         run: |
           psql -h localhost -U edfinder -d edfinder <<SQL
+          INSERT INTO systems (
+            id64, name, x, y, z, primary_economy, secondary_economy,
+            population, is_colonised, security, allegiance, government,
+            main_star_type, main_star_subtype, has_body_data, body_count,
+            data_quality, galaxy_region_id
+          ) VALUES (
+            9007199254740993, 'V3 Lossless Reach', 18.25, -7.5, 42.75,
+            'HighTech', 'Industrial', 9007199, true, 'High', 'Independent',
+            'Cooperative', 'F', '5 V', false, 0, 5, 18
+          ) ON CONFLICT (id64) DO NOTHING;
           INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery,
             score_industrial, score_hightech, score_military, score_tourism,
             score_extraction, slots, body_quality, compactness, signal_quality,
@@ -88,7 +107,9 @@ jobs:
             (s.id64 % 3)::int, (s.id64 % 4)::int, (s.id64 % 2)::int,
             (s.id64 % 6)::int, (s.id64 % 2)::int, 0, 0, 5, 2, 10, 20, 30,
             ((s.id64 % 30))::int, 0.85, 4, 1, 6, 2, 1, 2, 3, 2, '3.4'
-          FROM systems s ON CONFLICT DO NOTHING;
+          FROM systems s
+          WHERE s.has_body_data = TRUE
+          ON CONFLICT DO NOTHING;
           SELECT * FROM refresh_map_mviews(FALSE);
           SQL
 
@@ -156,13 +177,13 @@ jobs:
           CYPRESS_INSTALL_BINARY: '15.21.1'
         run: npx --yes cypress@15.21.1 verify
 
-      - name: Run Cypress release-gate parity
+      - name: Run retained React Cypress migration evidence
         working-directory: frontend
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4173
-        run: npx --yes cypress@15.21.1 run --browser chrome --config-file cypress.config.cjs
+        run: npx --yes cypress@15.21.1 run --browser ${{ matrix.browser }} --spec cypress/e2e/auth-owner-access.cy.js,cypress/e2e/release-gate.cy.js --config-file cypress.config.cjs
 
-      - name: Set up Node 24 for Svelte foundation
+      - name: Set up Node 24 for V3 Svelte E2E
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -188,26 +209,26 @@ jobs:
           nohup pnpm preview --host 127.0.0.1 --port 4174 --strictPort > /tmp/cypress-svelte-preview.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:4174 >/dev/null 2>&1; then
-              echo "Svelte preview ready after ${i}s"
+              echo "Vite preview ready after ${i}s"
               exit 0
             fi
             sleep 1
           done
-          echo "::error::Svelte preview failed to start within 60s"
+          echo "::error::Vite preview failed to start within 60s"
           tail -80 /tmp/cypress-svelte-preview.log || true
           exit 1
 
-      - name: Run Svelte foundation Cypress smoke
+      - name: Run V3 Svelte Product E2E / Visual Acceptance
         working-directory: apps/web
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4174
-        run: pnpm exec cypress run --browser chrome
+        run: pnpm exec cypress run --browser ${{ matrix.browser }}
 
-      - name: Preserve Cypress evidence
+      - name: Preserve normal Product E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: cypress-parity-evidence-${{ github.run_attempt }}
+          name: cypress-parity-evidence-${{ matrix.browser }}-${{ github.run_attempt }}
           path: |
             frontend/cypress/artifacts
             /tmp/cypress-uvicorn.log
@@ -216,3 +237,19 @@ jobs:
             apps/web/cypress/artifacts
           if-no-files-found: warn
           retention-days: 7
+
+  required-check-compatibility:
+    # Administrative compatibility only. Branch protection currently requires
+    # this exact legacy context. This alias contains no browser invocation and
+    # succeeds only when the real Chrome and Firefox Cypress matrix is green.
+    # Delete it once the protected required check is repointed to Cypress.
+    name: Frontend v2 E2E (Playwright)
+    if: always()
+    needs: [cypress-release-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Mirror the Cypress release-gate result
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-release-gate.result }}
+        run: test "$CYPRESS_RESULT" = success

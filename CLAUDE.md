@@ -20,7 +20,7 @@ Stage 27 — One Spatial Platform is current. The roadmap controls which slice i
 
 The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
 
-The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A remains docs/audit/contracts only and does not authorize a Babylon runtime, a production map change, or any later Stage 27 slice.
+The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A itself remains docs/audit/contracts only and did not authorize a Babylon runtime, a production map change, or any later Stage 27 slice. The later governed PR #601 packet authorizes only the isolated, explicitly non-product Svelte/Babylon executable foundation recorded in the current roadmap; it does not authorize Finder/Inspect implementation, product map design, production wiring, or a renderer cutover.
 
 ### Named runtime exception: EDDN simulation ingest
 
@@ -62,11 +62,16 @@ It uses the `ED_NEW_OPERATOR_*` credential boundary and pinned known-host trust.
 
 Current operator helpers include:
 
+- `scripts/operator/actions/v3-app-status.sh`
 - `scripts/operator/actions/octopus-edge-status.sh`
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
 - `scripts/operator/recover_v3_runtime_contract.py`
 
 Other scripts under `scripts/operator/` are repository tooling unless a current V3 runbook explicitly promotes them to production authority.
+
+The separate `scripts/operator/actions/v3-app-live-checkpoint-preflight.sh`
+helper is an unconditionally stopped, read-only Contabo preflight. Contabo is
+not production, and this helper is not part of the production operator surface.
 
 ## Codex bridge and repository writes
 
@@ -97,7 +102,7 @@ Rules:
 
 ## Frontend
 
-New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
+New V3 application implementation lives solely under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in React tree under `frontend/` is temporary source evidence only, not a runnable destination or parallel validation lane. The hard-cut branch must remain unmerged until replacement parity is complete. Cypress is the only active browser automation framework; historical Playwright receipts remain provenance only.
 
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 

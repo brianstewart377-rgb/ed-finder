@@ -34,9 +34,11 @@ In particular:
 
 - Programme: **Stage 27 — One Spatial Platform** is current. Stage 25 product
   scope and Stage 26's R3F map programme are complete historical foundations.
-- Current authorization: **27A Spatial Platform Contract and Audit only**.
-  Stage 27A may authorize 27B after acceptance; it does not authorize a Babylon
-  runtime, production map change, or any later Stage 27 slice.
+- Current authorization: the accepted 27A contracts now permit only the bounded
+  **27B Babylon 9 Runtime Workbench foundation** implemented through the
+  governed PR #601 packet. It is isolated and explicitly non-product: no
+  Finder/Inspect port, product map design, production wiring, or renderer
+  cutover is authorized.
 - Status: Stage 25A through Stage 25H and Stage 26A through Stage 26E are
   complete historical product foundations. Stage 26E's recorded browser,
   accessibility, visual, frame, GPU, region-data, cutover and post-cutover
@@ -51,9 +53,13 @@ In particular:
   `docs/development/v3-application-stack-decision.md` is authoritative for new
   V3 application implementation. Its target is Svelte 5/SvelteKit 2/TypeScript
   6, Node 24/pnpm 11 and CPython 3.14 with uv. The checked-in React/Yarn and
-  Python 3.12 implementation remains migration/reference and current-validation
-  reality until reviewed migration slices land. This stack lock does not open
-  Stage 27B, authorize a Babylon runtime, or alter the Stage 27A boundaries.
+  Python 3.12 implementation remains temporary source evidence while reviewed
+  migration slices land. `apps/web/` is the sole browser destination; React is
+  not a runnable parallel lane, and the hard-cut branch remains unmerged until
+  replacement parity is complete. Cypress is the only active browser automation
+  framework. This stack lock does not open Stage 27B, authorize a Babylon runtime,
+  or alter the Stage 27A boundaries. The subsequent governed PR #601 packet is
+  the narrow authority for the isolated executable foundation only.
 - Product journey: `Explore -> Inspect -> Plan -> Review / Export`.
 - Identity posture (2026-08-22): Frontier approved ED-Finder's production
   OAuth client with `AUTH` and `CAPI` scopes and the owner explicitly
@@ -181,8 +187,18 @@ Stage 25 has exactly one primary objective:
 
 ## What We Are Doing Now
 
-1. Complete Stage 27A's product, architecture, data-readiness, migration and
-   governance contracts before any new Babylon runtime implementation.
+Issue #577's first tranche is a pre-merge hard replacement while no public
+frontend is running. It migrates browser evidence and Review Lab to Cypress and
+keeps the Python evaluator contract authoritative. It does **not** authorize
+production deployment, database work, OAuth activation, a Babylon runtime, or
+any later Stage 27 slice. Static Stage 26 artifacts remain historical provenance,
+not runnable browser harnesses. Separately, the current governed PR #601 packet
+authorizes the minimum isolated 27B Svelte/Babylon runtime foundation and its
+normal Product E2E evidence; it does not re-base Review Lab or begin product
+map work.
+
+1. Prove the isolated renderer-neutral Babylon 9 runtime lifecycle and browser
+   fallback baseline before Finder, Inspect, or fresh product-map design begins.
 2. Preserve a visible selected-system context and explicit Plan hand-off across
    Explore, Inspect, Plan, and Review / Export flows.
 3. Improve evidence, provenance, and review surfaces without turning
@@ -302,8 +318,8 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 
 | Stage | Scope | Authorization |
 |---|---|---|
-| **27A** | Spatial Platform Contract and Audit | **CURRENT**; docs/audit/contracts only |
-| 27B | Babylon 9 Runtime Workbench | Authorized only after 27A acceptance; isolated, no production wiring |
+| **27A** | Spatial Platform Contract and Audit | **ACCEPTED**; docs/audit/contracts only |
+| **27B** | Babylon 9 Runtime Workbench | **CURRENT, bounded foundation only**; isolated, explicitly non-product, no production wiring |
 | 27C | Elite-Familiar Galaxy Baseline | Not authorized by 27A |
 | 27D | Real-System Streaming and Interaction | Not authorized by 27A |
 | 27E | Stage 26 Capability Parity | Not authorized by 27A |
@@ -315,7 +331,8 @@ and [`spatial-platform-architecture-decision.md`](./colonisation-redesign/spatia
 | 27K | CPE Planning and CRE Digital Twin | Not authorized by 27A |
 | 27L | Advanced Spatial Workflows, Commander History timeline and expedition playback | Not authorized by 27A |
 
-Stage 27A's only follow-on authorization is 27B. The R3F repository/product
+Stage 27A's only follow-on authorization is 27B, currently limited to the
+minimum executable foundation governed through PR #601. The R3F repository/product
 baseline stays in place throughout workbench/foundation stages unless a later
 explicit Stage 27 cutover changes it. Mechanics remain CRE-owned, planning
 remains CPE-owned, ED-Finder orchestrates/presents, and the renderer owns

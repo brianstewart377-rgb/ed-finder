@@ -205,7 +205,9 @@ jobs:
             (s.id64 % 3)::int, (s.id64 % 4)::int, (s.id64 % 2)::int,
             (s.id64 % 6)::int, (s.id64 % 2)::int, 0, 0, 5, 2, 10, 20, 30,
             ((s.id64 % 30))::int, 0.85, 4, 1, 6, 2, 1, 2, 3, 2, '3.4'
-          FROM systems s ON CONFLICT DO NOTHING;
+          FROM systems s
+          WHERE s.has_body_data = TRUE
+          ON CONFLICT DO NOTHING;
           SELECT * FROM refresh_map_mviews(FALSE);
           SQL
       - name: Run data invariants against seeded integration DB
@@ -299,6 +301,7 @@ jobs:
             src/lib/api/index.ts \
             src/lib/api/core.ts \
             src/lib/format.ts \
+            src/types/api.gen.ts \
             src/types/api.ts \
             src/components/NavBar.tsx \
             src/components/ResultCard.tsx \
@@ -356,6 +359,14 @@ jobs:
           corepack prepare pnpm@11.25.0 --activate
       - name: Install locked Svelte dependencies
         run: pnpm install --frozen-lockfile
+      - name: Type-check shared packages
+        run: pnpm run shared:check
+      - name: Lint shared packages
+        run: pnpm run shared:lint
+      - name: Run shared package unit tests
+        run: pnpm run shared:test
+      - name: Build shared packages
+        run: pnpm run shared:build
       - name: Type-check Svelte application
         run: pnpm check
       - name: Lint Svelte application
@@ -467,11 +478,10 @@ jobs:
         env:
           VITE_OPENAPI_URL: http://127.0.0.1:8000/openapi.json
         run: yarn types:gen
-      - name: Check for drift against checked-in api.gen.ts
-        working-directory: frontend
+      - name: Check for drift against checked-in shared api.gen.ts
         run: |
-          if ! git diff --exit-code src/types/api.gen.ts; then
-            echo "::error::API types are out of date. Run 'cd frontend && yarn types:gen' locally and commit src/types/api.gen.ts."
+          if ! git diff --exit-code -- packages/api-client/src/generated/api.gen.ts; then
+            echo "::error::API types are out of date. Run 'cd frontend && yarn types:gen' locally and commit packages/api-client/src/generated/api.gen.ts."
             exit 1
           fi
           echo "✓ types match checked-in baseline"
