@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
-import type { BuildComparisonResult, FacilityCountDelta, NumericDelta, PlacementChange, StringSetChanges } from './types';
-import { formatChangeType, formatDeltaValue, formatRiskDirection, formatVerdictLabel } from './comparisonFormatters';
+import { humanizeArchetype } from '@ed-finder/planner-core/workspace';
+import type { BuildComparisonResult, FacilityCountDelta, NumericDelta, PlacementChange, StringSetChanges } from '@ed-finder/planner-core/comparison/types';
+import { formatChangeType, formatDeltaValue, formatRiskDirection, formatVerdictLabel } from '@ed-finder/planner-core/comparison/comparisonFormatters';
 
 export function OptimiserComparisonPanel({ result }: { result?: BuildComparisonResult | null }) {
   const [expanded, setExpanded] = useState(true);

@@ -87,7 +87,7 @@ The build writes `dist/`. Treat `dist/` as an artifact; do not infer a productio
 yarn types:gen
 ```
 
-The generator keeps `src/types/api.gen.ts` aligned with the backend OpenAPI schema. The generated file is committed so contract drift is visible in diffs.
+The generator keeps `../packages/api-client/src/generated/api.gen.ts` aligned with the backend OpenAPI schema. The generated file is committed so contract drift is visible in diffs.
 
 Requirements:
 

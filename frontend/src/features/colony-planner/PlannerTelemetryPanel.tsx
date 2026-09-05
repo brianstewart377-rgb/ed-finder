@@ -1,24 +1,25 @@
 import { Sparkles, Target } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { formatShare } from '@ed-finder/planner-core/plannerCanvasPresentation';
 import { formatPopulationForSystem } from '@/lib/format';
 import { archetypeTierFromScore, formatArchetypeLabel, getDevelopmentScore } from '@/lib/archetypes';
 import type { SimulateBuildPlacement, SystemDetail } from '@/types/api';
 import {
   compactBodyDisplayName,
-} from '@/features/system-detail/simulation-preview/buildPlanLayoutUtils';
-import { bodyIdKey, sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
+} from '@ed-finder/planner-core/buildPlanLayout';
+import { bodyIdKey, sameBodyId } from '@ed-finder/planner-core/bodyId';
+import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from '@ed-finder/planner-core/topologySelection';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import { systemBodyData } from './slotCapacityFallback';
-import { PLANNING_ECONOMY_NOTE, type PlanningEconomyLedger } from './planningEconomy';
-import { resolveExistingInfrastructure } from './existingInfrastructure';
+import { systemBodyData } from '@ed-finder/planner-core/slotCapacity';
+import { PLANNING_ECONOMY_NOTE, type PlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
+import { resolveExistingInfrastructure } from '@ed-finder/planner-core/existingInfrastructure';
 import {
   contextualEconomyLabel,
   contextualRoleLabel,
   missingPrerequisitesForPlacement,
   prerequisiteSummaryLabel,
   type PrerequisiteIssue,
-} from './structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 import {
   buildPlannerTelemetryStats,
   buildPlannerCanvasRows,
@@ -28,14 +29,14 @@ import {
   plannerCanvasLaneForPlacement,
   structureDisplayName,
   structureEconomySegments,
-} from './plannerCanvasUtils';
+} from '@ed-finder/planner-core/plannerCanvas';
 import type {
   ProjectionComparisonSummary,
   ProjectionComparisonView,
   PlannerEconomySegment,
   PlannerCanvasLane,
   PlannerCanvasRow,
-} from './plannerCanvasTypes';
+} from '@ed-finder/planner-core/plannerCanvasTypes';
 
 export function PlannerTelemetryPanel({
   system,
@@ -135,10 +136,6 @@ export function PlannerTelemetryPanel({
       </div>
     </aside>
   );
-}
-
-function formatShare(value: number): string {
-  return Number.isInteger(value) ? `${value}%` : `${value.toFixed(1)}%`;
 }
 
 function ProjectionComparisonCard({

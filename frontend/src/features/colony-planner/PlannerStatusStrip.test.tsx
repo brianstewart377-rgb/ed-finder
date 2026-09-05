@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { PlannerStatusStrip } from './PlannerStatusStrip';
-import type { PlanningEconomyLedger } from './planningEconomy';
+import type { PlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 
 const emptyLedger: PlanningEconomyLedger = {
   entries: [],

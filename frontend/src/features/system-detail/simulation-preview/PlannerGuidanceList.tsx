@@ -1,5 +1,5 @@
-import type { PlannerGuidanceItem } from './plannerGuidanceUtils';
-import { guidanceTone } from './plannerGuidanceUtils';
+import type { PlannerGuidanceItem } from '@ed-finder/planner-core/plannerGuidance';
+import { guidanceTone } from '@ed-finder/planner-core/plannerGuidance';
 
 export function PlannerGuidanceList({
   items,

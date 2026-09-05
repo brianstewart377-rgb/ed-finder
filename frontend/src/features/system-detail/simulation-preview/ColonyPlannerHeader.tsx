@@ -1,6 +1,6 @@
 import { Play } from 'lucide-react';
 import { PlanBadge } from './StartModes';
-import type { StartMode } from './types';
+import type { StartMode } from '@ed-finder/planner-core/simulationTypes';
 
 export function ColonyPlannerHeader({
   initialPlanLabel,

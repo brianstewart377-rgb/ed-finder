@@ -299,6 +299,7 @@ jobs:
             src/lib/api/index.ts \
             src/lib/api/core.ts \
             src/lib/format.ts \
+            src/types/api.gen.ts \
             src/types/api.ts \
             src/components/NavBar.tsx \
             src/components/ResultCard.tsx \
@@ -356,6 +357,14 @@ jobs:
           corepack prepare pnpm@11.25.0 --activate
       - name: Install locked Svelte dependencies
         run: pnpm install --frozen-lockfile
+      - name: Type-check shared packages
+        run: pnpm run shared:check
+      - name: Lint shared packages
+        run: pnpm run shared:lint
+      - name: Run shared package unit tests
+        run: pnpm run shared:test
+      - name: Build shared packages
+        run: pnpm run shared:build
       - name: Type-check Svelte application
         run: pnpm check
       - name: Lint Svelte application
@@ -468,10 +477,9 @@ jobs:
           VITE_OPENAPI_URL: http://127.0.0.1:8000/openapi.json
         run: yarn types:gen
       - name: Check for drift against checked-in api.gen.ts
-        working-directory: frontend
         run: |
-          if ! git diff --exit-code src/types/api.gen.ts; then
-            echo "::error::API types are out of date. Run 'cd frontend && yarn types:gen' locally and commit src/types/api.gen.ts."
+          if ! git diff --exit-code -- packages/api-client/src/generated/api.gen.ts; then
+            echo "::error::API types are out of date. Run 'cd frontend && yarn types:gen' locally and commit packages/api-client/src/generated/api.gen.ts."
             exit 1
           fi
           echo "✓ types match checked-in baseline"

@@ -4,17 +4,17 @@ import { useQuery } from '@tanstack/react-query';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, SystemDetail } from '@/types/api';
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
-import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
-import type { BodyPlannerLane } from './BodySlotPlanner';
+import { sameBodyId } from '@ed-finder/planner-core/bodyId';
+import { archetypeFromEconomy, resequence } from '@ed-finder/planner-core/placementHelpers';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 import { CanvasStructurePicker } from './CanvasStructurePicker';
-import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
-import { describeTopologySelection } from './topologySelectionUtils';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import { describeTopologySelection } from '@ed-finder/planner-core/topologySelection';
 import { PlannerStatusStrip } from './PlannerStatusStrip';
 import { WorkspaceSummaryRail } from './WorkspaceSummaryRail';
 import { useWorkspaceProjectState } from './useWorkspaceProjectState';
-import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspaceUtils';
-import { buildPlanningEconomyLedger } from './planningEconomy';
+import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from '@ed-finder/planner-core/workspace';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import {
   SystemBuildMapCanvas,
@@ -23,7 +23,7 @@ import { WORKSPACE_MODE_META, workspaceModeLabel } from '@/features/system-detai
 import {
   buildPlannerCanvasOccupancySummary,
   getPlannerLaneCapacityState,
-} from './plannerCanvasUtils';
+} from '@ed-finder/planner-core/plannerCanvas';
 import {
   buildPlanPrerequisiteIssues,
   describePlacementTarget,
@@ -31,7 +31,7 @@ import {
   templateCanFitBody,
   templateDisplayName,
   templateMatchesLane,
-} from './structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 
 export function WholeSystemColonyPlanner({
   system,

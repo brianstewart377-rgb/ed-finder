@@ -1,6 +1,6 @@
-import type { PlanningEconomyLedger } from './planningEconomy';
-import { compactEconomyLabel, PLANNING_ECONOMY_NOTE } from './planningEconomy';
-import { economyColor } from './economyVisuals';
+import type { PlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
+import { compactEconomyLabel, PLANNING_ECONOMY_NOTE } from '@ed-finder/planner-core/planningEconomy';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
 
 export function PlanningEconomyStrip({
   ledger,
