@@ -1,4 +1,4 @@
-import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
+import { archetypeFromEconomy } from '@ed-finder/planner-core/placementHelpers';
 import type { SystemResult } from '@/types/api';
 
 export type ArchetypeTier = 'S' | 'A' | 'B' | 'C' | 'D';

@@ -1,7 +1,7 @@
 import type { OptimiserCandidate, RankedOptimiserCandidate } from '@/types/api';
-import { formatPercent, formatScore, rankTone, strategyLabel } from './optimiserUtils';
-import { suggestedBuildPresentation } from './optimiserQualityUtils';
-import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { formatPercent, formatScore, rankTone, strategyLabel } from '@ed-finder/planner-core/optimiserUtils';
+import { suggestedBuildPresentation } from '@ed-finder/planner-core/optimiserQuality';
+import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from '@ed-finder/planner-core/suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateCard({
   candidate,

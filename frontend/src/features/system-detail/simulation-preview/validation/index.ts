@@ -3,5 +3,5 @@ export { ValidationSummary } from './ValidationSummary';
 export { ValidationReviewPanel } from './ValidationReviewPanel';
 export { ValidationComparisonList } from './ValidationComparisonList';
 export { ValidationComparisonCard } from './ValidationComparisonCard';
-export * from './validationLabels';
-export * from './validationUtils';
+export * from '@ed-finder/planner-core/validation/validationLabels';
+export * from '@ed-finder/planner-core/validation/validationUtils';

@@ -1,7 +1,7 @@
 import type { WatchlistEntry } from '@/lib/api';
 import type { PinnedEntry } from '@/features/pinned/usePinned';
 import type { ColonyProject, ColonyProjectStatus } from '@/features/colony-planner/colonyProjectStore';
-import { objectiveSummaryLabel } from '@/features/colony-planner/plannerDraftContext';
+import { objectiveSummaryLabel } from '@ed-finder/planner-core/plannerDraftContext';
 import type { MyWorkSystemRecord, SavedSystemLabel, SavedSystemSnapshot } from './myWorkStore';
 
 export interface SavedSystemViewModel extends SavedSystemSnapshot {

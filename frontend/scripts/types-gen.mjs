@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 const frontendRoot = fileURLToPath(new URL('..', import.meta.url));
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
-const output = path.resolve(frontendRoot, 'src/types/api.gen.ts');
+const output = path.resolve(repoRoot, 'packages/api-client/src/generated/api.gen.ts');
 const cliPath = path.resolve(frontendRoot, 'node_modules/openapi-typescript/bin/cli.js');
 const apiSrcPath = path.resolve(repoRoot, 'apps/api/src');
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ed-finder-openapi-'));

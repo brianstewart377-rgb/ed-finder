@@ -23,7 +23,7 @@ DOC_PATH = ROOT / 'docs' / 'development' / 'local-review-test-environment.md'
 COMPOSE_PATH = ROOT / 'docker-compose.review.yml'
 FRONTEND_VITE_CONFIG = ROOT / 'frontend' / 'vite.config.ts'
 FRONTEND_CYPRESS_CONFIG = ROOT / 'frontend' / 'cypress.config.cjs'
-FRONTEND_API = ROOT / 'frontend' / 'src' / 'lib' / 'api' / 'core.ts'
+FRONTEND_API = ROOT / 'packages' / 'api-client' / 'src' / 'core.ts'
 PLANNER_WORKSPACE = ROOT / 'frontend' / 'src' / 'features' / 'colony-planner' / 'ColonyPlannerWorkspace.tsx'
 REVIEW_LAB_WORKFLOW_PATH = ROOT / '.github' / 'workflows' / 'review-lab.yml'
 

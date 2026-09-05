@@ -1,6 +1,6 @@
 import type { SimulateBuildResponse } from '@/types/api';
 import { Chip } from '../components';
-import { formatObservedValue, titleCase } from '../utils/formatters';
+import { formatObservedValue, titleCase } from '@ed-finder/planner-core/formatters';
 
 export function ObservedVsPredictedPanel({
   summary,

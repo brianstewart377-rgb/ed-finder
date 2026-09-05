@@ -963,6 +963,14 @@
   resolved "https://registry.yarnpkg.com/@dimforge/rapier3d-compat/-/rapier3d-compat-0.12.0.tgz#7b3365e1dfdc5cd957b45afe920b4ac06c7cd389"
   integrity sha512-uekIGetywIgopfD97oDL5PfeezkFpNhwlzlaEYNOA0N6ghdsOvh/HYjSMek5Q2O1PYvRSDFcqFVJl4r4ZBwOow==
 
+"@ed-finder/api-client@file:../packages/api-client":
+  version "0.1.0"
+
+"@ed-finder/planner-core@file:../packages/planner-core":
+  version "0.1.0"
+  dependencies:
+    json-with-bigint "3.5.11"
+
 "@emnapi/core@1.11.2":
   version "1.11.2"
   resolved "https://registry.yarnpkg.com/@emnapi/core/-/core-1.11.2.tgz#fab0a0f3c492d11f5a9ac9065d0d73955ee1c1c9"
@@ -5471,7 +5479,7 @@ json-stringify-safe@~5.0.1:
   resolved "https://registry.yarnpkg.com/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz#1296a2d58fd45f19a0f6ce01d65701e2c735b6eb"
   integrity sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==
 
-json-with-bigint@^3.5.10, json-with-bigint@^3.5.3:
+json-with-bigint@3.5.11, json-with-bigint@^3.5.10, json-with-bigint@^3.5.3:
   version "3.5.11"
   resolved "https://registry.yarnpkg.com/json-with-bigint/-/json-with-bigint-3.5.11.tgz#2b9887474b6e35d0bf33c34c1b52b408f427bb3b"
   integrity sha512-WvkM9Hfb9kqzCcbsvpwfWDvdfGZDhYuCoaCwHRe5q3LtULKkbrI/L6JYcN8owflgA3di5dP2yVAV2NVCXkgtkA==

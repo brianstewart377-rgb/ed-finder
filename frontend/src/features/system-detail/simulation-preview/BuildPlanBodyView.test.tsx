@@ -6,7 +6,7 @@ import {
   bodyTags,
   getPlanSummary,
   groupPlacementsByBody,
-} from './buildPlanLayoutUtils';
+} from '@ed-finder/planner-core/buildPlanLayout';
 import { BuildPlanBodyView } from './BuildPlanBodyView';
 
 const templates: FacilityTemplate[] = [
