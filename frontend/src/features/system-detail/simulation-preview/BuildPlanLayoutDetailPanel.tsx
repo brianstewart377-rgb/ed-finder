@@ -11,17 +11,17 @@ import {
   type BodyGroup,
   type GroupedPlacement,
   type PlanSummary,
-} from './buildPlanLayoutUtils';
+} from '@ed-finder/planner-core/buildPlanLayout';
 import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip } from './components';
 import { ColonyRoleHints } from './ColonyRoleHints';
 import { LayoutTopologyReadout } from './LayoutTopologyReadout';
-import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
+import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from '@ed-finder/planner-core/layoutTopology';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
-import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
-import { buildColonyRoleHintsForGroup } from './colonyRoleHintUtils';
-import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
-import { formatLocation } from './utils/formatters';
+import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from '@ed-finder/planner-core/plannerGuidance';
+import { buildColonyRoleHintsForGroup } from '@ed-finder/planner-core/colonyRoleHints';
+import { buildStrategicTopologyGuidanceForGroup } from '@ed-finder/planner-core/strategicTopologyGuidance';
+import { formatLocation } from '@ed-finder/planner-core/formatters';
 
 export type LayoutSelection =
   | { kind: 'summary' }

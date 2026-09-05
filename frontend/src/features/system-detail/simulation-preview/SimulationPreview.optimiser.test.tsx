@@ -17,7 +17,7 @@ import {
 } from '@/lib/api';
 import type { FacilityTemplate, LayoutImportResponse, OptimiserCandidatesResponse, PredictionObservationCompareResponse, SimulateBuildRequest, SimulateBuildResponse, SimulationSummary, SystemDetail, ValidationReviewResponse } from '@/types/api';
 import { SimulationPreview } from './SimulationPreview';
-import { validationInputProjection } from './validation/validationUtils';
+import { validationInputProjection } from '@ed-finder/planner-core/validation/validationUtils';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),

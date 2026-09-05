@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/container-image-parity.yml'
       - 'apps/api/Dockerfile'
+      - 'apps/api/Dockerfile.release'
+      - 'apps/api/pyproject.toml'
+      - 'apps/api/uv.lock'
       - 'apps/eddn/Dockerfile'
       - 'apps/importer/Dockerfile'
       - 'apps/api/requirements.txt'
@@ -32,6 +35,46 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-api-python314:
+    name: Release API CPython 3.14 build and startup
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Docker buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build locked CPython 3.14 release image
+        run: |
+          docker build \
+            --file apps/api/Dockerfile.release \
+            --build-arg BUILD_SHA="${GITHUB_SHA}" \
+            --tag ed-finder-release-api:python314 \
+            .
+
+      - name: Prove release interpreter, import, and server startup
+        run: |
+          container_name="ed-finder-release-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() { docker rm --force "${container_name}" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker run --rm --env CORS_ORIGINS=http://127.0.0.1 \
+            ed-finder-release-api:python314 python -c \
+            "import sys; from edfinder_api.main import app; assert sys.version_info[:2] == (3, 14); assert app.title == 'ED Finder API'"
+          docker run --detach --name "${container_name}" \
+            --publish 127.0.0.1:18000:8000 \
+            --env CORS_ORIGINS=http://127.0.0.1 \
+            ed-finder-release-api:python314 \
+            uvicorn edfinder_api.main:app --host 0.0.0.0 --port 8000 --workers 1 --lifespan off
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18000/openapi.json >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "${container_name}"
+          exit 1
+
   parity:
     name: Built image parity
     runs-on: ubuntu-latest

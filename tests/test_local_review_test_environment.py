@@ -575,8 +575,11 @@ def test_review_only_entrypoint_isolated_from_normal_runtime():
 def test_frontend_delta_fallback_still_uses_existing_error_driven_flow():
     workspace_source = _read(PLANNER_WORKSPACE)
     api_source = _read(FRONTEND_API)
+    shared_api_source = _read(ROOT / 'packages' / 'api-client' / 'src' / 'core.ts')
     assert 'enabled: id64 != null && warehouseEvidenceQuery.isError' in workspace_source
-    assert "throw new ApiError(res.status, path, body || res.statusText);" in api_source
+    assert "packages/api-client/src/core" in api_source
+    assert "if (!response.ok)" in shared_api_source
+    assert "throw new ApiError(" in shared_api_source
 
 
 @pytest.mark.asyncio
@@ -1002,9 +1005,22 @@ def test_review_lab_workflow_invokes_wrapper_authority_and_not_normal_e2e():
     assert '--confirm-local-review-environment' in workflow
     assert 'scripts/dev/review_environment.py down' in workflow
     assert 'git diff --check' in workflow
-    assert workflow.index('Run strict resolver') < workflow.index('Run focused Review Lab and safety tests')
-    assert workflow.index('Run strict resolver') < workflow.index('Run Review Lab preflight')
-    assert workflow.index('Run strict resolver') < workflow.index('Run Review Lab full verification')
+    resolver_command = 'scripts/dev/resolve_project_state.py --strict'
+    focused_tests_command = './.venv/bin/python -B -m pytest'
+    preflight_command = 'scripts/dev/review_environment.py preflight'
+    verification_command = 'scripts/dev/review_environment.py verify'
+    teardown_command = 'scripts/dev/review_environment.py down'
+    command_indexes = [
+        workflow.index(command)
+        for command in (
+            resolver_command,
+            focused_tests_command,
+            preflight_command,
+            verification_command,
+            teardown_command,
+        )
+    ]
+    assert command_indexes == sorted(command_indexes)
     assert 'continue-on-error' not in workflow
     assert '|| true' not in workflow
     assert 'run: yarn e2e\n' not in workflow
@@ -2845,6 +2861,7 @@ def test_list_review_owned_resources_ignores_unrelated_developer_resources(monke
         return next(outputs)
 
     monkeypatch.setattr(review_env.lifecycle, 'run_command', _fake_run_command)
+    monkeypatch.setattr(review_env.lifecycle, 'ensure_docker_cli_available', lambda: None)
 
     resources = review_env.lifecycle.list_review_owned_resources()
 

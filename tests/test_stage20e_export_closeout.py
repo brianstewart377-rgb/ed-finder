@@ -13,7 +13,7 @@ ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
 WORKSPACE_TABS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
 PREVIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
 EXPORT_VIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'ExportReadinessWorkspaceView.tsx'
-EXPORT_ARTIFACTS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'exportArtifacts.ts'
+EXPORT_ARTIFACTS_PATH = ROOT / 'packages' / 'planner-core' / 'src' / 'exportArtifacts.ts'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
 

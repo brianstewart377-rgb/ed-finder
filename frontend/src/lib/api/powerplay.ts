@@ -1,12 +1,7 @@
+import type { PowerplayJournalEventInput } from '@/types/api';
 import { jsonFetch } from './core';
 
-export interface PowerplayJournalEventInput {
-  observation_key: string;
-  event_type: string;
-  observed_at: string;
-  game_build?: string | null;
-  source_payload: Record<string, unknown>;
-}
+export type { PowerplayJournalEventInput } from '@/types/api';
 
 export interface PowerplayImportRequest {
   commander_key: string;

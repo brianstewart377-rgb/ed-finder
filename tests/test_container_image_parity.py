@@ -103,6 +103,11 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert "'apps/importer/requirements.txt'" in workflow
     assert 'tests/test_container_image_parity.py -q' in workflow
     assert '-k built_api_eddn_and_importer_images_pass_runtime_import_parity' in workflow
+    assert 'apps/api/Dockerfile.release' in workflow
+    assert 'Release API CPython 3.14 build and startup' in workflow
+    assert "sys.version_info[:2] == (3, 14)" in workflow
+    assert 'uvicorn edfinder_api.main:app' in workflow
+    assert 'http://127.0.0.1:18000/openapi.json' in workflow
 
 
 @pytest.mark.integration

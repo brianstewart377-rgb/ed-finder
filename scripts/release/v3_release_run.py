@@ -11,17 +11,18 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any
 
 
 WORKFLOW_PATH = ".github/workflows/v3-application-release.yml"
+CANONICAL_REPOSITORY = "brianstewart377-rgb/ed-finder"
 REPOSITORY = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\Z")
-RUN_ID = re.compile(r"[1-9][0-9]*\Z")
+RUN_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
 MAX_RESPONSE_BYTES = 1024 * 1024
+CURL = "/usr/bin/curl"
 
 
 class ReleaseRunError(ValueError):
@@ -41,28 +42,71 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def fetch_run(repository: str, run_id: str, token: str) -> dict[str, Any]:
-    if not REPOSITORY.fullmatch(repository):
-        raise ReleaseRunError("repository must be an owner/name slug")
+    if (
+        not REPOSITORY.fullmatch(repository)
+        or repository.casefold() != CANONICAL_REPOSITORY.casefold()
+    ):
+        raise ReleaseRunError("repository must be the canonical ED-Finder repository")
     if not RUN_ID.fullmatch(run_id):
         raise ReleaseRunError("release run ID must be a positive integer")
     if not token:
         raise ReleaseRunError("GITHUB_TOKEN is required")
+    if "\r" in token or "\n" in token:
+        raise ReleaseRunError("GITHUB_TOKEN contains invalid header characters")
 
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{repository}/actions/runs/{run_id}",
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {token}",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
+    # Keep the network authority literal and immutable. Only the already
+    # validated decimal run id is interpolated into the origin-form resource.
+    url = (
+        "https://api.github.com/repos/"
+        f"{CANONICAL_REPOSITORY}/actions/runs/{run_id}"
     )
+    headers = (
+        "Accept: application/vnd.github+json\n"
+        f"Authorization: Bearer {token}\n"
+        "X-GitHub-Api-Version: 2022-11-28\n"
+    )
+    command = [
+        CURL,
+        "--disable",
+        "--silent",
+        "--show-error",
+        "--fail",
+        "--proto",
+        "=https",
+        "--tlsv1.2",
+        "--noproxy",
+        "*",
+        "--connect-timeout",
+        "5",
+        "--max-time",
+        "15",
+        "--max-filesize",
+        str(MAX_RESPONSE_BYTES),
+        "--header",
+        "@-",
+        url,
+    ]
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = response.read(MAX_RESPONSE_BYTES + 1)
-    except (OSError, urllib.error.HTTPError, urllib.error.URLError) as exc:
+        completed = subprocess.run(
+            command,
+            input=headers.encode(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=20,
+            env={"LANG": "C", "LC_ALL": "C"},
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
         raise ReleaseRunError(
             f"unable to fetch release run: {type(exc).__name__}"
         ) from exc
+    if completed.returncode == 63:
+        raise ReleaseRunError("release run response exceeds the size limit")
+    if completed.returncode != 0:
+        raise ReleaseRunError(
+            f"unable to fetch release run: curl exit {completed.returncode}"
+        )
+    payload = completed.stdout
     if len(payload) > MAX_RESPONSE_BYTES:
         raise ReleaseRunError("release run response exceeds the size limit")
     try:

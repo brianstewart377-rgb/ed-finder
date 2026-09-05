@@ -152,8 +152,8 @@ section "Regenerate Svelte Hey API client"
 section "Check generated type drift"
 (
   cd "$ROOT"
-  if ! git diff --exit-code frontend/src/types/api.gen.ts; then
-    die "OpenAPI type drift detected. Commit the regenerated frontend/src/types/api.gen.ts."
+  if ! git diff --exit-code -- packages/api-client/src/generated/api.gen.ts; then
+    die "OpenAPI type drift detected. Commit the regenerated packages/api-client/src/generated/api.gen.ts."
   fi
   if ! git diff --exit-code -- apps/web/src/lib/api/generated; then
     die "OpenAPI client drift detected. Commit the regenerated apps/web/src/lib/api/generated tree."

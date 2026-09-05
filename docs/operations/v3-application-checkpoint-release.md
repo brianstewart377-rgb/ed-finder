@@ -81,7 +81,12 @@ compatibility set. A manifest never carries DSNs, passwords, tokens, private
 keys, secret values or credential-bearing URLs.
 
 The release workflow uses Node 24/pnpm 11 with the committed frozen web lock and
-CPython 3.14/uv with the committed API lock. Static SvelteKit output is copied
+CPython 3.14/uv with the committed API lock. The every-PR container parity lane
+builds that exact release Dockerfile and proves the image interpreter, API
+import, and a loopback-only uvicorn/OpenAPI startup. Routine backend, migration,
+and retained React checks intentionally remain on Python 3.12; they do not stand
+in for this release-target proof and are not being migrated in this packet.
+Static SvelteKit output is copied
 into nginx; no source checkout, build tool or dependency resolution is needed
 on the target host. nginx delegates only `/api` and `/api/*`, exact
 `/openapi.json`, and exact numeric `/s/{id64}` to the API. All other routes stay

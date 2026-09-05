@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { WarehouseEvidenceCard } from '@/features/colony-planner/WarehouseEvidenceCard';
-import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from '@/features/colony-planner/warehouseEvidenceBridge';
+import { toWarehouseEvidenceFromContract, toWarehouseEvidenceFromProvenance } from '@ed-finder/planner-core/warehouseEvidenceBridge';
 import { ApiError, getProvenanceCockpit, getWarehousePlannerEvidence, listObservedFacts } from '@/lib/api';
 import type {
   PlannerWarehouseEvidence,

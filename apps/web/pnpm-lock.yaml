@@ -11,6 +11,9 @@ importers:
       '@babylonjs/core':
         specifier: 9.23.0
         version: 9.23.0
+      '@ed-finder/api-client':
+        specifier: file:../../packages/api-client
+        version: file:../../packages/api-client
       '@lucide/svelte':
         specifier: 1.37.0
         version: 1.37.0(svelte@5.56.10(@typescript-eslint/types@8.69.0))
@@ -20,6 +23,9 @@ importers:
       bits-ui:
         specifier: 2.19.0
         version: 2.19.0(@internationalized/date@3.12.4)(@sveltejs/kit@2.70.3(@sveltejs/vite-plugin-svelte@7.0.0(svelte@5.56.10(@typescript-eslint/types@8.69.0))(vite@8.2.2(@types/node@24.10.0)(jiti@2.7.0)))(svelte@5.56.10(@typescript-eslint/types@8.69.0))(typescript@6.0.2)(vite@8.2.2(@types/node@24.10.0)(jiti@2.7.0)))(svelte@5.56.10(@typescript-eslint/types@8.69.0))
+      json-with-bigint:
+        specifier: 3.5.11
+        version: 3.5.11
     devDependencies:
       '@hey-api/openapi-ts':
         specifier: 0.99.0
@@ -159,6 +165,9 @@ packages:
 
   '@cypress/xvfb@1.2.4':
     resolution: {integrity: sha512-skbBzPggOVYCbnGgV+0dmBdW/s77ZkAOXIC1knS8NagwDjBrNC1LuXtQJeiN6l+m7lzmHtaoUw/ctJKdqkG57Q==}
+
+  '@ed-finder/api-client@file:../../packages/api-client':
+    resolution: {directory: ../../packages/api-client, type: directory}
 
   '@eslint-community/eslint-utils@4.10.1':
     resolution: {integrity: sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==}
@@ -1454,6 +1463,9 @@ packages:
   json-stringify-safe@5.0.1:
     resolution: {integrity: sha512-ZClg6AaYvamvYEE82d3Iyd3vSSIjQ+odgjaTzRuO3s7toCdFKczob2i0zCh7JE8kWn17yvAWhUVxvqGwUalsRA==}
 
+  json-with-bigint@3.5.11:
+    resolution: {integrity: sha512-WvkM9Hfb9kqzCcbsvpwfWDvdfGZDhYuCoaCwHRe5q3LtULKkbrI/L6JYcN8owflgA3di5dP2yVAV2NVCXkgtkA==}
+
   jsonfile@6.2.1:
     resolution: {integrity: sha512-zwOTdL3rFQ/lRdBnntKVOX6k5cKJwEc1HdilT71BWEu7J41gXIB2MRp+vxduPSwZJPWBxEzv4yH1wYLJGUHX4Q==}
 
@@ -2475,6 +2487,10 @@ snapshots:
       lodash.once: 4.1.1
     transitivePeerDependencies:
       - supports-color
+
+  '@ed-finder/api-client@file:../../packages/api-client':
+    dependencies:
+      json-with-bigint: 3.5.11
 
   '@eslint-community/eslint-utils@4.10.1(eslint@10.9.1(jiti@2.7.0)(supports-color@8.1.1))':
     dependencies:
@@ -3746,6 +3762,8 @@ snapshots:
   json-stable-stringify-without-jsonify@1.0.1: {}
 
   json-stringify-safe@5.0.1: {}
+
+  json-with-bigint@3.5.11: {}
 
   jsonfile@6.2.1:
     dependencies:

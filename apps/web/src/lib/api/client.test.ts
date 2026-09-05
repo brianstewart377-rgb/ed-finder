@@ -1,66 +1,74 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 import {
-  authSessionApiAuthSessionGet as generatedGetAuthSession,
-  healthApiHealthGet as generatedGetHealth,
-} from './generated/sdk.gen';
-import { getAuthSession, getHealth } from './client';
+  ADMIN_TOKEN_SESSION_KEY,
+  LEGACY_ADMIN_ENDPOINTS,
+  apiRequest,
+  claimOwner,
+  getAuthSession,
+  getHealth,
+} from './client';
 
-vi.mock('./generated/sdk.gen', () => ({
-  authSessionApiAuthSessionGet: vi.fn(),
-  healthApiHealthGet: vi.fn(),
-}));
+const response = (body: unknown, init: ResponseInit = {}) =>
+  new Response(JSON.stringify(body), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init.headers },
+  });
 
-const mockedGetHealth = vi.mocked(generatedGetHealth);
-const mockedGetAuthSession = vi.mocked(generatedGetAuthSession);
+describe('typed V3 API facade', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    sessionStorage.clear();
+  });
 
-describe('bootstrap API client', () => {
-  beforeEach(() => vi.resetAllMocks());
+  it('loads typed bootstrap resources through the shared credentialed transport', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(response({ status: 'ok', database: 'connected' }))
+      .mockResolvedValueOnce(response({ authenticated: false, user: null }));
+    const signal = new AbortController().signal;
 
-  it('calls the generated health SDK with same-origin credentials and cancellation', async () => {
-    const health = {
-      status: 'ok',
-      database: 'connected',
-      version: 'test',
-      build_sha: 'abc',
-    };
-    const controller = new AbortController();
-    mockedGetHealth.mockResolvedValue({
-      data: health,
-      request: new Request('http://localhost/api/health', {
-        signal: controller.signal,
+    await expect(getHealth(signal)).resolves.toMatchObject({ status: 'ok' });
+    await expect(getAuthSession(signal)).resolves.toMatchObject({
+      authenticated: false,
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/health',
+      expect.objectContaining({
+        credentials: 'include',
+        signal,
       }),
-      response: new Response(),
-    });
-
-    await expect(getHealth(controller.signal)).resolves.toEqual(health);
-    expect(mockedGetHealth).toHaveBeenCalledWith({
-      credentials: 'same-origin',
-      signal: controller.signal,
-      throwOnError: true,
-    });
-  });
-
-  it('calls the generated session SDK and normalises structured failures', async () => {
-    mockedGetAuthSession.mockRejectedValue({ detail: 'Session unavailable' });
-
-    await expect(getAuthSession()).rejects.toThrow('Session unavailable');
-    expect(mockedGetAuthSession).toHaveBeenCalledWith({
-      credentials: 'same-origin',
-      signal: undefined,
-      throwOnError: true,
-    });
-  });
-
-  it('preserves abort failure identity when normalising cross-realm errors', async () => {
-    const aborted = new DOMException(
-      'This operation was aborted',
-      'AbortError',
     );
-    mockedGetHealth.mockRejectedValue(aborted);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/auth/session',
+      expect.objectContaining({
+        credentials: 'include',
+        signal,
+      }),
+    );
+  });
 
-    await expect(getHealth()).rejects.toMatchObject({
-      message: 'This operation was aborted',
-      name: 'AbortError',
-    });
+  it('keeps the one-time owner secret in the body and off reusable headers', async () => {
+    sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, 'session-admin');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      response({
+        authenticated: true,
+        user: { commander_name: 'CMDR', is_owner: true },
+      }),
+    );
+
+    await claimOwner('one-time-owner-secret');
+    const init = fetchMock.mock.calls[0]?.[1];
+    expect(new Headers(init?.headers).has('X-Admin-Token')).toBe(false);
+    expect(init?.body).toBe(
+      JSON.stringify({ admin_token: 'one-time-owner-secret' }),
+    );
+  });
+
+  it('re-exports the single shared transport inventory rather than duplicating it', () => {
+    expect(LEGACY_ADMIN_ENDPOINTS).toHaveLength(28);
+    expect(apiRequest).toBeTypeOf('function');
   });
 });

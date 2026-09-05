@@ -232,10 +232,12 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     api_project = (ROOT / "apps" / "api" / "pyproject.toml").read_text()
 
     assert "FROM python:3.14-slim" in backend
-    assert "uv==0.8.22" in backend
+    assert "uv==0.11.33" in backend
     assert "uv sync --frozen" in backend
     assert (ROOT / "apps" / "api" / "uv.lock").is_file()
     assert 'requires-python = ">=3.14,<3.15"' in api_project
+    assert 'required-version = "==0.11.33"' in api_project
+    assert 'exclude-newer = "1 week"' in api_project
     assert "FROM node:24-alpine" in web
     assert "pnpm@11.25.0" in web
     assert "pnpm install --frozen-lockfile" in web
@@ -252,6 +254,17 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
         assert "SECRET" not in dockerfile
         assert "PASSWORD" not in dockerfile
     assert 'APP_VERSION="3.0.1"' in backend
+
+
+def test_release_runbook_distinguishes_python314_release_from_python312_ci():
+    runbook = (
+        ROOT / "docs" / "operations" / "v3-application-checkpoint-release.md"
+    ).read_text()
+
+    assert "every-PR container parity lane" in runbook
+    assert "Routine backend, migration," in runbook
+    assert "remain on Python 3.12" in runbook
+    assert "in for this release-target proof" in runbook
 
 
 def test_release_api_lock_inputs_match_the_existing_pinned_runtime_versions():
@@ -368,6 +381,135 @@ def test_release_run_provenance_requires_canonical_successful_main_workflow():
             module.validate_run_metadata(
                 changed, manifest, "brianstewart377-rgb/ed-finder", "candidate"
             )
+
+
+def test_release_run_fetch_uses_one_fixed_https_authority_and_keeps_token_off_argv(
+    monkeypatch,
+):
+    module = _load_release_run_module()
+    token = "secret-token-not-for-argv"
+    payload = json.dumps({"id": 42}).encode()
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        observed.update(command=command, kwargs=kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout=payload, stderr=b"")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    result = module.fetch_run(
+        "brianstewart377-rgb/ed-finder", "123456789", token
+    )
+
+    assert result == {"id": 42}
+    command = observed["command"]
+    assert command[0] == "/usr/bin/curl"
+    assert command[-1] == (
+        "https://api.github.com/repos/brianstewart377-rgb/ed-finder/"
+        "actions/runs/123456789"
+    )
+    assert command.count("--proto") == 1
+    assert command[command.index("--proto") + 1] == "=https"
+    assert "--location" not in command
+    assert token not in " ".join(command)
+    assert f"Authorization: Bearer {token}" in observed["kwargs"]["input"].decode()
+    assert observed["kwargs"]["stderr"] is subprocess.DEVNULL
+    assert observed["kwargs"]["timeout"] == 20
+
+
+@pytest.mark.parametrize(
+    ("repository", "run_id"),
+    [
+        ("attacker/ed-finder", "123"),
+        ("brianstewart377-rgb/ed-finder.evil", "123"),
+        ("https://api.github.com/attacker", "123"),
+        ("brianstewart377-rgb/ed-finder", "0"),
+        ("brianstewart377-rgb/ed-finder", "1/../../secrets"),
+        ("brianstewart377-rgb/ed-finder", "1" * 21),
+    ],
+)
+def test_release_run_fetch_rejects_hostile_repository_and_run_inputs(
+    monkeypatch, repository, run_id
+):
+    module = _load_release_run_module()
+    network_called = False
+
+    def unexpected_network(*_args, **_kwargs):
+        nonlocal network_called
+        network_called = True
+        raise AssertionError("hostile input reached the network boundary")
+
+    monkeypatch.setattr(module.subprocess, "run", unexpected_network)
+
+    with pytest.raises(module.ReleaseRunError):
+        module.fetch_run(repository, run_id, "token")
+    assert network_called is False
+
+
+def test_release_run_fetch_fails_closed_without_leaking_token(monkeypatch):
+    module = _load_release_run_module()
+    token = "never-report-this-token"
+
+    def fail_run(*_args, **_kwargs):
+        raise OSError(token)
+
+    monkeypatch.setattr(module.subprocess, "run", fail_run)
+    with pytest.raises(module.ReleaseRunError) as failure:
+        module.fetch_run("brianstewart377-rgb/ed-finder", "123", token)
+    assert token not in str(failure.value)
+
+
+def test_release_run_fetch_rejects_header_injection_before_network(monkeypatch):
+    module = _load_release_run_module()
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("invalid token reached curl"),
+    )
+
+    with pytest.raises(module.ReleaseRunError, match="header characters"):
+        module.fetch_run(
+            "brianstewart377-rgb/ed-finder", "123", "token\r\nX-Evil: yes"
+        )
+
+
+@pytest.mark.parametrize(
+    ("returncode", "stdout", "message"),
+    [
+        (22, b"", "curl exit 22"),
+        (63, b"", "exceeds the size limit"),
+        (0, b"not-json", "not valid JSON"),
+        (0, b"[]", "must be an object"),
+    ],
+)
+def test_release_run_fetch_rejects_transport_and_payload_failures(
+    monkeypatch, returncode, stdout, message
+):
+    module = _load_release_run_module()
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command, returncode, stdout=stdout, stderr=b""
+        ),
+    )
+
+    with pytest.raises(module.ReleaseRunError, match=message):
+        module.fetch_run("brianstewart377-rgb/ed-finder", "123", "token")
+
+
+def test_release_run_fetch_enforces_a_post_transport_response_bound(monkeypatch):
+    module = _load_release_run_module()
+    oversized = b"x" * (module.MAX_RESPONSE_BYTES + 1)
+    monkeypatch.setattr(
+        module.subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command, 0, stdout=oversized, stderr=b""
+        ),
+    )
+
+    with pytest.raises(module.ReleaseRunError, match="exceeds the size limit"):
+        module.fetch_run("brianstewart377-rgb/ed-finder", "123", "token")
 
 
 def test_host_preflight_is_machine_readable_and_always_stops_before_mutation():

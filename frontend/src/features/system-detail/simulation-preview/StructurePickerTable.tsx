@@ -1,27 +1,27 @@
 import { Fragment, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import type { FacilityTemplate, SystemBody } from '@/types/api';
-import { bodyDisplayName } from './buildPlanLayoutUtils';
+import { bodyDisplayName } from '@ed-finder/planner-core/buildPlanLayout';
 import { Chip } from './components';
-import { formatLocation } from './utils/formatters';
+import { formatLocation } from '@ed-finder/planner-core/formatters';
 import {
   getStructurePickerValidityLabel,
   getStructurePickerWarnings,
   locationMatchesFilter,
   resolveBodyContext,
   type StructurePickerLocationFilter,
-} from './structurePickerUtils';
+} from '@ed-finder/planner-core/structurePicker';
 import {
   deriveStructurePickerGroupLabel,
   groupStructurePickerTemplates,
-} from './structurePickerGroupingUtils';
+} from '@ed-finder/planner-core/structurePickerGrouping';
 import {
   contextualEconomyLabel,
   isContextualEconomyTemplate,
   structureFamilyLabel,
   templateDisplayName,
   templatePrerequisiteDescriptions,
-} from '@/features/colony-planner/structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 
 export function StructurePickerTable({
   templates,

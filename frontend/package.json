@@ -34,6 +34,8 @@
     "types:gen": "node scripts/types-gen.mjs"
   },
   "dependencies": {
+    "@ed-finder/api-client": "file:../packages/api-client",
+    "@ed-finder/planner-core": "file:../packages/planner-core",
     "@deck.gl/core": "9.3.7",
     "@deck.gl/layers": "9.3.7",
     "@deck.gl/react": "9.3.7",

@@ -1,6 +1,6 @@
 import type { SimulateBuildResponse } from '@/types/api';
 import { Chip } from '../components';
-import { asNumber, asString, asStringArray, titleCase } from '../utils/formatters';
+import { asNumber, asString, asStringArray, titleCase } from '@ed-finder/planner-core/formatters';
 
 export function EconomyStackPanel({ stack }: { stack: SimulateBuildResponse['economy_stack'] }) {
   const topTwo = asStringArray(stack.top_two);

@@ -68,6 +68,25 @@ def test_v3_web_pnpm_workspace_enforces_supply_chain_policy():
     )
 
 
+def test_shared_source_packages_are_wired_without_expanding_the_pnpm_workspace():
+    api_client = _package_json(ROOT / "packages" / "api-client" / "package.json")
+    planner_core = _package_json(ROOT / "packages" / "planner-core" / "package.json")
+    react = _package_json(ROOT / "frontend" / "package.json")
+    web = _package_json(WEB / "package.json")
+    workspace = yaml.safe_load((WEB / "pnpm-workspace.yaml").read_text(encoding="utf-8"))
+
+    assert api_client["private"] is True
+    assert api_client["exports"]["./*"]["import"] == "./src/*.ts"
+    assert planner_core["private"] is True
+    assert planner_core["exports"]["./comparison"]["import"] == "./src/comparison/index.ts"
+    assert planner_core["peerDependencies"] == {"@ed-finder/api-client": "0.1.0"}
+    assert react["dependencies"]["@ed-finder/api-client"] == "file:../packages/api-client"
+    assert react["dependencies"]["@ed-finder/planner-core"] == "file:../packages/planner-core"
+    assert web["dependencies"]["@ed-finder/api-client"] == "file:../../packages/api-client"
+    assert web["dependencies"]["json-with-bigint"] == "3.5.11"
+    assert workspace["packages"] == ["."]
+
+
 def test_v3_web_lib_modules_are_not_hidden_by_the_root_python_ignore_rule():
     root_gitignore = _read(".gitignore").splitlines()
 
@@ -93,14 +112,18 @@ def test_v3_web_uses_locked_lint_and_format_tooling():
     assert "eslint-plugin-svelte" in eslint_config
 
 
-def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
+def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport():
     client = _read("apps", "web", "src", "lib", "api", "client.ts")
+    transport = _read("packages", "api-client", "src", "core.ts")
 
-    assert "from './generated/sdk.gen'" in client
-    assert "generatedGetHealth" in client
-    assert "generatedGetAuthSession" in client
+    assert "from '@ed-finder/api-client/core'" in client
+    assert "AuthSessionResponse, HealthResponse" in client
+    assert "apiRequest('/health', { signal })" in client
+    assert "apiRequest('/auth/session', { signal })" in client
     assert "fetch(" not in client
-    assert "getJson" not in client
+    assert "credentials: 'include'" in transport
+    assert "parseLosslessJson" in transport
+    assert "VITE_API_BASE" not in transport
 
 
 def test_svelte_generation_snapshots_explicit_authoritative_openapi_input():
@@ -135,6 +158,10 @@ def test_svelte_ci_checks_generated_client_quality_and_build():
     web_job = workflow.split("  web:\n", 1)[1].split("  nginx:\n", 1)[0]
 
     for command in (
+        "pnpm run shared:check",
+        "pnpm run shared:lint",
+        "pnpm run shared:test",
+        "pnpm run shared:build",
         "pnpm check",
         "pnpm lint",
         "pnpm format:check",
@@ -150,15 +177,27 @@ def test_openapi_drift_lane_generates_both_clients_from_the_running_api():
     workflow = _read(".github", "workflows", "ci.yml")
     drift_job = workflow.split("  openapi-types:\n", 1)[1]
     script = _read("scripts", "checks", "openapi-drift.sh")
+    react_generator = _read("frontend", "scripts", "types-gen.mjs")
 
     assert 'node-version: "24"' in drift_job
     assert "corepack prepare pnpm@11.25.0 --activate" in drift_job
     assert "pnpm install --frozen-lockfile" in drift_job
     assert "OPENAPI_INPUT: http://127.0.0.1:8000/openapi.json" in drift_job
     assert "git diff --exit-code -- apps/web/src/lib/api/generated" in drift_job
+    assert "git diff --exit-code -- packages/api-client/src/generated/api.gen.ts" in drift_job
     assert 'VITE_OPENAPI_URL="$OPENAPI_URL"' in script
     assert 'OPENAPI_INPUT="$OPENAPI_URL"' in script
     assert "apps/web/src/lib/api/generated" in script
+    assert "packages/api-client/src/generated/api.gen.ts" in script
+    assert "packages/api-client/src/generated/api.gen.ts" in react_generator
+
+
+def test_legacy_generated_api_compatibility_shim_stays_public():
+    shim = _read("frontend", "src", "types", "api.gen.ts")
+    workflow = _read(".github", "workflows", "ci.yml")
+
+    assert shim == "export * from '../../../packages/api-client/src/generated/api.gen';\n"
+    assert "src/types/api.gen.ts" in workflow
 
 
 def test_legacy_react_frontend_remains_temporary_source_evidence():

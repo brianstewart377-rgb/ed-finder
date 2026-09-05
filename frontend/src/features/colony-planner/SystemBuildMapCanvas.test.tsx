@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SlotPredictionResponse, SystemDetail } from '@/types/api';
-import type { TopologyPlanSnapshot, TopologySelectionContext } from './ColonyTopologyRail';
+import type { TopologyPlanSnapshot, TopologySelectionContext } from '@ed-finder/planner-core/topologySelection';
 import {
   PlannerTelemetryPanel,
   SystemBuildMapCanvas,
@@ -11,8 +11,8 @@ import {
   buildPlannerCanvasOccupancySummary,
   buildPlannerCanvasRows,
   getPlannerLaneCapacityState,
-} from './plannerCanvasUtils';
-import { buildPlanningEconomyLedger } from './planningEconomy';
+} from '@ed-finder/planner-core/plannerCanvas';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 
 const system = {
   id64: 123,

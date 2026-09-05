@@ -2,9 +2,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
-import { ColonyTopologyRail, type TopologySelection } from './ColonyTopologyRail';
-import { describeTopologySelection } from './topologySelectionUtils';
-import { buildBodyDataSlotEstimateMap } from './slotCapacityFallback';
+import type { TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import { ColonyTopologyRail } from './ColonyTopologyRail';
+import { describeTopologySelection } from '@ed-finder/planner-core/topologySelection';
+import { buildBodyDataSlotEstimateMap } from '@ed-finder/planner-core/slotCapacity';
 
 const templates: FacilityTemplate[] = [
   {
