@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SimulateBuildPlacement } from '@ed-finder/api-client/types';
+import {
+  normaliseDeclaredRoles,
+  type DeclaredColonyRole,
+} from './colonyRoles';
 import {
   activeProjectsForSystem,
   buildColonyProject,
@@ -14,6 +18,15 @@ const placement: SimulateBuildPlacement = {
   local_body_id: '9007199254740993',
   is_primary_port: true,
   build_order: 1,
+};
+
+const legacyRole: DeclaredColonyRole = {
+  id: 'declared:9007199254740993:main_station_body',
+  body_id: '9007199254740993',
+  role_id: 'main_station_body',
+  source: 'declared',
+  confidence: 'strong',
+  label: 'Main Station Body',
 };
 
 function project(overrides: Partial<ColonyProject> = {}): ColonyProject {
@@ -36,6 +49,20 @@ function project(overrides: Partial<ColonyProject> = {}): ColonyProject {
     archived_at: null,
     ...overrides,
   };
+}
+
+function projectMatchesDeclaredRoles(
+  savedRoles: DeclaredColonyRole[],
+  currentRoles: DeclaredColonyRole[],
+): boolean {
+  return projectMatchesSnapshot(
+    project({ declared_roles: savedRoles }),
+    [placement],
+    'refinery_industrial',
+    'Check Architect mode.',
+    'Starter project',
+    currentRoles,
+  );
 }
 
 describe('colony project persistence model', () => {
@@ -89,6 +116,44 @@ describe('colony project persistence model', () => {
       'Check Architect mode.',
       'Starter project',
       [],
+    )).toBe(false);
+  });
+
+  it('matches semantically identical legacy roles normalised at different clock times', () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-05-01T00:00:00.000Z'));
+      const savedRoles = normaliseDeclaredRoles([legacyRole]);
+      vi.setSystemTime(new Date('2026-05-02T00:00:00.000Z'));
+      const currentRoles = normaliseDeclaredRoles([legacyRole]);
+
+      expect(savedRoles[0]?.created_at).not.toBe(currentRoles[0]?.created_at);
+      expect(projectMatchesDeclaredRoles(savedRoles, currentRoles)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['identity', { ...legacyRole, id: 'declared-role-2' }],
+    ['body', { ...legacyRole, body_id: '42' }],
+    ['role', { ...legacyRole, role_id: 'industrial_core' as const }],
+    ['confidence', { ...legacyRole, confidence: 'likely' as const }],
+  ])('does not match when declared role %s changes', (_field, changedRole) => {
+    expect(projectMatchesDeclaredRoles([legacyRole], [changedRole])).toBe(false);
+  });
+
+  it('keeps declared role order significant', () => {
+    const secondaryRole: DeclaredColonyRole = {
+      ...legacyRole,
+      id: 'declared:9007199254740993:industrial_core',
+      role_id: 'industrial_core',
+      label: 'Industrial Core',
+    };
+
+    expect(projectMatchesDeclaredRoles(
+      [legacyRole, secondaryRole],
+      [secondaryRole, legacyRole],
     )).toBe(false);
   });
 

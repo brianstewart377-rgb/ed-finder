@@ -44,6 +44,11 @@ export interface ColonyProjectInput {
   created_from?: ColonyProjectCreatedFrom | null;
 }
 
+type DeclaredRolePlanSnapshot = Pick<
+  DeclaredColonyRole,
+  'id' | 'body_id' | 'role_id' | 'source' | 'label' | 'confidence'
+>;
+
 export function buildColonyProject(
   input: ColonyProjectInput,
   existing: ColonyProject | null,
@@ -112,7 +117,20 @@ export function projectMatchesSnapshot(
     && project.target_archetype === targetArchetype
     && project.notes === notes
     && JSON.stringify(project.build_plan_placements) === JSON.stringify(cloneColonyProjectPlacements(placements))
-    && JSON.stringify(normaliseDeclaredRoles(project.declared_roles)) === JSON.stringify(normaliseDeclaredRoles(declaredRoles));
+    && JSON.stringify(declaredRolesPlanSnapshot(project.declared_roles)) === JSON.stringify(declaredRolesPlanSnapshot(declaredRoles));
+}
+
+function declaredRolesPlanSnapshot(
+  roles: DeclaredColonyRole[],
+): DeclaredRolePlanSnapshot[] {
+  return normaliseDeclaredRoles(roles).map((role) => ({
+    id: role.id,
+    body_id: role.body_id,
+    role_id: role.role_id,
+    source: role.source,
+    label: role.label,
+    confidence: role.confidence,
+  }));
 }
 
 export function cloneColonyProjectPlacements(
