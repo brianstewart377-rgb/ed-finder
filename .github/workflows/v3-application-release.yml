@@ -1,0 +1,218 @@
+name: V3 application immutable release
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact 40-character commit SHA currently at main
+        required: true
+        type: string
+      schema_compatibility:
+        description: Reviewed application compatibility with the recorded migration set
+        required: true
+        default: unknown
+        type: choice
+        options:
+          - unknown
+          - exact
+          - backward-compatible
+          - incompatible
+      compatibility_evidence:
+        description: Non-secret reviewed evidence identifier (required for proved compatibility)
+        required: false
+        type: string
+      rollback_eligible:
+        description: Mark this release application-only rollback eligible
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-application-release-${{ inputs.source_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate-source:
+    name: Resolve exact main checkpoint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      git_sha: ${{ steps.source.outputs.git_sha }}
+      backend_repository: ${{ steps.source.outputs.backend_repository }}
+      web_repository: ${{ steps.source.outputs.web_repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Require selected SHA to be the exact current main head
+        id: source
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "source_sha must be 40 lowercase hex" >&2; exit 64; }
+          actual_sha="$(git rev-parse HEAD)"
+          [ "$actual_sha" = "$SOURCE_SHA" ] || { echo "Selected SHA is not the checked-out main head" >&2; exit 64; }
+          repository="$(printf '%s' "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')"
+          echo "git_sha=$actual_sha" >> "$GITHUB_OUTPUT"
+          echo "backend_repository=ghcr.io/$repository/v3-backend" >> "$GITHUB_OUTPUT"
+          echo "web_repository=ghcr.io/$repository/v3-web" >> "$GITHUB_OUTPUT"
+      - name: Validate manifest policy inputs before image publication
+        shell: bash
+        env:
+          GIT_SHA: ${{ inputs.source_sha }}
+          COMPATIBILITY: ${{ inputs.schema_compatibility }}
+          COMPATIBILITY_EVIDENCE: ${{ inputs.compatibility_evidence }}
+          ROLLBACK_ELIGIBLE: ${{ inputs.rollback_eligible }}
+        run: |
+          set -euo pipefail
+          args=(
+            create
+            --git-sha "$GIT_SHA"
+            --backend-image "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:$(printf '0%.0s' {1..64})"
+            --web-image "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:$(printf '1%.0s' {1..64})"
+            --compatibility "$COMPATIBILITY"
+            --output "$RUNNER_TEMP/preflight-release.json"
+          )
+          if [ -n "$COMPATIBILITY_EVIDENCE" ]; then
+            args+=(--compatibility-evidence "$COMPATIBILITY_EVIDENCE")
+          fi
+          if [ "$ROLLBACK_ELIGIBLE" = true ]; then
+            args+=(--rollback-eligible --rollback-reason "Eligible only for the listed migration identities.")
+          else
+            args+=(--rollback-reason "Not application-only rollback eligible.")
+          fi
+          python scripts/release/v3_release_manifest.py "${args[@]}"
+
+  build-backend:
+    name: Build immutable backend image
+    needs: validate-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.git_sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push backend
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: apps/api/Dockerfile.release
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BUILD_SHA=${{ needs.validate-source.outputs.git_sha }}
+          tags: ${{ needs.validate-source.outputs.backend_repository }}:git-${{ needs.validate-source.outputs.git_sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.validate-source.outputs.git_sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+  build-web:
+    name: Build immutable Svelte web image
+    needs: validate-source
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.git_sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and push web
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            BUILD_SHA=${{ needs.validate-source.outputs.git_sha }}
+          tags: ${{ needs.validate-source.outputs.web_repository }}:git-${{ needs.validate-source.outputs.git_sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ needs.validate-source.outputs.git_sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+  manifest:
+    name: Seal release manifest
+    needs: [validate-source, build-backend, build-web]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate-source.outputs.git_sha }}
+          persist-credentials: false
+      - name: Create and verify digest-only manifest
+        shell: bash
+        env:
+          GIT_SHA: ${{ needs.validate-source.outputs.git_sha }}
+          BACKEND_IMAGE: ${{ needs.validate-source.outputs.backend_repository }}@${{ needs.build-backend.outputs.digest }}
+          WEB_IMAGE: ${{ needs.validate-source.outputs.web_repository }}@${{ needs.build-web.outputs.digest }}
+          COMPATIBILITY: ${{ inputs.schema_compatibility }}
+          COMPATIBILITY_EVIDENCE: ${{ inputs.compatibility_evidence }}
+          ROLLBACK_ELIGIBLE: ${{ inputs.rollback_eligible }}
+        run: |
+          set -euo pipefail
+          args=(
+            create
+            --git-sha "$GIT_SHA"
+            --backend-image "$BACKEND_IMAGE"
+            --web-image "$WEB_IMAGE"
+            --compatibility "$COMPATIBILITY"
+            --output release/v3-application-release.json
+          )
+          if [ -n "$COMPATIBILITY_EVIDENCE" ]; then
+            args+=(--compatibility-evidence "$COMPATIBILITY_EVIDENCE")
+          fi
+          if [ "$ROLLBACK_ELIGIBLE" = true ]; then
+            args+=(--rollback-eligible --rollback-reason "Eligible only for the listed migration identities.")
+          else
+            args+=(--rollback-reason "Not application-only rollback eligible.")
+          fi
+          python scripts/release/v3_release_manifest.py "${args[@]}"
+          python scripts/release/v3_release_manifest.py verify \
+            release/v3-application-release.json \
+            --expected-git-sha "$GIT_SHA" \
+            --verify-source-migrations
+          sha256sum release/v3-application-release.json > release/v3-application-release.json.sha256
+      - name: Upload immutable release manifest
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-application-release-manifest
+          path: |
+            release/v3-application-release.json
+            release/v3-application-release.json.sha256
+          if-no-files-found: error
+          retention-days: 90

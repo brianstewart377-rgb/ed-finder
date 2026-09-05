@@ -1,0 +1,32 @@
+server {
+    listen 8080;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    location = /api {
+        proxy_pass http://${EDFINDER_API_UPSTREAM};
+        include /etc/nginx/proxy_params;
+    }
+
+    location ^~ /api/ {
+        proxy_pass http://${EDFINDER_API_UPSTREAM};
+        include /etc/nginx/proxy_params;
+    }
+
+    location = /openapi.json {
+        proxy_pass http://${EDFINDER_API_UPSTREAM};
+        include /etc/nginx/proxy_params;
+    }
+
+    # Keep this regex exact. Non-numeric and nested /s routes are Svelte routes.
+    location ~ ^/s/[0-9]+$ {
+        proxy_pass http://${EDFINDER_API_UPSTREAM};
+        include /etc/nginx/proxy_params;
+    }
+
+    location / {
+        try_files $uri $uri/ /200.html;
+    }
+}

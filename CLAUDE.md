@@ -62,11 +62,16 @@ It uses the `ED_NEW_OPERATOR_*` credential boundary and pinned known-host trust.
 
 Current operator helpers include:
 
+- `scripts/operator/actions/v3-app-status.sh`
 - `scripts/operator/actions/octopus-edge-status.sh`
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
 - `scripts/operator/recover_v3_runtime_contract.py`
 
 Other scripts under `scripts/operator/` are repository tooling unless a current V3 runbook explicitly promotes them to production authority.
+
+The separate `scripts/operator/actions/v3-app-live-checkpoint-preflight.sh`
+helper is an unconditionally stopped, read-only Contabo preflight. Contabo is
+not production, and this helper is not part of the production operator surface.
 
 ## Codex bridge and repository writes
 
