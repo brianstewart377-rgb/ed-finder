@@ -180,6 +180,16 @@ export type RuntimeEvent =
       bufferBytes: number;
     }>;
 
+export type RuntimeCommandDispatchResult =
+  | Readonly<{ status: 'executed' }>
+  | Readonly<{ status: 'ignored'; reason: 'inactive' }>
+  | Readonly<{
+      status: 'unsupported';
+      command: Exclude<RuntimeCommand['type'], 'RESIZE'>;
+    }>;
+
+export type RuntimeEventListener = (event: RuntimeEvent) => void;
+
 export type SpatialViewport = Readonly<{
   width: number;
   height: number;
@@ -198,6 +208,9 @@ export type SpatialRuntimeStatus =
 export interface SpatialRuntime {
   getStatus(): SpatialRuntimeStatus;
   start(): Promise<SpatialRuntimeStatus>;
+  dispatch(command: RuntimeCommand): RuntimeCommandDispatchResult;
+  subscribe(listener: RuntimeEventListener): () => void;
+  /** @deprecated Dispatch a renderer-neutral RESIZE command instead. */
   resize(viewport: SpatialViewport): void;
   dispose(): void;
 }

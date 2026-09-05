@@ -17,6 +17,7 @@ import type {
 import {
   createManagedSpatialRuntime,
   type SpatialBackendSession,
+  type SpatialBackendResourceListener,
 } from '../lifecycle';
 
 const disposeEngine = (engine: AbstractEngine): void => {
@@ -63,6 +64,31 @@ const createDiagnosticScene = (engine: AbstractEngine): Scene => {
   return scene;
 };
 
+export const subscribeToBabylonResourceEvents = (
+  engine: Pick<
+    AbstractEngine,
+    'onContextLostObservable' | 'onContextRestoredObservable'
+  >,
+  backend: SpatialRendererBackend,
+  listener: SpatialBackendResourceListener,
+): (() => void) => {
+  const prefix = backend === 'WEBGPU' ? 'webgpu-device' : 'webgl2-context';
+  const lostObserver = engine.onContextLostObservable.add(() => {
+    listener({ state: 'lost', detail: `${prefix}-lost` });
+  });
+  const restoredObserver = engine.onContextRestoredObservable.add(() => {
+    listener({ state: 'recovered', detail: `${prefix}-restored` });
+  });
+  let subscribed = true;
+
+  return () => {
+    if (!subscribed) return;
+    subscribed = false;
+    lostObserver.remove();
+    restoredObserver.remove();
+  };
+};
+
 const createSession = (
   engine: AbstractEngine,
   backend: SpatialRendererBackend,
@@ -77,6 +103,8 @@ const createSession = (
 
   return {
     backend,
+    subscribeResourceEvents: (listener) =>
+      subscribeToBabylonResourceEvents(engine, backend, listener),
     resize({ width, height, dpr }: SpatialViewport) {
       engine.setSize(
         Math.max(1, Math.round(width * dpr)),
@@ -125,22 +153,26 @@ const createWebGpuSession = async (
 const createWebGl2Session = (
   canvas: HTMLCanvasElement,
 ): SpatialBackendSession | null => {
-  const context = canvas.getContext('webgl2', {
+  const options = {
     alpha: false,
     antialias: true,
     depth: true,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: true,
     stencil: true,
-  });
-  if (!context) return null;
+  } satisfies WebGLContextAttributes;
+  if (!canvas.getContext('webgl2', options)) return null;
 
   const engine = new Engine(
-    context,
+    canvas,
     true,
-    { audioEngine: false, preserveDrawingBuffer: true, stencil: true },
+    { ...options, audioEngine: false },
     false,
   );
+  if (engine.webGLVersion !== 2) {
+    disposeEngine(engine);
+    return null;
+  }
   return createSession(engine, 'WEBGL2');
 };
 

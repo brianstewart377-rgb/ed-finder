@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
 
   import { createBabylonSpatialRuntime } from './babylon/adapter';
-  import type { SpatialRuntimeStatus, SpatialViewport } from './contracts';
+  import type { SpatialRuntimeStatus } from './contracts';
 
   let canvas: HTMLCanvasElement;
   let host: HTMLDivElement;
@@ -33,12 +33,12 @@
     });
 
     const resize = (width: number, height: number): void => {
-      const viewport: SpatialViewport = {
+      const viewport = {
         width: Math.max(1, Math.round(width)),
         height: Math.max(1, Math.round(height)),
         dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
       };
-      runtime.resize(viewport);
+      runtime.dispatch({ type: 'RESIZE', ...viewport });
       resizeRevision += 1;
       host
         .querySelector('canvas')

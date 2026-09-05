@@ -5,7 +5,7 @@ import SpatialCanvas from './SpatialCanvas.svelte';
 
 const adapter = vi.hoisted(() => ({
   runtimes: [] as Array<{
-    resize: ReturnType<typeof vi.fn>;
+    dispatch: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
   }>,
   create: vi.fn(),
@@ -39,7 +39,7 @@ describe('SpatialCanvas', () => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(360);
     adapter.create.mockImplementation((_canvas, onStatus) => {
-      const record = { resize: vi.fn(), dispose: vi.fn() };
+      const record = { dispatch: vi.fn(), dispose: vi.fn() };
       adapter.runtimes.push(record);
       return {
         getStatus: () => ({ state: 'created' as const }),
@@ -49,7 +49,9 @@ describe('SpatialCanvas', () => {
           onStatus(ready);
           return ready;
         }),
-        resize: record.resize,
+        dispatch: record.dispatch,
+        subscribe: vi.fn(() => vi.fn()),
+        resize: vi.fn(),
         dispose: record.dispose,
       };
     });
@@ -74,7 +76,8 @@ describe('SpatialCanvas', () => {
       'Renderer ready (WEBGL2)',
     );
     expect(document.querySelector('[data-spatial-canvas]')).toBeTruthy();
-    expect(adapter.runtimes[0]?.resize).toHaveBeenCalledWith({
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+      type: 'RESIZE',
       width: 640,
       height: 360,
       dpr: 1,
@@ -88,7 +91,8 @@ describe('SpatialCanvas', () => {
       ],
       {} as ResizeObserver,
     );
-    expect(adapter.runtimes[0]?.resize).toHaveBeenLastCalledWith({
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenLastCalledWith({
+      type: 'RESIZE',
       width: 800,
       height: 450,
       dpr: 1,
