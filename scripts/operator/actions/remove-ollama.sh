@@ -25,11 +25,18 @@ else
   exit 1
 fi
 
+docker_cmd() {
+  "${SUDO[@]}" docker "$@"
+}
+
 before_avail="$(df -B1 --output=avail / | tail -1 | tr -d ' ')"
 removed_paths=0
 removed_containers=0
 removed_images=0
+removed_volumes=0
+unhandled_bind_mounts=0
 service_touched=false
+failures=()
 
 # Stop and disable the exact host-managed Ollama service first.
 if command -v systemctl >/dev/null 2>&1; then
@@ -40,26 +47,59 @@ if command -v systemctl >/dev/null 2>&1; then
   fi
 fi
 
-# Remove any Docker container/image whose name or image explicitly identifies Ollama.
+# Remove Docker Ollama containers plus their private named model volumes. A volume is
+# deleted only after the Ollama container is gone and Docker reports no remaining users.
 if command -v docker >/dev/null 2>&1; then
+  declare -A candidate_volumes=()
   while IFS=$'\t' read -r cid cname cimage; do
     [ -n "$cid" ] || continue
     lname="${cname,,}"
     limage="${cimage,,}"
     if [[ "$lname" == "ollama" || "$lname" == ollama-* || "$limage" == ollama/* || "$limage" == *"/ollama:"* ]]; then
-      "${SUDO[@]}" docker rm -f "$cid" >/dev/null
+      while IFS= read -r vname; do
+        [ -n "$vname" ] && candidate_volumes["$vname"]=1
+      done < <(docker_cmd inspect -f '{{range .Mounts}}{{if eq .Type "volume"}}{{.Name}}{{"\n"}}{{end}}{{end}}' "$cid")
+
+      while IFS=$'\t' read -r source destination; do
+        [ -n "$source" ] || continue
+        case "$destination" in
+          */.ollama|*/.ollama/*)
+            case "$source" in
+              /opt/ollama|/srv/ollama|/var/lib/ollama|/usr/share/ollama|/root/.ollama|/home/ollama/.ollama) ;;
+              *) unhandled_bind_mounts=$((unhandled_bind_mounts + 1)) ;;
+            esac
+            ;;
+        esac
+      done < <(docker_cmd inspect -f '{{range .Mounts}}{{if eq .Type "bind"}}{{.Source}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}{{end}}' "$cid")
+
+      docker_cmd rm -f "$cid" >/dev/null
       removed_containers=$((removed_containers + 1))
     fi
-  done < <(docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}' 2>/dev/null || "${SUDO[@]}" docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}')
+  done < <(docker_cmd ps -a --format '{{.ID}}\t{{.Names}}\t{{.Image}}')
+
+  # Also catch an unattached Ollama-named volume left by the experiment.
+  while IFS= read -r vname; do
+    [ -n "$vname" ] || continue
+    if [[ "${vname,,}" == *ollama* ]]; then candidate_volumes["$vname"]=1; fi
+  done < <(docker_cmd volume ls -q)
+
+  for vname in "${!candidate_volumes[@]}"; do
+    if [ -z "$(docker_cmd ps -a --filter "volume=$vname" -q)" ]; then
+      docker_cmd volume rm "$vname" >/dev/null
+      removed_volumes=$((removed_volumes + 1))
+    else
+      failures+=("ollama_volume_still_in_use")
+    fi
+  done
 
   while IFS=$'\t' read -r iid iref; do
     [ -n "$iid" ] || continue
     lref="${iref,,}"
     if [[ "$lref" == ollama/* || "$lref" == *"/ollama:"* ]]; then
-      "${SUDO[@]}" docker image rm -f "$iid" >/dev/null 2>&1 || true
+      docker_cmd image rm -f "$iid" >/dev/null 2>&1 || true
       removed_images=$((removed_images + 1))
     fi
-  done < <(docker image ls --format '{{.ID}}\t{{.Repository}}:{{.Tag}}' 2>/dev/null || "${SUDO[@]}" docker image ls --format '{{.ID}}\t{{.Repository}}:{{.Tag}}')
+  done < <(docker_cmd image ls --format '{{.ID}}\t{{.Repository}}:{{.Tag}}')
 fi
 
 # Purge only the exact package if a distro package was used. Do not autoremove unrelated dependencies.
@@ -88,6 +128,8 @@ paths=(
   /root/.ollama
   /home/ollama/.ollama
   /home/ollama
+  /opt/ollama
+  /srv/ollama
 )
 for p in "${paths[@]}"; do
   if "${SUDO[@]}" test -e "$p" || "${SUDO[@]}" test -L "$p"; then
@@ -109,26 +151,30 @@ if getent group ollama >/dev/null 2>&1; then
   "${SUDO[@]}" groupdel ollama >/dev/null 2>&1 || true
 fi
 
-# Fail closed if any Ollama executable/service/container or known model directory survives.
-failures=()
+if [ "$unhandled_bind_mounts" -gt 0 ]; then failures+=("ollama_unknown_bind_mount_requires_manual_cleanup"); fi
+
+# Fail closed if any Ollama executable/service/container/volume or known model directory survives.
 if command -v ollama >/dev/null 2>&1; then failures+=("ollama_executable_still_present"); fi
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet ollama.service 2>/dev/null; then failures+=("ollama_service_still_active"); fi
 if command -v docker >/dev/null 2>&1; then
-  if (docker ps -a --format '{{.Names}}\t{{.Image}}' 2>/dev/null || "${SUDO[@]}" docker ps -a --format '{{.Names}}\t{{.Image}}') | grep -i 'ollama' >/dev/null 2>&1; then
+  if docker_cmd ps -a --format '{{.Names}}\t{{.Image}}' | grep -i 'ollama' >/dev/null 2>&1; then
     failures+=("ollama_container_still_present")
   fi
+  if docker_cmd volume ls -q | grep -i 'ollama' >/dev/null 2>&1; then
+    failures+=("ollama_named_volume_still_present")
+  fi
 fi
-for p in /usr/local/lib/ollama /usr/local/share/ollama /usr/share/ollama /var/lib/ollama /root/.ollama /home/ollama; do
-  if "${SUDO[@]}" test -e "$p"; then failures+=("ollama_data_still_present:$p"); fi
+for p in /usr/local/lib/ollama /usr/local/share/ollama /usr/share/ollama /var/lib/ollama /root/.ollama /home/ollama /opt/ollama /srv/ollama; do
+  if "${SUDO[@]}" test -e "$p"; then failures+=("ollama_data_still_present"); fi
 done
 
 after_avail="$(df -B1 --output=avail / | tail -1 | tr -d ' ')"
 freed=$((after_avail - before_avail))
 
-python3 - "$freed" "$removed_paths" "$removed_containers" "$removed_images" "$service_touched" "${failures[*]-}" <<'PY'
+python3 - "$freed" "$removed_paths" "$removed_containers" "$removed_images" "$removed_volumes" "$unhandled_bind_mounts" "$service_touched" "${failures[*]-}" <<'PY'
 import json
 import sys
-freed, paths, containers, images, service_touched, failures = sys.argv[1:]
+freed, paths, containers, images, volumes, unhandled_binds, service_touched, failures = sys.argv[1:]
 items = [x for x in failures.split() if x]
 print(json.dumps({
     "schema_version": "ed-finder/operator-operation-result/v1",
@@ -139,6 +185,8 @@ print(json.dumps({
     "removed_path_count": int(paths),
     "removed_container_count": int(containers),
     "removed_image_count": int(images),
+    "removed_volume_count": int(volumes),
+    "unhandled_bind_mount_count": int(unhandled_binds),
     "ollama_service_changes_performed": service_touched == "true",
     "failures": items,
     "direct_db_access_performed": False,
