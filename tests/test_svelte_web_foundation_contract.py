@@ -118,9 +118,15 @@ def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport()
 
     assert "from '@ed-finder/api-client/core'" in client
     assert "AuthSessionResponse, HealthResponse" in client
-    assert "apiRequest('/health', { signal })" in client
-    assert "apiRequest('/auth/session', { signal })" in client
+    # Ordinary operations delegate to the generated Hey API SDK; the facade
+    # layers the shared lossless/credentialed normalization on top by
+    # configuring the generated client (not by hand-rolling raw routes).
+    assert "from './generated/sdk.gen'" in client
+    assert "healthApiHealthGet(" in client
+    assert "authSessionApiAuthSessionGet(" in client
+    assert "apiRequest('/health'" not in client
     assert "fetch(" not in client
+    assert "parseLosslessJson" in client
     assert "credentials: 'include'" in transport
     assert "parseLosslessJson" in transport
     assert "VITE_API_BASE" not in transport

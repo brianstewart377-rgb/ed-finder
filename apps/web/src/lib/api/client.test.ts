@@ -29,8 +29,12 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
   it('delegates ordinary bootstrap operations to the generated SDK over the credentialed same-origin transport', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ status: 'ok', database: 'connected' }))
-      .mockResolvedValueOnce(jsonResponse({ authenticated: false, user: null }));
+      .mockResolvedValueOnce(
+        jsonResponse({ status: 'ok', database: 'connected' }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ authenticated: false, user: null }),
+      );
 
     await expect(getHealth()).resolves.toMatchObject({ status: 'ok' });
     await expect(getAuthSession()).resolves.toMatchObject({
