@@ -166,7 +166,7 @@ As of PR #601:
 - the narrow `ChatGPT ed-new Ops` workflow exists for a small allowlisted set of operator actions;
 - Product E2E and Review Lab are now explicitly documented as separate browser authorities, but both still require the V3 re-base described in `v3-browser-validation-lanes.md`;
 - `apps/web` is the V3 application destination and the fresh map will use Babylon;
-- the minimum executable Svelte/Babylon runtime baseline is the next platform step before Finder/Inspect product design;
+- the minimum executable Svelte/Babylon runtime baseline is the next platform step before Finder/Inspect product design; its governed implementation packet has been dispatched to #601 and must preserve this control-plane and validation-lane authority;
 - the immutable `main -> images -> Contabo -> smoke -> receipt` live-checkpoint path still needs to be completed;
 - the older `chatgpt-ops-control-plane.md` contains useful design history but is not the current authority for what operations are implemented or authorised.
 
