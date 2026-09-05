@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE22D_PATH = DOCS / 'stage-22d-export-and-documentation-governance-consolidation.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 EXPORT_BUILDER_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'exportArtifacts.ts'
@@ -52,7 +51,6 @@ def test_stage22d_authority_records_export_governance_completion():
 
 def test_stage22d_docs_frontend_sources_and_ci_parity_are_aligned():
     document = _read(STAGE22D_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
     builder = _read(EXPORT_BUILDER_PATH)
     view = _read(EXPORT_VIEW_PATH)
@@ -60,7 +58,6 @@ def test_stage22d_docs_frontend_sources_and_ci_parity_are_aligned():
     assert STAGE22D_PATH.exists()
     assert 'governance section in Markdown and JSON exports' in document
     assert 'Export packs are review artifacts, not planner authority.' in document
-    assert 'stage-22d-export-and-documentation-governance-consolidation.md' in readme
     assert 'tests/test_stage22d_export_documentation_governance.py' in parity
 
     assert 'governance =' in builder

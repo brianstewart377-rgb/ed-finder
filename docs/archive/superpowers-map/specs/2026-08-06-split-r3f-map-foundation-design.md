@@ -1,5 +1,8 @@
 # Split R3FMapFoundation.tsx Into Scene-Concern Files — Design
 
+> **HISTORICAL / SUPERSEDED.** This React/R3F design is migration evidence, not
+> current V3 architecture.
+
 ## Context
 
 `frontend/src/features/map-foundation/R3FMapFoundation.tsx` is 1663 lines —

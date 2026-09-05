@@ -1,5 +1,8 @@
 # Stage 26B Renderer Bake-Off Decision
 
+> **HISTORICAL — COMPLETED STAGE.** R3F won this equal Stage 26 bakeoff. That
+> fact is preserved, but it does not select the V3 target renderer.
+
 ## Decision
 
 Select **Three.js with React Three Fiber** as the renderer foundation for the
@@ -24,7 +27,7 @@ runtime; no third-party pixel geometry is copied into the harness.
 
 Environment: headless Chromium on Windows `10.0.26200`, Intel Core i7-14650HX.
 The complete machine-readable receipt is
-[`map-bakeoff-results.json`](../../artifacts/map-foundation/stage-26b/map-bakeoff-results.json).
+[`map-bakeoff-results.json`](../../../artifacts/map-foundation/stage-26b/map-bakeoff-results.json).
 
 ## Measurement Summary
 

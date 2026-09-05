@@ -1,5 +1,8 @@
 # Exploration Layer Foundation Implementation Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE.** Preserve this as Commander
+> History migration evidence; it is not the current product sequence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stand up the backend plumbing (table, models, store, API routes) and frontend client for personal exploration data, so a later plan can wire real journal-file parsing and map-layer rendering onto it without any further schema/API changes.
@@ -36,7 +39,7 @@ Open `docs/ROADMAP.md` and find the "Map posture" bullet inside the `## Current 
   feature that wants map presence — not a closed list limited to Finder, Compare,
   System Detail, Cluster Search, and Planner hand-off. The first new consumer of
   this pattern is a personal exploration data layer (own design doc:
-  `docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md`). This does
+  `docs/archive/superpowers-map/specs/2026-08-08-map-exploration-layer-design.md`). This does
   not change "Map remains a secondary Explore surface" or Colony Cockpit's role as
   the sole canonical planning workspace, and does not authorize planner-map fusion.
 ```
@@ -79,7 +82,7 @@ Create `sql/042_exploration_facts.sql`:
 -- data (systems visited, bodies scanned/mapped, discoveries, exobiology, Codex
 -- entries), scoped by the existing anonymous sync_key mechanism. This table is
 -- never merged into body_scan_facts, body_rings, or any other canonical table -
--- see docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md.
+-- see docs/archive/superpowers-map/specs/2026-08-08-map-exploration-layer-design.md.
 
 CREATE TABLE IF NOT EXISTS exploration_facts (
     id                  BIGSERIAL       PRIMARY KEY,

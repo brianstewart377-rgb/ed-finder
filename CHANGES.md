@@ -11,6 +11,14 @@ It is a repository change record, not production/operator authority. For current
 
 Pre-cutover history remains available in Git history and dated/archive documents. It is not repeated here where it could be mistaken for current operational guidance.
 
+> **Current-horizon note (2026-09-05):** dated entries below describe their own
+> repository checkpoint. In particular, the 2026-09-04 foundation entry predates
+> active PR #601. At known PR head
+> `190d26446a2487596299cbb6b497ffa5201fee0b`, that lane contains a real
+> Explore/Finder → fresh Babylon results → canonical Inspect product slice.
+> This note records active-PR state, not a claim that it has merged into `main`.
+> Use the authority chain in [`README.md`](README.md) for current truth.
+
 ---
 
 ## 2026-09-05 — Codex worker reasoning-cost adjustment

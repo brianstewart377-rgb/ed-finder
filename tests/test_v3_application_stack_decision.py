@@ -1,25 +1,35 @@
-"""Governance contract for the locked V3 application stack."""
+"""Durable governance contracts for the V3 documentation authority set."""
 
 import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DECISION = ROOT / "docs" / "development" / "v3-application-stack-decision.md"
 README = ROOT / "README.md"
 ROADMAP = ROOT / "docs" / "ROADMAP.md"
-AGENT_CONTRACT = ROOT / "CLAUDE.md"
+DECISION = ROOT / "docs" / "development" / "v3-application-stack-decision.md"
+PRODUCT = (
+    ROOT / "docs" / "colonisation-redesign" / "spatial-platform-product-contract.md"
+)
 ARCHITECTURE = (
     ROOT
     / "docs"
     / "colonisation-redesign"
     / "spatial-platform-architecture-decision.md"
 )
-INHERITANCE = (
-    ROOT
-    / "docs"
-    / "colonisation-redesign"
-    / "stage-27a-stage26-inheritance-matrix.md"
+BROWSER_LANES = ROOT / "docs" / "development" / "v3-browser-validation-lanes.md"
+INFRASTRUCTURE = ROOT / "docs" / "operations" / "infrastructure-status.md"
+AGENT_CONTRACT = ROOT / "CLAUDE.md"
+ARCHIVE_README = ROOT / "docs" / "archive" / "README.md"
+
+PRIMARY_AUTHORITIES = (
+    README,
+    ROADMAP,
+    DECISION,
+    PRODUCT,
+    ARCHITECTURE,
+    BROWSER_LANES,
+    INFRASTRUCTURE,
 )
 
 
@@ -27,129 +37,182 @@ def _contract(path: Path) -> str:
     return re.sub(r"\s+", " ", path.read_text(encoding="utf-8"))
 
 
-def test_locked_frontend_and_browser_authority():
+def _relative(path: Path) -> str:
+    return path.relative_to(ROOT).as_posix()
+
+
+def _terms_are_near(text: str, left: str, right: str, distance: int = 160) -> bool:
+    return bool(
+        re.search(rf"{left}.{{0,{distance}}}{right}", text)
+        or re.search(rf"{right}.{{0,{distance}}}{left}", text)
+    )
+
+
+def test_primary_current_authority_set_is_small_complete_and_discoverable():
+    assert len(PRIMARY_AUTHORITIES) == 7
+    assert all(path.is_file() for path in PRIMARY_AUTHORITIES)
+
+    readme = _contract(README)
+    agent_contract = _contract(AGENT_CONTRACT)
+    for path in PRIMARY_AUTHORITIES[1:]:
+        relative_path = _relative(path)
+        assert relative_path in readme
+        assert relative_path in agent_contract
+
+    archive_readme = _contract(ARCHIVE_README).lower()
+    assert "historical" in archive_readme
+    assert re.search(
+        r"(?:never|does not).{0,100}(?:override|current authority)", archive_readme
+    )
+
+
+def test_locked_frontend_and_browser_destination():
     decision = _contract(DECISION)
+    decision_lower = decision.lower()
 
-    for choice in ("**TypeScript**", "**Svelte 5**", "**SvelteKit 2**"):
-        assert choice in decision
-    assert "**Cypress is the protected browser/E2E authority**" in decision
-    assert "Existing Playwright coverage is migration evidence, not future authority" in decision
+    for choice in ("typescript", "svelte 5", "sveltekit 2", "apps/web"):
+        assert choice in decision_lower
+    assert _terms_are_near(
+        decision_lower, "apps/web", r"(?:sole|only).{0,30}browser", distance=100
+    )
+    assert "cypress" in decision_lower
 
 
-def test_babylon_stays_modular_and_behind_renderer_neutral_contracts():
+def test_babylon_stays_fresh_modular_and_behind_renderer_neutral_contracts():
     decision = _contract(DECISION)
     architecture = _contract(ARCHITECTURE)
+    combined = f"{decision} {architecture}".lower()
 
-    assert "Modular **`@babylonjs/*`** packages; start with `@babylonjs/core`" in decision
-    assert "does not permit Babylon types to leak into domain contracts" in decision
-    assert "Domain and feature code **must not import Babylon**" in architecture
-    assert "No `@babylonjs/*` type may leak into public contracts" in architecture
+    assert "@babylonjs/core" in decision
+    assert re.search(r"(?:fresh|greenfield).{0,80}babylon", combined)
+    assert "domain and feature code **must not import babylon**" in architecture.lower()
+    assert re.search(
+        r"(?:no.{0,30}babylon.{0,40}type.{0,80}leak|"
+        r"babylon.{0,40}type.{0,80}(?:must not|may not|cannot|never).{0,40}leak)",
+        combined,
+    )
 
 
-def test_locked_backend_data_and_service_baseline():
-    decision = _contract(DECISION)
+def test_svelte_owns_application_domain_and_accessible_dom():
+    architecture = _contract(ARCHITECTURE).lower()
+
+    assert "svelte/sveltekit owns" in architecture
+    for responsibility in ("app/domain orchestration", "accessible dom", "routing"):
+        assert responsibility in architecture
+    assert "renderer-neutral domain handlers" in architecture
+    assert "revisioned contributions" in architecture
+
+
+def test_react_r3f_and_three_are_historical_evidence_not_v3_target_authority():
+    current_docs = " ".join(_contract(path) for path in PRIMARY_AUTHORITIES).lower()
+    architecture = _contract(ARCHITECTURE).lower()
+
+    assert "react" in current_docs and "r3f" in current_docs and "three" in current_docs
+    evidence_terms = r"(?:historical|migration|evidence)"
+    assert _terms_are_near(current_docs, "react", evidence_terms)
+    assert _terms_are_near(current_docs, "r3f", evidence_terms)
+    assert _terms_are_near(
+        architecture,
+        "stage 26",
+        r"(?:r3f.{0,40}selected|selected.{0,40}r3f)",
+    )
+    assert "r3f remains production" not in current_docs
+    assert "r3f remains the production" not in current_docs
+    assert "current react/r3f application" not in current_docs
+
+
+def test_locked_backend_data_service_and_release_baseline():
+    decision = _contract(DECISION).lower()
 
     for choice in (
-        "**CPython 3.14**",
-        "**uv + `pyproject.toml` + `uv.lock`**",
-        "**PostgreSQL 18**",
-        "**Valkey** for the new baseline",
-        "**Not in the baseline**; reintroduce only if a future requirement demonstrates",
-        "**One dedicated EDDN worker service**",
+        "cpython 3.14",
+        "uv",
+        "pyproject.toml",
+        "uv.lock",
+        "postgresql 18",
+        "valkey",
+        "one dedicated eddn worker service",
     ):
         assert choice in decision
-
-
-def test_production_releases_are_immutable_ci_built_artifacts():
-    decision = _contract(DECISION)
-
-    assert "**No builds, dependency resolution or `git pull` on production**" in decision
-    assert (
-        "Immutable OCI web/backend images plus a release manifest containing exact Git SHA"
-        in decision
-    )
-    assert "reproducible CI build from frozen pnpm/uv locks" in decision
+    assert "no builds, dependency resolution or `git pull` on production" in decision
+    assert "immutable oci" in decision
+    assert "exact git sha" in decision
 
 
 def test_backend_owned_non_api_routes_are_explicit_and_bounded():
     decision = _contract(DECISION)
 
-    assert "`/api/*`, exact `/openapi.json` and numeric `/s/{id64}` route to FastAPI" in decision
+    for route in ("`/api/*`", "`/openapi.json`", "`/s/{id64}`"):
+        assert route in decision
     assert "SvelteKit retains every other application/static route" in decision
     assert "no backend catch-all may steal SvelteKit routes" in decision
-    assert "same-origin routing sends `/api/*`, exact `/openapi.json` and numeric `/s/{id64}`" in decision
     assert "FastAPI OpenAPI for CI and client generation" in decision
     assert "OpenGraph share stop page" in decision
 
 
 def test_rollback_requires_proven_schema_compatibility():
-    decision = _contract(DECISION)
-
-    assert "backward compatibility with the current database schema has been proved" in decision
-    assert "migration-set/schema identity, schema-compatibility evidence and rollback eligibility" in decision
-    assert "promotion of the old application fails closed" in decision
-    assert "Incompatible or destructive migrations must never advertise one-click application-only rollback" in decision
-    assert "does not invent the currently absent executable V3 database recovery procedure" in decision
-
-
-def test_authority_chain_registers_stack_lock_and_distinguishes_current_from_target():
-    decision_path = "docs/development/v3-application-stack-decision.md"
-    readme = _contract(README)
-    roadmap = _contract(ROADMAP)
-    agent_contract = _contract(AGENT_CONTRACT)
-
-    assert readme.index("docs/ROADMAP.md") < readme.index(decision_path)
-    assert readme.index(decision_path) < readme.index("CLAUDE.md")
-    assert agent_contract.index("docs/ROADMAP.md") < agent_contract.index(decision_path)
-    assert agent_contract.index(decision_path) < agent_contract.index("this file")
-
-    assert "authoritative for new V3 application implementation" in roadmap
-    assert "checked-in React/Yarn and Python 3.12 implementation remains migration/reference and current-validation reality" in roadmap
-    assert "does not open Stage 27B, authorize a Babylon runtime" in roadmap
-    assert "checked-in frontend" in readme and "React/TypeScript" in readme
-    assert "locked target for new V3 application implementation is Svelte 5/SvelteKit 2/TypeScript 6" in readme
-    assert "checked-in backend validation path remains on Python 3.12" in readme
-    assert "targets CPython 3.14 with uv" in readme
-    assert "Use these legacy-toolchain commands only to validate" in agent_contract
-    assert "checked-in backend still uses Python 3.12" in agent_contract
-    assert "targets CPython 3.14 with uv" in agent_contract
-
-
-def test_stage_27_docs_assign_future_application_ownership_to_svelte():
-    architecture = _contract(ARCHITECTURE)
-    inheritance = _contract(INHERITANCE)
+    decision = _contract(DECISION).lower()
 
     assert (
-        "Svelte/SvelteKit owns app/domain orchestration, routing, panels, accessible DOM UI, "
-        "keyboard and text"
-    ) in architecture
-    assert (
-        "Renderer-neutral domain handlers decide whether an explicit action is allowed"
-        in architecture
+        "backward compatibility with the current database schema has been proved"
+        in decision
     )
-    assert "The Svelte/SvelteKit application sends revisioned contributions" in architecture
-    assert "Svelte/SvelteKit owns app/domain orchestration" in inheritance
-    assert "Svelte/SvelteKit owns accessible DOM UI" in inheritance
-
-    assert "R3F was not a failure and Babylon did not win Stage 26" in architecture
-    assert "selected R3F/Three.js" in inheritance
-    assert "R3F remains the production baseline and rollback" in inheritance
+    assert "migration-set/schema identity" in decision
+    assert "schema-compatibility evidence" in decision
+    assert "promotion of the old application fails closed" in decision
+    assert "incompatible or destructive migrations" in decision
 
 
-def test_stack_lock_does_not_authorize_later_stage_27_implementation_or_cutover():
-    decision = _contract(DECISION)
-    architecture = _contract(ARCHITECTURE)
-    inheritance = _contract(INHERITANCE)
+def test_current_production_authority_is_v3_pg18_and_not_a_runner_host():
+    infrastructure = _contract(INFRASTRUCTURE).lower()
 
-    assert (
-        "does not itself authorize production deployment, database mutation, a Babylon production "
-        "cutover, or any later Stage 27 slice"
-    ) in decision
-    assert "Babylon runtime is not authorized in this stage" in architecture
-    assert "**27B:** isolated runtime workbench; no production wiring" in architecture
-    assert "27A does not authorize these implementations" in architecture
-    assert (
-        "not authorization to implement Babylon, alter the production map, remove the "
-        "R3F/Three.js map, or begin Stage 27B"
-    ) in inheritance
-    assert "Production cutover, rollback retirement and R3F deletion remain later" in inheritance
+    assert "ed-finder-prod" in infrastructure
+    assert "nb79a3d.mevnode.com" in infrastructure
+    assert "postgresql 18" in infrastructure
+    assert "hetzner" in infrastructure and "historical" in infrastructure
+    assert "contabo" in infrastructure
+    assert _terms_are_near(
+        infrastructure, "contabo", r"not (?:ed-finder )?production", distance=100
+    )
+
+
+def test_browser_product_acceptance_and_review_lab_are_separate_babylon_lanes():
+    browser_lanes = _contract(BROWSER_LANES).lower()
+
+    assert "product e2e" in browser_lanes
+    assert "visual acceptance" in browser_lanes
+    assert "review lab" in browser_lanes
+    assert "separate" in browser_lanes or "distinct" in browser_lanes
+    assert browser_lanes.count("apps/web") >= 2
+    assert browser_lanes.count("babylon") >= 2
+
+
+def test_pr_601_is_described_as_an_active_product_integration_lane():
+    roadmap = _contract(ROADMAP).lower()
+
+    assert "#601" in roadmap and "active" in roadmap
+    for product_slice in ("finder", "inspect", "babylon"):
+        assert product_slice in roadmap
+    assert not re.search(r"#601.{0,160}foundation[- ]only", roadmap)
+    assert not re.search(r"#601.{0,240}(?:finder|inspect).{0,100}come later", roadmap)
+
+
+def test_primary_authorities_do_not_restore_superseded_stage_or_checkpoint_claims():
+    current_docs = " ".join(_contract(path) for path in PRIMARY_AUTHORITIES).lower()
+
+    forbidden_claims = (
+        r"(?:archived?|historical) (?:documents?|docs).{0,80}(?:are|as) "
+        r"(?:the )?(?:current|primary) authority",
+        r"contabo live[- ]checkpoint",
+        r"contabo.{0,80}live[- ]checkpoint environment",
+        r"contabo is (?:the |a )?(?:live[- ]?)?checkpoint",
+        r"checkpoint (?:target|destination|environment) is contabo",
+        r"27a.{0,80}only authori[sz]es 27b",
+        r"babylon runtime is not authori[sz]ed in this stage",
+        r"(?:#601|apps/web).{0,120}foundation[- ]only",
+        r"(?:#601|apps/web).{0,120}non[- ]product",
+        r"finder.{0,40}inspect.{0,100}come later",
+        r"inspect.{0,40}finder.{0,100}come later",
+    )
+    for claim in forbidden_claims:
+        assert not re.search(claim, current_docs)

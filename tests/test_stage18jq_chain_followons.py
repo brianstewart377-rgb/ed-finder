@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 OPS = ROOT / 'docs' / 'operations'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE21_CLOSEOUT_PATH = DOCS / 'stage-21-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -44,7 +43,6 @@ def test_stage18jq_follow_on_authority_records_q2_through_q9_and_pfilter_handoff
 
 
 def test_stage18jq_follow_on_docs_readme_parity_and_implementation_surfaces_exist():
-    readme = _read(README_PATH)
     closeout = _read(STAGE21_CLOSEOUT_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
@@ -68,13 +66,6 @@ def test_stage18jq_follow_on_docs_readme_parity_and_implementation_surfaces_exis
     ):
         assert path.exists()
 
-    for fragment in (
-        'stage-18j-q3-readonly-production-reconciliation-artifact.md',
-        'stage-18j-q5-nested-edsm-station-snapshot-support.md',
-        'stage-18j-q9-compact-summary-review-station-type-dry-run-readiness.md',
-        'stage-18j-p-filter-strict-station-type-dry-run-filter.md',
-    ):
-        assert fragment in readme
 
     assert 'Stage 18J-Q2 through Stage 18J-Q9 are complete' in closeout
     assert 'Stage 18J-P-filter is complete' in closeout

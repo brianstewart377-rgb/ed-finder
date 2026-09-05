@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18I5_PATH = DOCS / 'stage-18i5-warehouse-database-boundary-review.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -40,7 +39,6 @@ def test_stage18i5_authority_records_boundary_review_and_stage18j_handoff():
 
 def test_stage18i5_docs_and_ci_parity_record_the_boundary_review():
     document = _read(STAGE18I5_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -52,6 +50,4 @@ def test_stage18i5_docs_and_ci_parity_record_the_boundary_review():
     ):
         assert fragment in document
 
-    assert 'stage-18i5-warehouse-database-boundary-review.md' in readme
-    assert 'stage-18j-station-type-canonical-pilot-plan.md' in readme
     assert 'tests/test_stage18i5_warehouse_database_boundary_review.py' in parity

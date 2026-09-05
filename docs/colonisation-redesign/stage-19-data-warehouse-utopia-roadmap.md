@@ -1,5 +1,9 @@
 # Stage 19 — Data Warehouse Utopia Roadmap
 
+> **HISTORICAL — SUPERSEDED PROGRAMME PLAN.** Stage 19 evidence remains useful,
+> but current data/search/bootstrap decisions come from
+> [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Goal
 
 Stage 19 turns the ED-Finder data warehouse from passive scaffolding into the automated data engine for the project.

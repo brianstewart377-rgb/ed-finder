@@ -11,7 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18H2_PATH = DOCS / 'stage-18h2-readonly-backend-warehouse-evidence-endpoint.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
@@ -106,7 +105,6 @@ def test_stage18h2_backend_builder_returns_conservative_states_without_runtime_f
 @pytest.mark.unit
 def test_stage18h2_docs_and_ci_parity_register_the_endpoint_scaffold():
     document = _read(STAGE18H2_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -118,5 +116,4 @@ def test_stage18h2_docs_and_ci_parity_register_the_endpoint_scaffold():
     ):
         assert fragment in document
 
-    assert 'stage-18h2-readonly-backend-warehouse-evidence-endpoint.md' in readme
     assert 'tests/test_stage18h2_warehouse_planner_evidence_endpoint.py' in parity

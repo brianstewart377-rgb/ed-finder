@@ -2,11 +2,30 @@
 
 ## Current production boundary
 
-ED-Finder production is on the V3 replacement infrastructure.
+ED-Finder production is `ed-finder-prod` at `nb79a3d.mevnode.com` on the V3
+replacement infrastructure.
 
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
+
+Hetzner/V2 is decommissioned. Its host, container, cron, database, backup,
+maintenance, smoke-test, and rollback receipts are historical only. They do not
+describe this V3 environment.
+
+## Contabo runner and checkpoint boundary
+
+Contabo hosts exactly three self-hosted Codex runners. It is not ED-Finder
+production and it is not automatically the destination for a live checkpoint.
+
+A separate read-only capacity audit found only that a small checkpoint could be
+feasible with explicit resource limits and isolation. Checkpoint destination,
+topology, data posture, lifecycle, capacity limits, and acceptance remain a
+deployment decision. Current authority must not couple that destination to the
+runner host.
+
+Ollama was experimental residue used to test local inference for Octopus. It
+has been removed from production and is not part of the V3 architecture.
 
 ## V3 database recovery boundary
 

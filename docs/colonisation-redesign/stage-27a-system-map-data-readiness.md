@@ -1,5 +1,10 @@
 # Stage 27A System Map Data Readiness
 
+> **AUDIT / EVIDENCE — NOT CURRENT ROADMAP AUTHORITY.** This preserves a dated
+> schema/readiness assessment. Current implementation and decision gates come
+> from [`../ROADMAP.md`](../ROADMAP.md); unknown coverage remains unknown until
+> a newly authorized audit establishes it.
+
 **Audit date:** 2026-08-31
 **Repository baseline:** `a877afcb3b39c8e753b3f639b231d404c8be319b`
 **Production posture:** no already-authorized V3 read-only connection was

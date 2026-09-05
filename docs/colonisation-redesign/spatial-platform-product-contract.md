@@ -1,7 +1,8 @@
 # Spatial Platform Product Contract
 
-**Status:** Stage 27A authority (2026-08-31)
-**Scope:** product and representation contract; no renderer implementation
+**Status:** current V3 product/spatial authority; accepted from the 2026-08-31
+Stage 27A contract and updated for the active V3 integration lane
+**Scope:** product, interaction, truth, and representation contract
 **Supersedes:** the global Stage 25/26 restriction that the map is only a
 secondary Explore surface and may never participate in planning. It does not
 supersede Colony Planner ownership of Build Plan persistence or mechanics.
@@ -14,6 +15,10 @@ copying Frontier code, assets, or artwork. The Galaxy experience must be useful
 and excellent when every ED-Finder overlay is off.
 
 > **THE MAP IS THE CONSTANT; INFORMATION CHANGES AROUND IT.**
+
+The Galaxy is one continuous spatial context in true Elite light-year
+coordinates. Wide, regional, local, and System are semantic scales, not
+separate incompatible maps. All 42 named regions remain part of that context.
 
 Camera, selection, reference, scale, and spatial context survive preset/layer
 changes. `REALISTIC`, `FINDER`, `COLONISATION`, `POWERPLAY`, `EXPLORATION`, and
@@ -97,14 +102,21 @@ The first five are runtime representation classes. `UNAVAILABLE` and
 - **Finder:** existing filters and Development Scores select/rank results.
   Matches illuminate, score may affect prominence, and irrelevant systems may
   recede. Selected, highlighted and cluster members remain guaranteed. Score
-  breakdown is accessible. Viewport/reference may become explicit Finder input.
-  The renderer never calculates Development Score. Current evidence:
+  breakdown is accessible. Finder/search-from-here and systems-within accept an
+  explicit region, viewport, selected reference, or other named reference plus
+  a bounded radius when the owning Search contract supports it. Radius controls,
+  spatial visualization, result counts/truncation, and map/result selection stay
+  synchronized through explicit hand-offs. The renderer never calculates
+  Development Score, chooses matches, or ranks results. Current normal Finder
+  uses raw `x/y/z` bounding and distance; this contract does not promote
+  `grid_cell_id` or select a future spatial index/grid/cluster design. Current evidence:
   `frontend/src/features/map-foundation/feature-handoffs.ts`,
   `apps/api/src/routers/search.py`, and `apps/api/src/mechanics/scoring_rules.py`.
 - **Colonisation:** contributions may show authoritative candidates,
   valid/invalid states, expansion ranges, current and planned colonies,
   infrastructure, relationships, alternate paths, comparisons, clusters,
-  blockers and route implications. Only domain owners decide validity.
+  blockers and route implications. Clusters are domain-derived contributions,
+  not renderer truth. Only domain owners decide validity or membership.
 - **Exploration / Commander History:** personal exploration is a first-class,
   sync-key-scoped interpretation of the Commander History fact set, not
   `visitedSystem: boolean` and not universal truth. Galaxy and System
@@ -225,8 +237,9 @@ dependencies only when the owning CPE contract supplies them.
 
 ## Accessibility, reliability and performance
 
-React/DOM owns routing, panels, commands, keyboard/text equivalents, focus and
-screen-reader output. Every pickable spatial target has an equivalent semantic
+Svelte/SvelteKit and the parallel DOM own routing, panels, commands,
+keyboard/text equivalents, focus and screen-reader output. Every pickable
+spatial target has an equivalent semantic
 DOM route; colour is never the sole truth distinction. Reduced motion disables
 nonessential animation and makes fly-to/transitions bounded and interruptible.
 
@@ -261,11 +274,20 @@ tests must prove:
 - a personal Codex observation is not global Codex knowledge; and
 - display-scaled radius does not overwrite physical radius.
 
-## Stage 27A acceptance and non-goals
+## Current implementation posture
 
-Stage 27A accepts this contract, the architecture decision, inheritance matrix,
-capability inventory, data-readiness matrix and SELECT-only coverage pack. It
-authorizes **Stage 27B only**. It does not add/upgrade Babylon, wire a runtime,
-change production map behaviour, remove R3F/Three.js, implement System Map,
-change CRE mechanics, implement CPE mechanics, write production data, touch V2
-archives, deploy, merge, or begin 27B.
+PR #601 is the single active V3 application integration lane. At currently
+known head `190d26446a2487596299cbb6b497ffa5201fee0b`, it contains a real
+Explore/Finder → fresh Babylon results → canonical Inspect slice. This document
+governs that product behaviour, but does not claim the PR is merged into the
+`main` base used by this documentation branch.
+
+System Map, Commander History/Journal, Routes, Powerplay, richer Colonisation,
+CPE planned overlays, and CRE Digital Twin contributions remain later product
+capabilities. Their requirements above are durable; their presence here is not
+deployment, production-data, database-write, or plan-mutation authorization.
+
+Product E2E/Visual Acceptance and Review Lab are separate browser lanes. Both
+V3 spatial lanes use `apps/web/` with Babylon; Review Lab may use different
+synthetic data and an isolated environment. See
+[`../development/v3-browser-validation-lanes.md`](../development/v3-browser-validation-lanes.md).

@@ -1,5 +1,9 @@
 # Stage 17P — Current State / Forward Plan Baseline
 
+> **HISTORICAL — SUPERSEDED PROGRAMME PLAN.** Retained in place because older
+> evidence and tests have dense path dependencies. It cannot override
+> [`../ROADMAP.md`](../ROADMAP.md).
+
 > Preserved baseline/reference document. Keep using `docs/ROADMAP.md` as the
 > current control document for what happens next. This file remains useful for
 > planner truth, source-authority rules, and historical boundary context.
@@ -54,7 +58,8 @@ Use this order before starting new colonisation work:
 1. `docs/ROADMAP.md`
 2. `docs/colonisation-redesign/README.md`
 3. This file.
-4. `docs/colonisation-redesign/stage-25c-product-shell-shared-context-contract.md` for the active implementation contract.
+4. `docs/archive/stage-25/stage-25c-product-shell-shared-context-contract.md`
+   for historical shell/context evidence only.
 5. `docs/reference/colonisation/README.md`, `docs/reference/colonisation/source-priority.md`, and `docs/reference/colonisation/source-inventory.md` for mechanics-heavy or source-sensitive work.
 6. `docs/operations/enrichment-warehouse-runbook.md` for guarded enrichment and warehouse operations.
 7. `docs/colonisation-redesign/stage-19-bounded-production-staging-activation.md` when work touches the separate bounded production-staging dependency.
@@ -1573,5 +1578,3 @@ system evidence checkpoint is recorded in
 51. Chunk E: Stage 18J-P17 retry strict station-type dry-run.
 
 This keeps ED-Finder moving toward a genuinely intelligent colony planner while protecting the trust boundaries that make the tool useful. The warehouse should become observable, explainable, and storage-isolated before it becomes a canonical write source.
-
-

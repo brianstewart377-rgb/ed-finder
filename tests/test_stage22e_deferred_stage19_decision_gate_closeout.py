@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE22E_PATH = DOCS / 'stage-22e-deferred-stage19-decision-gate-and-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -52,7 +51,6 @@ def test_stage22e_authority_records_closeout_and_separate_stage19_gate():
 
 def test_stage22e_docs_and_ci_parity_record_the_closeout_boundary():
     document = ' '.join(_read(STAGE22E_PATH).split())
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     assert STAGE22E_PATH.exists()
@@ -60,5 +58,4 @@ def test_stage22e_docs_and_ci_parity_record_the_closeout_boundary():
     assert 'The Stage 19 lane remains deferred unless a later, separately approved control document explicitly authorizes it.' in document
     assert 'Stage 19 production reactivation' in document
     assert 'separate gated lane' in document
-    assert 'stage-22e-deferred-stage19-decision-gate-and-closeout.md' in readme
     assert 'tests/test_stage22e_deferred_stage19_decision_gate_closeout.py' in parity

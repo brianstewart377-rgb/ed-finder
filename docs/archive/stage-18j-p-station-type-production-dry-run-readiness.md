@@ -238,24 +238,24 @@ changes it.
 
 Stage 18T adds the canonical safety test-environment gate that should pass
 before any future production dry-run or production apply attempt:
-[`stage-18t-canonical-safety-test-environment.md`](./stage-18t-canonical-safety-test-environment.md).
+[`stage-18t-canonical-safety-test-environment.md`](../colonisation-redesign/stage-18t-canonical-safety-test-environment.md).
 
 Stage 18J-Q defines the missing production reconciliation artifact prerequisite
 for this dry-run readiness step. Stage 18J-P remains blocked until a verified
 report-only `enrichment_staging_reconciliation/v1` production artifact exists
 and passes that contract:
-[`stage-18j-q-production-reconciliation-artifact-readiness.md`](./stage-18j-q-production-reconciliation-artifact-readiness.md).
+[`stage-18j-q-production-reconciliation-artifact-readiness.md`](../colonisation-redesign/stage-18j-q-production-reconciliation-artifact-readiness.md).
 
 Stage 18J-Q2 defines the later read-only/report-only command plan for producing
 that prerequisite artifact. It does not authorize running the command or
 generating a station-type dry-run artifact:
-[`stage-18j-q2-readonly-production-reconciliation-plan.md`](./stage-18j-q2-readonly-production-reconciliation-plan.md).
+[`stage-18j-q2-readonly-production-reconciliation-plan.md`](../colonisation-redesign/stage-18j-q2-readonly-production-reconciliation-plan.md).
 
 Stage 18J-Q3 attempted the prerequisite artifact-generation step and stopped
 before any production-connected command because the verified read-only DSN,
 approved source run/file, read-only session option, and operator-managed output
 path were not available:
-[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](./stage-18j-q3-readonly-production-reconciliation-artifact.md).
+[`stage-18j-q3-readonly-production-reconciliation-artifact.md`](../colonisation-redesign/stage-18j-q3-readonly-production-reconciliation-artifact.md).
 
 ## Stop Conditions
 
@@ -328,7 +328,6 @@ filter in code before any production dry-run retry:
   output.
 
 See
-[`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](./stage-18j-p-filter-strict-station-type-dry-run-filter.md).
+[`stage-18j-p-filter-strict-station-type-dry-run-filter.md`](../colonisation-redesign/stage-18j-p-filter-strict-station-type-dry-run-filter.md).
 This does not start Stage 18J-P, approve an artifact, or authorize canonical
 apply.
-

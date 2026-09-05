@@ -4,23 +4,35 @@ This file defines the current repository rules for automated coding/review agent
 
 ## Authority order
 
-Before making changes, use these sources in order:
+Start at `README.md`, then use this small current authority chain:
 
-1. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
-2. `docs/ROADMAP.md` — current programme stage and authorized work.
-3. `docs/development/v3-application-stack-decision.md` — locked target stack for new V3 application implementation.
-4. this file — engineering and agent constraints.
-5. current code/tests on the target branch.
+1. `docs/ROADMAP.md` — current programme order and decision gates.
+2. `docs/development/v3-application-stack-decision.md` — V3 technology and application ownership.
+3. `docs/colonisation-redesign/spatial-platform-product-contract.md` — product and spatial feature contract.
+4. `docs/colonisation-redesign/spatial-platform-architecture-decision.md` — renderer-neutral architecture and ownership.
+5. `docs/development/v3-browser-validation-lanes.md` — browser acceptance lanes.
+6. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
+7. this file — engineering and agent constraints, followed by current code/tests on the target branch.
 
 Git history, removed workflows, old artifacts, and superseded design documents are evidence only. They are not current execution authority.
 
 ## Current programme
 
-Stage 27 — One Spatial Platform is current. The roadmap controls which slice is authorized. Do not infer authorization from installed dependencies, old branches, previous production state, or unfinished experiments.
+The V3 application and One Spatial Platform programme is current. PR #601 is
+the single active application integration lane; at its currently known head it
+contains an Explore/Finder → fresh Babylon results → canonical Inspect slice.
+Because that work is an active PR, do not claim it has merged into `main`
+before repository state proves it.
 
-The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
+`apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
+owns the application, domain orchestration, routes, panels, and accessible DOM;
+Babylon owns spatial/GPU presentation only. The React/R3F/Three implementation
+is historical migration and behaviour evidence, not the V3 target or current
+production authority. Preserve the historical fact that R3F won Stage 26.
 
-The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A remains docs/audit/contracts only and does not authorize a Babylon runtime, a production map change, or any later Stage 27 slice.
+The roadmap controls execution order and unresolved decision gates. Do not
+infer authorization from installed dependencies, old stage labels, previous
+production state, unfinished experiments, or audit documents.
 
 ### Named runtime exception: EDDN simulation ingest
 
@@ -40,7 +52,8 @@ Before implementation:
 
 ## Current infrastructure boundary
 
-Production is the V3 replacement environment.
+Production is `ed-finder-prod` at `nb79a3d.mevnode.com` on the V3 replacement
+environment. Hetzner/V2 is decommissioned.
 
 - PostgreSQL 18 is the production database generation.
 - Production backup/recovery follows the current V3 backup/PITR boundary.
@@ -49,6 +62,11 @@ Production is the V3 replacement environment.
 - Redis/cache state is disposable and rebuildable.
 - NATS/JetStream transport state is not canonical domain truth.
 - Production commands must come from current V3 runbooks/workflows that explicitly identify the target and safety boundary.
+- Contabo hosts exactly three self-hosted Codex runners. It is not production
+  and is not automatically a live-checkpoint destination; that destination is
+  a deployment decision with explicit capacity and isolation limits.
+- Ollama was experimental Octopus residue and has been removed from production;
+  do not restore or document it as architecture.
 
 Do not invent or adapt a production procedure from Git history.
 
@@ -99,6 +117,10 @@ Rules:
 
 New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
 
+PR #601's known active head includes Finder, fresh Babylon results, and
+canonical Inspect integration. Treat that as active-PR state until merged, and
+keep new implementation in `apps/web/`.
+
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 
 - package manager: Yarn 1.22.22;
@@ -123,7 +145,10 @@ Run focused map/planner/operator/E2E checks when those surfaces are touched.
 
 `docker-compose.review.yml` is the disposable local Review Lab data/service contract. It is not production and must remain isolated from production credentials, URLs and data.
 
-The required `Review Lab` GitHub Actions workflow exercises the browser review journey on pull requests.
+Product E2E/Visual Acceptance and Review Lab are separate browser lanes. Both
+V3 map lanes exercise `apps/web/` with Babylon; Review Lab may use a different
+synthetic dataset and isolated environment. The required `Review Lab` GitHub
+Actions workflow exercises the review journey on pull requests.
 
 ## CI and acceptance
 

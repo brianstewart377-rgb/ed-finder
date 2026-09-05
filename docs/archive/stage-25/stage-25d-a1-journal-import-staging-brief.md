@@ -1,5 +1,8 @@
 # Stage 25D A-1 — Journal Import Staging Brief
 
+> **HISTORICAL — COMPLETED STAGE.** This brief is evidence only; current
+> Commander History sequencing comes from [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Purpose
 
 Ship the smallest safe journal-import slice:

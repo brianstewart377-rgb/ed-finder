@@ -1,5 +1,8 @@
 # Stage 22 - Post-Stage-18 Control Reset And Next-Lane Planning
 
+> **HISTORICAL — COMPLETED STAGE.** This file is chronology/evidence only and
+> cannot override [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Purpose
 
 Stage 22 begins after three facts are now true in the repo:

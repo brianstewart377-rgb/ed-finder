@@ -1,5 +1,8 @@
 # Stage 24 - Read-only Evidence Adoption And Governance Roadmap
 
+> **HISTORICAL — COMPLETED STAGE.** This file is chronology/evidence only and
+> cannot override [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Status
 
 Stage 24 planning baseline is prepared.

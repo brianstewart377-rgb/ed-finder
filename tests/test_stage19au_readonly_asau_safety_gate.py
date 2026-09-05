@@ -8,7 +8,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AS1_DOC_PATH = DOCS / 'stage-19as1-disposable-postgres-constraint-tests.md'
 AS2_DOC_PATH = DOCS / 'stage-19as2-operator-script-contract.md'
 AT_DOC_PATH = DOCS / 'stage-19at-paused-state-next-operator-decision.md'
@@ -57,7 +56,6 @@ def test_stage19au_records_as1_as2_at_and_historical_readonly_gate():
     as1_doc = _squash(_read(AS1_DOC_PATH))
     as2_doc = _squash(_read(AS2_DOC_PATH))
     at_doc = _squash(_read(AT_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'Stage 19AU - Read-Only AS-AU Safety Gate',
@@ -75,14 +73,11 @@ def test_stage19au_records_as1_as2_at_and_historical_readonly_gate():
     assert 'Stage 19AS.1 adds the next safety-test checkpoint' in as1_doc
     assert 'Stage 19AS.2 - Operator Script Contract Formalization' in as2_doc
     assert 'Stage 19AT - Paused-State Next Operator Decision' in at_doc
-    assert 'Stage 19AU is the historical read-only AS-AU safety-gate checkpoint after Stage 19AT.' in roadmap
-    assert 'stage-19au-readonly-asau-safety-gate.md' in roadmap
 
 
 @pytest.mark.unit
 def test_stage19au_records_db_verification_history_and_passed_followup():
     au_doc = _squash(_read(AU_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'The Stage 19AU implementation PR did not run DB verification because no explicit safe local or disposable read-only DB target was supplied.',
@@ -102,13 +97,6 @@ def test_stage19au_records_db_verification_history_and_passed_followup():
     ):
         assert fragment in au_doc
 
-    for fragment in (
-        'The Stage 19AU read-only DB verification historically passed against the approved safe local target `127.0.0.1:55432`.',
-        'Historical verification notes preserve the absence of active or failed blocking Stage 19 source runs',
-        'the absence of canonical apply/write evidence at that checkpoint.',
-        'Stage 19 remains historical and paused',
-    ):
-        assert fragment in roadmap
 
 
 @pytest.mark.unit
@@ -157,4 +145,3 @@ def test_stage19au_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19au_readonly_asau_safety_gate.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

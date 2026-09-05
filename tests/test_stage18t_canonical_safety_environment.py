@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18T_PATH = DOCS / 'stage-18t-canonical-safety-test-environment.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 LOCAL_RUNNER_PATH = ROOT / 'scripts' / 'run_canonical_safety_tests.sh'
@@ -50,7 +49,6 @@ def test_stage18t_authority_records_canonical_safety_environment_and_stage18jq_h
 
 def test_stage18t_docs_workflow_runner_and_ci_parity_record_the_safety_environment():
     document = _read(STAGE18T_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
     runner = _read(LOCAL_RUNNER_PATH)
     workflow = _read(WORKFLOW_PATH)
@@ -66,8 +64,6 @@ def test_stage18t_docs_workflow_runner_and_ci_parity_record_the_safety_environme
     ):
         assert fragment in document
 
-    assert 'stage-18t-canonical-safety-test-environment.md' in readme
-    assert 'stage-18j-q-production-reconciliation-artifact-readiness.md' in readme
     assert 'tests/test_stage18t_canonical_safety_environment.py' in parity
     assert 'tests/test_station_type_canonical_pilot.py' in runner
     assert 'tests/test_station_type_canonical_pilot_postgres.py' in runner

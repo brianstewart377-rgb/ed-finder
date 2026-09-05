@@ -10,7 +10,6 @@ DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE24_PATH = DOCS / 'stage-24-roadmap.md'
 STAGE24D_PATH = DOCS / 'stage-24d-readonly-evidence-adoption-closeout.md'
-README_PATH = DOCS / 'README.md'
 
 
 def _read(path: Path) -> str:
@@ -89,11 +88,7 @@ def test_stage24d_document_records_closeout_mode_and_future_control_handoff():
 @pytest.mark.unit
 def test_stage24d_is_discoverable_from_roadmap_and_readme():
     roadmap = _squash(_read(STAGE24_PATH))
-    readme = _read(README_PATH)
 
     assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
     assert 'stage-24d-readonly-evidence-adoption-closeout.md' in roadmap
     assert 'new explicit post-Stage-24 control document' in roadmap
-    assert 'stage-24d-readonly-evidence-adoption-closeout.md' in readme
-    assert 'completed Stage 24D closeout' in readme
-    assert 'Completed Stage 24D closeout record' in readme

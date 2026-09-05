@@ -1,7 +1,7 @@
 # ED-Finder V3 Application Stack Decision
 
 **Decision date:** 2026-09-04  
-**Status:** stack lock for the V3 application rebuild  
+**Status:** current V3 technology authority
 **Tracking:** issue #574  
 **Base:** `main` after PR #568 (`da35e1872c96376d78137d56a07a9bf5ff27662a`)
 
@@ -9,11 +9,23 @@
 
 ED-Finder is using the V3 infrastructure cutover as the point to make one deliberate application-stack reset rather than migrating React, the spatial renderer, package management, browser testing, Python packaging, runtime services and deployment mechanics independently.
 
-This document is the technology authority for the new application baseline. It does not itself authorize production deployment, database mutation, a Babylon production cutover, or any later Stage 27 slice. Those actions still require their normal reviewed stage/operator boundaries.
+This document is the technology authority for the new application baseline.
+`apps/web/` is the sole destination for new browser application implementation.
+It does not itself authorize production deployment, database mutation, or a
+checkpoint destination; those actions still require reviewed roadmap and
+operator boundaries.
 
-The current React/R3F application remains a migration reference for behaviour, user journeys, accessibility expectations, screenshots and parity evidence until equivalent coverage exists. It is not the architecture target for new frontend implementation.
+The React/R3F/Three application remains historical migration evidence for
+behaviour, user journeys, accessibility expectations, screenshots, and parity
+until equivalent coverage exists. It is not the architecture target or current
+production authority. R3F's Stage 26 bakeoff win remains accurate history.
 
-## Post-cutover runtime evidence
+PR #601 is the single active V3 application integration lane. At currently
+known head `190d26446a2487596299cbb6b497ffa5201fee0b`, it contains a real
+Explore/Finder → fresh Babylon results → canonical Inspect slice. This is
+active-PR state, not a claim that it has merged into this branch's `main` base.
+
+## Historical post-cutover starting evidence
 
 Read-only V3 application status run `33817618652`, executed after PR #568 merged, established the starting point:
 
@@ -26,7 +38,9 @@ Read-only V3 application status run `33817618652`, executed after PR #568 merged
 - the host checkout was clean but remained on historical branch `infra/multi-target-operator-mcp`, not current `main`;
 - the public edge was partial/inconsistent: public root and anonymous session responded, while public health returned 503.
 
-Therefore the next engineering problem is **immutable application release/deployment**, not PostgreSQL resurrection and not manual patching of the Phase4C container.
+This receipt records the starting point before the active V3 application lane.
+It is not current runtime proof. Current production and recovery truth comes
+from [`../operations/infrastructure-status.md`](../operations/infrastructure-status.md).
 
 ## Locked stack
 
@@ -183,11 +197,12 @@ Existing Playwright coverage is migration evidence, not future authority. Do not
 
 ## Frontend/renderer ownership amendment
 
-Where Stage 27A documents currently say **React owns app/domain orchestration**, the target-stack interpretation is now:
+The durable frontend/renderer ownership rule is:
 
 > **Svelte/SvelteKit owns app/domain orchestration, routing, panels, accessible DOM UI, keyboard and text. Babylon owns only the long-lived spatial renderer runtime.**
 
-This is a frontend-framework authority amendment, not a change to the renderer-neutral scene contract and not authorization to implement Babylon in Stage 27A.
+This is a frontend-framework authority rule, not a change to the
+renderer-neutral scene contract.
 
 The same replacement applies to references that say React/DOM owns accessible UI: the durable contract is **Svelte/DOM** accessibility ownership. Renderer-neutral domain handlers, rather than React-specific handlers, decide whether runtime events are permitted to mutate application/domain state.
 
@@ -216,20 +231,21 @@ Do not carry these into the new baseline by inertia:
 
 Deck.gl/Luma.gl are not automatically retained. Current use is renderer-bakeoff/reference material. A future Stage 27 requirement must establish a non-Babylon responsibility before either library enters the new application dependency graph.
 
-## Migration and implementation order
+## Current implementation order
 
-The reset is deliberately serialized to avoid half a dozen simultaneous production cutovers.
+The reset remains serialized to avoid unrelated simultaneous cutovers. The
+programme order is authoritative in [`../ROADMAP.md`](../ROADMAP.md):
 
-1. **Accept this stack decision.** No feature implementation before the target is internally consistent.
-2. **Establish immutable V3 release foundation.** Build/publish current FastAPI plus a minimal SvelteKit shell as immutable images; define exact release manifest, secrets, V3 production Compose/network/rollback, health and provenance.
-3. **Prove backend runtime before feature porting.** Origin and public `/api/health` must be healthy; `/openapi.json` and current `/api/auth/*` routes must be present; exact build SHA must be reported.
-4. **Prove migration/OAuth state through reviewed V3 paths.** Inspect migration state before applying anything; then configure Frontier secrets/callback, complete a real login and owner claim.
-5. **Port Svelte application surfaces in bounded slices:** shell/auth/shared API context -> Finder -> Inspect/System Detail -> Planner -> evidence/review -> Admin/Ops.
-6. **Introduce Babylon only through the existing Stage 27 authorization/bakeoff sequence.** The Svelte rebuild does not silently accelerate the renderer production cutover.
-7. **Run V3 data-coverage audit** and repair only data/functions actually shown missing.
-8. **Retire old React/R3F/Playwright/Redis/NATS artifacts only after equivalent accepted replacement coverage/runtime exists.**
+1. Stabilize and accept PR #601's Svelte/Finder/Babylon/Inspect product slice.
+2. Complete CPython 3.14/`uv` and immutable release/provenance hardening.
+3. Merge the exact accepted head, then make an explicit checkpoint decision.
+4. Resolve Search requirements, spatial index/grid/cluster design, scoring
+   dependencies, and only then the PostgreSQL 18 derived-data bootstrap.
+5. Add later application surfaces in bounded slices and retire
+   React/R3F/Playwright/Redis/NATS artifacts only after equivalent accepted
+   replacement coverage or an explicit disposition exists.
 
-## Initial release-foundation acceptance
+## Release acceptance
 
 Before the new application can replace the stale Phase4C runtime, require at minimum:
 

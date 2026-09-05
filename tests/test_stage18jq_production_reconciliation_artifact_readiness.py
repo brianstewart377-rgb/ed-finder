@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18JQ_PATH = DOCS / 'stage-18j-q-production-reconciliation-artifact-readiness.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -42,7 +41,6 @@ def test_stage18jq_authority_records_readiness_review_and_stage18jq2_handoff():
 
 def test_stage18jq_docs_and_ci_parity_record_the_readiness_review():
     document = _read(STAGE18JQ_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -54,6 +52,4 @@ def test_stage18jq_docs_and_ci_parity_record_the_readiness_review():
     ):
         assert fragment in document
 
-    assert 'stage-18j-q-production-reconciliation-artifact-readiness.md' in readme
-    assert 'stage-18j-q2-readonly-production-reconciliation-plan.md' in readme
     assert 'tests/test_stage18jq_production_reconciliation_artifact_readiness.py' in parity

@@ -1,5 +1,8 @@
 # Stage 26C Region-First Foundation Contract
 
+> **HISTORICAL — COMPLETED STAGE.** This R3F contract is migration evidence,
+> not current implementation authority. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status And Authorization
 
 Stage 26C implements the selected Three.js/React Three Fiber foundation behind
@@ -98,7 +101,7 @@ Local verification on 2026-07-22 established:
 - six focused visibility/cluster/overlap unit tests;
 - passing Playwright journeys at 1280x720 and 1440x900, including a successful
   renderer-backed interaction after WebGL context restoration; and
-- a [1440x900 visual review](../../artifacts/map-foundation/stage-26c/region-first-1440x900.png)
+- a [1440x900 visual review](../../../artifacts/map-foundation/stage-26c/region-first-1440x900.png)
   retained in the Stage 26C evidence directory.
 
 The isolated minified build measured approximately 309 kB gzip on this local

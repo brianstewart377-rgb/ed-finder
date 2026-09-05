@@ -12,7 +12,6 @@ STAGE21_ROADMAP_PATH = DOCS / 'stage-21-roadmap.md'
 STAGE20_ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
 STAGE21_BURNDOWN_PATH = DOCS / 'stage-21b-to-21f-stage17-stage18-burn-down.md'
 STAGE21_CLOSEOUT_PATH = DOCS / 'stage-21-closeout.md'
-README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
 STAGE18A_PATH = DOCS / 'stage-18a-enrichment-operator-status.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
@@ -147,7 +146,6 @@ def test_stage21_roadmap_reconciles_stage20_stage17p_and_the_post20_queue():
     roadmap = _squash(_read(STAGE21_ROADMAP_PATH))
     burndown = _squash(_read(STAGE21_BURNDOWN_PATH))
     closeout = _squash(_read(STAGE21_CLOSEOUT_PATH))
-    readme = _squash(_read(README_PATH))
     stage17p = _squash(_read(STAGE17P_PATH))
 
     assert STAGE21_ROADMAP_PATH.exists()
@@ -186,12 +184,6 @@ def test_stage21_roadmap_reconciles_stage20_stage17p_and_the_post20_queue():
     assert 'Stage 18J-P18 is complete for the bounded reviewed batch' in closeout
     assert 'The next meaningful work should begin from Stage 22A' in closeout
 
-    assert 'stage-22-roadmap.md' in readme
-    assert 'stage-21-roadmap.md' in readme
-    assert 'stage-21b-to-21f-stage17-stage18-burn-down.md' in readme
-    assert 'stage-21-closeout.md' in readme
-    assert 'active post-18/20/21 roadmap and current control baseline' in readme
-    assert 'completed Stage 20 roadmap' in readme
     assert 'Stage 22 is now the active post-21 control document' in stage17p
     assert 'Stage 17R/17S/17T/17U have been advanced substantially' in stage17p
 

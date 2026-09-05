@@ -8,7 +8,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AY_DOC_PATH = DOCS / 'stage-19ay-test-environment-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -142,7 +141,6 @@ def test_stage19ay_evidence_matrix_classifies_complete_deferred_and_no_blockers(
 @pytest.mark.unit
 def test_stage19ay_doc_and_roadmap_keep_production_activation_deferred():
     ay_doc = _squash(_read(AY_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'Stage 19AY - Test-Environment Safety Programme Closeout',
@@ -159,10 +157,6 @@ def test_stage19ay_doc_and_roadmap_keep_production_activation_deferred():
     ):
         assert fragment in ay_doc
 
-    assert 'Stage 19AY is the historical docs/static test-environment and safety-programme closeout-preparation checkpoint.' in roadmap
-    assert 'Stage 19AY closed with closeout classification `stage20_planning_ready`.' in roadmap
-    assert 'Stage 19 remains historical and paused' in roadmap
-    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
 
 
 @pytest.mark.unit
@@ -207,4 +201,3 @@ def test_stage19ay_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19ay_test_environment_closeout.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

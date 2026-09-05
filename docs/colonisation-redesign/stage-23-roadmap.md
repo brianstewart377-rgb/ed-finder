@@ -1,5 +1,8 @@
 # Stage 23 Roadmap
 
+> **HISTORICAL — COMPLETED STAGE.** This file is chronology/evidence only and
+> cannot override [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Purpose
 
 Stage 23 is the next post-Stage-22 control sequence. Its goal is to move the

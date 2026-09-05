@@ -1,5 +1,8 @@
 # Real-Star LOD Phase 3: Hysteresis Fade + Truncated Affordance Implementation Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE.** This R3F implementation plan is
+> evidence only and cannot authorize V3 work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add smooth 500ms ease-in-out fade between heatmap (zoomed out) and real stars (zoomed in) layers, with graceful handling of the 40k system cap (truncated affordance).

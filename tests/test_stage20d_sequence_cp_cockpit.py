@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE20D_DOC_PATH = DOCS / 'stage-20d-planner-sequence-cp-curve-cockpit.md'
-README_PATH = DOCS / 'README.md'
 ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
 WORKSPACE_TABS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
 PREVIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
@@ -62,7 +61,6 @@ def test_stage20d_authority_records_sequence_cp_cockpit_without_auto_preview_or_
 def test_stage20d_docs_and_frontend_files_expose_sequence_mode_and_manual_preview_boundary():
     document = _read(STAGE20D_DOC_PATH)
     roadmap = _read(ROADMAP_PATH)
-    readme = _read(README_PATH)
     tabs = _read(WORKSPACE_TABS_PATH)
     preview = _read(PREVIEW_PATH)
     sequence_view = _read(SEQUENCE_VIEW_PATH)
@@ -70,7 +68,6 @@ def test_stage20d_docs_and_frontend_files_expose_sequence_mode_and_manual_previe
     assert '`Sequence` workspace mode' in document
     assert 'manual Run Preview' in document or 'manual Preview' in document
     assert 'stage-20d-planner-sequence-cp-curve-cockpit.md' in roadmap
-    assert 'stage-20d-planner-sequence-cp-curve-cockpit.md' in readme
 
     assert "'sequence'" in tabs
     assert 'CP tradeoffs' in tabs
