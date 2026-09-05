@@ -1,5 +1,8 @@
 # Stage 26E Cutover Readiness
 
+> **HISTORICAL — RETIRED V2 CUTOVER EVIDENCE.** “Production” below describes
+> the decommissioned V2 era and is not V3 production authority.
+
 ## Status
 
 Stage 26E is deployed and in its observation period. The isolated
@@ -15,7 +18,7 @@ Commit `3b53477` now serves this map on the public `#map` route. Public root,
 compatibility, region-asset, and visible-browser checks pass.
 
 The machine-readable source of truth is
-[`cutover-gates.json`](../../artifacts/map-foundation/stage-26e/cutover-gates.json).
+[`cutover-gates.json`](../../../artifacts/map-foundation/stage-26e/cutover-gates.json).
 
 ## Production Activation Receipt
 
@@ -34,7 +37,7 @@ The machine-readable source of truth is
   post-cutover hygiene and did not affect the map route.
 
 The machine-readable receipt is
-[`production-activation.json`](../../artifacts/map-foundation/stage-26e/production-activation.json).
+[`production-activation.json`](../../../artifacts/map-foundation/stage-26e/production-activation.json).
 
 ## First Post-Cutover Slice
 
@@ -60,7 +63,7 @@ successful 2D -> 3D -> 2D journey with the map remaining visible. The canonical
 release passed production-safe data invariants and saved `3b53477` as rollback.
 
 The implementation receipt is
-[`post-cutover-visual-polish.json`](../../artifacts/map-foundation/stage-26e/post-cutover-visual-polish.json).
+[`post-cutover-visual-polish.json`](../../../artifacts/map-foundation/stage-26e/post-cutover-visual-polish.json).
 
 ## Closed Engineering Evidence
 
@@ -168,7 +171,7 @@ and remain below the provisional 50 ms budget.
 
 This closes the unknown-GPU-time evidence gate without substituting JavaScript
 callback or request-animation-frame duration. The retained receipt is
-[`hardware-gpu-timing.json`](../../artifacts/map-foundation/stage-26e/hardware-gpu-timing.json).
+[`hardware-gpu-timing.json`](../../../artifacts/map-foundation/stage-26e/hardware-gpu-timing.json).
 For a repeat measurement in normal Chrome, run `yarn map-foundation:dev` from
 `frontend/`, open
 `http://127.0.0.1:4175/map-foundation/index.html?gpu-test=1`, wait for `ready`,
@@ -186,7 +189,7 @@ is the upstream `RegionMapData.json` grid with coordinate metadata added; its
 `null` to an empty string. This identifies the source precisely but does not
 by itself establish Frontier redistribution coverage. The receipt and hashes
 are retained in
-[`region-source-review.json`](../../artifacts/map-foundation/stage-26e/region-source-review.json).
+[`region-source-review.json`](../../../artifacts/map-foundation/stage-26e/region-source-review.json).
 
 The inspected EDAssets Galaxy Map catalogs contain credited icons and markers,
 not the 42-region RLE boundary grid. EDAssets states that its own site was made
@@ -216,7 +219,7 @@ The application now uses Frontier's official long-form attribution wording.
 This closes the internal project gate as an owner governance decision, not as
 independent legal advice. The upstream MIT copyright and permission notice is
 retained in
-[`THIRD_PARTY_NOTICES.md`](../../THIRD_PARTY_NOTICES.md) for the reused code and
+[`THIRD_PARTY_NOTICES.md`](../../../THIRD_PARTY_NOTICES.md) for the reused code and
 data. ED-Finder remains free and non-commercial; no donation mechanism is
 implemented or relied on by this review, and community donation precedent is
 not treated as formal permission.

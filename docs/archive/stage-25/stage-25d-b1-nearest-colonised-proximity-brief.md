@@ -1,5 +1,8 @@
 # Stage 25D B-1 — Nearest-Colonised Proximity Brief
 
+> **HISTORICAL — COMPLETED STAGE.** This brief is evidence only and does not
+> open a current spatial lane. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Purpose
 
 Ship the smallest useful colonisation-proximity feature:

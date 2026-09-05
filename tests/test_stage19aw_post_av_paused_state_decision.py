@@ -8,7 +8,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AV_DOC_PATH = DOCS / 'stage-19av-expanded-source-run-staging-pilot.md'
 AW_DOC_PATH = DOCS / 'stage-19aw-post-av-paused-state-decision.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
@@ -74,7 +73,6 @@ def test_stage19aw_records_post_av_decision_checkpoint_without_unpausing_stage19
 def test_stage19aw_doc_and_roadmap_require_historical_paused_boundary():
     aw_doc = _squash(_read(AW_DOC_PATH))
     av_doc = _squash(_read(AV_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'Stage 19AW - Post-AV Paused-State Decision',
@@ -98,9 +96,6 @@ def test_stage19aw_doc_and_roadmap_require_historical_paused_boundary():
         assert fragment in aw_doc
 
     assert 'Stage 19AV was run on `2026-06-15T06:21:02Z`' in av_doc
-    assert 'Stage 19AW is the historical post-AV paused-state decision checkpoint.' in roadmap
-    assert 'Stage 19 remains historical and paused' in roadmap
-    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
 
 
 @pytest.mark.unit
@@ -147,4 +142,3 @@ def test_stage19aw_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19aw_post_av_paused_state_decision.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

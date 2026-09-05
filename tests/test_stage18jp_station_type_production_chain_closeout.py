@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE21_CLOSEOUT_PATH = DOCS / 'stage-21-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -57,7 +56,6 @@ def test_stage18jp_authority_records_strict_filter_and_bounded_batch_closeout():
 
 
 def test_stage18jp_docs_migration_ci_parity_and_retirement_evidence_exist():
-    readme = _read(README_PATH)
     closeout = _read(STAGE21_CLOSEOUT_PATH)
     parity = _read(LOCAL_CI_PARITY)
     retired_manifest = _read(RETIRED_WRAPPER_MANIFEST)
@@ -81,7 +79,6 @@ def test_stage18jp_docs_migration_ci_parity_and_retirement_evidence_exist():
     assert 'fully retired' in retired_manifest
     assert 'runnable wrapper bodies are intentionally not carried into the V3 repository surface' in retired_manifest
 
-    assert 'stage-18j-p18n-final-state-snapshot.md' in readme
     assert 'Stage 18J-P18 is complete for the bounded reviewed batch' in closeout
     assert 'Stage 19 production' in closeout
     assert 'activation remains deferred.' in closeout

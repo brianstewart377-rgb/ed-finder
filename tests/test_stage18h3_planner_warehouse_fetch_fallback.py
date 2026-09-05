@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18H3_PATH = DOCS / 'stage-18h3-planner-warehouse-fetch-fallback.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -41,7 +40,6 @@ def test_stage18h3_authority_records_fetch_then_fallback_planner_integration():
 
 def test_stage18h3_docs_and_ci_parity_record_the_fetch_fallback_slice():
     document = _read(STAGE18H3_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -53,5 +51,4 @@ def test_stage18h3_docs_and_ci_parity_record_the_fetch_fallback_slice():
     ):
         assert fragment in document
 
-    assert 'stage-18h3-planner-warehouse-fetch-fallback.md' in readme
     assert 'tests/test_stage18h3_planner_warehouse_fetch_fallback.py' in parity

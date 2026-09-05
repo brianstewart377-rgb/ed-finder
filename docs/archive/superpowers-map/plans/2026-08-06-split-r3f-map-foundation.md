@@ -1,10 +1,13 @@
 # Split R3FMapFoundation.tsx Into Scene-Concern Files Implementation Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE.** This R3F plan is migration
+> evidence only; current V3 work is governed by [`../../../ROADMAP.md`](../../../ROADMAP.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Shrink `frontend/src/features/map-foundation/R3FMapFoundation.tsx` from 1663 lines to roughly 1000 by extracting its self-contained galaxy-backdrop, scene-decoration, and scene-content-composer concerns into three new files, plus two small pure-math additions to the existing `camera.ts`, with zero logic changes.
 
-**Architecture:** Pure code movement, no logic changes. `camera.ts` (existing, currently dependency-free pure math) gains `cameraDistanceForView` and `attenuatedPointSize`. `GalaxyBackdrop.tsx` and `SceneDecorations.tsx` (new) each own one rendering concern and depend only on `camera.ts` (the latter) or nothing (the former). `SceneContents.tsx` (new) owns the R3F-context bridge components, the main per-frame scene composer, and the camera/label projection math, and imports from `camera.ts`, `GalaxyBackdrop.tsx`, and `SceneDecorations.tsx`. `R3FMapFoundation.tsx` keeps its exported component, all keyboard/pointer physics state (NOT extracted — see Global Constraints), and the final JSX render, now importing what it needs from the three new files. This is the live production map renderer (Stage 26E cutover complete, in observation — see `docs/superpowers/specs/2026-08-06-split-r3f-map-foundation-design.md` for full context) so verification in the final task is more thorough than prior items in this series: manual interaction testing (pan/zoom/tilt/select), not just a static render check.
+**Architecture:** Pure code movement, no logic changes. `camera.ts` (existing, currently dependency-free pure math) gains `cameraDistanceForView` and `attenuatedPointSize`. `GalaxyBackdrop.tsx` and `SceneDecorations.tsx` (new) each own one rendering concern and depend only on `camera.ts` (the latter) or nothing (the former). `SceneContents.tsx` (new) owns the R3F-context bridge components, the main per-frame scene composer, and the camera/label projection math, and imports from `camera.ts`, `GalaxyBackdrop.tsx`, and `SceneDecorations.tsx`. `R3FMapFoundation.tsx` keeps its exported component, all keyboard/pointer physics state (NOT extracted — see Global Constraints), and the final JSX render, now importing what it needs from the three new files. At the time this was written, this was the live Stage 26/V2 production renderer (see `docs/archive/superpowers-map/specs/2026-08-06-split-r3f-map-foundation-design.md` for historical context); it is not V3 production authority.
 
 **Tech Stack:** Frontend only (Vite + React 19 + TS 5, React Three Fiber, Three.js, `frontend/`).
 
@@ -1021,7 +1024,7 @@ galaxy backdrop, scene decorations, and R3F scene-content/camera-
 projection code extracted in the prior four commits are now imported
 instead of locally defined. Keyboard/pointer physics state and the
 final JSX render are unchanged, as designed. No behavior change. See
-docs/superpowers/specs/2026-08-06-split-r3f-map-foundation-design.md."
+docs/archive/superpowers-map/specs/2026-08-06-split-r3f-map-foundation-design.md."
 ```
 
 ---

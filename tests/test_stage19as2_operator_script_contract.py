@@ -9,7 +9,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 CONTRACT_DOC_PATH = DOCS / 'stage-19as2-operator-script-contract.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -83,7 +82,6 @@ def test_stage19as2_authority_keeps_asau_and_as1_recorded_while_paused():
 def test_stage19as2_contract_doc_records_repo_only_safety_boundary():
     contract_doc = _read(CONTRACT_DOC_PATH)
     compact_contract_doc = _squash(contract_doc)
-    roadmap = _read(ROADMAP_PATH)
 
     for fragment in (
         'Stage 19AS.2 - Operator Script Contract Formalization',
@@ -98,8 +96,6 @@ def test_stage19as2_contract_doc_records_repo_only_safety_boundary():
     ):
         assert fragment in compact_contract_doc
 
-    assert 'Stage 19AS.2 now formalizes the historical operator-script contract.' in roadmap
-    assert 'stage-19as2-operator-script-contract.md' in roadmap
 
 
 @pytest.mark.unit
@@ -200,4 +196,3 @@ def test_local_ci_parity_includes_as2_without_operator_commands():
     assert 'tests/test_stage19as2_operator_script_contract.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

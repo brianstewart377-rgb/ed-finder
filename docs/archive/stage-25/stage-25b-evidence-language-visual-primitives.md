@@ -1,5 +1,8 @@
 ﻿# Stage 25B - Evidence Language And Visual-System Primitives
 
+> **HISTORICAL — COMPLETED STAGE.** This is retained design and acceptance
+> evidence, not current programme authority. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status
 
 Stage 25B is `implemented_in_this_pr_pending_review`.
@@ -242,4 +245,3 @@ This checkpoint does not authorize:
 - scheduler enablement;
 - source acquisition;
 - operator activity.
-

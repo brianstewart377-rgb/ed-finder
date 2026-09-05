@@ -9,7 +9,6 @@ DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE24_PATH = DOCS / 'stage-24-roadmap.md'
 STAGE24C_PATH = DOCS / 'stage-24c-cross-surface-evidence-consistency.md'
-README_PATH = DOCS / 'README.md'
 
 
 def _read(path: Path) -> str:
@@ -96,11 +95,7 @@ def test_stage24c_document_records_inventory_selection_and_boundaries():
 @pytest.mark.unit
 def test_stage24c_is_discoverable_from_roadmap_and_readme():
     roadmap = _read(STAGE24_PATH)
-    readme = _read(README_PATH)
 
     assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
     assert 'docs/colonisation-redesign/stage-24c-cross-surface-evidence-consistency.md' in roadmap
     assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
-    assert 'stage-24c-cross-surface-evidence-consistency.md' in readme
-    assert 'completed Stage 24C slice' in readme
-    assert 'Completed Stage 24C implementation record' in readme

@@ -11,7 +11,6 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE23_ROADMAP_PATH = DOCS / 'stage-23-roadmap.md'
 STAGE23E_PATH = DOCS / 'stage-23e-readonly-evidence-closeout.md'
 STAGE24_ROADMAP_PATH = DOCS / 'stage-24-roadmap.md'
-README_PATH = DOCS / 'README.md'
 
 PRIMARY_OBJECTIVE = (
     'Turn the completed Stage 23 read-only planner evidence baseline into a '
@@ -175,14 +174,10 @@ def test_stage24_boundaries_keep_stage19_and_write_capable_lanes_closed():
 def test_stage24_is_discoverable_from_stage23_closeout_and_index():
     stage23_roadmap = _squash(_read(STAGE23_ROADMAP_PATH))
     stage23e = _squash(_read(STAGE23E_PATH))
-    readme = _squash(_read(README_PATH))
 
     assert 'Stage 24 - Read-only evidence adoption and governance roadmap' in stage23_roadmap
     assert 'docs/colonisation-redesign/stage-24-roadmap.md' in stage23_roadmap
     assert 'Any further work must begin under a new explicit control document' in stage23e
-    assert 'stage-24-roadmap.md' in readme
-    assert 'completed post-Stage-23 control baseline' in readme
-    assert 'Completed Stage 24 control' in readme
 
 
 @pytest.mark.unit

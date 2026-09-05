@@ -5,7 +5,7 @@
 -- data (systems visited, bodies scanned/mapped, discoveries, exobiology, Codex
 -- entries), scoped by the existing anonymous sync_key mechanism. This table is
 -- never merged into body_scan_facts, body_rings, or any other canonical table -
--- see docs/superpowers/specs/2026-08-08-map-exploration-layer-design.md.
+-- see docs/archive/superpowers-map/specs/2026-08-08-map-exploration-layer-design.md.
 
 CREATE TABLE IF NOT EXISTS exploration_facts (
     id                  BIGSERIAL       PRIMARY KEY,

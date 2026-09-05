@@ -1,8 +1,11 @@
 # Stage 27A spatial capability inventory
 
-Status: **authoritative Stage 27A audit**
+Status: **completed audit/evidence; not current roadmap authority**
 Audit date: 2026-08-31
 Scope: ED-Finder, Colonisation Research Engine (CRE), and Colony Planning Engine (CPE). This is an inventory, not a runtime contract or authority transfer.
+
+Current implementation and authorization come from
+[`../ROADMAP.md`](../ROADMAP.md); this file preserves the dated audit input.
 
 ## Audit basis and evidence limits
 
@@ -60,7 +63,7 @@ The three repositories agree on the high-level boundary but are not runtime-inte
 | CPE plan construction | CPE; ED Colony Cockpit is current persistence/workspace owner until an explicit migration | `CPE README.md`, “Colony Plan Construction”; ED `frontend/src/features/colony-planner/colonyProjectStore.ts`, `ColonyPlannerWorkspace.tsx` | CPE docs only; ED browser-local project workflow implemented | Chosen plan, proposed facilities, order, alternatives and rejected/blocked options are PLANNED | Overlay chosen plan and alternatives, initiate explicit planning actions | No CPE plan wire contract. Map must not silently mutate ED projects or execute Preview | Reserved CPE plan contribution, later 27K |
 | Current ED planner placement and preview | ED-Finder until CPE implementation/integration | `SimulateBuildPlacement` in `apps/api/src/models.py`; `apps/api/src/simulation/preview_pipeline.py`; `frontend/src/features/colony-planner/colonyProjectStore.ts` | Implemented | PLANNED inputs and DERIVED preview; not built state | Proposed facility markers, sequence, comparison | Uses `local_body_id` strings and facility template IDs, not canonical cross-repo FacilityRef/BodyRef | Explicit Plan From Here / compare/open planner handoff |
 | Current ED recommended-plan loading | ED-Finder | `frontend/src/features/system-detail/simulation-preview/useSimulationPreviewPlan.ts` (`autoLoadedRecommendation` effect); explicit candidate application is separate | Implemented brownfield behavior | PLANNED recommendation, not built fact | Potential handoff into current preview | The empty-plan effect may auto-load a recommendation when no initial request exists. This conflicts with the governance phrase “no automatic Suggested Build loading” unless the owner confirms the intended exception; Stage 27 must not copy or broaden it silently | Owner decision before 27F/27K |
-| Renderer ownership | ED-Finder spatial platform | Current map boundary under `frontend/src/features/map/`; Stage 27 renderer-neutral contracts are defined elsewhere | Current R3F production implementation; future Babylon not implemented in 27A | Renderer consumes truth class and provenance; it owns no truth | GPU layers, camera, picking, projection | Domain code must not import Babylon; no CRE/CPE mechanics in renderer | `MapRuntime`, `GalaxyScene`, `SystemScene` |
+| Renderer ownership | ED-Finder spatial platform | Historical map boundary under `frontend/src/features/map/`; V3 renderer-neutral contracts are defined elsewhere | R3F is Stage 26 migration evidence; fresh Babylon is the V3 target and is active in PR #601 | Renderer consumes truth class and provenance; it owns no truth | GPU layers, camera, picking, projection | Domain code must not import Babylon; no CRE/CPE mechanics in renderer | `MapRuntime`, `GalaxyScene`, `SystemScene` |
 
 ## Commander History / Journal event audit
 

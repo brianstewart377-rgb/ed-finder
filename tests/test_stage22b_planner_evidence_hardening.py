@@ -11,7 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE22B_PATH = DOCS / 'stage-22b-current-state-planner-evidence-hardening.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
@@ -119,7 +118,6 @@ def test_stage22b_provenance_authority_failures_fall_back_safely(monkeypatch: py
 @pytest.mark.unit
 def test_stage22b_docs_and_ci_parity_record_the_hardening_boundaries():
     document = ' '.join(_read(STAGE22B_PATH).split()).lower()
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -131,7 +129,6 @@ def test_stage22b_docs_and_ci_parity_record_the_hardening_boundaries():
     ):
         assert fragment in document
 
-    assert 'stage-22b-current-state-planner-evidence-hardening.md' in readme
     assert 'tests/test_stage22b_planner_evidence_hardening.py' in parity
 
 

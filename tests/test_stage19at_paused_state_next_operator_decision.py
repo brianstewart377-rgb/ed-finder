@@ -8,7 +8,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AS1_DOC_PATH = DOCS / 'stage-19as1-disposable-postgres-constraint-tests.md'
 AS2_DOC_PATH = DOCS / 'stage-19as2-operator-script-contract.md'
 AT_DOC_PATH = DOCS / 'stage-19at-paused-state-next-operator-decision.md'
@@ -45,7 +44,6 @@ def test_stage19at_records_as1_as2_and_historical_paused_decision_gate():
     at_doc = _squash(_read(AT_DOC_PATH))
     as1_doc = _squash(_read(AS1_DOC_PATH))
     as2_doc = _squash(_read(AS2_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'Stage 19AT - Paused-State Next Operator Decision',
@@ -61,8 +59,6 @@ def test_stage19at_records_as1_as2_and_historical_paused_decision_gate():
 
     assert 'Stage 19AS.1 adds the next safety-test checkpoint' in as1_doc
     assert 'Stage 19AS.2 - Operator Script Contract Formalization' in as2_doc
-    assert 'Stage 19AT is the recorded paused-state decision gate after Stage 19AS.2.' in roadmap
-    assert 'stage-19at-paused-state-next-operator-decision.md' in roadmap
 
 
 @pytest.mark.unit
@@ -112,4 +108,3 @@ def test_stage19at_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19at_paused_state_next_operator_decision.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

@@ -1621,7 +1621,7 @@ Tests: 5/5 E2E passing, Storybook verified"
 
 ## Execution Options
 
-**Plan complete and saved to `docs/superpowers/plans/2026-08-16-babylon-js-map-redesign.md`**
+**Plan archived at `docs/archive/superpowers-map/plans/2026-08-16-babylon-js-map-redesign.md`**
 
 Two execution options:
 

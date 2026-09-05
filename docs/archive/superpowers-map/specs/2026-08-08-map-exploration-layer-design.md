@@ -1,5 +1,8 @@
 # Personal Exploration Layer on a Generalized Map Substrate — Design
 
+> **HISTORICAL / SUPERSEDED.** Current Commander History and spatial authority
+> lives in the product contract and roadmap.
+
 ## Status
 
 Proposed. Not yet authorized for implementation — this is a design document, not a

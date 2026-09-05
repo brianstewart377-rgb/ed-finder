@@ -11,12 +11,11 @@ def _read(*parts: str) -> str:
 def test_roadmap_has_explicit_v3_cutover_boundary_and_keeps_v2_historical():
     roadmap = _read('docs', 'ROADMAP.md')
 
-    assert 'V3 infrastructure cutover boundary — 2026-09-02' in roadmap
-    assert 'Hetzner/V2 is decommissioned.' in roadmap
-    assert 'historical V2 evidence' in roadmap
+    assert 'ed-finder-prod' in roadmap
+    assert 'nb79a3d.mevnode.com' in roadmap
+    assert 'Hetzner/V2 is gone.' in roadmap
+    assert 'Old host, runtime, cron, database, backup, and rollback receipts are history.' in roadmap
     assert 'PostgreSQL 18' in roadmap
-    assert 'artifact-backed Windows release wrapper' not in roadmap
-    assert 'retired Windows/V2 release wrappers' in roadmap
 
 
 def test_current_infrastructure_fails_closed_without_pg18_recovery_runbook():

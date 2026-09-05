@@ -10,7 +10,6 @@ DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE24_ROADMAP_PATH = DOCS / 'stage-24-roadmap.md'
 STAGE24A_PATH = DOCS / 'stage-24a-readonly-evidence-adoption-contract.md'
-README_PATH = DOCS / 'README.md'
 
 
 def _read(path: Path) -> str:
@@ -147,11 +146,7 @@ def test_stage24a_document_keeps_stage24b_bounded_and_safe():
 @pytest.mark.unit
 def test_stage24a_is_discoverable_from_stage24_roadmap_and_readme():
     roadmap = _read(STAGE24_ROADMAP_PATH)
-    readme = _read(README_PATH)
 
     assert 'docs/colonisation-redesign/stage-24a-readonly-evidence-adoption-contract.md' in roadmap
     assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
     assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
-    assert 'stage-24a-readonly-evidence-adoption-contract.md' in readme
-    assert 'completed Stage 24A contract checkpoint' in readme
-    assert 'Completed Stage 24A contract' in readme

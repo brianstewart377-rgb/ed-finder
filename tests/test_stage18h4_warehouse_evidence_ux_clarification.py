@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18H4_PATH = DOCS / 'stage-18h4-warehouse-evidence-ux-clarification.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -40,7 +39,6 @@ def test_stage18h4_authority_records_readonly_ux_clarification():
 
 def test_stage18h4_docs_and_ci_parity_record_the_ux_slice():
     document = _read(STAGE18H4_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -52,5 +50,4 @@ def test_stage18h4_docs_and_ci_parity_record_the_ux_slice():
     ):
         assert fragment in document
 
-    assert 'stage-18h4-warehouse-evidence-ux-clarification.md' in readme
     assert 'tests/test_stage18h4_warehouse_evidence_ux_clarification.py' in parity

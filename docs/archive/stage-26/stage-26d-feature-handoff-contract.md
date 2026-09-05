@@ -1,5 +1,8 @@
 # Stage 26D Typed Feature Hand-off Contract
 
+> **HISTORICAL — COMPLETED STAGE.** Preserve its behaviour evidence and
+> ownership lessons; current authority is [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status And Authorization
 
 Stage 26D connects ED-Finder's existing Finder, Compare, saved-system, evidence,
