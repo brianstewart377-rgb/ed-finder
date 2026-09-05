@@ -59,6 +59,20 @@ def test_v3_derived_data_status_is_host_locked_and_read_only():
         assert forbidden not in source
 
 
+def test_v3_derived_data_status_resolves_only_non_secret_runtime_identity():
+    source = _read(ACTION)
+
+    assert 'resolve_database_identity' in source
+    assert '"$POSTGRES_USER"' in source
+    assert '"${POSTGRES_DB:-$POSTGRES_USER}"' in source
+    assert 'POSTGRES_PASSWORD' not in source
+    assert 'Config.Env' not in source
+    assert 'docker", "inspect", "-f", "{{.Config.Env}}"' not in source
+    assert 'DB_USER = "edfinder"' not in source
+    assert 'DB_NAME = "edfinder"' not in source
+    assert 'running_container_role_and_database_names_only' in source
+
+
 def test_v3_derived_data_status_uses_bounded_estimates_and_samples():
     source = _read(ACTION)
 
