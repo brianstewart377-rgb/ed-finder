@@ -1,5 +1,15 @@
 name: Review Lab
 
+# Validation lane authority:
+# - This workflow owns the isolated deterministic Review Lab only.
+# - It is separate from normal V3 Product E2E / Visual Acceptance.
+# - Cypress inside Review Lab is a controlled browser driver/collector, not the
+#   owner of normal product E2E or approved visual-regression baselines.
+# - The current frontend/ React browser target and several broad required-gate
+#   checks below are migration debt. Do not add more generic code-quality work
+#   here; move that responsibility to normal CI during the #601 re-base.
+# See docs/development/v3-browser-validation-lanes.md.
+
 on:
   pull_request:
   workflow_dispatch:
