@@ -83,7 +83,7 @@ export function useWatchlist(): UseWatchlist {
       api.watchAdd(syncKey, vars.id64),
     onSuccess: (_data, { id64, hint }) => {
       qc.setQueryData<WatchlistEntry[]>(queryKey, (current = []) => {
-        if (current.some((entry) => entry.system_id64 === id64)) return current;
+        if (current.some((entry) => String(entry.system_id64) === String(id64))) return current;
         return [entryFromHint(id64, hint), ...current];
       });
     },
@@ -106,7 +106,7 @@ export function useWatchlist(): UseWatchlist {
       const previous = qc.getQueryData<WatchlistEntry[]>(queryKey) ?? [];
       qc.setQueryData<WatchlistEntry[]>(
         queryKey,
-        previous.filter((e) => e.system_id64 !== id64),
+        previous.filter((e) => String(e.system_id64) !== String(id64)),
       );
       return { previous };
     },
@@ -133,7 +133,7 @@ export function useWatchlist(): UseWatchlist {
   );
 
   const has = useCallback(
-    (id64: number) => entries.some((e) => e.system_id64 === id64),
+    (id64: number) => entries.some((e) => String(e.system_id64) === String(id64)),
     [entries],
   );
 

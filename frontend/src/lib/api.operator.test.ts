@@ -1,9 +1,14 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from './api';
 
 describe('operator API helpers', () => {
+  beforeEach(() => {
+    sessionStorage.setItem('ed_admin_token', 'token-123');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
+    sessionStorage.clear();
   });
 
   it('call Stage 19 operator endpoints with GET/read-only requests only', async () => {
@@ -11,6 +16,7 @@ describe('operator API helpers', () => {
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({}),
+      text: async () => JSON.stringify({}),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -37,7 +43,7 @@ describe('operator API helpers', () => {
     for (const [, init] of calls) {
       expect(['GET', undefined]).toContain(init?.method);
       expect(String(init?.method ?? 'GET')).not.toMatch(/POST|PATCH|DELETE|PUT/i);
-      expect(init?.headers).toMatchObject({ 'X-Admin-Token': 'token-123' });
+      expect(new Headers(init?.headers).get('X-Admin-Token')).toBe('token-123');
     }
   });
 });
