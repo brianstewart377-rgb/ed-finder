@@ -17,11 +17,25 @@ Normal code-quality CI is outside both browser lanes.
 
 The fact that Review Lab uses Cypress as a browser driver is an implementation detail. It does **not** make Review Lab the normal E2E or visual-regression lane.
 
+## Fresh Babylon map rule
+
+The V3 map is a **fresh design** in `apps/web/` using **Babylon.js** for the spatial renderer. It is not a visual port of the retained React/R3F map and the old React map is not the visual oracle for the new product.
+
+Retained React behaviour, domain expectations and useful journeys may be consulted as migration evidence, but new Babylon map appearance, interaction, camera behaviour, picking/selection behaviour and spatial presentation are accepted against newly approved V3 contracts and V3 visual baselines.
+
+Both browser-validation lanes must exercise the **same V3 frontend and renderer stack** for any map checkpoint they claim to validate:
+
+- normal Product E2E / Visual Acceptance runs the normal `apps/web` + Babylon product runtime;
+- Review Lab runs that same `apps/web` + Babylon frontend against its isolated synthetic backend/data/runtime.
+
+Review Lab may change the **data and environment** to create deterministic scenarios. It must not substitute a different frontend framework or renderer. A React/R3F Review Lab therefore cannot gate a Babylon V3 map checkpoint.
+
 ## Lane 1 — V3 Product E2E / Visual Acceptance
 
 ### Authority
 
 - Primary application target: `apps/web/`.
+- Spatial renderer for the new map: Babylon.js.
 - Browser authority: Cypress.
 - Workflow: `.github/workflows/cypress-parity.yml` while the migration/branch-protection compatibility naming remains in place.
 - Runtime: the normal application/API contract, not `review_main.py` and not review-only routes or fixtures.
@@ -31,6 +45,7 @@ The fact that Review Lab uses Cypress as a browser driver is an implementation d
 - normal user journeys;
 - navigation, mouse and keyboard interaction;
 - Finder, Inspect and later product-surface behaviour;
+- Babylon map interaction including stable user-facing camera, picking/selection and spatial presentation contracts;
 - accessibility checks that describe normal product behaviour;
 - browser console and network failures encountered during normal journeys;
 - cross-browser acceptance for the protected browser classes;
@@ -49,7 +64,9 @@ The fact that Review Lab uses Cypress as a browser driver is an implementation d
 
 The retained `frontend/` Cypress coverage is migration evidence only while equivalent V3 coverage is being established. It must not become the architecture target or regain authority over new V3 product behaviour.
 
-The `apps/web/` suite is currently foundation/smoke coverage. Before the first meaningful Finder/Inspect live checkpoint it must grow into real product E2E and visual acceptance, including meaningful screenshots/assertions for stable user-visible states.
+The retained React/R3F map is not a screenshot-baseline source for the fresh Babylon design. V3 map baselines are established from explicitly accepted V3 states after the new design is coherent enough to review.
+
+The `apps/web/` suite is currently foundation/smoke coverage. Before the first meaningful Finder/Inspect/map live checkpoint it must grow into real product E2E and visual acceptance, including meaningful screenshots/assertions for stable user-visible Babylon states.
 
 ## Lane 2 — Review Lab
 
@@ -58,6 +75,7 @@ The `apps/web/` suite is currently foundation/smoke coverage. Before the first m
 - Workflow: `.github/workflows/review-lab.yml`.
 - Wrapper authority: `scripts/dev/review_environment.py` and `scripts/dev/review_lab/`.
 - Runtime: isolated `edfinder-review` resources, the dedicated review database, synthetic fixtures and review-only API handling.
+- Frontend/renderer for V3 map scenarios: the same `apps/web/` + Babylon implementation used by the normal product lane.
 - Cypress may be invoked by the Review Lab browser runner as its controlled browser driver/collector.
 
 ### Owns
@@ -66,6 +84,7 @@ The `apps/web/` suite is currently foundation/smoke coverage. Before the first m
 - review-only fallback/error/posture cases;
 - controlled large/partial/optional data states;
 - review-only route-contract behaviour;
+- deterministic Babylon map scenarios driven by synthetic Review Lab data where normal product data cannot guarantee the required state;
 - containment of review credentials/data/resources;
 - disposable stack lifecycle and teardown;
 - Docker/process baseline restoration;
@@ -76,6 +95,7 @@ The `apps/web/` suite is currently foundation/smoke coverage. Before the first m
 
 - the normal product E2E suite;
 - normal visual-regression baselines;
+- a separate React/R3F rendering path for V3 acceptance;
 - generic application smoke tests as a substitute for the product E2E lane;
 - normal lint/format/type/unit/security/code-review responsibilities;
 - production or live-checkpoint data;
@@ -120,6 +140,7 @@ These rules are test-enforced:
 - Review Lab must not invoke the normal product E2E command or normal release-gate product specs as a substitute for its dedicated collector;
 - Review Lab browser specs must require the trusted Review Lab handshake and must fail closed outside Review Lab;
 - normal E2E specs must not depend on review-only routes or synthetic Review Lab fixtures;
+- for every V3 map checkpoint, both lanes must render through `apps/web` + Babylon; Review Lab may vary data/environment, not frontend/renderer technology;
 - visual-regression baseline ownership remains exclusively with normal V3 Product E2E;
 - Review Lab visual artifacts remain diagnostic/failure evidence;
 - code-quality checks belong in normal CI, except focused tests of Review Lab's own containment/lifecycle contracts.
@@ -138,28 +159,31 @@ For each failure, first ask which contract failed:
 
 A green Review Lab cannot compensate for missing normal V3 E2E/visual acceptance, and a green normal E2E run cannot compensate for a broken Review Lab scenario required by the checkpoint.
 
+For the fresh Babylon map, a checkpoint cannot claim Review Lab coverage unless the Lab is running the actual V3 Babylon renderer. Passing synthetic scenarios through the old React/R3F frontend is legacy evidence only.
+
 ## Current migration state and required re-base
 
 As of PR #601:
 
 - normal Cypress E2E already exercises both retained React migration evidence and the new `apps/web/` foundation;
-- `apps/web/` coverage is still smoke/foundation-level and does not yet provide the intended Finder/Inspect visual acceptance;
+- `apps/web/` coverage is still smoke/foundation-level and does not yet provide the intended Finder/Inspect/Babylon visual acceptance;
+- the new V3 map is being designed fresh around Babylon rather than copied visually from the retained React/R3F map;
 - Review Lab is structurally separate, but its browser collector is still wired to the retained `frontend/` React application and old Planner-heavy scenario matrix;
 - the Review Lab workflow still carries some general resolver/project-state/stage checks and a formatting check from its history as a broad required gate. Those checks are also migration debt: they must move to normal CI where appropriate, leaving only tests that directly prove Review Lab containment/lifecycle/contracts.
 
-Those last two points are **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/`, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance. The existing generic checks must not be used as precedent for adding more code-review responsibility to Review Lab.
+Those last two points are **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/` and uses the Babylon renderer for V3 map scenarios, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance. The existing generic checks must not be used as precedent for adding more code-review responsibility to Review Lab.
 
-Before the first meaningful Finder/Inspect live checkpoint, PR #601 must:
+Before the first meaningful Finder/Inspect/Babylon live checkpoint, PR #601 must:
 
-1. make `apps/web/` the normal product E2E/visual authority for the checkpoint journeys;
-2. add meaningful Finder -> results -> Inspect user journeys and stable visual assertions;
-3. retarget the Review Lab browser collector to `apps/web/` for the synthetic Finder/Inspect scenarios that are relevant to that checkpoint;
+1. make `apps/web/` + Babylon the normal product E2E/visual authority for the checkpoint journeys;
+2. add meaningful Finder -> map/results -> Inspect user journeys and newly approved V3 visual assertions;
+3. retarget the Review Lab browser collector to that same `apps/web/` + Babylon frontend for the synthetic Finder/Inspect/map scenarios relevant to the checkpoint;
 4. move general code-quality/project-state checks out of Review Lab unless they directly prove Review Lab containment/lifecycle/contracts;
 5. keep Review Lab synthetic data/routes/lifecycle separate from normal E2E;
-6. remove or explicitly archive legacy React-only Review Lab assumptions once equivalent V3 coverage is accepted;
+6. remove or explicitly archive legacy React/R3F Review Lab assumptions once equivalent V3 coverage is accepted;
 7. run one batched stabilisation pass across the two browser lanes before promotion.
 
-A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently: normal Product E2E/Visual Acceptance proves ordinary `apps/web` user behaviour and pixels, while Review Lab proves selected synthetic `apps/web` scenarios inside its isolated stack. Sharing Cypress does not merge those authorities.
+A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently: normal Product E2E/Visual Acceptance proves ordinary `apps/web` + Babylon user behaviour and pixels, while Review Lab proves selected synthetic scenarios through that same `apps/web` + Babylon stack inside its isolated environment. Sharing Cypress does not merge those authorities.
 
 ## Live checkpoint terminology
 
