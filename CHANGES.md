@@ -13,6 +13,20 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## 2026-09-05 — Codex worker reasoning-cost adjustment
+
+### Fixed high-effort model contract
+
+The self-hosted Linux Codex worker now pins both investigation and implementation runs to `model_reasoning_effort="high"` instead of `max` to reduce Contabo credit consumption. The official model ID remains the literal `gpt-5.6-sol`, and each pre-execution attestation reports the fixed `model=gpt-5.6-sol` and `reasoning_effort=high` values.
+
+Exact governance tests now require the same `high` setting in both Codex CLI invocations and both pre-execution attestations, while rejecting the former `max` configuration.
+
+### Trust and authority boundaries unchanged
+
+This is a worker resource-setting change only. Strict configuration validation, ignored ambient user configuration, sandbox mode, least-privilege job permissions, immutable branch/base selection, repeated state gates, credential separation, result sealing, trusted compare-and-swap push, fresh CI/re-review requirements, the production/operator workflows, and deployment authority are unchanged.
+
+---
+
 ## 2026-09-04 — V3 application stack lock and implementation foundation
 
 ### One deliberate application baseline

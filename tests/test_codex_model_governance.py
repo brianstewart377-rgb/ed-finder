@@ -8,6 +8,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 WORKER = ROOT / ".github" / "workflows" / "codex-laptop.yml"
 DISPATCH = ROOT / ".github" / "workflows" / "codex-dispatch.yml"
+EXPECTED_CODEX_MODEL = "gpt-5.6-sol"
+EXPECTED_CODEX_REASONING_EFFORT = "high"
 
 
 class _NoBoolCoercionLoader(yaml.SafeLoader):
@@ -64,8 +66,10 @@ def test_every_codex_exec_has_the_same_hard_pinned_model_contract() -> None:
     for command in commands:
         tokens = shlex.split(command)
         assert tokens[:2] == ["codex", "exec"]
-        assert tokens[tokens.index("--model") + 1] == "gpt-5.6-sol"
-        assert tokens[tokens.index("--config") + 1] == 'model_reasoning_effort="max"'
+        assert tokens[tokens.index("--model") + 1] == EXPECTED_CODEX_MODEL
+        assert tokens[tokens.index("--config") + 1] == (
+            f'model_reasoning_effort="{EXPECTED_CODEX_REASONING_EFFORT}"'
+        )
         assert "--strict-config" in tokens
         assert "--ignore-user-config" in tokens
         governed_options.append(tokens[2 : tokens.index("--sandbox")])
@@ -87,6 +91,8 @@ def test_request_cannot_override_model_or_enable_a_fallback() -> None:
     assert all("${" not in command and "||" not in command for command in commands)
     assert worker_text.count("codex exec ") == 3  # two calls plus the help capability probe
     assert "gpt-6-astra" not in worker_text
+    assert "REQUIRED_CODEX_REASONING_EFFORT='max'" not in worker_text
+    assert 'model_reasoning_effort="max"' not in worker_text
     assert 'model_reasoning_effort="xhigh"' not in worker_text
 
 
@@ -117,6 +123,20 @@ def test_cli_capability_gate_and_sanitised_attestations_precede_execution() -> N
         invocation = script.index("codex exec --ignore-user-config")
         attestation = script.index("CODEX_ATTESTATION")
         assert attestation < invocation
+        assert (
+            f"readonly REQUIRED_CODEX_MODEL='{EXPECTED_CODEX_MODEL}'"
+            in script[:attestation]
+        )
+        assert (
+            "readonly REQUIRED_CODEX_REASONING_EFFORT="
+            f"'{EXPECTED_CODEX_REASONING_EFFORT}'"
+            in script[:attestation]
+        )
+        assert (
+            '"$CODEX_CLI_VERSION" "$REQUIRED_CODEX_MODEL" '
+            '"$REQUIRED_CODEX_REASONING_EFFORT"'
+            in script[attestation:invocation]
+        )
         for field in (
             "cli_version=%s",
             "model=%s",

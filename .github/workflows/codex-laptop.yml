@@ -256,7 +256,7 @@ jobs:
         run: |
           set -euo pipefail
           readonly REQUIRED_CODEX_MODEL='gpt-5.6-sol'
-          readonly REQUIRED_CODEX_REASONING_EFFORT='max'
+          readonly REQUIRED_CODEX_REASONING_EFFORT='high'
           before="$(git status --porcelain=v1 --untracked-files=all)"
           [ -z "$before" ] || { echo "Workspace not clean before Codex" >&2; printf '%s\n' "$before" >&2; exit 65; }
           safe_request_id="$(printf '%s' "$CODEX_REQUEST_ID" | tr -c 'A-Za-z0-9._-' '_' | cut -c1-160)"
@@ -267,7 +267,7 @@ jobs:
           prompt="You are operating in the ED-Finder repository as an investigation-only worker. The wrapper has already run the repository's mandatory state-resolution gate successfully on named branch main at origin/main. Do not modify files, commit, push, deploy, access production, or use production credentials. Inspect the repository and answer the task below with concrete file paths and findings.\n\nTASK:\n$CODEX_TASK"
           codex exec --ignore-user-config --strict-config \
             --model 'gpt-5.6-sol' \
-            --config 'model_reasoning_effort="max"' \
+            --config 'model_reasoning_effort="high"' \
             --sandbox danger-full-access "$prompt"
           after="$(git status --porcelain=v1 --untracked-files=all)"
           if [ -n "$after" ]; then
@@ -290,7 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           readonly REQUIRED_CODEX_MODEL='gpt-5.6-sol'
-          readonly REQUIRED_CODEX_REASONING_EFFORT='max'
+          readonly REQUIRED_CODEX_REASONING_EFFORT='high'
           if [ "$CODEX_UPDATE_EXISTING" = true ]; then
             target_context="Update only the existing branch $CODEX_BRANCH. Preserve its current PR scope and do not reset, rebase, or rewrite unrelated history."
           else
@@ -304,7 +304,7 @@ jobs:
           prompt="You are an implementation worker in the ED-Finder repository. The wrapper has already run the mandatory repository state-resolution gate successfully on the exact selected implementation branch and immutable base SHA. $target_context Read CLAUDE.md and relevant repository docs first. Implement the requested task completely. Spread independent work across parallel agents where appropriate for speed. Run the focused tests/lint/typechecks needed to support your changes. Do not deploy, access production systems, or use production credentials. Do not commit or push; the wrapper will do that after inspection. End with a concise summary of files changed, tests run, and any remaining risks.\n\nTASK:\n$CODEX_TASK"
           codex exec --ignore-user-config --strict-config \
             --model 'gpt-5.6-sol' \
-            --config 'model_reasoning_effort="max"' \
+            --config 'model_reasoning_effort="high"' \
             --sandbox danger-full-access "$prompt"
           /usr/bin/git -c core.hooksPath=/dev/null diff --check
           changes="$(/usr/bin/git -c core.hooksPath=/dev/null status --porcelain=v1 --untracked-files=all)"
