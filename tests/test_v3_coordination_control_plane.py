@@ -42,9 +42,9 @@ def test_live_checkpoint_path_is_main_immutable_and_receipted():
     text = CONTROL_PLANE.read_text(encoding='utf-8')
 
     assert 'After a checkpoint merges, `main` is the only source from which a live checkpoint release may be built.' in text
-    assert '`main` SHA' in text
-    assert 'digest-pinned release' in text
-    assert 'Contabo' in text
+    assert 'main exact SHA' in text
+    assert 'digest-pinned release manifest' in text
+    assert 'Contabo live-checkpoint environment' in text
     assert 'deployment receipt' in text
     assert 'No worker branch deploy' in text
     assert 'no `git pull`' in text
