@@ -165,13 +165,13 @@ jobs:
           CYPRESS_INSTALL_BINARY: '15.21.1'
         run: npx --yes cypress@15.21.1 verify
 
-      - name: Run Cypress release-gate parity
+      - name: Run retained React Cypress migration evidence
         working-directory: frontend
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4173
         run: npx --yes cypress@15.21.1 run --browser ${{ matrix.browser }} --spec cypress/e2e/auth-owner-access.cy.js,cypress/e2e/release-gate.cy.js --config-file cypress.config.cjs
 
-      - name: Set up Node 24 for Svelte foundation
+      - name: Set up Node 24 for V3 Svelte E2E
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
@@ -206,7 +206,7 @@ jobs:
           tail -80 /tmp/cypress-svelte-preview.log || true
           exit 1
 
-      - name: Run Svelte foundation Cypress smoke
+      - name: Run V3 Svelte Product E2E / Visual Acceptance
         working-directory: apps/web
         env:
           CYPRESS_BASE_URL: http://127.0.0.1:4174
