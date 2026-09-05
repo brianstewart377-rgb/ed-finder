@@ -1,5 +1,13 @@
 name: Cypress Parity
 
+# Validation lane authority:
+# - This workflow owns normal Product E2E / Visual Acceptance.
+# - It must not invoke Review Lab runtime, review-only routes, or synthetic Lab
+#   fixtures. Review Lab is a separate deterministic proving environment.
+# - Retained frontend/ React coverage below is migration evidence only; apps/web
+#   is the V3 authority as equivalent journeys and visual assertions land.
+# See docs/development/v3-browser-validation-lanes.md.
+
 on:
   pull_request:
   workflow_dispatch:
