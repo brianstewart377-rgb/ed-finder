@@ -1302,7 +1302,10 @@ def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
     root = source[source.index('function currentWholeSystemPlanner'):source.index('function currentPlannerTelemetryRegion')]
     region = source[source.index('function currentPlannerTelemetryRegion'):source.index('function currentPlannerTelemetryToggle')]
     toggle = source[source.index('function currentPlannerTelemetryToggle'):source.index('function assertCurrentPlannerTelemetryState')]
-    state = source[source.index('function assertCurrentPlannerTelemetryState'):source.index('function exposeCurrentPlannerTelemetryToggle')]
+    state = source[
+        source.index('function assertCurrentPlannerTelemetryState'):
+        source.index('function resetDocumentScrollForPlannerTelemetry')
+    ]
     telemetry = source[source.index('function telemetry'):source.index('function profile')]
 
     assert '[data-testid="planner-telemetry-dock-toggle"]:visible' not in source
@@ -1318,8 +1321,25 @@ def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
     assert '.find(PLANNER_TELEMETRY_REGION)' in region
     assert 'current planner telemetry region' in region
     assert '.to.have.length(1)' in region
-    assert ".and('be.visible')" in region
+    assert ".and('be.visible')" not in region
+    assert ".should('be.visible')" not in region
     assert "current planner telemetry region layout').to.eq('plan-details-panel')" in region
+    assert '$regions.closest(WHOLE_SYSTEM_PLANNER)' in region
+    assert 'current planner telemetry region owner' in region
+    owner_check = region.index('current planner telemetry region owner')
+    assert '.to.have.length(1)' in region[owner_check:owner_check + 140]
+    assert "current planner telemetry region owner accessible name').to.eq('Whole-system colony planner')" in region
+    attachment_check = region.index("region.isConnected, 'current planner telemetry region attachment'")
+    assert '.to.eq(true)' in region[attachment_check:attachment_check + 140]
+    assert 'region.getBoundingClientRect()' in region
+    width_check = region.index("bounds.width, 'current planner telemetry region rendered width'")
+    height_check = region.index("bounds.height, 'current planner telemetry region rendered height'")
+    assert '.to.be.greaterThan(0)' in region[width_check:width_check + 160]
+    assert '.to.be.greaterThan(0)' in region[height_check:height_check + 160]
+    assert "region.ownerDocument.defaultView.getComputedStyle(region)" in region
+    assert "styles.display, 'current planner telemetry region computed display').not.to.eq('none')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('hidden')" in region
+    assert "styles.visibility, 'current planner telemetry region computed visibility').not.to.eq('collapse')" in region
     assert 'currentPlannerTelemetryRegion()' in toggle
     assert '.find(PLANNER_TELEMETRY_TOGGLE)' in toggle
     assert ".should('have.length', 1)" in toggle
@@ -1343,29 +1363,90 @@ def test_review_lab_telemetry_lookup_is_scoped_unique_native_and_linked():
 
 
 @pytest.mark.unit
-def test_review_lab_telemetry_resets_scroll_and_requeries_across_native_enter_transitions():
+def test_review_lab_telemetry_resets_document_scroll_and_proves_requeried_toggle_actionability():
     source = _read(ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js')
+    scroll_reset = source[
+        source.index('function resetDocumentScrollForPlannerTelemetry'):
+        source.index('function exposeCurrentPlannerTelemetryToggle')
+    ]
     exposure = source[source.index('function exposeCurrentPlannerTelemetryToggle'):source.index('function telemetry')]
     telemetry = source[source.index('function telemetry'):source.index('function profile')]
 
-    assert '.scrollTo(0, 0, { duration: 0, ensureScrollable: false })' in exposure
-    assert 'planner telemetry region reset scroll position' in exposure
-    assert '.scrollIntoView({ duration: 0 })' in exposure
-    assert exposure.count('currentPlannerTelemetryToggle()') >= 2
+    assert scroll_reset.count('win.document.scrollingElement') == 2
+    scroll_action = scroll_reset.index('scrollingElement.scrollTo(0, 0)')
+    retryable_reset_assertion = scroll_reset.index('cy.window().should((win)', scroll_action)
+    document_scroll_top = scroll_reset.index('scrollingElement.scrollTop', retryable_reset_assertion)
+    document_scroll_left = scroll_reset.index('scrollingElement.scrollLeft', document_scroll_top)
+    window_scroll_y = scroll_reset.index('win.scrollY', document_scroll_left)
+    window_scroll_x = scroll_reset.index('win.scrollX', window_scroll_y)
+    assert scroll_action < retryable_reset_assertion < document_scroll_top < document_scroll_left
+    assert document_scroll_left < window_scroll_y < window_scroll_x
+    for reset_label in (
+        'planner telemetry document vertical scroll reset',
+        'planner telemetry document horizontal scroll reset',
+        'planner telemetry window vertical scroll reset',
+        'planner telemetry window horizontal scroll reset',
+    ):
+        reset_check = scroll_reset.index(reset_label, retryable_reset_assertion)
+        assert '.to.eq(0)' in scroll_reset[reset_check:reset_check + 140]
+
+    reset_call = exposure.index('return resetDocumentScrollForPlannerTelemetry()')
+    planner_requery = exposure.index('currentWholeSystemPlanner()', reset_call)
+    region_requery = exposure.index('currentPlannerTelemetryRegion()', planner_requery)
+    toggle_requery = exposure.index('currentPlannerTelemetryToggle()', region_requery)
+    geometry = exposure.index('toggle.getBoundingClientRect()', toggle_requery)
+    width_check = exposure.index("bounds.width, 'planner telemetry toggle rendered width'", geometry)
+    height_check = exposure.index("bounds.height, 'planner telemetry toggle rendered height'", width_check)
+    hit_target = exposure.index('toggle.ownerDocument.elementFromPoint(interiorX, interiorY)', height_check)
+    hit_target_present = exposure.index('planner telemetry toggle interior hit target', hit_target)
+    hit_target_owned = exposure.index('topmost === toggle || toggle.contains(topmost)', hit_target_present)
+    button_visible = exposure.index(".should('be.visible')", hit_target_owned)
+    button_enabled = exposure.index(".and('be.enabled')", button_visible)
+    assert reset_call < planner_requery < region_requery < toggle_requery < geometry
+    assert geometry < width_check < height_check < hit_target < hit_target_present < hit_target_owned
+    assert hit_target_owned < button_visible < button_enabled
+    assert '.to.be.greaterThan(0)' in exposure[width_check:width_check + 150]
+    assert '.to.be.greaterThan(0)' in exposure[height_check:height_check + 150]
+    assert '.not.to.equal(null)' in exposure[hit_target_present:hit_target_present + 150]
+    assert '.to.eq(true)' in exposure[hit_target_owned:hit_target_owned + 220]
+
     assert telemetry.count('exposeCurrentPlannerTelemetryToggle()') == 2
     assert telemetry.count('currentPlannerTelemetryToggle().focus()') == 2
     assert telemetry.count("currentPlannerTelemetryToggle().should('have.focus')") == 2
     assert telemetry.count("}).type('{enter}')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('false')") == 2
+    assert telemetry.count("assertCurrentPlannerTelemetryState('true')") == 1
     assert '.click()' not in telemetry
-    assert 'setAttribute' not in telemetry
-    assert not re.search(r"\.attr\(['\"]aria-expanded['\"]\s*,", '\n'.join((exposure, telemetry)))
+    collector = '\n'.join((scroll_reset, exposure, telemetry))
+    assert ':visible' not in collector
+    assert '.first()' not in collector
+    assert '.scrollIntoView(' not in collector
+    assert 'force:' not in collector
+    assert '.invoke(' not in collector
+    assert '.trigger(' not in collector
+    assert '.click()' not in exposure
+    assert '.style.' not in collector
+    assert '.css(' not in collector
+    assert 'setTimeout' not in collector
+    assert 'cy.wait(' not in collector
+    assert 'dispatchEvent' not in collector
+    assert 'frontier-sign-in' not in collector
+    assert '__react' not in collector.lower()
+    assert 'onClick' not in collector
+    assert 'setAttribute' not in collector
+    assert 'removeAttribute' not in collector
+    assert not re.search(r"\.attr\(\s*['\"][^'\"]+['\"]\s*,", collector)
     assert 'supplyPlannerEnterDefaultActionIfNeeded' not in telemetry
     assert '$toggle' not in telemetry
     assert not re.search(r"\.type\('\{enter\}'\)\s*\.should", telemetry)
 
     initially_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')")
+    first_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', initially_collapsed)
+    first_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', first_exposure)
     first_enter = telemetry.index("}).type('{enter}')")
     expanded = telemetry.index("assertCurrentPlannerTelemetryState('true')", first_enter)
+    second_exposure = telemetry.index('exposeCurrentPlannerTelemetryToggle()', expanded)
+    second_focus = telemetry.index('currentPlannerTelemetryToggle().focus()', second_exposure)
     second_enter = telemetry.index("}).type('{enter}')", first_enter + 1)
     finally_collapsed = telemetry.index("assertCurrentPlannerTelemetryState('false')", second_enter)
     success_continuation = telemetry.index('cy.then(() => {', finally_collapsed)
@@ -1374,7 +1455,8 @@ def test_review_lab_telemetry_resets_scroll_and_requeries_across_native_enter_tr
         'summary.accessibility.plannerDesktopTelemetryToggleKeyboardWorks = true',
         success_check,
     )
-    assert initially_collapsed < first_enter < expanded < second_enter < finally_collapsed
+    assert initially_collapsed < first_exposure < first_focus < first_enter < expanded
+    assert expanded < second_exposure < second_focus < second_enter < finally_collapsed
     assert finally_collapsed < success_continuation < success_check < accessibility_check
 
 
