@@ -32,7 +32,7 @@ def _vite_backend_proxy_patterns() -> list[re.Pattern[str]]:
     patterns = [json.loads(f'"{value[1:-1]}"') for value in encoded_patterns]
 
     assert "server: { proxy: backendProxy }" in config
-    assert "preview: { proxy: backendProxy }" in config
+    assert "preview: { proxy: backendProxy }" not in config
     return [re.compile(pattern) for pattern in patterns]
 
 
@@ -50,7 +50,9 @@ def test_v3_web_uses_the_locked_svelte_node_and_pnpm_foundation():
 
 
 def test_v3_web_pnpm_workspace_enforces_supply_chain_policy():
-    workspace = yaml.safe_load((WEB / "pnpm-workspace.yaml").read_text(encoding="utf-8"))
+    workspace = yaml.safe_load(
+        (WEB / "pnpm-workspace.yaml").read_text(encoding="utf-8")
+    )
     exclusions = workspace["minimumReleaseAgeExclude"]
 
     assert workspace["blockExoticSubdeps"] is True
@@ -93,14 +95,19 @@ def test_v3_web_uses_locked_lint_and_format_tooling():
     assert "eslint-plugin-svelte" in eslint_config
 
 
-def test_bootstrap_client_delegates_to_generated_hey_api_sdk():
+def test_bootstrap_client_uses_generated_types_through_the_lossless_facade():
     client = _read("apps", "web", "src", "lib", "api", "client.ts")
 
-    assert "from './generated/sdk.gen'" in client
-    assert "generatedGetHealth" in client
-    assert "generatedGetAuthSession" in client
-    assert "fetch(" not in client
-    assert "getJson" not in client
+    assert (
+        "import type { AuthSessionResponse, HealthResponse } from './generated'"
+        in client
+    )
+    assert "from './generated/sdk.gen'" not in client
+    assert "apiRequest('/health', { signal })" in client
+    assert "apiRequest('/auth/session', { signal })" in client
+    # Generated declarations remain authoritative, while the handwritten
+    # transport preserves response metadata and id64 values before JSON parsing.
+    assert "parseLosslessJson" in client
 
 
 def test_svelte_generation_snapshots_explicit_authoritative_openapi_input():
@@ -175,10 +182,17 @@ def test_legacy_react_frontend_remains_temporary_source_evidence():
 def test_cypress_is_the_v3_web_browser_authority():
     stack_decision = _read("docs", "development", "v3-application-stack-decision.md")
     cypress_config = WEB / "cypress.config.ts"
+    cypress_source = cypress_config.read_text(encoding="utf-8")
 
     assert "**Cypress is the protected browser/E2E authority**" in stack_decision
     assert cypress_config.is_file()
     assert any((WEB / "cypress").glob("e2e/*.cy.ts"))
+    assert "allowCypressEnv: false" in cypress_source
+    assert "Cypress.env(" not in "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (WEB / "cypress").rglob("*")
+        if path.is_file() and path.suffix in {".cjs", ".js", ".mjs", ".ts"}
+    )
 
 
 def test_v3_web_does_not_import_retired_or_deferred_runtime_dependencies():
@@ -198,14 +212,17 @@ def test_v3_web_is_static_spa_and_backend_route_ownership_is_explicit():
     readme = _read("README.md")
 
     assert "@sveltejs/adapter-static" in svelte_config
-    assert "fallback: '200.html'" in svelte_config or 'fallback: "200.html"' in svelte_config
+    assert (
+        "fallback: '200.html'" in svelte_config
+        or 'fallback: "200.html"' in svelte_config
+    )
     assert "/api/*" in readme
     assert "exact `/openapi.json`" in readme
     assert "numeric `/s/{id64}`" in readme
     assert "SvelteKit" in readme
 
 
-def test_vite_proxy_claims_only_backend_owned_route_boundaries():
+def test_vite_dev_proxy_claims_only_backend_owned_route_boundaries():
     patterns = _vite_backend_proxy_patterns()
 
     backend_urls = (
@@ -229,4 +246,6 @@ def test_vite_proxy_claims_only_backend_owned_route_boundaries():
     )
 
     assert all(any(pattern.match(url) for pattern in patterns) for url in backend_urls)
-    assert all(not any(pattern.match(url) for pattern in patterns) for url in frontend_urls)
+    assert all(
+        not any(pattern.match(url) for pattern in patterns) for url in frontend_urls
+    )

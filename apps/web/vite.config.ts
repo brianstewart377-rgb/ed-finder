@@ -13,7 +13,6 @@ export default defineConfig({
   plugins: [tailwindcss(), sveltekit()],
   resolve: { conditions: ['browser'] },
   server: { proxy: backendProxy },
-  preview: { proxy: backendProxy },
   test: {
     environment: 'jsdom',
     include: ['src/**/*.test.ts'],

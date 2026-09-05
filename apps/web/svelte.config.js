@@ -5,5 +5,9 @@ export default {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({ fallback: '200.html' }),
+    prerender: {
+      // Dynamic paths are resolved by the deliberate static SPA fallback.
+      handleUnseenRoutes: 'ignore',
+    },
   },
 };

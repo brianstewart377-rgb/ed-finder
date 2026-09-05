@@ -1,9 +1,12 @@
 <script lang="ts">
-  import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query';
+  import { QueryClientProvider } from '@tanstack/svelte-query';
+  import { queryClient } from '$lib/api/query';
+  import { providePersistenceContext } from '$lib/persistence/context';
   import Page from '../../routes/+page.svelte';
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+  import AppShell from './AppShell.svelte';
+  providePersistenceContext();
 </script>
 
-<QueryClientProvider {client}><Page /></QueryClientProvider>
+<QueryClientProvider client={queryClient}
+  ><AppShell><Page /></AppShell></QueryClientProvider
+>

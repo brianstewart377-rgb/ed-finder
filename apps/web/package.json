@@ -10,12 +10,12 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
-    "preview": "vite preview",
+    "preview": "node scripts/static-preview.mjs",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/static-preview.test.mjs",
     "test:watch": "vitest",
     "test:e2e": "cypress run --browser chrome",
     "generate:api": "svelte-kit sync && node scripts/capture-openapi.mjs && openapi-ts"
@@ -46,6 +46,7 @@
   "dependencies": {
     "@lucide/svelte": "1.37.0",
     "@tanstack/svelte-query": "6.1.48",
-    "bits-ui": "2.19.0"
+    "bits-ui": "2.19.0",
+    "json-with-bigint": "3.5.10"
   }
 }
