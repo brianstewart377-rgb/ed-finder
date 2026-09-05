@@ -2,11 +2,13 @@ import { cleanup, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SpatialCanvas from './SpatialCanvas.svelte';
+import type { RuntimeEventListener, SpatialSceneContract } from './contracts';
 
 const adapter = vi.hoisted(() => ({
   runtimes: [] as Array<{
     dispatch: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
+    emit: (event: Parameters<RuntimeEventListener>[0]) => void;
   }>,
   create: vi.fn(),
 }));
@@ -36,10 +38,16 @@ describe('SpatialCanvas', () => {
     observe.mockReset();
     disconnect.mockReset();
     vi.stubGlobal('ResizeObserver', ResizeObserverMock);
+    vi.stubGlobal('matchMedia', () => ({ matches: true }));
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
     vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(360);
     adapter.create.mockImplementation((_canvas, onStatus) => {
-      const record = { dispatch: vi.fn(), dispose: vi.fn() };
+      let listener: RuntimeEventListener = () => undefined;
+      const record = {
+        dispatch: vi.fn(() => ({ status: 'executed' as const })),
+        dispose: vi.fn(),
+        emit: (event: Parameters<RuntimeEventListener>[0]) => listener(event),
+      };
       adapter.runtimes.push(record);
       return {
         getStatus: () => ({ state: 'created' as const }),
@@ -50,7 +58,10 @@ describe('SpatialCanvas', () => {
           return ready;
         }),
         dispatch: record.dispatch,
-        subscribe: vi.fn(() => vi.fn()),
+        subscribe: vi.fn((next: RuntimeEventListener) => {
+          listener = next;
+          return vi.fn();
+        }),
         resize: vi.fn(),
         dispose: record.dispose,
       };
@@ -113,5 +124,69 @@ describe('SpatialCanvas', () => {
 
     expect(disconnect).toHaveBeenCalledTimes(2);
     expect(adapter.runtimes[1]?.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('loads product scenes, focuses targets, and forwards neutral picks from the stable host', async () => {
+    const scene: SpatialSceneContract = {
+      kind: 'galaxy',
+      revision: 9,
+      camera: {
+        focusLy: { x: 0, y: 0, z: 0 },
+        distanceLy: 30,
+        bearingRad: 0,
+        pitchRad: 0.5,
+        projection: 'perspective',
+        revision: 9,
+      },
+      selection: [],
+      contributions: [],
+    };
+    const eventHandler = vi.fn();
+    const focusTarget = { kind: 'system' as const, systemId64: '42' };
+    const view = render(SpatialCanvas, {
+      props: {
+        scene,
+        focusTarget,
+        focusRevision: 1,
+        onRuntimeEvent: eventHandler,
+      },
+    });
+    await waitFor(() =>
+      expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+        type: 'LOAD_SCENE',
+        scene,
+      }),
+    );
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+      type: 'FLY_TO',
+      target: focusTarget,
+      reducedMotion: true,
+    });
+
+    const host = view.container.querySelector('.spatial-canvas');
+    expect(host).toBeTruthy();
+    await host?.dispatchEvent(
+      new PointerEvent('pointerdown', {
+        button: 0,
+        clientX: 12,
+        clientY: 18,
+        bubbles: true,
+      }),
+    );
+    expect(adapter.runtimes[0]?.dispatch).toHaveBeenCalledWith({
+      type: 'PICK',
+      screenX: 12,
+      screenY: 18,
+    });
+
+    const picked = {
+      type: 'TARGET_PICKED' as const,
+      target: { kind: 'system' as const, systemId64: '42' },
+    };
+    adapter.runtimes[0]?.emit(picked);
+    expect(eventHandler).toHaveBeenCalledWith(picked);
+    await waitFor(() =>
+      expect(host).toHaveAttribute('data-last-picked-id64', '42'),
+    );
   });
 });

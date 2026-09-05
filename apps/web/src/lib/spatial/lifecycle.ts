@@ -24,6 +24,10 @@ export interface SpatialBackendSession {
   subscribeResourceEvents?(
     listener: SpatialBackendResourceListener,
   ): () => void;
+  execute?(
+    command: Exclude<RuntimeCommand, { type: 'RESIZE' }>,
+    emit: (event: RuntimeEvent) => void,
+  ): RuntimeCommandDispatchResult;
   resize(viewport: SpatialViewport): void;
   render(): void;
   dispose(): void;
@@ -279,6 +283,16 @@ export function createManagedSpatialRuntime(
           height: command.height,
           dpr: command.dpr,
         });
+      }
+      if (session?.execute && status.state === 'ready' && !resourceLost) {
+        try {
+          const result = session.execute(command, emit);
+          if (result.status === 'executed') renderOnNextFrame();
+          return result;
+        } catch {
+          fail('RUNTIME_FAILED');
+          return { status: 'ignored', reason: 'inactive' };
+        }
       }
       return { status: 'unsupported', command: command.type };
     },

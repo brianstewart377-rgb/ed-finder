@@ -35,14 +35,25 @@ import { client } from './generated/client.gen';
 import {
   authLogoutApiAuthLogoutPost,
   authSessionApiAuthSessionGet,
+  autocompleteApiLocalAutocompleteGet,
   claimOwnerApiAuthOwnerClaimPost,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getSystemApiSystemId64Get,
   healthApiHealthGet,
+  localSearchEndpointApiLocalSearchPost,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
 } from './generated/sdk.gen';
-import type { AuthSessionResponse, HealthResponse } from './generated';
+import type {
+  AuthSessionResponse,
+  AutocompleteHit,
+  AutocompleteResponse,
+  HealthResponse,
+  LocalSearchRequest,
+  SearchResponse,
+  SystemDetailRow,
+  SystemRow,
+} from './generated';
 
 export {
   ADMIN_TOKEN_SESSION_KEY,
@@ -135,17 +146,150 @@ export const getAuthSession = async (
 ): Promise<AuthSessionResponse> =>
   (await authSessionApiAuthSessionGet({ throwOnError: true, signal })).data;
 
-export async function getSystem<T extends Record<string, unknown>>(
+export type AutocompleteSystem = Readonly<
+  Pick<
+    AutocompleteHit,
+    'name' | 'x' | 'y' | 'z' | 'population' | 'primaryEconomy'
+  > & { id64: Id64 }
+>;
+
+export type ExploreSystem = Readonly<
+  Pick<
+    SystemRow,
+    | 'name'
+    | 'coords'
+    | 'distance'
+    | 'population'
+    | 'primaryEconomy'
+    | 'secondaryEconomy'
+    | 'security'
+    | 'allegiance'
+    | 'government'
+    | 'is_colonised'
+    | 'is_being_colonised'
+    | 'main_star_type'
+    | 'main_star_subtype'
+    | 'archetype_score'
+    | 'archetype_tier'
+    | 'primary_archetype'
+    | 'secondary_archetype'
+    | 'archetype_confidence'
+    | 'overall_development_potential'
+    | 'buildability_score'
+    | 'build_complexity'
+    | 'est_total_slots'
+    | 'tags'
+    | 'elw_count'
+    | 'ww_count'
+    | 'terraformable_count'
+    | 'bio_signal_total'
+    | 'geo_signal_total'
+  > & { id64: Id64 }
+>;
+
+export type SystemDetail = Readonly<
+  Pick<
+    SystemDetailRow,
+    | 'name'
+    | 'x'
+    | 'y'
+    | 'z'
+    | 'population'
+    | 'primary_economy'
+    | 'secondary_economy'
+    | 'security'
+    | 'allegiance'
+    | 'government'
+    | 'is_colonised'
+    | 'is_being_colonised'
+    | 'main_star_type'
+    | 'main_star_subtype'
+    | 'primary_archetype'
+    | 'secondary_archetype'
+    | 'archetype_confidence'
+    | 'overall_development_potential'
+    | 'buildability_score'
+    | 'build_complexity'
+    | 'est_total_slots'
+    | 'elw_count'
+    | 'ww_count'
+    | 'terraformable_count'
+    | 'bio_signal_total'
+    | 'geo_signal_total'
+    | 'bodies'
+    | 'stations'
+  > & { id64: Id64 }
+>;
+
+export type AutocompleteSystemsResponse = Omit<
+  AutocompleteResponse,
+  'results'
+> & {
+  readonly results: readonly AutocompleteSystem[];
+};
+
+export type ExploreSearchResponse = Omit<SearchResponse, 'results'> & {
+  readonly results: readonly ExploreSystem[];
+};
+
+export type ExploreSearchRequest = LocalSearchRequest;
+
+function losslessId64(value: unknown): Id64 {
+  if (typeof value !== 'string') {
+    throw new TypeError('API id64 did not pass through the lossless JSON lane');
+  }
+  return parseId64(value);
+}
+
+export async function autocompleteSystems(
+  query: string,
+  signal?: AbortSignal,
+): Promise<AutocompleteSystemsResponse> {
+  const { data } = await autocompleteApiLocalAutocompleteGet({
+    throwOnError: true,
+    query: { q: query, limit: 10 },
+    signal,
+  });
+  return {
+    ...data,
+    results: data.results.map((hit) => ({
+      ...hit,
+      id64: losslessId64(hit.id64),
+    })),
+  };
+}
+
+export async function searchExploreSystems(
+  request: ExploreSearchRequest,
+  signal?: AbortSignal,
+): Promise<ExploreSearchResponse> {
+  const { data } = await localSearchEndpointApiLocalSearchPost({
+    throwOnError: true,
+    body: request,
+    signal,
+  });
+  return {
+    ...data,
+    results: data.results.map((system) => ({
+      ...system,
+      id64: losslessId64(system.id64),
+    })),
+  };
+}
+
+export async function getSystem(
   id64: Id64,
-): Promise<T> {
+  signal?: AbortSignal,
+): Promise<SystemDetail> {
   const { data } = await getSystemApiSystemId64Get({
     throwOnError: true,
     // The path carries the lossless decimal id64; the generated OpenAPI type is
     // a JS number, so bridge it explicitly rather than coercing through Number().
     path: { id64: parseId64(id64) as unknown as number },
+    signal,
   });
-  const envelope = data as unknown as { record?: T; system: T };
-  return envelope.record ?? envelope.system;
+  const detail = data.record ?? data.system;
+  return { ...detail, id64: losslessId64(detail.id64) };
 }
 
 export function optimiserCandidates<

@@ -33,7 +33,9 @@
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/svelte": "5.4.2",
     "@types/node": "24.10.0",
+    "axe-core": "4.12.1",
     "cypress": "15.21.1",
+    "cypress-axe": "1.7.0",
     "eslint": "10.9.1",
     "eslint-plugin-svelte": "3.23.0",
     "jsdom": "27.4.0",
@@ -48,8 +50,8 @@
     "vitest": "4.1.0"
   },
   "dependencies": {
-    "@ed-finder/api-client": "file:../../packages/api-client",
     "@babylonjs/core": "9.23.0",
+    "@ed-finder/api-client": "file:../../packages/api-client",
     "@lucide/svelte": "1.37.0",
     "@tanstack/svelte-query": "6.1.48",
     "bits-ui": "2.19.0",

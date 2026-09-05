@@ -54,6 +54,8 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     assert "healthApiHealthGet(" in source
     assert "authSessionApiAuthSessionGet(" in source
     assert "getSystemApiSystemId64Get(" in source
+    assert "autocompleteApiLocalAutocompleteGet(" in source
+    assert "localSearchEndpointApiLocalSearchPost(" in source
 
     # ...not the raw shared transport hand-rolling the route any more.
     assert "apiRequest('/health'" not in source
@@ -65,10 +67,16 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     assert "from './generated/client.gen'" in source
     assert "credentials: 'include'" in source
     assert "interceptors" in source
-    assert (
-        "import type { AuthSessionResponse, HealthResponse } from './generated'"
-        in source
-    )
+    assert "import type {" in source and "from './generated'" in source
+    for generated_type in (
+        "AuthSessionResponse",
+        "HealthResponse",
+        "AutocompleteHit",
+        "LocalSearchRequest",
+        "SearchResponse",
+        "SystemDetailRow",
+    ):
+        assert generated_type in source
 
     # Application normalization stays a facade responsibility: lossless Id64
     # before unsafe number coercion, structured ApiError, system-envelope

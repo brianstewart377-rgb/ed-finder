@@ -333,6 +333,52 @@ describe('renderer-neutral spatial runtime lifecycle', () => {
     });
   });
 
+  it('forwards only backend-supported product commands and relays product events', async () => {
+    const webGl2 = createSession('WEBGL2');
+    const events: RuntimeEvent[] = [];
+    const execute: NonNullable<SpatialBackendSession['execute']> = vi.fn(
+      (command, emit) => {
+        if (command.type === 'PICK') {
+          emit({
+            type: 'TARGET_PICKED',
+            target: { kind: 'system', systemId64: '9007199254740993' },
+          });
+          return { status: 'executed' as const };
+        }
+        if (command.type === 'LOAD_SCENE' || command.type === 'FLY_TO') {
+          return { status: 'executed' as const };
+        }
+        return { status: 'unsupported' as const, command: command.type };
+      },
+    );
+    const productSession: SpatialBackendSession = { ...webGl2, execute };
+    const runtime = createManagedSpatialRuntime(
+      {
+        createWebGpu: vi.fn().mockResolvedValue(null),
+        createWebGl2: vi.fn().mockReturnValue(productSession),
+      },
+      vi.fn(),
+    );
+    runtime.subscribe((event) => events.push(event));
+    await runtime.start();
+
+    expect(
+      runtime.dispatch({ type: 'PICK', screenX: 10, screenY: 20 }),
+    ).toEqual({
+      status: 'executed',
+    });
+    expect(events.at(-1)).toEqual({
+      type: 'TARGET_PICKED',
+      target: { kind: 'system', systemId64: '9007199254740993' },
+    });
+    expect(
+      runtime.dispatch({
+        type: 'REBUILD_RESOURCES',
+        reason: 'context-loss',
+      }),
+    ).toEqual({ status: 'unsupported', command: 'REBUILD_RESOURCES' });
+  });
+
   it('subscribes in order and cleans listeners up deterministically', async () => {
     const webGpu = createSession('WEBGPU');
     const runtime = createManagedSpatialRuntime(

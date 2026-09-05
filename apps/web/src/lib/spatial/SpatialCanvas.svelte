@@ -2,12 +2,48 @@
   import { onMount } from 'svelte';
 
   import { createBabylonSpatialRuntime } from './babylon/adapter';
-  import type { SpatialRuntimeStatus } from './contracts';
+  import type {
+    RuntimeEvent,
+    SpatialRuntime,
+    SpatialRuntimeStatus,
+    SpatialSceneContract,
+    SpatialTarget,
+  } from './contracts';
+
+  let {
+    scene,
+    focusTarget = null,
+    focusRevision = 0,
+    onRuntimeEvent,
+  } = $props<{
+    scene?: SpatialSceneContract;
+    focusTarget?: SpatialTarget | null;
+    focusRevision?: number;
+    onRuntimeEvent?: (event: RuntimeEvent) => void;
+  }>();
 
   let canvas: HTMLCanvasElement;
   let host: HTMLDivElement;
+  let runtime: SpatialRuntime | null = null;
   let status = $state<SpatialRuntimeStatus>({ state: 'created' });
   let resizeRevision = $state(0);
+  let lastLoadedRevision = $state(-1);
+  let lastFocusRevision = -1;
+  let lastPickedId64 = $state<string | undefined>();
+
+  function targetCount(value: SpatialSceneContract | undefined): number {
+    return (
+      value?.contributions.reduce(
+        (total, contribution) =>
+          total +
+          contribution.layers.reduce(
+            (layerTotal, layer) => layerTotal + layer.targetCount,
+            0,
+          ),
+        0,
+      ) ?? 0
+    );
+  }
 
   const statusLabel = $derived.by(() => {
     switch (status.state) {
@@ -25,11 +61,70 @@
   const statusBackend = $derived(
     status.state === 'ready' ? status.backend : undefined,
   );
+  const sceneTargetCount = $derived(targetCount(scene));
+
+  $effect(() => {
+    if (
+      status.state !== 'ready' ||
+      !runtime ||
+      !scene ||
+      scene.revision === lastLoadedRevision
+    ) {
+      return;
+    }
+    if (runtime.dispatch({ type: 'LOAD_SCENE', scene }).status === 'executed') {
+      lastLoadedRevision = scene.revision;
+    }
+  });
+
+  $effect(() => {
+    if (
+      status.state !== 'ready' ||
+      !runtime ||
+      !focusTarget ||
+      focusRevision === lastFocusRevision ||
+      scene?.revision !== lastLoadedRevision
+    ) {
+      return;
+    }
+    const reducedMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)',
+    ).matches;
+    if (
+      runtime.dispatch({ type: 'FLY_TO', target: focusTarget, reducedMotion })
+        .status === 'executed'
+    ) {
+      lastFocusRevision = focusRevision;
+    }
+  });
+
+  function pick(event: PointerEvent): void {
+    if (event.button !== 0 || status.state !== 'ready' || !runtime) return;
+    const activeCanvas = host.querySelector('canvas');
+    if (!activeCanvas) return;
+    const bounds = activeCanvas.getBoundingClientRect();
+    runtime.dispatch({
+      type: 'PICK',
+      screenX: event.clientX - bounds.left,
+      screenY: event.clientY - bounds.top,
+    });
+  }
 
   onMount(() => {
     let mounted = true;
-    const runtime = createBabylonSpatialRuntime(canvas, (nextStatus) => {
+    runtime = createBabylonSpatialRuntime(canvas, (nextStatus) => {
       if (mounted) status = nextStatus;
+    });
+    const activeRuntime = runtime;
+    const unsubscribe = activeRuntime.subscribe((event) => {
+      if (!mounted) return;
+      if (event.type === 'TARGET_PICKED') {
+        lastPickedId64 =
+          event.target?.kind === 'system' ? event.target.systemId64 : undefined;
+      } else if (event.type === 'RECOVERED' && scene) {
+        lastLoadedRevision = -1;
+      }
+      onRuntimeEvent?.(event);
     });
 
     const resize = (width: number, height: number): void => {
@@ -38,7 +133,7 @@
         height: Math.max(1, Math.round(height)),
         dpr: Math.min(2, Math.max(1, window.devicePixelRatio || 1)),
       };
-      runtime.dispatch({ type: 'RESIZE', ...viewport });
+      activeRuntime.dispatch({ type: 'RESIZE', ...viewport });
       resizeRevision += 1;
       host
         .querySelector('canvas')
@@ -51,17 +146,28 @@
     });
     observer.observe(host);
     resize(host.clientWidth, host.clientHeight);
-    void runtime.start();
+    void activeRuntime.start();
 
     return () => {
       mounted = false;
       observer.disconnect();
-      runtime.dispose();
+      unsubscribe();
+      activeRuntime.dispose();
+      runtime = null;
+      lastLoadedRevision = -1;
+      lastFocusRevision = -1;
     };
   });
 </script>
 
-<div class="spatial-canvas" bind:this={host}>
+<div
+  class="spatial-canvas"
+  bind:this={host}
+  role="presentation"
+  onpointerdown={pick}
+  data-scene-target-count={sceneTargetCount}
+  data-last-picked-id64={lastPickedId64}
+>
   <canvas
     bind:this={canvas}
     data-spatial-canvas

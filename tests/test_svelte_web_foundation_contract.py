@@ -117,13 +117,23 @@ def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport()
     transport = _read("packages", "api-client", "src", "core.ts")
 
     assert "from '@ed-finder/api-client/core'" in client
-    assert "AuthSessionResponse, HealthResponse" in client
+    for generated_type in (
+        "AuthSessionResponse",
+        "HealthResponse",
+        "AutocompleteHit",
+        "LocalSearchRequest",
+        "SearchResponse",
+        "SystemDetailRow",
+    ):
+        assert generated_type in client
     # Ordinary operations delegate to the generated Hey API SDK; the facade
     # layers the shared lossless/credentialed normalization on top by
     # configuring the generated client (not by hand-rolling raw routes).
     assert "from './generated/sdk.gen'" in client
     assert "healthApiHealthGet(" in client
     assert "authSessionApiAuthSessionGet(" in client
+    assert "autocompleteApiLocalAutocompleteGet(" in client
+    assert "localSearchEndpointApiLocalSearchPost(" in client
     assert "apiRequest('/health'" not in client
     assert "fetch(" not in client
     assert "parseLosslessJson" in client

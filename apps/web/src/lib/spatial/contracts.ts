@@ -75,6 +75,17 @@ export type SpatialContribution = Readonly<{
   layers: readonly LayerContract[];
 }>;
 
+/** Product-neutral point data consumed by the Galaxy renderer. */
+export type GalaxySystemPoint = Readonly<{
+  systemId64: string;
+  name: string;
+  positionLy: Vec3Ly;
+}>;
+
+export type GalaxySystemsPayload = Readonly<{
+  systems: readonly GalaxySystemPoint[];
+}>;
+
 export type OrbitalDescriptor = Readonly<{
   periodDays?: Truth<number>;
   semiMajorAxisAu?: Truth<number>;

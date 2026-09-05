@@ -16,11 +16,7 @@ describe('id64-bearing application API facade', () => {
       ),
     );
 
-    const result = await getSystem<{
-      id64: string;
-      system_id64: string;
-      name: string;
-    }>(parseId64('18446744073709551615'));
+    const result = await getSystem(parseId64('18446744073709551615'));
 
     expect(result).toEqual({
       id64: '18446744073709551615',

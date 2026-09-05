@@ -5,10 +5,12 @@ import {
   ApiError,
   LEGACY_ADMIN_ENDPOINTS,
   apiRequest,
+  autocompleteSystems,
   claimOwner,
   getAuthSession,
   getHealth,
   getSystem,
+  searchExploreSystems,
 } from './client';
 // Allowed only in a .test. file: exercise the generated client configuration
 // (interceptors) the facade installs, on a route the facade does not wrap.
@@ -64,6 +66,43 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
 
     const system = await getSystem('18446744073709551615' as never);
     expect(system.id64).toBe('18446744073709551615');
+  });
+
+  it('uses typed generated Explore operations and normalizes every result id64', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          '{"results":[{"id64":9007199254740993,"name":"Far Reach","x":1,"y":2,"z":3}]}',
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          '{"results":[{"id64":18446744073709551615,"name":"Edge","coords":{"x":4,"y":5,"z":6}}],"count":1}',
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      );
+
+    await expect(autocompleteSystems('Far')).resolves.toMatchObject({
+      results: [{ id64: '9007199254740993', name: 'Far Reach' }],
+    });
+    await expect(
+      searchExploreSystems({ galaxy_wide: true, size: 24 }),
+    ).resolves.toMatchObject({
+      results: [{ id64: '18446744073709551615', name: 'Edge' }],
+    });
+
+    const autocompleteRequest = fetchMock.mock.calls[0]?.[0] as Request;
+    const searchRequest = fetchMock.mock.calls[1]?.[0] as Request;
+    expect(autocompleteRequest.url).toContain(
+      '/api/local/autocomplete?q=Far&limit=10',
+    );
+    expect(searchRequest.url).toContain('/api/local/search');
+    expect(await searchRequest.clone().json()).toEqual({
+      galaxy_wide: true,
+      size: 24,
+    });
   });
 
   it('raises a structured ApiError carrying status and path on a non-2xx response', async () => {

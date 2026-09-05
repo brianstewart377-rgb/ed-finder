@@ -1,7 +1,9 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import type { Id64 } from '$lib/domain/id64';
+  import SystemDetail from './SystemDetail.svelte';
   let { id64 } = $props<{ id64: Id64 }>();
   let dialog: HTMLDivElement;
   let returnFocus: HTMLElement | null = null;
@@ -103,7 +105,7 @@
     class="dialog panel"
     role="dialog"
     aria-modal="true"
-    aria-labelledby="system-detail-title"
+    aria-label="System Detail"
     tabindex="-1"
     bind:this={dialog}
     data-testid="system-detail-modal"
@@ -114,12 +116,11 @@
       onclick={close}
       aria-label="Close system detail">×</button
     >
-    <p class="eyebrow">Inspect</p>
-    <h1 id="system-detail-title">System Detail</h1>
-    <p>System <code>{id64}</code></p>
-    <p>
-      This feature body has not been ported yet. The route, identifier, and
-      overlay lifecycle are active platform contracts.
-    </p>
+    <SystemDetail {id64} />
+    <div class="detail-actions">
+      <a class="primary-button" href={resolve(`/inspect?system=${id64}`)}
+        >Open canonical Inspect</a
+      >
+    </div>
   </div>
 </div>

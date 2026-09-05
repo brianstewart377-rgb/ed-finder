@@ -81,6 +81,16 @@ jobs:
           PGPASSWORD: edfinder
         run: |
           psql -h localhost -U edfinder -d edfinder <<SQL
+          INSERT INTO systems (
+            id64, name, x, y, z, primary_economy, secondary_economy,
+            population, is_colonised, security, allegiance, government,
+            main_star_type, main_star_subtype, has_body_data, body_count,
+            data_quality, galaxy_region_id
+          ) VALUES (
+            9007199254740993, 'V3 Lossless Reach', 18.25, -7.5, 42.75,
+            'HighTech', 'Industrial', 9007199, true, 'High', 'Independent',
+            'Cooperative', 'F', '5 V', false, 0, 5, 18
+          ) ON CONFLICT (id64) DO NOTHING;
           INSERT INTO ratings (system_id64, score, score_agriculture, score_refinery,
             score_industrial, score_hightech, score_military, score_tourism,
             score_extraction, slots, body_quality, compactness, signal_quality,

@@ -42,18 +42,18 @@ describe('ED-Finder V3 foundation', () => {
 
   it('supports direct navigation and refresh through the SPA fallback', () => {
     cy.visit('/explore');
-    cy.get('h1').should('have.text', 'Explore').and('be.visible');
+    cy.get('h1')
+      .should('contain.text', 'Chart a promising system')
+      .and('be.visible');
     cy.reload();
-    cy.contains('This product surface has not been ported yet.').should(
-      'be.visible',
-    );
+    cy.get('h1')
+      .should('contain.text', 'Chart a promising system')
+      .and('be.visible');
   });
 
   it('rejects unknown journey routes instead of rendering a placeholder', () => {
     cy.visit('/explroe', { failOnStatusCode: false });
-    cy.contains('This product surface has not been ported yet.').should(
-      'not.exist',
-    );
+    cy.contains('Chart a promising system').should('not.exist');
     cy.contains(/not found/i).should('be.visible');
   });
 });
