@@ -2,9 +2,13 @@
 import type { AuthSessionResponse, HealthResponse } from './generated';
 import type { Id64 } from '$lib/domain/id64';
 import { parseId64 } from '$lib/domain/id64';
+import {
+  ADMIN_TOKEN_SESSION_KEY,
+  readSessionStorageValue,
+} from '$lib/persistence/storage';
 import { parseLosslessJson } from './lossless-json';
 
-export const ADMIN_TOKEN_SESSION_KEY = 'ed_admin_token';
+export { ADMIN_TOKEN_SESSION_KEY } from '$lib/persistence/storage';
 
 export function canonicalApiPath(path: string): string {
   if (/^https?:\/\//i.test(path))
@@ -202,12 +206,7 @@ export function adminEndpointClass(
 }
 
 function sessionAdminToken(): string {
-  if (typeof window === 'undefined') return '';
-  try {
-    return window.sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY)?.trim() ?? '';
-  } catch {
-    return '';
-  }
+  return readSessionStorageValue(ADMIN_TOKEN_SESSION_KEY)?.trim() ?? '';
 }
 
 export class ApiError extends Error {
@@ -345,6 +344,36 @@ export function optimiserCandidates<
       include_ranking: true,
       ...request,
     }),
+  });
+}
+
+export interface ProfileSyncPullResponse<TBlob> {
+  blob: TBlob;
+  updated_at: string;
+  blob_bytes: number;
+}
+
+export interface ProfileSyncPushResponse {
+  updated_at: string;
+  blob_bytes: number;
+}
+
+export function pullProfileSync<TBlob>(
+  syncKey: string,
+  signal?: AbortSignal,
+): Promise<ProfileSyncPullResponse<TBlob>> {
+  return apiRequest(`/profile/sync/${encodeURIComponent(syncKey)}`, { signal });
+}
+
+export function pushProfileSync<TBlob>(
+  syncKey: string,
+  blob: TBlob,
+  signal?: AbortSignal,
+): Promise<ProfileSyncPushResponse> {
+  return apiRequest(`/profile/sync/${encodeURIComponent(syncKey)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ blob }),
+    signal,
   });
 }
 

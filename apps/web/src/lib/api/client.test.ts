@@ -8,6 +8,8 @@ import {
   claimOwner,
   getAuthSession,
   getHealth,
+  pullProfileSync,
+  pushProfileSync,
 } from './client';
 
 const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
@@ -185,6 +187,62 @@ describe('bootstrap API client', () => {
     expect(fetchMock.mock.calls[2]?.[1]?.body).toBe(
       JSON.stringify({ admin_token: 'one-time-owner-link-secret' }),
     );
+  });
+
+  it('uses the same-origin facade for profile pull/push without an admin header', async () => {
+    sessionStorage.setItem('ed_admin_token', 'must-not-leak');
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse({ blob: {}, updated_at: 'pull-time', blob_bytes: 2 }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ updated_at: 'push-time', blob_bytes: 42 }),
+      );
+
+    await pullProfileSync('profile-key-1234567890');
+    await pushProfileSync('profile-key-1234567890', {
+      version: 1,
+      exported_at: 'now',
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/api/profile/sync/profile-key-1234567890',
+    );
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(
+      '/api/profile/sync/profile-key-1234567890',
+    );
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: 'PUT',
+      body: JSON.stringify({ blob: { version: 1, exported_at: 'now' } }),
+    });
+    for (const [, init] of fetchMock.mock.calls)
+      expect(new Headers(init?.headers).has('X-Admin-Token')).toBe(false);
+  });
+
+  it('preserves the profile endpoint problem body on a 413 response', async () => {
+    const problem = {
+      type: 'about:blank',
+      title: 'Profile blob too large',
+      status: 413,
+      detail: 'Profile blob too large: 1048577 bytes (max 1048576).',
+      instance: '/api/profile/sync/profile-key-1234567890',
+    };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse(problem, {
+        status: 413,
+        headers: { 'content-type': 'application/problem+json' },
+      }),
+    );
+
+    await expect(
+      pushProfileSync('profile-key-1234567890', { oversized: true }),
+    ).rejects.toMatchObject({
+      status: 413,
+      path: '/api/profile/sync/profile-key-1234567890',
+      body: problem,
+      message: problem.detail,
+    });
   });
 
   it('preserves structured, text, and empty error responses', async () => {

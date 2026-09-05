@@ -97,6 +97,7 @@ def test_persisted_key_inventory_is_explicit_and_complete():
     local_keys = {
         "ed_pinned",
         "ed_compare_v2",
+        "ed_colony_v2",
         "ed_sync_key",
         "ed_selected_route",
         "ed_my_work_v1",
@@ -115,6 +116,60 @@ def test_persisted_key_inventory_is_explicit_and_complete():
     )
     assert "localStorage" in persistence
     assert "sessionStorage" in persistence
+
+
+def test_persistence_layer_is_the_only_runtime_browser_storage_owner():
+    storage_globals = re.compile(r"\b(?:localStorage|sessionStorage)\b")
+    storage_keys = re.compile(
+        r"ed_(?:pinned|compare_v2|colony_v2|sync_key|selected_route|"
+        r"my_work_v1|colony_projects_v1|expansion_plans_v1|fc_v2|"
+        r"profile_sync_key|profile_sync_last|density_v1|admin_token|"
+        r"operator_selected_source_run)|ed-finder:selected-system-context"
+    )
+    offenders = []
+    key_offenders = []
+    for path, source in _application_sources():
+        relative = path.relative_to(SOURCE).as_posix()
+        if relative.startswith("lib/persistence/"):
+            continue
+        if storage_globals.search(source):
+            offenders.append(relative)
+        if storage_keys.search(source):
+            key_offenders.append(relative)
+    assert offenders == []
+    assert key_offenders == []
+
+
+def test_profile_sync_is_closed_allowlist_without_synthetic_storage_events():
+    profile_sync = (
+        SOURCE / "lib" / "persistence" / "profile-sync.ts"
+    ).read_text(encoding="utf-8")
+    allowlist_match = re.search(
+        r"export const PROFILE_SYNC_KEYS = \[(.*?)\] as const", profile_sync, re.DOTALL
+    )
+    assert allowlist_match is not None
+    allowlist = set(re.findall(r"PERSISTENCE_KEYS\.([A-Za-z]+)", allowlist_match.group(1)))
+    assert allowlist == {
+        "pins",
+        "compare",
+        "legacyColony",
+        "fcRoute",
+        "myWork",
+        "colonyProjects",
+        "expansionPlans",
+    }
+    denylist_match = re.search(
+        r"export const PROFILE_SYNC_SECURITY_DENYLIST = \[(.*?)\] as const",
+        profile_sync,
+        re.DOTALL,
+    )
+    assert denylist_match is not None
+    denylist = set(
+        re.findall(r"PERSISTENCE_KEYS\.([A-Za-z]+)", denylist_match.group(1))
+    )
+    assert denylist == {"adminToken", "operatorHandoff", "syncKey"}
+    assert "new StorageEvent" not in profile_sync
+    assert ".dispatchEvent" not in profile_sync
 
 
 def test_static_application_has_no_pwa_or_playwright_runtime():
