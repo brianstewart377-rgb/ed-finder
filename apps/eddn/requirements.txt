@@ -2,4 +2,4 @@
 # pyzmq for the EDDN ZMQ relay; asyncpg+redis for storage and pub/sub.
 asyncpg==0.31.0
 redis[asyncio]==8.1.0
-pyzmq==27.1.0
+pyzmq==27.2.0
