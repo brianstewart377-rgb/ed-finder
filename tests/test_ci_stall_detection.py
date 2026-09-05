@@ -49,6 +49,7 @@ CHECKED_WORKFLOWS = (
     'remove-ollama-production.yml',
     'review-lab.yml',
     'semgrep.yml',
+    'v3-derived-data-status.yml',
 )
 
 

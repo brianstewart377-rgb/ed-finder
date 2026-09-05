@@ -1,0 +1,99 @@
+name: V3 derived-data status
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/prod-status-requests/20260905-v3-derived-data-status.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-derived-data-status
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    name: Inspect V3 derived-data population
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout status request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate exact one-purpose request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          expected='.github/prod-status-requests/20260905-v3-derived-data-status.json'
+          mapfile -t changed < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed[@]}" -eq 1 ] || { echo "Expected exactly one changed status request" >&2; exit 64; }
+          [ "${changed[0]}" = "$expected" ] || { echo "Unexpected status request path" >&2; exit 64; }
+          python3 - "$expected" <<'PY'
+          import json, pathlib, sys
+          value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          if value != {"operation": "v3-derived-data-status"}:
+              raise SystemExit("Request must be exactly v3-derived-data-status")
+          PY
+
+      - name: Checkout trusted operator implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare pinned SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned ed-new known-hosts secret" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = "22" ]; then
+            lookup="$SSH_HOST"
+          else
+            lookup="[$SSH_HOST]:$SSH_PORT"
+          fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "Pinned known-host trust does not cover configured production host" >&2
+            exit 1
+          }
+
+      - name: Inspect derived-data state read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'cd /opt/ed-finder && bash -s' \
+              < trusted-main/scripts/operator/actions/v3-derived-data-status.sh
