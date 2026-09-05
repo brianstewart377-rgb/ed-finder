@@ -42,7 +42,10 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
 
-      - name: Set up Node 22
+      # TEMPORARY MIGRATION DEBT: the Review Lab browser collector still targets
+      # retained frontend/ React. Retarget this to apps/web once Finder/Inspect
+      # synthetic journeys exist; a green legacy Lab run is not V3 acceptance.
+      - name: Set up Node 22 for retained Review Lab collector
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "22"
@@ -56,22 +59,25 @@ jobs:
           ./.venv/bin/pip install -r apps/api/requirements.txt
           ./.venv/bin/pip install pytest pytest-asyncio httpx anyio
 
-      - name: Install frontend dependencies
+      - name: Install retained Review Lab frontend dependencies
         working-directory: frontend
         run: yarn install --frozen-lockfile --no-progress --non-interactive
 
-      - name: Verify Cypress browser driver
+      - name: Verify Review Lab Cypress browser driver
         working-directory: frontend
         run: yarn cypress verify
 
       - name: Confirm Docker Compose support
         run: docker compose version
 
-      - name: Run strict resolver
+      # TEMPORARY MIGRATION DEBT: these broad required-gate checks predate the V3
+      # lane split. Move general project/code checks to normal CI; Review Lab may
+      # retain only tests that directly prove its own containment/lifecycle/contracts.
+      - name: Run legacy Review Lab gate preparation
         run: |
           PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/resolve_project_state.py --strict
 
-      - name: Run focused Review Lab and safety tests
+      - name: Run retained Review Lab gate tests
         run: |
           PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B -m pytest \
             tests/test_local_review_test_environment.py \
@@ -96,7 +102,8 @@ jobs:
             --scenario all \
             --confirm-local-review-environment
 
-      - name: Check git diff formatting
+      # TEMPORARY MIGRATION DEBT: formatting belongs to normal CI, not Review Lab.
+      - name: Check retained gate diff formatting
         if: always()
         run: git diff --check
 
