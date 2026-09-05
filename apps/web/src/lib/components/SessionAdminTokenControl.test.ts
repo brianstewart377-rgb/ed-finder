@@ -36,6 +36,8 @@ describe('SessionAdminTokenControl', () => {
       'bounded-token',
     );
     expect(localStorage.getItem(ADMIN_TOKEN_SESSION_KEY)).toBeNull();
+    expect(screen.getByTestId('session-admin-token-input')).toHaveValue('');
+    expect(document.body).not.toHaveTextContent('bounded-token');
     await waitFor(() =>
       expect(
         screen.getByTestId('session-admin-token-status'),

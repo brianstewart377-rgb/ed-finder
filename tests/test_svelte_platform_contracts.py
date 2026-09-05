@@ -1,5 +1,6 @@
 """Fail-closed repository contracts for the Svelte platform tranche (#579)."""
 
+import ast
 import re
 from pathlib import Path
 
@@ -27,6 +28,49 @@ def test_generated_hey_api_is_isolated_behind_api_adapters():
         ):
             offenders.append(relative)
     assert offenders == []
+
+
+def test_legacy_admin_token_allowlist_matches_require_admin_decorators():
+    backend_routes = set()
+    for path in (ROOT / "apps" / "api" / "src").rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        if "require_admin" not in source:
+            continue
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for decorator in node.decorator_list:
+                if not (
+                    isinstance(decorator, ast.Call)
+                    and isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr.upper()
+                    in {"GET", "POST", "PUT", "PATCH", "DELETE"}
+                    and "require_admin" in ast.dump(decorator)
+                    and decorator.args
+                    and isinstance(decorator.args[0], ast.Constant)
+                    and isinstance(decorator.args[0].value, str)
+                ):
+                    continue
+                backend_routes.add(
+                    (decorator.func.attr.upper(), decorator.args[0].value)
+                )
+
+    facade = (SOURCE / "lib" / "api" / "client.ts").read_text(encoding="utf-8")
+    inventory_match = re.search(
+        r"export const LEGACY_ADMIN_ENDPOINTS = \[(.*?)\] as const satisfies",
+        facade,
+        re.DOTALL,
+    )
+    assert inventory_match is not None
+    inventory_entries = re.findall(
+        r"method:\s*'([A-Z]+)',\s*path:\s*'([^']+)'",
+        inventory_match.group(1),
+        re.DOTALL,
+    )
+    frontend_routes = set(inventory_entries)
+
+    assert len(inventory_entries) == len(frontend_routes)
+    assert frontend_routes == backend_routes
 
 
 def test_application_id64_never_uses_number_coercion_or_number_types():
@@ -104,6 +148,9 @@ def test_react_tree_is_retained_as_source_evidence_only():
 def test_root_layout_owns_the_configured_query_and_persistence_singletons():
     layout = (SOURCE / "routes" / "+layout.svelte").read_text(encoding="utf-8")
     query = (SOURCE / "lib" / "api" / "query.ts").read_text(encoding="utf-8")
+    persistence_context = (SOURCE / "lib" / "persistence" / "context.ts").read_text(
+        encoding="utf-8"
+    )
     shell = (SOURCE / "lib" / "components" / "AppShell.svelte").read_text(
         encoding="utf-8"
     )
@@ -118,4 +165,24 @@ def test_root_layout_owns_the_configured_query_and_persistence_singletons():
     ):
         assert accepted_default in query
     assert "providePersistenceContext()" in layout
+    assert "const persistence = usePersistenceContext()" in shell
+    assert "Persistence context has not been provided" in persistence_context
     assert "hydrateApplicationStores()" in shell
+
+    runtime_sources = {
+        path.relative_to(SOURCE).as_posix(): source
+        for path, source in _application_sources()
+        if path.name != "TestShell.svelte"
+    }
+    query_client_owners = [
+        relative
+        for relative, source in runtime_sources.items()
+        if re.search(r"\bnew\s+QueryClient\s*\(", source)
+    ]
+    persistence_context_owners = [
+        relative
+        for relative, source in runtime_sources.items()
+        if re.search(r"\bprovidePersistenceContext\s*\(\s*\)\s*;", source)
+    ]
+    assert query_client_owners == ["lib/api/query.ts"]
+    assert persistence_context_owners == ["routes/+layout.svelte"]

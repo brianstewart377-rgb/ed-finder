@@ -7,6 +7,19 @@ describe('ED-Finder static dynamic-route fallback', () => {
     });
   });
 
+  it('serves and refreshes a maximum-width System Detail route', () => {
+    const route = '/system/18446744073709551615';
+
+    cy.visit(route);
+    cy.get('[data-testid="system-detail-page"]')
+      .should('contain.text', 'System Detail')
+      .and('contain.text', '18446744073709551615');
+
+    cy.reload();
+    cy.location('pathname').should('eq', route);
+    cy.get('[data-testid="system-detail-page"]').should('be.visible');
+  });
+
   it('serves and refreshes a nested Colony Planner route', () => {
     const route =
       '/colony-planner/system/18446744073709551615/project/project-1/mode/preview';
@@ -35,12 +48,20 @@ describe('ED-Finder static dynamic-route fallback', () => {
       .and('be.visible');
   });
 
-  it('does not turn a near-prefix typo into a successful SPA response', () => {
-    cy.request({
-      url: '/colony-plannerish/system/1',
-      failOnStatusCode: false,
-    }).then(({ status }) => {
-      expect(status).to.eq(404);
-    });
+  it('keeps near-prefixes and unknown frontend routes application-owned', () => {
+    const routes = [
+      '/apiary',
+      '/openapi.jsonx',
+      '/s/1x',
+      '/colony-plannerish/system/1',
+      '/unknown-frontend-route',
+    ];
+
+    for (const route of routes) {
+      cy.request(route).then(({ headers, status }) => {
+        expect(status, route).to.eq(200);
+        expect(headers['content-type'], route).to.include('text/html');
+      });
+    }
   });
 });

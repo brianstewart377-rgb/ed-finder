@@ -53,11 +53,21 @@ describe('Colony Planner route loader', () => {
 
   it.each([
     ['out-of-range system', 'system/18446744073709551616'],
-    ['unknown mode', 'system/42/mode/not-a-mode'],
+    ['missing mode', 'system/42/mode'],
+    ['unknown mode with trailing data', 'system/42/mode/not-a-mode/extra'],
     ['missing project identifier', 'system/42/project'],
     ['invalid detail id', 'system/42/detail/not-an-id'],
     ['trailing detail data', 'system/42/detail/99/extra'],
   ])('rejects %s', (_label, state) => {
     expect(captureThrown(() => run(state))).toMatchObject({ status: 404 });
+  });
+
+  it('rejects an unknown planner mode explicitly', () => {
+    expect(captureThrown(() => run('system/42/mode/not-a-mode'))).toMatchObject(
+      {
+        status: 404,
+        body: { message: 'Invalid planner mode' },
+      },
+    );
   });
 });

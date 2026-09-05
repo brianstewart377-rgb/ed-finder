@@ -111,6 +111,9 @@ describe('ED-Finder V3 shell', () => {
 
     renderPage();
 
+    expect(applicationStores.selectedSystem.read().value).toBe(
+      '18446744073709551615',
+    );
     await waitFor(() =>
       expect(screen.getByTestId('selected-system-context')).toHaveTextContent(
         '18446744073709551615',

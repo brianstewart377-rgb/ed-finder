@@ -107,6 +107,8 @@ export function createAuthStore(
       try {
         session = await api.claimOwner(trimmed);
       } catch (error) {
+        // A rejected one-time owner claim does not invalidate the cookie-backed
+        // Frontier session that was required to make the attempt.
         reportError(error);
         throw error;
       }

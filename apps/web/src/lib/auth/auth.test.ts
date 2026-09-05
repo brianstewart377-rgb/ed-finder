@@ -70,6 +70,39 @@ describe('auth store', () => {
     expect(get(store.owner)).toBe(true);
   });
 
+  it('does not replace the session token before owner claim success', async () => {
+    const owner = {
+      authenticated: true,
+      user: { commander_name: 'Owner', is_owner: true },
+      owner_claim_available: false,
+    };
+    let resolveClaim!: (session: typeof owner) => void;
+    const api = {
+      session: vi.fn(),
+      logout: vi.fn(),
+      claimOwner: vi.fn(
+        () =>
+          new Promise<typeof owner>((resolve) => {
+            resolveClaim = resolve;
+          }),
+      ),
+    };
+    const tokenStore = createTokenStore('prior-token');
+    const store = createAuthStore(api, tokenStore.store);
+
+    const claim = store.claimOwner('  replacement-token  ');
+
+    expect(api.claimOwner).toHaveBeenCalledWith('replacement-token');
+    expect(tokenStore.store.set).not.toHaveBeenCalled();
+    expect(tokenStore.value()).toBe('prior-token');
+
+    resolveClaim(owner);
+    await claim;
+
+    expect(tokenStore.store.set).toHaveBeenCalledWith('replacement-token');
+    expect(tokenStore.value()).toBe('replacement-token');
+  });
+
   it('bridges a successful claim to later bounded mutation requests', async () => {
     const owner = {
       authenticated: true,
@@ -230,5 +263,31 @@ describe('auth store', () => {
     });
     expect(clearToken).not.toHaveBeenCalled();
     expect(sessionStorage.getItem(ADMIN_TOKEN_SESSION_KEY)).toBe('prior-token');
+  });
+
+  it('preserves the signed-in session when an owner claim is rejected', async () => {
+    const signedIn = {
+      authenticated: true,
+      user: { commander_name: 'Commander', is_owner: false },
+      owner_claim_available: true,
+    };
+    const rejection = new Error('Invalid admin token');
+    const api = {
+      session: vi.fn().mockResolvedValue(signedIn),
+      logout: vi.fn(),
+      claimOwner: vi.fn().mockRejectedValue(rejection),
+    };
+    const store = createAuthStore(api);
+    await store.bootstrap();
+
+    await expect(store.claimOwner('wrong-token')).rejects.toBe(rejection);
+    expect(get(store)).toEqual({
+      loading: false,
+      authenticated: true,
+      user: { commander_name: 'Commander', is_owner: false },
+      ownerClaimAvailable: true,
+      error: 'Invalid admin token',
+    });
+    expect(get(store.owner)).toBe(false);
   });
 });

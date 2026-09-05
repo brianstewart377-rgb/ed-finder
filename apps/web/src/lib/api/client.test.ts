@@ -1,11 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  authSessionApiAuthSessionGet as generatedGetAuthSession,
-  healthApiHealthGet as generatedGetHealth,
-} from './generated/sdk.gen';
-import {
   ADMIN_TOKEN_SESSION_KEY,
   ApiError,
+  LEGACY_ADMIN_ENDPOINTS,
   adminEndpointClass,
   apiRequest,
   canonicalApiPath,
@@ -14,23 +11,23 @@ import {
   getHealth,
 } from './client';
 
-vi.mock('./generated/sdk.gen', () => ({
-  authSessionApiAuthSessionGet: vi.fn(),
-  healthApiHealthGet: vi.fn(),
-}));
+const jsonResponse = (body: unknown, init: ResponseInit = {}) =>
+  new Response(JSON.stringify(body), {
+    ...init,
+    headers: { 'content-type': 'application/json', ...init.headers },
+  });
 
-const mockedGetHealth = vi.mocked(generatedGetHealth);
-const mockedGetAuthSession = vi.mocked(generatedGetAuthSession);
+const concretePath = (template: string) =>
+  template.replace(/\{[^{}]+\}/g, 'test-value');
 
 describe('bootstrap API client', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.resetAllMocks();
     localStorage.clear();
     sessionStorage.clear();
   });
 
-  it('calls the generated health SDK with same-origin credentials and cancellation', async () => {
+  it('loads health through the credentialed lossless facade with cancellation', async () => {
     const health = {
       status: 'ok',
       database: 'connected',
@@ -38,43 +35,57 @@ describe('bootstrap API client', () => {
       build_sha: 'abc',
     };
     const controller = new AbortController();
-    mockedGetHealth.mockResolvedValue({
-      data: health,
-      request: new Request('http://localhost/api/health', {
-        signal: controller.signal,
-      }),
-      response: new Response(),
-    });
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse(health));
 
     await expect(getHealth(controller.signal)).resolves.toEqual(health);
-    expect(mockedGetHealth).toHaveBeenCalledWith({
-      credentials: 'include',
-      signal: controller.signal,
-      throwOnError: true,
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/health',
+      expect.objectContaining({
+        credentials: 'include',
+        signal: controller.signal,
+      }),
+    );
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get('Accept'),
+    ).toBe('application/json');
+  });
+
+  it('preserves status, path, and lossless body metadata for session failures', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        '{"detail":"Session unavailable","system_id64":18446744073709551615}',
+        {
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 'content-type': 'application/json' },
+        },
+      ),
+    );
+
+    await expect(getAuthSession()).rejects.toMatchObject({
+      status: 503,
+      path: '/api/auth/session',
+      body: {
+        detail: 'Session unavailable',
+        system_id64: '18446744073709551615',
+      },
+      message: 'Session unavailable',
     });
   });
 
-  it('calls the generated session SDK and normalises structured failures', async () => {
-    mockedGetAuthSession.mockRejectedValue({ detail: 'Session unavailable' });
-
-    await expect(getAuthSession()).rejects.toThrow('Session unavailable');
-    expect(mockedGetAuthSession).toHaveBeenCalledWith({
-      credentials: 'include',
-      signal: undefined,
-      throwOnError: true,
-    });
-  });
-
-  it('normalises generated JSON, text, and empty response failures', async () => {
-    mockedGetHealth.mockRejectedValueOnce({
-      response: new Response(
+  it('preserves JSON, text, and empty health failure bodies', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValueOnce(
+      new Response(
         '{"detail":"No health","system_id64":18446744073709551615}',
         {
           status: 403,
           headers: { 'content-type': 'application/json' },
         },
       ),
-    });
+    );
     await expect(getHealth()).rejects.toMatchObject({
       status: 403,
       path: '/api/health',
@@ -82,49 +93,39 @@ describe('bootstrap API client', () => {
       message: 'No health',
     });
 
-    mockedGetHealth.mockRejectedValueOnce({
-      response: new Response('gateway down', { status: 502 }),
-    });
+    fetchMock.mockResolvedValueOnce(
+      new Response('gateway down', { status: 502 }),
+    );
     await expect(getHealth()).rejects.toMatchObject({
       status: 502,
+      path: '/api/health',
       body: 'gateway down',
       message: 'gateway down',
     });
 
-    mockedGetHealth.mockRejectedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       new Response(null, { status: 503, statusText: 'Unavailable' }),
     );
     await expect(getHealth()).rejects.toMatchObject({
       status: 503,
+      path: '/api/health',
       body: '',
       message: 'Unavailable',
     });
   });
 
-  it('normalises generated network Errors and object failures with causes', async () => {
+  it('normalises network failures while preserving their cause', async () => {
     const network = new Error('socket closed');
-    mockedGetHealth.mockRejectedValueOnce(network);
-    const networkFailure = await getHealth().catch((error: unknown) => error);
-    expect(networkFailure).toBeInstanceOf(ApiError);
-    expect(networkFailure).toMatchObject({
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(network);
+
+    const failure = await getHealth().catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect(failure).toMatchObject({
       status: 0,
       path: '/api/health',
       body: '',
-      message: 'socket closed',
+      message: 'Network request failed on /api/health',
       cause: network,
-    });
-
-    const objectFailure = {
-      status: 429,
-      error: { detail: 'bounded' },
-      message: 'Rate limited',
-    };
-    mockedGetHealth.mockRejectedValueOnce(objectFailure);
-    await expect(getHealth()).rejects.toMatchObject({
-      status: 429,
-      body: { detail: 'bounded' },
-      message: 'Rate limited',
-      cause: objectFailure,
     });
   });
 
@@ -143,101 +144,81 @@ describe('bootstrap API client', () => {
     );
   });
 
-  it('limits admin tokens to the explicit endpoint policy', async () => {
+  it('matches the exact method-specific legacy require_admin inventory', () => {
+    expect(LEGACY_ADMIN_ENDPOINTS).toHaveLength(28);
+    for (const endpoint of LEGACY_ADMIN_ENDPOINTS) {
+      expect(
+        adminEndpointClass(
+          `${concretePath(endpoint.path)}?ignored=yes`,
+          endpoint.method,
+        ),
+      ).toBe(endpoint.endpointClass);
+    }
+
+    expect(adminEndpointClass('/api/admin/not-an-endpoint')).toBeNull();
+    expect(adminEndpointClass('/api/operator/not-an-endpoint')).toBeNull();
+    expect(adminEndpointClass('/api/cache/stats', 'POST')).toBeNull();
+    expect(adminEndpointClass('/api/evidence/records', 'GET')).toBeNull();
+    expect(adminEndpointClass('/api/observations/facts/id', 'POST')).toBeNull();
+    expect(adminEndpointClass('/api/admin/../auth/session')).toBeNull();
+    expect(adminEndpointClass('/operator/..\\auth/session')).toBeNull();
+    expect(adminEndpointClass('/api/static/app.js')).toBeNull();
+  });
+
+  it('injects only the bounded session token on allowlisted routes', async () => {
     sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, ' token-123 ');
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(
-      async () =>
-        new Response('{}', {
-          status: 200,
-          headers: { 'content-type': 'application/json' },
-        }),
-    );
-    await apiRequest('/admin/data-status');
-    await apiRequest('/operator/source-runs');
-    await apiRequest('/status');
-    await apiRequest('/cache/clear', { method: 'POST' });
-    await apiRequest('/enrichment/station-status');
-    await apiRequest('/observations/facts', { method: 'POST' });
-    await apiRequest('/observations/facts/observation-1', { method: 'PATCH' });
-    await apiRequest('/observations/facts/observation-1', {
-      method: 'DELETE',
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => jsonResponse({}));
+
+    for (const endpoint of LEGACY_ADMIN_ENDPOINTS) {
+      await apiRequest(concretePath(endpoint.path), {
+        method: endpoint.method,
+        headers: { 'X-Admin-Token': 'caller-secret-must-be-replaced' },
+      });
+    }
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get('X-Admin-Token')).toBe('token-123');
+    }
+
+    fetchMock.mockClear();
+    await apiRequest('/admin/not-an-endpoint', {
+      headers: { 'X-Admin-Token': 'must-not-leak' },
     });
     await apiRequest('/observations/facts', {
       headers: { 'X-Admin-Token': 'must-not-leak' },
     });
-    await apiRequest('/auth/session', {
+    await apiRequest('/api/admin/../auth/session', {
       headers: { 'X-Admin-Token': 'must-not-leak' },
     });
-    await apiRequest('/observations/facts-export', {
-      method: 'POST',
-      headers: { 'X-Admin-Token': 'must-not-leak' },
-    });
-    await apiRequest('/admin/%2e%2e/auth/session');
-    await apiRequest('/observations/facts/../compare', { method: 'POST' });
-    await apiRequest('/operator/..\\auth/session');
-
-    for (const call of fetchMock.mock.calls.slice(0, 8))
-      expect(new Headers(call[1]?.headers).get('X-Admin-Token')).toBe(
-        'token-123',
-      );
-    for (const call of fetchMock.mock.calls.slice(8))
-      expect(new Headers(call[1]?.headers).has('X-Admin-Token')).toBe(false);
-    expect(
-      fetchMock.mock.calls.every((call) => call[1]?.credentials === 'include'),
-    ).toBe(true);
-    expect(adminEndpointClass('/api/operator/source-runs')).toBe('operator');
-    expect(adminEndpointClass('/observations/facts', 'POST')).toBe('operator');
-    expect(adminEndpointClass('/observations/facts', 'GET')).toBeNull();
-    expect(adminEndpointClass('/observations/facts-export', 'POST')).toBeNull();
-    expect(adminEndpointClass('/admin/../auth/session')).toBeNull();
-    expect(
-      adminEndpointClass('/observations/facts/../compare', 'POST'),
-    ).toBeNull();
-    expect(adminEndpointClass('/api/static/app.js')).toBeNull();
-    expect(fetchMock.mock.calls[11][0]).toBe('/api/auth/session');
-    expect(fetchMock.mock.calls[12][0]).toBe('/api/observations/compare');
-    expect(fetchMock.mock.calls[13][0]).toBe('/api/auth/session');
+    await claimOwner('one-time-owner-link-secret');
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).has('X-Admin-Token')).toBe(false);
+    }
+    expect(fetchMock.mock.calls[2]?.[0]).toBe('/api/auth/session');
+    expect(fetchMock.mock.calls[3]?.[0]).toBe('/api/auth/owner/claim');
+    expect(fetchMock.mock.calls[3]?.[1]?.body).toBe(
+      JSON.stringify({ admin_token: 'one-time-owner-link-secret' }),
+    );
   });
 
-  it('does not preserve a caller-supplied header when no session token exists', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
+  it('removes a caller-supplied token when no bounded session token exists', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({}));
 
     await apiRequest('/admin/data-status', {
-      headers: { 'X-Admin-Token': 'caller-supplied' },
+      headers: { 'X-Admin-Token': 'caller-supplied-secret' },
     });
 
     expect(
-      new Headers(fetchMock.mock.calls[0][1]?.headers).has('X-Admin-Token'),
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).has('X-Admin-Token'),
     ).toBe(false);
   });
 
-  it('submits owner-claim credentials only in the JSON body', async () => {
-    sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, 'prior-token');
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('{}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      }),
-    );
-
-    await claimOwner('new-owner-token');
-
-    const [path, init] = fetchMock.mock.calls[0];
-    expect(path).toBe('/api/auth/owner/claim');
-    expect(String(path)).not.toContain('new-owner-token');
-    expect(JSON.parse(String(init?.body))).toEqual({
-      admin_token: 'new-owner-token',
-    });
-    expect(new Headers(init?.headers).has('X-Admin-Token')).toBe(false);
-  });
-
   it('preserves structured, text, and empty error responses', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    fetchMock.mockResolvedValueOnce(
       new Response('{"detail":"No access","system_id64":9007199254740993}', {
         status: 403,
         headers: { 'content-type': 'application/json' },
@@ -254,25 +235,22 @@ describe('bootstrap API client', () => {
       message: 'No access',
     });
 
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+    fetchMock.mockResolvedValueOnce(
       new Response('gateway down', { status: 502 }),
     );
     await expect(apiRequest('/health')).rejects.toMatchObject({
       body: 'gateway down',
     });
-    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-      new Response(null, { status: 500 }),
-    );
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
     await expect(apiRequest('/health')).rejects.toMatchObject({ body: '' });
-    vi.restoreAllMocks();
   });
 
-  it('preserves abort failure identity when normalising cross-realm errors', async () => {
+  it('preserves abort failure identity', async () => {
     const aborted = new DOMException(
       'This operation was aborted',
       'AbortError',
     );
-    mockedGetHealth.mockRejectedValue(aborted);
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(aborted);
 
     await expect(getHealth()).rejects.toBe(aborted);
   });
