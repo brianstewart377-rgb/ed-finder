@@ -197,12 +197,12 @@ jobs:
           nohup pnpm preview --host 127.0.0.1 --port 4174 --strictPort > /tmp/cypress-svelte-preview.log 2>&1 &
           for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:4174 >/dev/null 2>&1; then
-              echo "Svelte preview ready after ${i}s"
+              echo "Vite preview ready after ${i}s"
               exit 0
             fi
             sleep 1
           done
-          echo "::error::Svelte preview failed to start within 60s"
+          echo "::error::Vite preview failed to start within 60s"
           tail -80 /tmp/cypress-svelte-preview.log || true
           exit 1
 
@@ -212,7 +212,7 @@ jobs:
           CYPRESS_BASE_URL: http://127.0.0.1:4174
         run: pnpm exec cypress run --browser ${{ matrix.browser }}
 
-      - name: Preserve Cypress evidence
+      - name: Preserve normal Product E2E evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
