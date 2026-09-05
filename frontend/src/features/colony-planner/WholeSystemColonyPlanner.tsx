@@ -495,7 +495,7 @@ export function WholeSystemColonyPlanner({
       </main>
 
       <div
-        className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-20 xl:max-h-[calc(100vh-16rem)] xl:overflow-y-auto"
+        className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
         data-testid="planner-telemetry-region"
         data-layout="plan-details-panel"
         data-mobile-dock={telemetryDockOpen ? 'open' : 'closed'}
@@ -506,10 +506,12 @@ export function WholeSystemColonyPlanner({
           aria-expanded={telemetryDockOpen}
           aria-controls="planner-telemetry-dock-content"
           onClick={() => setTelemetryDockOpen((open) => !open)}
-          // Sticky app chrome (NavBar, sticky top-3 z-30) otherwise overlaps this
-          // sticky toggle when it is scrolled to the viewport top, hiding it from a
-          // keyboard user and from pointer-actionability. scroll-margin keeps it clear.
-          className="flex w-full scroll-mt-24 items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
+          // The sticky app chrome (NavBar: sticky, z-30, ~291px tall in the planner
+          // context) otherwise overlaps this toggle when it is scrolled to the
+          // viewport top, hiding it from a keyboard user and from pointer hit-testing.
+          // scroll-margin keeps a focused/scrolled toggle clear of that chrome
+          // (measured NavBar bottom ~299px when stuck; 320px leaves headroom).
+          className="flex w-full scroll-mt-80 items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
         >
           <span className="flex min-w-0 items-center gap-2">
               <PanelRight size={16} className="shrink-0 text-cyan" />
