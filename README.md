@@ -16,11 +16,12 @@ retained migration and behavioural evidence, not the V3 target or an authority
 for current production. Stage 26's R3F selection remains an accurate historical
 decision.
 
-PR #601 is the single active V3 application integration lane. At its currently
-known head, `190d26446a2487596299cbb6b497ffa5201fee0b`, it contains a real
-Explore/Finder → fresh Babylon results → canonical Inspect product slice. That
-state belongs to the active PR and must not be described as merged into this
-`main`-based branch until the PR lands.
+PR #601 is the single active V3 application integration lane. Its current known
+head, `12eebac48ca9286e0fd8c180cc5f552dc922d07e`, contains the real
+Explore/Finder → fresh Babylon results → canonical Inspect product slice and
+the Review Lab rebase onto `apps/web` + Babylon. Exact-head validation is still
+stabilising, so this is active-PR state rather than a green checkpoint or a
+claim that the implementation has merged into this `main`-based branch.
 
 ## Current authority
 
