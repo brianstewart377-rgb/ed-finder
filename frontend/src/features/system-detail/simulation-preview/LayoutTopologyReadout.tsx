@@ -1,6 +1,6 @@
 import { Network } from 'lucide-react';
 import { Chip } from './components';
-import type { LayoutTopologyReadout as LayoutTopologyReadoutModel } from './layoutTopologyUtils';
+import type { LayoutTopologyReadout as LayoutTopologyReadoutModel } from '@ed-finder/planner-core/layoutTopology';
 
 export function LayoutTopologyReadout({
   readout,

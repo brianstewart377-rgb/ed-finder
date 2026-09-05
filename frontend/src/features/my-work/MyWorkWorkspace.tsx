@@ -25,7 +25,7 @@ import {
   type ExpansionPlan,
 } from '@/features/expansion-plans/expansionPlanStore';
 import { computeExpansionPlanStatus } from './expansionPlanStatus';
-import { economyColor } from '@/features/colony-planner/economyVisuals';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
 import type { JournalTelemetryRecentSystem } from '@/types/api';
 import { ContinueWhereLeftOff } from './components/ContinueWhereLeftOff';
 import { SavedSystemCard } from './components/SavedSystemCard';

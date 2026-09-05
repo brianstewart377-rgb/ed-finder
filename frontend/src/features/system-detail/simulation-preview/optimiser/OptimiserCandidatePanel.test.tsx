@@ -2,16 +2,16 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fetchOptimiserCandidates } from '@/lib/api';
 import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, OptimiserRanking, SimulateBuildPlacement, SlotPredictionResponse, SystemDetail } from '@/types/api';
-import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
-import type { ObservedColonyRole } from '@/features/colony-planner/colonyRoleReview';
+import type { DeclaredColonyRole } from '@ed-finder/planner-core/colonyRoles';
+import type { ObservedColonyRole } from '@ed-finder/planner-core/colonyRoleReview';
 import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserCandidatePanel } from './OptimiserCandidatePanel';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
-import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from './optimiserUtils';
-import { filterUsefulSuggestedBuilds, suggestedBuildPresentation, suggestedBuildScale } from './optimiserQualityUtils';
-import { buildSuggestedBuildAdvisorHighlights, buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { candidatePlacementsToPreviewPlacements, sortCandidatesForDisplay } from '@ed-finder/planner-core/optimiserUtils';
+import { filterUsefulSuggestedBuilds, suggestedBuildPresentation, suggestedBuildScale } from '@ed-finder/planner-core/optimiserQuality';
+import { buildSuggestedBuildAdvisorHighlights, buildSuggestedBuildStrategyAdvisor } from '@ed-finder/planner-core/suggestedBuildStrategyAdvisor';
 
 vi.mock('@/lib/api', () => ({
   fetchOptimiserCandidates: vi.fn(),

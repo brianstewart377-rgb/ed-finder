@@ -7,7 +7,7 @@ import {
   PLANNER_OBJECTIVE_OPTIONS,
   type ColonyProjectObjective,
   type ColonyProjectStartApproach,
-} from '@/features/colony-planner/plannerDraftContext';
+} from '@ed-finder/planner-core/plannerDraftContext';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 

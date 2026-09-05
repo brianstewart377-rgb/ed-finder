@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { RoleReviewCard } from './RoleReviewCard';
-import type { RoleReviewResult } from './colonyRoleReview';
+import type { RoleReviewResult } from '@ed-finder/planner-core/colonyRoleReview';
 
 
 function review(overrides: Partial<RoleReviewResult> = {}): RoleReviewResult {

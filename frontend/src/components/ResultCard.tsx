@@ -13,7 +13,7 @@ import {
   economyLabel,
   economySoftColor,
   normaliseEconomyName,
-} from '@/features/colony-planner/economyVisuals';
+} from '@ed-finder/planner-core/economyVisuals';
 import { EconomyJigsawChip } from '@/components/EconomyJigsawChip';
 import {
   Pin, Scale, Eye, Map, Copy, ChevronDown, Search,

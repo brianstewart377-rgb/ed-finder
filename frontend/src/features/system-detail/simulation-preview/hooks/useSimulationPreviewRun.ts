@@ -1,7 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
 import { simulateBuild } from '@/lib/api';
 import type { SimulateBuildPlacement, SimulateBuildResponse } from '@/types/api';
-import { resequence } from '../utils/placementHelpers';
+import { resequence } from '@ed-finder/planner-core/placementHelpers';
+import { previewInputFingerprint } from '@ed-finder/planner-core/simulationFingerprints';
+
+export { previewInputFingerprint } from '@ed-finder/planner-core/simulationFingerprints';
 
 export interface UseSimulationPreviewRunOptions {
   systemId64: number;
@@ -18,23 +21,6 @@ export interface UseSimulationPreviewRunResult {
   clearPreviewState: () => void;
   clearError: () => void;
   runSimulation: () => Promise<void>;
-}
-
-export function previewInputFingerprint(
-  systemId64: number,
-  targetArchetype: string,
-  placements: SimulateBuildPlacement[],
-): string {
-  return JSON.stringify({
-    system_id64: systemId64,
-    target_archetype: targetArchetype,
-    placements: resequence(placements).map((placement) => ({
-      facility_template_id: placement.facility_template_id,
-      local_body_id: placement.local_body_id ?? null,
-      is_primary_port: Boolean(placement.is_primary_port),
-      build_order: placement.build_order,
-    })),
-  });
 }
 
 export function useSimulationPreviewRun({

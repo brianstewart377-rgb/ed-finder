@@ -1,6 +1,6 @@
-import type { TopologySelection } from './ColonyTopologyRail';
+import type { TopologySelection } from '@ed-finder/planner-core/topologySelection';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import type { PlanningEconomyLedger } from './planningEconomy';
+import type { PlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 
 export function PlannerStatusStrip({
   selection,

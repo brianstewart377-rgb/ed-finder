@@ -1,6 +1,6 @@
 import type { SimulateBuildResponse } from '@/types/api';
 import { Chip } from '../components';
-import { titleCase } from '../utils/formatters';
+import { titleCase } from '@ed-finder/planner-core/formatters';
 import { repairSeverityTone } from '../utils/toneHelpers';
 
 export function CpRepairPanel({ suggestions }: { suggestions: SimulateBuildResponse['cp_repair_suggestions'] }) {
