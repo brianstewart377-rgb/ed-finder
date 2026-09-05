@@ -28,11 +28,12 @@ or override this set.
   React/R3F/Three is historical migration, behaviour, and parity evidence only;
   it is not the V3 target or current production authority.
 - **Active integration lane:** PR #601 is the single active V3 application
-  integration lane. At known head
-  `190d26446a2487596299cbb6b497ffa5201fee0b`, it already contains the real
-  Explore/Finder → fresh Babylon results → canonical Inspect slice. Because
-  this documentation branch is based on `main`, that is active-PR state, not a
-  claim that the implementation has merged here.
+  integration lane. Its current known head
+  `12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains the real
+  Explore/Finder → fresh Babylon results → canonical Inspect slice and the
+  Review Lab rebase to `apps/web` + Babylon. Exact-head validation remains in
+  stabilization, so that is active-PR state rather than a green checkpoint or
+  a claim that the implementation has merged into this `main`-based branch.
 - **Historical renderer decision:** the equal Stage 26 bakeoff selected R3F and
   the subsequent Stage 26 work shipped. That result remains valuable history;
   it does not constrain the post-V2 V3 renderer target.
