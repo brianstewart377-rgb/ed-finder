@@ -81,3 +81,4 @@ def test_v3_map_validation_uses_fresh_babylon_stack_in_both_browser_lanes():
     assert 'Review Lab may change the **data and environment**' in authority
     assert 'It must not substitute a different frontend framework or renderer.' in authority
     assert 'A React/R3F Review Lab therefore cannot gate a Babylon V3 map checkpoint.' in authority
+    assert 'Before the first meaningful Finder/Inspect/Babylon live checkpoint' in authority
