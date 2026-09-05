@@ -194,6 +194,27 @@ def test_openapi_drift_lane_generates_both_clients_from_the_running_api():
     assert "packages/api-client/src/generated/api.gen.ts" in react_generator
 
 
+def test_legacy_generated_api_compatibility_shim_stays_public():
+    compatibility_entry = "src/types/api.gen.ts"
+    frontend = ROOT / "frontend"
+    knip = _package_json(frontend / "knip.json")
+    shim = _read("frontend", *compatibility_entry.split("/"))
+    generator = _read("frontend", "scripts", "types-gen.mjs")
+    workflow = _read(".github", "workflows", "ci.yml")
+    v2_job = workflow.split("  v2:\n", 1)[1].split("  web:\n", 1)[0]
+    source_presence = v2_job.split(
+        "- name: Verify required source files are present\n", 1
+    )[1].split("- name: Install dependencies\n", 1)[0]
+
+    assert compatibility_entry in knip["entry"]
+    assert shim == "export * from '../../../packages/api-client/src/generated/api.gen';\n"
+    assert (
+        "const output = path.resolve(repoRoot, "
+        "'packages/api-client/src/generated/api.gen.ts');"
+    ) in generator
+    assert compatibility_entry in source_presence
+
+
 def test_legacy_react_frontend_remains_temporary_source_evidence():
     legacy_package = _package_json(ROOT / "frontend" / "package.json")
     readme = _read("README.md")

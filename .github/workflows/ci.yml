@@ -299,6 +299,7 @@ jobs:
             src/lib/api/index.ts \
             src/lib/api/core.ts \
             src/lib/format.ts \
+            src/types/api.gen.ts \
             src/types/api.ts \
             src/components/NavBar.tsx \
             src/components/ResultCard.tsx \
