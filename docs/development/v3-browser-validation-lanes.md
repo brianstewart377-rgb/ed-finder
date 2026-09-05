@@ -159,6 +159,8 @@ Before the first meaningful Finder/Inspect live checkpoint, PR #601 must:
 6. remove or explicitly archive legacy React-only Review Lab assumptions once equivalent V3 coverage is accepted;
 7. run one batched stabilisation pass across the two browser lanes before promotion.
 
+A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently: normal Product E2E/Visual Acceptance proves ordinary `apps/web` user behaviour and pixels, while Review Lab proves selected synthetic `apps/web` scenarios inside its isolated stack. Sharing Cypress does not merge those authorities.
+
 ## Live checkpoint terminology
 
 Contabo is the **live-checkpoint environment**, not the production server. The deployment mechanism exercised against it should be production-grade and immutable, but Review Lab, normal CI and normal E2E must not use Contabo as their test environment.
