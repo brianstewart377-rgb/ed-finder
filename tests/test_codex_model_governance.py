@@ -61,13 +61,16 @@ def test_every_codex_exec_has_the_same_hard_pinned_model_contract() -> None:
     assert len(commands) == 2
 
     governed_options = []
-    for command in commands:
+    for step, command in zip(_execution_steps(), commands, strict=True):
+        script = step["run"]
         tokens = shlex.split(command)
         assert tokens[:2] == ["codex", "exec"]
         assert tokens[tokens.index("--model") + 1] == "gpt-5.6-sol"
-        assert tokens[tokens.index("--config") + 1] == 'model_reasoning_effort="max"'
+        assert tokens[tokens.index("--config") + 1] == 'model_reasoning_effort="high"'
         assert "--strict-config" in tokens
         assert "--ignore-user-config" in tokens
+        assert "readonly REQUIRED_CODEX_MODEL='gpt-5.6-sol'" in script
+        assert "readonly REQUIRED_CODEX_REASONING_EFFORT='high'" in script
         governed_options.append(tokens[2 : tokens.index("--sandbox")])
 
     assert governed_options[0] == governed_options[1]
@@ -87,6 +90,7 @@ def test_request_cannot_override_model_or_enable_a_fallback() -> None:
     assert all("${" not in command and "||" not in command for command in commands)
     assert worker_text.count("codex exec ") == 3  # two calls plus the help capability probe
     assert "gpt-6-astra" not in worker_text
+    assert 'model_reasoning_effort="max"' not in worker_text
     assert 'model_reasoning_effort="xhigh"' not in worker_text
 
 
@@ -127,6 +131,10 @@ def test_cli_capability_gate_and_sanitised_attestations_precede_execution() -> N
             "base_sha=%s",
         ):
             assert field in script[:invocation]
+        assert (
+            '"$CODEX_CLI_VERSION" "$REQUIRED_CODEX_MODEL" '
+            '"$REQUIRED_CODEX_REASONING_EFFORT"'
+        ) in script[attestation:invocation]
         assert "tr -c 'A-Za-z0-9._-' '_'" in script[:invocation]
         if branch is not None:
             assert step["env"]["CODEX_BRANCH"] == branch
