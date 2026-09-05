@@ -65,4 +65,5 @@ def test_authority_doc_keeps_visual_baseline_ownership_out_of_review_lab():
     assert 'Review Lab screenshots are diagnostic evidence, not approved product visual baselines.' in authority
     assert 'Approved visual baselines belong only to the V3 Product E2E / Visual Acceptance lane.' in authority
     assert 'Normal code-quality CI is outside both browser lanes.' in authority
+    assert 'A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently' in authority
     assert 'Contabo is the **live-checkpoint environment**, not the production server.' in authority
