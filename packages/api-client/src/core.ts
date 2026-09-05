@@ -16,7 +16,18 @@ export let API_BASE = DEFAULT_API_BASE;
 
 /** Configure the shared transport without coupling it to Vite or a UI framework. */
 export function configureApiBase(base: string | undefined): string {
-  API_BASE = base?.replace(/\/+$/, '') ?? DEFAULT_API_BASE;
+  if (base === undefined) {
+    API_BASE = DEFAULT_API_BASE;
+    return API_BASE;
+  }
+
+  // The base is caller-controlled, so scan it once instead of using a regex.
+  let end = base.length;
+  while (end > 0 && base[end - 1] === '/') {
+    end -= 1;
+  }
+
+  API_BASE = end === base.length ? base : base.slice(0, end);
   return API_BASE;
 }
 

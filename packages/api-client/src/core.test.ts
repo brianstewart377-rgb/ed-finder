@@ -32,7 +32,29 @@ describe('API transport', () => {
     expect(resolveApiUrl('/systems/42')).toBe(
       'https://api.example.test/custom/systems/42',
     );
+  });
+
+  it('preserves empty, root, all-slash, normal, absolute, and undefined base behavior', async () => {
+    const { configureApiBase } = await loadCore();
+
+    expect(configureApiBase('')).toBe('');
+    expect(configureApiBase('/')).toBe('');
+    expect(configureApiBase('////')).toBe('');
+    expect(configureApiBase('/custom')).toBe('/custom');
+    expect(configureApiBase('/custom///')).toBe('/custom');
+    expect(configureApiBase('https://api.example.test/')).toBe(
+      'https://api.example.test',
+    );
     expect(configureApiBase(undefined)).toBe('/api');
+  });
+
+  it('removes a very long repeated-slash suffix without truncating the base', async () => {
+    const { configureApiBase } = await loadCore();
+    const base = 'https://api.example.test/custom';
+    const trailingSlashes = '/'.repeat(100_000);
+
+    expect(configureApiBase(`${base}${trailingSlashes}`)).toBe(base);
+    expect(configureApiBase(trailingSlashes)).toBe('');
   });
 
   it('does not duplicate an explicit /api path when the base already ends in /api', async () => {
