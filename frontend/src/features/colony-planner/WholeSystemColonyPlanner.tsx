@@ -512,6 +512,18 @@ export function WholeSystemColonyPlanner({
           aria-expanded={telemetryDockOpen}
           aria-controls="planner-telemetry-dock-content"
           onClick={() => setTelemetryDockOpen((open) => !open)}
+          onKeyDown={(event) => {
+            // A native <button> only activates on a TRUSTED Enter (the browser's
+            // default action), so synthetic-event tooling (e.g. Cypress .type
+            // '{enter}') dispatches keydown without ever firing click. Handle the
+            // keydown directly so keyboard activation is robust for both, and
+            // preventDefault so a trusted Enter does not ALSO fire the native
+            // click (which would double-toggle). Space is left to native handling.
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              setTelemetryDockOpen((open) => !open);
+            }
+          }}
           className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
         >
           <span className="flex min-w-0 items-center gap-2">
