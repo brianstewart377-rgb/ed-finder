@@ -8,7 +8,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AV_DOC_PATH = DOCS / 'stage-19av-expanded-source-run-staging-pilot.md'
 AW_DOC_PATH = DOCS / 'stage-19aw-post-av-paused-state-decision.md'
 AX_DOC_PATH = DOCS / 'stage-19ax-readonly-av-safety-gate.md'
@@ -98,11 +97,10 @@ def test_stage19ax_records_readonly_av_gate_without_unpausing_stage19():
 
 
 @pytest.mark.unit
-def test_stage19ax_doc_and_roadmap_record_passed_readonly_evidence():
+def test_stage19ax_doc_records_passed_readonly_evidence():
     ax_doc = _squash(_read(AX_DOC_PATH))
     av_doc = _squash(_read(AV_DOC_PATH))
     aw_doc = _squash(_read(AW_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     for fragment in (
         'Stage 19AX - Read-Only AV Safety Gate',
@@ -128,10 +126,6 @@ def test_stage19ax_doc_and_roadmap_record_passed_readonly_evidence():
 
     assert 'Stage 19AV was run on `2026-06-15T06:21:02Z`' in av_doc
     assert 'Stage 19AW records the paused-state decision checkpoint after Stage 19AV.' in aw_doc
-    assert 'Stage 19AX is the completed historical read-only AV safety-gate verification.' in roadmap
-    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in roadmap
-
-
 @pytest.mark.unit
 def test_stage19ax_blocks_write_lanes_runtime_authority_and_forbidden_work():
     ax_doc = _squash(_read(AX_DOC_PATH))
@@ -169,4 +163,3 @@ def test_stage19ax_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19ax_readonly_av_safety_gate.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

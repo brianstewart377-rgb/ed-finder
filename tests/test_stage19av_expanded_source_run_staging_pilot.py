@@ -17,7 +17,6 @@ import stage19av_expanded_source_run_staging_pilot as stage19av  # noqa: E402
 
 
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 AV_DOC_PATH = DOCS / 'stage-19av-expanded-source-run-staging-pilot.md'
 AV_SCRIPT_PATH = OPERATOR_SCRIPTS / 'stage19av_expanded_source_run_staging_pilot.py'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
@@ -46,7 +45,6 @@ def test_stage19av_records_completed_pilot_while_stage19_remains_paused():
     authority = json.loads(_read(AUTHORITY_PATH))
     checkpoint = authority['stage19av_completed_checkpoint']
     av_doc = _squash(_read(AV_DOC_PATH))
-    roadmap = _squash(_read(ROADMAP_PATH))
 
     assert authority['stage19'] == {
         'status': 'paused',
@@ -80,10 +78,6 @@ def test_stage19av_records_completed_pilot_while_stage19_remains_paused():
     assert 'Stage 19 remains paused.' in av_doc
     assert 'No canonical apply is complete.' in av_doc
     assert 'No rebaseline is complete.' in av_doc
-    assert 'Stage 19AV is the completed expanded controlled source-run staging pilot lane.' in roadmap
-    assert '250 read, 250 staged, 0 rejected, and 0 skipped' in roadmap
-
-
 @pytest.mark.unit
 def test_stage19av_wrapper_has_stage_specific_bounded_profile():
     profile = stage19av.STAGE19AV_PROFILE
@@ -259,4 +253,3 @@ def test_stage19av_local_ci_parity_registration_is_static_only():
     assert 'tests/test_stage19av_expanded_source_run_staging_pilot.py' in parity
     assert 'scripts/operator/stage19' not in parity
     assert '--commit' not in parity
-

@@ -1,65 +1,66 @@
 # Spatial Platform Architecture Decision
 
-**Decision:** Stage 27A, 2026-08-31
-**Implementation status:** contract only; Babylon runtime is not authorized in
-this stage.
+**Status:** current V3 renderer-neutral architecture authority
 
-## Context and historically accurate decision
+**Browser application:** `apps/web/` (Svelte 5 / SvelteKit 2)
 
-Stage 26 followed this sequence: requirements contract → equal renderer bakeoff
-→ R3F/Three.js selected → isolated R3F foundation delivered → production
-cutover completed. Evidence is in `stage-26a-next-generation-map-foundation-contract.md`,
-`stage-26b-renderer-bakeoff-decision.md`, `stage-26c-region-first-foundation-contract.md`,
-and `stage-26e-cutover-readiness.md`; production activation is recorded in
-`CHANGES.md` at commit `3b53477`. R3F was not a failure and Babylon did not win
-Stage 26.
+**Renderer target:** a fresh Babylon.js 9-class runtime
 
-Product scope subsequently expanded to a Galaxy/System/Digital-Twin spatial
-platform with first-class exploration and bounded planner participation. Those
-requirements change the architectural optimization target. We therefore select
-a **greenfield Babylon 9-class renderer inside the brownfield ED-Finder
-product**, while retaining the current R3F production renderer and rollback
-until a later measured bakeoff and explicit Stage 27G cutover.
+## Decision and current state
 
-The August 16 Babylon 6 plan is historical input, not executable authority. Its
-monolithic imports, arbitrary `worldScale`, point-cloud stars and narrow
-replacement path are superseded.
+ED-Finder V3 is one spatial platform spanning Galaxy, System and Digital Twin
+views. `apps/web/` is the sole V3 browser destination, and Babylon is its
+renderer target. The renderer is greenfield inside the brownfield ED-Finder
+product: application and domain code cross a renderer-neutral boundary rather
+than carrying React, R3F or Three.js types into V3.
+
+PR #601 is the active integration lane. At known exact head
+`12eebac48ca9286e0fd8c180cc5f552dc922d07e`, it contains a real
+Explore/Finder -> fresh Babylon -> canonical Inspect slice and the Review Lab
+rebase to `apps/web/` plus Babylon. Exact-head validation for that SHA remains
+red/stabilizing. This is implemented integration evidence, not a green or
+complete checkpoint and not production-promotion authority.
+
+Stage 26 historically selected R3F/Three.js and delivered its map; R3F won that
+bakeoff. Those sources remain valuable migration, behaviour, fixture and visual
+evidence, but React/R3F/Three is not V3 architecture or current production
+authority. Older stage documents never override this decision.
 
 ## One platform and dependency rule
 
 ```text
-Finder / CRE / CPE / Commander History (Exploration) / Powerplay / Routes
-                         |
-              SpatialContribution adapters
-                         |
-             renderer-neutral SpatialSceneContract
-                         |
-                     MapRuntime
-                  /              \
-          GalaxyScene          SystemScene
-                  \              /
-                 BabylonMapRuntime
-                         |
-                    LayerManager
-                         |
-                        GPU
+Finder / Colonisation / Commander History / Powerplay / Routes / CPE / CRE
+                                  |
+                     SpatialContribution adapters
+                                  |
+                  renderer-neutral SpatialSceneContract
+                                  |
+                              MapRuntime
+                           /              \
+                   GalaxyScene         SystemScene
+                           \              /
+                         BabylonMapRuntime
+                                  |
+                                 GPU
 ```
 
-Domain and feature code **must not import Babylon**. Svelte/SvelteKit owns
-app/domain orchestration, routing, panels, accessible DOM UI, keyboard and
-text. The runtime owns the long-lived spatial scene, GPU resources, layers,
-camera implementation, picking/projection and transitions. CRE owns mechanics
-and Digital Twin reasoning. CPE owns plan construction/persistence. ED-Finder
-owns orchestration/presentation. Babylon renders.
+Svelte/SvelteKit owns app/domain orchestration, routing, panels,
+accessible DOM UI, keyboard and text. Babylon owns the long-lived scene, GPU
+resources, camera implementation, layer presentation, picking/projection and
+transitions. Renderer-neutral domain handlers decide what a runtime event may
+do.
 
-Dependency enforcement in 27B must include import-boundary tests and a single
-renderer adapter package. No `@babylonjs/*` type may leak into public contracts.
+Domain and feature code **must not import Babylon**. Keep one renderer adapter
+boundary. No `@babylonjs/*` type may leak into public contracts. Babylon
+never owns mechanics, ranking, persistence, query meaning or plan construction.
+Finder owns query/ranking behaviour, CRE owns mechanics and Digital Twin
+reasoning, CPE owns plan construction and persistence, and ED-Finder owns
+orchestration and presentation.
 
-## Renderer-neutral contract sketches
+## Renderer-neutral contract
 
-These sketches are normative shapes, not inert runtime code. IDs are opaque
-strings at the renderer boundary; `systemId64` is serialized as a decimal
-string to avoid JavaScript integer loss.
+IDs are opaque at the renderer boundary. `systemId64` is a decimal string so
+JavaScript cannot lose integer precision.
 
 ```ts
 type RepresentationClass =
@@ -122,7 +123,8 @@ interface LayerContract<TPayload = unknown> {
   payload: TPayload; bounds?: unknown; targetCount: number; truncated: boolean;
 }
 interface SpatialContribution {
-  id: string; owner: "FINDER" | "CRE" | "CPE" | "COMMANDER_HISTORY" | "POWERPLAY" | "ROUTES";
+  id: string;
+  owner: "FINDER" | "COLONISATION" | "COMMANDER_HISTORY" | "POWERPLAY" | "ROUTES" | "CPE" | "CRE";
   revision: number; layers: readonly LayerContract[];
 }
 interface GalaxySceneContract {
@@ -130,7 +132,8 @@ interface GalaxySceneContract {
   selection: readonly SpatialTarget[]; contributions: readonly SpatialContribution[];
 }
 interface SystemSceneContract {
-  kind: "system"; revision: number; systemId64: string; fidelity: "S0"|"S1"|"S2"|"S3"|"S4"|"S5";
+  kind: "system"; revision: number; systemId64: string;
+  fidelity: "S0" | "S1" | "S2" | "S3" | "S4" | "S5";
   camera: SystemCameraState; bodies: readonly BodyVisualDescriptor[];
   infrastructure: readonly InfrastructureAttachment[];
   contributions: readonly SpatialContribution[];
@@ -154,171 +157,135 @@ type RuntimeEvent =
   | { type: "METRICS"; frameMs: number; visible: number; drawCalls: number; resources: number; bufferBytes: number };
 ```
 
-`COMMANDER_HISTORY` includes Exploration projections but is not limited to
-them. Journal page analytics, Finder predicates, Galaxy overlays and System
-body context consume the same normalized personal facts through separate
-adapters. The renderer never parses Journal payloads or computes statistics.
+Commands are ordered, revisioned and idempotent where practical. Events report
+renderer observations and user intent; they do not mutate domain models.
+Layer/query results must carry explicit total or returned counts, bounds and a
+`truncated` state. No UI may imply complete coverage from a bounded response.
 
-### Commander History data boundary
+## Coordinates, camera and semantic scale
 
-Preserve immutable raw source events where practical, then idempotently
-normalize/project them into product-ready facts. The current browser lane
-retains a privacy-filtered, structured subset rather than byte-for-byte raw log
-lines, so “raw” must always name its actual retention boundary. A spatially
-meaningful observation must be able to retain:
+Canonical CPU coordinates are true Elite Cartesian light-years. There is no
+arbitrary application `worldScale` masquerading as truth. Floating-origin or
+Babylon Large World Rendering is an implementation technique to verify, not a
+change to canonical coordinates.
 
-```ts
-type CommanderObservation = Readonly<{
-  commanderScope: string;       // account/commander/sync key, not public truth
-  observedAt: string;
-  eventIdentity: string;        // stable import/source identity
-  eventType: string;
-  systemId64?: string;
-  body?: BodyRef;
-  source: string;
-  provenance?: Provenance[];
-  payload: Readonly<Record<string, unknown>>;
-  journeyId?: string;           // derived or user-assigned expedition
-}>;
-```
+The continuous Galaxy camera preserves meaningful camera, selection, reference
+and layers while crossing four semantic scales:
 
-Names are labels or fallback evidence, never canonical identity. Later import
-work must specify dedupe, idempotent re-import, replay and projection-version
-semantics. Elite Journal events are personal observations. EDDN and other
-public/catalogue feeds plus CAPI are separate source domains for broader or
-current knowledge. They may be compared explicitly, but must never be silently
-merged into “the commander discovered this”. Personal `CodexEntry` observations
-likewise remain separate from an authoritative global Codex catalogue.
+1. **Wide:** aggregate density, all 42 named regions, major references and route
+   overview.
+2. **Regional:** real and important systems, labels and regional facts.
+3. **Local:** system relationships, colonisation, infrastructure, routes and
+   bounded spatial queries.
+4. **System:** an explicit transition to `SystemScene`, preserving Galaxy state
+   for return.
 
-Spatial queries use an explicit request/result boundary: Journal analytics can
-project identified facts as contributions, and the map can submit bounded
-viewport/selection/route scopes for personal summaries. Finder composes its
-catalogue/query predicates with Commander History predicates and remains
-ranking owner. No adapter reimplements another owner's aggregation,
-completeness or ranking rules.
+LOD is semantic and hysteretic. Selected, highlighted, reference and active
+route targets survive LOD and aggregation transitions. Top-down and restrained
+tilted navigation, transition cancellation, reduced motion and exact Galaxy
+state restoration are contract requirements.
 
-Commands are ordered, revisioned and idempotent where possible. Runtime events
-describe renderer observations and user intent; they do not mutate domain
-models directly. Renderer-neutral domain handlers decide whether an explicit
-action is allowed.
+## Search, spatial queries, picking and overlap
 
-## Coordinates, camera and scale
+The platform supports search/fly-to, stable picking and keyboard/text
+equivalents for every pickable target. Overlap is resolved through a bounded,
+accessible disambiguation UI; hit testing and labels cannot silently disagree
+about identity. Labels have priority, collision handling and guarantees for
+selected/highlighted/reference targets.
 
-Canonical CPU coordinates remain actual Elite light-years. Do not introduce an
-arbitrary application `worldScale` as truth. Babylon 9's Large World Rendering
-and high-precision/floating-origin path is the preferred workbench hypothesis,
-to be verified with ED-Finder ranges and camera transitions before commitment.
-The official Babylon documentation describes `useLargeWorldRendering` as
-high-precision CPU matrices plus camera-relative GPU uniforms. This is a
-technical mechanism, not permission to alter canonical coordinates.
+Finder supports **Search From Here** and **Systems Within...** with explicit
+viewport, reference, region and radius inputs. Finder remains query and ranking
+owner. Cluster membership is a domain-derived contribution with provenance,
+never a renderer-generated gameplay fact.
 
-The renderer implements ED-Finder's semantic `CameraState`; it does not expose
-or blindly adopt `ArcRotateCamera`. Top-down and restrained tilted navigation,
-zoom hysteresis, transition cancellation and exact Galaxy-state restoration are
-contract tests.
+The search/spatial-index/grid/cluster design is an active decision gate. Current
+local Finder search uses raw `x`/`y`/`z` distance, not a grid as a first-class
+accelerator. Do not canonize a grid, PostgreSQL index strategy, cluster
+algorithm, streaming envelope or cache until measured query shapes, bounds,
+cardinality and explain plans support that choice. PostgreSQL 18 derived-data
+bootstrap is gated by the same decision.
 
-## Backend and package direction
+The scoring/data contract is also open: repository code still applies Ratings
+v3.4 in places, while roadmap intent has moved some judgement toward archetypes.
+An explicit product/data decision must choose ownership, migration and
+compatibility before the full PostgreSQL 18 derived-data build. The renderer
+must not settle that decision or reproduce either scoring model.
 
-Stage 27B evaluates a modern Babylon **9-class** release, with modular
-tree-shakeable `@babylonjs/core/...` ES-module imports rather than the legacy
-monolithic `babylonjs` package. As verified on 2026-08-31, the official npm
-package is in the 9.x line and documents individual imports for tree shaking:
-<https://www.npmjs.com/package/@babylonjs/core>.
+## Domain contributions and truth
 
-Use WebGPU first after capability/initialization checks, with WebGL2 fallback
-chosen before scene/GPU resource creation. Backend fallback or loss rebuilds
-resources from CPU contracts; no hidden backend-specific domain state exists.
-Official Babylon guidance notes that an existing WebGPU scene is not swapped in
-place to WebGL, reinforcing the rebuild contract:
-<https://doc.babylonjs.com/features/featuresDeepDive/webXR/webGPUXR/>.
+- **Finder** contributes bounded matches, highlights and score explanations;
+  ranking stays outside Babylon.
+- **Commander History / Journal** contributes commander-scoped visits,
+  discoveries, scans, records, expeditions and routes. Personal observations
+  never become universal catalogue truth.
+- **Routes**, **Powerplay** and **Colonisation** contribute their own typed,
+  provenance-bearing facts and relationships.
+- **CPE** contributes `PLANNED` facilities and alternatives while retaining
+  construction, validation and persistence ownership.
+- **CRE Digital Twin** contributes mechanics-owned state, reasoning, evidence,
+  history and uncertainty to the shared System scene.
 
-## Stars, buffers, LOD and render cadence
+The five runtime representation classes have fixed meanings:
 
-Stars use instanced camera-facing quads/billboards or equivalent custom
-instance buffers. They are **not** `PointsCloudSystem`/`gl_PointSize`, and never
-one mesh per star. Babylon's official instance documentation confirms instance
-rendering and picking support, but built-in picking remains a benchmark
-candidate, not a predetermined winner:
-<https://github.com/BabylonJS/Documentation/blob/master/content/features/featuresDeepDive/mesh/copies/instances.md>.
+- `AUTHORITATIVE`: retained observation or accepted catalogue fact.
+- `DERIVED`: reproducible result from named inputs and rules.
+- `PLANNED`: a user/CPE proposal, never portrayed as built.
+- `SCHEMATIC`: deterministic presentation or unresolved association, clearly
+  labelled as such.
+- `AMBIENT`: decorative context that is neither selectable truth nor mechanics
+  input.
 
-Scene data is normalized into typed struct-of-arrays/buffers. The
-Svelte/SvelteKit application sends revisioned contributions; it does not
-rebuild GPU arrays per render. LOD is semantic, hysteretic and backend-aware.
-Wide aggregates, regional systems, local relationships and System scene are
-distinct budgets.
+Missing evidence remains unknown. Provenance and representation live outside
+shader-only buffers and survive picking and detail projection.
 
-The runtime is long-lived and renders on demand when idle. Camera motion,
-transitions, animations, streaming, hover/picking and dirty layers schedule
-frames; stable state stops continuous work. Workers remain possible through
-serializable contracts and transferable buffers, but 27B is main-thread-first
-until profiling justifies off-thread complexity.
+## System Map
 
-## Picking, labels and overlap
+`SystemScene` shares identity, selection, contribution, telemetry and recovery
+infrastructure with Galaxy while using a separate semantic scale. `BodyRef`
+(`systemId64` plus system-scoped `bodyId`) is canonical; a name is a label, not
+identity.
 
-A central `PickingService` owns hit testing and stable target resolution. 27B
-benchmarks built-in instance picking, GPU ID buffer, and CPU spatial index plus
-GPU confirmation at 20k/40k/100k/500k/1m tiers. Labels use a prioritized,
-bounded layout with selected/highlighted/reference guarantees, collision
-handling, hysteresis and accessible DOM equivalents. Picking and label layers
-cannot silently choose different identities.
+Physical values remain factual while display radius and spacing may be
+semantic. Current orbital phase is never invented: when phase/epoch is
+insufficient, placement is deterministic and explicitly `SCHEMATIC`. Unknown
+rings, hierarchy and facility/body association remain unknown. Infrastructure
+attachments carry `CONFIRMED`, `UNRESOLVED` or `CONFLICT` rather than forcing a
+join. CPE proposals remain `PLANNED`; CRE Digital Twin evidence retains its own
+truth and uncertainty.
 
-## Truth, ambience and SystemScene
+## Runtime, performance and recovery
 
-Truth metadata remains outside shader-only buffers and survives picking/detail
-projection. Ambient density, dust and nebulae cannot be queried as systems or
-fed to Finder/CRE/CPE. Unknown rings, hierarchy, associations and orbital phase
-remain unknown. System semantic placement is deterministic when factual phase
-is unavailable and labelled `SCHEMATIC`; physical measurements remain separate.
+Use modular `@babylonjs/core/...` imports. Choose WebGPU only after capability
+and initialization checks, with WebGL2 fallback selected before scene/GPU
+resource creation. Backend fallback or device/context loss rebuilds from
+renderer-neutral CPU state.
 
-`SystemSceneContract` is a separate scene-scale contract sharing runtime,
-identity, contributions, selection, telemetry and recovery infrastructure with
-Galaxy. CRE Digital Twin is a contribution to that scene. CPE plans are
-`PLANNED` contributions. Exploration remains personal and sync-key-scoped.
+Stars use instanced camera-facing quads/billboards or equivalent typed instance
+buffers, never one mesh per star or factual point-cloud shortcuts. The
+Svelte/SvelteKit application sends revisioned contributions and does not rebuild
+GPU arrays per component render. Render on demand when idle; camera movement,
+transition, animation, streaming, hover and dirty layers schedule frames.
 
-## Lifecycle, telemetry, fixtures and recovery
+Workers and transferable buffers are measured options, not default complexity.
+Picking/index candidates must be benchmarked at representative 20k/40k/100k,
+500k and 1m diagnostic tiers. Report WebGPU and WebGL2 separately, including
+visible/returned counts, truncation, frame CPU/GPU timing where available, draw
+calls, resources, buffer bytes, streaming latency, pick latency and recovery.
 
-Runtime lifecycle is create → initialize backend → load scene → patch
-contributions → suspend/resume → rebuild → dispose. All observers, buffers,
-textures, workers and event bridges have explicit disposal. Recovery reloads
-renderer-neutral CPU state and emits loss/recovery events.
+Lifecycle is create -> initialize -> load -> patch -> suspend/resume -> rebuild
+-> dispose. Observers, buffers, textures, workers and bridges have explicit
+disposal. Telemetry contains no credentials or commander payloads.
 
-Required telemetry: backend, frame CPU/GPU duration where available, visible
-count, draw calls, resource count, buffer bytes, streaming latency/truncation,
-pick latency, and recovery outcome. It must contain no credentials or personal
-exploration payloads.
+## Browser evidence and consequences
 
-Fixtures and truth assertions are those in
-`spatial-platform-product-contract.md`; Stage 26 fixtures/tests are classified
-in `stage-27a-stage26-inheritance-matrix.md`.
+Product E2E/Visual Acceptance and Review Lab are separate exact-head lanes as
+defined in `docs/development/v3-browser-validation-lanes.md`. Both exercise
+`apps/web/` plus Babylon. Review Lab varies deterministic synthetic data and its
+isolated environment; it does not validate a React/R3F substitute and does not
+replace Product E2E.
 
-## Migration, bakeoff and cutover
-
-1. **27B:** isolated runtime workbench; no production wiring.
-2. **27C–27F:** baseline, streaming, parity and workflows behind explicit
-   isolation/flags with contract adapters.
-3. **27G:** production-shaped Babylon versus current R3F bakeoff, browser lane,
-   accessibility, recovery, backend and rollback evidence; explicit owner
-   decision required.
-4. R3F remains production and rollback until Babylon earns cutover. Removal is
-   a later separately authorized decision.
-5. **27H–27K:** System data/rendering contract, System Map, infrastructure, CPE
-   and CRE layering. 27A does not authorize these implementations.
-
-## Rejected alternatives and consequences
-
-- **Execute the August 16 plan wholesale:** rejected because it targets Babylon
-  6, arbitrary scaling, point-cloud stars and a narrow replacement.
-- **Extend R3F indefinitely without a new decision:** rejected for the expanded
-  programme, not because Stage 26 failed. R3F remains the measured baseline.
-- **Renderer-specific domain DTOs:** rejected; they couple every owner to
-  Babylon and prevent honest fallback/bakeoff.
-- **Separate CRE Digital Twin map:** rejected; it fragments spatial truth.
-- **Renderer-owned mechanics/planning:** rejected; violates repo ownership.
-- **Literal astronomical System scale or invented current phase:** rejected for
-  usability and truth reasons.
-- **Immediate worker/offscreen runtime:** rejected pending profiling.
-
-Consequences: Stage 27 needs adapter/version governance, explicit truth metadata,
-CPU-state retention for rebuild, dual-backend evidence, and more fixtures before
-visual implementation. It also gains one coherent Galaxy/System platform and a
-cutover path that preserves Stage 26 value.
+The architecture requires versioned adapters, truth metadata, CPU-state
+retention, bounded-query semantics, accessible DOM parity, dual-backend evidence
+and deterministic fixtures. Implementation readiness is earned by the relevant
+exact-head checks; PR #601's current red/stabilizing state must not be described
+as a completed checkpoint.

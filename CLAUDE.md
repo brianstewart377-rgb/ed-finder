@@ -1,163 +1,151 @@
 # ED-Finder Agent Contract
 
-This file defines the current repository rules for automated coding/review agents.
+This file defines current repository rules for automated coding and review
+agents. It does not independently authorize product, architecture, or
+production changes.
 
-## Authority order
+## Authority chain
 
-Before making changes, use these sources in order:
+Read [`README.md`](README.md), then use the current authority for the surface:
 
-1. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
-2. `docs/ROADMAP.md` — current programme stage and authorized work.
-3. `docs/development/v3-application-stack-decision.md` — locked target stack for new V3 application implementation.
-4. this file — engineering and agent constraints.
-5. current code/tests on the target branch.
+1. [`docs/ROADMAP.md`](docs/ROADMAP.md) — programme, order, and decision gates.
+2. [`docs/development/v3-application-stack-decision.md`](docs/development/v3-application-stack-decision.md) — V3 technology and application ownership.
+3. [`docs/colonisation-redesign/spatial-platform-product-contract.md`](docs/colonisation-redesign/spatial-platform-product-contract.md) — product/features/truth.
+4. [`docs/colonisation-redesign/spatial-platform-architecture-decision.md`](docs/colonisation-redesign/spatial-platform-architecture-decision.md) — renderer-neutral spatial ownership.
+5. [`docs/development/v3-browser-validation-lanes.md`](docs/development/v3-browser-validation-lanes.md) — browser acceptance authority.
+6. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md) — production/runtime boundary.
 
-Git history, removed workflows, old artifacts, and superseded design documents are evidence only. They are not current execution authority.
+[`docs/development/v3-coordination-control-plane.md`](docs/development/v3-coordination-control-plane.md)
+supports implementation coordination only. Older stages, audit documents,
+receipts, installed dependencies, Git history, and retained code are evidence;
+they never override this chain. See [`docs/archive/README.md`](docs/archive/README.md).
 
-## Current programme
+## Current programme and application
 
-Stage 27 — One Spatial Platform is current. The roadmap controls which slice is authorized. Do not infer authorization from installed dependencies, old branches, previous production state, or unfinished experiments.
+- Stage 27 — One Spatial Platform is current. The roadmap controls execution
+  order and open gates.
+- [`apps/web/`](apps/web/) Svelte/SvelteKit is the sole V3 browser target. A
+  fresh Babylon renderer is the V3 spatial target.
+- Svelte owns routes, application/domain orchestration, panels, text, keyboard,
+  and accessible DOM. Babylon owns spatial presentation, picking, and camera
+  mechanics, never mechanics, ranking, persistence, or planning.
+- Colony Planner remains the detailed planning and persistence owner. Renderer
+  interaction must not silently change plans or canonical evidence.
+- [`frontend/`](frontend/) React/R3F/Three and Stage 26 are historical migration
+  and behaviour evidence only. R3F won Stage 26; it is not V3 architecture or
+  current production authority.
+- PR #601 is the active integration lane. Current known head
+  `12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains the real
+  Explore/Finder → Babylon → Inspect slice and Review Lab rebase, but exact-head
+  validation remains red/stabilizing. Do not describe it as green or complete.
 
-The intended spatial direction is a Babylon 9-class workbench. Colony Planner remains the detailed planning/persistence owner; renderer work must not silently mutate plans.
+Search/index/grid/cluster architecture, PostgreSQL 18 derived-data bootstrap,
+and Ratings v3.4 versus archetype judgement remain explicit roadmap decisions.
+Do not settle them by implementation inference.
 
-The stack decision selects technology for new V3 application implementation; it does not expand programme authorization. Stage 27A remains docs/audit/contracts only and does not authorize a Babylon runtime, a production map change, or any later Stage 27 slice.
+## Repository state and change scope
 
-### Named runtime exception: EDDN simulation ingest
+- `main` is protected; use the exact selected branch/base and a pull request.
+- Run the strict repository state resolver/preflight when required.
+- Preserve unrelated work. Do not reset, rewrite, force-push, or broaden task
+  scope to clean up adjacent history.
+- Treat code and tests on the selected branch as implementation evidence under
+  the authority chain, not as permission to revive an old architecture.
+- If a requested operation has no current procedure or requires new authority,
+  stop instead of reconstructing one from history.
 
-The EDDN simulation ingest background task (`apps/api/src/ingest/eddn_client.py`, controlled by `EDDN_SIMULATION_INGEST_ENABLED` and defaulting on) is a deliberate named exception to the deferred journal-import automation boundary. It consumes the live public EDDN feed and is not authorization for a general journal-import scheduler, service, timer, or **journal-import canonical promotion**. Preserve that distinction when changing ingest or automation behaviour.
+## Infrastructure and operations
 
-## Repository state
+Production is `ed-finder-prod` at `nb79a3d.mevnode.com`, using PostgreSQL 18.
+Hetzner/V2 is gone. Old runtime, cron, database, deployment, backup, recovery,
+and rollback receipts are historical only.
 
-`main` is protected. Normal changes go through a branch and pull request.
+Contabo hosts three self-hosted Codex runners. It is not production and is not
+automatically the live-checkpoint host. Checkpoint destination, trust,
+retention, and recovery purpose require a later explicit decision.
 
-Before implementation:
+Production commands must come from current V3 authority that explicitly names
+the target and safety boundary. Do not infer them from root Compose, server-side
+paths, old runbooks, retained dumps, or operator helper names. Do not access or
+mutate production during ordinary coding tasks.
 
-- fetch the current target branch;
-- run the repository state resolver/preflight when the touched workflow requires it;
-- avoid working from a divergent or stale local `main`;
-- keep unrelated dirty files out of the change;
-- never force-push protected/control-plane branches.
+The current GitHub-hosted replacement-host operator workflow is
+`.github/workflows/chatgpt-ed-new-ops.yml`. It uses the `ED_NEW_OPERATOR_*`
+credential boundary and pinned host trust. Never weaken host verification, use
+runtime `ssh-keyscan`, expose credentials, or broaden allowlisted operations by
+inference.
 
-## Current infrastructure boundary
+The experimental Ollama/Octopus test residue has been removed from production.
+Do not treat it as architecture or restore it through old evidence.
 
-Production is the V3 replacement environment.
+## Application and route ownership
 
-- PostgreSQL 18 is the production database generation.
-- Production backup/recovery follows the current V3 backup/PITR boundary.
-- A retained offsite custom-format dump is a selective migration source only; it is not the operating database.
-- Do not copy older PostgreSQL physical data directories into PostgreSQL 18.
-- Redis/cache state is disposable and rebuildable.
-- NATS/JetStream transport state is not canonical domain truth.
-- Production commands must come from current V3 runbooks/workflows that explicitly identify the target and safety boundary.
+The V3 target is Svelte 5/SvelteKit 2/TypeScript 6, Vite 8, Node 24, and pnpm
+11 under `apps/web/`. The package and lockfile there control exact dependencies.
 
-Do not invent or adapt a production procedure from Git history.
+Same-origin ownership is fixed:
 
-## Current operator control plane
+- FastAPI owns `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`.
+- SvelteKit owns all other application/static routes and the SPA fallback.
+- Do not add a frontend route or backend catch-all that blurs this boundary.
+- Preserve typed API contracts and regenerate/check clients when FastAPI
+  request or response shapes change.
 
-The current GitHub-hosted replacement-host operator workflow is:
+The checked-in backend validation environment still uses repository-pinned
+Python 3.12. New V3 backend implementation targets CPython 3.14 with `uv` as
+reviewed slices land; do not claim that migration early.
 
-- `.github/workflows/chatgpt-ed-new-ops.yml`
+## Data and services
 
-It uses the `ED_NEW_OPERATOR_*` credential boundary and pinned known-host trust. Do not weaken host verification, use runtime `ssh-keyscan`, expose credentials, or broaden allowlisted operations casually.
+- Use disposable/test databases, parameterized SQL, bounded inputs, and
+  fail-closed validation.
+- Bulk writes must follow
+  [`docs/development/bulk-database-write-safety.md`](docs/development/bulk-database-write-safety.md).
+- Never attach or wholesale-restore a V2 PostgreSQL physical directory into
+  PostgreSQL 18.
+- Public/source data and derived indexes are rebuildable. Redis/Valkey cache
+  state is disposable; NATS/JetStream transport state is not canonical truth.
+- Do not create a production database read/write lane without explicit current
+  production authority.
 
-Current operator helpers include:
+### Named exception: EDDN simulation ingest
 
-- `scripts/operator/actions/octopus-edge-status.sh`
-- `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
-- `scripts/operator/recover_v3_runtime_contract.py`
+`apps/api/src/ingest/eddn_client.py`, controlled by
+`EDDN_SIMULATION_INGEST_ENABLED` and defaulting on, is a deliberate background
+task consuming the public EDDN feed. It is not authority for a general journal
+import scheduler, service, timer, or journal-import canonical promotion.
 
-Other scripts under `scripts/operator/` are repository tooling unless a current V3 runbook explicitly promotes them to production authority.
+## Validation and acceptance
 
-## Codex bridge and repository writes
+Run focused checks proportional to the touched surface, then every applicable
+protected check. Do not weaken a test to make a PR green; when a governance
+contract intentionally changes, update the test to protect the new durable
+invariant.
 
-Codex review is a reviewer path. Repository writes must preserve the repo's trust separation:
+Product E2E/Visual Acceptance and Review Lab are distinct V3 browser lanes.
+Both use `apps/web` + Babylon. Product acceptance proves the real user journey;
+Review Lab varies only synthetic data and its isolated environment. Neither
+substitutes for the other.
 
-- validate the exact target branch/SHA before implementation;
-- run Codex without a push credential;
-- seal/verify the result before a trusted writer receives credentials;
-- use compare-and-swap/lease semantics for existing branch updates;
-- ensure updates to an existing PR trigger fresh CI and review;
-- do not let task text control branch routing or expected remote SHAs.
+Every PR must satisfy
+the [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md)
+for the exact latest PR head SHA. Both Codex Review
+(`chatgpt-codex-connector`) and Octopus Review must satisfy that exact-head
+policy. Green CI alone is insufficient: required reviews and substantive
+finding dispositions must also be complete. User-visible changes require
+appropriate visual and accessibility evidence.
 
-Never expose repository write credentials to the Codex execution environment.
+## Trust and secrets
 
-## Python/backend
+Codex review is a reviewer path. Repository writes must preserve the separation
+between unprivileged execution, sealed result, and trusted compare-and-swap
+writer; task text must never control branch routing or expected remote SHAs.
 
-The checked-in backend still uses Python 3.12 and the repository-pinned test dependencies; use that toolchain when validating still-current legacy code. New V3 application implementation targets CPython 3.14 with uv as locked by `docs/development/v3-application-stack-decision.md`. Do not claim the migration has landed before its reviewed slices do.
+Never commit or print passwords, credential-bearing DSNs/URLs, tokens, OAuth
+secrets, SSH/private keys, recovery codes, or private production environment
+files. Use scoped secret paths and keep sensitive values out of arguments,
+logs, artifacts, and frontend builds.
 
-Backend code lives primarily under `apps/`; migrations live under `sql/`.
-
-Rules:
-
-- keep DB tests on disposable/test databases;
-- use parameterized SQL;
-- preserve fail-closed validation and bounded inputs;
-- bulk database writes must follow `docs/development/bulk-database-write-safety.md`;
-- do not perform production DB reads/writes from a coding task unless an explicit current production operation authorizes them.
-
-## Frontend
-
-New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
-
-The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
-
-- package manager: Yarn 1.22.22;
-- `yarn.lock` is committed and authoritative;
-- API access should use the existing domain-scoped client modules under `frontend/src/lib/api/`;
-- do not introduce a flat `frontend/src/lib/api.ts` that shadows the API barrel;
-- preserve typed API contracts and regenerate/check OpenAPI types when backend response shapes change.
-
-Use these legacy-toolchain commands only to validate the still-current checked-in frontend:
-
-```bash
-cd frontend
-yarn install --frozen-lockfile
-yarn typecheck
-yarn test
-yarn build
-```
-
-Run focused map/planner/operator/E2E checks when those surfaces are touched.
-
-## Local review/testing
-
-`docker-compose.review.yml` is the disposable local Review Lab data/service contract. It is not production and must remain isolated from production credentials, URLs and data.
-
-The required `Review Lab` GitHub Actions workflow exercises the browser review journey on pull requests.
-
-## CI and acceptance
-
-Every pull request must satisfy the canonical [Pull Request Acceptance Policy](docs/development/pull-request-acceptance-policy.md) before merge. Acceptance is fail-closed and must apply to the **exact latest PR head SHA**.
-
-Both Codex Review (`chatgpt-codex-connector`) and Octopus Review must satisfy that policy for the exact latest PR head SHA. **Green CI alone is insufficient**: every substantive reviewer finding must have an explicit recorded disposition and no substantive unresolved thread may remain before merge.
-
-Required checks are defined by branch protection and current workflows. Do not weaken tests just to make a PR green.
-
-At minimum, preserve the protected backend, integration, migration/script, canonical safety, frontend, E2E, image-parity, Review Lab and security gates that apply to the change.
-
-If a docs/config change invalidates a contract test because the contract itself intentionally changed, update the test to assert the new contract rather than restoring stale text.
-
-## Visual changes
-
-Any change affecting rendering, layout, maps, CSS, components, opacity, colour, sizing, or other user-visible output requires visual validation before production promotion.
-
-Preserve accessibility, browser coverage, bounded-data, memory/performance and visual evidence requirements defined by the current stage/feature contract.
-
-## Secrets and sensitive material
-
-Never commit or print:
-
-- passwords;
-- DSNs containing credentials;
-- API tokens;
-- OAuth client secrets;
-- SSH/private keys;
-- recovery codes;
-- credential-bearing URLs;
-- private production environment files.
-
-Use scoped secrets and existing current credential paths. Keep secrets off command-line arguments and logs wherever practical.
-
-## Final rule
-
-When instructions conflict, prefer the current infrastructure status, current roadmap authorization, the V3 application stack decision for new implementation, current branch code/tests, and fail-closed safety. If a requested action depends on a procedure that no longer exists in the current tree, stop rather than recreating it from history.
+When instructions conflict, current infrastructure status governs production,
+the roadmap governs programme order, and the product/architecture/stack/browser
+authorities govern their named surfaces. Fail closed on missing authority.

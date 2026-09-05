@@ -1,7 +1,9 @@
 # Spatial Platform Product Contract
 
-**Status:** Stage 27A authority (2026-08-31)
-**Scope:** product and representation contract; no renderer implementation
+**Status:** current V3 product authority (updated 2026-09-05)
+
+**Scope:** product, interaction, and representation contract
+
 **Supersedes:** the global Stage 25/26 restriction that the map is only a
 secondary Explore surface and may never participate in planning. It does not
 supersede Colony Planner ownership of Build Plan persistence or mechanics.
@@ -23,6 +25,17 @@ changes contributions and presentation; it does not replace the map.
 Commander History / Journal is a cross-cutting product capability, not merely
 an Exploration importer, raw-event viewer, or map preset. Exploration is one
 major interpretation of Commander History and remains a first-class user goal.
+
+The sole V3 browser destination is `apps/web` using Svelte/SvelteKit, with a
+fresh Babylon renderer as its spatial presentation target. React/R3F/Three
+preserves migration, behaviour, and Stage 26 evidence only; R3F's historical
+Stage 26 win does not make it current V3 architecture or production authority.
+
+PR #601 is the active integration lane. Its known exact head
+`12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains the real
+Explore/Finder → fresh Babylon → canonical Inspect product slice and the Review
+Lab rebase to `apps/web` plus Babylon. Exact-head validation remains red and is
+still stabilizing, so this is not a green or complete checkpoint.
 
 ## Three complementary Commander History surfaces
 
@@ -58,10 +71,11 @@ inferred, or schematic state as existing fact.
 
 The base scene uses true Elite Cartesian coordinates in light-years and a
 recognisable 3D Milky Way form. It supports excellent top-down use, restrained
-tilt, pan/orbit/zoom, an ED-like reference grid, useful stars, clear selected
-and reference treatments, semantic labels, search/fly-to, picking, routes, and
-named regions. Dust, nebulae, glow, and background are ambient only and never
-feed gameplay facts.
+tilt, pan/orbit/zoom, a continuous camera across Galaxy semantic scales, an
+ED-like reference grid, useful stars, clear selected and reference treatments,
+semantic labels, search/fly-to, picking, routes, and all 42 named galactic
+regions. Dust, nebulae, glow, and background are ambient only and never feed
+gameplay facts.
 
 Semantic zoom uses hysteresis at both entry and exit boundaries:
 
@@ -72,7 +86,9 @@ Semantic zoom uses hysteresis at both entry and exit boundaries:
    denser Galaxy clutter.
 
 No zoom boundary may cause selection, active route, or a guaranteed highlighted
-target to disappear.
+target to disappear. Coincident or visually overlapping targets require an
+explicit, keyboard-accessible disambiguation interaction; arbitrary draw order
+must not silently choose one.
 
 ## Representation and truth
 
@@ -94,17 +110,26 @@ The first five are runtime representation classes. `UNAVAILABLE` and
 
 ## Domain contributions
 
-- **Finder:** existing filters and Development Scores select/rank results.
+- **Finder:** existing filters and the selected, versioned scoring contract
+  select/rank results.
   Matches illuminate, score may affect prominence, and irrelevant systems may
   recede. Selected, highlighted and cluster members remain guaranteed. Score
-  breakdown is accessible. Viewport/reference may become explicit Finder input.
-  The renderer never calculates Development Score. Current evidence:
-  `frontend/src/features/map-foundation/feature-handoffs.ts`,
-  `apps/api/src/routers/search.py`, and `apps/api/src/mechanics/scoring_rules.py`.
+  breakdown is accessible. **Search From Here** and **Systems Within…** accept
+  explicit viewport, reference system, named region, and bounded radius inputs.
+  The renderer never calculates a score. Current Finder local search computes
+  raw `x`/`y`/`z` distance; it does not establish a grid as a first-class search
+  accelerator. Search, spatial-index, grid, and cluster architecture remain
+  decision gates rather than being selected here. Repository evidence includes
+  the historical R3F handoff in
+  `frontend/src/features/map-foundation/feature-handoffs.ts` and the backend
+  owners in `apps/api/src/routers/search.py` and
+  `apps/api/src/mechanics/scoring_rules.py`.
 - **Colonisation:** contributions may show authoritative candidates,
   valid/invalid states, expansion ranges, current and planned colonies,
   infrastructure, relationships, alternate paths, comparisons, clusters,
   blockers and route implications. Only domain owners decide validity.
+  Clusters are domain-derived contributions with stable membership and
+  provenance; the renderer must not invent them from visual proximity.
 - **Exploration / Commander History:** personal exploration is a first-class,
   sync-key-scoped interpretation of the Commander History fact set, not
   `visitedSystem: boolean` and not universal truth. Galaxy and System
@@ -123,10 +148,15 @@ The first five are runtime representation classes. `UNAVAILABLE` and
   explicit unresolved endpoints. Rendering never becomes route mechanics.
 
 Common explicit actions include **Open System**, **Enter System**, **Set
-Reference**, **Find Around Here**, **Colonisation Analysis**, **Compare**,
+Reference**, **Search From Here**, **Colonisation Analysis**, **Compare**,
 **Plan From Here**, **Systems Within…**, **Show Cluster**, and **Plot Route**.
 Multi-select and spatial queries operate on stable target identities, provide a
 bounded result count/truncation state, and remain keyboard and text accessible.
+
+The repository still uses Ratings v3.4 in places while roadmap intent has also
+described archetype-based judgement. The canonical scoring/data contract must
+be decided explicitly before the full PostgreSQL 18 derived-data build; this
+product contract does not resolve that conflict by fiat.
 
 ## Commander History / Journal product contract
 
@@ -174,7 +204,7 @@ establishes global Codex truth.
 
 ## System Map contract
 
-System Map is first-class architecture now and implementation later. It targets
+System Map is a first-class part of the current V3 product direction. It targets
 stars/spectral colours, planets, moons, rings, atmospheres, classes,
 landability, stations/outposts/settlements/facilities, current colony
 infrastructure, planned infrastructure, and personal exploration state only
@@ -218,17 +248,21 @@ association remains schematic or unresolved.
 
 CRE owns mechanics, ontology, evidence interpretation and Digital Twin state.
 System Map owns spatial orientation and presentation. ED-Finder orchestrates and
-presents; Babylon eventually renders. CPE owns plan construction, alternatives,
-sequencing, validation and plan persistence. Spatial contributions can carry a
-chosen plan, proposed facilities, alternatives, rejected/blocked options and
-dependencies only when the owning CPE contract supplies them.
+presents; Babylon is the V3 renderer target. CPE owns plan construction,
+alternatives, sequencing, validation and plan persistence. Spatial
+contributions can carry a chosen plan, proposed facilities, alternatives,
+rejected/blocked options and dependencies only when the owning CPE contract
+supplies them, and must represent those proposals as `PLANNED`.
+
+Babylon never owns mechanics, ranking, persistence, or planning.
 
 ## Accessibility, reliability and performance
 
-React/DOM owns routing, panels, commands, keyboard/text equivalents, focus and
-screen-reader output. Every pickable spatial target has an equivalent semantic
-DOM route; colour is never the sole truth distinction. Reduced motion disables
-nonessential animation and makes fly-to/transitions bounded and interruptible.
+Svelte/SvelteKit and the accessible DOM own routing, panels, commands,
+keyboard/text equivalents, focus and screen-reader output. Every pickable
+spatial target has an equivalent semantic DOM route; colour is never the sole
+truth distinction. Reduced motion disables nonessential animation and makes
+fly-to/transitions bounded and interruptible.
 
 The runtime must survive resize/DPR changes, stale/empty/truncated/error data,
 backend initialization failure, context/device loss and resource rebuild.
@@ -261,11 +295,17 @@ tests must prove:
 - a personal Codex observation is not global Codex knowledge; and
 - display-scaled radius does not overwrite physical radius.
 
-## Stage 27A acceptance and non-goals
+## Current delivery and acceptance boundaries
 
-Stage 27A accepts this contract, the architecture decision, inheritance matrix,
-capability inventory, data-readiness matrix and SELECT-only coverage pack. It
-authorizes **Stage 27B only**. It does not add/upgrade Babylon, wire a runtime,
-change production map behaviour, remove R3F/Three.js, implement System Map,
-change CRE mechanics, implement CPE mechanics, write production data, touch V2
-archives, deploy, merge, or begin 27B.
+Product E2E/Visual Acceptance and Review Lab are separate validation lanes.
+Both exercise the same V3 `apps/web` plus Babylon product path; Review Lab varies
+only synthetic data and its isolated environment. Review Lab cannot substitute
+for Product E2E/Visual Acceptance, and neither lane may claim an exact PR head is
+accepted while its required checks are red.
+
+Implementation must preserve renderer-neutral domain ownership, explicit truth
+classes, bounded/count/truncated semantics, accessible equivalents, and stable
+selection across LOD. PostgreSQL 18 derived-data bootstrap, spatial search/index
+design, grid/cluster strategy, and the Ratings v3.4 versus archetype judgement
+decision remain active gates. This contract does not authorize production or
+database mutation, deployment, or inference from historical V2 receipts.

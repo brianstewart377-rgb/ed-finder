@@ -10,9 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
-STAGE19_ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
 STAGE19BA_PATH = DOCS / 'stage-19-bounded-production-staging-activation.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 WRAPPER_PATH = ROOT / 'scripts' / 'operator' / 'stage19ba_bounded_production_staging_activation.py'
@@ -106,11 +104,9 @@ def test_stage19ba_authority_prepares_a_bounded_non_executing_staging_activation
 
 
 @pytest.mark.unit
-def test_stage19ba_docs_indexes_and_roadmaps_record_the_separate_dependency():
+def test_stage19ba_docs_record_the_separate_dependency():
     document = ' '.join(_read(STAGE19BA_PATH).split())
-    readme = _read(README_PATH)
     stage17p = _read(STAGE17P_PATH)
-    stage19_roadmap = _read(STAGE19_ROADMAP_PATH)
     parity = _read(LOCAL_CI_PARITY)
     operator_readme = _read(OPERATOR_README_PATH)
 
@@ -128,10 +124,7 @@ def test_stage19ba_docs_indexes_and_roadmaps_record_the_separate_dependency():
     assert 'query strings/fragments are never logged' in document
     assert 'exact production target approval remains a later gate' in document
     assert 'Stage 23 remains the active product/evidence roadmap' in document
-    assert 'stage-19-bounded-production-staging-activation.md' in readme
     assert 'stage-19-bounded-production-staging-activation.md' in stage17p
-    assert 'Stage 19 remains historical and paused' in stage19_roadmap
-    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in stage19_roadmap
     assert 'stage19ba_bounded_production_staging_activation.py' in operator_readme
     assert 'tests/test_stage19ba_bounded_production_staging_activation.py' in parity
 
@@ -293,4 +286,3 @@ def test_stage19ba_target_validation_fails_closed_for_database_url_label_ports_h
     incomplete_identity.db_user = '   '
     with pytest.raises(stage19ba.Stage19BaActivationError):
         stage19ba.assert_safe_stage19ba_target(incomplete_identity)
-

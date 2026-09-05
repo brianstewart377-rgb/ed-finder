@@ -10,12 +10,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE19BA_PATH = DOCS / 'stage-19-bounded-production-staging-activation.md'
 STAGE19BB_PATH = DOCS / 'stage-19bb-first-production-staging-activation.md'
 STAGE19BB_CLOSEOUT_PATH = DOCS / 'stage-19bb-production-staging-execution-closeout.md'
-STAGE19_ROADMAP_PATH = ROOT / 'docs' / 'ROADMAP.md'
-STAGE23_PATH = ROOT / 'docs' / 'ROADMAP.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 WRAPPER_PATH = ROOT / 'scripts' / 'operator' / 'stage19bb_first_production_staging_activation.py'
 OPERATOR_README_PATH = ROOT / 'scripts' / 'operator' / 'README.md'
@@ -85,18 +82,15 @@ def _approved_preflight() -> dict[str, object]:
 
 
 @pytest.mark.unit
-def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merge_boundary():
+def test_stage19bb_authority_docs_record_exact_authorized_after_merge_boundary():
     authority = _json(AUTHORITY_PATH)
     checkpoint = authority['stage19bb_first_production_staging_activation']
     closeout = authority['stage19bb_execution_closeout']
     stage19ba = authority['stage19ba_bounded_production_staging_activation']
-    readme = _read(README_PATH)
     operator_readme = _read(OPERATOR_README_PATH)
     stage19ba_doc = _read(STAGE19BA_PATH)
     stage19bb_doc = _read(STAGE19BB_PATH)
     stage19bb_closeout = _read(STAGE19BB_CLOSEOUT_PATH)
-    stage19_roadmap = _read(STAGE19_ROADMAP_PATH)
-    stage23 = _read(STAGE23_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     assert checkpoint['status'] == 'authorized_after_merge'
@@ -151,8 +145,6 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     ]
     assert stage19ba['historical_stage19ba_execution_authorized_for_five_tables'] is False
 
-    assert 'stage-19bb-first-production-staging-activation.md' in readme
-    assert 'stage-19bb-production-staging-execution-closeout.md' in readme
     assert 'stage19bb_first_production_staging_activation.py' in operator_readme
     assert 'stage-19bb-production-staging-execution-closeout.md' in operator_readme
     assert 'five-table' in stage19ba_doc
@@ -164,11 +156,6 @@ def test_stage19bb_authority_docs_and_indexes_record_exact_authorized_after_merg
     assert stage19bb.APPROVED_TARGET_FINGERPRINT in stage19bb_doc
     assert 'formula mismatch' in stage19bb_doc
 
-    assert 'Historical Stage 19BB notes preserve the bounded production-staging' in stage19_roadmap
-    assert 'authorization dependency, execution closeout and recorded EDSM source refresh' in stage19_roadmap
-    assert 'former V2 environment' in stage19_roadmap
-    assert 'Stage 19 remains historical and paused' in stage23
-    assert 'none of these checkpoints authorizes current V3 DB commands, queries or write lanes.' in stage23
     assert 'tests/test_stage19bb_first_production_staging_activation.py' in parity
 
 

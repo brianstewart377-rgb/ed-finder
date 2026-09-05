@@ -1,32 +1,40 @@
 # ED-Finder V3 Application Stack Decision
 
-**Decision date:** 2026-09-04  
-**Status:** stack lock for the V3 application rebuild  
-**Tracking:** issue #574  
-**Base:** `main` after PR #568 (`da35e1872c96376d78137d56a07a9bf5ff27662a`)
+**Decision date:** 2026-09-04
+
+**Status:** current V3 application technology authority
+
+**Tracking:** issue #574
 
 ## Purpose
 
-ED-Finder is using the V3 infrastructure cutover as the point to make one deliberate application-stack reset rather than migrating React, the spatial renderer, package management, browser testing, Python packaging, runtime services and deployment mechanics independently.
+ED-Finder uses one coherent V3 application stack rather than migrating the UI,
+spatial renderer, package management, browser testing, Python packaging,
+runtime services and deployment mechanics as independent architecture choices.
 
-This document is the technology authority for the new application baseline. It does not itself authorize production deployment, database mutation, a Babylon production cutover, or any later Stage 27 slice. Those actions still require their normal reviewed stage/operator boundaries.
+This document is the technology authority for V3 implementation. It does not
+authorize production deployment or database mutation; those actions retain
+their reviewed operator boundaries.
 
-The current React/R3F application remains a migration reference for behaviour, user journeys, accessibility expectations, screenshots and parity evidence until equivalent coverage exists. It is not the architecture target for new frontend implementation.
+`apps/web/` with Svelte/SvelteKit is the sole V3 browser target, and a fresh
+Babylon runtime is its renderer target. React/R3F/Three remains historical
+migration evidence for behaviour, user journeys, accessibility, screenshots and
+parity. It is not V3 architecture or current production authority. Stage 26 did
+select R3F in its contemporary bakeoff; this decision preserves that fact
+without carrying the result forward as the V3 target.
 
-## Post-cutover runtime evidence
+## Current implementation state
 
-Read-only V3 application status run `33817618652`, executed after PR #568 merged, established the starting point:
+PR #601 is the active integration lane. Known exact head
+`12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains a real
+Explore/Finder -> fresh Babylon -> canonical Inspect product slice and has
+landed the Review Lab rebase to `apps/web/` plus Babylon.
 
-- `ed-finder-prod` and the expected V3 listeners are reachable;
-- all required V3 containers were running and PostgreSQL was healthy;
-- origin `/api/health` returned HTTP 200 with `database=connected`;
-- the running API was the stale `edfinder-v3-api:phase4c-r5` image and reported `build_sha=unknown`;
-- the running origin exposed neither `/openapi.json` nor the current `/api/auth/*` Frontier OAuth routes;
-- no built frontend index existed inside the API image or at `/opt/ed-finder/frontend/dist`;
-- the host checkout was clean but remained on historical branch `infra/multi-target-operator-mcp`, not current `main`;
-- the public edge was partial/inconsistent: public root and anonymous session responded, while public health returned 503.
-
-Therefore the next engineering problem is **immutable application release/deployment**, not PostgreSQL resurrection and not manual patching of the Phase4C container.
+Exact-head validation for that SHA remains red/stabilizing. Do not call it a
+green or complete checkpoint. Product E2E/Visual Acceptance and Review Lab stay
+separate exact-head lanes; both use `apps/web/` plus Babylon, while Review Lab
+varies only synthetic data and its isolated environment. Browser authority is
+defined in `docs/development/v3-browser-validation-lanes.md`.
 
 ## Locked stack
 
@@ -41,7 +49,7 @@ Therefore the next engineering problem is **immutable application release/deploy
 | Production delivery | **Static SvelteKit output** via `adapter-static`; no Node application server in production |
 | Build system | **Vite 8 / Rolldown** |
 | Tooling runtime | **Node.js 24 LTS** |
-| Package manager | **pnpm 11**; Yarn 1 is retired from the new stack |
+| Package manager | **pnpm 11**; Yarn 1 is not part of V3 |
 | CSS | **Tailwind CSS 4** plus native CSS variables/design tokens |
 | Accessible primitives | **Bits UI v2** |
 | Starter components | **shadcn-svelte selectively**, as copied source only; it is not ED-Finder's visual authority |
@@ -72,7 +80,9 @@ Therefore the next engineering problem is **immutable application release/deploy
 | Heavy client transforms | Native **Web Workers + transferable ArrayBuffers/typed arrays** only when profiling demonstrates a main-thread problem |
 | Large-data transport | Normal JSON/OpenAPI by default; bounded binary/streaming endpoints only for measured bottlenecks |
 
-The existing Stage 27 renderer-neutral `SpatialSceneContract`, contribution, command and event boundaries remain authoritative. The frontend-framework change does not permit Babylon types to leak into domain contracts.
+The renderer-neutral `SpatialSceneContract`, contribution, command and event
+boundaries in `spatial-platform-architecture-decision.md` are authoritative.
+Babylon types cannot leak into domain contracts.
 
 ### Backend and data
 
@@ -96,7 +106,7 @@ The application must expose exact build provenance (`build_sha`/version) from it
 
 | Layer | Locked decision |
 |---|---|
-| Cache/pub-sub service | **Valkey** for the new baseline |
+| Cache/pub-sub service | **Valkey** for the V3 baseline |
 | Valkey state | Non-authoritative, disposable/rebuildable cache/pub-sub/rate-limit state; canonical truth remains PostgreSQL |
 | NATS | **Not in the baseline**; reintroduce only if a future requirement demonstrates a job/stream responsibility Valkey should not own |
 | EDDN | **One dedicated EDDN worker service** |
@@ -113,7 +123,7 @@ Valkey persistence is not required to recover canonical product data. Restart ma
 | Static web server | **nginx** |
 | Public/application routing | Same-origin web + API; `/api/*`, exact `/openapi.json` and numeric `/s/{id64}` route to FastAPI, while all other application/static routes route to the SvelteKit build; no backend catch-all may steal SvelteKit routes |
 | Container runtime | **Docker Engine** |
-| Host orchestration | **Docker Compose v2**, through a new explicitly V3 production authority file; root legacy/local Compose is not production authority |
+| Host orchestration | **Docker Compose v2**, through an explicitly current V3 production authority; root legacy/local Compose is not production authority |
 | Alternative orchestrators | No Kubernetes/Swarm/Traefik/Caddy migration as part of this rebuild |
 | Production build behaviour | **No builds, dependency resolution or `git pull` on production** |
 | Release artifacts | Immutable OCI web/backend images plus a release manifest containing exact Git SHA, image digests, migration-set/schema identity, schema-compatibility evidence and rollback eligibility |
@@ -168,32 +178,35 @@ OpenTelemetry may be added later only when a real multi-service latency/debuggin
 
 ## Browser and test authority
 
-ED-Finder has already paid the cost of discovering that Playwright was flaky for this repository. Generic ecosystem preference does not override repository evidence.
+The detailed lane contract is
+`docs/development/v3-browser-validation-lanes.md`. Its two protected concerns
+remain distinct: Product E2E/Visual Acceptance proves production-shaped user
+journeys and visual output; Review Lab proves the same `apps/web/` plus Babylon
+application against deterministic synthetic data and an isolated environment.
 
-New baseline:
-
-- **Cypress is the protected browser/E2E authority**;
+- **Cypress is the protected browser/E2E authority** for V3;
 - Chrome/Chromium-family and Firefox are the initial protected browser classes;
 - Microsoft Edge may be exercised as the production Chromium-family browser;
-- Safari/WebKit is best-effort/compatibility-target initially and is not a hidden Playwright requirement;
+- Safari/WebKit is an explicit compatibility target, not a hidden tooling requirement;
 - Vitest/Testing Library owns fast component/unit tests;
 - Cypress Svelte component testing may be reconsidered when its Svelte integration has proved stable for this repository.
 
-Existing Playwright coverage is migration evidence, not future authority. Do not delete a still-useful parity check before equivalent Cypress coverage exists. Port or retire deliberately, then remove Playwright configs/dependencies/workflow installation steps and misleading labels. In particular, the current `Cypress Parity` workflow already runs Cypress but still carries an obsolete Playwright job name; Review Lab and historical map/bakeoff suites also retain Playwright-specific machinery that must be dispositioned explicitly.
+Playwright is historical migration evidence only. It is not active V3 tooling,
+a V3 check or authority for new coverage. Historical screenshots and results may
+inform parity without reviving their harness.
 
-## Frontend/renderer ownership amendment
-
-Where Stage 27A documents currently say **React owns app/domain orchestration**, the target-stack interpretation is now:
+## Frontend/renderer ownership
 
 > **Svelte/SvelteKit owns app/domain orchestration, routing, panels, accessible DOM UI, keyboard and text. Babylon owns only the long-lived spatial renderer runtime.**
 
-This is a frontend-framework authority amendment, not a change to the renderer-neutral scene contract and not authorization to implement Babylon in Stage 27A.
-
-The same replacement applies to references that say React/DOM owns accessible UI: the durable contract is **Svelte/DOM** accessibility ownership. Renderer-neutral domain handlers, rather than React-specific handlers, decide whether runtime events are permitted to mutate application/domain state.
+The durable contract is **Svelte/DOM** accessibility ownership.
+Renderer-neutral domain handlers, rather than framework- or renderer-specific
+handlers, decide whether runtime events may mutate application/domain state.
+Babylon never owns mechanics, ranking, persistence or planning.
 
 ## Explicit retirements / negative decisions
 
-Do not carry these into the new baseline by inertia:
+Do not carry these into V3 by inertia:
 
 - React / ReactDOM;
 - `@react-three/fiber`;
@@ -204,7 +217,7 @@ Do not carry these into the new baseline by inertia:
 - legacy monolithic `babylonjs` package;
 - Yarn 1;
 - Tailwind 3 configuration/plumbing;
-- Playwright after equivalent Cypress coverage is established;
+- Playwright as an active test tool or gate;
 - NATS without a new justified responsibility;
 - duplicated EDDN consumers;
 - API-served frontend bundle as the target deployment model;
@@ -216,22 +229,30 @@ Do not carry these into the new baseline by inertia:
 
 Deck.gl/Luma.gl are not automatically retained. Current use is renderer-bakeoff/reference material. A future Stage 27 requirement must establish a non-Babylon responsibility before either library enters the new application dependency graph.
 
-## Migration and implementation order
+## Current implementation constraints
 
-The reset is deliberately serialized to avoid half a dozen simultaneous production cutovers.
+The roadmap owns execution order. Implementation within that order follows
+these constraints:
 
-1. **Accept this stack decision.** No feature implementation before the target is internally consistent.
-2. **Establish immutable V3 release foundation.** Build/publish current FastAPI plus a minimal SvelteKit shell as immutable images; define exact release manifest, secrets, V3 production Compose/network/rollback, health and provenance.
-3. **Prove backend runtime before feature porting.** Origin and public `/api/health` must be healthy; `/openapi.json` and current `/api/auth/*` routes must be present; exact build SHA must be reported.
-4. **Prove migration/OAuth state through reviewed V3 paths.** Inspect migration state before applying anything; then configure Frontier secrets/callback, complete a real login and owner claim.
-5. **Port Svelte application surfaces in bounded slices:** shell/auth/shared API context -> Finder -> Inspect/System Detail -> Planner -> evidence/review -> Admin/Ops.
-6. **Introduce Babylon only through the existing Stage 27 authorization/bakeoff sequence.** The Svelte rebuild does not silently accelerate the renderer production cutover.
-7. **Run V3 data-coverage audit** and repair only data/functions actually shown missing.
-8. **Retire old React/R3F/Playwright/Redis/NATS artifacts only after equivalent accepted replacement coverage/runtime exists.**
+- extend the existing `apps/web/` product slices and renderer-neutral Babylon
+  boundary rather than starting a parallel shell, Finder or Inspect;
+- keep canonical Inspect and domain services as the destination of map actions;
+- evaluate search/spatial-index/grid/cluster architecture and PostgreSQL 18
+  derived-data bootstrap as explicit decision gates, using measured query
+  shapes and explain plans rather than choosing an accelerator by convention;
+- preserve the current fact that local Finder distance search uses raw
+  `x`/`y`/`z`, with no grid treated as a first-class accelerator;
+- resolve the Ratings v3.4 versus archetype-judgement boundary explicitly before
+  a full PostgreSQL 18 derived-data build; neither Babylon nor migration code
+  may settle scoring ownership by fiat;
+- retain React/R3F/Three and older browser results only as historical
+  migration/behaviour evidence; and
+- require exact-head Product E2E/Visual Acceptance and Review Lab evidence
+  without collapsing one lane into the other.
 
-## Initial release-foundation acceptance
+## Immutable release acceptance
 
-Before the new application can replace the stale Phase4C runtime, require at minimum:
+Any V3 application release requires at minimum:
 
 - immutable web and backend image digests tied to one Git SHA;
 - reproducible CI build from frozen pnpm/uv locks;
@@ -246,7 +267,7 @@ Before the new application can replace the stale Phase4C runtime, require at min
 - backend-owned numeric `/s/{id64}` OpenGraph stop page remains reachable without capturing other SvelteKit routes;
 - anonymous session endpoint valid;
 - all current Frontier OAuth routes present before attempting login;
-- frontend static shell served through the same-origin application path;
+- the `apps/web/` static application served through the same-origin application path;
 - Cypress smoke for root, health, anonymous session and representative navigation;
 - secret values absent from source, image metadata, Compose literals and logs;
 - service restart/recreate limited to explicitly selected V3 application services;

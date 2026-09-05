@@ -13,6 +13,23 @@ Pre-cutover history remains available in Git history and dated/archive documents
 
 ---
 
+## Current V3 framing — 2026-09-05
+
+Current authority is the small chain rooted at [`README.md`](README.md) and
+[`docs/ROADMAP.md`](docs/ROADMAP.md). Production is `ed-finder-prod` at
+`nb79a3d.mevnode.com` on PostgreSQL 18; Hetzner/V2 operational entries below
+are historical snapshots only. The sole V3 browser target is `apps/web`
+Svelte/SvelteKit with fresh Babylon spatial rendering. React/R3F/Three remains
+historical migration and behaviour evidence, including R3F's Stage 26 win.
+
+PR #601 is the active integration lane at current known head
+`12eebac48ca9286e0fd8c180cc5f552dc922d07e`, but exact-head validation remains
+red/stabilizing. This framing note does not rewrite the chronological record
+below; where an older entry describes then-current authority, the current
+authority chain wins.
+
+---
+
 ## 2026-09-05 — Codex worker reasoning-cost adjustment
 
 ### Fixed high-effort model contract

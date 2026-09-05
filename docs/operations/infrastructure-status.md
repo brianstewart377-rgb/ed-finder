@@ -2,11 +2,26 @@
 
 ## Current production boundary
 
-ED-Finder production is on the V3 replacement infrastructure.
+ED-Finder production is **`ed-finder-prod` at `nb79a3d.mevnode.com`** on the
+V3 replacement infrastructure. Hetzner/V2 is gone.
 
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
+
+Old V2 runtime, cron, database, deployment, backup, recovery, and rollback
+receipts are historical evidence only. They do not describe or authorize the
+current production environment.
+
+## Runner and checkpoint boundary
+
+Contabo hosts three self-hosted Codex runners. Those runners are build/review
+infrastructure, not production. Contabo is not automatically a live-checkpoint
+host, recovery target, backup destination, or production failover.
+
+The destination, trust boundary, retention policy, and recovery purpose for any
+future checkpoint require an explicit decision. Until then, no current document
+or workflow may hard-code Contabo as that destination.
 
 ## V3 database recovery boundary
 
@@ -39,6 +54,9 @@ The dump is not the operating database. Do not restore it wholesale into product
 - Legacy irreplaceable/private/manual/history data: selectively migrate from the validated offsite dump only when justified.
 - Redis/cache state: disposable and rebuildable.
 - NATS/JetStream transport state: not canonical domain truth; rehydrate from authoritative state when required.
+
+The experimental Ollama/Octopus test residue has been removed from production.
+It is not a production service or V3 architecture component.
 
 ## Operator rule
 
