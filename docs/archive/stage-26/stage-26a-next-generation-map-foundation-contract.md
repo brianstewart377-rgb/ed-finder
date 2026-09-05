@@ -1,5 +1,8 @@
 # Stage 26A Next-Generation Map Foundation Contract
 
+> **HISTORICAL — COMPLETED STAGE.** Contemporaneous authorization below ended
+> with Stage 26 and does not govern V3. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status
 
 Stage 26A is the active authorization and contract checkpoint for replacing the

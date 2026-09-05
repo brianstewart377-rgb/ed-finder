@@ -578,7 +578,7 @@ external identity proof, and that `station_body_links.market_id` is scoped to
 station/body association evidence. The recommendation is a separate
 provenance-backed `station_external_identity` table, not relaxed station-type
 filtering. See
-[`stage-18j-p3-canonical-external-station-identity-model.md`](./stage-18j-p3-canonical-external-station-identity-model.md).
+[`stage-18j-p3-canonical-external-station-identity-model.md`](../archive/stage-18j-p3-canonical-external-station-identity-model.md).
 
 Stage 18J-P4 designs the external station identity schema. The preferred model
 keeps identity rows separate from `stations`, preserves source run/file/hash
@@ -587,7 +587,7 @@ and allows only `identity_status = 'confirmed'` rows to prove canonical
 external station identity in read-only reconciliation. It does not add a SQL
 migration, run production commands, run imports, run reconciliation, run
 station-type dry-run, or authorize apply. See
-[`stage-18j-p4-external-station-identity-schema-design.md`](./stage-18j-p4-external-station-identity-schema-design.md).
+[`stage-18j-p4-external-station-identity-schema-design.md`](../archive/stage-18j-p4-external-station-identity-schema-design.md).
 
 Stage 18J-P5 drafts the additive external identity migration in
 `sql/027_station_external_identity.sql` and adds synthetic migration contract
@@ -597,7 +597,7 @@ provenance, adds partial unique indexes for confirmed identities, and adds
 lookup indexes for station, system, external IDs, source run/file, and status.
 It is not applied to production, does not update `stations`, does not backfill
 identity rows, and does not authorize station-type dry-run or apply. See
-[`stage-18j-p5-external-station-identity-migration-draft.md`](./stage-18j-p5-external-station-identity-migration-draft.md).
+[`stage-18j-p5-external-station-identity-migration-draft.md`](../archive/stage-18j-p5-external-station-identity-migration-draft.md).
 
 Stage 18J-P6 reviews the P5 migration for production readiness. The verdict is
 `Ready for schema-only production application`, limited to a later Hetzner
@@ -606,7 +606,7 @@ required preflight checks, post-apply checks, rollback expectations, and
 forbidden follow-on actions. It does not apply the migration, touch production
 DB, load identity evidence, run reconciliation, run station-type dry-run, or
 authorize apply. See
-[`stage-18j-p6-external-identity-migration-production-readiness.md`](./stage-18j-p6-external-identity-migration-production-readiness.md).
+[`stage-18j-p6-external-identity-migration-production-readiness.md`](../archive/stage-18j-p6-external-identity-migration-production-readiness.md).
 
 Stage 18J-P7 records the schema-only production application closeout for
 `sql/027_station_external_identity.sql`. The `station_external_identity` table
@@ -624,7 +624,7 @@ and requires a dry-run identity candidate artifact before any identity evidence
 load. It keeps station-type writes blocked and does not run production
 commands, load identity evidence, run reconciliation, run station-type dry-run,
 or run apply. See
-[`stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`](./stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md).
+[`stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md`](../archive/stage-18j-p8-external-identity-evidence-loader-reconciliation-design.md).
 
 Stage 18J-P9 adds the read-only external identity candidate artifact generator
 in `apps/importer/src/station_external_identity_candidates.py`. It reads staged
@@ -632,7 +632,7 @@ EDSM station evidence through an explicit read-only DSN, matches by
 `system_id64` plus normalized station name, preserves source run/file/hash
 provenance, emits compact deterministic JSON with capped samples and integrity
 hash, and writes no identity or canonical rows. See
-[`stage-18j-p9-readonly-external-identity-candidate-artifact.md`](./stage-18j-p9-readonly-external-identity-candidate-artifact.md).
+[`stage-18j-p9-readonly-external-identity-candidate-artifact.md`](../archive/stage-18j-p9-readonly-external-identity-candidate-artifact.md).
 
 Stage 18J-P10 reviews the first Hetzner read-only external identity candidate
 artifact. The artifact inspected `298177` staged EDSM station rows and reported
@@ -641,7 +641,7 @@ rejected/source-only rows with no identity or canonical writes. The verdict is
 `Ready only for bounded identity load dry-run`: candidates are promising, but
 the next step must be a bounded no-write load-plan artifact before any insert
 into `station_external_identity`. See
-[`stage-18j-p10-external-identity-candidate-artifact-review.md`](./stage-18j-p10-external-identity-candidate-artifact-review.md).
+[`stage-18j-p10-external-identity-candidate-artifact-review.md`](../archive/stage-18j-p10-external-identity-candidate-artifact-review.md).
 
 Stage 18J-P11 adds the bounded no-write external identity load-plan artifact
 generator in `apps/importer/src/station_external_identity_load_plan.py`. It
@@ -649,7 +649,7 @@ reads staged EDSM station evidence through the same read-only matching path,
 requires explicit source filters and `--max-rows`, rejects bounds above `20`,
 plans only eligible `confirmed_candidate` rows, preserves provenance, rejects
 write/apply/load flags, and keeps `identity_rows_written = 0`. See
-[`stage-18j-p11-bounded-external-identity-load-plan-artifact.md`](./stage-18j-p11-bounded-external-identity-load-plan-artifact.md).
+[`stage-18j-p11-bounded-external-identity-load-plan-artifact.md`](../archive/stage-18j-p11-bounded-external-identity-load-plan-artifact.md).
 
 Stage 18J-P-OPT adds the identity evidence execution board. It keeps Hetzner
 production actions tiny and single-purpose while bundling repo work into larger
@@ -658,7 +658,7 @@ updates where appropriate. It tracks Chunk A P12/P13 review pack, Chunk B P14
 controlled identity load tooling, Chunk C P15 post-load identity coverage,
 Chunk D P16 read-only reconciliation integration, and Chunk E P17 strict
 station-type dry-run retry. See
-[`stage-18j-p-identity-evidence-execution-board.md`](./stage-18j-p-identity-evidence-execution-board.md).
+[`stage-18j-p-identity-evidence-execution-board.md`](../archive/stage-18j-p-identity-evidence-execution-board.md).
 
 Stage 18J-P12/P13 implements Chunk A from that board. It records the bounded
 load-plan artifact review and adds the offline planned-row review packet
@@ -669,7 +669,7 @@ verifies the exact load-plan artifact SHA-256, reads only local JSON, accepts
 no DSN, caps planned rows at `20`, and defaults every row review item to
 `needs_manual_review`. The readiness verdict is
 `Ready only after planned-row manual review`. See
-[`stage-18j-p12-p13-load-plan-review-packet.md`](./stage-18j-p12-p13-load-plan-review-packet.md).
+[`stage-18j-p12-p13-load-plan-review-packet.md`](../archive/stage-18j-p12-p13-load-plan-review-packet.md).
 
 Stage 18J-P13A fixes the P12/P13 review packet contract after the first
 offline Hetzner packet proved safe but not human-reviewable enough. Each
@@ -687,7 +687,7 @@ The loader validates verified review packets and emits
 separate `station_external_identity_load_approval_allowlist/v1` artifact plus
 explicit confirmation flags. This PR keeps production identity writes blocked
 and does not add a production write operator script. See
-[`stage-18j-p14-controlled-external-identity-load-tooling.md`](./stage-18j-p14-controlled-external-identity-load-tooling.md).
+[`stage-18j-p14-controlled-external-identity-load-tooling.md`](../archive/stage-18j-p14-controlled-external-identity-load-tooling.md).
 
 Stage 18J-P14B reviews the first controlled identity load dry-run. The
 execution plan selected `20` review items and `20` plan rows from
@@ -697,7 +697,7 @@ review packet SHA-256
 `canonical_writes_planned = 0`, `station_type_writes_planned = 0`, and
 `identity_rows_written = 0`, and left `station_external_identity` at `0` rows.
 The verdict is `Ready only after approval allowlist artifact`. See
-[`stage-18j-p14b-identity-load-dry-run-review.md`](./stage-18j-p14b-identity-load-dry-run-review.md).
+[`stage-18j-p14b-identity-load-dry-run-review.md`](../archive/stage-18j-p14b-identity-load-dry-run-review.md).
 
 Stage 18J-P14C adds the offline approval allowlist artifact generator in
 `apps/importer/src/station_external_identity_approval_allowlist.py` and a
@@ -705,7 +705,7 @@ Hetzner-only wrapper in
 `scripts/operator/archive/stage18j/stage18j_run_identity_approval_allowlist.sh`. The allowlist
 approves exact external identity evidence rows only; it is not station-type
 approval, canonical apply approval, or a production approval record. See
-[`stage-18j-p14c-approval-allowlist-artifact.md`](./stage-18j-p14c-approval-allowlist-artifact.md).
+[`stage-18j-p14c-approval-allowlist-artifact.md`](../archive/stage-18j-p14c-approval-allowlist-artifact.md).
 
 Stage 19A defines the warehouse artifact taxonomy and chunked roadmap before
 the warehouse broadens beyond the station reconciliation path. It separates
@@ -715,7 +715,7 @@ standardizes domain-qualified names; and requires source inventory, load,
 reconciliation, compact summary, dry-run, approval packet, and manual apply to
 remain separate chunks. Scheduler work remains design-only and disabled by
 default; scheduled jobs must never run canonical apply. See
-[`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`](./stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md).
+[`stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md`](../archive/stage-19a-warehouse-artifact-taxonomy-and-chunked-roadmap.md).
 
 Stage 19A.1 adds operator path guardrails after Codex/local and Hetzner command
 contexts were repeatedly confused. It adds a reusable Hetzner environment guard,

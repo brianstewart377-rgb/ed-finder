@@ -1,8 +1,8 @@
 # V3 Browser Validation Lanes
 
-**Decision date:** 2026-09-05  
-**Status:** authoritative V3 validation boundary  
-**Tracking:** PR #601  
+**Decision date:** 2026-09-05
+**Status:** authoritative V3 validation boundary
+**Tracking:** PR #601
 
 ## Purpose
 
@@ -66,8 +66,6 @@ The retained `frontend/` Cypress coverage is migration evidence only while equiv
 
 The retained React/R3F map is not a screenshot-baseline source for the fresh Babylon design. V3 map baselines are established from explicitly accepted V3 states after the new design is coherent enough to review.
 
-The `apps/web/` suite now includes Chrome/Firefox coverage of the explicitly non-product Babylon foundation: canvas readiness, bounded backend status, resize, navigation/remount stability, uncaught-failure protection, and a deterministic diagnostic screenshot retained as evidence only. This remains foundation/smoke coverage, not an approved product visual baseline. Before the first meaningful Finder/Inspect/map live checkpoint it must grow into real product E2E and visual acceptance, including meaningful screenshots/assertions for stable user-visible Babylon states.
-
 ## Lane 2 — Review Lab
 
 ### Authority
@@ -123,11 +121,11 @@ Review Lab may run focused tests of **Review Lab infrastructure itself** when ne
 
 Use this decision order:
 
-1. **Does the check require a synthetic review-only state, review-only route, deliberate failure/fallback, or Review Lab lifecycle/containment?**  
+1. **Does the check require a synthetic review-only state, review-only route, deliberate failure/fallback, or Review Lab lifecycle/containment?**
    Put it in **Review Lab**.
-2. **Can the check run against the normal V3 application and does it describe what a user sees or does?**  
+2. **Can the check run against the normal V3 application and does it describe what a user sees or does?**
    Put it in **V3 Product E2E / Visual Acceptance**.
-3. **Does it primarily validate source code, contracts, formatting, types, units, scripts or security without requiring a browser journey?**  
+3. **Does it primarily validate source code, contracts, formatting, types, units, scripts or security without requiring a browser journey?**
    Put it in **normal CI**.
 
 When a check could fit more than one lane, prefer the narrowest owner and do not duplicate the same acceptance contract across lanes.
@@ -187,7 +185,3 @@ For the first meaningful Finder/Inspect/Babylon live checkpoint, the two lanes n
 7. run one batched stabilisation pass across the two browser lanes before promotion.
 
 A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently: normal Product E2E/Visual Acceptance proves ordinary `apps/web` + Babylon user behaviour and pixels, while Review Lab proves selected synthetic scenarios through that same `apps/web` + Babylon stack inside its isolated environment. Sharing Cypress does not merge those authorities.
-
-## Live checkpoint terminology
-
-Contabo is the **live-checkpoint environment**, not the production server. The deployment mechanism exercised against it should be production-grade and immutable, but Review Lab, normal CI and normal E2E must not use Contabo as their test environment.

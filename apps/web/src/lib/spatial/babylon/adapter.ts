@@ -1,4 +1,5 @@
 import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import '@babylonjs/core/Culling/ray.js';
 import { Engine } from '@babylonjs/core/Engines/engine.js';
 import type { AbstractEngine } from '@babylonjs/core/Engines/abstractEngine.js';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js';
@@ -371,6 +372,7 @@ const createWebGpuSession = async (
   const engine = new WebGPUEngine(canvas, {
     antialias: true,
     audioEngine: false,
+    canvasTabIndex: -1,
     powerPreference: 'high-performance',
   });
   try {
@@ -398,7 +400,7 @@ const createWebGl2Session = (
   const engine = new Engine(
     canvas,
     true,
-    { ...options, audioEngine: false },
+    { ...options, audioEngine: false, canvasTabIndex: -1 },
     false,
   );
   if (engine.webGLVersion !== 2) {

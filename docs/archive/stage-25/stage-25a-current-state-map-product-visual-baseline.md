@@ -1,5 +1,8 @@
 ﻿# Stage 25A Current-State Map Product Visual Baseline
 
+> **HISTORICAL — COMPLETED STAGE.** “Current” below means the Stage 25 audit
+> date, not V3. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Purpose
 
 Stage 25A records the real current-state audit, the map product decision, and
@@ -151,4 +154,3 @@ It does not start Stage 25B, Stage 25C, Stage 25D, or Stage 25E.
 
 It does not authorize any database, canonical, scheduler, source-acquisition,
 or other operational write-capable lane.
-

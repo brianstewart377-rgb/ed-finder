@@ -223,8 +223,8 @@ def test_legacy_react_frontend_remains_temporary_source_evidence():
     assert (ROOT / "frontend").is_dir()
     assert "react" in legacy_package["dependencies"]
     assert legacy_package["packageManager"] == "yarn@1.22.22"
-    assert "temporary source evidence" in readme
-    assert "apps/web/" in readme
+    assert "retained migration and behavioural evidence" in readme
+    assert "not the V3 target" in readme
 
 
 def test_cypress_is_the_v3_web_browser_authority():
@@ -268,14 +268,14 @@ def test_babylon_imports_stay_behind_the_renderer_adapter():
 
 def test_v3_web_is_static_spa_and_backend_route_ownership_is_explicit():
     svelte_config = _read("apps", "web", "svelte.config.js")
-    readme = _read("README.md")
+    stack_decision = _read("docs", "development", "v3-application-stack-decision.md")
 
     assert "@sveltejs/adapter-static" in svelte_config
     assert "fallback: '200.html'" in svelte_config or 'fallback: "200.html"' in svelte_config
-    assert "/api/*" in readme
-    assert "exact `/openapi.json`" in readme
-    assert "numeric `/s/{id64}`" in readme
-    assert "SvelteKit" in readme
+    assert "/api/*" in stack_decision
+    assert "exact `/openapi.json`" in stack_decision
+    assert "numeric `/s/{id64}`" in stack_decision
+    assert "SvelteKit" in stack_decision
 
 
 def test_vite_proxy_claims_only_backend_owned_route_boundaries():

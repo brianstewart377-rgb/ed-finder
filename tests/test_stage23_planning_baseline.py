@@ -7,7 +7,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
 STAGE23_ROADMAP_PATH = DOCS / 'stage-23-roadmap.md'
 STAGE23E_PATH = DOCS / 'stage-23e-readonly-evidence-closeout.md'
@@ -154,7 +153,6 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     stage23c = ' '.join(_read(STAGE23C_PATH).split())
     stage23b = ' '.join(_read(STAGE23B_PATH).split())
     stage23a = ' '.join(_read(STAGE23A_PATH).split())
-    readme = _read(README_PATH)
     stage17p = _read(STAGE17P_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
@@ -197,13 +195,6 @@ def test_stage23_docs_readme_and_stage17p_make_the_new_control_order_explicit():
     assert 'The endpoint is therefore treated as a broader report-only planner evidence envelope' in stage23a
     assert 'at least one real selected system can return non-fixture evidence in normal runtime' in stage23a
 
-    assert 'stage-23-roadmap.md' in readme
-    assert 'stage-23e-readonly-evidence-closeout.md' in readme
-    assert 'stage-23d-planner-evidence-ux-follow-through.md' in readme
-    assert 'stage-23c-evidence-envelope-governance.md' in readme
-    assert 'stage-23b-readonly-per-system-warehouse-join.md' in readme
-    assert 'stage-23a-first-live-per-system-evidence-provider.md' in readme
-    assert 'latest completed Stage 23 control document' in readme
     assert 'docs/colonisation-redesign/stage-23-roadmap.md' in stage17p
     assert 'docs/colonisation-redesign/stage-23a-first-live-per-system-evidence-provider.md' in stage17p
     assert 'tests/test_stage23_planning_baseline.py' in parity

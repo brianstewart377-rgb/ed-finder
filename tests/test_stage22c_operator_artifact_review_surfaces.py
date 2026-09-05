@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE22C_PATH = DOCS / 'stage-22c-operator-artifact-review-and-audit-surfaces.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 EXPORT_BUILDER_PATH = ROOT / 'packages' / 'planner-core' / 'src' / 'exportArtifacts.ts'
@@ -50,7 +49,6 @@ def test_stage22c_authority_records_operator_review_surface_completion():
 
 def test_stage22c_docs_frontend_sources_and_ci_parity_are_aligned():
     document = ' '.join(_read(STAGE22C_PATH).split())
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
     builder = _read(EXPORT_BUILDER_PATH)
     view = _read(EXPORT_VIEW_PATH)
@@ -59,7 +57,6 @@ def test_stage22c_docs_frontend_sources_and_ci_parity_are_aligned():
     assert 'operator-review and audit section' in document
     assert 'source-run key, artifact basename, and warehouse posture' in document
     assert 'Read-only only.' in document
-    assert 'stage-22c-operator-artifact-review-and-audit-surfaces.md' in readme
     assert 'tests/test_stage22c_operator_artifact_review_surfaces.py' in parity
 
     assert 'operator_review' in builder

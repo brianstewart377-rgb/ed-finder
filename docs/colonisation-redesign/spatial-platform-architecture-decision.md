@@ -1,22 +1,17 @@
 # Spatial Platform Architecture Decision
 
-**Decision:** Stage 27A, 2026-08-31
-**Implementation status:** contract only; Babylon runtime is not authorized in
-this stage.
-
-**Current implementation addendum, 2026-09-05:** the later governed PR #601
-packet establishes only the minimum isolated, explicitly non-product executable
-Svelte/Babylon foundation behind these renderer-neutral boundaries. It does not
-authorize Finder/Inspect, product map design, real-system rendering, production
-wiring, or cutover, and it does not change the historical Stage 27A scope above.
+**Decision:** accepted in Stage 27A, 2026-08-31; current V3 architecture
+authority
+**Implementation status:** PR #601 is the active integration lane and contains
+a fresh Babylon Explore/Finder results → Inspect slice at its currently known
+head. This is active-PR state, not a claim that it has merged to `main`.
 
 ## Context and historically accurate decision
 
 Stage 26 followed this sequence: requirements contract → equal renderer bakeoff
 → R3F/Three.js selected → isolated R3F foundation delivered → production
-cutover completed. Evidence is in `stage-26a-next-generation-map-foundation-contract.md`,
-`stage-26b-renderer-bakeoff-decision.md`, `stage-26c-region-first-foundation-contract.md`,
-and `stage-26e-cutover-readiness.md`; production activation is recorded in
+cutover completed. Evidence is retained in the
+[`Stage 26 archive`](../archive/stage-26/); production activation is recorded in
 `CHANGES.md` at commit `3b53477`. R3F was not a failure and Babylon did not win
 Stage 26.
 
@@ -24,8 +19,9 @@ Product scope subsequently expanded to a Galaxy/System/Digital-Twin spatial
 platform with first-class exploration and bounded planner participation. Those
 requirements change the architectural optimization target. We therefore select
 a **greenfield Babylon 9-class renderer inside the brownfield ED-Finder
-product**, while retaining the current R3F production renderer and rollback
-until a later measured bakeoff and explicit Stage 27G cutover.
+product**. React/R3F/Three remains historical migration, behavioural, and
+parity evidence only. The retired V2 Stage 26 production state does not make it
+the V3 production renderer or constrain the current target.
 
 The August 16 Babylon 6 plan is historical input, not executable authority. Its
 monolithic imports, arbitrary `worldScale`, point-cloud stars and narrow
@@ -58,7 +54,7 @@ camera implementation, picking/projection and transitions. CRE owns mechanics
 and Digital Twin reasoning. CPE owns plan construction/persistence. ED-Finder
 owns orchestration/presentation. Babylon renders.
 
-Dependency enforcement in 27B must include import-boundary tests and a single
+Dependency enforcement must include import-boundary tests and a single
 renderer adapter package. No `@babylonjs/*` type may leak into public contracts.
 
 ## Renderer-neutral contract sketches
@@ -225,7 +221,7 @@ contract tests.
 
 ## Backend and package direction
 
-Stage 27B evaluates a modern Babylon **9-class** release, with modular
+The V3 target uses a modern Babylon **9-class** release, with modular
 tree-shakeable `@babylonjs/core/...` ES-module imports rather than the legacy
 monolithic `babylonjs` package. As verified on 2026-08-31, the official npm
 package is in the 9.x line and documents individual imports for tree shaking:
@@ -256,13 +252,13 @@ distinct budgets.
 The runtime is long-lived and renders on demand when idle. Camera motion,
 transitions, animations, streaming, hover/picking and dirty layers schedule
 frames; stable state stops continuous work. Workers remain possible through
-serializable contracts and transferable buffers, but 27B is main-thread-first
-until profiling justifies off-thread complexity.
+serializable contracts and transferable buffers, but the runtime stays
+main-thread-first until profiling justifies off-thread complexity.
 
 ## Picking, labels and overlap
 
-A central `PickingService` owns hit testing and stable target resolution. 27B
-benchmarks built-in instance picking, GPU ID buffer, and CPU spatial index plus
+A central `PickingService` owns hit testing and stable target resolution. The
+implementation benchmarks built-in instance picking, GPU ID buffer, and CPU spatial index plus
 GPU confirmation at 20k/40k/100k/500k/1m tiers. Labels use a prioritized,
 bounded layout with selected/highlighted/reference guarantees, collision
 handling, hysteresis and accessible DOM equivalents. Picking and label layers
@@ -297,25 +293,27 @@ Fixtures and truth assertions are those in
 `spatial-platform-product-contract.md`; Stage 26 fixtures/tests are classified
 in `stage-27a-stage26-inheritance-matrix.md`.
 
-## Migration, bakeoff and cutover
+## Implementation and acceptance sequence
 
-1. **27B:** isolated runtime workbench; no production wiring.
-2. **27C–27F:** baseline, streaming, parity and workflows behind explicit
-   isolation/flags with contract adapters.
-3. **27G:** production-shaped Babylon versus current R3F bakeoff, browser lane,
-   accessibility, recovery, backend and rollback evidence; explicit owner
-   decision required.
-4. R3F remains production and rollback until Babylon earns cutover. Removal is
-   a later separately authorized decision.
-5. **27H–27K:** System data/rendering contract, System Map, infrastructure, CPE
-   and CRE layering. 27A does not authorize these implementations.
+1. Keep the fresh Babylon runtime behind renderer-neutral contracts while the
+   active PR's Explore/Finder → results → Inspect slice stabilizes.
+2. Validate that slice through separate Product E2E/Visual Acceptance and
+   Review Lab lanes, both using `apps/web/` and Babylon.
+3. Require explicit bounded-data, accessibility, recovery, backend, performance,
+   and release evidence before checkpoint or production promotion.
+4. Retire React/R3F/Three code only after its remaining useful migration and
+   behaviour coverage is replaced or explicitly dispositioned.
+5. Add System Map, Commander History, infrastructure, planned CPE, and CRE
+   Digital Twin contributions in later product slices without weakening the
+   dependency or truth boundaries above.
 
 ## Rejected alternatives and consequences
 
 - **Execute the August 16 plan wholesale:** rejected because it targets Babylon
   6, arbitrary scaling, point-cloud stars and a narrow replacement.
 - **Extend R3F indefinitely without a new decision:** rejected for the expanded
-  programme, not because Stage 26 failed. R3F remains the measured baseline.
+  programme, not because Stage 26 failed. R3F remains historical measured
+  evidence, not the V3 target.
 - **Renderer-specific domain DTOs:** rejected; they couple every owner to
   Babylon and prevent honest fallback/bakeoff.
 - **Separate CRE Digital Twin map:** rejected; it fragments spatial truth.
@@ -324,7 +322,7 @@ in `stage-27a-stage26-inheritance-matrix.md`.
   usability and truth reasons.
 - **Immediate worker/offscreen runtime:** rejected pending profiling.
 
-Consequences: Stage 27 needs adapter/version governance, explicit truth metadata,
+Consequences: V3 needs adapter/version governance, explicit truth metadata,
 CPU-state retention for rebuild, dual-backend evidence, and more fixtures before
 visual implementation. It also gains one coherent Galaxy/System platform and a
 cutover path that preserves Stage 26 value.

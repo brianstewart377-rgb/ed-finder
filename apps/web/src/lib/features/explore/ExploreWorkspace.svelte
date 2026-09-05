@@ -20,14 +20,14 @@
 
   const { selectedSystem } = usePersistenceContext();
   let query = $state('');
-  let activeSuggestion = $state(0);
+  let activeSuggestion = $state(-1);
   let autocompleteOpen = $state(false);
   let anchor = $state<AutocompleteSystem | null>(null);
   let selectionRevision = $state(0);
   let focusRevision = $state(0);
   let focusTarget = $state<SpatialTarget | null>(null);
   let lastPickedId64 = $state<Id64 | null>(null);
-  let resultList = $state<HTMLDivElement>();
+  let resultList = $state<HTMLUListElement>();
   let focusedResultSet = '';
 
   const normalizedQuery = $derived(query.trim());
@@ -95,7 +95,7 @@
     anchor = null;
     autocompleteOpen =
       (event.currentTarget as HTMLInputElement).value.trim().length >= 2;
-    activeSuggestion = 0;
+    activeSuggestion = -1;
   }
 
   function handleQueryKeydown(event: KeyboardEvent): void {
@@ -112,7 +112,9 @@
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
       activeSuggestion =
-        (activeSuggestion - 1 + suggestionRows.length) % suggestionRows.length;
+        activeSuggestion <= 0
+          ? suggestionRows.length - 1
+          : activeSuggestion - 1;
     } else if (event.key === 'Home') {
       event.preventDefault();
       activeSuggestion = 0;
@@ -121,7 +123,7 @@
       activeSuggestion = suggestionRows.length - 1;
     } else if (event.key === 'Enter') {
       event.preventDefault();
-      const hit = suggestionRows[activeSuggestion];
+      const hit = suggestionRows[Math.max(0, activeSuggestion)];
       if (hit) chooseSuggestion(hit);
     } else if (event.key === 'Escape') {
       autocompleteOpen = false;
@@ -133,6 +135,15 @@
     selectionRevision += 1;
     focusTarget = { kind: 'system', systemId64: system.id64 };
     focusRevision += 1;
+  }
+
+  function handleResultKeydown(
+    event: KeyboardEvent,
+    system: ExploreSystem,
+  ): void {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    selectResult(system);
   }
 
   function handleRuntimeEvent(event: RuntimeEvent): void {
@@ -278,17 +289,15 @@
           <p>No systems match this discovery area. Choose another anchor.</p>
         </div>
       {:else}
-        <div
+        <ul
           class="result-list"
           bind:this={resultList}
-          role="list"
           aria-label="System results"
         >
           {#each systems as system (system.id64)}
-            <article
+            <li
               class:selected={$selectedSystem.value === system.id64}
               data-system-result={system.id64}
-              role="listitem"
             >
               <button
                 class="result-select"
@@ -296,6 +305,7 @@
                 data-result-select
                 aria-pressed={$selectedSystem.value === system.id64}
                 onclick={() => selectResult(system)}
+                onkeydown={(event) => handleResultKeydown(event, system)}
               >
                 <span class="result-title"
                   ><strong>{system.name ?? `System ${system.id64}`}</strong
@@ -322,9 +332,9 @@
               >
                 Inspect <ArrowRight aria-hidden="true" size={16} />
               </a>
-            </article>
+            </li>
           {/each}
-        </div>
+        </ul>
       {/if}
     </section>
 

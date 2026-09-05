@@ -10,7 +10,6 @@ DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE24_PATH = DOCS / 'stage-24-roadmap.md'
 STAGE24B_PATH = DOCS / 'stage-24b-planner-evidence-discoverability.md'
-README_PATH = DOCS / 'README.md'
 
 
 def _read(path: Path) -> str:
@@ -126,12 +125,8 @@ def test_stage24b_boundaries_keep_stage23_closed_and_write_lanes_unauthorized():
 @pytest.mark.unit
 def test_stage24b_is_discoverable_from_roadmap_and_readme():
     roadmap = _read(STAGE24_PATH)
-    readme = _read(README_PATH)
 
     assert 'Stage 24B is complete as the first narrow discoverability implementation slice.' in roadmap
     assert 'docs/colonisation-redesign/stage-24b-planner-evidence-discoverability.md' in roadmap
     assert 'Stage 24C is complete as the narrow adjacent-surface consistency slice.' in roadmap
     assert 'Stage 24D is complete as the closeout checkpoint.' in roadmap
-    assert 'stage-24b-planner-evidence-discoverability.md' in readme
-    assert 'completed Stage 24B slice' in readme
-    assert 'Completed Stage 24B implementation record' in readme

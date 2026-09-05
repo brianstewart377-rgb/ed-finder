@@ -11,7 +11,6 @@ AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE22_ROADMAP_PATH = DOCS / 'stage-22-roadmap.md'
 STAGE21_ROADMAP_PATH = DOCS / 'stage-21-roadmap.md'
 STAGE21_CLOSEOUT_PATH = DOCS / 'stage-21-closeout.md'
-README_PATH = DOCS / 'README.md'
 STAGE17P_PATH = DOCS / 'stage-17p-current-state-forward-plan.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
@@ -116,7 +115,6 @@ def test_stage22_roadmap_readme_and_stage17p_make_the_new_control_order_explicit
     baseline = authority['stage22_planning_baseline']
     roadmap = _squash(_read(STAGE22_ROADMAP_PATH))
     stage21_closeout = _squash(_read(STAGE21_CLOSEOUT_PATH))
-    readme = _squash(_read(README_PATH))
     stage17p = _squash(_read(STAGE17P_PATH))
 
     assert STAGE22_ROADMAP_PATH.exists()
@@ -146,15 +144,6 @@ def test_stage22_roadmap_readme_and_stage17p_make_the_new_control_order_explicit
     assert 'Stage 22E is complete' in roadmap
     assert 'This order keeps user clarity and operator review quality ahead of any future production-lane decision.' in roadmap
 
-    assert 'stage-22-roadmap.md' in readme
-    assert 'stage-22b-current-state-planner-evidence-hardening.md' in readme
-    assert 'stage-22c-operator-artifact-review-and-audit-surfaces.md' in readme
-    assert 'stage-22d-export-and-documentation-governance-consolidation.md' in readme
-    assert 'stage-22e-deferred-stage19-decision-gate-and-closeout.md' in readme
-    assert 'completed post-18/20/21 roadmap and prior control baseline' in readme
-    assert 'completed post-20 roadmap and trust/operationalisation plan' in readme
-    assert 'active post-22 roadmap and current control baseline' in readme
-    assert 'stage-23-roadmap.md' in readme
 
     assert 'docs/colonisation-redesign/stage-23-roadmap.md' in stage17p
     assert 'docs/colonisation-redesign/stage-22-roadmap.md' in stage17p

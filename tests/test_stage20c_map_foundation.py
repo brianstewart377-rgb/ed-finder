@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE20C_DOC_PATH = DOCS / 'stage-20c-map-planning-surface-foundation.md'
-README_PATH = DOCS / 'README.md'
 ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
 WORKSPACE_TABS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
 PREVIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
@@ -65,7 +64,6 @@ def test_stage20c_authority_records_map_foundation_without_relaxing_guardrails()
 def test_stage20c_docs_and_frontend_files_expose_map_mode_and_timeline_foundation():
     document = _read(STAGE20C_DOC_PATH)
     roadmap = _read(ROADMAP_PATH)
-    readme = _read(README_PATH)
     tabs = _read(WORKSPACE_TABS_PATH)
     preview = _read(PREVIEW_PATH)
     map_view = _read(MAP_VIEW_PATH)
@@ -75,7 +73,6 @@ def test_stage20c_docs_and_frontend_files_expose_map_mode_and_timeline_foundatio
     assert 'timeline-layer ownership' in document
     assert 'read-only' in document
     assert 'stage-20c-map-planning-surface-foundation.md' in roadmap
-    assert 'stage-20c-map-planning-surface-foundation.md' in readme
 
     assert "'map'" in tabs
     assert 'Spatial context' in tabs

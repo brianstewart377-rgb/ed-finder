@@ -83,14 +83,19 @@ describe('V3 Explore to Inspect product checkpoint', () => {
         keyboardSelectedId = $result.attr('data-system-result') ?? '';
         expect(keyboardSelectedId).to.match(/^\d+$/);
         expect(keyboardSelectedId).not.to.equal('10477373803000');
-        cy.wrap($result).find('[data-result-select]').focus().type('{enter}');
+        cy.get(
+          `[data-system-result="${keyboardSelectedId}"] [data-result-select]`,
+        )
+          .focus()
+          .should('be.focused')
+          .type('{enter}');
         cy.get('[data-testid="selected-system-context"]').should(
           'contain.text',
           keyboardSelectedId,
         );
-        cy.wrap($result)
-          .find('[data-result-select]')
-          .should('have.attr', 'aria-pressed', 'true');
+        cy.get(
+          `[data-system-result="${keyboardSelectedId}"] [data-result-select]`,
+        ).should('have.attr', 'aria-pressed', 'true');
       });
     cy.get('[data-system-result="10477373803000"] [data-result-select]')
       .focus()

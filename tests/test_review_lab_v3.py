@@ -193,6 +193,22 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     assert 'env_file:' not in compose
 
 
+@pytest.mark.parametrize(
+    ('attribute', 'unsafe_value'),
+    (
+        ('EXPECTED_FRONTEND_PREVIEW_HOST', 'attacker.example'),
+        ('EXPECTED_FRONTEND_PREVIEW_PORT', 8080),
+    ),
+)
+def test_preview_readiness_endpoint_is_mechanically_pinned_to_loopback(monkeypatch, attribute, unsafe_value):
+    assert browser_runner._validated_preview_endpoint() == ('127.0.0.1', 4173)
+
+    monkeypatch.setattr(browser_runner, attribute, unsafe_value)
+    with pytest.raises(contract.ReviewLabError, match='loopback-only target') as error:
+        browser_runner._validated_preview_endpoint()
+    assert error.value.failure_code == 'BROWSER_RUNNER_CONFIGURATION_FAILED'
+
+
 def test_docker_baseline_includes_networks_and_ignores_only_review_owned_delta():
     before = {
         'containers': ['normal-api'],

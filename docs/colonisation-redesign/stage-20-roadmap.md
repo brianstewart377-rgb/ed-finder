@@ -1,5 +1,8 @@
 # Stage 20 - Provenance-Backed Planning Cockpit Roadmap
 
+> **HISTORICAL — COMPLETED STAGE.** This file is chronology/evidence only and
+> cannot override [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Purpose
 
 Stage 20 turns the completed Stage 19 test-environment safety foundation into a

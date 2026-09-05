@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import socket
 import time
+from http.client import HTTPConnection, HTTPException
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
-from urllib.request import urlopen
 
 from .contract import (
+    EXPECTED_FRONTEND_PREVIEW_HOST,
     EXPECTED_FRONTEND_PREVIEW_PORT,
     FRONTEND_DIR,
     REVIEW_LAB_BROWSER_MARKER,
@@ -32,6 +32,16 @@ REQUIRED_CHECKS_BY_FLOW: dict[str, set[str]] = {
     'rendererRecovery': {'babylonReady', 'rendererLifecycleExercised', 'rendererRemainedUsable', 'noUncaughtError'},
     'navigationContainment': {'directInspectLoaded', 'headingFocused', 'returnedToExplore', 'sameOriginOnly'},
 }
+
+
+def _validated_preview_endpoint() -> tuple[str, int]:
+    """Return the fixed Review Lab preview endpoint, failing closed if altered."""
+    if EXPECTED_FRONTEND_PREVIEW_HOST != '127.0.0.1' or EXPECTED_FRONTEND_PREVIEW_PORT != 4173:
+        raise ReviewLabError(
+            'apps/web preview endpoint is not the expected loopback-only target.',
+            failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED',
+        )
+    return EXPECTED_FRONTEND_PREVIEW_HOST, EXPECTED_FRONTEND_PREVIEW_PORT
 
 
 def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
@@ -94,14 +104,23 @@ def evaluate_browser_accessibility(summary: dict[str, Any], selected_scenarios: 
 
 
 def _wait_for_preview_ready(timeout_seconds: int) -> None:
+    preview_host, preview_port = _validated_preview_endpoint()
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
+        connection = HTTPConnection(preview_host, preview_port, timeout=2)
         try:
-            with urlopen(review_preview_origin(), timeout=2) as response:  # nosemgrep: loopback Review Lab origin
+            connection.request('GET', '/')
+            response = connection.getresponse()
+            try:
                 if response.status == 200:
                     return
-        except URLError:
-            time.sleep(0.5)
+            finally:
+                response.close()
+        except (HTTPException, OSError):
+            pass
+        finally:
+            connection.close()
+        time.sleep(0.5)
     raise ReviewLabError(
         'apps/web preview did not become ready in time.',
         failure_code='FRONTEND_PREVIEW_TIMEOUT',

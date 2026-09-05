@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18J_CLOSEOUT_PATH = DOCS / 'stage-18j-station-type-canonical-pilot-closeout.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 PILOT_MODULE_PATH = ROOT / 'apps' / 'importer' / 'src' / 'station_type_canonical_pilot.py'
@@ -50,7 +49,6 @@ def test_stage18j_authority_records_bounded_station_type_pilot_and_stage18t_hand
 
 def test_stage18j_docs_and_ci_parity_record_the_delivered_pilot():
     document = _read(STAGE18J_CLOSEOUT_PATH)
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -63,6 +61,5 @@ def test_stage18j_docs_and_ci_parity_record_the_delivered_pilot():
     ):
         assert fragment in document
 
-    assert 'stage-18j-station-type-canonical-pilot-closeout.md' in readme
     assert 'tests/test_stage18j_station_type_canonical_pilot.py' in parity
     assert 'tests/test_station_type_canonical_pilot.py' in parity

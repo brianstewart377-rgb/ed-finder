@@ -58,9 +58,11 @@ def test_seeded_ci_rating_topups_only_target_body_data_eligible_systems():
 
     # The lossless Id64 journey deliberately exercises a system that is not
     # eligible for ratings. The top-up must not make this fixture lie about its
-    # body-data state to get through the invariant check.
+    # body-data state or leave ineligible derived-data work pending to get
+    # through the invariant check.
     assert '9007199254740993' in cypress_topup
-    assert "'Cooperative', 'F', '5 V', false, 0, 5, 18" in cypress_topup
+    assert 'data_quality, galaxy_region_id, rating_dirty, cluster_dirty' in cypress_topup
+    assert "'Cooperative', 'F', '5 V', false, 0, 5, 18, false, false" in cypress_topup
 
 
 def test_backend_ci_runs_real_unit_suite_instead_of_smoke_only():

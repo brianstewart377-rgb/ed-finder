@@ -1,5 +1,8 @@
 # Stage 21 - Planner Trust And Operationalisation Roadmap
 
+> **HISTORICAL — COMPLETED STAGE.** This file is chronology/evidence only and
+> cannot override [`../ROADMAP.md`](../ROADMAP.md).
+
 ## Purpose
 
 Stage 21 begins after the completed Stage 20 planning cockpit. Its job is to

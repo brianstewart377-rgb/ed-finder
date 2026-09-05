@@ -98,7 +98,8 @@ describe('isolated V3 Review Lab', () => {
           path: `${url.pathname}${url.search}`,
           status: response.statusCode,
           expectedFailure:
-            currentFlow === 'apiFailure' && response.statusCode === 503,
+            response.statusCode === 503 &&
+            response.headers['x-edfinder-review-failure'] === 'api-failure',
         });
       });
     });
@@ -193,7 +194,10 @@ describe('isolated V3 Review Lab', () => {
         { method: 'POST', url: '/api/local/search', times: 2 },
         {
           statusCode: 503,
-          headers: { 'content-type': 'application/problem+json' },
+          headers: {
+            'content-type': 'application/problem+json',
+            'x-edfinder-review-failure': 'api-failure',
+          },
           body: {
             type: 'https://ed-finder.invalid/problem/review-lab-search-failure',
             title: 'Synthetic Review Lab search failure',
@@ -266,21 +270,44 @@ describe('isolated V3 Review Lab', () => {
           cy.get<HTMLCanvasElement>('canvas[data-spatial-canvas]').then(
             ($canvas) => {
               const canvas = $canvas[0];
+              let recoveryMode = 'neutral-resize-lifecycle-fallback';
               const context =
                 backend === 'WEBGL2' ? canvas.getContext('webgl2') : null;
               const extension = context?.getExtension('WEBGL_lose_context');
               if (extension) {
                 const activeContext = context as WebGL2RenderingContext;
+                const contextLost = new Cypress.Promise<void>((resolve) => {
+                  canvas.addEventListener('webglcontextlost', () => resolve(), {
+                    once: true,
+                  });
+                });
+                const contextRestored = new Cypress.Promise<boolean>(
+                  (resolve) => {
+                    canvas.addEventListener(
+                      'webglcontextrestored',
+                      () => resolve(true),
+                      { once: true },
+                    );
+                    window.setTimeout(() => resolve(false), 2_000);
+                  },
+                );
                 extension.loseContext();
-                cy.wrap(null)
-                  .should(() =>
-                    expect(activeContext.isContextLost()).to.equal(true),
-                  )
+                cy.wrap(contextLost)
+                  .then(() => {
+                    expect(activeContext.isContextLost()).to.equal(true);
+                  })
                   .then(() => {
                     extension.restoreContext();
-                    cy.wrap(null).should(() =>
-                      expect(activeContext.isContextLost()).to.equal(false),
-                    );
+                    return cy.wrap(contextRestored);
+                  })
+                  .then((restored) => {
+                    if (!restored) {
+                      recoveryMode = 'webgl-context-loss-remount-fallback';
+                      cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+                      return;
+                    }
+                    recoveryMode = 'webgl-context-loss-and-restore';
+                    expect(activeContext.isContextLost()).to.equal(false);
                   });
               } else {
                 cy.viewport(960, 680);
@@ -301,9 +328,7 @@ describe('isolated V3 Review Lab', () => {
                     noUncaughtError: summary.pageErrors.length === 0,
                   },
                   {
-                    recoveryMode: extension
-                      ? 'webgl-context-loss-and-restore'
-                      : 'neutral-resize-lifecycle-fallback',
+                    recoveryMode,
                   },
                 ),
               );

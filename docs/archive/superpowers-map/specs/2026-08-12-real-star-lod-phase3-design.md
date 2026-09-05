@@ -1,5 +1,8 @@
 # Real-Star LOD Phase 3: Hysteresis Fade + Truncated Affordance
 
+> **HISTORICAL / SUPERSEDED.** This R3F design is retained only for behaviour
+> and implementation evidence.
+
 **Date:** 2026-08-12  
 **Author:** Claude Code  
 **Status:** Approved Design  

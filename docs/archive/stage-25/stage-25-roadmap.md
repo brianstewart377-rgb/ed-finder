@@ -1,5 +1,8 @@
 # Stage 25 - Cockpit Product Shell Roadmap (Reset)
 
+> **HISTORICAL — COMPLETED STAGE.** This file preserves Stage 25 chronology and
+> does not define current work. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status
 
 Stage 24 is closed.

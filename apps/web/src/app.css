@@ -366,16 +366,19 @@ footer {
 }
 .result-list {
   max-height: 44rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   overflow: auto;
 }
-.result-list article {
+.result-list li {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   border-bottom: 1px solid #243246;
 }
-.result-list article.selected {
+.result-list li.selected {
   background: linear-gradient(90deg, #253018, #151d28 42%);
   box-shadow: inset 3px 0 var(--color-signal);
 }

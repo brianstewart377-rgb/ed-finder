@@ -8,7 +8,6 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
 STAGE20E_DOC_PATH = DOCS / 'stage-20e-export-operator-pack-closeout-readiness.md'
-README_PATH = DOCS / 'README.md'
 ROADMAP_PATH = DOCS / 'stage-20-roadmap.md'
 WORKSPACE_TABS_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'WorkspaceModeTabs.tsx'
 PREVIEW_PATH = ROOT / 'frontend' / 'src' / 'features' / 'system-detail' / 'simulation-preview' / 'SimulationPreview.tsx'
@@ -60,7 +59,6 @@ def test_stage20e_authority_records_export_closeout_and_stage_completion():
 def test_stage20e_docs_and_frontend_files_expose_export_mode_and_artifact_builder():
     document = _read(STAGE20E_DOC_PATH)
     roadmap = _read(ROADMAP_PATH)
-    readme = _read(README_PATH)
     tabs = _read(WORKSPACE_TABS_PATH)
     preview = _read(PREVIEW_PATH)
     export_view = _read(EXPORT_VIEW_PATH)
@@ -70,7 +68,6 @@ def test_stage20e_docs_and_frontend_files_expose_export_mode_and_artifact_builde
     assert 'Markdown, JSON, and CSV' in document
     assert 'Stage 20 is complete' in document
     assert 'stage-20e-export-operator-pack-closeout-readiness.md' in roadmap
-    assert 'stage-20e-export-operator-pack-closeout-readiness.md' in readme
 
     assert "'export'" in tabs
     assert 'Review packs' in tabs

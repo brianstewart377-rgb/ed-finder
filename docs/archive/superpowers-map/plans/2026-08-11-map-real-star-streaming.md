@@ -1,5 +1,8 @@
 # Real-Star LOD Streaming ("in-game zoom") — Design & Phased Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE.** Its streaming findings are
+> evidence for the current Search/spatial-data decision gate, not an active lane.
+
 > **Status:** Committed project, design agreed 2026-08-11. Multi-phase; implementation is a set of focused follow-on sessions, not a single sitting. This is the #6 item from the map menu — the "feels like the game" leap.
 
 **Goal:** When the user zooms into the galaxy map past a threshold, stream and render the *actual individual star systems* for the visible region, colored by spectral type — the dense real starfield Elite Dangerous's in-game map shows on zoom, instead of our current aggregate heatmap.

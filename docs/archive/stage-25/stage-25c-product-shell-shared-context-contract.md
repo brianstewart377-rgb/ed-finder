@@ -1,5 +1,8 @@
 # Stage 25C - Product Shell, Shared Context And Cockpit Visual Foundation (Implementation Contract)
 
+> **HISTORICAL — COMPLETED STAGE.** This contract is migration evidence and
+> does not authorize current implementation. See [`../../ROADMAP.md`](../../ROADMAP.md).
+
 ## Status
 
 Stage 25C is `slice_1_runtime_complete`.
@@ -305,4 +308,3 @@ This contract does not authorize:
 - source acquisition;
 - operator activity;
 - runtime UI implementation merely by defining this contract.
-

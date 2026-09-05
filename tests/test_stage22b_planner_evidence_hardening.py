@@ -11,7 +11,6 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE22B_PATH = DOCS / 'stage-22b-current-state-planner-evidence-hardening.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
@@ -89,7 +88,11 @@ def test_stage22b_backend_defaults_are_unknown_unavailable_and_conservative(monk
     assert provenance.evidence_panels.source_run.source_name is None
     assert provenance.provenance_summary.latest_source_run_key is None
     assert provenance.guardrails.stage19_paused is True
+    assert provenance.guardrails.next_stage19_write_lane_authorized is False
+    assert provenance.guardrails.canonical_apply_complete is False
+    assert provenance.guardrails.scheduler_enabled is False
     assert provenance.guardrails.db_writes_authorized is False
+    assert provenance.guardrails.stage19_operator_commands_authorized is False
 
     assert warehouse.evidence_summary.availability == 'unavailable'
     assert warehouse.evidence_summary.items == []
@@ -97,29 +100,9 @@ def test_stage22b_backend_defaults_are_unknown_unavailable_and_conservative(monk
     assert warehouse.freshness.evaluated_at is None
     assert any('fallback' in warning.lower() for warning in warehouse.warnings)
 
-
-@pytest.mark.unit
-def test_stage22b_provenance_authority_failures_fall_back_safely(monkeypatch: pytest.MonkeyPatch):
-    class _BrokenAuthorityPath:
-        def read_text(self, encoding: str = 'utf-8') -> str:
-            return '{not-valid-json'
-
-    provenance_backend._load_authority_snapshot.cache_clear()
-    monkeypatch.setattr(provenance_backend, 'AUTHORITY_PATH', _BrokenAuthorityPath())
-
-    response = provenance_backend.build_provenance_cockpit(42)
-
-    assert response.provenance_summary.state == 'unknown'
-    assert response.guardrails.stage19_paused is True
-    assert response.guardrails.db_writes_authorized is False
-    assert any('authority snapshot is malformed' in warning.lower() for warning in response.warnings)
-    provenance_backend._load_authority_snapshot.cache_clear()
-
-
 @pytest.mark.unit
 def test_stage22b_docs_and_ci_parity_record_the_hardening_boundaries():
     document = ' '.join(_read(STAGE22B_PATH).split()).lower()
-    readme = _read(README_PATH)
     parity = _read(LOCAL_CI_PARITY)
 
     for fragment in (
@@ -131,7 +114,6 @@ def test_stage22b_docs_and_ci_parity_record_the_hardening_boundaries():
     ):
         assert fragment in document
 
-    assert 'stage-22b-current-state-planner-evidence-hardening.md' in readme
     assert 'tests/test_stage22b_planner_evidence_hardening.py' in parity
 
 

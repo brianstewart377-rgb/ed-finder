@@ -172,6 +172,7 @@
     bind:this={canvas}
     data-spatial-canvas
     data-resize-revision={resizeRevision}
+    tabindex="-1"
     aria-hidden="true"
   ></canvas>
 </div>

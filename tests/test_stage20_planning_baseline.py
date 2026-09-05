@@ -15,7 +15,6 @@ STAGE20C_MAP_PATH = DOCS / 'stage-20c-map-planning-surface-foundation.md'
 STAGE20D_SEQUENCE_PATH = DOCS / 'stage-20d-planner-sequence-cp-curve-cockpit.md'
 STAGE20E_EXPORT_PATH = DOCS / 'stage-20e-export-operator-pack-closeout-readiness.md'
 STAGE19_ROADMAP_PATH = DOCS / 'stage-19-data-warehouse-utopia-roadmap.md'
-README_PATH = DOCS / 'README.md'
 LOCAL_CI_PARITY = ROOT / 'scripts' / 'checks' / 'local-ci-parity.sh'
 
 PRIMARY_OBJECTIVE = (
@@ -176,20 +175,10 @@ def test_stage20_workstreams_and_scope_are_explicit():
 @pytest.mark.unit
 def test_stage20_is_discoverable_from_stage19_roadmap_and_index():
     stage19 = _squash(_read(STAGE19_ROADMAP_PATH))
-    readme = _squash(_read(README_PATH))
 
     assert '### Stage 20 planning kickoff' in _read(STAGE19_ROADMAP_PATH)
-    assert 'stage-21-roadmap.md' in readme
     assert 'docs/colonisation-redesign/stage-20-roadmap.md' in stage19
     assert 'The first executable checkpoint is Stage 20A, the provenance cockpit implementation contract.' in stage19
-    assert 'stage-20-roadmap.md' in readme
-    assert 'stage-20a-provenance-cockpit-implementation-contract.md' in readme
-    assert 'stage-20b-readonly-evidence-status-surfaces.md' in readme
-    assert 'stage-20c-map-planning-surface-foundation.md' in readme
-    assert 'stage-20d-planner-sequence-cp-curve-cockpit.md' in readme
-    assert 'stage-20e-export-operator-pack-closeout-readiness.md' in readme
-    assert 'completed Stage 20 roadmap' in readme
-    assert 'Stage 19 deferred-production boundaries' in readme
 
 
 @pytest.mark.unit

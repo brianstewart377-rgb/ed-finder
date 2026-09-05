@@ -1,40 +1,40 @@
-# ED-Finder Docs
+# ED-Finder documentation
 
-This folder is the main documentation entry point for the repo.
+The [root README](../README.md) is the current entry point and lists the small
+V3 authority set. For most work, read only that chain plus the nearest focused
+implementation contract.
 
-## Start Here
+## Current authority
 
-- [`ROADMAP.md`](./ROADMAP.md) for the single authoritative roadmap and current priorities.
-- [`colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md`](./colonisation-redesign/stage-26a-next-generation-map-foundation-contract.md) for the desktop map authorization and delivery sequence; its accepted research bundle is under `../artifacts/map-foundation/stage-26b/`.
-- [`colonisation-redesign/stage-26b-renderer-bakeoff-decision.md`](./colonisation-redesign/stage-26b-renderer-bakeoff-decision.md) for the completed equal-renderer evidence and Stage 26C R3F foundation choice.
-- [`colonisation-redesign/stage-26c-region-first-foundation-contract.md`](./colonisation-redesign/stage-26c-region-first-foundation-contract.md) for the isolated R3F implementation boundary, evidence, and Stage 26D hand-off.
-- [`colonisation-redesign/stage-26d-feature-handoff-contract.md`](./colonisation-redesign/stage-26d-feature-handoff-contract.md) for the completed typed feature integration and Stage 26E cutover boundary.
-- [`colonisation-redesign/stage-26e-cutover-readiness.md`](./colonisation-redesign/stage-26e-cutover-readiness.md) for current cutover-gate progress and the remaining production parity, memory, GPU, and legal blockers.
-- [`colonisation-redesign/README.md`](./colonisation-redesign/README.md) for active planner, evidence, enrichment, and historical stage-control docs.
-- [`development/`](./development/) for local workflow, test environment, handoff, and implementation-contract docs.
-- [`operations/`](./operations/) for deployment, hosting, SSH, and operator runbooks.
-- [`reference/colonisation/README.md`](./reference/colonisation/README.md) for committed source-authority rules and reference-pack inventory.
+- [`ROADMAP.md`](ROADMAP.md) — programme order and decision gates.
+- [`development/v3-application-stack-decision.md`](development/v3-application-stack-decision.md)
+  — V3 technology authority.
+- [`colonisation-redesign/spatial-platform-product-contract.md`](colonisation-redesign/spatial-platform-product-contract.md)
+  — spatial product and truth authority.
+- [`colonisation-redesign/spatial-platform-architecture-decision.md`](colonisation-redesign/spatial-platform-architecture-decision.md)
+  — renderer-neutral ownership authority.
+- [`development/v3-browser-validation-lanes.md`](development/v3-browser-validation-lanes.md)
+  — browser acceptance authority.
+- [`operations/infrastructure-status.md`](operations/infrastructure-status.md)
+  — production/runtime authority.
 
-## Recommended Read Order
+No Search/Grid/Cluster authority has been selected. The roadmap records the
+required decision sequence; audit files are inputs, not a substitute decision.
 
-For most feature work:
+## Supporting documentation
 
-1. Read the nearest subfolder README first.
-2. Read [`ROADMAP.md`](./ROADMAP.md) for the current overall direction.
-3. Prefer the latest active control document over older historical notes.
-4. Use historical stage docs as rationale, not as the default current plan.
+- [`colonisation-redesign/README.md`](colonisation-redesign/README.md) indexes
+  current spatial authority and supporting Stage 27A audits.
+- [`development/`](development/) contains engineering, acceptance, local-test,
+  and coordination material.
+- [`operations/`](operations/) contains current boundaries plus explicitly
+  retired operational records.
+- [`reference/colonisation/README.md`](reference/colonisation/README.md) defines
+  source-authority rules for mechanics-heavy work.
 
-## Folder Guide
+## Historical evidence
 
-- `colonisation-redesign/`: active and historical planner, evidence, and enrichment design/control docs.
-- `development/`: repo workflow, local review environment, test doubles, and handoff notes.
-- `operations/`: deployment and operations runbooks.
-- `reference/`: committed reference material and source-authority docs.
-- `archive/`: older records kept for traceability but not part of the active doc set.
-
-## Cleanup Rule
-
-- Prefer fixing index files and stale links before rewriting historical docs.
-- Keep active control docs concise and easy to find.
-- Avoid deleting historical docs unless they are clearly superseded and no longer useful for traceability.
-- If an older file title still says `Plan`, `Forward Plan`, or `Implementation Contract`, do not assume it is active without checking [`ROADMAP.md`](./ROADMAP.md) or the nearest folder index first.
+[`archive/README.md`](archive/README.md) defines the archive policy and indexes
+completed Stage 25/26 records and superseded map plans. Archived documents,
+dated changelogs, research notes, evidence receipts, and old stage contracts
+may explain a decision; they never answer “what is current?” or “what next?”.

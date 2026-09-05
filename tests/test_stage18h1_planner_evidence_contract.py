@@ -7,7 +7,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOCS = ROOT / 'docs' / 'colonisation-redesign'
 AUTHORITY_PATH = DOCS / 'stage-19-state-authority.json'
-README_PATH = DOCS / 'README.md'
 STAGE18H_PATH = DOCS / 'stage-18h-warehouse-planner-evidence-bridge.md'
 STAGE18H1_PATH = DOCS / 'stage-18h1-per-system-warehouse-evidence-contract.md'
 
@@ -48,7 +47,6 @@ def test_stage18h1_docs_define_contract_and_link_from_stage18h_and_readme():
     authority = _json(AUTHORITY_PATH)
     stage18h1 = _squash(_read(STAGE18H1_PATH))
     stage18h = _squash(_read(STAGE18H_PATH))
-    readme = _squash(_read(README_PATH))
 
     assert STAGE18H1_PATH.exists()
     assert authority['stage21']['next_checkpoint'] == 'Stage 22A - Post-18/20/21 control reset and authority lock'
@@ -57,4 +55,3 @@ def test_stage18h1_docs_define_contract_and_link_from_stage18h_and_readme():
     assert 'live endpoint' in stage18h1
     assert 'Prohibited Fields' in _read(STAGE18H1_PATH)
     assert 'stage-18h1-per-system-warehouse-evidence-contract.md' in stage18h
-    assert 'stage-18h1-per-system-warehouse-evidence-contract.md' in readme

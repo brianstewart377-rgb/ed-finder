@@ -1,0 +1,134 @@
+name: Remove experimental Ollama from production
+
+on:
+  push:
+    branches:
+      - chatgpt-ed-new-ops-requests
+    paths:
+      - '.github/prod-maintenance-requests/20260905-remove-ollama.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: remove-ollama-production
+  cancel-in-progress: false
+
+jobs:
+  execute:
+    name: Remove Ollama and verify production
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 10
+    steps:
+      - name: Checkout maintenance request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Validate exact one-purpose request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          expected='.github/prod-maintenance-requests/20260905-remove-ollama.json'
+          mapfile -t changed < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed[@]}" -eq 1 ] || { echo "Expected exactly one changed maintenance request" >&2; exit 64; }
+          [ "${changed[0]}" = "$expected" ] || { echo "Unexpected maintenance request path" >&2; exit 64; }
+          python3 - "$expected" <<'PY'
+          import json, pathlib, sys
+          p = pathlib.Path(sys.argv[1])
+          value = json.loads(p.read_text(encoding='utf-8'))
+          if value != {"operation": "remove-ollama"}:
+              raise SystemExit("Request must be exactly remove-ollama")
+          PY
+
+      - name: Checkout trusted operator implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare pinned SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing ED_NEW_OPERATOR_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing ED_NEW_OPERATOR_HOST" >&2; exit 1; }
+          test -n "$SSH_PORT" || { echo "Missing ED_NEW_OPERATOR_PORT" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned ed-new known-hosts secret" >&2; exit 1; }
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = "22" ]; then
+            lookup="$SSH_HOST"
+          else
+            lookup="[$SSH_HOST]:$SSH_PORT"
+          fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "Pinned known-host trust does not cover configured production host" >&2
+            exit 1
+          }
+
+      - name: Remove experimental Ollama
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing ED_NEW_OPERATOR_USER" >&2; exit 1; }
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'cd /opt/ed-finder && bash -s' \
+              < trusted-main/scripts/operator/actions/remove-ollama.sh
+
+      - name: Verify ED-Finder V3 after cleanup
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'cd /opt/ed-finder && bash -s' \
+              < trusted-main/scripts/operator/actions/v3-app-status.sh
+
+      - name: Verify Octopus edge after cleanup
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/ed_new_operator_key \
+              -p "$SSH_PORT" \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$SSH_USER@$SSH_HOST" \
+              'cd /opt/ed-finder && bash -s' \
+              < trusted-main/scripts/operator/actions/octopus-edge-status.sh

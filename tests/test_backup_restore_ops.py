@@ -858,8 +858,8 @@ def test_backup_runbook_and_remediation_docs_are_historical_v2_not_v3_recovery_a
     assert '- `scripts/rehearse_postgres_restore.sh`' in remediation
 
     squashed = _squash(roadmap)
-    assert 'historical minimum V2 restore-readiness baseline' in squashed
-    assert 'do **not** constitute a V3 PostgreSQL 18 recovery runbook' in roadmap
+    assert 'Historical V2 receipts cannot fill this gap.' in squashed
+    assert 'V3 DB maintenance/recovery' in roadmap
     assert 'does not currently contain an executable PostgreSQL 18 backup/restore/PITR recovery runbook' in status
 
 

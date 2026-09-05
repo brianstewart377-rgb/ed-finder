@@ -1,5 +1,8 @@
 # Map Glow + Procedural Body Thumbnails Implementation Plan
 
+> **HISTORICAL / SUPERSEDED — DO NOT EXECUTE.** This React/Three visual plan is
+> not V3 renderer authority.
+
 > **For agentic workers:** Use superpowers:executing-plans to implement task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** Two bounded frontend visual wins — (#2) soft glowing stars on the R3F galaxy map, and (#3) small WebGL procedural planet thumbnails per body in the system-detail panel.
