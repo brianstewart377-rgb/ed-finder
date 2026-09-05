@@ -30,6 +30,7 @@ def test_product_e2e_lane_does_not_invoke_review_lab_runtime():
     assert 'working-directory: apps/web' in workflow
     assert 'pnpm exec cypress run' in workflow
     assert 'Run V3 Svelte Product E2E / Visual Acceptance' in workflow
+    assert 'Preserve normal Product E2E evidence' in workflow
 
 
 @pytest.mark.unit
@@ -54,6 +55,7 @@ def test_review_lab_lane_uses_wrapper_authority_not_normal_product_e2e_specs():
     # it cannot silently become the accepted V3 ownership model.
     assert 'TEMPORARY MIGRATION DEBT' in workflow
     assert 'a green legacy Lab run is not V3 acceptance' in workflow
+    assert 'Review Lab Cypress diagnostic artifacts' in workflow
 
 
 @pytest.mark.unit
