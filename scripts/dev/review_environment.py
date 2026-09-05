@@ -14,14 +14,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from review_lab import api_contracts, browser_runner, lifecycle, network_policy, observations, reporting, scenarios, support_matrix
+from review_lab import api_contracts, browser_runner, lifecycle, network_policy, reporting, scenarios, support_matrix
 from review_lab.contract import CONFIRM_FLAG, REQUIRED_PHASE_NAMES, ReviewLabError, elapsed_ms
 from review_lab.process_registry import ReviewProcessRegistry
 
 ReviewEnvironmentError = ReviewLabError
 
 REVIEW_SUPPORT_ROUTE_MATRIX = tuple(route.to_dict() for route in support_matrix.REVIEW_SUPPORT_ROUTE_MATRIX)
-KNOWN_PRODUCT_OBSERVATIONS = observations.KNOWN_PRODUCT_OBSERVATIONS
 
 validate_review_database_name = lifecycle.validate_review_database_name
 validate_review_api_host = lifecycle.validate_review_api_host
@@ -48,8 +47,6 @@ phase_result = reporting.phase_result
 browser_phase_result = reporting.browser_phase_result
 first_failed_phase = reporting.first_failed_phase
 evaluate_browser_console = network_policy.evaluate_browser_console
-validate_delta_fallback_sequence = network_policy.validate_delta_fallback_sequence
-evaluate_product_observations = observations.evaluate_product_observations
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -156,7 +153,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
         'phase_results': phases,
         'support_route_matrix': REVIEW_SUPPORT_ROUTE_MATRIX,
         'support_route_matrix_complete': False,
-        'delta_503_fallback_correlation_verified': False,
+        'synthetic_failure_injection_verified': False,
         'unexpected_console_errors': [],
         'unexpected_api_errors': [],
         'known_product_observations': [],
@@ -208,7 +205,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
             phases['browser_accessibility'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_accessibility'])
             phases['browser_console'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_console'])
             phases['product_observations'] = browser_phase_result(browser_result['duration_ms'], browser_value['product_observations'])
-            report['delta_503_fallback_correlation_verified'] = browser_value['delta_503_fallback_correlation_verified']
+            report['synthetic_failure_injection_verified'] = browser_value['synthetic_failure_injection_verified']
             report['unexpected_console_errors'] = browser_value['unexpected_console_errors']
             report['unexpected_api_errors'] = browser_value['unexpected_api_errors']
             report['known_product_observations'] = browser_value['known_product_observations']
@@ -252,14 +249,14 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
             down_review_stack()
             baseline_after = capture_docker_baseline()
             mismatch = compare_docker_baseline(baseline_before, baseline_after)
-            if mismatch['containers_added'] or mismatch['containers_removed'] or mismatch['volumes_added'] or mismatch['volumes_removed']:
+            if any(mismatch.values()):
                 raise ReviewEnvironmentError(
                     'Docker baseline was not restored after verification.',
                     failure_code='DOCKER_BASELINE_NOT_RESTORED',
                     safe_diagnostics=mismatch,
                 )
             remaining_review_resources = list_review_owned_resources()
-            if remaining_review_resources['containers'] or remaining_review_resources['volumes']:
+            if any(remaining_review_resources.values()):
                 raise ReviewEnvironmentError(
                     'Review-owned Docker resources remained after teardown.',
                     failure_code='REVIEW_RESOURCES_NOT_REMOVED',
@@ -273,6 +270,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                 safe_diagnostics={
                     'baseline_container_count': len(baseline_after['containers']),
                     'baseline_volume_count': len(baseline_after['volumes']),
+                    'baseline_network_count': len(baseline_after['networks']),
                     'remaining_review_resources': remaining_review_resources,
                     'owned_processes': process_registry.safe_diagnostics(),
                 },

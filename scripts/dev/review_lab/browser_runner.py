@@ -12,173 +12,84 @@ from .contract import (
     EXPECTED_FRONTEND_PREVIEW_PORT,
     FRONTEND_DIR,
     REVIEW_LAB_BROWSER_MARKER,
-    REVIEW_LAB_VIEWPORT_PROFILES,
     REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION,
+    REVIEW_LAB_VIEWPORT_PROFILES,
+    VERIFY_BROWSER_CONFIG,
     VERIFY_BROWSER_SPEC,
     ReviewLabError,
 )
 from .lifecycle import review_api_origin, review_preview_origin, run_subprocess
-from .network_policy import (
-    evaluate_browser_console,
-    list_unexpected_api_errors,
-    list_unexpected_console_errors,
-    validate_delta_fallback_sequence,
-)
-from .observations import evaluate_product_observations
+from .network_policy import evaluate_browser_console, list_unexpected_api_errors, list_unexpected_console_errors
 from .process_registry import ReviewProcessRegistry
-from .scenarios import ScenarioDefinition, selected_browser_flow_keys, selection_requires_product_observations
+from .scenarios import ScenarioDefinition, selected_browser_flow_keys
 from .timeouts import TIMEOUTS
+
+
+REQUIRED_CHECKS_BY_FLOW: dict[str, set[str]] = {
+    'exploreInspect': {'exploreLoaded', 'syntheticSystemVisible', 'babylonReady', 'inspectLoaded', 'exactId64Preserved'},
+    'apiFailure': {'failureInjected', 'errorRendered', 'selectionContextPreserved'},
+    'emptyResults': {'emptyInjected', 'emptyRendered', 'zeroTargetScene', 'babylonReady'},
+    'rendererRecovery': {'babylonReady', 'rendererLifecycleExercised', 'rendererRemainedUsable', 'noUncaughtError'},
+    'navigationContainment': {'directInspectLoaded', 'headingFocused', 'returnedToExplore', 'sameOriginOnly'},
+}
 
 
 def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
     scenarios = summary.get('scenarios') or {}
-    profile_results = summary.get('profileResults') or {}
-    required_by_flow = {
-        'alpha': {'systemDetailLoaded', 'plannerOpened', 'reportOnlyBoundaryVisible', 'canonicalBoundaryVisible'},
-        'beta': {'systemDetailLoaded', 'plannerOpened', 'unavailablePostureVisible'},
-        'gamma': {'systemDetailLoaded', 'plannerOpened', 'unknownPostureVisible'},
-        'delta': {
-            'systemDetailLoaded',
-            'plannerOpened',
-            'provenanceFallbackVisible',
-            'reportOnlyBoundaryVisible',
-            'fallbackRemainsNonCanonical',
-            'technicalFallbackDisclosureVisible',
-            'noDedicatedEvidenceClaim',
-            'noRecoveryScreen',
-        },
-    }
-    required_by_profile = {
-        'planner_desktop_primary': {
-            'effectiveViewportApplied',
-            'documentOverflowWithinTolerance',
-            'criticalOverflowWithinTolerance',
-            'telemetryToggleKeyboardWorks',
-            'noRecoveryScreen',
-        },
-        'planner_laptop_minimum': {
-            'effectiveViewportApplied',
-            'plannerOpened',
-            'reportOnlyBoundaryVisible',
-            'canonicalBoundaryVisible',
-            'documentOverflowWithinTolerance',
-            'criticalOverflowWithinTolerance',
-            'keyControlsReachable',
-            'telemetryToggleKeyboardWorks',
-            'safeFocusAndNavigation',
-            'noRecoveryScreen',
-        },
-        'planner_constrained_diagnostic': {
-            'effectiveViewportApplied',
-            'plannerOpened',
-            'selectedSystemContextVisible',
-            'safeReturnToFinder',
-            'noRecoveryScreen',
-        },
-        'finder_mobile': {
-            'effectiveViewportApplied',
-            'finderLoaded',
-            'reviewCardsAccessible',
-            'systemDetailOpened',
-            'systemDetailCloseControlVisible',
-            'modalEscapeCloseWorks',
-            'closeControlWorks',
-            'finderDocumentOverflowWithinTolerance',
-            'systemDetailDocumentOverflowWithinTolerance',
-            'noRecoveryScreen',
-        },
-        'planner_mobile_resilience': {
-            'effectiveViewportApplied',
-            'plannerOpened',
-            'selectedSystemContextVisible',
-            'safeExitControlVisible',
-            'safeReturnToFinder',
-            'noRecoveryScreen',
-        },
-    }
-    active_flow_keys = selected_browser_flow_keys(selected_scenarios)
-    missing_flows: dict[str, list[str]] = {}
-    for flow_key in active_flow_keys:
-        scenario = scenarios.get(flow_key)
-        required_checks = required_by_flow[flow_key]
-        if not isinstance(scenario, dict) or scenario.get('status') != 'passed':
-            missing_flows[flow_key] = ['scenario_failed']
+    missing: dict[str, list[str]] = {}
+    for flow in selected_browser_flow_keys(selected_scenarios):
+        result = scenarios.get(flow)
+        if not isinstance(result, dict) or result.get('status') != 'passed':
+            missing[flow] = ['scenario_failed']
             continue
-        checks = scenario.get('checks') or {}
-        missing_checks = [name for name in sorted(required_checks) if not checks.get(name)]
-        if missing_checks:
-            missing_flows[flow_key] = missing_checks
-    missing_profiles: dict[str, list[str]] = {}
-    for profile_name, required_checks in required_by_profile.items():
-        profile = profile_results.get(profile_name)
-        if not isinstance(profile, dict) or profile.get('status') != 'passed':
-            missing_profiles[profile_name] = ['profile_failed']
-            continue
-        checks = profile.get('checks') or {}
-        missing_checks = [name for name in sorted(required_checks) if not checks.get(name)]
-        if missing_checks:
-            missing_profiles[profile_name] = missing_checks
-    if missing_flows or missing_profiles:
-        if 'delta' in missing_flows:
-            failure_code = 'DELTA_FALLBACK_NOT_TRIGGERED'
-        elif missing_profiles:
-            failure_code = 'BROWSER_VIEWPORT_CONTRACT_FAILED'
-        else:
-            failure_code = 'BROWSER_JOURNEY_FAILED'
+        checks = result.get('checks') or {}
+        failed = [name for name in sorted(REQUIRED_CHECKS_BY_FLOW[flow]) if not checks.get(name)]
+        if failed:
+            missing[flow] = failed
+    if missing:
         return {
             'status': 'failed',
             'duration_ms': 0,
-            'summary': 'One or more viewport-profile browser journeys did not satisfy the expected UI contract.',
-            'failure_code': failure_code,
-            'safe_diagnostics': {
-                'missing_scenario_checks': missing_flows,
-                'missing_profile_checks': missing_profiles,
-            },
+            'summary': 'One or more synthetic V3 browser scenarios failed.',
+            'failure_code': 'BROWSER_JOURNEY_FAILED',
+            'safe_diagnostics': {'missing_scenario_checks': missing},
         }
     return {
         'status': 'passed',
         'duration_ms': 0,
-        'summary': 'Desktop-first planner, constrained diagnostic, Finder mobile, and planner resilience browser journeys passed against the real review stack.',
+        'summary': 'Synthetic V3 Explore, Inspect, Babylon, failure, empty-state, and containment scenarios passed.',
         'failure_code': None,
         'safe_diagnostics': {
-            'scenario_names': list(active_flow_keys),
+            'scenario_names': list(selected_browser_flow_keys(selected_scenarios)),
             'profile_names': [profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES],
+            'frontend': 'apps/web',
+            'renderer': 'Babylon',
         },
     }
 
 
 def evaluate_browser_accessibility(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
-    accessibility = summary.get('accessibility') or {}
-    required_checks: list[str] = []
-    if any('modal_escape_close' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required_checks.append('modalEscapeCloseWorks')
-    if any('keyboard_open_planner' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required_checks.append('alphaKeyboardOpenPlannerWorks')
-    if any('desktop_telemetry_toggle' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required_checks.append('plannerDesktopTelemetryToggleKeyboardWorks')
-    if not required_checks:
+    required: list[str] = []
+    if any('keyboard_typeahead' in scenario.accessibility_checks for scenario in selected_scenarios):
+        required.append('keyboardTypeaheadWorks')
+    if any('inspect_heading_focus' in scenario.accessibility_checks for scenario in selected_scenarios):
+        required.append('inspectHeadingFocused')
+    if not required:
         return {
             'status': 'skipped',
             'duration_ms': 0,
-            'summary': 'No accessibility checks were requested for the selected scenario set.',
+            'summary': 'Selected synthetic scenarios have no additional accessibility contract.',
             'failure_code': None,
-            'safe_diagnostics': {'reason': 'scenario selection has no accessibility checks'},
+            'safe_diagnostics': {'reason': 'no requested Review Lab accessibility checks'},
         }
-    missing = [name for name in required_checks if not accessibility.get(name)]
-    if missing:
-        return {
-            'status': 'failed',
-            'duration_ms': 0,
-            'summary': 'Browser accessibility coverage did not complete the required keyboard checks.',
-            'failure_code': 'BROWSER_JOURNEY_FAILED',
-            'safe_diagnostics': {'missing_checks': missing},
-        }
+    accessibility = summary.get('accessibility') or {}
+    missing = [name for name in required if not accessibility.get(name)]
     return {
-        'status': 'passed',
+        'status': 'failed' if missing else 'passed',
         'duration_ms': 0,
-        'summary': 'Keyboard-driven modal close, planner open, and desktop telemetry dock toggle checks passed.',
-        'failure_code': None,
-        'safe_diagnostics': {'checks': required_checks},
+        'summary': 'Review Lab keyboard and focus contracts failed.' if missing else 'Review Lab keyboard and focus contracts passed.',
+        'failure_code': 'BROWSER_JOURNEY_FAILED' if missing else None,
+        'safe_diagnostics': {'missing_checks': missing, 'checks': required},
     }
 
 
@@ -186,14 +97,13 @@ def _wait_for_preview_ready(timeout_seconds: int) -> None:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            with urlopen(review_preview_origin(), timeout=2) as response:  # nosemgrep: dynamic-urllib-use-detected -- local review-lab container origin, dev tooling only
+            with urlopen(review_preview_origin(), timeout=2) as response:  # nosemgrep: loopback Review Lab origin
                 if response.status == 200:
                     return
         except URLError:
             time.sleep(0.5)
-            continue
     raise ReviewLabError(
-        'Frontend preview did not become ready in time.',
+        'apps/web preview did not become ready in time.',
         failure_code='FRONTEND_PREVIEW_TIMEOUT',
         safe_diagnostics={'preview_origin': review_preview_origin()},
     )
@@ -205,98 +115,48 @@ def _port_available(port: int) -> bool:
         return sock.connect_ex(('127.0.0.1', port)) != 0
 
 
-def _cypress_status_hint(text: str) -> str:
-    lowered = (text or '').lower()
-    if not lowered.strip():
-        return 'none'
-    if 'baseurl' in lowered and ('failed trying to load' in lowered or 'could not verify' in lowered):
-        return 'cypress_base_url_unavailable'
-    if 'no tests found' in lowered:
-        return 'no_tests_found'
-    if '1 skipped' in lowered or 'skipped' in lowered:
-        return 'test_skipped'
-    if 'review lab browser verification requires' in lowered or 'edfinder_review_lab_run' in lowered:
-        return 'review_lab_configuration_error'
-    if 'error:' in lowered:
-        return 'cypress_error'
-    return 'unknown'
-
-
-def _browser_runner_diagnostics(
-    *,
-    completed: Any,
-    review_marker_present: bool,
-    output_path_configured: bool,
-    scenario_plan_configured: bool,
-    summary_exists: bool,
-    summary_schema_valid: bool,
-) -> dict[str, Any]:
-    return {
-        'cypress_return_code': completed.returncode if completed is not None else None,
-        'review_marker_present': review_marker_present,
-        'output_path_configured': output_path_configured,
-        'scenario_plan_configured': scenario_plan_configured,
-        'summary_exists': summary_exists,
-        'summary_schema_valid': summary_schema_valid,
-        'stdout_status_hint': _cypress_status_hint(getattr(completed, 'stdout', '') if completed is not None else ''),
-        'stderr_status_hint': _cypress_status_hint(getattr(completed, 'stderr', '') if completed is not None else ''),
-    }
-
-
 def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDefinition, ...]) -> None:
-    expected_scenarios = [scenario.name for scenario in selected_scenarios]
-    expected_flow_keys = list(selected_browser_flow_keys(selected_scenarios))
-    expected_profiles = list(REVIEW_LAB_VIEWPORT_PROFILES)
-    expected_profile_names = {profile['profile_name'] for profile in expected_profiles}
-    required_sections = {
-        'scenarios': dict,
-        'accessibility': dict,
-        'viewportProfiles': list,
-        'profileResults': dict,
-        'productObservations': list,
-        'apiResponses': list,
-        'consoleEntries': list,
-        'pageErrors': list,
-    }
-    viewport_profiles = summary.get('viewportProfiles') or []
-    profile_results = summary.get('profileResults') or {}
-    viewport_profiles_valid = (
-        isinstance(viewport_profiles, list)
-        and len({profile.get('profile_name') for profile in viewport_profiles if isinstance(profile, dict)}) == len(viewport_profiles)
-        and all(profile in expected_profiles for profile in viewport_profiles)
-    )
-    profile_results_valid = (
-        isinstance(profile_results, dict)
-        and set(profile_results).issubset(expected_profile_names)
-    )
+    expected_names = [scenario.name for scenario in selected_scenarios]
+    expected_flows = list(selected_browser_flow_keys(selected_scenarios))
     schema_valid = (
         isinstance(summary, dict)
         and summary.get('summarySchemaVersion') == REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION
         and summary.get('reviewLabRun') is True
-        and summary.get('selectedScenarioNames') == expected_scenarios
-        and summary.get('browserFlowKeys') == expected_flow_keys
-        and all(isinstance(summary.get(key), expected_type) for key, expected_type in required_sections.items())
-        and viewport_profiles_valid
-        and profile_results_valid
+        and summary.get('selectedScenarioNames') == expected_names
+        and summary.get('browserFlowKeys') == expected_flows
+        and isinstance(summary.get('scenarios'), dict)
+        and isinstance(summary.get('accessibility'), dict)
+        and isinstance(summary.get('apiResponses'), list)
+        and isinstance(summary.get('consoleEntries'), list)
+        and isinstance(summary.get('pageErrors'), list)
         and 'fatalError' in summary
     )
     if not schema_valid:
         raise ReviewLabError(
-            'Browser verification summary failed the Review Lab handshake validation.',
+            'Browser summary failed the trusted Review Lab handshake.',
             failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED',
         )
 
 
-def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinition, ...], registry: ReviewProcessRegistry) -> dict[str, Any]:
-    if not VERIFY_BROWSER_SPEC.is_file():
+def _ensure_cypress_succeeded(completed: Any, diagnostics: dict[str, Any]) -> None:
+    if completed.returncode != 0:
         raise ReviewLabError(
-            'Review-environment browser collector is missing.',
+            'Cypress reported a failed Review Lab browser run.',
+            failure_code='BROWSER_JOURNEY_FAILED',
+            safe_diagnostics=diagnostics,
+        )
+
+
+def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinition, ...], registry: ReviewProcessRegistry) -> dict[str, Any]:
+    if not VERIFY_BROWSER_SPEC.is_file() or not VERIFY_BROWSER_CONFIG.is_file():
+        raise ReviewLabError(
+            'apps/web Review Lab browser collector is missing.',
             failure_code='REQUIRED_ROUTE_MISSING',
-            safe_diagnostics={'expected_spec': str(VERIFY_BROWSER_SPEC.relative_to(FRONTEND_DIR.parent))},
+            safe_diagnostics={'expected_spec': str(VERIFY_BROWSER_SPEC.relative_to(FRONTEND_DIR.parent.parent))},
         )
     if not _port_available(EXPECTED_FRONTEND_PREVIEW_PORT):
         raise ReviewLabError(
-            'Frontend preview port is already occupied; refusing to reuse an arbitrary host process.',
+            'apps/web preview port is occupied; refusing an arbitrary host process.',
             failure_code='FRONTEND_PREVIEW_TIMEOUT',
             safe_diagnostics={'preview_port': EXPECTED_FRONTEND_PREVIEW_PORT},
         )
@@ -305,7 +165,6 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     browser_plan = {
         'selectedScenarioNames': [scenario.name for scenario in selected_scenarios],
         'browserFlowKeys': list(selected_browser_flow_keys(selected_scenarios)),
-        'includeProductObservations': selection_requires_product_observations(selected_scenarios),
     }
     (run_dir / 'browser-plan.json').write_text(json.dumps(browser_plan, indent=2, sort_keys=True) + '\n', encoding='utf-8')
     env = {
@@ -315,98 +174,58 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         'VITE_DEV_API_TARGET': review_api_origin(),
     }
 
-    run_subprocess(
-        ['yarn', 'build', '--configLoader', 'runner'],
-        cwd=FRONTEND_DIR,
-        env_overrides=env,
-        timeout_seconds=TIMEOUTS.frontend_build,
-        failure_code='FRONTEND_BUILD_TIMEOUT',
-    )
+    run_subprocess(['pnpm', 'build'], cwd=FRONTEND_DIR, env_overrides=env, timeout_seconds=TIMEOUTS.frontend_build, failure_code='FRONTEND_BUILD_TIMEOUT')
     registry.start(
-        'frontend-preview',
-        ['yarn', 'preview', '--port', str(EXPECTED_FRONTEND_PREVIEW_PORT), '--strictPort'],
+        'apps-web-preview',
+        ['pnpm', 'preview', '--port', str(EXPECTED_FRONTEND_PREVIEW_PORT), '--strictPort'],
         cwd=FRONTEND_DIR,
         env=env,
-        stdout_log_name='frontend-preview.stdout.log',
-        stderr_log_name='frontend-preview.stderr.log',
+        stdout_log_name='apps-web-preview.stdout.log',
+        stderr_log_name='apps-web-preview.stderr.log',
     )
     _wait_for_preview_ready(TIMEOUTS.preview_readiness)
     completed = run_subprocess(
-        ['yarn', 'cypress', 'run', '--browser', 'chrome', '--spec', 'cypress/e2e/review-environment.cy.js', '--config-file', 'cypress.config.cjs'],
+        ['pnpm', 'exec', 'cypress', 'run', '--browser', 'chrome', '--spec', 'cypress/e2e/review-lab.cy.ts', '--config-file', 'cypress.review.config.ts'],
         cwd=FRONTEND_DIR,
         env_overrides=env,
         timeout_seconds=TIMEOUTS.cypress,
         allow_failure=True,
         failure_code='BROWSER_PHASE_TIMEOUT',
     )
+    diagnostics = {
+        'cypress_return_code': completed.returncode,
+        'review_marker_present': True,
+        'output_path_configured': True,
+        'scenario_plan_configured': True,
+        'summary_exists': output_path.is_file(),
+    }
     if not output_path.is_file():
-        raise ReviewLabError(
-            'Browser verification did not produce a structured summary.',
-            failure_code='BROWSER_SUMMARY_MISSING',
-            safe_diagnostics=_browser_runner_diagnostics(
-                completed=completed,
-                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
-                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
-                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
-                summary_exists=False,
-                summary_schema_valid=False,
-            ),
-        )
-
+        raise ReviewLabError('Browser collector did not produce a structured summary.', failure_code='BROWSER_SUMMARY_MISSING', safe_diagnostics=diagnostics)
     try:
         summary = json.loads(output_path.read_text(encoding='utf-8'))
-    except json.JSONDecodeError as exc:
-        raise ReviewLabError(
-            'Browser verification summary was not valid JSON.',
-            failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED',
-            safe_diagnostics=_browser_runner_diagnostics(
-                completed=completed,
-                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
-                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
-                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
-                summary_exists=True,
-                summary_schema_valid=False,
-            ),
-        ) from exc
-    try:
         _validate_browser_summary(summary, selected_scenarios)
-    except ReviewLabError as exc:
-        raise ReviewLabError(
-            str(exc),
-            failure_code=exc.failure_code,
-            safe_diagnostics=_browser_runner_diagnostics(
-                completed=completed,
-                review_marker_present=env.get(REVIEW_LAB_BROWSER_MARKER) == '1',
-                output_path_configured=bool(env.get('EDFINDER_REVIEW_OUTPUT_PATH')),
-                scenario_plan_configured=bool(env.get('EDFINDER_REVIEW_SCENARIOS_JSON')),
-                summary_exists=True,
-                summary_schema_valid=False,
-            ),
-        ) from exc
+    except (json.JSONDecodeError, ReviewLabError) as exc:
+        raise ReviewLabError('Browser summary was invalid.', failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED', safe_diagnostics=diagnostics) from exc
+    _ensure_cypress_succeeded(completed, diagnostics)
+
     desktop_phase = evaluate_browser_desktop(summary, selected_scenarios)
     accessibility_phase = evaluate_browser_accessibility(summary, selected_scenarios)
     console_phase = evaluate_browser_console(summary)
-    if browser_plan['includeProductObservations']:
-        product_phase = evaluate_product_observations(summary)
-    else:
-        product_phase = {
-            'status': 'skipped',
-            'duration_ms': 0,
-            'summary': 'No product observations were requested for the selected scenario set.',
-            'failure_code': None,
-            'safe_diagnostics': {'reason': 'scenario selection does not request product observations'},
-        }
-    unexpected_api_errors = list_unexpected_api_errors(summary.get('apiResponses', []))
-    unexpected_console_errors = list_unexpected_console_errors(summary)
-    delta_correlation_verified = desktop_phase['status'] == 'passed' and validate_delta_fallback_sequence(summary)
+    product_phase = {
+        'status': 'skipped',
+        'duration_ms': 0,
+        'summary': 'Product acceptance and visual baselines belong to normal Product E2E.',
+        'failure_code': None,
+        'safe_diagnostics': {'reason': 'hard lane boundary'},
+    }
     return {
         'browser_desktop': desktop_phase,
         'browser_accessibility': accessibility_phase,
         'browser_console': console_phase,
         'product_observations': product_phase,
-        'unexpected_api_errors': unexpected_api_errors,
-        'unexpected_console_errors': unexpected_console_errors,
-        'known_product_observations': product_phase['safe_diagnostics'].get('known_product_observations', []),
-        'unexpected_product_observations': product_phase['safe_diagnostics'].get('unexpected_product_observations', []),
-        'delta_503_fallback_correlation_verified': delta_correlation_verified,
+        'unexpected_api_errors': list_unexpected_api_errors(summary.get('apiResponses', [])),
+        'unexpected_console_errors': list_unexpected_console_errors(summary),
+        'known_product_observations': [],
+        'unexpected_product_observations': [],
+        'synthetic_failure_injection_verified': summary.get('scenarios', {}).get('apiFailure', {}).get('status') == 'passed',
     }

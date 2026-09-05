@@ -164,9 +164,9 @@ As of PR #601:
 
 - the Codex request/dispatch/worker/trusted-push bridge exists;
 - the narrow `ChatGPT ed-new Ops` workflow exists for a small allowlisted set of operator actions;
-- Product E2E and Review Lab are explicitly separate browser authorities; Product E2E now covers the isolated Svelte/Babylon foundation while Review Lab still requires the V3 re-base described in `v3-browser-validation-lanes.md`;
+- Product E2E and Review Lab are explicitly separate browser authorities: Product E2E covers the first normal Explore -> Babylon -> Inspect checkpoint in Chrome and Firefox, while Review Lab now drives that same `apps/web` + Babylon frontend against its isolated synthetic runtime;
 - `apps/web` is the V3 application destination and the fresh map will use Babylon;
-- the minimum executable Svelte/Babylon runtime baseline now exists as an isolated, explicitly non-product surface with renderer-neutral lifecycle contracts and Product E2E evidence; Finder/Inspect and fresh map product design still come later;
+- the first bounded V3 Explore/Inspect/Babylon checkpoint now exists with renderer-neutral lifecycle contracts, normal Product E2E authority, and separate synthetic Review Lab coverage; later product expansion remains separately governed;
 - the immutable `main -> images -> Contabo -> smoke -> receipt` live-checkpoint path still needs to be completed;
 - the older `chatgpt-ops-control-plane.md` contains useful design history but is not the current authority for what operations are implemented or authorised.
 

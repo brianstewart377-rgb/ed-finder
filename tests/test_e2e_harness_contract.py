@@ -75,7 +75,11 @@ def test_system_detail_escape_uses_the_modal_window_keyboard_path():
 
 def test_review_lab_runner_is_the_only_lane_selecting_the_collector():
     runner = _read(ROOT / "scripts/dev/review_lab/browser_runner.py")
-    assert "'--spec', 'cypress/e2e/review-environment.cy.js'" in runner
+    review_workflow = _read(WORKFLOWS / 'review-lab.yml')
+    assert "'--spec', 'cypress/e2e/review-lab.cy.ts'" in runner
+    assert "'--config-file', 'cypress.review.config.ts'" in runner
+    assert 'working-directory: apps/web' in review_workflow
+    assert not (FRONTEND / 'cypress/e2e/review-environment.cy.js').exists()
     assert "playwright" not in runner.lower()
 
 

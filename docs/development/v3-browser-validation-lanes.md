@@ -161,28 +161,29 @@ A green Review Lab cannot compensate for missing normal V3 E2E/visual acceptance
 
 For the fresh Babylon map, a checkpoint cannot claim Review Lab coverage unless the Lab is running the actual V3 Babylon renderer. Passing synthetic scenarios through the old React/R3F frontend is legacy evidence only.
 
-## Current migration state and required re-base
+## Current checkpoint state
 
 As of PR #601:
 
-- normal Cypress E2E already exercises both retained React migration evidence and the new `apps/web/` foundation;
-- `apps/web/` coverage now proves the isolated Babylon runtime lifecycle in Chrome and Firefox, but remains smoke/foundation-level and does not yet provide Finder/Inspect/product-map visual acceptance;
+- normal Cypress E2E exercises the retained React migration evidence separately from the V3 authority in `apps/web/`;
+- `apps/web/` Product E2E now covers the first Explore -> Babylon results/selection -> canonical Inspect journey, lossless ID64, resize/remount, accessibility smoke, and the accepted V3 screenshot in Chrome and Firefox;
 - the new V3 map is being designed fresh around Babylon rather than copied visually from the retained React/R3F map;
-- Review Lab is structurally separate, but its browser collector is still wired to the retained `frontend/` React application and old Planner-heavy scenario matrix;
-- the Review Lab workflow still carries some general resolver/project-state/stage checks and a formatting check from its history as a broad required gate. Those checks are also migration debt: they must move to normal CI where appropriate, leaving only tests that directly prove Review Lab containment/lifecycle/contracts.
+- Review Lab now builds and previews `apps/web`, drives the Babylon-backed Explore/Inspect surfaces with its dedicated Cypress collector, and keeps synthetic data/failure injection behind the isolated `review_main.py` runtime;
+- old React/R3F Planner viewport assertions and the retained-frontend Review Lab collector are removed;
+- the Review Lab workflow runs only focused containment, lifecycle, handshake, sanitisation, synthetic-route, and teardown contracts. Generic project-state, formatting, stage, and code-quality checks remain in normal CI.
 
-Those last two points are **migration debt, not the target design**. Until Review Lab is retargeted to `apps/web/` and uses the Babylon renderer for V3 map scenarios, a green Review Lab run proves the isolated legacy review environment only and must not be treated as V3 live-checkpoint browser acceptance. The existing generic checks must not be used as precedent for adding more code-review responsibility to Review Lab.
+Review Lab completion does not make it product acceptance: its screenshots remain diagnostic and normal Product E2E remains the authority for ordinary journeys and approved visual baselines.
 
-The non-product foundation screenshot is a run artifact for executable-renderer evidence only. It is not a V3 map visual baseline, makes no map design decision, and does not reduce the later Finder/Inspect or Review Lab re-base requirements.
+The older non-product foundation screenshot remains diagnostic history only. It is not a V3 map visual baseline and does not override the first checkpoint's explicit V3 product assertions.
 
-Before the first meaningful Finder/Inspect/Babylon live checkpoint, PR #601 must:
+For the first meaningful Finder/Inspect/Babylon live checkpoint, the two lanes now preserve these boundaries:
 
-1. make `apps/web/` + Babylon the normal product E2E/visual authority for the checkpoint journeys;
-2. add meaningful Finder -> map/results -> Inspect user journeys and newly approved V3 visual assertions;
-3. retarget the Review Lab browser collector to that same `apps/web/` + Babylon frontend for the synthetic Finder/Inspect/map scenarios relevant to the checkpoint;
-4. move general code-quality/project-state checks out of Review Lab unless they directly prove Review Lab containment/lifecycle/contracts;
+1. `apps/web/` + Babylon is the normal product E2E/visual authority for the checkpoint journeys;
+2. meaningful Explore -> map/results -> Inspect user journeys and the first V3 visual assertion stay in Product E2E;
+3. the Review Lab browser collector targets that same `apps/web/` + Babylon frontend for the synthetic Explore/Inspect/map scenarios relevant to the checkpoint;
+4. general code-quality/project-state checks stay out of Review Lab unless they directly prove Review Lab containment/lifecycle/contracts;
 5. keep Review Lab synthetic data/routes/lifecycle separate from normal E2E;
-6. remove or explicitly archive legacy React/R3F Review Lab assumptions once equivalent V3 coverage is accepted;
+6. legacy React/R3F Review Lab assumptions remain removed;
 7. run one batched stabilisation pass across the two browser lanes before promotion.
 
 A lane re-base is complete only when **both** browser workflows target their intended V3 responsibilities independently: normal Product E2E/Visual Acceptance proves ordinary `apps/web` + Babylon user behaviour and pixels, while Review Lab proves selected synthetic scenarios through that same `apps/web` + Babylon stack inside its isolated environment. Sharing Cypress does not merge those authorities.

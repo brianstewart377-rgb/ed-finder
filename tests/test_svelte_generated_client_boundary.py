@@ -11,6 +11,7 @@ GENERATED = WEB_SOURCE / "lib" / "api" / "generated"
 IMPORT_SPECIFIER = re.compile(
     r"(?:from\s+|import\s*\()\s*['\"]([^'\"]*generated(?:/[^'\"]*)?)['\"]"
 )
+RAW_FETCH = re.compile(r"\bfetch\s*\(")
 
 
 @pytest.mark.unit
@@ -28,6 +29,24 @@ def test_generated_hey_api_modules_are_private_to_the_application_facade():
     assert not violations, (
         "Generated API modules must stay behind apps/web/src/lib/api/client.ts; "
         "id64-bearing responses require the lossless application facade:\n"
+        + "\n".join(violations)
+    )
+
+
+@pytest.mark.unit
+def test_ordinary_api_consumers_do_not_bypass_the_application_facade():
+    violations: list[str] = []
+    for path in WEB_SOURCE.rglob("*"):
+        if not path.is_file() or path.suffix not in {".ts", ".js", ".svelte"}:
+            continue
+        if GENERATED in path.parents or path == FACADE or ".test." in path.name:
+            continue
+        if RAW_FETCH.search(path.read_text(encoding="utf-8")):
+            violations.append(path.relative_to(ROOT).as_posix())
+
+    assert not violations, (
+        "Ordinary apps/web API requests must use the handwritten facade over "
+        "the generated SDK; raw fetch bypasses are not allowed:\n"
         + "\n".join(violations)
     )
 

@@ -5,9 +5,7 @@ name: Review Lab
 # - It is separate from normal V3 Product E2E / Visual Acceptance.
 # - Cypress inside Review Lab is a controlled browser driver/collector, not the
 #   owner of normal product E2E or approved visual-regression baselines.
-# - The current frontend/ React browser target and several broad required-gate
-#   checks below are migration debt. Do not add more generic code-quality work
-#   here; move that responsibility to normal CI during the #601 re-base.
+# - The collector targets apps/web + Babylon against isolated synthetic data.
 # See docs/development/v3-browser-validation-lanes.md.
 
 on:
@@ -32,9 +30,6 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
-      - name: Fetch authoritative origin/main reference
-        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-
       - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -42,15 +37,15 @@ jobs:
           cache: pip
           cache-dependency-path: apps/api/requirements.txt
 
-      # TEMPORARY MIGRATION DEBT: the Review Lab browser collector still targets
-      # retained frontend/ React. Retarget this to apps/web once Finder/Inspect
-      # synthetic journeys exist; a green legacy Lab run is not V3 acceptance.
-      - name: Set up Node 22 for retained Review Lab collector
+      - name: Set up Node 24 for V3 Review Lab collector
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
-          cache: yarn
-          cache-dependency-path: frontend/yarn.lock
+          node-version: "24"
+
+      - name: Enable pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@11.25.0 --activate
 
       - name: Create repo virtualenv and install Python dependencies
         run: |
@@ -59,34 +54,23 @@ jobs:
           ./.venv/bin/pip install -r apps/api/requirements.txt
           ./.venv/bin/pip install pytest pytest-asyncio httpx anyio
 
-      - name: Install retained Review Lab frontend dependencies
-        working-directory: frontend
-        run: yarn install --frozen-lockfile --no-progress --non-interactive
+      - name: Install apps/web dependencies
+        working-directory: apps/web
+        run: pnpm install --frozen-lockfile
 
       - name: Verify Review Lab Cypress browser driver
-        working-directory: frontend
-        run: yarn cypress verify
+        working-directory: apps/web
+        run: pnpm exec cypress verify
 
       - name: Confirm Docker Compose support
         run: docker compose version
 
-      # TEMPORARY MIGRATION DEBT: these broad required-gate checks predate the V3
-      # lane split. Move general project/code checks to normal CI; Review Lab may
-      # retain only tests that directly prove its own containment/lifecycle/contracts.
-      - name: Run legacy Review Lab gate preparation
-        run: |
-          PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B scripts/dev/resolve_project_state.py --strict
-
-      - name: Run retained Review Lab gate tests
+      - name: Run focused Review Lab contract tests
         run: |
           PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B -m pytest \
-            tests/test_local_review_test_environment.py \
+            tests/test_review_lab_v3.py \
+            tests/test_review_lab_timeouts.py \
             tests/test_db_isolation_guardrails.py \
-            tests/test_project_state_resolver.py \
-            tests/test_stage18h2_warehouse_planner_evidence_endpoint.py \
-            tests/test_stage20b_readonly_status_surfaces.py \
-            tests/test_stage22b_planner_evidence_hardening.py \
-            tests/test_stage23a_live_per_system_evidence.py \
             -p no:cacheprovider
 
       - name: Run Review Lab preflight
@@ -102,11 +86,6 @@ jobs:
             --scenario all \
             --confirm-local-review-environment
 
-      # TEMPORARY MIGRATION DEBT: formatting belongs to normal CI, not Review Lab.
-      - name: Check retained gate diff formatting
-        if: always()
-        run: git diff --check
-
       - name: Invoke safe Review Lab teardown through wrapper
         if: always()
         run: |
@@ -119,12 +98,17 @@ jobs:
         run: |
           mapfile -t review_containers < <(docker ps -a --filter "label=com.docker.compose.project=edfinder-review" --format '{{.Names}}')
           mapfile -t review_volumes < <(docker volume ls --filter "label=com.docker.compose.project=edfinder-review" --format '{{.Name}}')
+          mapfile -t review_networks < <(docker network ls --filter "label=com.docker.compose.project=edfinder-review" --format '{{.Name}}')
           if (( ${#review_containers[@]} > 0 )); then
             printf '::error::Review Lab containers remained after teardown: %s\n' "${review_containers[*]}"
             exit 1
           fi
           if (( ${#review_volumes[@]} > 0 )); then
             printf '::error::Review Lab volumes remained after teardown: %s\n' "${review_volumes[*]}"
+            exit 1
+          fi
+          if (( ${#review_networks[@]} > 0 )); then
+            printf '::error::Review Lab networks remained after teardown: %s\n' "${review_networks[*]}"
             exit 1
           fi
 
@@ -145,11 +129,12 @@ jobs:
               duration_text = f"{duration_ms / 1000:.2f}s" if isinstance(duration_ms, int) else 'unavailable'
               teardown = report.get('phase_results', {}).get('teardown', {})
               remaining = teardown.get('safe_diagnostics', {}).get('remaining_review_resources', {})
-              remaining_absent = not remaining.get('containers') and not remaining.get('volumes')
+              remaining_absent = not remaining.get('containers') and not remaining.get('volumes') and not remaining.get('networks')
               lines.extend([
                   f"- Review Lab full verification: {'passed' if report.get('ok') else 'failed'}",
                   f"- Full duration: {duration_text}",
-                  f"- Delta fallback correlation: {'passed' if report.get('delta_503_fallback_correlation_verified') else 'failed'}",
+                  "- Frontend/runtime: apps/web + Babylon",
+                  f"- Synthetic scenarios: {', '.join(report.get('selected_scenarios', [])) or 'none'}",
                   f"- Unexpected console errors: {report.get('unexpected_console_errors') or 'none'}",
                   f"- Unexpected API errors: {report.get('unexpected_api_errors') or 'none'}",
                   f"- Docker baseline restored: {report.get('docker_baseline_restored')}",
@@ -179,6 +164,6 @@ jobs:
         with:
           name: review-lab-cypress-failure
           path: |
-            frontend/cypress/artifacts
+            apps/web/cypress/artifacts/review-lab
           if-no-files-found: warn
           retention-days: 7

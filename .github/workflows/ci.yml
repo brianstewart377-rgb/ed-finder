@@ -205,7 +205,9 @@ jobs:
             (s.id64 % 3)::int, (s.id64 % 4)::int, (s.id64 % 2)::int,
             (s.id64 % 6)::int, (s.id64 % 2)::int, 0, 0, 5, 2, 10, 20, 30,
             ((s.id64 % 30))::int, 0.85, 4, 1, 6, 2, 1, 2, 3, 2, '3.4'
-          FROM systems s ON CONFLICT DO NOTHING;
+          FROM systems s
+          WHERE s.has_body_data = TRUE
+          ON CONFLICT DO NOTHING;
           SELECT * FROM refresh_map_mviews(FALSE);
           SQL
       - name: Run data invariants against seeded integration DB

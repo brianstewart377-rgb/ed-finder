@@ -51,10 +51,14 @@ def test_review_lab_lane_uses_wrapper_authority_not_normal_product_e2e_specs():
     ):
         assert forbidden not in workflow
 
-    # Until the re-base is complete, legacy overlap must be labelled as debt so
-    # it cannot silently become the accepted V3 ownership model.
-    assert 'TEMPORARY MIGRATION DEBT' in workflow
-    assert 'a green legacy Lab run is not V3 acceptance' in workflow
+    # The synthetic lane must use the same V3 frontend/renderer while keeping a
+    # dedicated collector and wrapper-owned environment.
+    assert 'Node 24 for V3 Review Lab collector' in workflow
+    assert 'working-directory: apps/web' in workflow
+    assert 'pnpm install --frozen-lockfile' in workflow
+    assert 'tests/test_review_lab_v3.py' in workflow
+    assert 'working-directory: frontend' not in workflow
+    assert 'resolve_project_state.py' not in workflow
     assert 'Review Lab Cypress diagnostic artifacts' in workflow
 
 
@@ -81,7 +85,16 @@ def test_v3_map_validation_uses_fresh_babylon_stack_in_both_browser_lanes():
     assert 'Review Lab may change the **data and environment**' in authority
     assert 'It must not substitute a different frontend framework or renderer.' in authority
     assert 'A React/R3F Review Lab therefore cannot gate a Babylon V3 map checkpoint.' in authority
-    assert 'Before the first meaningful Finder/Inspect/Babylon live checkpoint' in authority
+    assert 'For the first meaningful Finder/Inspect/Babylon live checkpoint' in authority
+
+
+@pytest.mark.unit
+def test_review_lab_rebase_removed_retained_react_collector():
+    assert not (ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js').exists()
+    runner = (ROOT / 'scripts' / 'dev' / 'review_lab' / 'browser_runner.py').read_text(encoding='utf-8')
+    assert "FRONTEND_DIR" in runner
+    assert "'cypress/e2e/review-lab.cy.ts'" in runner
+    assert "'pnpm', 'build'" in runner
 
 
 @pytest.mark.unit

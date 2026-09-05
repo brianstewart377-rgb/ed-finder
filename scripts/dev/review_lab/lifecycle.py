@@ -228,7 +228,7 @@ def review_preview_origin() -> str:
 
 
 def frontend_start_command() -> str:
-    return 'VITE_DEV_API_TARGET=http://127.0.0.1:8001 npm run start'
+    return 'VITE_DEV_API_TARGET=http://127.0.0.1:8001 pnpm preview --port 4173 --strictPort'
 
 
 def healthcheck_url() -> str:
@@ -420,9 +420,11 @@ def capture_docker_baseline() -> dict[str, list[str]]:
     ensure_docker_cli_available()
     containers = run_command(['docker', 'ps', '-a', '--format', '{{.Names}}'], timeout_seconds=15)
     volumes = run_command(['docker', 'volume', 'ls', '--format', '{{.Name}}'], timeout_seconds=15)
+    networks = run_command(['docker', 'network', 'ls', '--format', '{{.Name}}'], timeout_seconds=15)
     return {
         'containers': sorted(line for line in containers.splitlines() if line.strip()),
         'volumes': sorted(line for line in volumes.splitlines() if line.strip()),
+        'networks': sorted(line for line in networks.splitlines() if line.strip()),
     }
 
 
@@ -443,6 +445,10 @@ def list_review_owned_resources() -> dict[str, list[str]]:
         ['docker', 'volume', 'ls', *label_filter, '--format', '{{.Name}}'],
         timeout_seconds=15,
     )
+    labelled_networks = run_command(
+        ['docker', 'network', 'ls', *label_filter, '--format', '{{.Name}}'],
+        timeout_seconds=15,
+    )
     baseline = capture_docker_baseline()
     containers = {
         line.strip() for line in labelled_containers.splitlines() if line.strip()
@@ -454,15 +460,21 @@ def list_review_owned_resources() -> dict[str, list[str]]:
     } | {
         name for name in baseline['volumes'] if is_review_managed_docker_name(name)
     }
+    networks = {
+        line.strip() for line in labelled_networks.splitlines() if line.strip()
+    } | {
+        name for name in baseline['networks'] if is_review_managed_docker_name(name)
+    }
     return {
         'containers': sorted(containers),
         'volumes': sorted(volumes),
+        'networks': sorted(networks),
     }
 
 
 def assert_no_preexisting_review_resources() -> None:
     existing = list_review_owned_resources()
-    if existing['containers'] or existing['volumes']:
+    if existing['containers'] or existing['volumes'] or existing['networks']:
         raise ReviewLabError(
             'Review-owned Docker resources already exist before verification.',
             failure_code='REVIEW_RESOURCES_NOT_REMOVED',
@@ -475,11 +487,15 @@ def compare_docker_baseline(before: Mapping[str, list[str]], after: Mapping[str,
     after_containers = {name for name in after.get('containers', []) if not is_review_managed_docker_name(name)}
     before_volumes = {name for name in before.get('volumes', []) if not is_review_managed_docker_name(name)}
     after_volumes = {name for name in after.get('volumes', []) if not is_review_managed_docker_name(name)}
+    before_networks = {name for name in before.get('networks', []) if not is_review_managed_docker_name(name)}
+    after_networks = {name for name in after.get('networks', []) if not is_review_managed_docker_name(name)}
     return {
         'containers_added': sorted(after_containers - before_containers),
         'containers_removed': sorted(before_containers - after_containers),
         'volumes_added': sorted(after_volumes - before_volumes),
         'volumes_removed': sorted(before_volumes - after_volumes),
+        'networks_added': sorted(after_networks - before_networks),
+        'networks_removed': sorted(before_networks - after_networks),
     }
 
 
@@ -522,7 +538,6 @@ def parse_passed_test_count(output: str) -> int:
 
 def run_static_phase() -> dict[str, Any]:
     validate_support_route_matrix()
-    run_command([sys.executable, '-B', 'scripts/dev/resolve_project_state.py', '--strict'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     static_test_output = run_command(
         [sys.executable, '-B', '-m', 'pytest', *STATIC_TEST_FILES, '-p', 'no:cacheprovider'],
         timeout_seconds=TIMEOUTS.static,
@@ -530,9 +545,8 @@ def run_static_phase() -> dict[str, Any]:
     )
     static_test_count = parse_passed_test_count(static_test_output)
     run_preflight()
-    run_command(['git', 'diff', '--check'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     return {
-        'summary': 'Strict resolver, review-environment safety tests, preflight, support-route matrix, and git diff check passed.',
+        'summary': 'Review Lab containment, lifecycle, handshake, support-route, and preflight contracts passed.',
         'static_test_count': static_test_count,
         'safe_diagnostics': {
             'static_test_files': list(STATIC_TEST_FILES),
