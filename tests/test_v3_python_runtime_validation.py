@@ -7,6 +7,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.test_v3_checkpoint_validator_runtime import is_verified_checkpoint_preinstall_job
+
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -83,7 +85,9 @@ def test_every_active_workflow_python_selection_and_label_is_cpython314():
     setup_steps: list[tuple[Path, dict]] = []
     for path in WORKFLOWS.glob("*.yml"):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        for job in workflow.get("jobs", {}).values():
+        for job_name, job in workflow.get("jobs", {}).items():
+            if is_verified_checkpoint_preinstall_job(path, job_name, job):
+                continue
             steps = job.get("steps", [])
             job_setup_steps = []
             for step in steps:

@@ -8,6 +8,8 @@ from pathlib import Path
 
 import yaml
 
+from tests.test_v3_checkpoint_validator_runtime import is_verified_checkpoint_preinstall_job
+
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_REQUIRES_PYTHON = ">=3.14,<3.15"
@@ -91,6 +93,8 @@ def test_all_python_workflow_jobs_setup_exact_cpython314_before_use() -> None:
     for path in sorted(workflow_paths):
         workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         for job_name, job in workflow.get("jobs", {}).items():
+            if is_verified_checkpoint_preinstall_job(path, job_name, job):
+                continue
             steps = job.get("steps", [])
             setup_indexes = [
                 index
