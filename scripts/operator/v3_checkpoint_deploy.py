@@ -33,6 +33,7 @@ RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-deployment-receipt/v1"
 CURRENT_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-current-receipt/v2"
 SCHEMA_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-schema-identity/v2"
 PROJECT = "edfinder-v3-checkpoint"
+LOCAL_DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
 TARGET_HOSTNAME = "vmi3542235"
 TARGET_FQDN = "vmi3542235.contaboserver.net"
 SERVICES = ("api", "web")
@@ -684,7 +685,18 @@ def rollback_plan(
         "V3_CHECKPOINT_WEB_IMAGE": rollback["images"]["web"],
         "V3_CHECKPOINT_SOURCE_SHA": rollback["source_sha"],
     }
-    return command_plan(compose_path, prior_env), prior_env
+    return [
+        [
+            *base,
+            "up",
+            "--detach",
+            "--no-deps",
+            "--force-recreate",
+            "--pull",
+            "never",
+            *SERVICES,
+        ]
+    ], prior_env
 
 
 def run_command(
@@ -798,6 +810,25 @@ def validate_host_runtime(
     runner: Callable[..., subprocess.CompletedProcess[str]] = run_command,
 ) -> None:
     runner(["psql", "--version"], env=env)
+    context_endpoint = runner(
+        [
+            "docker",
+            "context",
+            "inspect",
+            env["DOCKER_CONTEXT"],
+            "--format",
+            "{{json .Endpoints.docker.Host}}",
+        ],
+        env=env,
+    )
+    try:
+        endpoint = json.loads(context_endpoint.stdout)
+    except json.JSONDecodeError as exc:
+        raise DeploymentError("Docker context endpoint inspection is invalid") from exc
+    if endpoint != LOCAL_DOCKER_ENDPOINT:
+        raise DeploymentError(
+            "Docker context is not bound to the authorized local daemon"
+        )
     runner(["docker", "compose", "version"], env=env)
     compose_base = [
         "docker",

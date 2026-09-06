@@ -14,15 +14,17 @@ Do not promote a repository helper into a production command merely because it e
   fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
   explicitly non-production and uses separate environment credentials. The
   helper verifies digest manifests, target authority, the fixed `api`/`web`
-  allowlist, app absence or the checksum-bound durable prior receipt/manifest,
-  and the live database identity plus current applied migration set before any
-  pull or service change. Database verification is read-only and never reports
-  or persists the credential-bearing `DATABASE_URL`. Candidate and rollback
-  starts receive bounded readiness polling before authoritative smoke checks;
-  receipts account for database reads independently from service mutation. The
-  committed authority currently stops because the runtime, database/config,
-  origin/edge and receipt facts are absent. It does not manage database, cache,
-  NATS, edge, runner or volume resources.
+  allowlist, the selected context's exact `unix:///var/run/docker.sock` endpoint,
+  app absence or the checksum-bound durable prior receipt/manifest, and the live
+  database identity plus current applied migration set before any pull or
+  service change. Database verification is read-only and never reports or
+  persists the credential-bearing `DATABASE_URL`. Candidate and rollback starts
+  receive bounded readiness polling before authoritative smoke checks. Upgrade
+  rollback recreates from the already-verified prior digest images with
+  `--pull never` and no registry request; receipts account for database reads
+  independently from service mutation. The committed authority currently stops
+  because the runtime, database/config, origin/edge and receipt facts are absent.
+  It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import tomllib
@@ -69,11 +70,16 @@ def _load_checkpoint_module():
     return module
 
 
-def _manifest(*, compatibility: str = "exact", rollback_eligible: bool = True):
+def _manifest(
+    *,
+    compatibility: str = "exact",
+    rollback_eligible: bool = True,
+    compatible_migration_sets: list[str] | None = None,
+):
     module = _load_module()
     evidence = (
         "reviewed-ci-contract:checkpoint-release-v1"
-        if compatibility == "exact"
+        if compatibility in {"exact", "backward-compatible"}
         else None
     )
     args = Namespace(
@@ -84,11 +90,38 @@ def _manifest(*, compatibility: str = "exact", rollback_eligible: bool = True):
         web_image="ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "c" * 64,
         compatibility=compatibility,
         compatibility_evidence=evidence,
-        compatible_migration_set=None,
+        compatible_migration_set=compatible_migration_sets,
         rollback_eligible=rollback_eligible,
         rollback_reason="Eligible only for the explicitly listed migration identity.",
     )
     return module, module.create_manifest(args)
+
+
+def _run_release_compatibility_normalizer(
+    tmp_path: Path, *, compatibility: str, reviewed_sets: str
+) -> tuple[subprocess.CompletedProcess[str], str]:
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    workflow = yaml.load(RELEASE_WORKFLOW.read_text(), Loader=_NoBoolCoercionLoader)
+    step = next(
+        step
+        for step in workflow["jobs"]["validate-source"]["steps"]
+        if step.get("id") == "compatibility"
+    )
+    output = tmp_path / "github-output"
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "COMPATIBILITY": compatibility,
+            "REVIEWED_COMPATIBLE_MIGRATION_SETS": reviewed_sets,
+            "GITHUB_OUTPUT": str(output),
+            "RUNNER_TEMP": str(tmp_path),
+        },
+    )
+    return result, output.read_text() if output.exists() else ""
 
 
 def test_manifest_records_exact_source_images_and_migration_checksums():
@@ -102,6 +135,25 @@ def test_manifest_records_exact_source_images_and_migration_checksums():
     assert len(manifest["migration_set"]["entries"]) > 40
     assert all(entry["sha256"] for entry in manifest["migration_set"]["entries"])
     assert module.validate_manifest(manifest) == manifest
+
+
+def test_manifest_exact_mode_uses_only_source_identity_and_backward_mode_adds_reviewed_sets():
+    reviewed_identity = "sha256:" + "0" * 64
+    module, exact = _manifest(
+        compatibility="exact", compatible_migration_sets=[reviewed_identity]
+    )
+    source_identity = module.migration_set()["identity"]
+    assert exact["schema_compatibility"]["compatible_migration_sets"] == [
+        source_identity
+    ]
+
+    _, backward = _manifest(
+        compatibility="backward-compatible",
+        compatible_migration_sets=[reviewed_identity],
+    )
+    assert backward["schema_compatibility"]["compatible_migration_sets"] == sorted(
+        [reviewed_identity, source_identity]
+    )
 
 
 @pytest.mark.parametrize(
@@ -339,6 +391,74 @@ def test_release_workflow_builds_both_images_from_one_exact_main_sha_and_digests
     assert "--verify-source-migrations" in workflow
     assert "(cd release && sha256sum v3-application-release.json" in workflow
     assert "git pull" not in workflow
+
+
+def test_release_workflow_normalizes_and_passes_reviewed_backward_compatibility_sets(
+    tmp_path,
+):
+    first = "sha256:" + "1" * 64
+    second = "sha256:" + "2" * 64
+    result, output = _run_release_compatibility_normalizer(
+        tmp_path,
+        compatibility="backward-compatible",
+        reviewed_sets=f"  {second}\r\n\n{first}  ",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert output == f"compatible_migration_sets={first} {second}\n"
+
+    empty_result, empty_output = _run_release_compatibility_normalizer(
+        tmp_path / "empty",
+        compatibility="backward-compatible",
+        reviewed_sets=" \n\t",
+    )
+    assert empty_result.returncode == 0, empty_result.stderr
+    assert empty_output == "compatible_migration_sets=\n"
+
+    workflow = yaml.load(RELEASE_WORKFLOW.read_text(), Loader=_NoBoolCoercionLoader)
+    inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    assert inputs["reviewed_compatible_migration_sets"]["required"] == "false"
+    assert "one per line" in inputs["reviewed_compatible_migration_sets"]["description"]
+    workflow_text = RELEASE_WORKFLOW.read_text()
+    assert workflow_text.count('args+=(--compatible-migration-set "$identity")') == 2
+    assert (
+        workflow_text.count('if [ "$COMPATIBILITY" = "backward-compatible" ]; then')
+        == 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("compatibility", "reviewed_sets", "error"),
+    [
+        (
+            "exact",
+            "sha256:" + "1" * 64,
+            "accepted only for backward-compatible releases",
+        ),
+        ("backward-compatible", "sha256:ABC", "64 lowercase hex"),
+        (
+            "backward-compatible",
+            "password=not-an-identity",
+            "secret-like material",
+        ),
+        (
+            "backward-compatible",
+            "sha256:" + "1" * 64 + "\nsha256:" + "1" * 64,
+            "must not contain duplicates",
+        ),
+    ],
+)
+def test_release_workflow_rejects_unreviewed_malformed_or_secret_like_sets(
+    tmp_path, compatibility, reviewed_sets, error
+):
+    result, _ = _run_release_compatibility_normalizer(
+        tmp_path,
+        compatibility=compatibility,
+        reviewed_sets=reviewed_sets,
+    )
+
+    assert result.returncode == 64
+    assert error in result.stderr
 
 
 def test_deploy_workflow_supports_bootstrap_and_receipt_backed_upgrade():
@@ -621,7 +741,30 @@ def test_bootstrap_and_upgrade_mutation_plans_are_literal_app_only_allowlists():
         CHECKPOINT_COMPOSE, "bootstrap", env, {"kind": "predeploy_absence"}
     )
     assert all(command[-2:] == ["api", "web"] for command in bootstrap_rollback)
-    flattened = " ".join(" ".join(command) for command in plan + bootstrap_rollback)
+    rollback = {
+        "kind": "accepted_release",
+        "source_sha": "d" * 40,
+        "images": {
+            "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:"
+            + "e" * 64,
+            "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "f" * 64,
+        },
+    }
+    upgrade_rollback, rollback_env = module.rollback_plan(
+        CHECKPOINT_COMPOSE, "upgrade", env, rollback
+    )
+    assert len(upgrade_rollback) == 1
+    assert upgrade_rollback[0][-2:] == ["api", "web"]
+    assert "--no-deps" in upgrade_rollback[0]
+    assert "--force-recreate" in upgrade_rollback[0]
+    assert upgrade_rollback[0][upgrade_rollback[0].index("--pull") + 1] == "never"
+    assert not any(command[:2] == ["docker", "pull"] for command in upgrade_rollback)
+    assert rollback_env["V3_CHECKPOINT_API_IMAGE"] == rollback["images"]["backend"]
+    assert rollback_env["V3_CHECKPOINT_WEB_IMAGE"] == rollback["images"]["web"]
+    assert rollback_env["V3_CHECKPOINT_SOURCE_SHA"] == rollback["source_sha"]
+    flattened = " ".join(
+        " ".join(command) for command in plan + bootstrap_rollback + upgrade_rollback
+    )
     for forbidden in (
         " down ",
         "--remove-orphans",
@@ -637,6 +780,7 @@ def test_bootstrap_and_upgrade_mutation_plans_are_literal_app_only_allowlists():
 def test_rendered_compose_allowlist_is_checked_before_any_pull():
     module = _load_checkpoint_module()
     env = {
+        "DOCKER_CONTEXT": "checkpoint-test",
         "V3_CHECKPOINT_API_IMAGE": "ghcr.io/example/api@sha256:" + "b" * 64,
         "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/example/web@sha256:" + "c" * 64,
     }
@@ -644,12 +788,92 @@ def test_rendered_compose_allowlist_is_checked_before_any_pull():
 
     def runner(command, **_kwargs):
         commands.append(command)
-        stdout = "api web unexpected\n" if command[-1] == "--services" else ""
+        if command[1:3] == ["context", "inspect"]:
+            stdout = json.dumps(module.LOCAL_DOCKER_ENDPOINT)
+        else:
+            stdout = "api web unexpected\n" if command[-1] == "--services" else ""
         return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     with pytest.raises(module.DeploymentError, match="service allowlist"):
         module.validate_host_runtime(CHECKPOINT_COMPOSE, env, runner)
 
+    assert not any(command[:2] == ["docker", "pull"] for command in commands)
+
+
+def test_checkpoint_runtime_accepts_only_authorized_local_docker_context():
+    module = _load_checkpoint_module()
+    env = {
+        "DOCKER_CONTEXT": "checkpoint-test",
+        "V3_CHECKPOINT_API_IMAGE": "ghcr.io/example/api@sha256:" + "b" * 64,
+        "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/example/web@sha256:" + "c" * 64,
+    }
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if command[1:3] == ["context", "inspect"]:
+            stdout = json.dumps(module.LOCAL_DOCKER_ENDPOINT)
+        elif command[-1] == "--services":
+            stdout = "api web\n"
+        elif command[-1] == "--images":
+            stdout = (
+                f"{env['V3_CHECKPOINT_API_IMAGE']}\n{env['V3_CHECKPOINT_WEB_IMAGE']}\n"
+            )
+        elif command[:3] == ["systemctl", "list-units", "--type=service"]:
+            stdout = "".join(
+                f"{service} loaded active running\n"
+                for service in module.RUNNER_SERVICES
+            )
+        else:
+            stdout = ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    module.validate_host_runtime(CHECKPOINT_COMPOSE, env, runner)
+
+    docker_commands = [command for command in commands if command[0] == "docker"]
+    assert docker_commands[0] == [
+        "docker",
+        "context",
+        "inspect",
+        "checkpoint-test",
+        "--format",
+        "{{json .Endpoints.docker.Host}}",
+    ]
+
+
+@pytest.mark.parametrize(
+    "inspection_output",
+    [
+        '"ssh://checkpoint.example"',
+        '"tcp://127.0.0.1:2375"',
+        '"unix:///run/user/1000/docker.sock"',
+        '"unix:///var/run/docker.sock" trailing-output',
+        "null",
+        "",
+    ],
+)
+def test_checkpoint_runtime_rejects_untrusted_or_unverifiable_docker_context(
+    inspection_output,
+):
+    module = _load_checkpoint_module()
+    env = {
+        "DOCKER_CONTEXT": "checkpoint-test",
+        "V3_CHECKPOINT_API_IMAGE": "ghcr.io/example/api@sha256:" + "b" * 64,
+        "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/example/web@sha256:" + "c" * 64,
+    }
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        stdout = inspection_output if command[1:3] == ["context", "inspect"] else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    with pytest.raises(module.DeploymentError, match="Docker context"):
+        module.validate_host_runtime(CHECKPOINT_COMPOSE, env, runner)
+
+    assert not any(
+        command[:3] == ["docker", "compose", "version"] for command in commands
+    )
     assert not any(command[:2] == ["docker", "pull"] for command in commands)
 
 
@@ -1312,6 +1536,7 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
     authority_path = tmp_path / "authority.json"
     authority_path.write_text(json.dumps(authority), encoding="utf-8")
     readiness_shas = []
+    commands = []
 
     monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
     monkeypatch.setattr(module, "validate_host_runtime", lambda *_args: None)
@@ -1349,6 +1574,7 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
     monkeypatch.setattr(module, "verify_app_containers", verify_containers)
 
     def runner(command, **_kwargs):
+        commands.append((command, _kwargs["env"]))
         if (
             failure_stage == "candidate-pull"
             and command[:2] == ["docker", "pull"]
@@ -1372,6 +1598,19 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
     if failure_stage == "candidate-container":
         assert readiness_shas == [candidate["git_sha"], rollback["git_sha"]]
         assert receipt["rollback"]["status"] == "verified"
+        compose_up_calls = [call for call in commands if "up" in call[0]]
+        assert len(compose_up_calls) == 2
+        rollback_command, rollback_env = compose_up_calls[1]
+        assert rollback_command[rollback_command.index("--pull") + 1] == "never"
+        assert rollback_command[-2:] == ["api", "web"]
+        assert rollback_env["V3_CHECKPOINT_API_IMAGE"] == rollback["images"]["backend"]
+        assert rollback_env["V3_CHECKPOINT_WEB_IMAGE"] == rollback["images"]["web"]
+        assert rollback_env["V3_CHECKPOINT_SOURCE_SHA"] == rollback["git_sha"]
+        rollback_index = commands.index(compose_up_calls[1])
+        assert not any(
+            command[:2] == ["docker", "pull"]
+            for command, _command_env in commands[rollback_index:]
+        )
     else:
         assert readiness_shas == []
         assert receipt["rollback"]["status"] == "not-required"

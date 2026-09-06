@@ -91,15 +91,23 @@ is missing, unsafe, corrupt or inconsistent. GitHub Actions authenticates only
 the new candidate artifact; successful acceptance makes that exact candidate
 the next durable rollback source.
 
-If an upgrade smoke fails, only `api` and `web` may be recreated at the accepted
-prior digests. Database rollback/recovery and migrations are outside this path.
+Before candidate mutation, an upgrade pulls and verifies the accepted prior
+digest images as well as the candidate images. If candidate readiness or smoke
+then fails, only `api` and `web` may be recreated at those already-verified
+prior digests. The rollback Compose operation uses `--pull never` and performs
+no registry pull, so recovery does not depend on registry availability.
+Database rollback/recovery and migrations are outside this path.
 
 ## Deployment sequence and receipt
 
 For an owner checkpoint:
 
 1. Merge the exact accepted head to `main` and manually dispatch **V3
-   application immutable release** with that 40-character SHA.
+   application immutable release** with that 40-character SHA. For a reviewed
+   `backward-compatible` release, supply any additional compatible migration-set
+   identities as lowercase `sha256:` identities, one per line; other modes
+   reject that input, and `exact` always records only the source migration
+   identity.
 2. Review the sealed manifest, compatibility evidence, application-only
    rollback eligibility and basename-only SHA-256 checksum. Both image
    references must be digest pinned.
@@ -109,12 +117,16 @@ For an owner checkpoint:
    is no operator-supplied rollback artifact or rollback run ID.
 4. The target boundary validates all target/external facts, Compose checksum,
    allowlisted project resources and app absence/prior receipt before an image
-   pull or service change. It obtains the non-secret database identity from the
-   `DATABASE_URL` in the authorized external API env file without logging or
-   persisting the URL, then uses a read-only database session to verify that
-   identity and the complete applied `schema_migrations` set against the
-   authoritative schema receipt. Repointed env files, stale receipts, migration
-   drift and unverifiable database identity stop before service mutation.
+   pull or service change. The selected Docker context must be inspectable and
+   resolve exactly to the authorized local rootful daemon at
+   `unix:///var/run/docker.sock`; SSH, TCP, alternate Unix sockets and malformed
+   or unverifiable context results stop before any pull or Compose mutation. It
+   obtains the non-secret database identity from the `DATABASE_URL` in the
+   authorized external API env file without logging or persisting the URL, then
+   uses a read-only database session to verify that identity and the complete
+   applied `schema_migrations` set against the authoritative schema receipt.
+   Repointed env files, stale receipts, migration drift and unverifiable
+   database identity stop before service mutation.
 5. It pulls and verifies the exact digest images and OCI build-SHA labels, then
    recreates only `api web` with `--no-deps`.
 6. After each candidate or upgrade-rollback Compose apply, it polls bounded
