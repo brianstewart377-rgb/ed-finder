@@ -1,0 +1,119 @@
+name: Exact-head Validation Dispatch
+run-name: Exact-head validation dispatch · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - codex-task-requests
+    paths:
+      - '.github/validation-requests/*.json'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Checkout validation request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+
+      - name: Resolve validation request
+        id: request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/validation-requests/*.json')
+          [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one validation request file" >&2; exit 64; }
+          file="${files[0]}"
+          python - "$file" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, re, sys
+          path = sys.argv[1]
+          with open(path, encoding="utf-8") as handle:
+              data = json.load(handle)
+          allowed_keys = {"target_ref", "expected_sha", "workflows"}
+          if set(data) != allowed_keys:
+              raise SystemExit("validation request must contain exactly target_ref, expected_sha, workflows")
+          target = data["target_ref"]
+          expected = data["expected_sha"]
+          workflows = data["workflows"]
+          if target != "migration/svelte-go-live-candidate":
+              raise SystemExit("unsupported validation target")
+          if not isinstance(expected, str) or not re.fullmatch(r"[0-9a-f]{40}", expected):
+              raise SystemExit("expected_sha must be a full lowercase commit SHA")
+          allowed = {
+              "ci.yml", "coverage.yml", "cypress-parity.yml", "review-lab.yml",
+              "container-image-parity.yml", "semgrep.yml", "codeql.yml",
+          }
+          if not isinstance(workflows, list) or not workflows or any(item not in allowed for item in workflows):
+              raise SystemExit("unsupported validation workflow list")
+          if len(workflows) != len(set(workflows)):
+              raise SystemExit("duplicate validation workflow")
+          print(f"target_ref={target}")
+          print(f"expected_sha={expected}")
+          print("workflows=" + ",".join(workflows))
+          PY
+
+      - name: Verify exact target head
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_REF: ${{ steps.request.outputs.target_ref }}
+          EXPECTED_SHA: ${{ steps.request.outputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          response="$(mktemp)"
+          curl --fail --silent --show-error --location \
+            --output "$response" \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$REPOSITORY/git/ref/heads/$TARGET_REF"
+          actual="$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["object"]["sha"])' "$response")"
+          rm -f "$response"
+          [ "$actual" = "$EXPECTED_SHA" ] || { echo "Target moved: expected $EXPECTED_SHA, got $actual" >&2; exit 65; }
+          echo "EXACT_HEAD_VERIFIED=$actual"
+
+      - name: Dispatch exact-head validation workflows
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_REF: ${{ steps.request.outputs.target_ref }}
+          WORKFLOWS: ${{ steps.request.outputs.workflows }}
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a workflows <<< "$WORKFLOWS"
+          payload="$(python -c 'import json,os; print(json.dumps({"ref": os.environ["TARGET_REF"]}))')"
+          for workflow in "${workflows[@]}"; do
+            response="$(mktemp)"
+            code="$(curl --silent --show-error --location \
+              --output "$response" --write-out '%{http_code}' \
+              --request POST \
+              --header 'Accept: application/vnd.github+json' \
+              --header "Authorization: Bearer $GH_TOKEN" \
+              --header 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$REPOSITORY/actions/workflows/$workflow/dispatches" \
+              --data "$payload")"
+            if [ "$code" != "204" ]; then
+              echo "Failed to dispatch $workflow (HTTP $code)" >&2
+              cat "$response" >&2
+              rm -f "$response"
+              exit 68
+            fi
+            rm -f "$response"
+            echo "DISPATCHED=$workflow@$TARGET_REF"
+          done
