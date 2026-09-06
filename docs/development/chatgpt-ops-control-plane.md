@@ -1,20 +1,12 @@
 # ChatGPT Operations Control Plane
 
-> **DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK.** Several mutating
-> operations proposed below were never implemented and are not authorized by
-> this document. The current, deliberately narrow operator workflow is
-> [`.github/workflows/chatgpt-ed-new-ops.yml`](../../.github/workflows/chatgpt-ed-new-ops.yml),
-> with authority and limitations recorded in
-> [`../operations/infrastructure-status.md`](../operations/infrastructure-status.md)
-> and [`../operations/operator-command-contexts.md`](../operations/operator-command-contexts.md).
-
 ## Purpose
 
 Provide a small, auditable operations interface that lets ChatGPT manage routine ED-Finder operational tasks without requiring the owner to relay commands between ChatGPT and a shell session.
 
 This is deliberately **not** an unrestricted remote shell. It exposes named, fail-closed operations that wrap existing guarded scripts and runbooks.
 
-## Proposed operation set (not an implementation claim)
+## Initial operation set
 
 - `production-status`
 - `backup-status`
@@ -69,7 +61,7 @@ Every active investigation and implementation execution uses one trusted model c
 
 Immediately before each execution, the worker prints a sanitised attestation containing the bounded Codex CLI version, fixed `model=gpt-5.6-sol`, fixed `reasoning_effort=high`, bounded request ID, mode, actual selected branch, and immutable base SHA. An implementation additionally exposes its sealed result SHA in normal wrapper output and, after the trusted push succeeds, records the branch and result SHA in the GitHub job summary.
 
-The job selects exact CPython 3.14 through the same pinned setup action used by CI and first runs the strict repository state gate on trusted `origin/main` before installing any dependencies. For an implementation request it then selects the immutable target/base SHA, completes the Git history needed for a self-contained result bundle, checks out that exact base, and runs the strict state gate **again on the selected implementation branch**. A target branch that the canonical resolver classifies as unsafe is therefore rejected before Codex is invoked. Only after the selected target passes does the job install that target's pinned `tests/requirements-ci.txt` authority, so the Codex/test environment matches the branch actually being updated rather than stale `main` requirements. It exports `VIRTUAL_ENV`, prepends `.venv/bin` only for the unprivileged Codex/test steps, and verifies the environment with `python -m pip check`, `python -m pytest --version`, and `python -m ruff --version`.
+The dispatcher and worker select exactly CPython 3.14 through the repository-pinned setup action. The dispatcher does so before using Python to validate or serialize a request, rather than relying on the GitHub-hosted runner's default interpreter. The worker first runs the strict repository state gate on trusted `origin/main` before installing any dependencies. For an implementation request it then selects the immutable target/base SHA, completes the Git history needed for a self-contained result bundle, checks out that exact base, and runs the strict state gate **again on the selected implementation branch**. A target branch that the canonical resolver classifies as unsafe is therefore rejected before Codex is invoked. Only after the selected target passes does the worker install that target's pinned `tests/requirements-ci.txt` authority, so the Codex/test environment matches the branch actually being updated rather than stale `main` requirements. It exports `VIRTUAL_ENV`, prepends `.venv/bin` only for the unprivileged Codex/test steps, and verifies the environment with `python -m pip check`, `python -m pytest --version`, and `python -m ruff --version`.
 
 ### Codex review versus implementation authority
 
