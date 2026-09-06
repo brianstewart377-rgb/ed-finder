@@ -1,12 +1,20 @@
 # ChatGPT Operations Control Plane
 
+> **DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK.** Several mutating
+> operations proposed below were never implemented and are not authorized by
+> this document. The current, deliberately narrow operator workflow is
+> [`.github/workflows/chatgpt-ed-new-ops.yml`](../../.github/workflows/chatgpt-ed-new-ops.yml),
+> with authority and limitations recorded in
+> [`../operations/infrastructure-status.md`](../operations/infrastructure-status.md)
+> and [`../operations/operator-command-contexts.md`](../operations/operator-command-contexts.md).
+
 ## Purpose
 
 Provide a small, auditable operations interface that lets ChatGPT manage routine ED-Finder operational tasks without requiring the owner to relay commands between ChatGPT and a shell session.
 
 This is deliberately **not** an unrestricted remote shell. It exposes named, fail-closed operations that wrap existing guarded scripts and runbooks.
 
-## Initial operation set
+## Proposed operation set (not an implementation claim)
 
 - `production-status`
 - `backup-status`

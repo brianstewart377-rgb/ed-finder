@@ -274,7 +274,12 @@ def _create_schema(cur, sql, env):
     cur.execute(sql.SQL('INSERT INTO {} (id, ring_name) VALUES (1, %s)').format(sql.Identifier(env.schema, 'body_rings')), ('Test Ring',))
     cur.execute(sql.SQL('INSERT INTO {} (body_id, is_ringed) VALUES (1, false)').format(sql.Identifier(env.schema, 'body_scan_facts')))
     for role in (env.warehouse_loader_role, env.canonical_apply_role, env.canonical_read_role):
-        cur.execute(sql.SQL('CREATE ROLE {} LOGIN PASSWORD %s').format(sql.Identifier(role)), (env.role_password,))
+        cur.execute(
+            sql.SQL('CREATE ROLE {} LOGIN PASSWORD {}').format(
+                sql.Identifier(role),
+                sql.Literal(env.role_password),
+            )
+        )
         cur.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO {}').format(sql.Identifier(env.schema), sql.Identifier(role)))
         cur.execute(sql.SQL('GRANT USAGE ON TYPE {} TO {}').format(sql.Identifier(env.schema, 'station_type'), sql.Identifier(role)))
         for table in ('systems', 'stations', 'bodies', 'station_body_links', 'body_rings', 'body_scan_facts'):

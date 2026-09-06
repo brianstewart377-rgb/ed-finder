@@ -19,6 +19,11 @@ CURRENT_OPERATOR_ACTIONS = (
     "v3-app-status.sh",
     "v3-derived-data-status.sh",
 )
+GENERATED_DEPENDENCY_DIRS = {".venv", "node_modules"}
+
+
+def _is_generated_dependency(path: Path) -> bool:
+    return bool(GENERATED_DEPENDENCY_DIRS.intersection(path.relative_to(ROOT).parts))
 
 
 def _active_execution_surfaces() -> list[Path]:
@@ -33,13 +38,16 @@ def _active_execution_surfaces() -> list[Path]:
     surfaces.update(
         path
         for path in (ROOT / "apps").rglob("*")
-        if path.is_file() and path.name.startswith("Dockerfile")
+        if path.is_file()
+        and not _is_generated_dependency(path)
+        and path.name.startswith("Dockerfile")
     )
     surfaces.update(
         path
         for base in (ROOT / "apps", ROOT / "scripts", ROOT / "frontend" / "scripts")
         for path in base.rglob("*")
         if path.is_file()
+        and not _is_generated_dependency(path)
         and "archive" not in path.relative_to(ROOT).parts
         and path.suffix.lower()
         in {".js", ".mjs", ".ps1", ".py", ".sh", ".toml", ".yaml", ".yml"}

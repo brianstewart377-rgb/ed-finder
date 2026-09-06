@@ -30,6 +30,14 @@ def test_merged_control_plane_keeps_exact_cpython314_worker_authority() -> None:
     assert 'python-version: "3.14"' in worker
     assert "platform.python_implementation()" in worker
     assert "sys.version_info[:2] == (3, 14)" in worker
-    assert "The dispatcher and worker select exactly CPython 3.14" in documentation
+    assert "DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK." in documentation
+    assert "## Proposed operation set (not an implementation claim)" in documentation
+    assert (
+        "The dispatcher and worker select exactly CPython 3.14 through the "
+        "repository-pinned setup action. The dispatcher does so before using Python "
+        "to validate or serialize a request, rather than relying on the GitHub-hosted "
+        "runner's default interpreter."
+        in documentation
+    )
     for authority in (worker, dispatch, documentation):
         assert "3.12" not in authority
