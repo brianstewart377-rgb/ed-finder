@@ -22,14 +22,9 @@ detail. It does **not** make Review Lab a second E2E or visual-regression suite.
 
 ## Fresh Babylon map rule
 
-The V3 map is a **fresh design** in `apps/web/` using **Babylon.js** for the
-spatial renderer. It is not a visual port of the retained React/R3F map and the
-old React map is not the visual oracle for the new product.
+The V3 map is a **fresh design** in `apps/web/` using **Babylon.js** for the spatial renderer. It is not a visual port of the retained React/R3F map and the old React map is not the visual oracle for the new product.
 
-Both browser lanes exercise the same `apps/web` + Babylon frontend when a
-browser is required. Review Lab may vary **data, isolated runtime, and explicit
-review-only failure conditions**. It must not substitute another frontend or
-renderer.
+Both browser-validation lanes must exercise the **same V3 frontend and renderer stack** when they need the V3 browser surface. Review Lab may change the **data and environment** to create deterministic scenarios. It must not substitute a different frontend framework or renderer.
 
 ## Lane 1 — V3 Product E2E / Visual Acceptance
 
@@ -106,9 +101,7 @@ must not become a duplicate normal journey.
 - production or live-checkpoint data;
 - public/external data acquisition.
 
-**Review Lab screenshots are diagnostic evidence, not approved product visual
-baselines. Approved visual baselines belong only to the V3 Product E2E / Visual
-Acceptance lane.**
+Review Lab screenshots are diagnostic evidence, not approved product visual baselines. Approved visual baselines belong only to the V3 Product E2E / Visual Acceptance lane.
 
 ## Synthetic-condition ownership
 
