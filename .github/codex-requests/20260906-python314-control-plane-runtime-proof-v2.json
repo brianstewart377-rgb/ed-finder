@@ -1,0 +1,4 @@
+{
+  "task": "Read-only control-plane runtime proof after PR #615 merged and the live codex-task-requests dispatcher was synchronized. Do not modify files, commit, push, deploy, access production, or use production credentials. Report the exact interpreter version seen by this governed Codex worker and verify that the repository venv is also CPython 3.14. Confirm current main `.github/workflows/codex-laptop.yml` and `.github/workflows/codex-dispatch.yml` select exact Python 3.14 and the control branch dispatcher also executed its explicit Set up Python 3.14 step. Confirm tests/test_codex_async_bridge.py contains the regression guard against 3.12. Keep this investigation narrowly limited to proving the post-merge governed worker/dispatcher Python authority.",
+  "mode": "investigate"
+}
