@@ -1,0 +1,5 @@
+{
+  "target_ref": "migration/svelte-go-live-candidate",
+  "expected_sha": "48237ca6b2d3b94807296af4bcf8dcdd48eeb699",
+  "workflows": ["semgrep.yml"]
+}
