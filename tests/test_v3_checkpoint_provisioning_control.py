@@ -78,6 +78,27 @@ def test_checkpoint_database_is_created_once_then_verified_without_migrating():
     assert '"40|40|129|10|42"' in script
 
 
+def test_provisioner_matches_canonical_deploy_host_prerequisites():
+    script = _read(PROVISIONER)
+
+    assert "software-properties-common" in script
+    assert "add-apt-repository -y ppa:deadsnakes/ppa" in script
+    assert "apt-get install -y -qq python3.14" in script
+    assert "platform.python_implementation()" in script
+    assert "sys.version_info[:2]==(3,14)" in script
+    assert "socket.getfqdn()" in script
+    assert '[ "$ACTUAL_FQDN" = "$EXPECTED_FQDN" ]' in script
+    assert 'touch "$RECEIPT_DIR/deploy.lock"' in script
+    assert 'exec 9<>"$RECEIPT_DIR/deploy.lock"' in script
+    assert 'flock -n 9 || fail "live-checkpoint deployment lock is unavailable"' in script
+    assert 'document["captured_at"] = captured_at' in script
+    assert 'receipt.write_text(json.dumps(document' in script
+    assert "verify_origin_authority()" in script
+    assert "checkpoint origin port is occupied by an unauthorized process" in script
+    assert "edfinder-v3-checkpoint-web" in script
+    assert 'grep -qx "127.0.0.1:$ORIGIN_PORT"' in script
+
+
 def test_checkpoint_seed_path_uses_repository_preview_data_and_manual_migrations():
     seed = _read(SEED)
 
