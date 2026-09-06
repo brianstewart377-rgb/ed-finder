@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-import psycopg2
+import psycopg
 import pytest
 
 
@@ -15,7 +15,7 @@ def test_composite_identity_index_exists():
     numeric id (routine, since the ED journal's BodyID is only unique
     within a system) can both be stored instead of one silently colliding
     with the other."""
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     try:
         with conn.cursor() as cur:
             cur.execute(

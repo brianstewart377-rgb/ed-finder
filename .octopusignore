@@ -22,8 +22,8 @@
 /frontend/test-results/
 
 # This client is regenerated from the API's OpenAPI schema; review the schema,
-# generator, and handwritten frontend API boundary instead.
-/frontend/src/types/api.gen.ts
+# generator, and handwritten shared API boundary instead.
+/packages/api-client/src/generated/api.gen.ts
 
 # Browser-validation screenshots are durable visual receipts, but their binary
 # contents provide no useful text context. Keep adjacent README/JSON evidence.

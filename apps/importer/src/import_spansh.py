@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ED Finder — Spansh Dump Importer  (PostgreSQL / psycopg2 COPY edition)
+ED Finder — Spansh Dump Importer (PostgreSQL / Psycopg 3 COPY edition)
 Version: 3.0  (galaxy region lookup + structured error logging)
 
 NEW in v3.0:
@@ -24,7 +24,7 @@ FIX in v2.4:
   • _make_direct_dsn() added: automatically rewrites DATABASE_URL to bypass
     pgBouncer (port 5433 → 5432, @pgbouncer: → @postgres:).
 
-Why psycopg2 COPY instead of INSERT ... ON CONFLICT:
+Why PostgreSQL COPY instead of INSERT ... ON CONFLICT:
   • COPY is the fastest possible PostgreSQL bulk-load method.
   • Strategy: COPY into a temp table, then INSERT ... ON CONFLICT from temp
     into the real table. This gives us both speed AND upsert semantics.
@@ -49,7 +49,6 @@ import json
 import time
 import logging
 import argparse
-import io
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,10 +56,9 @@ from typing import Optional, List, Tuple
 
 import decimal
 import ijson
-import psycopg2
-import psycopg2.extras
-import psycopg2.extensions
-import psycopg2.errors
+import psycopg
+from psycopg import sql
+from psycopg.pq import TransactionStatus
 from tqdm import tqdm
 from ring_facts import ring_rows_for_body
 from body_ring_enrichment_plan import TRUSTED_RING_ASSOCIATION_STATUS
@@ -162,8 +160,8 @@ else:
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
-def get_conn() -> psycopg2.extensions.connection:
-    conn = psycopg2.connect(DB_DSN, options='-c statement_timeout=0')
+def get_conn() -> psycopg.Connection:
+    conn = psycopg.connect(DB_DSN, options='-c statement_timeout=0')
     conn.autocommit = False
     return conn
 
@@ -219,17 +217,20 @@ def flush_error_batch(conn, dump_file: str):
         return
     try:
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
+            cur.executemany(
                 """
                 INSERT INTO import_errors
                     (dump_file, record_id, record_type, error_class, error_message, raw_snippet)
-                VALUES %s
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 _error_batch
             )
         conn.commit()
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         log.warning(f"Failed to write error batch to import_errors: {e}")
     finally:
         _error_batch.clear()
@@ -361,27 +362,14 @@ def mark_failed(conn, dump_file: str, error: str):
 def copy_records(conn, table: str, columns: List[str], rows: List[Tuple]) -> int:
     if not rows:
         return 0
-    buf = io.StringIO()
-    for row in rows:
-        line_parts = []
-        for val in row:
-            if val is None:
-                line_parts.append('\\N')
-            elif isinstance(val, bool):
-                line_parts.append('t' if val else 'f')
-            elif isinstance(val, str):
-                escaped = (val
-                    .replace('\\', '\\\\')
-                    .replace('\n', '\\n')
-                    .replace('\r', '\\r')
-                    .replace('\t', '\\t'))
-                line_parts.append(escaped)
-            else:
-                line_parts.append(str(val))
-        buf.write('\t'.join(line_parts) + '\n')
-    buf.seek(0)
+    copy_statement = sql.SQL("COPY {} ({}) FROM STDIN").format(
+        sql.Identifier(table),
+        sql.SQL(', ').join(map(sql.Identifier, columns)),
+    )
     with conn.cursor() as cur:
-        cur.copy_from(buf, table, columns=columns, null='\\N')
+        with cur.copy(copy_statement) as copy:
+            for row in rows:
+                copy.write_row(row)
     conn.commit()
     return len(rows)
 
@@ -394,15 +382,11 @@ def _run_with_deadlock_retry(conn, work, *, label, attempts=4, base_delay=0.5):
     for attempt in range(1, attempts + 1):
         try:
             return work()
-        except psycopg2.errors.DeadlockDetected:
+        except psycopg.errors.DeadlockDetected:
             # bulk_update_replica_mode already rolls back failed work and
             # commits its role restoration.  Other callers can still arrive
             # here with an aborted transaction and require the rollback.
-            get_status = getattr(conn, 'get_transaction_status', None)
-            is_idle = (
-                callable(get_status)
-                and get_status() == psycopg2.extensions.TRANSACTION_STATUS_IDLE
-            )
+            is_idle = getattr(getattr(conn, 'info', None), 'transaction_status', None) == TransactionStatus.IDLE
             if not is_idle:
                 conn.rollback()
             if attempt == attempts:
@@ -491,8 +475,13 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
     if update_cols is None:
         update_cols = [c for c in columns if c != conflict_col]
     temp = f"_tmp_{target_table}"
-    col_list   = ', '.join(columns)
-    set_clause = ', '.join(f"{c} = EXCLUDED.{c}" for c in update_cols)
+    target_ident = sql.Identifier(target_table)
+    temp_ident = sql.Identifier(temp)
+    column_list = sql.SQL(', ').join(map(sql.Identifier, columns))
+    set_clause = sql.SQL(', ').join(
+        sql.SQL("{} = EXCLUDED.{}").format(sql.Identifier(column), sql.Identifier(column))
+        for column in update_cols
+    )
     excluded_change_cols = {'updated_at', 'rating_dirty', 'cluster_dirty'}
     if guard_col:
         excluded_change_cols = excluded_change_cols | {guard_col}
@@ -500,53 +489,52 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
         c for c in update_cols
         if c not in excluded_change_cols
     ]
-    guard_clause = f"{target_table}.{guard_col} = EXCLUDED.{guard_col}" if guard_col else ''
-    change_clause = ''
+    guard_clause = None
+    if guard_col:
+        guard_clause = sql.SQL("{}.{} = EXCLUDED.{}").format(
+            target_ident,
+            sql.Identifier(guard_col),
+            sql.Identifier(guard_col),
+        )
+    change_clause = None
     if change_cols:
-        change_clause = ' OR '.join(
-            f"{target_table}.{c} IS DISTINCT FROM EXCLUDED.{c}"
-            for c in change_cols
+        change_clause = sql.SQL(' OR ').join(
+            sql.SQL("{}.{} IS DISTINCT FROM EXCLUDED.{}").format(
+                target_ident,
+                sql.Identifier(column),
+                sql.Identifier(column),
+            )
+            for column in change_cols
         )
     if guard_clause and change_clause:
-        where_clause = f"\n            WHERE {guard_clause}\n              AND ({change_clause})"
+        where_clause = sql.SQL("\n            WHERE {}\n              AND ({})").format(
+            guard_clause, change_clause,
+        )
     elif guard_clause:
-        where_clause = f"\n            WHERE {guard_clause}"
+        where_clause = sql.SQL("\n            WHERE {}").format(guard_clause)
     elif change_clause:
-        where_clause = f"\n            WHERE {change_clause}"
+        where_clause = sql.SQL("\n            WHERE {}").format(change_clause)
     else:
-        where_clause = ''
+        where_clause = sql.SQL('')
 
     with conn.cursor() as cur:
-        cur.execute(f"""
-            CREATE TEMP TABLE IF NOT EXISTS {temp}
-            (LIKE {target_table} INCLUDING DEFAULTS)
+        cur.execute(sql.SQL("""
+            CREATE TEMP TABLE IF NOT EXISTS {}
+            (LIKE {} INCLUDING DEFAULTS)
             ON COMMIT DELETE ROWS
-        """)
+        """).format(temp_ident, target_ident))
     conn.commit()
 
     def _do():
         with conn.cursor() as cur:
-            cur.execute(f"TRUNCATE {temp}")
-            buf = io.StringIO()
-            for row in rows:
-                parts = []
-                for val in row:
-                    if val is None:
-                        parts.append('\\N')
-                    elif isinstance(val, bool):
-                        parts.append('t' if val else 'f')
-                    elif isinstance(val, str):
-                        escaped = (val
-                            .replace('\\', '\\\\')
-                            .replace('\n', '\\n')
-                            .replace('\r', '\\r')
-                            .replace('\t', '\\t'))
-                        parts.append(escaped)
-                    else:
-                        parts.append(str(val))
-                buf.write('\t'.join(parts) + '\n')
-            buf.seek(0)
-            cur.copy_from(buf, temp, columns=columns, null='\\N')
+            cur.execute(sql.SQL("TRUNCATE {}").format(temp_ident))
+            copy_statement = sql.SQL("COPY {} ({}) FROM STDIN").format(
+                sql.Identifier(temp),
+                sql.SQL(', ').join(map(sql.Identifier, columns)),
+            )
+            with cur.copy(copy_statement) as copy:
+                for row in rows:
+                    copy.write_row(row)
             # System conflicts are high-volume parent-table updates.  Apply
             # replica mode only around that target statement: body/station
             # upserts intentionally retain FK and custom-trigger enforcement.
@@ -556,12 +544,20 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                 else nullcontext(conn)
             )
             with mode:
-                cur.execute(f"""
-                    INSERT INTO {target_table} ({col_list})
-                    SELECT {col_list} FROM {temp}
-                    ON CONFLICT ({conflict_col}) DO UPDATE
-                    SET {set_clause}{where_clause}
-                """)
+                cur.execute(sql.SQL("""
+                    INSERT INTO {} ({})
+                    SELECT {} FROM {}
+                    ON CONFLICT ({}) DO UPDATE
+                    SET {}{}
+                """).format(
+                    target_ident,
+                    column_list,
+                    column_list,
+                    temp_ident,
+                    sql.Identifier(conflict_col),
+                    set_clause,
+                    where_clause,
+                ))
                 count = cur.rowcount
                 rejected_keys = set() if returning_col else None
                 if returning_col and guard_col:
@@ -569,11 +565,16 @@ def upsert_via_temp(conn, target_table: str, columns: List[str],
                         _normalize_conflict_value(row[conflict_col_index])
                         for row in original_rows
                     })
-                    cur.execute(f"""
-                        SELECT {conflict_col}, {guard_col}
-                        FROM {target_table}
-                        WHERE {conflict_col} = ANY(%s)
-                    """, (distinct_conflict_values,))
+                    cur.execute(sql.SQL("""
+                        SELECT {}, {}
+                        FROM {}
+                        WHERE {} = ANY(%s)
+                    """).format(
+                        sql.Identifier(conflict_col),
+                        sql.Identifier(guard_col),
+                        target_ident,
+                        sql.Identifier(conflict_col),
+                    ), (distinct_conflict_values,))
                     actual_owner_by_conflict_value = dict(cur.fetchall())
                     for row in original_rows:
                         conflict_key = _normalize_conflict_value(row[conflict_col_index])
@@ -593,15 +594,14 @@ def upsert_body_rings(conn, rows: list[dict]) -> int:
 
     def _do():
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
+            cur.executemany(
                 """
                 INSERT INTO body_rings (
                     system_id64, body_id, source_body_id, body_name,
                     ring_name, ring_type, ring_class,
                     mass_mt, inner_radius, outer_radius,
                     source, confidence, association_status
-                ) VALUES %s
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (system_id64, body_id, ring_name, source) DO UPDATE SET
                     source_body_id      = COALESCE(EXCLUDED.source_body_id, body_rings.source_body_id),
                     body_name           = COALESCE(EXCLUDED.body_name, body_rings.body_name),
@@ -1408,11 +1408,10 @@ def import_populated(conn, dump_path: Path, resume_offset: int = 0) -> int:
             seen[name] = (name, alleg, gov)
         deduped = list(seen.values())
         with conn.cursor() as _cur:
-            psycopg2.extras.execute_values(
-                _cur,
+            _cur.executemany(
                 """
                 INSERT INTO factions (name, allegiance, government)
-                VALUES %s
+                VALUES (%s, %s, %s)
                 ON CONFLICT (name) DO UPDATE
                 SET allegiance = EXCLUDED.allegiance,
                     government = EXCLUDED.government,
@@ -2065,8 +2064,8 @@ def main() -> int:
     if args.all or args.file:
         try:
             # Phase 1: check index count in its own committed read-transaction.
-            # We must commit before changing conn.autocommit — psycopg2 raises
-            # "set_session cannot be used inside a transaction" if we don't.
+            # We must commit before changing conn.autocommit: Psycopg requires
+            # the connection to be idle when switching transaction mode.
             with conn.cursor() as _cur:
                 _cur.execute("SELECT count(*) FROM pg_indexes WHERE tablename = 'systems' AND indexname NOT LIKE '%pkey%'")
                 idx_count = _cur.fetchone()[0]

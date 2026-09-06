@@ -8,8 +8,19 @@ A script is a current production operator command only when a current V3 workflo
 
 Do not promote a repository helper into a production command merely because it exists under `scripts/operator/`.
 
-## Current replacement-host helpers
+## Contabo live-checkpoint helper
 
+- `actions/v3-app-live-checkpoint-preflight.sh`: fail-closed, read-only checkpoint
+  deployment preflight for the Contabo live-checkpoint environment, which is
+  explicitly not production and is separate from the production operator
+  environment and credentials. The environment-gated workflow invokes it only after
+  verifying digest release and rollback manifests. It reports the observed host
+  identity while explicitly keeping authoritative Contabo identity unresolved,
+  emits every unresolved topology/secret/schema/rollback fact, and always stops
+  without reading target-host secret files, accessing the database, pulling
+  images, writing files, or changing services.
+
+## Current replacement-host helpers
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,

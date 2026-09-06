@@ -17,5 +17,4 @@ vite.config.js
 .idea
 .DS_Store
 test-results/
-playwright-report/
 /pw-browsers/

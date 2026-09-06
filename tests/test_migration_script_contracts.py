@@ -131,9 +131,10 @@ def test_ci_workflow_has_focused_script_contracts_job():
     assert 'tests/test_windows_local_db_reset_contract.py' in workflow
 
 
-def test_ci_integration_job_is_pg18_and_runs_full_migration_runtime_rehearsal():
+def test_ci_integration_jobs_are_pg18_and_preserve_migration_and_importer_rehearsals():
     workflow = _read(CI_WORKFLOW)
     integration = workflow[workflow.index('  integration:'):workflow.index('  canonical-safety:')]
+    importer = workflow[workflow.index('  importer-tooling:'):workflow.index('  integration:')]
 
     assert 'image: postgres:18-alpine' in integration
     assert 'image: postgres:16-alpine' not in integration
@@ -143,4 +144,7 @@ def test_ci_integration_job_is_pg18_and_runs_full_migration_runtime_rehearsal():
     assert 'tests/integration/' in integration
     assert 'tests/test_migration_applier_runtime.py' in integration
     assert 'tests/test_migration_ledger_baseline_runtime.py' in integration
-    assert 'tests/test_data_trust_runtime.py' in integration
+    assert 'tests/test_data_trust_runtime.py' not in integration
+    assert 'image: postgres:18-alpine' in importer
+    assert 'tests/synchronous_tooling_test_paths.txt' in importer
+    assert "grep -E '^tests/integration/|^tests/test_data_trust_runtime.py$'" in importer

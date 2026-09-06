@@ -1,0 +1,2 @@
+# Release/checkpoint synchronous PostgreSQL checks (not the V3 API runtime).
+psycopg[binary]==3.3.4

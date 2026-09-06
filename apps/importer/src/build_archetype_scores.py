@@ -36,8 +36,8 @@ import argparse
 import multiprocessing as mp
 from typing import Optional
 
-import psycopg2
-import psycopg2.extras
+import psycopg
+from psycopg.rows import dict_row
 
 from progress import (
     WorkerHeartbeat,
@@ -80,7 +80,7 @@ def _connect_with_retry(dsn: str, label: str = 'archetype', retries: int = 10,
                         delay: float = 5.0):
     for attempt in range(1, retries + 1):
         try:
-            conn = psycopg2.connect(
+            conn = psycopg.connect(
                 dsn,
                 keepalives=1, keepalives_idle=60,
                 keepalives_interval=10, keepalives_count=6,
@@ -1146,7 +1146,7 @@ def worker_process(worker_id: int, system_ids: list, db_dsn: str):
     """Worker: fetch bodies + topology, compute archetype scores, write DB."""
     hb   = WorkerHeartbeat(worker_id, len(system_ids))
     conn = _connect_with_retry(db_dsn, label=f'archetype_worker_{worker_id}')
-    cur  = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+    cur  = conn.cursor(row_factory=dict_row)
 
     base_synergy  = _load_base_synergy(conn) if _HAVE_TOPOLOGY else BASE_SYNERGY.copy()
     processed     = 0

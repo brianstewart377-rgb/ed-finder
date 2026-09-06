@@ -11,7 +11,7 @@ class LayoutImportProvider(Protocol):
         """Fetch or refresh layout data for a system without touching planner state."""
 
 
-class SpanshLayoutImportProvider:
+class ConfiguredLayoutImportProvider:
     """Stage 10E.1 provider stub.
 
     TODO Stage 10E.2: wire this to a bounded-timeout Spansh fetcher and DB
@@ -20,7 +20,7 @@ class SpanshLayoutImportProvider:
     """
 
     async def import_layout(self, system_id64: int, source: LayoutImportSource) -> LayoutImportResponse:
-        warning = 'Live Spansh layout import is not wired yet; no local layout rows were changed.'
+        warning = 'Live layout-source import is not wired yet; no local layout rows were changed.'
         return LayoutImportResponse(
             system_id64=system_id64,
             source=source,
@@ -39,4 +39,4 @@ class SpanshLayoutImportProvider:
 
 
 def get_layout_import_provider() -> LayoutImportProvider:
-    return SpanshLayoutImportProvider()
+    return ConfiguredLayoutImportProvider()

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import type { SystemBody, SystemStation } from '@/types/api';
-import { compareBodiesByHierarchy } from '@/lib/bodyHierarchySort';
-import { transientStationPlanningReason } from '@/features/colony-planner/existingInfrastructure';
+import { compareBodiesByHierarchy } from '@ed-finder/planner-core/bodyHierarchy';
+import { transientStationPlanningReason } from '@ed-finder/planner-core/existingInfrastructure';
 import { Section } from './SystemDetailSectionShell';
 import { BodyThumbnail } from './body-thumbnail/BodyThumbnail';
 

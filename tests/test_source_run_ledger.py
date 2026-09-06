@@ -423,7 +423,7 @@ def test_helper_source_has_no_import_execution_scheduler_or_secret_side_effects(
     source_upper = source.upper()
 
     forbidden_fragments = (
-        'PSYCOPG2.CONNECT',
+        'PSYCOPG.CONNECT',
         'ASYNCPG.CONNECT',
         'SUBPROCESS',
         'OS.SYSTEM',

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import psycopg2
+import psycopg
 from shared_contracts.evidence_identity import (
     content_addressed_evidence_key as _content_addressed_evidence_key,
     datetime_to_utc_isoformat as _dt_to_str,
@@ -263,7 +263,7 @@ def promote_station_set_evidence(
                 ),
             )
             break
-        except psycopg2.errors.UniqueViolation:
+        except psycopg.errors.UniqueViolation:
             conn.rollback()
             if attempt == 1:
                 raise

@@ -50,8 +50,7 @@ import datetime
 import multiprocessing as mp
 from typing import Optional
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 
 from shared_contracts.bulk_update_helper import bulk_update_replica_mode
 
@@ -81,7 +80,7 @@ def _connect_with_retry(dsn: str, label: str = 'ratings', retries: int = 10,
     """Connect with exponential back-off retries."""
     for attempt in range(1, retries + 1):
         try:
-            conn = psycopg2.connect(
+            conn = psycopg.connect(
                 dsn,
                 keepalives=1,
                 keepalives_idle=60,
@@ -172,7 +171,7 @@ def _rating_template_placeholder_count(template: str = RATING_VALUES_TEMPLATE) -
 
 
 assert len(RATING_INSERT_COLUMNS) == _rating_template_placeholder_count(), (
-    "ratings INSERT shape drifted: columns and execute_values template differ"
+    "ratings INSERT shape drifted: columns and values template differ"
 )
 assert 'rating_version' in RATING_INSERT_COLUMNS
 assert 'rating_version' in RATING_CONFLICT_UPDATE_COLUMNS
@@ -1323,9 +1322,9 @@ def _clean_ids_for_batch(id64s: list, failed_ids: set) -> list:
 
 
 def _is_transient_dirty_cleanup_error(exc: Exception) -> bool:
-    if isinstance(exc, (psycopg2.OperationalError, psycopg2.InterfaceError)):
+    if isinstance(exc, (psycopg.OperationalError, psycopg.InterfaceError)):
         return True
-    query_canceled = getattr(psycopg2.errors, 'QueryCanceled', None)
+    query_canceled = getattr(psycopg.errors, 'QueryCanceled', None)
     if query_canceled is not None and isinstance(exc, query_canceled):
         return True
     msg = str(exc).lower()
@@ -1582,7 +1581,7 @@ def _ratings_insert_sql() -> str:
     return f"""
         INSERT INTO ratings (
             {columns_sql}
-        ) VALUES %s
+        ) VALUES {RATING_VALUES_TEMPLATE}
         ON CONFLICT (system_id64) DO UPDATE SET
             {RATING_CONFLICT_SET_SQL}
         """
@@ -1601,13 +1600,7 @@ def _write_ratings(conn, cur, batch: list) -> None:
         "ratings INSERT shape drifted: row tuple and column list differ"
     )
 
-    psycopg2.extras.execute_values(
-        cur,
-        _ratings_insert_sql(),
-        rows,
-        template=RATING_VALUES_TEMPLATE,
-        page_size=BATCH_SIZE,
-    )
+    cur.executemany(_ratings_insert_sql(), rows)
     conn.commit()
 
 
@@ -1710,7 +1703,7 @@ def main():
 
     stream_conn = _connect_with_retry(DB_DSN, label='ratings-stream')
     stream_conn.autocommit = False
-    stream_conn.set_session(readonly=True)
+    stream_conn.read_only = True
 
     with stream_conn.cursor(name='ratings_stream') as stream_cur:
         stream_cur.itersize = args.chunk

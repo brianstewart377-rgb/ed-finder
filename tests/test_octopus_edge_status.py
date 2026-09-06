@@ -11,7 +11,7 @@ OPERATION = "octopus-edge-status"
 
 def _python_functions():
     source = ACTION.read_text(encoding="utf-8")
-    program = source.split("exec python3 - <<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
+    program = source.split("exec \"$PYTHON_BIN\" - <<'PY'\n", 1)[1].rsplit("\nPY\n", 1)[0]
     namespace = {}
     exec(program.split("receipt = {", 1)[0], namespace)
     return namespace

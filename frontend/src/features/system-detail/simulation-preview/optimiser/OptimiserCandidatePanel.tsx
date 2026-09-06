@@ -5,21 +5,19 @@ import { OptimiserCandidateCard } from './OptimiserCandidateCard';
 import { OptimiserCandidateDetails } from './OptimiserCandidateDetails';
 import { OptimiserEmptyState } from './OptimiserEmptyState';
 import { OptimiserErrorState } from './OptimiserErrorState';
-import { buildRankLookup, sortCandidatesForDisplay } from './optimiserUtils';
-import { filterUsefulSuggestedBuilds, suggestedBuildScale, type SuggestedBuildScale } from './optimiserQualityUtils';
-import { humanizeArchetype } from '@/features/colony-planner/workspaceUtils';
-import type { DeclaredColonyRole } from '@/features/colony-planner/colonyRoles';
-import type { ObservedColonyRole } from '@/features/colony-planner/colonyRoleReview';
-import { buildSuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
-
-type GeneratedCandidateParams = {
-  targetArchetype: string;
-  maxCandidates: number;
-  allowEstimatedData: boolean;
-  scale: SuggestedBuildScaleFilter;
-};
-
-type SuggestedBuildScaleFilter = 'starter' | 'expansion' | 'full';
+import { buildRankLookup, sortCandidatesForDisplay } from '@ed-finder/planner-core/optimiserUtils';
+import { filterUsefulSuggestedBuilds, suggestedBuildScale } from '@ed-finder/planner-core/optimiserQuality';
+import { humanizeArchetype } from '@ed-finder/planner-core/workspace';
+import type { DeclaredColonyRole } from '@ed-finder/planner-core/colonyRoles';
+import type { ObservedColonyRole } from '@ed-finder/planner-core/colonyRoleReview';
+import { buildSuggestedBuildStrategyAdvisor } from '@ed-finder/planner-core/suggestedBuildStrategyAdvisor';
+import {
+  candidateGenerationControlsChanged,
+  scaleLabel,
+  scaleMatchesFilter,
+  type GeneratedCandidateParams,
+  type SuggestedBuildScaleFilter,
+} from '@ed-finder/planner-core/optimiserCandidateFilters';
 
 export function OptimiserCandidatePanel({
   systemId64,
@@ -91,12 +89,7 @@ export function OptimiserCandidatePanel({
   const selectedAdvisor = selectedCandidate ? advisorLookup.get(selectedCandidate.candidate_id) : undefined;
   const lastNotifiedCandidateIdRef = useRef<string | null | undefined>(undefined);
   const currentParams: GeneratedCandidateParams = { targetArchetype, maxCandidates, allowEstimatedData, scale };
-  const controlsChangedSinceGeneration = Boolean(generatedParams && (
-    generatedParams.targetArchetype !== currentParams.targetArchetype
-    || generatedParams.maxCandidates !== currentParams.maxCandidates
-    || generatedParams.allowEstimatedData !== currentParams.allowEstimatedData
-    || generatedParams.scale !== currentParams.scale
-  ));
+  const controlsChangedSinceGeneration = candidateGenerationControlsChanged(generatedParams, currentParams);
 
   useEffect(() => {
     if (!onCandidateSelect) return;
@@ -286,16 +279,4 @@ export function OptimiserCandidatePanel({
       )}
     </section>
   );
-}
-
-function scaleMatchesFilter(scale: SuggestedBuildScale, filter: SuggestedBuildScaleFilter) {
-  if (filter === 'starter') return scale === 'starter' || scale === 'bootstrap';
-  if (filter === 'expansion') return scale === 'starter' || scale === 'expansion' || scale === 'full';
-  return scale === 'expansion' || scale === 'full';
-}
-
-function scaleLabel(scale: SuggestedBuildScaleFilter) {
-  if (scale === 'starter') return 'Starter';
-  if (scale === 'expansion') return 'Expansion';
-  return 'Full / Ambitious';
 }

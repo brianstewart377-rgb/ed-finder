@@ -680,7 +680,12 @@ describe('SystemDetailModal Colony Planner entry point', () => {
     fireEvent.click(screen.getByTestId('system-detail-close'));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    window.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true,
+    }));
     expect(onClose).toHaveBeenCalledTimes(2);
 
     fireEvent.click(screen.getByTestId('system-detail-modal'));

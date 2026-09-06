@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { BodySlotPrediction, SystemBody } from '@/types/api';
-import type { ExistingStructure } from './existingInfrastructure';
+import type { ExistingStructure } from '@ed-finder/planner-core/existingInfrastructure';
 import { BodySlotPlanner } from './BodySlotPlanner';
 
 const body = {

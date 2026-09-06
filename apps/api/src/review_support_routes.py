@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from edfinder_api.models import CacheStatsResponse
@@ -13,6 +13,16 @@ from edfinder_api.routers.evidence import evidence_system_summary
 
 
 router = APIRouter(tags=['review-support'])
+REVIEW_SCENARIO_MODES = frozenset({'normal', 'api_failure', 'empty_results'})
+
+
+@router.post('/api/review/scenario/{mode}', include_in_schema=False)
+async def set_review_scenario(request: Request, mode: str) -> dict[str, str]:
+    """Select a bounded failure/edge mode inside the isolated Review Lab only."""
+    if mode not in REVIEW_SCENARIO_MODES:
+        raise HTTPException(status_code=400, detail='Unsupported Review Lab scenario mode')
+    request.app.state.review_scenario = mode
+    return {'scenario': mode}
 
 
 async def _review_event_stream():

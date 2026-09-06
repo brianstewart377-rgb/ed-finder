@@ -41,15 +41,15 @@ def real_stage19_conn() -> Iterator[object]:
         pytest.skip(f'real Stage 19 DB readiness skipped explicitly: unsafe_target:{exc}')
 
     try:
-        import psycopg2  # noqa: PLC0415
-        import psycopg2.extras  # noqa: PLC0415
+        import psycopg  # noqa: PLC0415
+        from psycopg.rows import dict_row  # noqa: PLC0415
     except Exception:
-        pytest.skip('real Stage 19 DB readiness skipped explicitly: psycopg2_missing')
+        pytest.skip('real Stage 19 DB readiness skipped explicitly: psycopg_missing')
 
     conn = None
     try:
-        conn = psycopg2.connect(str(config['database_url']), cursor_factory=psycopg2.extras.RealDictCursor)
-        conn.set_session(readonly=True, autocommit=False)
+        conn = psycopg.connect(str(config['database_url']), row_factory=dict_row)
+        conn.read_only = True
     except Exception as exc:
         if conn is not None:
             conn.close()
@@ -68,7 +68,7 @@ def test_real_stage19_db_readiness_uses_no_fake_fallbacks():
     assert 'Fake' + 'Conn' not in source
     assert 'Fake' + 'Cursor' not in source
     assert '-' + '-commit' not in source
-    assert 'psycopg2.connect' in source
+    assert 'psycopg.connect' in source
 
 
 def test_real_stage19_db_readiness_select_1_is_read_only(real_stage19_conn):

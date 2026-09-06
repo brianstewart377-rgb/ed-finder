@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Trash2 } from 'lucide-react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import type { TopologySelection } from '@/features/colony-planner/ColonyTopologyRail';
+import type { TopologySelection } from '@ed-finder/planner-core/topologySelection';
 import { ArchitectObservationPanel } from './ArchitectObservationPanel';
 import { Chip, IconButton } from './components';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
-import { buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
+import { buildPlannerGuidanceForPlacement } from '@ed-finder/planner-core/plannerGuidance';
 import { StructureReplacementComparison } from './StructureReplacementComparison';
 import { StructurePickerTable } from './StructurePickerTable';
-import { getStructurePickerWarnings, resolveBodyContext } from './structurePickerUtils';
-import { formatLocation } from './utils/formatters';
+import { getStructurePickerWarnings, resolveBodyContext } from '@ed-finder/planner-core/structurePicker';
+import { formatLocation } from '@ed-finder/planner-core/formatters';
 
 export function BuildPlanEditor({
   placements,

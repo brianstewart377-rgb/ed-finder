@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     ttl_cluster:        int  = 86400
     rate_limit_search:  str  = '30/minute'
     rate_limit_default: str  = '120/minute'
-    app_version:        str  = '3.0.1-hetzner'
+    app_version:        str  = '3.0.1'
     build_sha:          str  = 'unknown'
     admin_token:        Optional[str] = None
     # Frontier OAuth. The client secret is server-only and must never be

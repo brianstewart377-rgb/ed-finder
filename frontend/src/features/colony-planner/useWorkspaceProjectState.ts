@@ -1,20 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { SystemDetail } from '@/types/api';
-import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import type { TopologyPlanSnapshot } from './ColonyTopologyRail';
+import { sameBodyId } from '@ed-finder/planner-core/bodyId';
+import type { TopologyPlanSnapshot } from '@ed-finder/planner-core/topologySelection';
 import {
   addDeclaredRole,
   normaliseDeclaredRoles,
   removeDeclaredRole,
   type DeclaredColonyRole,
   type DeclaredColonyRoleId,
-} from './colonyRoles';
+} from '@ed-finder/planner-core/colonyRoles';
+import {
+  useColonyProjectStore,
+} from './colonyProjectStore';
 import {
   activeProjectsForSystem,
   projectMatchesSnapshot,
-  useColonyProjectStore,
-} from './colonyProjectStore';
-import { projectRequestFromProject } from './workspaceUtils';
+} from '@ed-finder/planner-core/colonyProjectTypes';
+import { projectRequestFromProject } from '@ed-finder/planner-core/workspace';
 
 export function useWorkspaceProjectState(
   system: SystemDetail,

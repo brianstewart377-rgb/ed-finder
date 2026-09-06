@@ -73,6 +73,11 @@ The only current replacement-host helpers presently identified by the V3 control
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
 - `scripts/operator/recover_v3_runtime_contract.py`.
 
+The deliberately stopped
+`scripts/operator/actions/v3-app-live-checkpoint-preflight.sh` is separate from
+that production surface. It targets the non-production Contabo live-checkpoint
+boundary and authorizes no deployment mutation.
+
 Other scripts in that directory, including surviving Stage 19 staging/research tools, are **not** current V3 production authority merely because they are checked in. Read `scripts/operator/README.md` and require an explicitly current V3 workflow/runbook before executing any operator script against production.
 
 ## Final recommendation

@@ -129,16 +129,10 @@ hash_file() {
     sha256sum "$file" | awk '{print $1}'
   elif command -v shasum >/dev/null 2>&1; then
     shasum -a 256 "$file" | awk '{print $1}'
-  elif command -v python3 >/dev/null 2>&1; then
-    python3 - "$file" <<'PY'
-import hashlib
-import pathlib
-import sys
-path = pathlib.Path(sys.argv[1])
-print(hashlib.sha256(path.read_bytes()).hexdigest())
-PY
-  elif command -v python >/dev/null 2>&1; then
-    python - "$file" <<'PY'
+  elif command -v python3.14 >/dev/null 2>&1; then
+    python3.14 -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)' \
+      || die "CPython 3.14 is required for the Python checksum fallback"
+    python3.14 - "$file" <<'PY'
 import hashlib
 import pathlib
 import sys
@@ -146,7 +140,7 @@ path = pathlib.Path(sys.argv[1])
 print(hashlib.sha256(path.read_bytes()).hexdigest())
 PY
   else
-    die "missing sha256sum/shasum/python to hash migration files"
+    die "missing sha256sum/shasum/python3.14 to hash migration files"
   fi
 }
 

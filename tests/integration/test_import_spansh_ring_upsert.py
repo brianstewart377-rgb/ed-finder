@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-import psycopg2
+import psycopg
 import pytest
 
 os.environ.setdefault('LOG_FILE', os.devnull)
@@ -16,7 +16,7 @@ TEST_BODY_ID = 970_000_001
 
 @pytest.fixture
 def pg_conn():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     try:
         with conn.cursor() as cur:
@@ -48,12 +48,12 @@ def test_upsert_body_rings_writes_all_columns_without_sql_error(pg_conn):
     follow-up (2026-08-06): the INSERT's explicit column list and
     _ring_row_tuple()'s value tuple had drifted out of sync (the column
     list named updated_at with no corresponding value in the tuple),
-    which execute_values (deriving its VALUES template from the tuple
+    which cursor.executemany (binding each tuple to the VALUES template
     length, not the column list) turned into a hard
     "INSERT has more target columns than expressions" failure on every
     single call - confirmed by direct reproduction against real Postgres
     before this fix, not just static reading. Because the only existing
-    test for this function replaces execute_values with a no-op lambda,
+    unit test for this function replaces executemany with a no-op,
     it could not have caught this - the SQL text itself was never
     executed. This test lets it run for real."""
     rows = import_spansh.body_ring_rows_from_spansh_body(

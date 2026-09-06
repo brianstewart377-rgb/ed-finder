@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-import psycopg2
+import psycopg
 import pytest
 
 os.environ.setdefault('LOG_FILE', os.devnull)
@@ -22,7 +22,7 @@ BODY_COLS = ['id', 'system_id64', 'name', 'body_type', 'subtype']
 
 @pytest.fixture
 def pg_conn():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     try:
         with conn.cursor() as cur:

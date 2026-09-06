@@ -138,7 +138,9 @@ function normaliseSystemRecord(value: unknown): Record<string, MyWorkSystemRecor
   return entries.reduce<Record<string, MyWorkSystemRecord>>((record, candidate) => {
     if (!candidate || typeof candidate !== 'object') return record;
     const system = candidate as Partial<MyWorkSystemRecord>;
-    if (!system.id64 || !Number.isFinite(system.id64)) return record;
+    // id64 may be persisted as a lossless decimal string; coerce before the guard.
+    const id64Num = Number(system.id64);
+    if (!Number.isFinite(id64Num) || id64Num <= 0) return record;
     record[String(system.id64)] = normaliseRecord(system as Partial<MyWorkSystemRecord> & Pick<MyWorkSystemRecord, 'id64'>);
     return record;
   }, {});

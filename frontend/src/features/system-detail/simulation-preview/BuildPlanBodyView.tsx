@@ -4,26 +4,22 @@ import type { FacilityTemplate, SimulateBuildPlacement, SimulateBuildResponse, S
 import {
   bodyDisplayName,
   bodyTags,
-  getBodyGroupSummary,
-  getBodyGroupWarnings,
-  getPlacementStatus,
-  getPlacementWarnings,
-  getPlanSummary,
-  groupPlacementsByBody,
   type BodyGroup,
   type GroupedPlacement,
   type PlanSummary,
-} from './buildPlanLayoutUtils';
+} from '@ed-finder/planner-core/buildPlanLayout';
 import { BuildPlanLayoutDetailPanel, type LayoutSelection } from './BuildPlanLayoutDetailPanel';
 import { Chip } from './components';
 import { ColonyRoleHints } from './ColonyRoleHints';
 import { LayoutTopologyReadout } from './LayoutTopologyReadout';
-import { buildLayoutTopologyReadout, topologyPlacementLocationLabel } from './layoutTopologyUtils';
+import { topologyPlacementLocationLabel } from '@ed-finder/planner-core/layoutTopology';
 import { PlannerGuidanceList } from './PlannerGuidanceList';
-import { buildPlannerGuidanceForBody, buildPlannerGuidanceForPlacement } from './plannerGuidanceUtils';
-import { buildColonyRoleHintsForGroup } from './colonyRoleHintUtils';
-import { buildStrategicTopologyGuidanceForGroup } from './strategicTopologyGuidanceUtils';
-import { formatLocation } from './utils/formatters';
+import { formatLocation } from '@ed-finder/planner-core/formatters';
+import {
+  buildBodyGroupViewModel,
+  buildPlacementViewModel,
+  buildPlanBodyViewModel,
+} from '@ed-finder/planner-core/buildPlanViewModels';
 
 interface BuildPlanBodyViewProps {
   systemName: string;
@@ -47,8 +43,7 @@ export function BuildPlanBodyView({
   runningPreview,
 }: BuildPlanBodyViewProps) {
   const [selection, setSelection] = useState<LayoutSelection>({ kind: 'summary' });
-  const groups = groupPlacementsByBody(placements, templates, bodies);
-  const summary = getPlanSummary({
+  const { groups, summary } = buildPlanBodyViewModel({
     systemName,
     targetArchetype,
     placements,
@@ -57,7 +52,6 @@ export function BuildPlanBodyView({
     previewResult,
     isPreviewResultStale,
     runningPreview,
-    groups,
   });
   const selectSummary = () => setSelection({ kind: 'summary' });
   const selectBody = (groupKey: string) => setSelection({ kind: 'body', groupKey });
@@ -187,23 +181,18 @@ function BodyGroupCard({
   onSelectBody: () => void;
   onSelectPlacement: (placementIndex: number) => void;
 }) {
-  const bodyWarnings = getBodyGroupWarnings(group);
-  const bodyGuidance = buildPlannerGuidanceForBody(group.body, group.placements.map((item) => ({
-    placement: item.placement,
-    template: item.template,
-    body: group.body,
-    hasUnknownBody: item.hasUnknownBody,
-    warnings: getPlacementWarnings(item, group.body),
-  })));
-  const strategicGuidance = buildStrategicTopologyGuidanceForGroup(group, allGroups);
-  const roleHints = buildColonyRoleHintsForGroup(group, allGroups);
-  const summary = getBodyGroupSummary(group);
-  const topology = buildLayoutTopologyReadout(group);
-  const isUnassigned = group.body === null;
-  const body = group.body;
-  const title = isUnassigned || !body ? 'Unassigned / needs body' : bodyDisplayName(body);
-  const placementLabel = `${group.placements.length} placement${group.placements.length === 1 ? '' : 's'}`;
-  const selectLabel = isUnassigned ? 'Select body Unassigned / needs body' : `Select body ${title}`;
+  const {
+    bodyWarnings,
+    bodyGuidance,
+    strategicGuidance,
+    roleHints,
+    summary,
+    topology,
+    isUnassigned,
+    title,
+    placementLabel,
+    selectLabel,
+  } = buildBodyGroupViewModel(group, allGroups);
   const handleBodyKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -298,17 +287,7 @@ function PlacementCard({
   onSelect: () => void;
 }) {
   const { placement, template, index } = item;
-  const warnings = getPlacementWarnings(item, body);
-  const guidance = buildPlannerGuidanceForPlacement({
-    placement,
-    template,
-    body,
-    hasUnknownBody: item.hasUnknownBody,
-    warnings,
-  });
-  const status = getPlacementStatus(item, body);
-  const confidence = template?.confidence ?? 'missing';
-  const hasNotes = template?.notes != null && template.notes.trim().length > 0;
+  const { warnings, guidance, status, confidence, hasNotes } = buildPlacementViewModel(item, body);
   const handlePlacementKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();

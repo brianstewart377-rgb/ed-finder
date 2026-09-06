@@ -931,7 +931,7 @@ async def station_enrichment_operator_status():
 
     This endpoint deliberately reads only a configured JSON artifact produced
     by `station_enrichment_status.py --json`. It never invokes the enrichment
-    script, Docker, EDSM, or the database.
+    script, Docker, external data providers, or the database.
     """
     return read_enrichment_status_snapshot(settings.enrichment_status_json_path)
 
@@ -1100,4 +1100,3 @@ async def admin_data_status(pool: asyncpg.Pool = Depends(get_pool)):
             'canonical_apply_performed': False,
         },
     }
-

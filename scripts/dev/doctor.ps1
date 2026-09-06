@@ -90,21 +90,28 @@ function Get-CommandRecord {
 function Find-PythonRecord {
   if (Test-Path -LiteralPath $venvPython) {
     $version = (& $venvPython --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $runtime = (& $venvPython -c 'import sys; print(f"{sys.implementation.name}:{sys.version_info.major}.{sys.version_info.minor}")' 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
-      ok = $true
+      ok = ($runtime -eq 'cpython:3.14')
       path = $venvPython
       source = 'venv'
       version = $version
+      failure = if ($runtime -eq 'cpython:3.14') { $null } else { 'python314_required' }
     }
   }
 
   try {
-    $version = (& py -3.12 --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $version = (& py -3.14 --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $runtime = (& py -3.14 -c 'import sys; print(f"{sys.implementation.name}:{sys.version_info.major}.{sys.version_info.minor}")' 2>&1 | Select-Object -First 1).ToString().Trim()
+    if ($runtime -ne 'cpython:3.14') {
+      throw 'The Python launcher did not select CPython 3.14.x.'
+    }
     return @{
       ok = $true
-      path = 'py -3.12'
+      path = 'py -3.14'
       source = 'py_launcher'
       version = $version
+      failure = $null
     }
   } catch {
   }
@@ -112,11 +119,13 @@ function Find-PythonRecord {
   try {
     $command = Get-Command python -ErrorAction Stop
     $version = (& $command.Path --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $runtime = (& $command.Path -c 'import sys; print(f"{sys.implementation.name}:{sys.version_info.major}.{sys.version_info.minor}")' 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
-      ok = $true
+      ok = ($runtime -eq 'cpython:3.14')
       path = $command.Path
       source = 'PATH'
       version = $version
+      failure = if ($runtime -eq 'cpython:3.14') { $null } else { 'python314_required' }
     }
   } catch {
   }
@@ -320,6 +329,9 @@ if (-not $records.bash.ok) {
 }
 if (-not $records.venv.ok) {
   $recommendations.Add('Create the virtualenv with scripts/dev/bootstrap-windows.ps1.')
+}
+if (-not $records.python.ok) {
+  $recommendations.Add('Install CPython 3.14.x, remove any older repository virtualenv, and rerun bootstrap-windows.ps1.')
 }
 if (-not $records.env_file.ok) {
   $recommendations.Add('Create .env from env.example before starting the local API.')

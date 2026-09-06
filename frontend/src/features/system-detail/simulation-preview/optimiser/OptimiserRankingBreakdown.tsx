@@ -1,5 +1,5 @@
 import type { OptimiserRankBreakdown } from '@/types/api';
-import { formatScore } from './optimiserUtils';
+import { formatScore } from '@ed-finder/planner-core/optimiserUtils';
 
 const CONTRIBUTIONS: Array<[keyof OptimiserRankBreakdown, string]> = [
   ['preview_score_component', 'Preview final score'],

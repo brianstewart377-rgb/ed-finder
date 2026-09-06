@@ -15,6 +15,34 @@ ADMIN_PATH = ROOT / 'apps' / 'api' / 'src' / 'routers' / 'admin.py'
 MAINTENANCE_PATH = ROOT / 'apps' / 'maintenance' / 'scripts' / 'run_maintenance.sh'
 
 
+def test_cluster_rebuild_uses_importer_entrypoint_without_duplicate_python(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    api_src = ROOT / 'apps' / 'api' / 'src'
+    monkeypatch.syspath_prepend(str(api_src))
+    from edfinder_api import helpers
+
+    calls = []
+    monkeypatch.setenv('COMPOSE_PROJECT_DIR', '/tmp/disposable-ed-finder')
+    monkeypatch.setattr(
+        helpers.subprocess,
+        'run',
+        lambda command, **_kwargs: calls.append(command),
+    )
+    active_jobs = {'cluster_rebuild': {}}
+
+    helpers.run_cluster_rebuild(active_jobs)
+
+    assert calls == [[
+        'docker', 'compose',
+        '--project-directory', '/tmp/disposable-ed-finder',
+        '--profile', 'import',
+        'run', '--rm', '--entrypoint', 'python3', 'importer',
+        'build_clusters.py', '--dirty-only', '--workers', '6',
+    ]]
+    assert active_jobs['cluster_rebuild']['status'] == 'completed'
+
+
 def _bash_path(path: Path) -> str:
     resolved = path.resolve()
     if os.name != 'nt':

@@ -24,8 +24,8 @@ does not recreate that missing document.
 
 ## CI Gates Added
 
-The CI workflow now has a dedicated `Canonical safety tests` job using Python
-3.12. The job installs explicit canonical test dependencies, then runs:
+The CI workflow has a dedicated `Canonical safety tests` job using exact
+CPython 3.14. The job installs explicit canonical test dependencies, then runs:
 
 ```sh
 python -m pytest \
@@ -199,4 +199,3 @@ safety CI job is green, the local runner passes, a suitable report-only
 production reconciliation artifact exists, and a separate explicit approval
 names the exact artifact hash, candidate count, source run/file, table, field,
 max row count, and apply DSN context.
-

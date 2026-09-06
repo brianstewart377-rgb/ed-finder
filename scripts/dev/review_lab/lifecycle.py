@@ -164,6 +164,8 @@ def validate_compose_text(compose_text: str) -> None:
     postgres_block = extract_service_block(compose_text, 'review-postgres')
     redis_block = extract_service_block(compose_text, 'review-redis')
     api_block = extract_service_block(compose_text, 'review-api')
+    if 'image: postgres:18-alpine' not in postgres_block:
+        raise ReviewLabError('review-postgres must use the V3 PostgreSQL 18 test service')
     if 'ports:' in postgres_block:
         raise ReviewLabError('review-postgres must not publish host ports')
     if 'ports:' in redis_block:
@@ -172,6 +174,8 @@ def validate_compose_text(compose_text: str) -> None:
         raise ReviewLabError('review-api must target review-postgres / edfinder_local_review only')
     if f'{EXPECTED_REVIEW_REDIS_HOST}:6379/0' not in api_block:
         raise ReviewLabError('review-api must target review-redis only')
+    if 'EDDN_SIMULATION_INGEST_ENABLED: "false"' not in api_block:
+        raise ReviewLabError('review-api must disable external EDDN ingest during validation')
 
 
 def validate_normal_api_sources() -> None:
@@ -228,7 +232,7 @@ def review_preview_origin() -> str:
 
 
 def frontend_start_command() -> str:
-    return 'VITE_DEV_API_TARGET=http://127.0.0.1:8001 npm run start'
+    return 'VITE_DEV_API_TARGET=http://127.0.0.1:8001 pnpm preview --port 4173 --strictPort'
 
 
 def healthcheck_url() -> str:
@@ -319,6 +323,39 @@ def review_service_readiness() -> dict[str, dict[str, bool]]:
         'review-postgres': {'running': 'review-postgres' in running, 'ready': postgres_ready_ok()},
         'review-redis': {'running': 'review-redis' in running, 'ready': redis_ready_ok()},
         'review-api': {'running': 'review-api' in running, 'ready': api_health_ok()},
+    }
+
+
+def review_api_runtime_identity() -> dict[str, str]:
+    """Prove the interpreter of the running Review Lab server process."""
+
+    probe = (
+        "import json, platform, sys; "
+        "assert platform.python_implementation() == 'CPython'; "
+        "assert sys.version_info[:2] == (3, 14); "
+        "print(json.dumps({'implementation': platform.python_implementation(), "
+        "'version': platform.python_version()}))"
+    )
+    output = run_compose(
+        'exec', '-T', 'review-api', '/proc/1/exe', '-c', probe,
+        timeout_seconds=10,
+        failure_code='REVIEW_API_RUNTIME_MISMATCH',
+    )
+    try:
+        identity = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise ReviewLabError(
+            'Review API runtime identity probe returned malformed evidence.',
+            failure_code='REVIEW_API_RUNTIME_MISMATCH',
+        ) from exc
+    if not isinstance(identity, dict):
+        raise ReviewLabError(
+            'Review API runtime identity probe returned an invalid shape.',
+            failure_code='REVIEW_API_RUNTIME_MISMATCH',
+        )
+    return {
+        'implementation': str(identity.get('implementation', '')),
+        'version': str(identity.get('version', '')),
     }
 
 
@@ -420,9 +457,11 @@ def capture_docker_baseline() -> dict[str, list[str]]:
     ensure_docker_cli_available()
     containers = run_command(['docker', 'ps', '-a', '--format', '{{.Names}}'], timeout_seconds=15)
     volumes = run_command(['docker', 'volume', 'ls', '--format', '{{.Name}}'], timeout_seconds=15)
+    networks = run_command(['docker', 'network', 'ls', '--format', '{{.Name}}'], timeout_seconds=15)
     return {
         'containers': sorted(line for line in containers.splitlines() if line.strip()),
         'volumes': sorted(line for line in volumes.splitlines() if line.strip()),
+        'networks': sorted(line for line in networks.splitlines() if line.strip()),
     }
 
 
@@ -443,6 +482,10 @@ def list_review_owned_resources() -> dict[str, list[str]]:
         ['docker', 'volume', 'ls', *label_filter, '--format', '{{.Name}}'],
         timeout_seconds=15,
     )
+    labelled_networks = run_command(
+        ['docker', 'network', 'ls', *label_filter, '--format', '{{.Name}}'],
+        timeout_seconds=15,
+    )
     baseline = capture_docker_baseline()
     containers = {
         line.strip() for line in labelled_containers.splitlines() if line.strip()
@@ -454,15 +497,21 @@ def list_review_owned_resources() -> dict[str, list[str]]:
     } | {
         name for name in baseline['volumes'] if is_review_managed_docker_name(name)
     }
+    networks = {
+        line.strip() for line in labelled_networks.splitlines() if line.strip()
+    } | {
+        name for name in baseline['networks'] if is_review_managed_docker_name(name)
+    }
     return {
         'containers': sorted(containers),
         'volumes': sorted(volumes),
+        'networks': sorted(networks),
     }
 
 
 def assert_no_preexisting_review_resources() -> None:
     existing = list_review_owned_resources()
-    if existing['containers'] or existing['volumes']:
+    if existing['containers'] or existing['volumes'] or existing['networks']:
         raise ReviewLabError(
             'Review-owned Docker resources already exist before verification.',
             failure_code='REVIEW_RESOURCES_NOT_REMOVED',
@@ -475,11 +524,15 @@ def compare_docker_baseline(before: Mapping[str, list[str]], after: Mapping[str,
     after_containers = {name for name in after.get('containers', []) if not is_review_managed_docker_name(name)}
     before_volumes = {name for name in before.get('volumes', []) if not is_review_managed_docker_name(name)}
     after_volumes = {name for name in after.get('volumes', []) if not is_review_managed_docker_name(name)}
+    before_networks = {name for name in before.get('networks', []) if not is_review_managed_docker_name(name)}
+    after_networks = {name for name in after.get('networks', []) if not is_review_managed_docker_name(name)}
     return {
         'containers_added': sorted(after_containers - before_containers),
         'containers_removed': sorted(before_containers - after_containers),
         'volumes_added': sorted(after_volumes - before_volumes),
         'volumes_removed': sorted(before_volumes - after_volumes),
+        'networks_added': sorted(after_networks - before_networks),
+        'networks_removed': sorted(before_networks - after_networks),
     }
 
 
@@ -522,7 +575,6 @@ def parse_passed_test_count(output: str) -> int:
 
 def run_static_phase() -> dict[str, Any]:
     validate_support_route_matrix()
-    run_command([sys.executable, '-B', 'scripts/dev/resolve_project_state.py', '--strict'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     static_test_output = run_command(
         [sys.executable, '-B', '-m', 'pytest', *STATIC_TEST_FILES, '-p', 'no:cacheprovider'],
         timeout_seconds=TIMEOUTS.static,
@@ -530,9 +582,8 @@ def run_static_phase() -> dict[str, Any]:
     )
     static_test_count = parse_passed_test_count(static_test_output)
     run_preflight()
-    run_command(['git', 'diff', '--check'], timeout_seconds=TIMEOUTS.static, failure_code='STATIC_CONTAINMENT_FAILED')
     return {
-        'summary': 'Strict resolver, review-environment safety tests, preflight, support-route matrix, and git diff check passed.',
+        'summary': 'Review Lab containment, lifecycle, handshake, support-route, and preflight contracts passed.',
         'static_test_count': static_test_count,
         'safe_diagnostics': {
             'static_test_files': list(STATIC_TEST_FILES),
@@ -547,9 +598,13 @@ def run_stack_phase() -> dict[str, Any]:
     status = wait_for_review_status_ready()
     if not status.get('api_health_ok'):
         raise ReviewLabError('Review API health did not become ready.', failure_code='REVIEW_API_HEALTH_FAILED', safe_diagnostics=status)
+    runtime_identity = review_api_runtime_identity()
     return {
-        'summary': 'review-postgres, review-redis, and review-api became ready via the isolated wrapper workflow.',
-        'safe_diagnostics': {'services': status['services']},
+        'summary': 'review-postgres, review-redis, and the CPython 3.14 review-api became ready via the isolated wrapper workflow.',
+        'safe_diagnostics': {
+            'services': status['services'],
+            'runtime_identity': runtime_identity,
+        },
     }
 
 

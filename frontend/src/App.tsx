@@ -20,8 +20,8 @@ import {
   defaultDraftProjectName,
   type ColonyProjectObjective,
   type ColonyProjectStartApproach,
-} from '@/features/colony-planner/plannerDraftContext';
-import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
+} from '@ed-finder/planner-core/plannerDraftContext';
+import { archetypeFromEconomy } from '@ed-finder/planner-core/placementHelpers';
 import { writeSelectedOperatorSourceRun } from '@/features/operator/operatorSelection';
 import { useHashRoute, type HashRoute } from '@/hooks/useHashRoute';
 import { setCoalsackBackgroundVariables } from '@/app/coalsackBackground';

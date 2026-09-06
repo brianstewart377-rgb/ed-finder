@@ -387,7 +387,7 @@ def test_source_run_compatibility_helper_has_no_prod_db_scheduler_import_or_cano
     source = inspect.getsource(compat)
     source_upper = source.upper()
     forbidden_fragments = (
-        'PSYCOPG2.CONNECT',
+        'PSYCOPG.CONNECT',
         'ASYNCPG.CONNECT',
         'SUBPROCESS',
         'OS.SYSTEM',

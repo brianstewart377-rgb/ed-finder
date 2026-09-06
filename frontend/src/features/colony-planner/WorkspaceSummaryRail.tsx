@@ -2,17 +2,17 @@ import { PanelRight } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SystemDetail } from '@/types/api';
-import { bodyIdKey } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from './ColonyTopologyRail';
+import { bodyIdKey } from '@ed-finder/planner-core/bodyId';
+import type { TopologyPlanSnapshot, TopologySelection, TopologySelectionContext } from '@ed-finder/planner-core/topologySelection';
 import type { ColonyProject } from './colonyProjectStore';
 import { ProjectControlsCard } from './ProjectControlsCard';
 import {
   getPlanHealthSummary,
   humanizeArchetype,
-} from './workspaceUtils';
+} from '@ed-finder/planner-core/workspace';
 import { PlanningEconomyStrip } from './PlanningEconomyStrip';
-import type { PlanningEconomyLedger } from './planningEconomy';
-import type { PrerequisiteIssue } from './structurePlanningRules';
+import type { PlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
+import type { PrerequisiteIssue } from '@ed-finder/planner-core/structurePlanning';
 
 export function WorkspaceSummaryRail({
   system,

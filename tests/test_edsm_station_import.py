@@ -350,7 +350,7 @@ def test_edsm_station_import_helper_has_no_prod_db_scheduler_or_canonical_write_
     source = inspect.getsource(importer)
     source_upper = source.upper()
     forbidden_fragments = (
-        'PSYCOPG2.CONNECT',
+        'PSYCOPG.CONNECT',
         'ASYNCPG.CONNECT',
         'SUBPROCESS',
         'OS.SYSTEM',

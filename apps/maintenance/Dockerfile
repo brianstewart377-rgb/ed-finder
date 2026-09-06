@@ -1,18 +1,22 @@
-FROM postgres:16-alpine
+FROM python:3.14-alpine
 
-# We use the official postgres:16-alpine image as a base because it
-# already has psql, libpq, and a thin runtime — no point pulling
-# alpine then re-installing 100 MB of psql client packages on top.
-#
+# LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY.
+# The retained root Compose environment still uses PostgreSQL 16. Current V3
+# production uses PostgreSQL 18 and requires an explicitly current backup/PITR
+# runbook and runtime definition; this client-only helper deliberately does not
+# define either database runtime.
+
 # Add `dcron` for the nightly schedule. We deliberately do NOT install
 # the full BusyBox cron — dcron's `crond -f` runs in foreground which
 # plays nicely with `docker logs`.
 #
-# `python3` + `py3-psycopg2` let the sidecar run the production-safe
+# Exact CPython 3.14 + pinned Psycopg 3 let this legacy sidecar run its guarded
 # invariants wrapper directly on its weekly schedule, `rclone`
 # provides the optional offsite backup sync path, and `curl` sends the
 # optional dead-man's-switch heartbeats.
-RUN apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl
+RUN apk add --no-cache dcron tini bash postgresql-client rclone curl && \
+    python -m pip install --no-cache-dir 'psycopg[binary]==3.3.4' && \
+    python -c "import platform, psycopg, sys; assert platform.python_implementation() == 'CPython'; assert sys.version_info[:2] == (3, 14); assert psycopg.__version__ == '3.3.4'"
 
 WORKDIR /opt/ed-finder
 

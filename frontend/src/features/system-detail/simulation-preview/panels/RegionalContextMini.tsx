@@ -1,6 +1,6 @@
 import type { SimulationSummary } from '@/types/api';
 import { Chip } from '../components';
-import { titleCase } from '../utils/formatters';
+import { titleCase } from '@ed-finder/planner-core/formatters';
 
 export function RegionalContextMini({
   regional,

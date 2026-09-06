@@ -1,6 +1,6 @@
 import type { SystemArchetypeResponse, SystemDetail } from '@/types/api';
 import { archetypeTierFromScore, formatArchetypeLabel } from '@/lib/archetypes';
-import { archetypeFromEconomy } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
+import { archetypeFromEconomy } from '@ed-finder/planner-core/placementHelpers';
 
 export function buildFallbackArchetype(system: SystemDetail | null): SystemArchetypeResponse | null {
   if (!system) return null;

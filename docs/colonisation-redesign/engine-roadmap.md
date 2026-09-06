@@ -1980,9 +1980,9 @@ and v3.4 rating-version deployment.
   shape contract. The ratings column list, row tuple, and `execute_values`
   template must have the same count, and `rating_version` must be present in the
   returned rating dict, `score_breakdown`, INSERT columns, and conflict update.
-- **Worker connection safety**: ratings workers use the shared retry helper with
-  `statement_timeout=0` and `lock_timeout=0` instead of direct `psycopg2.connect`
-  calls that can inherit production defaults.
+- **Worker connection safety**: ratings workers use the shared Psycopg 3 retry
+  helper with `statement_timeout=0` and `lock_timeout=0` instead of ad hoc
+  connections that can inherit production defaults.
 - **Dirty cleanup safety**: `systems.rating_dirty = FALSE` is chunked, retried on
   transient timeout/connection errors, and committed independently from rating
   writes. Failed cleanup leaves systems dirty for the next run.

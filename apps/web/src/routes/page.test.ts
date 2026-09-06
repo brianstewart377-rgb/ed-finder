@@ -5,6 +5,9 @@ import TestShell from '$lib/components/TestShell.svelte';
 import { getAuthSession, getHealth } from '$lib/api/client';
 
 vi.mock('$lib/api/client', () => ({
+  authLogout: vi.fn(),
+  claimOwner: vi.fn(),
+  frontierLoginUrl: vi.fn(() => '/api/auth/frontier/login'),
   getAuthSession: vi.fn(),
   getHealth: vi.fn(),
 }));

@@ -1,4 +1,8 @@
-# EDSM station enrichment — production roadmap & runbook
+# EDSM station enrichment — historical roadmap & retired runbook
+
+> **Historical implementation evidence only.** The Hetzner production
+> procedure and commands in this file are retired and non-executable guidance;
+> they do not authorize work against the current V3 production environment.
 
 > **Audience:** anyone running the guarded EDSM station enrichment on the
 > Hetzner production host (or a staging clone), or extending the importer/guard
@@ -9,9 +13,8 @@
 > `station_body_links` rows from EDSM. Ring enrichment lives in the same
 > importer entrypoint but follows a separate Spansh-first contract.
 
-This file is the source of truth for how we run station enrichment safely at
-scale. If a procedural step in this document conflicts with what you see in
-the code, the code wins — please update this doc in the same PR.
+This file records how station enrichment was run on the retired environment.
+Current operations require an explicitly current V3 workflow or runbook.
 
 ---
 

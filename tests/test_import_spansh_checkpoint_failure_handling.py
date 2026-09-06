@@ -26,6 +26,7 @@ if IMPORTER_SRC not in sys.path:
     sys.path.insert(0, IMPORTER_SRC)
 
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
+os.environ.setdefault('LOG_FILE', os.devnull)
 
 import import_spansh  # noqa: E402
 
@@ -47,6 +48,26 @@ def test_increment_error_count_logs_and_rolls_back_on_failure(caplog):
     assert conn.rollback.called
     assert conn.commit.called is False
     assert any('Failed to increment error count' in record.message for record in caplog.records)
+
+
+def test_flush_error_batch_rolls_back_failed_executemany(caplog):
+    conn = MagicMock()
+    cursor_ctx = MagicMock()
+    cursor_ctx.__enter__.return_value.executemany.side_effect = RuntimeError(
+        'connection reset'
+    )
+    conn.cursor.return_value = cursor_ctx
+    import_spansh._error_batch[:] = [
+        ('dump.json.gz', 1, 'system', 'RuntimeError', 'bad row', None),
+    ]
+
+    with caplog.at_level(logging.WARNING, logger='import_spansh'):
+        import_spansh.flush_error_batch(conn, 'dump.json.gz')
+
+    assert conn.rollback.called
+    assert conn.commit.called is False
+    assert import_spansh._error_batch == []
+    assert any('Failed to write error batch' in record.message for record in caplog.records)
 
 
 def test_save_checkpoint_safely_logs_and_rolls_back_on_failure(caplog):

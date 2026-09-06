@@ -30,7 +30,7 @@ PRE_LEDGER_FILES = [
 
 
 def test_baseline_migration_ledger_records_existing_preledger_state():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     if bash is None:
         pytest.skip('bash is required to execute scripts/baseline_migration_ledger.sh')
@@ -48,7 +48,7 @@ def test_baseline_migration_ledger_records_existing_preledger_state():
     baseline_dsn = _dsn_for_database(db_target.dsn, baseline_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for baseline runtime test: {exc}')
 
@@ -106,8 +106,8 @@ def _run_baseline(bash: str, database_url: str) -> subprocess.CompletedProcess[s
 
 
 def _count_rows(database_url: str, table_name: str) -> int:
-    psycopg2 = pytest.importorskip('psycopg2')
-    conn = psycopg2.connect(database_url)
+    psycopg = pytest.importorskip('psycopg')
+    conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:
             cur.execute(f'SELECT COUNT(*) FROM {table_name}')

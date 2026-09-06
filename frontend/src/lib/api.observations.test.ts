@@ -17,6 +17,10 @@ describe('observed evidence operator token forwarding', () => {
         observation_id: 'obs_1',
         deleted: true,
       }),
+      text: async () => JSON.stringify({
+        observation_id: 'obs_1',
+        deleted: true,
+      }),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -35,7 +39,7 @@ describe('observed evidence operator token forwarding', () => {
     expect(calls).toHaveLength(3);
 
     for (const [, init] of calls) {
-      expect(init?.headers).toMatchObject({ 'X-Admin-Token': 'token-123' });
+      expect(new Headers(init?.headers).get('X-Admin-Token')).toBe('token-123');
     }
   });
 });

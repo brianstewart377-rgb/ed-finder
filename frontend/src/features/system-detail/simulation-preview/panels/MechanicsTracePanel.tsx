@@ -1,5 +1,5 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { titleCase } from '../utils/formatters';
+import { titleCase } from '@ed-finder/planner-core/formatters';
 
 export function MechanicsTracePanel({ trace }: { trace: SimulateBuildResponse['mechanics_trace'] }) {
   const categories = Object.entries(trace ?? {}).filter(([, events]) => Array.isArray(events) && events.length > 0);

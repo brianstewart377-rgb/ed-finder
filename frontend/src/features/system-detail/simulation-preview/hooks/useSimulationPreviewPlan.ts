@@ -7,8 +7,8 @@ import type {
   SystemBody,
 } from '@/types/api';
 import { candidatePlacementsToPreviewPlacements } from '../optimiser';
-import type { StartMode } from '../types';
-import { resequence } from '../utils/placementHelpers';
+import type { StartMode } from '@ed-finder/planner-core/simulationTypes';
+import { simulationRequestFingerprint } from '@ed-finder/planner-core/simulationFingerprints';
 import { useOptimiserCandidateOrigin } from './useOptimiserCandidateOrigin';
 import { usePlacementEditor } from './usePlacementEditor';
 
@@ -164,18 +164,4 @@ export function useSimulationPreviewPlan({
     movePlacement,
     planReplacementVersion,
   };
-}
-
-function simulationRequestFingerprint(request?: SimulateBuildRequest | null): string | null {
-  if (!request) return null;
-  return JSON.stringify({
-    system_id64: request.system_id64,
-    target_archetype: request.target_archetype,
-    placements: resequence(request.placements).map((placement) => ({
-      facility_template_id: placement.facility_template_id,
-      local_body_id: placement.local_body_id ?? null,
-      is_primary_port: Boolean(placement.is_primary_port),
-      build_order: placement.build_order,
-    })),
-  });
 }

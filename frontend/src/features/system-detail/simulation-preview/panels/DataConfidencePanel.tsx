@@ -1,6 +1,6 @@
 import type { SimulateBuildResponse } from '@/types/api';
 import { Chip } from '../components';
-import { standardLabel, titleCase } from '../utils/formatters';
+import { standardLabel, titleCase } from '@ed-finder/planner-core/formatters';
 import { confidenceLevelTone, levelTone } from '../utils/toneHelpers';
 
 export function DataConfidencePanel({ result }: { result: SimulateBuildResponse }) {

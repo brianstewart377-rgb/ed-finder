@@ -15,7 +15,7 @@ import os
 import sys
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import pytest
 
 pytestmark = pytest.mark.db
@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _conn():
-    return psycopg2.connect(os.environ['DATABASE_URL'])
+    return psycopg.connect(os.environ['DATABASE_URL'])
 
 
 def _column_exists(cur, table: str, column: str) -> bool:

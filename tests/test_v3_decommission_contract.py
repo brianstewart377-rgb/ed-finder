@@ -80,6 +80,64 @@ def test_hosted_review_is_absent_from_active_runtime_configs():
         assert retired not in active
 
 
+def test_legacy_compose_and_maintenance_are_not_v3_pg18_authority():
+    compose = _read('docker-compose.yml')
+    maintenance = _read('apps', 'maintenance', 'Dockerfile')
+
+    assert 'LEGACY SELF-HOST / LOCAL-CI COMPOSE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in compose
+    assert 'PostgreSQL 16 — legacy/local Compose compatibility' in compose
+    assert 'PostgreSQL 18' in compose
+    assert 'LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in maintenance
+    assert 'retained root Compose environment still uses PostgreSQL 16' in maintenance
+    assert 'Current V3' in maintenance and 'PostgreSQL 18' in maintenance
+
+
+def test_stale_operational_design_docs_fail_closed():
+    ledger = _read('docs', 'operations', 'migration-ledger-implementation-plan.md')
+    control_plane = _read('docs', 'development', 'chatgpt-ops-control-plane.md')
+
+    assert 'SUPERSEDED DESIGN-ONLY PLAN. DO NOT EXECUTE.' in ledger
+    assert 'neither a current V3 migration procedure nor authority' in ledger
+    assert 'DESIGN/HISTORICAL DOCUMENT — NOT AN OPERATOR RUNBOOK.' in control_plane
+    assert 'operations proposed below were never implemented' in control_plane
+    assert 'chatgpt-ed-new-ops.yml' in control_plane
+
+
+def test_application_hard_cut_is_current_authority():
+    roadmap = _read('docs', 'ROADMAP.md')
+    stack = _read('docs', 'development', 'v3-application-stack-decision.md')
+    browser = _read('docs', 'development', 'v3-browser-validation-lanes.md')
+    agent_contract = _read('CLAUDE.md')
+    readme = _read('README.md')
+
+    for authority in (roadmap, stack, agent_contract):
+        assert 'apps/web/' in authority
+        assert 'sole' in authority
+    assert 'apps/web/' in readme
+    assert 'PR #601 is the single active V3 application' in roadmap
+    assert 'not the architecture target' in stack
+    assert 'sole target for new browser application work' in agent_contract
+    assert 'not the V3 target' in readme
+    assert 'Cypress' in browser
+    assert 'apps/web' in browser
+
+
+def test_live_api_and_layout_importer_copy_is_provider_neutral():
+    layout_provider = _read('apps', 'api', 'src', 'colony_planner', 'layout_import_provider.py')
+    admin_router = _read('apps', 'api', 'src', 'routers', 'admin.py')
+    simulation_router = _read('apps', 'api', 'src', 'routers', 'simulation.py')
+    main = _read('apps', 'api', 'src', 'main.py')
+    config = _read('apps', 'api', 'src', 'config.py')
+
+    assert 'Live layout-source import is not wired yet' in layout_provider
+    assert 'Live Spansh layout import is not wired yet' not in layout_provider
+    assert 'external data providers' in admin_router
+    assert 'external-source imported' in simulation_router
+    assert 'Spansh-imported' not in simulation_router
+    assert 'Hetzner' not in main
+    assert 'hetzner' not in config.lower()
+
+
 def test_active_env_example_does_not_publish_v2_storagebox_credentials():
     env_example = _read('env.example')
 

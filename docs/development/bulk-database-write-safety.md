@@ -29,7 +29,8 @@ Current audited exceptions:
 - `build_regional_analysis.py` writes only `system_regional_analysis`.
 - `build_topology.py` writes only `system_slot_topology`,
   `system_archetype_scores`, and `economy_pair_synergy`.
-- `build_grid.py` predates the helper and has specialized parallel reconnect,
-  autocommit, and `ALTER TABLE ... DISABLE TRIGGER` fallback behavior. Its
-  connection-specific replica-mode handling remains an explicitly documented
-  legacy exception pending a separately reviewed migration.
+- `build_grid.py` retains specialized parallel reconnect behavior and uses a
+  focused Psycopg 3 autocommit helper for its session replica mode and
+  `ALTER TABLE ... DISABLE TRIGGER` fallback. The global fallback is restored
+  in a failure-safe guard, including a fresh direct-connection retry when the
+  original connection cannot perform restoration.

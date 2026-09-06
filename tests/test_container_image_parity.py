@@ -93,7 +93,9 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
-    assert 'python3 py3-psycopg2 rclone' in maintenance_dockerfile
+    assert 'FROM python:3.14-alpine' in maintenance_dockerfile
+    assert "'psycopg[binary]==3.3.4'" in maintenance_dockerfile
+    assert 'postgresql-client rclone curl' in maintenance_dockerfile
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
     assert 'COPY shared_contracts/data_invariant_contracts.py' in maintenance_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow
@@ -103,6 +105,30 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert "'apps/importer/requirements.txt'" in workflow
     assert 'tests/test_container_image_parity.py -q' in workflow
     assert '-k built_api_eddn_and_importer_images_pass_runtime_import_parity' in workflow
+    assert 'apps/api/Dockerfile.release' in workflow
+    assert 'Release API CPython 3.14 build and startup' in workflow
+    assert "sys.version_info[:2] == (3, 14)" in workflow
+    assert 'postgres:18-alpine' in workflow
+    assert 'DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder' in workflow
+    assert 'EDDN_SIMULATION_INGEST_ENABLED=false' in workflow
+    assert 'http://127.0.0.1:18000/api/health' in workflow
+    assert 'health["database"] == "connected"' in workflow
+    assert 'health["build_sha"] == os.environ["EXPECTED_BUILD_SHA"]' in workflow
+    assert '/proc/1/exe -c' in workflow
+    assert '--lifespan off' not in workflow
+
+
+def test_local_and_release_api_images_use_the_frozen_python314_runtime():
+    local = _read('apps', 'api', 'Dockerfile')
+    release = _read('apps', 'api', 'Dockerfile.release')
+
+    for dockerfile in (local, release):
+        assert 'FROM python:3.14-slim@sha256:' in dockerfile
+        assert 'uv==0.11.33' in dockerfile
+        assert 'apps/api/pyproject.toml apps/api/uv.lock' in dockerfile
+        assert 'uv sync --frozen --no-dev --no-group test --no-install-project' in dockerfile
+        assert "platform.python_implementation() == 'CPython'" in dockerfile
+        assert 'sys.version_info[:2] == (3, 14)' in dockerfile
 
 
 @pytest.mark.integration

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,6 +18,7 @@ class _FakeCursor:
     def __init__(self, rows):
         self.rows = rows
         self.executed: list[tuple[str, tuple[object, ...]]] = []
+        self.executed_many: list[tuple[str, list[tuple[object, ...]]]] = []
 
     def __enter__(self):
         return self
@@ -26,6 +28,9 @@ class _FakeCursor:
 
     def execute(self, query, params=None):
         self.executed.append((query, tuple(params or ())))
+
+    def executemany(self, query, params):
+        self.executed_many.append((query, list(params)))
 
     def fetchone(self):
         if not self.rows:
@@ -38,10 +43,28 @@ class _FakeConnection:
         self.rows = list(rows)
         self.cursors: list[_FakeCursor] = []
 
-    def cursor(self, cursor_factory=None):  # noqa: ARG002
+    def cursor(self, row_factory=None):  # noqa: ARG002
         cursor = _FakeCursor(self.rows)
         self.cursors.append(cursor)
         return cursor
+
+
+def test_upsert_links_uses_psycopg3_executemany_with_complete_row_shape():
+    values = (1, 2, 42, 3, 'Test A 1', 'surface', 'local_matched', 'exact', 'resolver', 'ok')
+    row = SimpleNamespace(
+        station_id=1,
+        system_id64=42,
+        to_db_tuple=lambda: values,
+    )
+    conn = _FakeConnection([])
+
+    script.upsert_links(conn, [row], overwrite_confirmed=False)
+
+    query, batches = conn.cursors[0].executed_many[0]
+    assert query.count('%s') == len(script.UPSERT_COLUMNS)
+    assert 'VALUES %s' not in query
+    assert "WHERE station_body_links.association_status <> 'confirmed'" in query
+    assert batches == [values]
 
 
 def test_build_station_set_evidence_payload_reflects_station_link_coverage():

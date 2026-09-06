@@ -24,7 +24,7 @@ import type {
   ValidationReviewResponse,
 } from '@/types/api';
 import { ValidationPanel } from './ValidationPanel';
-import { validationInputProjection } from './validationUtils';
+import { validationInputProjection } from '@ed-finder/planner-core/validation/validationUtils';
 
 vi.mock('@/lib/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api')>('@/lib/api');

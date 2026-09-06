@@ -100,9 +100,7 @@ import logging
 import argparse
 from multiprocessing import Process
 
-import psycopg2
-import psycopg2.extras
-import psycopg2.extensions
+import psycopg
 
 from progress import (
     ProgressReporter,
@@ -170,14 +168,14 @@ signal.signal(signal.SIGTERM, _handle_signal)
 # ---------------------------------------------------------------------------
 
 def _connect(dsn: str, readonly: bool = False,
-             application_name: str = 'build_grid') -> psycopg2.extensions.connection:
+             application_name: str = 'build_grid') -> psycopg.Connection:
     """
     Open a PostgreSQL connection with:
     - TCP keepalives to survive long-running operations without being dropped
     - statement_timeout=0 to allow unbounded single-UPDATE runs
     - lock_timeout=30s to fail fast rather than hang on ALTER TABLE / locks
     """
-    conn = psycopg2.connect(
+    conn = psycopg.connect(
         dsn,
         keepalives=1,
         keepalives_idle=60,
@@ -192,13 +190,13 @@ def _connect(dsn: str, readonly: bool = False,
     )
     conn.autocommit = False
     if readonly:
-        conn.set_session(readonly=True)
+        conn.read_only = True
     return conn
 
 
 def _connect_with_retry(dsn: str, label: str = "", retries: int = 10,
                          delay: float = 5.0,
-                         readonly: bool = False) -> psycopg2.extensions.connection:
+                         readonly: bool = False) -> psycopg.Connection:
     """Connect with exponential back-off retries."""
     for attempt in range(1, retries + 1):
         try:
@@ -221,6 +219,86 @@ def _safe_close(conn):
             conn.close()
     except Exception:
         pass
+
+
+def _run_in_autocommit(conn, operation):
+    """Run ``operation`` outside a transaction and restore connection mode.
+
+    Psycopg 3 rejects changing ``autocommit`` while a transaction is active.
+    Several grid phases perform reads before session-level SET/ALTER/CREATE
+    statements, so close that transaction first and restore the exact prior
+    mode even when the operation fails.
+    """
+    old_autocommit = conn.autocommit
+    if not old_autocommit:
+        try:
+            conn.commit()
+        except Exception:
+            conn.rollback()
+    conn.autocommit = True
+    try:
+        return operation()
+    finally:
+        conn.autocommit = old_autocommit
+
+
+def _set_replica_mode(conn, *, allow_alter_fallback: bool = False) -> str:
+    """Disable ordinary triggers on *conn*, returning the method used."""
+
+    def _set_role():
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET session_replication_role = replica")
+            return 'session'
+        except Exception:
+            if not allow_alter_fallback:
+                raise
+            # An autocommit statement failure does not leave a transaction
+            # open; use a fresh cursor for the ownership-based fallback.
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
+            return 'alter'
+
+    return _run_in_autocommit(conn, _set_role)
+
+
+def _enable_system_triggers(conn) -> None:
+    def _enable():
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+
+    _run_in_autocommit(conn, _enable)
+
+
+def _restore_system_triggers(conn, dsn: str) -> None:
+    """Restore globally disabled triggers, reconnecting if necessary."""
+    try:
+        _enable_system_triggers(conn)
+        return
+    except Exception as first_error:
+        log.warning(
+            "  Trigger restoration failed on the Stage 3 connection; "
+            f"retrying on a fresh direct connection: {first_error}"
+        )
+
+    recovery_conn = _connect_with_retry(dsn, label="trigger-restore")
+    try:
+        _enable_system_triggers(recovery_conn)
+    except Exception as recovery_error:
+        raise RuntimeError(
+            "FATAL: could not restore systems triggers after ALTER fallback"
+        ) from recovery_error
+    finally:
+        _safe_close(recovery_conn)
+
+
+def _run_with_trigger_restoration(conn, trigger_mode, operation, *, dsn: str):
+    """Run an operation and always reverse a global ALTER fallback."""
+    try:
+        return operation()
+    finally:
+        if trigger_mode == 'alter':
+            _restore_system_triggers(conn, dsn)
 
 
 # ---------------------------------------------------------------------------
@@ -375,19 +453,22 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     try:
         with conn.cursor() as _cur:
             _cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sys_grid_null'")
-            if not _cur.fetchone():
-                log.info("  [Auto-Fix] Index 'idx_sys_grid_null' is missing. Attempting to create it...")
-                # We need a non-transactional connection for CREATE INDEX CONCURRENTLY
-                # but since we're already in a script that bypasses pgbouncer, we'll try a simple CREATE INDEX.
-                # If it fails (e.g. permission), we just log it and continue with the fallback logic.
-                try:
-                    old_autocommit = conn.autocommit
-                    conn.autocommit = True
-                    _cur.execute("CREATE INDEX IF NOT EXISTS idx_sys_grid_null ON systems(id64) WHERE grid_cell_id IS NULL")
-                    conn.autocommit = old_autocommit
-                    log.info("  [Auto-Fix] ✓ Index created successfully.")
-                except Exception as _e:
-                    log.warning(f"  [Auto-Fix] Could not create index automatically: {_e}")
+            index_missing = not _cur.fetchone()
+        if index_missing:
+            log.info("  [Auto-Fix] Index 'idx_sys_grid_null' is missing. Attempting to create it...")
+            # Run outside the read transaction opened by the existence check.
+            try:
+                def _create_index():
+                    with conn.cursor() as index_cur:
+                        index_cur.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_sys_grid_null "
+                            "ON systems(id64) WHERE grid_cell_id IS NULL"
+                        )
+
+                _run_in_autocommit(conn, _create_index)
+                log.info("  [Auto-Fix] ✓ Index created successfully.")
+            except Exception as _e:
+                log.warning(f"  [Auto-Fix] Could not create index automatically: {_e}")
     except Exception:
         pass
 
@@ -423,18 +504,15 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     # The setting is session-scoped and reverts automatically on disconnect.
     # Disable triggers if possible. session_replication_role requires superuser.
     # ALTER TABLE ... DISABLE TRIGGER ALL requires table ownership.
+    trigger_mode = None
     try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            try:
-                _wac.execute("SET session_replication_role = replica")
-                log.info("  ✓ RI triggers disabled via session_replication_role = replica")
-            except Exception:
-                # Fallback: Try ALTER TABLE (requires ownership)
-                write_conn.rollback()
-                _wac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
-                log.info("  ✓ RI triggers disabled via ALTER TABLE DISABLE TRIGGER ALL")
-        write_conn.autocommit = False
+        # The outer Stage 3 guard owns the global ALTER fallback. This writer
+        # only needs the connection-scoped replica role.
+        trigger_mode = _set_replica_mode(write_conn)
+        if trigger_mode == 'session':
+            log.info("  ✓ RI triggers disabled via session_replication_role = replica")
+        else:
+            log.info("  ✓ RI triggers disabled via ALTER TABLE DISABLE TRIGGER ALL")
     except Exception as _e:
         log.warning(f"  Could not disable triggers (not superuser or owner?): {_e}")
         log.warning("  Continuing with triggers ENABLED — Stage 3 will be significantly slower.")
@@ -467,23 +545,28 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
         for attempt in range(4):
             try:
-                write_cur.execute(f"""
+                write_cur.execute("""
                     UPDATE systems
                     SET grid_cell_id = (
-                        floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
-                        floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
-                        floor((z - {min_z!r}) / {cell_size!r})::bigint
+                        floor((x - %s) / %s)::bigint * 100000000 +
+                        floor((y - %s) / %s)::bigint * 10000 +
+                        floor((z - %s) / %s)::bigint
                     )
                     WHERE ctid >= %s::tid
                       AND ctid <  %s::tid
                       AND grid_cell_id IS NULL
-                """, (ctid_lo, ctid_hi))
+                """, (
+                    min_x, cell_size,
+                    min_y, cell_size,
+                    min_z, cell_size,
+                    ctid_lo, ctid_hi,
+                ))
                 rows_updated = write_cur.rowcount
                 write_conn.commit()
                 total_updated += rows_updated
                 break  # success
 
-            except psycopg2.OperationalError as e:
+            except psycopg.OperationalError as e:
                 log.warning(f"  Connection lost on batch {batch_num} page {current_page} "
                             f"(attempt {attempt+1}/4): {e}")
                 try:
@@ -492,23 +575,21 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                     _safe_close(write_conn)
                 except Exception:
                     pass
+                rows_updated = 0
+                if attempt == 3:
+                    log.error(f"  FATAL: 4 retries failed on page {current_page}")
+                    raise
                 wait = 15 * (attempt + 1)
                 log.info(f"  Reconnecting in {wait}s ...")
                 time.sleep(wait)
                 write_conn = _connect_with_retry(DB_DSN, label=f"ctid-retry-{attempt}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying batch {batch_num}")
-                rows_updated = 0
-                if attempt == 3:
-                    log.error(f"  FATAL: 4 retries failed on page {current_page}")
-                    raise
 
             except Exception as e:
                 log.error(f"  Unexpected error on batch {batch_num} page {current_page}: {e}")
@@ -568,15 +649,6 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
     progress.finish()
     
-    # Re-enable triggers if we used ALTER TABLE
-    try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
-            log.info("  ✓ Triggers re-enabled")
-    except Exception:
-        pass
-
     write_cur.close()
     _safe_close(write_conn)
 
@@ -605,13 +677,12 @@ def grid_worker(
     cur = conn.cursor()
 
     try:
-        conn.autocommit = True
+        def _configure_worker():
+            cur.execute("SET session_replication_role = replica")
+            cur.execute("SET synchronous_commit = OFF")
+            cur.execute("SET work_mem = '256MB'")
 
-        cur.execute("SET session_replication_role = replica")
-        cur.execute("SET synchronous_commit = OFF")
-        cur.execute("SET work_mem = '256MB'")
-
-        conn.autocommit = False
+        _run_in_autocommit(conn, _configure_worker)
 
     except Exception as e:
         log.warning(f"[worker-{worker_id}] session setup failed: {e}")
@@ -756,11 +827,9 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
     write_conn = _connect_with_retry(DB_DSN, label="batched-writer")
     # FIX v2.3 (corrected): apply session_replication_role to the write_conn
     # that executes the UPDATE, not the monitoring connection.
+    trigger_mode = None
     try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("SET session_replication_role = replica")
-        write_conn.autocommit = False
+        trigger_mode = _set_replica_mode(write_conn)
         log.info("  ✓ RI triggers disabled on write_conn (batched-writer)")
     except Exception as _e:
         log.warning(f"  Could not disable RI triggers on write_conn: {_e} — continuing (Stage 3 may be slow)")
@@ -792,7 +861,7 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                     skipped += 1
                 break
 
-            except psycopg2.OperationalError as e:
+            except psycopg.OperationalError as e:
                 log.warning(f"  Connection lost on cell {cell_id} (attempt {attempt+1}/3): {e}")
                 try:
                     write_cur.close()
@@ -803,12 +872,10 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                 time.sleep(10 * (attempt + 1))
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-retry-{attempt}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying cell {cell_id}")
 
@@ -821,12 +888,10 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                     pass
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-error-{i}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 break
 
@@ -841,14 +906,12 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
 
     progress.finish()
     
-    # Re-enable triggers if we used ALTER TABLE
-    try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+    if trigger_mode == 'alter':
+        try:
+            _enable_system_triggers(write_conn)
             log.info("  ✓ Triggers re-enabled")
-    except Exception:
-        pass
+        except Exception as enable_error:
+            log.warning(f"  Could not re-enable triggers: {enable_error}")
 
     write_cur.close()
     _safe_close(write_conn)
@@ -1067,39 +1130,44 @@ Strategies:
         crash_hint(log, "from Stage 2 (cells rebuilt automatically on next run)")
         t0 = time.time()
 
-        cur.execute(f"""
+        cur.execute("""
             INSERT INTO spatial_grid
                 (cell_id, cell_x, cell_y, cell_z,
                  min_x, max_x, min_y, max_y, min_z, max_z,
                  system_count)
             WITH cells AS (
                 SELECT
-                    floor((x - {min_x!r}) / {cell_size!r})::bigint AS cx,
-                    floor((y - {min_y!r}) / {cell_size!r})::bigint AS cy,
-                    floor((z - {min_z!r}) / {cell_size!r})::bigint AS cz,
+                    floor((x - %(min_x)s) / %(cell_size)s)::bigint AS cx,
+                    floor((y - %(min_y)s) / %(cell_size)s)::bigint AS cy,
+                    floor((z - %(min_z)s) / %(cell_size)s)::bigint AS cz,
                     COUNT(*) AS cnt
                 FROM systems
                 GROUP BY
-                    floor((x - {min_x!r}) / {cell_size!r}),
-                    floor((y - {min_y!r}) / {cell_size!r}),
-                    floor((z - {min_z!r}) / {cell_size!r})
+                    floor((x - %(min_x)s) / %(cell_size)s),
+                    floor((y - %(min_y)s) / %(cell_size)s),
+                    floor((z - %(min_z)s) / %(cell_size)s)
             )
             SELECT
                 (cx * 100000000 + cy * 10000 + cz) AS cell_id,
                 cx::smallint,
                 cy::smallint,
                 cz::smallint,
-                (cx * {cell_size!r} + {min_x!r})::real,
-                (cx * {cell_size!r} + {min_x!r} + {cell_size!r})::real,
-                (cy * {cell_size!r} + {min_y!r})::real,
-                (cy * {cell_size!r} + {min_y!r} + {cell_size!r})::real,
-                (cz * {cell_size!r} + {min_z!r})::real,
-                (cz * {cell_size!r} + {min_z!r} + {cell_size!r})::real,
+                (cx * %(cell_size)s + %(min_x)s)::real,
+                (cx * %(cell_size)s + %(min_x)s + %(cell_size)s)::real,
+                (cy * %(cell_size)s + %(min_y)s)::real,
+                (cy * %(cell_size)s + %(min_y)s + %(cell_size)s)::real,
+                (cz * %(cell_size)s + %(min_z)s)::real,
+                (cz * %(cell_size)s + %(min_z)s + %(cell_size)s)::real,
                 cnt
             FROM cells
             ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
                 system_count = EXCLUDED.system_count
-        """)
+        """, {
+            'min_x': min_x,
+            'min_y': min_y,
+            'min_z': min_z,
+            'cell_size': cell_size,
+        })
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM spatial_grid")
         cell_count = cur.fetchone()[0]
@@ -1160,72 +1228,49 @@ Strategies:
             log.info("  │  Reverts automatically on session disconnect            │")
             log.info("  └───────────────────────────────────────────────────────┘")
             try:
-                # Must be outside a transaction block.
-                # The monitoring conn may have an in-flight transaction from
-                # earlier SELECTs — commit/rollback first or psycopg2 raises
-                # "set_session cannot be used inside a transaction".
-                try: conn.commit()
-                except Exception: pass
-                conn.autocommit = True
-                with conn.cursor() as ac:
-                    ac.execute("SET session_replication_role = replica")
-                conn.autocommit = False
+                disable_triggers = _set_replica_mode(
+                    conn, allow_alter_fallback=True,
+                )
                 log.info("  ✓ RI triggers disabled for this session")
             except Exception as e:
                 log.warning(f"  Could not disable triggers: {e}")
-                log.warning("  Trying ALTER TABLE DISABLE TRIGGER ALL ...")
-                try:
-                    try: conn.rollback()
-                    except Exception: pass
-                    conn.autocommit = True
-                    with conn.cursor() as ac:
-                        ac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
-                    conn.autocommit = False
-                    log.info("  ✓ Triggers disabled via ALTER TABLE")
-                    disable_triggers = 'alter'  # track which method we used
-                except Exception as e2:
-                    log.warning(f"  Could not disable via ALTER TABLE either: {e2}")
-                    log.warning("  Continuing with triggers ENABLED — Stage 3 will be SLOW")
-                    disable_triggers = False
+                log.warning("  Continuing with triggers ENABLED — Stage 3 will be SLOW")
+                disable_triggers = False
         else:
             log.warning("  --no-disable-triggers set — RI triggers remain active (SLOW!)")
 
-        if strategy == 'parallel':
+        def _assign_grid_cells():
+            if strategy == 'parallel':
+                stage3_parallel(
+                    dsn=DB_DSN,
+                    min_x=min_x,
+                    min_y=min_y,
+                    min_z=min_z,
+                    cell_size=cell_size,
+                    workers=6,
+                    batch_size=250_000,
+                )
+                return 0, conn, cur
 
-            stage3_parallel(
-                dsn=DB_DSN,
-                min_x=min_x,
-                min_y=min_y,
-                min_z=min_z,
-                cell_size=cell_size,
-                workers=6,
-                batch_size=250_000,
+            if strategy == 'formula':
+                return stage3_formula(
+                    conn, cur, min_x, min_y, min_z,
+                    cell_size, total_systems, already_assigned,
+                    pages_per_batch=pages_per_batch)
+
+            return (
+                stage3_batched_cells(
+                    conn, cur, cell_count, already_assigned, total_systems,
+                ),
+                conn,
+                cur,
             )
 
-            total_rows_updated = 0
-
-        elif strategy == 'formula':
-
-            total_rows_updated, conn, cur = stage3_formula(
-                conn, cur, min_x, min_y, min_z,
-                cell_size, total_systems, already_assigned,
-                pages_per_batch=pages_per_batch)
-
-        else:
-
-            total_rows_updated = stage3_batched_cells(
-                conn, cur, cell_count, already_assigned, total_systems)
-
-        # Re-enable triggers if we disabled via ALTER TABLE
+        total_rows_updated, conn, cur = _run_with_trigger_restoration(
+            conn, disable_triggers, _assign_grid_cells, dsn=dsn,
+        )
         if disable_triggers == 'alter':
-            try:
-                conn.autocommit = True
-                with conn.cursor() as ac:
-                    ac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
-                conn.autocommit = False
-                log.info("  ✓ Triggers re-enabled via ALTER TABLE")
-            except Exception as e:
-                log.warning(f"  Could not re-enable triggers: {e} (reconnect will restore)")
+            log.info("  ✓ Triggers re-enabled via ALTER TABLE")
         # session_replication_role = replica reverts automatically on disconnect
 
         # Reconnect in case the long Stage 3 connection timed out
@@ -1273,37 +1318,42 @@ Strategies:
         if macro_cells_existing == 0:
             log.info("  Building macro_grid table ...")
             t0 = time.time()
-            cur.execute(f"""
+            cur.execute("""
                 INSERT INTO macro_grid
                     (cell_id, cell_x, cell_y, cell_z,
                      min_x, max_x, min_y, max_y, min_z, max_z,
                      system_count)
                 WITH cells AS (
                     SELECT
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint AS cx,
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint AS cy,
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint AS cz,
+                        floor((x - %(min_x)s) / %(cell_size)s)::bigint AS cx,
+                        floor((y - %(min_y)s) / %(cell_size)s)::bigint AS cy,
+                        floor((z - %(min_z)s) / %(cell_size)s)::bigint AS cz,
                         COUNT(*) AS cnt
                     FROM systems
                     GROUP BY
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r}),
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r}),
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})
+                        floor((x - %(min_x)s) / %(cell_size)s),
+                        floor((y - %(min_y)s) / %(cell_size)s),
+                        floor((z - %(min_z)s) / %(cell_size)s)
                 )
                 SELECT
                     (cx * 100000000 + cy * 10000 + cz) AS cell_id,
                     cx::smallint, cy::smallint, cz::smallint,
-                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r})::real,
-                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r} + {MACRO_CELL_SIZE!r})::real,
-                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r})::real,
-                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r} + {MACRO_CELL_SIZE!r})::real,
-                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r})::real,
-                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r} + {MACRO_CELL_SIZE!r})::real,
+                    (cx * %(cell_size)s + %(min_x)s)::real,
+                    (cx * %(cell_size)s + %(min_x)s + %(cell_size)s)::real,
+                    (cy * %(cell_size)s + %(min_y)s)::real,
+                    (cy * %(cell_size)s + %(min_y)s + %(cell_size)s)::real,
+                    (cz * %(cell_size)s + %(min_z)s)::real,
+                    (cz * %(cell_size)s + %(min_z)s + %(cell_size)s)::real,
                     cnt
                 FROM cells
                 ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
                     system_count = EXCLUDED.system_count
-            """)
+            """, {
+                'min_x': min_x,
+                'min_y': min_y,
+                'min_z': min_z,
+                'cell_size': MACRO_CELL_SIZE,
+            })
             conn.commit()
             cur.execute("SELECT COUNT(*) FROM macro_grid")
             macro_cell_count = cur.fetchone()[0]
@@ -1321,13 +1371,12 @@ Strategies:
             cur = conn.cursor()
 
             try:
-                conn.autocommit = True
+                def _configure_macro_worker():
+                    cur.execute("SET session_replication_role = replica")
+                    cur.execute("SET synchronous_commit = OFF")
+                    cur.execute("SET work_mem = '256MB'")
 
-                cur.execute("SET session_replication_role = replica")
-                cur.execute("SET synchronous_commit = OFF")
-                cur.execute("SET work_mem = '256MB'")
-
-                conn.autocommit = False
+                _run_in_autocommit(conn, _configure_macro_worker)
 
             except Exception as e:
                 log.warning(f"[macro-worker-{worker_id}] setup failed: {e}")
@@ -1336,7 +1385,7 @@ Strategies:
 
             while not _shutdown:
 
-                cur.execute(f"""
+                cur.execute("""
                     WITH batch AS (
                         SELECT id64
                         FROM systems
@@ -1347,13 +1396,18 @@ Strategies:
                     )
                     UPDATE systems s
                     SET macro_grid_id = (
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint * 100000000 +
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint * 10000 +
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint
+                        floor((x - %(min_x)s) / %(cell_size)s)::bigint * 100000000 +
+                        floor((y - %(min_y)s) / %(cell_size)s)::bigint * 10000 +
+                        floor((z - %(min_z)s) / %(cell_size)s)::bigint
                     )
                     FROM batch
                     WHERE s.id64 = batch.id64
-                """)
+                """, {
+                    'min_x': min_x,
+                    'min_y': min_y,
+                    'min_z': min_z,
+                    'cell_size': MACRO_CELL_SIZE,
+                })
 
                 rows = cur.rowcount
 

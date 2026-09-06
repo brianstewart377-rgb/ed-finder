@@ -1,7 +1,7 @@
 import { useCallback, useState, type Dispatch, type SetStateAction } from 'react';
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import type { StartMode } from '../types';
-import { preferredTemplate, resequence } from '../utils/placementHelpers';
+import type { StartMode } from '@ed-finder/planner-core/simulationTypes';
+import { preferredTemplate, resequence } from '@ed-finder/planner-core/placementHelpers';
 
 export interface UsePlacementEditorOptions {
   templates: FacilityTemplate[];

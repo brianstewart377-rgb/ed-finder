@@ -47,12 +47,13 @@ def test_main_sets_bounded_session_statement_timeout(monkeypatch):
     connection.__enter__.return_value = connection
     connection.cursor.return_value.__enter__.return_value = cursor
     connect = MagicMock(return_value=connection)
-    monkeypatch.setattr(build_regional_analysis.psycopg2, 'connect', connect)
+    monkeypatch.setattr(build_regional_analysis.psycopg, 'connect', connect)
     monkeypatch.setattr(sys, 'argv', ['build_regional_analysis.py'])
 
     build_regional_analysis.main()
 
     assert 'statement_timeout=1800000' in connect.call_args.kwargs['options']
+    connection.cursor.assert_called_once_with(row_factory=build_regional_analysis.dict_row)
 
 
 def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):

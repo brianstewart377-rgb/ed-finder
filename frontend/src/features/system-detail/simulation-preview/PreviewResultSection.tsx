@@ -2,7 +2,7 @@ import type { SimulateBuildResponse, SimulationSummary } from '@/types/api';
 import { SimulationResult } from './SimulationResult';
 import { GhostMetric, Message } from './components';
 import { RegionalContextMini } from './panels';
-import { buildPreviewResultGuidance } from './previewResultGuidance';
+import { buildPreviewResultGuidance } from '@ed-finder/planner-core/previewResultGuidance';
 
 export function PreviewResultSection({
   regional,

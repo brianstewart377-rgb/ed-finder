@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Plus, X, RotateCcw } from 'lucide-react';
 import { RefSystemPicker } from '@/features/search/RefSystemPicker';
 import { hasKnownCoords } from '@/lib/format';
-import { economyColor } from '@/features/colony-planner/economyVisuals';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
 import type { AutocompleteHit } from '@/types/api';
 import type { ClusterSearchFilters, SlotRequirement } from './useClusterSearch';
 import { ARCHETYPE_PROFILES, ALL_ECONOMIES } from './useClusterSearch';

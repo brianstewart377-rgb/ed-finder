@@ -277,15 +277,19 @@ def resolve_db_config(env: Mapping[str, str]) -> dict[str, Any]:
 
 def run_read_only_select_one(env: Mapping[str, str], database: Mapping[str, Any]) -> CheckResult:
     try:
-        import psycopg2  # noqa: PLC0415
-        import psycopg2.extras  # noqa: PLC0415
+        import psycopg  # noqa: PLC0415
+        from psycopg.rows import dict_row  # noqa: PLC0415
     except Exception as exc:
         return CheckResult('db_read_only_select_1', False, classify_exception(exc), {'attempted': False})
 
     conn = None
     try:
-        conn = psycopg2.connect(build_db_dsn(env, database), cursor_factory=psycopg2.extras.RealDictCursor)
-        conn.set_session(readonly=True, autocommit=False)
+        conn = psycopg.connect(
+            build_db_dsn(env, database),
+            autocommit=False,
+            row_factory=dict_row,
+        )
+        conn.read_only = True
         with conn.cursor() as cur:
             cur.execute('SHOW transaction_read_only')
             read_only = cur.fetchone()['transaction_read_only'] == 'on'

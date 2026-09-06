@@ -3,6 +3,11 @@
 # Restore a custom-format Postgres backup into the local docker-compose postgres
 # service. Defaults to a disposable database so the normal path is non-destructive.
 #
+# LOCAL/CI ONLY — NEVER V3 PRODUCTION. This helper targets the retained legacy
+# Compose PostgreSQL 16 environment. It is not V3 PostgreSQL 18 backup, restore,
+# PITR, migration, or disaster-recovery authority. An executable current V3
+# runbook must authorize any production recovery action.
+#
 # Usage examples:
 #   bash scripts/restore_postgres_backup.sh
 #   bash scripts/restore_postgres_backup.sh --backup-file /data/backups/postgres/latest.dump

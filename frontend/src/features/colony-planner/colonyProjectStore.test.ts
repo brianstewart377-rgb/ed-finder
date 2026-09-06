@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import {
-  activeProjectsForSystem,
-  projectMatchesSnapshot,
-  useColonyProjectStore,
-} from './colonyProjectStore';
+import { useColonyProjectStore } from './colonyProjectStore';
 
 const placement = { facility_template_id: 'orbital_port', local_body_id: 'body1', is_primary_port: true, build_order: 1 };
 
@@ -28,8 +24,6 @@ describe('colonyProjectStore', () => {
     expect(saved.selected_body_assignments).toEqual({ 0: 'body1' });
     expect(saved.declared_roles).toEqual([]);
     expect(Object.values(useColonyProjectStore.getState().projects)).toHaveLength(1);
-    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', 'Check Architect mode.', 'Starter project')).toBe(true);
-    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', 'Changed notes.', 'Starter project')).toBe(false);
   });
 
   it('persists declared roles and defaults old project shapes safely', () => {
@@ -58,21 +52,6 @@ describe('colonyProjectStore', () => {
     expect(saved.objective).toBe('balanced');
     expect(saved.start_approach).toBe('manual');
     expect(saved.created_from).toBe('system_detail');
-    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', '', 'Role project', saved.declared_roles)).toBe(true);
-    expect(projectMatchesSnapshot(saved, [placement], 'refinery_industrial', '', 'Role project', [])).toBe(false);
-
-    const oldProject = {
-      ...saved,
-      id: 'old-shape',
-      declared_roles: undefined,
-      objective: undefined,
-      start_approach: undefined,
-      created_from: undefined,
-    } as never;
-    expect(activeProjectsForSystem([oldProject], 123)[0].declared_roles).toEqual([]);
-    expect(activeProjectsForSystem([oldProject], 123)[0].objective).toBeNull();
-    expect(activeProjectsForSystem([oldProject], 123)[0].start_approach).toBeNull();
-    expect(activeProjectsForSystem([oldProject], 123)[0].created_from).toBeNull();
   });
 
   it('renames, duplicates, and archives projects without deleting the source data shape', () => {
@@ -106,7 +85,7 @@ describe('colonyProjectStore', () => {
     useColonyProjectStore.getState().archiveProject(saved.id);
     const projects = useColonyProjectStore.getState().projects;
     expect(projects[saved.id].archived_at).toBeTruthy();
-    expect(activeProjectsForSystem(Object.values(projects), 123).map((project) => project.id)).toEqual([duplicate?.id]);
+    expect(projects[duplicate?.id ?? 'missing'].archived_at).toBeNull();
   });
 
   it('migrates old persisted arrays and deletes projects by key', async () => {

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
-import { parseJournalFilesStreaming } from '@/lib/journalParsing';
-import type { JournalFileSource, JournalImportParseResult } from '@/lib/journalParsing';
+import { parseJournalFilesStreaming } from '@ed-finder/planner-core/journal';
+import type { JournalFileSource, JournalImportParseResult } from '@ed-finder/planner-core/journal';
 
 type ParseRequest = {
   type: 'parse';

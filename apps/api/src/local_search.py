@@ -215,7 +215,10 @@ class SearchSqlBuilder:
 
 def _parse_local_search_context(body: dict) -> LocalSearchContext:
     filters = body.get("filters", {})
-    ref = body.get("reference_coords", {})
+    # The public router sends ``None`` when a galaxy-wide request omits
+    # reference coordinates.  Treat that the same as an absent mapping; local
+    # searches still fail closed below when no complete coordinates exist.
+    ref = body.get("reference_coords") or {}
     size = min(int(body.get("size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
     from_idx = int(body.get("from", 0))
     sort_by = body.get("sort_by", "development")

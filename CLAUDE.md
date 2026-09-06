@@ -101,7 +101,13 @@ Never expose repository write credentials to the Codex execution environment.
 
 ## Python/backend
 
-The checked-in backend still uses Python 3.12 and the repository-pinned test dependencies; use that toolchain when validating still-current legacy code. New V3 application implementation targets CPython 3.14 with uv as locked by `docs/development/v3-application-stack-decision.md`. Do not claim the migration has landed before its reviewed slices do.
+Every active Python runtime, developer launcher, and CI validation lane uses
+exact CPython 3.14. The deployable V3 API uses uv 0.11.33 and the frozen
+`apps/api/pyproject.toml` + `apps/api/uv.lock` graph. The API keeps asyncpg for
+asynchronous PostgreSQL access; active synchronous/importer PostgreSQL paths
+use pinned Psycopg 3. The Codex worker, repository tooling, importer, canonical
+safety, and static-contract lanes follow the same CPython 3.14 authority.
+Ruff targets `py314` so its parser and lint contract matches the exact runtime.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 

@@ -1,8 +1,9 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
-import type { ExistingStructure } from './existingInfrastructure';
-import { existingSlotLabel, slotLabel, slotTitle, type SlotLabelItem } from './bodySlotPlannerLabels';
+import type { ExistingStructure } from '@ed-finder/planner-core/existingInfrastructure';
+import { existingSlotLabel, slotLabel, slotTitle, type SlotLabelItem } from '@ed-finder/planner-core/bodySlotPlannerLabels';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 
-export type BodyPlannerLane = 'orbital' | 'surface';
+export type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 
 export interface RingPlannedItem {
   placement: SimulateBuildPlacement;

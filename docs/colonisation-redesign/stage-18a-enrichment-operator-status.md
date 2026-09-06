@@ -1,5 +1,8 @@
 ﻿# Stage 18A — Enrichment Operator Status Integration
 
+> **Historical implementation evidence only.** The command examples below are
+> not a current V3 operator surface.
+
 Stage 18A makes station-enrichment status visible through the existing
 operator/admin tooling without letting the web app run enrichment work.
 
@@ -82,4 +85,3 @@ A production operator can wire a separate host-level job to periodically write
 the status artifact into `/data/logs`. If the enrichment checkpoint should move
 out of `/tmp`, use the guarded enrichment script's `--checkpoint-file` option
 and document the new shared path in the runbook.
-

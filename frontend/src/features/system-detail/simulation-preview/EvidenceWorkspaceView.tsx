@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { RoleReviewCard } from '@/features/colony-planner/RoleReviewCard';
-import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
+import type { RoleReviewResult } from '@ed-finder/planner-core/colonyRoleReview';
 import type { SystemDetail } from '@/types/api';
 import { ObservedEvidencePanel } from './observations';
 import { ProvenanceCockpitPanel } from './provenance/ProvenanceCockpitPanel';

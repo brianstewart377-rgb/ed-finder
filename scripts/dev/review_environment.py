@@ -9,19 +9,20 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
-# Direct script execution only adds scripts/dev to sys.path.
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 14):
+    raise SystemExit('review_environment.py requires exact CPython 3.14.x')
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from review_lab import api_contracts, browser_runner, lifecycle, network_policy, observations, reporting, scenarios, support_matrix
+from review_lab import api_contracts, browser_runner, lifecycle, network_policy, reporting, scenarios, support_matrix
 from review_lab.contract import CONFIRM_FLAG, REQUIRED_PHASE_NAMES, ReviewLabError, elapsed_ms
 from review_lab.process_registry import ReviewProcessRegistry
 
 ReviewEnvironmentError = ReviewLabError
 
 REVIEW_SUPPORT_ROUTE_MATRIX = tuple(route.to_dict() for route in support_matrix.REVIEW_SUPPORT_ROUTE_MATRIX)
-KNOWN_PRODUCT_OBSERVATIONS = observations.KNOWN_PRODUCT_OBSERVATIONS
 
 validate_review_database_name = lifecycle.validate_review_database_name
 validate_review_api_host = lifecycle.validate_review_api_host
@@ -48,8 +49,6 @@ phase_result = reporting.phase_result
 browser_phase_result = reporting.browser_phase_result
 first_failed_phase = reporting.first_failed_phase
 evaluate_browser_console = network_policy.evaluate_browser_console
-validate_delta_fallback_sequence = network_policy.validate_delta_fallback_sequence
-evaluate_product_observations = observations.evaluate_product_observations
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -97,11 +96,9 @@ def _default_failure_code_for_phase(phase_name: str) -> str:
         'static': 'STATIC_CONTAINMENT_FAILED',
         'stack': 'REVIEW_STACK_START_FAILED',
         'api_contracts': 'UNEXPECTED_API_ERROR',
-        'browser_desktop': 'BROWSER_JOURNEY_FAILED',
-        'browser_accessibility': 'BROWSER_JOURNEY_FAILED',
+        'browser_synthetic': 'BROWSER_JOURNEY_FAILED',
         'browser_console': 'UNEXPECTED_BROWSER_CONSOLE_ERROR',
         'teardown': 'DOCKER_BASELINE_NOT_RESTORED',
-        'product_observations': 'UNEXPECTED_PRODUCT_OBSERVATION',
     }[phase_name]
 
 
@@ -109,14 +106,6 @@ def _timed_call(callback):
     started_at = time.monotonic()
     value = callback()
     return {'value': value, 'duration_ms': elapsed_ms(started_at)}
-
-
-def _blocking_product_observations(observations_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        observation
-        for observation in observations_list
-        if observation.get('observedInRun') and observation.get('productAcceptanceReady') is False
-    ]
 
 
 def _mark_failed_phase(phases: dict[str, dict[str, Any]], phase_name: str, exc: ReviewEnvironmentError) -> None:
@@ -156,19 +145,17 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
         'phase_results': phases,
         'support_route_matrix': REVIEW_SUPPORT_ROUTE_MATRIX,
         'support_route_matrix_complete': False,
-        'delta_503_fallback_correlation_verified': False,
+        'synthetic_failure_injection_verified': False,
         'unexpected_console_errors': [],
         'unexpected_api_errors': [],
-        'known_product_observations': [],
-        'unexpected_product_observations': [],
         'docker_baseline_restored': False,
         'static_test_count': 0,
         'environment_ready': False,
-        'product_acceptance_ready': False,
         'first_failure_phase': None,
         'failure_code': None,
         'failure_summary': None,
         'skipped_phases': [],
+        'product_acceptance_owned_here': False,
     }
 
     try:
@@ -204,16 +191,12 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
         if mode == 'full':
             browser_result = _timed_call(lambda: run_browser_phase(context.run_dir, selected_scenarios, process_registry))
             browser_value = browser_result['value']
-            phases['browser_desktop'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_desktop'])
-            phases['browser_accessibility'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_accessibility'])
+            phases['browser_synthetic'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_synthetic'])
             phases['browser_console'] = browser_phase_result(browser_result['duration_ms'], browser_value['browser_console'])
-            phases['product_observations'] = browser_phase_result(browser_result['duration_ms'], browser_value['product_observations'])
-            report['delta_503_fallback_correlation_verified'] = browser_value['delta_503_fallback_correlation_verified']
+            report['synthetic_failure_injection_verified'] = browser_value['synthetic_failure_injection_verified']
             report['unexpected_console_errors'] = browser_value['unexpected_console_errors']
             report['unexpected_api_errors'] = browser_value['unexpected_api_errors']
-            report['known_product_observations'] = browser_value['known_product_observations']
-            report['unexpected_product_observations'] = browser_value['unexpected_product_observations']
-            first_browser_failure = first_failed_phase(phases, start_at='browser_desktop')
+            first_browser_failure = first_failed_phase(phases, start_at='browser_synthetic')
             if first_browser_failure is not None:
                 failed_phase_name, failed_phase = first_browser_failure
                 verification_error = ReviewEnvironmentError(
@@ -224,12 +207,8 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                 report['first_failure_phase'] = failed_phase_name
             else:
                 report['environment_ready'] = True
-                report['product_acceptance_ready'] = (
-                    phases['product_observations']['status'] == 'passed'
-                    and not _blocking_product_observations(report['known_product_observations'])
-                )
         else:
-            for phase_name in ('browser_desktop', 'browser_accessibility', 'browser_console', 'product_observations'):
+            for phase_name in ('browser_synthetic', 'browser_console'):
                 phases[phase_name] = phase_result(
                     status='skipped',
                     duration_ms=0,
@@ -238,7 +217,6 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                     safe_diagnostics={'reason': 'quick mode omits browser verification'},
                 )
             report['environment_ready'] = True
-            report['product_acceptance_ready'] = False
     except ReviewEnvironmentError as exc:
         verification_error = exc
         failed_phase_name = next((name for name in REQUIRED_PHASE_NAMES if phases[name]['status'] == 'skipped'), 'static')
@@ -252,14 +230,14 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
             down_review_stack()
             baseline_after = capture_docker_baseline()
             mismatch = compare_docker_baseline(baseline_before, baseline_after)
-            if mismatch['containers_added'] or mismatch['containers_removed'] or mismatch['volumes_added'] or mismatch['volumes_removed']:
+            if any(mismatch.values()):
                 raise ReviewEnvironmentError(
                     'Docker baseline was not restored after verification.',
                     failure_code='DOCKER_BASELINE_NOT_RESTORED',
                     safe_diagnostics=mismatch,
                 )
             remaining_review_resources = list_review_owned_resources()
-            if remaining_review_resources['containers'] or remaining_review_resources['volumes']:
+            if any(remaining_review_resources.values()):
                 raise ReviewEnvironmentError(
                     'Review-owned Docker resources remained after teardown.',
                     failure_code='REVIEW_RESOURCES_NOT_REMOVED',
@@ -273,6 +251,7 @@ def verify_review_environment(*, mode: str = 'full', scenario: str = 'all') -> d
                 safe_diagnostics={
                     'baseline_container_count': len(baseline_after['containers']),
                     'baseline_volume_count': len(baseline_after['volumes']),
+                    'baseline_network_count': len(baseline_after['networks']),
                     'remaining_review_resources': remaining_review_resources,
                     'owned_processes': process_registry.safe_diagnostics(),
                 },

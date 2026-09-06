@@ -1,0 +1,29 @@
+# Explicit importer and synchronous-tooling validation owned by the CPython
+# 3.14 CI lane. Unit paths are also eligible for the normal backend suite;
+# integration paths run with the lane's disposable PostgreSQL 18 service.
+tests/test_backfill_station_body_links.py
+tests/test_build_archetype_scores_limit.py
+tests/test_build_clusters.py
+tests/test_build_grid_psycopg3_runtime.py
+tests/test_data_trust_runtime.py
+tests/test_edsm_station_enrichment_probe.py
+tests/test_edsm_station_normalization.py
+tests/test_evidence_key_parity.py
+tests/test_import_spansh_checkpoint_failure_handling.py
+tests/test_import_spansh_ring_rejection_filter.py
+tests/test_import_spansh_runtime.py
+tests/test_importer_api_source_resolver.py
+tests/test_operational_script_hardening.py
+tests/test_ratings_breakdown.py
+tests/test_ratings_rationale.py
+tests/test_regional_analysis.py
+tests/test_ring_data_model.py
+tests/test_smoke.py
+tests/test_stage17n2c_data_trust.py
+tests/test_stage17n2d_backfill_framework.py
+tests/test_station_body_resolver.py
+tests/integration/test_build_regional_analysis_candidate_pool.py
+tests/integration/test_build_topology_dirty_query.py
+tests/integration/test_import_spansh_body_upsert.py
+tests/integration/test_import_spansh_ring_upsert.py
+tests/integration/test_import_spansh_systems_delta_upsert.py

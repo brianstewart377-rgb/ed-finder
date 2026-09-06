@@ -22,7 +22,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev/doctor.ps1 -RunP
 Run the preflight from the repository root:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python -B scripts/dev/test_env_preflight.py
+make test-env-check
 ```
 
 Windows equivalent:
@@ -70,7 +70,7 @@ disposable for that run. Local work should prefer `127.0.0.1:55432`.
 Run the guardrails directly:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python -B -m pytest tests/test_db_isolation_guardrails.py -p no:cacheprovider
+make test-db-isolation
 ```
 
 Windows equivalent:
@@ -185,4 +185,3 @@ Windows equivalent:
 The resolver is fail-closed for source-of-truth unavailability, branch mismatch, and current branch/head matches in the active invalid-state denylist. The denylist is intentionally tiny; historical archive entries do not become operational blockers by implication.
 
 Branch `work` is non-authoritative for Stage 19/test-env operations unless explicitly declared scratch or docs-only. Stage 19 remains paused while test-environment hardening proceeds.
-

@@ -5,4 +5,4 @@ export type {
   JournalImportParseResult,
   JournalImportParseSummary,
   JournalParserState,
-} from '@/lib/journalParsing';
+} from '@ed-finder/planner-core/journal';

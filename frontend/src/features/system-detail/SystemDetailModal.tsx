@@ -4,7 +4,7 @@ import type { SystemArchetypeResponse, SystemDetail } from '@/types/api';
 import {
   type ColonyProjectObjective,
   type ColonyProjectStartApproach,
-} from '@/features/colony-planner/plannerDraftContext';
+} from '@ed-finder/planner-core/plannerDraftContext';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { useSystemDetail } from './useSystemDetail';
 import { useSystemArchetype } from './useSystemArchetype';

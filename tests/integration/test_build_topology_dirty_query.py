@@ -4,7 +4,7 @@ import os
 import re
 from pathlib import Path
 
-import psycopg2
+import psycopg
 import pytest
 
 os.environ.setdefault('LOG_FILE', os.devnull)
@@ -68,7 +68,7 @@ def _extract_topo_dirty_inner_query() -> str:
 
 @pytest.fixture
 def pg_conn():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
 
     def _cleanup():

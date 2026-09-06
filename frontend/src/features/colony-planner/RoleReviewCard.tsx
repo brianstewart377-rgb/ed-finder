@@ -1,5 +1,5 @@
-import { roleCompactLabel } from './colonyRoles';
-import type { RoleReviewResult } from './colonyRoleReview';
+import { roleCompactLabel } from '@ed-finder/planner-core/colonyRoles';
+import type { RoleReviewResult } from '@ed-finder/planner-core/colonyRoleReview';
 
 export function RoleReviewCard({
   title = 'Strategic Role Review',

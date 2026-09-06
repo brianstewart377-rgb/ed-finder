@@ -41,3 +41,8 @@ def test_docker_compose_build_uses_image_build_timeout_not_stack_readiness():
     assert 'TIMEOUTS.image_build' in build_line, (
         f'review-api build must use TIMEOUTS.image_build, not stack_readiness: {build_line!r}'
     )
+
+
+def test_cypress_browser_matrix_has_a_bounded_dedicated_timeout():
+    assert 300 <= TIMEOUTS.cypress <= 600
+    assert not hasattr(TIMEOUTS, 'playwright')
