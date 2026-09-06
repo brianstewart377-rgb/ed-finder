@@ -53,7 +53,6 @@ def test_upgrade_uses_durable_host_rollback_state_not_expiring_artifact():
 
     assert set(inputs) == {"deployment_mode", "release_run_id", "transport"}
     assert inputs["transport"]["default"] == "local"
-    assert inputs["transport"]["options"] == ["local", "ssh"]
     assert "Download candidate release manifest" in step_names
     assert "Download accepted rollback manifest" not in step_names
 

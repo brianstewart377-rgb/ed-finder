@@ -1,35 +1,48 @@
-"""The selected Actions interpreter may live outside system PATH."""
-import os
-import runpy
+"""The bootstrap must not execute an interpreter from the coding worker cache."""
 from pathlib import Path
-
-import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.parametrize("validator_result", [0, 78])
-def test_toolcache_validator_survives_system_path_reset(tmp_path, validator_result):
-    scope = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_local_transport.py"))
-    run_local = scope["run_local"]
-    # Replace only the Python stub with an executable outside the fixed PATH.
-    run_local.__globals__["STUBS"] = scope["STUBS"].replace(
-        'python3.14() { cat >/dev/null; return "${TEST_PYTHON_RC:-0}"; }', ""
-    )
-    toolcache = tmp_path / "toolcache" / "bin"
-    toolcache.mkdir(parents=True)
-    validator = toolcache / "python3.14"
-    validator.write_text(
-        '#!/bin/bash\ncat >/dev/null\nprintf "selected\n" > "$TEST_ROOT/validator-used"\n'
-        + f"exit {validator_result}\n"
-    )
-    validator.chmod(0o700)
-    result = run_local(tmp_path, ["provision"], PATH=str(toolcache) + os.pathsep + os.environ["PATH"])
-    assert result.returncode == validator_result, result.stderr
-    assert (tmp_path / "validator-used").read_text().strip() == "selected"
-    calls = tmp_path / "sudo-calls"
-    if validator_result:
-        assert not calls.exists()
-    else:
-        assert "PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" in calls.read_text()
-        assert str(toolcache) not in calls.read_text()
+def test_privileged_bootstrap_uses_only_root_os_interpreter_in_isolated_mode():
+    for file, name in (("v3-live-checkpoint-control.yml", "provision"),
+                       ("v3-application-live-checkpoint-preflight.yml", "apply-local")):
+        job = yaml.safe_load((ROOT / ".github/workflows" / file).read_text())["jobs"][name]
+        step = next(step for step in job["steps"] if "run" in step)
+        assert "/usr/bin/python3 -I -c" in step["run"]
+        assert "pythonLocation" not in step["run"]
+        assert "command -v python" not in step["run"]
+        assert "/usr/bin/env -i" in step["run"]
+    local = (ROOT / "scripts/operator/actions/v3-live-checkpoint-local.sh").read_text()
+    assert "python3.14 -c" in local
+    assert "sys.version_info[:2]==(3,14)" in local
+    assert "runuser -u codex -- env -i" in local
+    assert "systemctl restart" not in local
+    assert "trap cleanup EXIT" in local
+    assert local.index("logged_in=true") < local.index("docker login")
+    assert "docker logout ghcr.io" in local
+
+
+def test_checkpoint_workflow_yaml_has_no_duplicate_keys():
+    class UniqueKeys(yaml.SafeLoader):
+        pass
+    def construct_mapping(loader, node, deep=False):
+        keys = [loader.construct_object(key, deep=deep) for key, _ in node.value]
+        assert len(keys) == len(set(keys)), f"Duplicate YAML key: {keys}"
+        return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+    UniqueKeys.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, construct_mapping)
+    for name in ("v3-live-checkpoint-control.yml", "v3-application-live-checkpoint-preflight.yml"):
+        yaml.load((ROOT / ".github/workflows" / name).read_text(), Loader=UniqueKeys)
+
+
+def test_bootstrap_preserves_script_execution_without_setuid_or_group_write(tmp_path):
+    import runpy
+    import tarfile
+    helpers = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_local_transport.py"))
+    module = helpers["load_module"]()
+    member = tarfile.TarInfo("scripts/apply_migrations.sh")
+    member.mode = 0o4777
+    payload, digest = helpers["envelope"](member)
+    module.unpack_bundle(payload, digest, tmp_path)
+    assert (tmp_path / member.name).stat().st_mode & 0o7777 == 0o755

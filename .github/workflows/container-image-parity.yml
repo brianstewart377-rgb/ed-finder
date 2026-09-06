@@ -166,6 +166,10 @@ jobs:
             --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "${GITHUB_SHA}"
           docker run --rm --entrypoint sh ed-finder-release-web:container-parity -c \
             'test -f /usr/share/nginx/html/index.html && test -f /usr/share/nginx/html/200.html'
+          for page in index.html 200.html; do
+            docker run --rm --entrypoint cat ed-finder-release-web:container-parity \
+              "/usr/share/nginx/html/$page" | grep -F "<meta name=\"edfinder-build-sha\" content=\"${GITHUB_SHA}\">" >/dev/null
+          done
 
       - name: Prepare Compose environment
         run: cp env.example .env

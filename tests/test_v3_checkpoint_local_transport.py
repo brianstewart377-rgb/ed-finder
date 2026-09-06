@@ -1,190 +1,226 @@
-"""Run the real local transport with every host/service/privilege call stubbed."""
-from __future__ import annotations
-
+"""Executable regressions for the sealed, worktree-independent host handoff."""
+import hashlib
 import importlib.util
+import io
 import json
-import os
+import shlex
 import subprocess
 import sys
+import tarfile
+import tempfile
+import types
+import zipfile
 from pathlib import Path
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL = ROOT / 'scripts/operator/actions/v3-live-checkpoint-local.sh'
-SHA = 'a' * 40
-UNITS = '\n'.join(sorted([
-    'actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker.service',
-    'actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-2.service',
-    'actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-3.service',
-]))
-STUBS = r'''
-hostname() { printf '%s\n' "${TEST_HOST:-vmi3542235}"; }
-uname() { echo x86_64; }
-id() {
-  case "$1" in -un) echo codex;; -u|-g) echo "${TEST_UID:-1001}";; *) return 91;; esac
-}
-python3.14() { cat >/dev/null; return "${TEST_PYTHON_RC:-0}"; }
-systemctl() {
-  printf '%s\n' "$TEST_UNITS"
-}
-git() {
-  if [ "$1" = rev-parse ]; then echo "${TEST_HEAD:-$GITHUB_SHA}";
-  elif [ "$1" = archive ]; then
-    printf '%s\n' "$*" >> "$TEST_ROOT/archive-calls"
-    /usr/bin/tar -cf - --files-from /dev/null
-  else return 91; fi
-}
-mktemp() { mkdir "$TEST_ROOT/work"; printf '%s\n' "$TEST_ROOT/work"; }
-sudo() {
-  printf '%s\n' "$*" >> "$TEST_ROOT/sudo-calls"
-  case " $* " in
-    *' docker login '*) cat >/dev/null; return "${TEST_LOGIN_RC:-0}";;
-    *' docker logout '*) return "${TEST_LOGOUT_RC:-0}";;
-    *) printf '{"status":"accepted"}\n'; return "${TEST_APPLY_RC:-0}";;
-  esac
-}
-source "$TEST_SCRIPT" "$@"
-'''
+SOURCE = ROOT / "scripts/operator/v3_checkpoint_bootstrap.py"
+ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
+SHA = "a" * 40
 
 
-def run_local(tmp_path: Path, args: list[str], **overrides):
-    candidate = tmp_path / 'candidate'
-    candidate.mkdir(exist_ok=True)
-    (candidate / 'v3-application-release.json').write_text('{}\n')
-    (candidate / 'v3-application-release.json.sha256').write_text('fixture\n')
-    env = {
-        **os.environ, 'TEST_ROOT': str(tmp_path), 'RUNNER_TEMP': str(tmp_path),
-        'TEST_SCRIPT': str(LOCAL), 'TEST_UNITS': UNITS,
-        'GITHUB_REPOSITORY': 'brianstewart377-rgb/ed-finder',
-        'GITHUB_REF': 'refs/heads/main', 'GITHUB_SHA': SHA,
-        'GITHUB_EVENT_NAME': 'issue_comment' if args[0] == 'provision' else 'workflow_dispatch',
-        'GHCR_TOKEN': 'synthetic-unit-test-token', **overrides,
-    }
-    return subprocess.run(['bash', '-c', STUBS, '_', *args], env=env,
-                          text=True, capture_output=True, timeout=15, check=False)
-
-
-@pytest.mark.parametrize('overrides', [
-    {'GITHUB_REF': 'refs/heads/unreviewed'},
-    {'GITHUB_REPOSITORY': 'other/repository'},
-    {'GITHUB_SHA': 'not-a-sha'}, {'TEST_HEAD': 'b' * 40},
-    {'TEST_HOST': 'wrong-host'}, {'TEST_UID': '0'},
-    {'TEST_UNITS': UNITS + '\nactions.runner.unexpected.service'},
-    {'TEST_PYTHON_RC': '78'}, {'GITHUB_EVENT_NAME': 'pull_request'},
-])
-def test_untrusted_or_wrong_host_request_stops_before_privilege(tmp_path, overrides):
-    result = run_local(tmp_path, ['provision'], **overrides)
-    assert result.returncode != 0
-    assert not (tmp_path / 'sudo-calls').exists()
-    assert not (tmp_path / 'work').exists()
-
-
-@pytest.mark.parametrize('args', [
-    ['unknown'], ['provision', 'extra'], ['deploy'],
-    ['deploy', 'delete', '1'], ['deploy', 'bootstrap', '1;echo-injected'],
-    ['deploy', 'upgrade', '0'], ['deploy', 'upgrade', '1', 'extra'],
-])
-def test_only_fixed_operations_and_typed_arguments_are_executable(tmp_path, args):
-    result = run_local(tmp_path, args)
-    assert result.returncode != 0
-    assert not (tmp_path / 'sudo-calls').exists()
-
-
-def test_provision_archives_exact_commit_and_invokes_only_reviewed_root_script(tmp_path):
-    result = run_local(tmp_path, ['provision'])
-    assert result.returncode == 0, result.stderr
-    calls = (tmp_path / 'sudo-calls').read_text()
-    archive = (tmp_path / 'archive-calls').read_text()
-    assert f'archive {SHA} ' in archive
-    assert 'scripts/seed_check.sh sql deploy/v3-live-checkpoint/target-authority.json' in archive
-    assert 'CHECKPOINT_OPERATOR_UID=1001 CHECKPOINT_OPERATOR_GID=1001 CHECKPOINT_OPERATOR_USER=codex' in calls
-    assert 'bash scripts/operator/actions/v3-live-checkpoint-provision.sh' in calls
-    assert 'docker login' not in calls
-    assert 'synthetic-unit-test-token' not in calls
-    assert not (tmp_path / 'work').exists()
-
-
-@pytest.mark.parametrize('mode', ['bootstrap', 'upgrade'])
-@pytest.mark.parametrize('overrides, expected_rc', [
-    ({}, 0), ({'TEST_LOGIN_RC': '1'}, 1),
-    ({'TEST_APPLY_RC': '78'}, 78), ({'TEST_LOGOUT_RC': '1'}, 78),
-])
-def test_deploy_refreshes_nonroot_groups_and_always_logs_out(tmp_path, mode, overrides, expected_rc):
-    result = run_local(tmp_path, ['deploy', mode, '42'], **overrides)
-    assert result.returncode == expected_rc, result.stderr
-    calls = (tmp_path / 'sudo-calls').read_text().splitlines()
-    assert 'docker login ghcr.io -u brianstewart377-rgb --password-stdin' in calls[0]
-    assert 'docker logout ghcr.io' in calls[-1]
-    assert all('-n -u codex -- env -i' in line for line in calls)
-    if not overrides.get('TEST_LOGIN_RC'):
-        assert f'--mode {mode} --candidate-run-id 42' in calls[1]
-        assert 'v3-app-live-checkpoint-preflight.sh' in calls[1]
-    else:
-        assert len(calls) == 2
-    assert 'synthetic-unit-test-token' not in '\n'.join(calls) + result.stdout + result.stderr
-    assert not (tmp_path / 'work').exists()
-
-
-def test_workflows_keep_trusted_code_and_mutation_separation():
-    control = yaml.safe_load((ROOT / '.github/workflows/v3-live-checkpoint-control.yml').read_text())
-    deploy = yaml.safe_load((ROOT / '.github/workflows/v3-application-live-checkpoint-preflight.yml').read_text())
-    for job in (control['jobs']['provision'], deploy['jobs']['deploy']):
-        assert 'self-hosted' in str(job['runs-on']) and 'codex' in str(job['runs-on'])
-        assert "github.ref == 'refs/heads/main'" in job['if']
-        assert job['environment'] == 'v3-live-checkpoint'
-        checkout = next(s for s in job['steps'] if s.get('uses', '').startswith('actions/checkout@'))
-        assert checkout['with']['ref'] == '${{ github.sha }}'
-        assert checkout['with']['persist-credentials'] is False
-    assert control['jobs']['provision']['concurrency'] == deploy['concurrency']
-    assert control['jobs']['release']['runs-on'] == 'ubuntu-24.04'
-    assert control['jobs']['deploy']['runs-on'] == 'ubuntu-24.04'
-    assert deploy['jobs']['public-smoke']['runs-on'] == 'ubuntu-24.04'
-    assert deploy['jobs']['public-smoke']['needs'] == 'deploy'
-    assert 'secrets.' not in json.dumps(control)
-    # Default local transport needs no SSH settings; retained SSH compatibility
-    # steps must be explicitly opted into and cannot block the local path.
-    inputs = deploy.get('on', deploy.get(True))['workflow_dispatch']['inputs']
-    assert inputs['transport']['default'] == 'local'
-    for step in deploy['jobs']['deploy']['steps']:
-        if 'secrets.V3_LIVE_CHECKPOINT' in json.dumps(step):
-            assert "inputs.transport == 'ssh'" in step['if']
-    local_step = next(s for s in deploy['jobs']['deploy']['steps'] if s['name'] == 'Run bounded Contabo local deployment boundary')
-    assert local_step['if'] == "inputs.transport != 'ssh'"
-    assert 'secrets.' not in json.dumps(local_step)
-    local = LOCAL.read_text()
-    assert 'systemctl restart' not in local and 'usermod' not in local
-    assert 'codex exec' not in local and 'git pull' not in local
-
-
-def load_public_smoke(monkeypatch):
-    monkeypatch.syspath_prepend(str(ROOT / 'scripts/operator'))
-    path = ROOT / 'scripts/operator/v3_checkpoint_public_smoke.py'
-    spec = importlib.util.spec_from_file_location('public_checkpoint_smoke_test', path)
+def load_module(path=SOURCE):
+    spec = importlib.util.spec_from_file_location("checkpoint_bootstrap_test", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-def test_public_smoke_reuses_canonical_checks_on_fixed_public_fqdn(monkeypatch):
-    module = load_public_smoke(monkeypatch)
+def envelope(extra=None, source=SHA, operation="provision"):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w") as archive:
+        files = {ENTRY: b"echo verified-operation\n",
+                 "operation.json": json.dumps({"source_sha": source, "operation": operation}).encode()}
+        for name, data in files.items():
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            archive.addfile(member, io.BytesIO(data))
+        if extra is not None:
+            archive.addfile(extra, io.BytesIO(b""))
+    payload = output.getvalue()
+    zipped = io.BytesIO()
+    with zipfile.ZipFile(zipped, "w") as archive:
+        archive.writestr("operation.tar", payload)
+    return zipped.getvalue(), hashlib.sha256(payload).hexdigest()
+
+
+def test_sealed_bundle_unpacks_without_consulting_worktree(tmp_path):
+    module = load_module()
+    payload, digest = envelope()
+    module.unpack_bundle(payload, digest, tmp_path)
+    assert (tmp_path / ENTRY).read_text() == "echo verified-operation\n"
+    assert (tmp_path / ENTRY).stat().st_mode & 0o222 == 0o200
+
+
+def test_wrong_digest_stops_before_any_operation_file_is_written(tmp_path):
+    module = load_module()
+    payload, _ = envelope()
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        module.unpack_bundle(payload, "0" * 64, tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("kind", ["parent", "absolute", "symlink", "hardlink", "duplicate"])
+def test_authenticated_bundle_still_rejects_unsafe_members(tmp_path, kind):
+    module = load_module()
+    member = tarfile.TarInfo({"parent": "../outside", "absolute": "/outside",
+                              "duplicate": ENTRY}.get(kind, "unsafe"))
+    if kind in ("symlink", "hardlink"):
+        member.type = tarfile.SYMTYPE if kind == "symlink" else tarfile.LNKTYPE
+        member.linkname = "/etc/passwd"
+    payload, digest = envelope(member)
+    with pytest.raises(ValueError):
+        module.unpack_bundle(payload, digest, tmp_path)
+    assert not (tmp_path.parent / "outside").exists()
+
+
+@pytest.mark.parametrize("drift", ["none", "checksum", "source", "operation"])
+def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp_path, monkeypatch, drift):
+    module = load_module()
+    worktree = tmp_path / "coding-worktree"
+    (worktree / ENTRY).parent.mkdir(parents=True)
+    (worktree / ENTRY).write_text("echo COMPROMISED\n")
+    monkeypatch.chdir(worktree)
+    payload, digest = envelope(source="b" * 40 if drift == "source" else SHA,
+                               operation="deploy" if drift == "operation" else "provision")
+    if drift == "checksum":
+        digest = "0" * 64
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), "123", digest, SHA, "provision"])
+    monkeypatch.setattr(sys, "stdin", io.StringIO("synthetic-token"))
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.os, "uname", lambda: types.SimpleNamespace(nodename="vmi3542235", machine="x86_64"))
+    monkeypatch.setattr(module.socket, "getfqdn", lambda: "vmi3542235.contaboserver.net")
+    real_temp = tempfile.TemporaryDirectory
+    monkeypatch.setattr(module.tempfile, "TemporaryDirectory",
+                        lambda **kw: real_temp(prefix=kw["prefix"], dir=tmp_path))
+    executed = []
+    def run(command, **kwargs):
+        if command[0] == "/usr/bin/curl":
+            assert "--location-trusted" not in command
+            assert kwargs["input"] == b"Authorization: Bearer synthetic-token\n"
+            assert "synthetic-token" not in " ".join(command)
+            return subprocess.CompletedProcess(command, 0, stdout=payload)
+        private = kwargs["cwd"]
+        assert private != worktree and not private.is_relative_to(worktree)
+        assert (private / ENTRY).read_text() == "echo verified-operation\n"
+        assert private.stat().st_mode & 0o022 == 0
+        assert kwargs["env"] == {"PATH": module.PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}
+        executed.append(command)
+        return subprocess.CompletedProcess(command, 0)
+    monkeypatch.setattr(module.subprocess, "run", run)
+    if drift == "none":
+        assert module.main() == 0
+        assert executed == [["/bin/bash", ENTRY]]
+    else:
+        with pytest.raises(ValueError):
+            module.main()
+        assert executed == []
+    assert not list(tmp_path.glob("edfinder-v3-*"))
+
+
+def test_privileged_jobs_have_no_worktree_or_toolcache_execution():
+    control = yaml.safe_load((ROOT / ".github/workflows/v3-live-checkpoint-control.yml").read_text())
+    deploy = yaml.safe_load((ROOT / ".github/workflows/v3-application-live-checkpoint-preflight.yml").read_text())
+    for job in (control["jobs"]["provision"], deploy["jobs"]["apply-local"]):
+        assert job["runs-on"] == ["self-hosted", "Linux", "X64", "codex"]
+        assert "github.ref == 'refs/heads/main'" in job["if"]
+        assert job["environment"] == "v3-live-checkpoint"
+        assert all("checkout" not in step.get("uses", "") and "setup-python" not in step.get("uses", "") for step in job["steps"])
+        step = next(step for step in job["steps"] if "run" in step)
+        words = shlex.split(step["run"])
+        assert words[words.index("-c") + 1] == SOURCE.read_text()
+        assert "/usr/bin/sudo -n /usr/bin/env -i" in step["run"]
+        assert "/usr/bin/python3 -I -c" in step["run"]
+        assert "needs." in step["env"]["BUNDLE_SHA"]
+    for job in (control["jobs"]["prepare-provision"], deploy["jobs"]["deploy"]):
+        assert job["runs-on"] == "ubuntu-24.04"
+        checkout = next(step for step in job["steps"] if "checkout@" in step.get("uses", ""))
+        assert checkout["with"] == {"ref": "${{ github.sha }}", "persist-credentials": False}
+    assert control["jobs"]["provision"]["concurrency"] == deploy["concurrency"]
+    assert deploy["jobs"]["public-smoke"]["runs-on"] == "ubuntu-24.04"
+    assert deploy["jobs"]["public-smoke"]["needs"] == ["deploy", "apply-local"]
+
+
+def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monkeypatch):
+    path = ROOT / "scripts/operator/v3_checkpoint_bundle.py"
+    module = load_module(path)
+    payload, _ = envelope()
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        # Use only the entry from this fixture, builder adds operation.json itself.
+        members = tarfile.open(fileobj=io.BytesIO(archive.read("operation.tar")))
+        data = members.extractfile(ENTRY).read()
+    git_tar = io.BytesIO()
+    with tarfile.open(fileobj=git_tar, mode="w") as archive:
+        member = tarfile.TarInfo(ENTRY); member.size = len(data)
+        archive.addfile(member, io.BytesIO(data))
     calls = []
-    monkeypatch.setattr(module, 'wait_for_origin_ready', lambda *args: calls.append(args))
-    monkeypatch.setattr(module, 'smoke_origin', lambda *args: {'/api/health': {'status': 200}})
-    receipt = module.verify_public_checkpoint(SHA)
-    assert calls == [('http://vmi3542235.contaboserver.net', SHA)]
-    assert receipt['status'] == 'accepted' and receipt['production'] is False
-    with pytest.raises(module.DeploymentError):
-        module.verify_public_checkpoint('invalid')
+    def archive(command):
+        calls.append(command)
+        return git_tar.getvalue()
+    monkeypatch.setattr(module.subprocess, "check_output", archive)
+    output = tmp_path / "operation.tar"
+    gh_output = tmp_path / "outputs"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(gh_output))
+    monkeypatch.setattr(sys, "argv", [str(path), "provision", "--source", SHA, "--output", str(output)])
+    module.main()
+    assert calls[0][:3] == ["git", "archive", SHA]
+    with tarfile.open(output) as archive:
+        assert json.load(archive.extractfile("operation.json")) == {"operation": "provision", "source_sha": SHA}
+    assert gh_output.read_text() == "bundle_sha256=" + hashlib.sha256(output.read_bytes()).hexdigest() + "\n"
 
 
-def test_failed_public_smoke_writes_stopped_receipt(monkeypatch, tmp_path):
-    module = load_public_smoke(monkeypatch)
-    def fail(_sha):
-        raise module.DeploymentError('public endpoint unavailable')
-    monkeypatch.setattr(module, 'verify_public_checkpoint', fail)
-    receipt_path = tmp_path / 'receipt.json'
-    monkeypatch.setattr(sys, 'argv', ['smoke', '--receipt', str(receipt_path)])
-    assert module.main() == 78
-    assert json.loads(receipt_path.read_text())['status'] == 'stopped'
+@pytest.mark.parametrize("login, apply, logout, expected", [
+    (0, 0, 0, 0), (1, 0, 0, 1), (0, 78, 0, 78), (0, 0, 1, 78),
+])
+def test_nonroot_deploy_cleanup_survives_login_apply_and_logout_failure(
+    tmp_path, login, apply, logout, expected
+):
+    # Real dispatcher; every identity/service/privilege operation is a shell stub.
+    # No provision entrypoint or real runuser is ever invoked.
+    import os
+    (tmp_path / "operation.json").write_text(json.dumps({
+        "operation": "deploy", "mode": "bootstrap", "release_run_id": "42",
+    }))
+    script = r'''
+id() { if [ "$#" = 1 ]; then echo 0; else echo 1234; fi; }
+stat() { if [ "$2" = %u ]; then echo 0; else echo 755; fi; }
+hostname() { echo vmi3542235; }
+uname() { echo x86_64; }
+systemctl() {
+  for suffix in '' '-2' '-3'; do
+    echo "actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker${suffix}.service"
+  done
+}
+python3.14() {
+  case "$*" in
+    *sys.version_info*) return 0;;
+    *) /usr/bin/python3 "$@";;
+  esac
+}
+runuser() {
+  printf '%s\n' "$*" >> "$TEST_ROOT/runuser-calls"
+  case " $* " in
+    *' docker login '*) cat >/dev/null; return "$TEST_LOGIN";;
+    *' docker logout '*) return "$TEST_LOGOUT";;
+    *) printf '{"status":"accepted"}\n'; return "$TEST_APPLY";;
+  esac
+}
+source "$TEST_DISPATCHER"
+'''
+    result = subprocess.run(["bash", "-c", script], cwd=tmp_path, env={
+        **os.environ, "TEST_ROOT": str(tmp_path), "TEST_LOGIN": str(login),
+        "TEST_LOGOUT": str(logout), "TEST_APPLY": str(apply),
+        "TEST_DISPATCHER": str(ROOT / ENTRY), "GHCR_TOKEN": "synthetic-secret",
+    }, text=True, capture_output=True, timeout=10, check=False)
+    assert result.returncode == expected, result.stderr
+    calls = (tmp_path / "runuser-calls").read_text().splitlines()
+    assert "docker login ghcr.io" in calls[0]
+    assert "docker logout ghcr.io" in calls[-1]
+    assert all("-u codex -- env -i" in call for call in calls)
+    if login:
+        assert len(calls) == 2
+    else:
+        assert "--mode bootstrap --candidate-run-id 42" in calls[1]
+    assert "synthetic-secret" not in "\n".join(calls) + result.stdout + result.stderr

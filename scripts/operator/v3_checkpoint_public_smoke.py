@@ -1,19 +1,51 @@
 #!/usr/bin/env python3
-"""External, credential-free verification of the fixed non-production checkpoint."""
+"""External, credential-free verification of the exact web AND API release."""
 from __future__ import annotations
 
 import argparse
 import json
 import os
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 from v3_checkpoint_deploy import (
-    DeploymentError,
-    TARGET_FQDN,
-    smoke_origin,
-    wait_for_origin_ready,
+    DeploymentError, TARGET_FQDN, get_origin, smoke_origin, wait_for_origin_ready,
 )
+
+
+class BuildIdentity(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.in_head = False
+        self.identities = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "head":
+            self.in_head = True
+        if tag == "meta" and self.in_head:
+            values = dict(attrs)
+            if values.get("name") == "edfinder-build-sha":
+                if len(values) != len(attrs):
+                    raise DeploymentError("duplicate web build identity attributes")
+                self.identities.append(values.get("content"))
+
+    def handle_endtag(self, tag):
+        if tag == "head":
+            self.in_head = False
+
+
+def verify_web_identity(body: bytes, content_type: str, source_sha: str) -> None:
+    if "text/html" not in content_type.lower():
+        raise DeploymentError("public web identity response is not HTML")
+    parser = BuildIdentity()
+    try:
+        parser.feed(body.decode("utf-8", errors="strict"))
+        parser.close()
+    except UnicodeError as exc:
+        raise DeploymentError("public web identity HTML is not UTF-8") from exc
+    if parser.identities != [source_sha]:
+        raise DeploymentError("public web build identity mismatch")
 
 
 def verify_public_checkpoint(source_sha: str) -> dict:
@@ -22,6 +54,12 @@ def verify_public_checkpoint(source_sha: str) -> dict:
     origin = "http://" + TARGET_FQDN
     wait_for_origin_ready(origin, source_sha)
     outcomes = smoke_origin(origin, source_sha)
+    # Read the actual root and the Svelte fallback, not an independently routed
+    # sidecar version endpoint: a current API must not mask stale frontend HTML.
+    for path in ("/", "/200.html"):
+        status, body, content_type = get_origin(origin, path)
+        verify_web_identity(body, content_type, source_sha)
+        outcomes[path] = {"status": status, "bytes": len(body), "web_build_sha": source_sha}
     return {
         "schema_version": "ed-finder/v3-live-checkpoint-public-smoke/v1",
         "status": "accepted", "origin": origin, "source_sha": source_sha,
