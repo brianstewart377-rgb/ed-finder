@@ -15,6 +15,7 @@ DOCKER_CONTEXT="edfinder-v3-checkpoint-local"
 DB_NAME="edfinder_checkpoint"
 DB_APP_ROLE="edfinder_checkpoint_app"
 DB_AUTHORITY="contabo-local-postgresql18-preview-seed-v1"
+NGINX_SITE="/etc/nginx/sites-available/edfinder-v3-checkpoint"
 RUNNERS=(
   actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker.service
   actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-2.service
@@ -59,6 +60,154 @@ verify_origin_authority() {
   docker port edfinder-v3-checkpoint-web 8080/tcp 2>/dev/null |
     grep -qx "127.0.0.1:$ORIGIN_PORT" ||
     fail "checkpoint web container does not own the authorized loopback origin"
+}
+
+# Read and replace state through no-follow descriptors; never chown a link target.
+atomic_checkpoint_file() {
+  python3.14 -c '
+import os, secrets, stat, sys
+path, uid, gid, mode = sys.argv[1:]
+uid, gid, mode = int(uid), int(gid), int(mode, 8)
+data = sys.stdin.buffer.read()
+if not data:
+    raise SystemExit("refusing an empty checkpoint state file")
+parent, name = os.path.split(path)
+dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+temporary = "." + name + "." + secrets.token_hex(16) + ".tmp"
+created = False
+def check_target():
+    try:
+        info = os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise SystemExit("checkpoint state target must be a single-link regular file")
+try:
+    check_target()
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                 0o600, dir_fd=dir_fd)
+    created = True
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+        handle.flush()
+        os.fchown(handle.fileno(), uid, gid)
+        os.fchmod(handle.fileno(), mode)
+        os.fsync(handle.fileno())
+    check_target()
+    os.replace(temporary, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    os.fsync(dir_fd)
+finally:
+    try:
+        if created:
+            os.unlink(temporary, dir_fd=dir_fd)
+    except FileNotFoundError:
+        pass
+    os.close(dir_fd)
+' "$1" "$2" "$3" "${4:-600}"
+}
+
+read_checkpoint_password() {
+  python3.14 - "$API_ENV" "$OP_UID" "$DB_EXISTS" "$NETWORK_GATEWAY" "$DB_NAME" "$DB_APP_ROLE" <<'PY'
+import os, re, stat, sys, urllib.parse
+path, uid, exists, gateway, database, role = sys.argv[1:]
+parent, name = os.path.split(path)
+dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+try:
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except FileNotFoundError:
+        if exists == "1":
+            raise SystemExit("existing checkpoint database lacks a complete API environment")
+        raise SystemExit(0)
+    with os.fdopen(fd, "r", encoding="utf-8") as handle:
+        info = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                or info.st_uid != int(uid) or stat.S_IMODE(info.st_mode) != 0o600):
+            raise SystemExit("checkpoint API environment has unsafe type, owner or mode")
+        if exists != "1":
+            raise SystemExit("API environment exists while checkpoint database is missing")
+        values = [line.split("=", 1)[1] for line in handle.read().splitlines()
+                  if line.startswith("DATABASE_URL=")]
+finally:
+    os.close(dir_fd)
+if len(values) != 1:
+    raise SystemExit("existing checkpoint database lacks one complete DATABASE_URL")
+try:
+    parsed = urllib.parse.urlsplit(values[0])
+    password = urllib.parse.unquote(parsed.password or "")
+    valid = (parsed.scheme == "postgresql" and parsed.username == role
+             and parsed.hostname == gateway and parsed.port == 5432
+             and parsed.path == "/" + database and not parsed.query and not parsed.fragment
+             and re.fullmatch(r"[0-9a-f]{48}", password) is not None)
+except ValueError:
+    valid = False
+if not valid:
+    raise SystemExit("checkpoint DATABASE_URL identity or password is invalid")
+print(password)
+PY
+}
+
+checkpoint_hba_document() {
+  python3.14 - "$PG_HBA" "$DB_NAME" "$DB_APP_ROLE" "$NETWORK_SUBNET" <<'PY'
+import ipaddress, pathlib, sys
+path, database, role, subnet = sys.argv[1:]
+subnet = str(ipaddress.ip_network(subnet, strict=True))
+lines = pathlib.Path(path).read_text(encoding="utf-8").splitlines(keepends=True)
+retained = [line for line in lines if not line.rstrip().endswith("# edfinder-v3-checkpoint")]
+# This must precede every broad rule and include directive: HBA is first-match.
+print(f"host {database} {role} {subnet} scram-sha-256 # edfinder-v3-checkpoint")
+print("".join(retained), end="")
+PY
+}
+
+verify_checkpoint_password_rejection() {
+  local diagnostic=""
+  # This deliberately differs from every valid 48-character hexadecimal password.
+  if diagnostic="$(env LC_ALL=C PGHOST="$NETWORK_GATEWAY" PGPORT=5432 \
+      PGUSER="$DB_APP_ROLE" PGDATABASE="$DB_NAME" PGPASSWORD=invalid-checkpoint-password \
+      PGCONNECT_TIMEOUT=5 psql -X -w -Atqc 'select 1' 2>&1)"; then
+    fail "checkpoint database accepted an incorrect password"
+  fi
+  printf '%s\n' "$diagnostic" | grep -Fq "password authentication failed for user \"$DB_APP_ROLE\"" ||
+    fail "checkpoint negative authentication probe did not prove password rejection"
+}
+
+verify_checkpoint_nginx_ownership() {
+  # Inspect every included config (not just sites-enabled). Do not print the dump.
+  local dump=""
+  dump="$(nginx -T 2>&1)" || fail "cannot inspect enabled nginx configuration"
+  printf '%s\n' "$dump" | python3.14 -c '
+import os, re, shlex, sys
+fqdn, managed, required = sys.argv[1:]
+fqdn = fqdn.lower().rstrip(".")
+managed = os.path.realpath(managed)
+dump = sys.stdin.read()
+if re.search(r"conflicting server name \"" + re.escape(fqdn) + r"\.?\"", dump, re.I):
+    raise SystemExit("conflicting nginx ownership of checkpoint FQDN")
+sections = re.split(r"^# configuration file (.+):\s*$", dump, flags=re.M)
+if len(sections) < 3:
+    raise SystemExit("nginx did not return an inspectable configuration dump")
+owned = 0
+for index in range(1, len(sections), 2):
+    source, body = sections[index:index + 2]
+    lexer = shlex.shlex(body, posix=True, punctuation_chars=";{}")
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    directive = []
+    for token in lexer:
+        if token and all(char in ";{}" for char in token):
+            if token.startswith(";") and directive and directive[0] == "server_name":
+                names = [value.lower().rstrip(".") for value in directive[1:]]
+                if fqdn in names:
+                    if os.path.realpath(source) != managed:
+                        raise SystemExit("competing nginx site owns checkpoint FQDN")
+                    owned += names.count(fqdn)
+            directive = []
+        else:
+            directive.append(token)
+if owned > 1 or (required == "required" and owned != 1):
+    raise SystemExit("checkpoint nginx FQDN must have exactly one managed declaration")
+' "$EXPECTED_FQDN" "$NGINX_SITE" "${1:-optional}"
 }
 
 [ "$(id -u)" -eq 0 ] || fail "root authority required"
@@ -153,16 +302,34 @@ runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q <<SQL
 ALTER SYSTEM SET listen_addresses = '127.0.0.1,$NETWORK_GATEWAY';
 ALTER SYSTEM SET password_encryption = 'scram-sha-256';
 SQL
-sed -i '/# edfinder-v3-checkpoint$/d' "$PG_HBA"
-printf 'host %s %s %s scram-sha-256 # edfinder-v3-checkpoint\n' \
-  "$DB_NAME" "$DB_APP_ROLE" "$NETWORK_SUBNET" >> "$PG_HBA"
+HBA_DOCUMENT="$(checkpoint_hba_document)"
+printf '%s\n' "$HBA_DOCUMENT" | atomic_checkpoint_file "$PG_HBA" \
+  "$(stat -c '%u' "$PG_HBA")" "$(stat -c '%g' "$PG_HBA")" "$(stat -c '%a' "$PG_HBA")"
 systemctl restart postgresql@18-main
+HBA_VERIFIED="$(runuser -u postgres -- psql -X -At -v ON_ERROR_STOP=1 \
+  -v checkpoint_db="$DB_NAME" -v checkpoint_role="$DB_APP_ROLE" \
+  -v checkpoint_subnet="$NETWORK_SUBNET" <<'SQL'
+SELECT count(*) = 1 FROM pg_hba_file_rules
+WHERE rule_number = 1 AND type = 'host'
+  AND database = ARRAY[:'checkpoint_db'] AND user_name = ARRAY[:'checkpoint_role']
+  AND address = host(network(:'checkpoint_subnet'::cidr))
+  AND netmask = host(netmask(:'checkpoint_subnet'::cidr))
+  AND auth_method = 'scram-sha-256' AND error IS NULL
+  AND NOT EXISTS (SELECT 1 FROM pg_hba_file_rules WHERE error IS NOT NULL);
+SQL
+)"
+[ "$HBA_VERIFIED" = t ] || fail "checkpoint SCRAM rule is not the first effective HBA rule"
 
 install -d -m 0700 -o "$OP_UID" -g "$OP_GID" \
   /etc/edfinder-v3-checkpoint "$STATE_ROOT" "$RECEIPT_DIR" "$DOCKER_CONFIG_DIR"
 
 DB_EXISTS="$(runuser -u postgres -- psql -X -Atqc \
   "select 1 from pg_database where datname='$DB_NAME'")"
+DB_PASSWORD="$(read_checkpoint_password)"
+if [ "$DB_EXISTS" != 1 ]; then
+  DB_PASSWORD="$(openssl rand -hex 24)"
+fi
+[[ "$DB_PASSWORD" =~ ^[0-9a-f]{48}$ ]] || fail "checkpoint database password format is invalid"
 DB_CREATED=false
 if [ "$DB_EXISTS" != 1 ]; then
   [ ! -e "$SCHEMA_RECEIPT" ] || fail "schema receipt exists while checkpoint database is missing"
@@ -171,43 +338,31 @@ if [ "$DB_EXISTS" != 1 ]; then
   runuser -u postgres -- env DATABASE_URL="$ADMIN_DATABASE_URL" bash scripts/seed_check.sh >&2
   DB_CREATED=true
 else
+  [ ! -L "$SCHEMA_RECEIPT" ] || fail "schema receipt must not be a symlink"
   [ -f "$SCHEMA_RECEIPT" ] || fail "existing checkpoint database lacks trusted schema receipt"
   [ "$(stat -c '%u' "$SCHEMA_RECEIPT")" = "$OP_UID" ] || fail "schema receipt owner changed"
   [ "$(stat -c '%a' "$SCHEMA_RECEIPT")" = 600 ] || fail "schema receipt mode changed"
 fi
 
-DB_PASSWORD=""
-if [ -f "$API_ENV" ]; then
-  DB_PASSWORD="$(python3.14 - "$API_ENV" <<'PY'
-import pathlib, sys, urllib.parse
-for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
-    if line.startswith("DATABASE_URL="):
-        parsed = urllib.parse.urlsplit(line.split("=", 1)[1].strip())
-        print(urllib.parse.unquote(parsed.password or ""))
-        break
-PY
-)"
-fi
-if [ -z "$DB_PASSWORD" ]; then
-  DB_PASSWORD="$(openssl rand -hex 24)"
-fi
-[[ "$DB_PASSWORD" =~ ^[0-9a-f]{48}$ ]] || fail "checkpoint database password format is invalid"
-
 ROLE_EXISTS="$(runuser -u postgres -- psql -X -Atqc \
   "select 1 from pg_roles where rolname='$DB_APP_ROLE'")"
 if [ "$ROLE_EXISTS" != 1 ]; then
+  [ "$DB_CREATED" = true ] || fail "existing checkpoint database lacks its application role"
   runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q <<SQL
 CREATE ROLE $DB_APP_ROLE LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 SQL
 fi
 
-PW_SQL="$(mktemp)"
-printf "ALTER ROLE %s PASSWORD '%s';\n" "$DB_APP_ROLE" "$DB_PASSWORD" > "$PW_SQL"
-chown postgres:postgres "$PW_SQL"
-chmod 0600 "$PW_SQL"
-runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q -f "$PW_SQL"
-rm -f -- "$PW_SQL"
-PW_SQL=""
+# A verification rerun must never rotate the credential held by a live container.
+if [ "$DB_CREATED" = true ]; then
+  PW_SQL="$(mktemp)"
+  printf "ALTER ROLE %s PASSWORD '%s';\n" "$DB_APP_ROLE" "$DB_PASSWORD" > "$PW_SQL"
+  chown postgres:postgres "$PW_SQL"
+  chmod 0600 "$PW_SQL"
+  runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q -f "$PW_SQL"
+  rm -f -- "$PW_SQL"
+  PW_SQL=""
+fi
 
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q <<SQL
 ALTER ROLE $DB_APP_ROLE NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
@@ -227,7 +382,8 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 SQL
 
 DATABASE_URL="postgresql://$DB_APP_ROLE:$DB_PASSWORD@$NETWORK_GATEWAY:5432/$DB_NAME"
-cat > "$API_ENV" <<EOF
+if [ "$DB_CREATED" = true ]; then
+  atomic_checkpoint_file "$API_ENV" "$OP_UID" "$OP_GID" <<EOF
 DATABASE_URL=$DATABASE_URL
 CORS_ORIGINS=http://$EXPECTED_FQDN
 REDIS_URL=redis://127.0.0.1:1/0
@@ -236,12 +392,12 @@ EDDN_SIMULATION_INGEST_ENABLED=false
 AUTH_COOKIE_SECURE=false
 FRONTIER_REDIRECT_URI=http://$EXPECTED_FQDN/api/auth/frontier/callback
 EOF
-chown "$OP_UID:$OP_GID" "$API_ENV"
-chmod 0600 "$API_ENV"
+fi
 
 READONLY="$(env PGDATABASE="$DATABASE_URL" psql -X -Atqc \
   "select current_setting('transaction_read_only')")"
 [ "$READONLY" = on ] || fail "checkpoint app database session is not read-only"
+verify_checkpoint_password_rejection
 PREVIEW_COUNTS="$(env PGDATABASE="$DATABASE_URL" psql -X -At -F '|' -qc \
   'select (select count(*) from systems),(select count(*) from ratings),(select count(*) from bodies),(select count(*) from stations),(select count(*) from galaxy_regions)')"
 [ "$PREVIEW_COUNTS" = "40|40|129|10|42" ] || fail "checkpoint preview dataset identity mismatch"
@@ -264,7 +420,7 @@ env PGDATABASE="$DATABASE_URL" psql -X -At -F '|' -q \
 
 RECEIPT_MODE=verify
 [ "$DB_CREATED" = false ] || RECEIPT_MODE=create
-python3.14 - "$RECEIPT_MODE" "$DB_AUTHORITY" "$OBSERVED_DB" "$OBSERVED_ADDRESS" "$OBSERVED_PORT" \
+SCHEMA_DOCUMENT="$(python3.14 - "$RECEIPT_MODE" "$DB_AUTHORITY" "$OBSERVED_DB" "$OBSERVED_ADDRESS" "$OBSERVED_PORT" \
   "$LEDGER_FILE" "$SCHEMA_RECEIPT" <<'PY'
 import datetime, hashlib, json, pathlib, sys
 
@@ -332,13 +488,13 @@ elif receipt_mode == "verify":
 else:
     raise SystemExit("unknown schema receipt mode")
 
-receipt.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(document, sort_keys=True, indent=2))
 PY
+)"
+printf '%s\n' "$SCHEMA_DOCUMENT" | atomic_checkpoint_file "$SCHEMA_RECEIPT" "$OP_UID" "$OP_GID"
 rm -f -- "$LEDGER_FILE"
 LEDGER_FILE=""
 
-chown "$OP_UID:$OP_GID" "$SCHEMA_RECEIPT"
-chmod 0600 "$SCHEMA_RECEIPT"
 SCHEMA_SHA="$(sha256sum "$SCHEMA_RECEIPT" | awk '{print $1}')"
 
 install -d -m 0700 -o "$OP_UID" -g "$OP_GID" "$DOCKER_CONFIG_DIR"
@@ -352,7 +508,8 @@ runuser -u "$OP_USER" -- env DOCKER_CONFIG="$DOCKER_CONFIG_DIR" \
   docker context inspect "$DOCKER_CONTEXT" --format '{{json .Endpoints.docker.Host}}' |
   grep -qx '"unix:///var/run/docker.sock"' || fail "local Docker context verification failed"
 
-cat > /etc/nginx/sites-available/edfinder-v3-checkpoint <<EOF
+verify_checkpoint_nginx_ownership
+cat > "$NGINX_SITE" <<EOF
 server {
   listen 80;
   listen [::]:80;
@@ -369,7 +526,7 @@ EOF
 ln -sfn /etc/nginx/sites-available/edfinder-v3-checkpoint \
   /etc/nginx/sites-enabled/edfinder-v3-checkpoint
 rm -f /etc/nginx/sites-enabled/default
-nginx -t >/dev/null
+verify_checkpoint_nginx_ownership required
 systemctl enable --now nginx >/dev/null
 systemctl reload nginx
 

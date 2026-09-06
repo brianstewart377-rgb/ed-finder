@@ -1,4 +1,9 @@
+import json
+import os
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROVISIONER = ROOT / "scripts/operator/actions/v3-live-checkpoint-provision.sh"
@@ -92,7 +97,8 @@ def test_provisioner_matches_canonical_deploy_host_prerequisites():
     assert 'exec 9<>"$RECEIPT_DIR/deploy.lock"' in script
     assert 'flock -n 9 || fail "live-checkpoint deployment lock is unavailable"' in script
     assert 'document["captured_at"] = captured_at' in script
-    assert 'receipt.write_text(json.dumps(document' in script
+    assert 'atomic_checkpoint_file "$SCHEMA_RECEIPT" "$OP_UID" "$OP_GID"' in script
+    assert 'receipt.write_text(' not in script
     assert "verify_origin_authority()" in script
     assert "checkpoint origin port is occupied by an unauthorized process" in script
     assert "edfinder-v3-checkpoint-web" in script
@@ -163,3 +169,232 @@ def test_checkpoint_deploy_uses_ephemeral_ghcr_auth_only_for_the_deploy_window()
     assert workflow.index("Clear ephemeral Contabo GHCR pull authority") < workflow.index(
         "Upload sanitized deployment receipt"
     )
+
+
+# Execute only the real helper definitions, never the root/host provisioning entrypoint.
+# All filesystem writes below stay in pytest temporary directories; services are stubbed.
+def _helpers() -> str:
+    return _read(PROVISIONER).split('\n[ "$(id -u)" -eq 0 ]', 1)[0]
+
+
+def _run_helper(tmp_path, command, *, data=None, extra_env=None):
+    env = {
+        **os.environ,
+        "TEST_ROOT": str(tmp_path),
+        "TEST_UID": str(os.getuid()),
+        "TEST_GID": str(os.getgid()),
+        "TEST_DB_EXISTS": "1",
+        "PATH": str(tmp_path / "bin") + os.pathsep + os.environ["PATH"],
+        **(extra_env or {}),
+    }
+    setup = '''
+API_ENV="$TEST_ROOT/api.env"
+SCHEMA_RECEIPT="$TEST_ROOT/schema-identity.json"
+PG_HBA="$TEST_ROOT/pg_hba.conf"
+NGINX_SITE="$TEST_ROOT/managed.conf"
+OP_UID="$TEST_UID"
+OP_GID="$TEST_GID"
+DB_EXISTS="$TEST_DB_EXISTS"
+NETWORK_GATEWAY=172.22.0.1
+NETWORK_SUBNET=172.22.0.0/16
+'''
+    return subprocess.run(
+        ["bash", "-c", _helpers() + setup + command],
+        input=data, text=True, capture_output=True, env=env, timeout=15, check=False,
+    )
+
+
+def _stub(tmp_path, name, body):
+    path = tmp_path / "bin" / name
+    path.parent.mkdir(exist_ok=True)
+    path.write_text("#!/usr/bin/env bash\nset -eu\n" + body, encoding="utf-8")
+    path.chmod(0o700)
+
+
+def _api_env(tmp_path, content=None):
+    path = tmp_path / "api.env"
+    if content is None:
+        # Synthetic fixture, never a live credential.
+        content = "DATABASE_URL=postgresql://edfinder_checkpoint_app:" + "a" * 48
+        content += "@172.22.0.1:5432/edfinder_checkpoint\n"
+    path.write_text(content, encoding="utf-8")
+    path.chmod(0o600)
+    return path
+
+
+@pytest.mark.parametrize("dangling", [False, True])
+def test_api_env_symlinks_are_never_read_or_overwritten(tmp_path, dangling):
+    target = tmp_path / "unrelated-file"
+    if not dangling:
+        target.write_text("preserve me", encoding="utf-8")
+        target.chmod(0o644)
+    (tmp_path / "api.env").symlink_to(target)
+    read = _run_helper(tmp_path, "read_checkpoint_password")
+    write = _run_helper(
+        tmp_path, 'atomic_checkpoint_file "$API_ENV" "$OP_UID" "$OP_GID"', data="replacement",
+    )
+    assert read.returncode != 0
+    assert write.returncode != 0
+    assert (tmp_path / "api.env").is_symlink()
+    if dangling:
+        assert not target.exists()
+    else:
+        assert target.read_text(encoding="utf-8") == "preserve me"
+        assert target.stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize("content", [None, "", "CORS_ORIGINS=http://example.invalid\n", "DATABASE_URL=\n"])
+def test_existing_database_rejects_missing_or_incomplete_api_env(tmp_path, content):
+    if content is not None:
+        _api_env(tmp_path, content)
+    # Exercise credential selection from the entrypoint, including its generation guard.
+    script = _read(PROVISIONER)
+    selection = script.split('DB_PASSWORD="$(read_checkpoint_password)"', 1)[1].split("DB_CREATED=false", 1)[0]
+    command = 'DB_PASSWORD="$(read_checkpoint_password)"' + selection
+    _stub(tmp_path, "openssl", 'touch "$TEST_ROOT/password-rotated"; exit 90\n')
+    result = _run_helper(tmp_path, command)
+    assert result.returncode != 0
+    assert not (tmp_path / "password-rotated").exists()
+
+
+def test_password_is_generated_only_for_initial_creation(tmp_path):
+    script = _read(PROVISIONER)
+    selection = script.split('DB_PASSWORD="$(read_checkpoint_password)"', 1)[1].split("DB_CREATED=false", 1)[0]
+    command = 'DB_PASSWORD="$(read_checkpoint_password)"' + selection
+    _stub(tmp_path, "openssl", 'touch "$TEST_ROOT/password-created"; printf "%048d\\n" 0\n')
+    result = _run_helper(tmp_path, command, extra_env={"TEST_DB_EXISTS": ""})
+    assert result.returncode == 0, result.stderr
+    assert (tmp_path / "password-created").exists()
+
+
+def test_verification_preserves_existing_credential_and_skips_password_sql(tmp_path):
+    path = _api_env(tmp_path)
+    before = path.read_bytes(), path.stat().st_ino
+    result = _run_helper(tmp_path, "read_checkpoint_password")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "a" * 48
+    assert (path.read_bytes(), path.stat().st_ino) == before
+    script = _read(PROVISIONER)
+    rotation = script.split("# A verification rerun must never rotate", 1)[1]
+    rotation = rotation[rotation.index('\nif [ "$DB_CREATED" = true ]; then'):].split("\nfi", 1)[0] + "\nfi\n"
+    _stub(tmp_path, "runuser", 'touch "$TEST_ROOT/role-mutated"; exit 90\n')
+    result = _run_helper(tmp_path, "DB_CREATED=false\n" + rotation)
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "role-mutated").exists()
+
+
+@pytest.mark.parametrize("replacement", ["edfinder_checkpoint_app:bad", "wrong_role:" + "a" * 48])
+def test_existing_database_rejects_invalid_credential_identity(tmp_path, replacement):
+    _api_env(tmp_path, f"DATABASE_URL=postgresql://{replacement}@172.22.0.1:5432/edfinder_checkpoint\n")
+    result = _run_helper(tmp_path, "read_checkpoint_password")
+    assert result.returncode != 0
+    assert "DATABASE_URL identity or password is invalid" in result.stderr
+
+
+def test_atomic_receipt_replacement_preserves_complete_document_and_metadata(tmp_path):
+    receipt = tmp_path / "schema-identity.json"
+    receipt.write_text('{"captured_at":"old"}\n', encoding="utf-8")
+    receipt.chmod(0o600)
+    old_inode = receipt.stat().st_ino
+    result = _run_helper(
+        tmp_path, 'atomic_checkpoint_file "$SCHEMA_RECEIPT" "$OP_UID" "$OP_GID"',
+        data='{"captured_at":"new"}\n',
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(receipt.read_text(encoding="utf-8")) == {"captured_at": "new"}
+    assert receipt.stat().st_ino != old_inode
+    assert receipt.stat().st_uid == os.getuid()
+    assert receipt.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+@pytest.mark.parametrize("failure", ["fsync", "replace"])
+def test_failed_atomic_receipt_update_keeps_original_and_cleans_stage(tmp_path, failure):
+    receipt = tmp_path / "schema-identity.json"
+    receipt.write_text('{"captured_at":"trusted"}\n', encoding="utf-8")
+    before = receipt.read_bytes(), receipt.stat().st_ino
+    fault = tmp_path / "fault"
+    fault.mkdir()
+    (fault / "sitecustomize.py").write_text(
+        "import os\ndef fail(*args, **kwargs):\n    raise OSError('injected write failure')\n"
+        + f"os.{failure} = fail\n", encoding="utf-8",
+    )
+    result = _run_helper(
+        tmp_path, 'atomic_checkpoint_file "$SCHEMA_RECEIPT" "$OP_UID" "$OP_GID"',
+        data='{"captured_at":"new"}\n', extra_env={"PYTHONPATH": str(fault)},
+    )
+    assert result.returncode != 0
+    assert (receipt.read_bytes(), receipt.stat().st_ino) == before
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+@pytest.mark.parametrize("broad", ["host all all 0.0.0.0/0 trust\n", "host all all 172.22.0.0/16 reject\n", "include earlier.conf\n"])
+def test_checkpoint_hba_rule_precedes_broad_rules_and_includes(tmp_path, broad):
+    path = tmp_path / "pg_hba.conf"
+    old = "host edfinder_checkpoint edfinder_checkpoint_app 172.22.0.0/16 scram-sha-256 # edfinder-v3-checkpoint\n"
+    path.write_text(broad + old, encoding="utf-8")
+    result = _run_helper(tmp_path, "checkpoint_hba_document")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == old + broad
+    path.write_text(result.stdout, encoding="utf-8")
+    rerun = _run_helper(tmp_path, "checkpoint_hba_document")
+    assert rerun.stdout == result.stdout
+    script = _read(PROVISIONER)
+    assert "WHERE rule_number = 1 AND type = 'host'" in script
+    assert "AND auth_method = 'scram-sha-256' AND error IS NULL" in script
+
+
+@pytest.mark.parametrize("outcome", ["reject", "trust", "unavailable"])
+def test_negative_authentication_probe_distinguishes_rejection_from_other_failures(tmp_path, outcome):
+    bodies = {
+        "reject": 'printf \'password authentication failed for user "%s"\\n\' "$PGUSER" >&2; exit 2\n',
+        "trust": "exit 0\n",
+        "unavailable": 'echo "connection refused" >&2; exit 2\n',
+    }
+    _stub(tmp_path, "psql", bodies[outcome])
+    result = _run_helper(tmp_path, "verify_checkpoint_password_rejection")
+    assert (result.returncode == 0) == (outcome == "reject"), result.stderr
+
+
+def _nginx_dump(tmp_path, text):
+    (tmp_path / "nginx-dump").write_text(text, encoding="utf-8")
+    _stub(tmp_path, "nginx", 'cat "$TEST_ROOT/nginx-dump"\n')
+
+
+def test_nginx_accepts_only_the_managed_fqdn_in_enabled_configuration(tmp_path):
+    managed = tmp_path / "managed.conf"
+    enabled = tmp_path / "enabled.conf"
+    managed.touch()
+    enabled.symlink_to(managed)
+    fqdn = "vmi3542235.contaboserver.net"
+    _nginx_dump(tmp_path, f"# configuration file {enabled}:\nserver {{\nserver_name\n\"{fqdn}\";\n}}\n")
+    result = _run_helper(tmp_path, "verify_checkpoint_nginx_ownership required")
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("declaration", [
+    "server_name vmi3542235.contaboserver.net;",
+    'server_name\n"VMI3542235.CONTABOSERVER.NET"\nother.invalid;',
+    "server_name vmi3542235.contaboserver.net.;",
+])
+def test_nginx_rejects_competing_included_fqdn_declarations(tmp_path, declaration):
+    _nginx_dump(tmp_path, f"# configuration file {tmp_path}/conf.d/other.conf:\nserver {{{declaration}}}\n")
+    result = _run_helper(tmp_path, "verify_checkpoint_nginx_ownership")
+    assert result.returncode != 0
+    assert "competing nginx site" in result.stderr
+
+
+def test_nginx_rejects_duplicate_name_warning_even_when_config_test_succeeds(tmp_path):
+    fqdn = "vmi3542235.contaboserver.net"
+    _nginx_dump(tmp_path, f'nginx: [warn] conflicting server name "{fqdn}" on 0.0.0.0:80, ignored\n# configuration file {tmp_path}/managed.conf:\nserver {{server_name {fqdn};}}\n')
+    result = _run_helper(tmp_path, "verify_checkpoint_nginx_ownership required")
+    assert result.returncode != 0
+    assert "conflicting nginx ownership" in result.stderr
+
+
+def test_nginx_ignores_comments_but_requires_managed_name_after_install(tmp_path):
+    _nginx_dump(tmp_path, f"# configuration file {tmp_path}/other.conf:\n# server_name vmi3542235.contaboserver.net;\nserver {{server_name unrelated.invalid;}}\n")
+    before = _run_helper(tmp_path, "verify_checkpoint_nginx_ownership")
+    after = _run_helper(tmp_path, "verify_checkpoint_nginx_ownership required")
+    assert before.returncode == 0, before.stderr
+    assert after.returncode != 0
