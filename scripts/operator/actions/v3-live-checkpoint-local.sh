@@ -16,16 +16,16 @@ expected="$(printf '%s\n' \
   actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-3.service | sort)"
 [ "$actual" = "$expected" ] || { echo 'Unexpected checkpoint runner topology' >&2; exit 78; }
 # OS Python is used only to parse sealed bootstrap data before provisioning 3.14.
-operation="$(/usr/bin/python3 -I -c 'import json; print(json.load(open("operation.json"))["operation"])')"
+operation="$(/usr/bin/python3 -I -S -c 'import json; print(json.load(open("operation.json"))["operation"])')"
 if [ "$operation" = provision ]; then
   exec env -i PATH="$PATH" HOME=/root \
     CHECKPOINT_OPERATOR_UID="$OP_UID" CHECKPOINT_OPERATOR_GID="$OP_GID" CHECKPOINT_OPERATOR_USER=codex \
     /bin/bash scripts/operator/actions/v3-live-checkpoint-provision.sh
 fi
 [ "$operation" = deploy ] || exit 64
-python3.14 -c 'import platform,sys; assert platform.python_implementation()=="CPython" and sys.version_info[:2]==(3,14)'
-mode="$(python3.14 -I -c 'import json; print(json.load(open("operation.json"))["mode"])')"
-run_id="$(python3.14 -I -c 'import json; print(json.load(open("operation.json"))["release_run_id"])')"
+python3.14 -I -S -c 'import platform,sys; assert platform.python_implementation()=="CPython" and sys.version_info[:2]==(3,14)'
+mode="$(python3.14 -I -S -c 'import json; print(json.load(open("operation.json"))["mode"])')"
+run_id="$(python3.14 -I -S -c 'import json; print(json.load(open("operation.json"))["release_run_id"])')"
 [[ "$mode" = bootstrap || "$mode" = upgrade ]] && [[ "$run_id" =~ ^[1-9][0-9]{0,19}$ ]] || exit 64
 test -n "${GHCR_TOKEN:-}" || exit 78
 logged_in=false

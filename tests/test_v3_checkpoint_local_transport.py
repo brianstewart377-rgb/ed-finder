@@ -3,7 +3,6 @@ import hashlib
 import importlib.util
 import io
 import json
-import shlex
 import subprocess
 import sys
 import tarfile
@@ -87,8 +86,11 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
                                operation="deploy" if drift == "operation" else "provision")
     if drift == "checksum":
         digest = "0" * 64
-    monkeypatch.setattr(sys, "argv", [str(SOURCE), "123", digest, SHA, "provision"])
-    monkeypatch.setattr(sys, "stdin", io.StringIO("synthetic-token"))
+    ignored_script = tmp_path / "mutable-runner-script"
+    ignored_script.write_text("raise RuntimeError('MUTABLE SCRIPT EXECUTED')\n")
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), "123", digest, SHA, "provision",
+                                     str(tmp_path / "receipt.json"), str(ignored_script)])
+    monkeypatch.setattr(module.os, "environ", {"GH_TOKEN": "synthetic-token", "PYTHONPATH": str(worktree)})
     monkeypatch.setattr(module.os, "geteuid", lambda: 0)
     monkeypatch.setattr(module.os, "uname", lambda: types.SimpleNamespace(nodename="vmi3542235", machine="x86_64"))
     monkeypatch.setattr(module.socket, "getfqdn", lambda: "vmi3542235.contaboserver.net")
@@ -97,6 +99,7 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
                         lambda **kw: real_temp(prefix=kw["prefix"], dir=tmp_path))
     executed = []
     def run(command, **kwargs):
+        assert module.os.environ == {}
         if command[0] == "/usr/bin/curl":
             assert "--location-trusted" not in command
             assert kwargs["input"] == b"Authorization: Bearer synthetic-token\n"
@@ -121,19 +124,14 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
 
 
 def test_privileged_jobs_have_no_worktree_or_toolcache_execution():
+    import runpy
+    checker = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_validator_runtime.py"))
     control = yaml.safe_load((ROOT / ".github/workflows/v3-live-checkpoint-control.yml").read_text())
     deploy = yaml.safe_load((ROOT / ".github/workflows/v3-application-live-checkpoint-preflight.yml").read_text())
-    for job in (control["jobs"]["provision"], deploy["jobs"]["apply-local"]):
-        assert job["runs-on"] == ["self-hosted", "Linux", "X64", "codex"]
-        assert "github.ref == 'refs/heads/main'" in job["if"]
-        assert job["environment"] == "v3-live-checkpoint"
-        assert all("checkout" not in step.get("uses", "") and "setup-python" not in step.get("uses", "") for step in job["steps"])
-        step = next(step for step in job["steps"] if "run" in step)
-        words = shlex.split(step["run"])
-        assert words[words.index("-c") + 1] == SOURCE.read_text()
-        assert "/usr/bin/sudo -n /usr/bin/env -i" in step["run"]
-        assert "/usr/bin/python3 -I -c" in step["run"]
-        assert "needs." in step["env"]["BUNDLE_SHA"]
+    for file, name in checker["PREINSTALL_BOOTSTRAPS"]:
+        path = ROOT / ".github/workflows" / file
+        job = yaml.safe_load(path.read_text())["jobs"][name]
+        assert checker["is_verified_checkpoint_preinstall_job"](path, name, job)
     for job in (control["jobs"]["prepare-provision"], deploy["jobs"]["deploy"]):
         assert job["runs-on"] == "ubuntu-24.04"
         checkout = next(step for step in job["steps"] if "checkout@" in step.get("uses", ""))
@@ -143,12 +141,32 @@ def test_privileged_jobs_have_no_worktree_or_toolcache_execution():
     assert deploy["jobs"]["public-smoke"]["needs"] == ["deploy", "apply-local"]
 
 
+def test_custom_shell_never_opens_actions_generated_file(tmp_path):
+    import runpy
+    helper = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_validator_runtime.py"))
+    path = ROOT / ".github/workflows/v3-live-checkpoint-control.yml"
+    step = yaml.safe_load(path.read_text())["jobs"]["provision"]["steps"][0]
+    words = helper["shell_words"](step["shell"])
+    malicious = tmp_path / "mutable.sh"
+    marker = tmp_path / "executed"
+    malicious.write_text(f"touch '{marker}'\n")
+    # Invoke only the OS Python portion. The real bootstrap stops at host identity
+    # on CI; changing or removing the generated script cannot change that outcome.
+    args = [sys.executable, *words[4:-1], str(malicious)]
+    first = subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)
+    malicious.unlink()
+    second = subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)
+    assert first.returncode == second.returncode == 78
+    assert first.stderr == second.stderr
+    assert not marker.exists()
+    assert "Checkpoint bootstrap stopped" in first.stderr
+
+
 def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monkeypatch):
     path = ROOT / "scripts/operator/v3_checkpoint_bundle.py"
     module = load_module(path)
     payload, _ = envelope()
     with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-        # Use only the entry from this fixture, builder adds operation.json itself.
         members = tarfile.open(fileobj=io.BytesIO(archive.read("operation.tar")))
         data = members.extractfile(ENTRY).read()
     git_tar = io.BytesIO()
@@ -177,8 +195,6 @@ def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monk
 def test_nonroot_deploy_cleanup_survives_login_apply_and_logout_failure(
     tmp_path, login, apply, logout, expected
 ):
-    # Real dispatcher; every identity/service/privilege operation is a shell stub.
-    # No provision entrypoint or real runuser is ever invoked.
     import os
     (tmp_path / "operation.json").write_text(json.dumps({
         "operation": "deploy", "mode": "bootstrap", "release_run_id": "42",

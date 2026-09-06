@@ -1,12 +1,15 @@
-"""Workflow-embedded bootstrap: no code is loaded from a runner worktree.
+"""Workflow command-line bootstrap; never opens Actions' mutable script file.
 
-Uses the root-owned OS Python solely to authenticate/unpack the operation bundle.
-The provisioner installs, and the canonical deployer requires, CPython 3.14.
+The custom shell directly starts root-owned OS Python in isolated/no-site mode.
+The readable program is compressed and encoded only to survive Actions' shell argument and
+{0} formatting rules; contract tests compare the complete decoded bytes.
+Application and canonical deployment runtimes remain exact CPython 3.14.
 """
 import hashlib
 import io
 import json
 import os
+import pwd
 import re
 import socket
 import subprocess
@@ -51,29 +54,54 @@ def unpack_bundle(envelope, digest, directory):
             total += member.size
             require(0 <= member.size <= LIMIT and total <= LIMIT, "oversized bundle contents")
             target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-            # Parent is root-created and cannot be written by any coding worker.
             with target.open("xb") as output:
                 output.write(archive.extractfile(member).read())
             target.chmod(0o755 if member.mode & 0o111 else 0o644)
     require(ENTRY in seen and "operation.json" in seen, "incomplete operation bundle")
 
 
+def save_receipt(document, path):
+    """Write only sanitized output, with the runner's privileges, never root's."""
+    require(len(document) <= LIMIT, "oversized operation output")
+    json.loads(document)
+    account = pwd.getpwnam("codex")
+    require(account.pw_uid > 0, "non-root receipt account required")
+    # This fixed child neither loads user-site Python nor evaluates the filename.
+    # Exclusive creation also prevents a rerun from uploading an old receipt.
+    writer = (
+        "import os,sys; "
+        "fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600); "
+        "f=os.fdopen(fd,'wb'); f.write(sys.stdin.buffer.read()); f.close()"
+    )
+    subprocess.run([
+        "/usr/sbin/runuser", "-u", "codex", "--", "/usr/bin/python3", "-I", "-S",
+        "-c", writer, path,
+    ], input=document, env={"PATH": PATH, "HOME": account.pw_dir},
+       timeout=15, check=True)
+    # Root-produced log evidence can be checked against the uploaded copy.
+    print("checkpoint receipt sha256=" + hashlib.sha256(document).hexdigest(), file=sys.stderr)
+    sys.stdout.buffer.write(document)
+    sys.stdout.buffer.flush()
+
+
 def main():
-    artifact, digest, source, operation = sys.argv[1:]
+    # {0} is required by Actions' custom-shell contract but is not trusted input.
+    # Do not stat, open, source, import, or execute that generated file.
+    artifact, digest, source, operation, receipt, _ignored_script = sys.argv[1:]
+    token = os.environ.pop("GH_TOKEN", "")
+    os.environ.clear()
     require(os.geteuid() == 0, "root bootstrap required")
     require(re.fullmatch(r"[1-9][0-9]{0,19}", artifact), "invalid artifact id")
     require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid bundle digest")
     require(re.fullmatch(r"[0-9a-f]{40}", source), "invalid source identity")
     require(operation in ("provision", "deploy"), "invalid operation")
+    require(Path(receipt).is_absolute(), "absolute receipt path required")
     require(os.uname().nodename.split(".")[0] == "vmi3542235"
             and os.uname().machine == "x86_64"
             and socket.getfqdn() == "vmi3542235.contaboserver.net", "unexpected checkpoint host")
     os.umask(0o022)
-    token = sys.stdin.read(8193)
     require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),
             "invalid artifact token")
-    # No inherited proxy, curl configuration, CA override, PATH or Python imports.
-    # curl strips Authorization on a cross-host redirect; never use location-trusted.
     response = subprocess.run([
         "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
         "--location", "--proto", "=https", "--proto-redir", "=https",
@@ -82,21 +110,21 @@ def main():
         f"https://api.github.com/repos/{REPOSITORY}/actions/artifacts/{artifact}/zip",
     ], input=f"Authorization: Bearer {token}\n".encode(), stdout=subprocess.PIPE,
        stderr=subprocess.DEVNULL, env={"PATH": PATH}, timeout=130, check=True)
-    # /run is root-owned; the private parent stays non-writable by the runner.
     with tempfile.TemporaryDirectory(prefix="edfinder-v3-", dir="/run") as temporary:
         directory = Path(temporary)
         unpack_bundle(response.stdout, digest, directory)
         request = json.loads((directory / "operation.json").read_text())
         require(request.get("source_sha") == source and request.get("operation") == operation,
                 "operation bundle identity mismatch")
-        # Code and public manifests may be read, never modified, by the non-root
-        # canonical deployer and the postgres seed process.
         directory.chmod(0o755)
         environment = {"PATH": PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}
         if operation == "deploy":
             environment["GHCR_TOKEN"] = token
-        return subprocess.run(["/bin/bash", ENTRY], cwd=directory,
-                              env=environment, check=False).returncode
+        outcome = subprocess.run(["/bin/bash", ENTRY], cwd=directory,
+                                 env=environment, stdout=subprocess.PIPE, check=False)
+        if outcome.stdout:
+            save_receipt(outcome.stdout, receipt)
+        return outcome.returncode
 
 
 if __name__ == "__main__":
@@ -104,6 +132,6 @@ if __name__ == "__main__":
         result = main()
     except (OSError, ValueError, KeyError, tarfile.TarError, zipfile.BadZipFile,
             subprocess.SubprocessError):
-        print("Checkpoint immutable bootstrap stopped; no unverified bundle executed", file=sys.stderr)
+        print("Checkpoint bootstrap stopped; inspect the operation log for its last completed step", file=sys.stderr)
         result = 78
     raise SystemExit(result)
