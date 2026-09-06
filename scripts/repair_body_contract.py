@@ -110,7 +110,7 @@ SELECT s.id64,
   FROM systems s
  WHERE s.has_body_data = TRUE
    AND COALESCE(s.body_count, 0) = 0
-   AND (%s IS NULL OR s.id64 > %s)
+   AND (%s::bigint IS NULL OR s.id64 > %s)
  ORDER BY s.id64
  LIMIT %s
  FOR UPDATE OF s SKIP LOCKED;

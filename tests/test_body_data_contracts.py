@@ -77,6 +77,12 @@ def test_repair_body_contract_script_is_guarded_and_marks_rows_dirty():
     assert "mode={report['mode']}" in source
 
 
+def test_repair_body_contract_types_nullable_pagination_cursor_as_bigint():
+    source = (ROOT / "scripts" / "repair_body_contract.py").read_text(encoding="utf-8")
+
+    assert "AND (%s::bigint IS NULL OR s.id64 > %s)" in source
+
+
 def test_reconcile_no_body_ratings_script_clears_dirty_and_deletes_stale_rows():
     source = (ROOT / "scripts" / "reconcile_no_body_ratings.py").read_text(encoding="utf-8")
 
