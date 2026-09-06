@@ -19,6 +19,7 @@ on:
 permissions:
   actions: read
   contents: read
+  packages: read
 
 concurrency:
   group: v3-application-live-checkpoint-deploy
@@ -178,6 +179,20 @@ jobs:
             echo "Pinned known-host trust does not cover the configured host and port" >&2
             exit 1
           }
+      - name: Authenticate ephemeral Contabo GHCR pull authority
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
+          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/v3_live_checkpoint_key \
+            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; umask 077; env DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config DOCKER_CONTEXT=edfinder-v3-checkpoint-local docker login ghcr.io -u brianstewart377-rgb --password-stdin >/dev/null'
       - name: Assemble source-free deployment bundle
         shell: bash
         env:
@@ -239,6 +254,22 @@ jobs:
             cat "$RECEIPT"
           fi
           [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+      - name: Clear ephemeral Contabo GHCR pull authority
+        if: always()
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+        run: |
+          set +e
+          if [ -f ~/.ssh/v3_live_checkpoint_key ] && [ -n "$SSH_HOST" ] && [ -n "$SSH_PORT" ] && [ -n "$SSH_USER" ]; then
+            ssh -i ~/.ssh/v3_live_checkpoint_key \
+              -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+              'env DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config DOCKER_CONTEXT=edfinder-v3-checkpoint-local docker logout ghcr.io >/dev/null 2>&1 || true'
+          fi
+          exit 0
       - name: Upload sanitized deployment receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
