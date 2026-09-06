@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PROVISIONER = ROOT / "scripts/operator/actions/v3-live-checkpoint-provision.sh"
 CONTROL = ROOT / ".github/workflows/v3-live-checkpoint-control.yml"
+DEPLOY = ROOT / ".github/workflows/v3-application-live-checkpoint-preflight.yml"
 SEED = ROOT / "scripts/seed_check.sh"
 
 
@@ -119,3 +120,25 @@ def test_checkpoint_control_plane_keeps_canonical_release_and_deploy_boundaries(
     assert workflow.count("actions: write") == 2
     assert "ED_NEW_OPERATOR_" not in workflow
     assert "nb79a3d.mevnode.com" not in workflow
+
+
+def test_checkpoint_deploy_uses_ephemeral_ghcr_auth_only_for_the_deploy_window():
+    workflow = _read(DEPLOY)
+
+    assert "packages: read" in workflow
+    assert "Authenticate ephemeral Contabo GHCR pull authority" in workflow
+    assert "Clear ephemeral Contabo GHCR pull authority" in workflow
+    assert "GHCR_TOKEN: ${{ github.token }}" in workflow
+    assert "docker login ghcr.io -u brianstewart377-rgb --password-stdin" in workflow
+    assert "docker logout ghcr.io" in workflow
+    assert "DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config" in workflow
+    assert "DOCKER_CONTEXT=edfinder-v3-checkpoint-local" in workflow
+    assert workflow.index("Authenticate ephemeral Contabo GHCR pull authority") < workflow.index(
+        "Run bounded Contabo deployment boundary"
+    )
+    assert workflow.index("Run bounded Contabo deployment boundary") < workflow.index(
+        "Clear ephemeral Contabo GHCR pull authority"
+    )
+    assert workflow.index("Clear ephemeral Contabo GHCR pull authority") < workflow.index(
+        "Upload sanitized deployment receipt"
+    )
