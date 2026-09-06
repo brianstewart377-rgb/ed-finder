@@ -15,8 +15,14 @@ RUN case "$BUILD_SHA" in \
 
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate
 COPY apps/web/package.json apps/web/pnpm-lock.yaml apps/web/pnpm-workspace.yaml ./
+# The frozen graph contains a file: dependency on api-client, so its complete
+# package must exist at the repository-relative path while pnpm installs it.
+# shared:build also compiles both packages, in api-client -> planner-core order.
+COPY packages/api-client/ /workspace/packages/api-client/
+COPY packages/planner-core/ /workspace/packages/planner-core/
 RUN pnpm install --frozen-lockfile
 COPY apps/web/ ./
+RUN pnpm run shared:build
 RUN VITE_BUILD_SHA="$BUILD_SHA" pnpm build
 
 FROM nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de AS runtime
