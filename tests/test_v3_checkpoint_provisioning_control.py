@@ -35,6 +35,19 @@ def test_contabo_checkpoint_provisioner_is_persistent_nonproduction_and_read_onl
     assert "nats-server" not in script
 
 
+def test_sensitive_checkpoint_temp_files_have_unconditional_cleanup():
+    script = _read(PROVISIONER)
+
+    assert 'PW_SQL=""' in script
+    assert 'LEDGER_FILE=""' in script
+    assert 'cleanup_sensitive_temps()' in script
+    assert 'trap cleanup_sensitive_temps EXIT HUP INT TERM' in script
+    assert '[ -z "$PW_SQL" ] || rm -f -- "$PW_SQL"' in script
+    assert '[ -z "$LEDGER_FILE" ] || rm -f -- "$LEDGER_FILE"' in script
+    assert 'rm -f -- "$PW_SQL"' in script
+    assert 'rm -f -- "$LEDGER_FILE"' in script
+
+
 def test_checkpoint_seed_path_uses_repository_preview_data_and_manual_migrations():
     seed = _read(SEED)
 
