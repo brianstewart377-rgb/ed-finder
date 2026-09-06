@@ -1,18 +1,21 @@
 name: V3 live-checkpoint control
-run-name: V3 checkpoint control · ${{ github.sha }}
+run-name: V3 checkpoint control · issue #${{ github.event.issue.number }} · comment ${{ github.event.comment.id }}
 
 on:
-  push:
-    branches:
-      - v3-live-checkpoint-requests
-    paths:
-      - '.github/v3-live-checkpoint-requests/*.json'
+  issue_comment:
+    types:
+      - created
 
 permissions:
   contents: read
 
 jobs:
   resolve:
+    if: >-
+      github.event.issue.number == 623 &&
+      github.actor == 'brianstewart377-rgb' &&
+      github.event.comment.user.login == 'brianstewart377-rgb' &&
+      startsWith(github.event.comment.body, 'V3-CHECKPOINT ')
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -23,10 +26,6 @@ jobs:
       deployment_mode: ${{ steps.request.outputs.deployment_mode }}
       release_run_id: ${{ steps.request.outputs.release_run_id }}
     steps:
-      - name: Checkout request branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 2
       - name: Set up CPython 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
@@ -35,16 +34,20 @@ jobs:
         id: request
         shell: bash
         env:
-          BEFORE_SHA: ${{ github.event.before }}
-          CURRENT_SHA: ${{ github.sha }}
+          REQUEST_BODY: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
-          mapfile -t files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" -- '.github/v3-live-checkpoint-requests/*.json')
-          [ "${#files[@]}" -eq 1 ] || { echo "Expected exactly one checkpoint request file" >&2; exit 64; }
-          python - "${files[0]}" "$GITHUB_OUTPUT" <<'PY'
-          import json, pathlib, re, sys
-          request_path, output_path = map(pathlib.Path, sys.argv[1:])
-          data = json.loads(request_path.read_text(encoding="utf-8"))
+          python - "$GITHUB_OUTPUT" <<'PY'
+          import json, os, pathlib, re, sys
+          output_path = pathlib.Path(sys.argv[1])
+          body = os.environ["REQUEST_BODY"]
+          prefix = "V3-CHECKPOINT "
+          if not body.startswith(prefix):
+              raise SystemExit("checkpoint request prefix is invalid")
+          payload = body[len(prefix):]
+          if "\n" in payload or "\r" in payload:
+              raise SystemExit("checkpoint request must be a single line")
+          data = json.loads(payload)
           if not isinstance(data, dict):
               raise SystemExit("request must be a JSON object")
           op = data.get("operation")
@@ -72,8 +75,13 @@ jobs:
               if not isinstance(evidence, str) or re.fullmatch(r"[A-Za-z0-9._:/#-]{1,160}", evidence) is None:
                   raise SystemExit("compatibility_evidence is invalid")
               if eligible is not True:
-                  raise SystemExit("first checkpoint release must be rollback eligible")
-              values.update(operation=op, source_sha=source, compatibility_evidence=evidence, rollback_eligible="true")
+                  raise SystemExit("checkpoint release must be rollback eligible")
+              values.update(
+                  operation=op,
+                  source_sha=source,
+                  compatibility_evidence=evidence,
+                  rollback_eligible="true",
+              )
           elif op == "deploy":
               expected = {"operation", "deployment_mode", "release_run_id"}
               if set(data) != expected:
@@ -144,7 +152,7 @@ jobs:
           cp -a sql/. "$BUNDLE/sql/"
           install -m 600 deploy/v3-live-checkpoint/target-authority.json "$BUNDLE/deploy/v3-live-checkpoint/"
           chmod -R a+rX "$BUNDLE"
-      - name: Provision persistent Contabo checkpoint infrastructure
+      - name: Provision or verify persistent Contabo checkpoint infrastructure
         shell: bash
         env:
           SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
