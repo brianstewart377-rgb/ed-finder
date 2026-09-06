@@ -196,3 +196,57 @@ route, target GHCR pull authentication, and a durable deployment receipt
 directory. These are explicit external authority requirements; no port, path,
 network, data source or edge wiring may be inferred from legacy Compose files,
 production, or observed runner names.
+
+## Request-triggered dispatch
+
+ChatGPT may invoke the same two canonical `workflow_dispatch` entry points
+without the GitHub UI by adding exactly one new JSON file in one commit under
+`.github/v3-checkpoint-requests/` on the dedicated
+`chatgpt-v3-checkpoint-requests` branch. The branch must first be seeded from
+current `main`, must accept only fast-forward request commits, and must be
+protected from force pushes and non-request changes. Request filenames use
+only lowercase letters, digits, dots, underscores and hyphens.
+
+An immutable release request is:
+
+```json
+{
+  "operation": "v3-application-immutable-release",
+  "inputs": {
+    "source_sha": "0123456789abcdef0123456789abcdef01234567",
+    "schema_compatibility": "exact",
+    "compatibility_evidence": "review-record:checkpoint-42",
+    "reviewed_compatible_migration_sets": "",
+    "rollback_eligible": true
+  }
+}
+```
+
+A live-checkpoint deploy request is:
+
+```json
+{
+  "operation": "v3-application-live-checkpoint-deploy",
+  "inputs": {
+    "deployment_mode": "bootstrap",
+    "release_run_id": "1234567890"
+  }
+}
+```
+
+Every key shown is required and no other key is accepted. `release_run_id`
+remains a quoted positive decimal string. For `exact`, leave reviewed migration
+sets empty. For `backward-compatible`, list any additional reviewed lowercase
+`sha256:<64 hex>` migration identities one per line. `unknown` and
+`incompatible` requests must use empty evidence and reviewed-set strings and
+must set `rollback_eligible` to `false`. Never put secrets, DSNs,
+credential-bearing URLs or host details in a request.
+
+The dispatcher always calls the allowlisted target workflow at `ref: main`
+with the workflow `GITHUB_TOKEN`; it logs only sanitized request and returned
+run correlation. A successful dispatcher run means GitHub accepted that one
+canonical run, not that release or deployment succeeded. Inspect the correlated
+target run and its artifacts. Rerunning a dispatcher creates another canonical
+run. The target workflows retain all current-main, provenance, environment,
+schema, receipt and target-authority gates. In particular, the currently
+stopped target authority still prevents host mutation.

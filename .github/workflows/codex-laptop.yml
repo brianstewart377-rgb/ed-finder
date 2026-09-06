@@ -80,7 +80,7 @@ jobs:
               exit 64
             }
             case "$target_branch" in
-              main|master|codex-task-requests|chatgpt-ops-requests|chatgpt-ed-new-ops-requests)
+              main|master|codex-task-requests|chatgpt-ops-requests|chatgpt-ed-new-ops-requests|chatgpt-v3-checkpoint-requests)
                 echo "target_branch is protected/control-plane state and cannot be updated by Codex" >&2
                 exit 64
                 ;;

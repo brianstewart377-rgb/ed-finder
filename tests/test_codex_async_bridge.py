@@ -155,7 +155,7 @@ def test_existing_pr_branch_target_is_validated_and_protected_branches_are_denie
     assert 'git check-ref-format --branch "$target_branch"' in resolver
     assert (
         "main|master|codex-task-requests|chatgpt-ops-requests|"
-        "chatgpt-ed-new-ops-requests" in resolver
+        "chatgpt-ed-new-ops-requests|chatgpt-v3-checkpoint-requests" in resolver
     )
     assert "target_branch is only valid for implement mode" in resolver
 

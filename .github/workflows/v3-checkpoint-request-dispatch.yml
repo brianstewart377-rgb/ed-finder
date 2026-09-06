@@ -1,0 +1,139 @@
+name: V3 checkpoint request dispatch
+run-name: V3 checkpoint request dispatch · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - chatgpt-v3-checkpoint-requests
+    paths:
+      - '.github/v3-checkpoint-requests/*.json'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    name: Validate and dispatch one canonical checkpoint request
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: Checkout exact request commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          path: request
+          persist-credentials: false
+
+      - name: Checkout trusted main dispatcher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Set up CPython 3.14 for strict request validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Resolve one added allowlisted request
+        id: request
+        shell: bash
+        working-directory: request
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+          REQUEST_REF: ${{ github.ref_name }}
+          PAYLOAD_FILE: ${{ runner.temp }}/v3-checkpoint-dispatch-payload.json
+        run: |
+          set -euo pipefail
+          [ "$REQUEST_REF" = "chatgpt-v3-checkpoint-requests" ] || {
+            echo "Request ref is outside the dedicated control branch" >&2
+            exit 64
+          }
+          [[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ] || {
+            echo "Request branch must be seeded from main before accepting requests" >&2
+            exit 64
+          }
+          [[ "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "Request commit identity is invalid" >&2
+            exit 64
+          }
+          git merge-base --is-ancestor "$BEFORE_SHA" "$CURRENT_SHA" || {
+            echo "Request history must be a fast-forward" >&2
+            exit 64
+          }
+          [ "$(git rev-list --count "$BEFORE_SHA..$CURRENT_SHA")" -eq 1 ] || {
+            echo "Each request push must contain exactly one commit" >&2
+            exit 64
+          }
+
+          mapfile -d '' -t changed_files < <(git diff --name-only -z --no-renames "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed_files[@]}" -eq 1 ] || {
+            echo "Each request push must change exactly one file" >&2
+            exit 64
+          }
+          request_file="${changed_files[0]}"
+          case "$request_file" in
+            .github/v3-checkpoint-requests/*.json) ;;
+            *) echo "Changed file is outside the request path allowlist" >&2; exit 64 ;;
+          esac
+
+          mapfile -d '' -t added_files < <(git diff --diff-filter=A --name-only -z --no-renames "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#added_files[@]}" -eq 1 ] && [ "${added_files[0]}" = "$request_file" ] || {
+            echo "A request must be one newly added file" >&2
+            exit 64
+          }
+          tree_entry="$(git ls-tree "$CURRENT_SHA" -- "$request_file")"
+          [ "${tree_entry%% *}" = "100644" ] || {
+            echo "Request must be a regular non-executable file" >&2
+            exit 64
+          }
+
+          umask 077
+          python ../trusted-main/scripts/operator/v3_checkpoint_request.py prepare \
+            --request-root . \
+            --request-relative "$request_file" \
+            --request-sha "$CURRENT_SHA" \
+            --payload "$PAYLOAD_FILE" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Dispatch canonical main workflow
+        id: dispatch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET_WORKFLOW: ${{ steps.request.outputs.workflow_file }}
+          REQUEST_ID: ${{ steps.request.outputs.request_id }}
+          PAYLOAD_FILE: ${{ runner.temp }}/v3-checkpoint-dispatch-payload.json
+          RESPONSE_FILE: ${{ runner.temp }}/v3-checkpoint-dispatch-response.json
+        run: |
+          set -euo pipefail
+          http_code="$(curl --silent --show-error --location \
+            --output "$RESPONSE_FILE" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$REPOSITORY/actions/workflows/$TARGET_WORKFLOW/dispatches" \
+            --data-binary "@$PAYLOAD_FILE")"
+          [ "$http_code" = "200" ] || {
+            echo "Canonical workflow dispatch failed with HTTP $http_code" >&2
+            exit 68
+          }
+
+          target_run_id="$(python trusted-main/scripts/operator/v3_checkpoint_request.py confirm \
+            --response "$RESPONSE_FILE" \
+            --repository "$REPOSITORY" \
+            --github-output "$GITHUB_OUTPUT")"
+
+          echo "V3_CHECKPOINT_DISPATCH_ACCEPTED=true"
+          echo "V3_CHECKPOINT_REQUEST_ID=$REQUEST_ID"
+          echo "V3_CHECKPOINT_DISPATCHER_RUN_ID=$GITHUB_RUN_ID"
+          echo "V3_CHECKPOINT_TARGET_WORKFLOW=$TARGET_WORKFLOW"
+          echo "V3_CHECKPOINT_TARGET_REF=main"
+          echo "V3_CHECKPOINT_TARGET_RUN_ID=$target_run_id"
+          echo "V3_CHECKPOINT_TARGET_RUN_URL=https://github.com/$REPOSITORY/actions/runs/$target_run_id"
