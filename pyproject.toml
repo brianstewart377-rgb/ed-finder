@@ -9,7 +9,8 @@ classifiers = [
 
 # This file is the CPython 3.14 repository/tooling authority. The V3 API
 # runtime lock remains apps/api/pyproject.toml + apps/api/uv.lock; services and
-# tooling use their focused per-app requirements files:
+# tooling use their focused per-app requirements files. CI validates this
+# authority directly on the integration head:
 #
 #   apps/api/requirements.txt        — API compatibility mirror (not V3 lock authority)
 #   apps/eddn/requirements.txt       — EDDN listener
