@@ -79,6 +79,58 @@ def test_api_test_dependencies_are_locked_beside_but_excluded_from_release_runti
     assert "--no-group test" in release_dockerfile
 
 
+def test_v3_api_graph_uses_asyncpg_and_psycopg3_without_legacy_driver():
+    project_text = (ROOT / "apps" / "api" / "pyproject.toml").read_text()
+    lock_text = (ROOT / "apps" / "api" / "uv.lock").read_text()
+    project = tomllib.loads(project_text)
+
+    assert "asyncpg==0.31.0" in project["project"]["dependencies"]
+    assert all(not dependency.startswith("psycopg") for dependency in project["project"]["dependencies"])
+    assert "psycopg[binary]==3.3.4" in project["dependency-groups"]["test"]
+    assert "psycopg2" not in project_text
+    assert "psycopg2" not in lock_text
+
+
+def test_v3_api_and_legacy_psycopg2_test_lanes_are_explicitly_separated():
+    manifest = ROOT / "tests" / "legacy_psycopg2_test_paths.txt"
+    paths = [
+        line.strip()
+        for line in manifest.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    coverage = (WORKFLOWS / "coverage.yml").read_text(encoding="utf-8")
+
+    assert len(paths) == len(set(paths))
+    assert all((ROOT / path).is_file() for path in paths)
+    assert "--v3-api-only" in ci
+    assert "--v3-api-only" in coverage
+    assert "Legacy importer/tooling tests (non-runtime)" in ci
+    assert "tests/legacy_psycopg2_test_paths.txt" in ci
+    assert "Synchronous PostgreSQL tooling (CPython 3.14)" in ci
+    assert "scripts/checks/requirements.txt" in ci
+    assert "tests/test_deploy_main_invariants_gate.py" in ci
+    assert "--ignore=tests/test_deploy_main_invariants_gate.py" in ci
+    assert "--ignore=tests/test_deploy_main_invariants_gate.py" in coverage
+
+
+def test_remaining_psycopg2_source_debt_is_explicit_and_outside_v3_checks():
+    debt = (ROOT / "docs" / "development" / "psycopg3-migration-debt.md").read_text()
+    remaining_paths = sorted(
+        path.relative_to(ROOT).as_posix()
+        for search_root in (ROOT / "apps" / "importer" / "src", ROOT / "scripts")
+        for path in search_root.rglob("*.py")
+        if any(
+            marker in path.read_text(encoding="utf-8")
+            for marker in ("import psycopg2", "from psycopg2")
+        )
+    )
+
+    assert remaining_paths
+    assert all(f"`{path}`" in debt for path in remaining_paths)
+    assert not any(path.startswith("scripts/checks/") for path in remaining_paths)
+
+
 def test_canonical_worker_bootstrap_remains_python312_and_is_not_runtime_evidence():
     worker = (WORKFLOWS / "codex-laptop.yml").read_text(encoding="utf-8")
     assert '- name: Set up Python 3.12' in worker

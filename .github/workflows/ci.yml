@@ -83,7 +83,12 @@ jobs:
         env:
           CORS_ORIGINS: http://test
           EDDN_SIMULATION_INGEST_ENABLED: "false"
-        run: apps/api/.venv/bin/python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
+          PYTHONPATH: ${{ github.workspace }}/apps/api/src
+        run: >-
+          apps/api/.venv/bin/python -m pytest --v3-api-only
+          --ignore=tests/integration
+          --ignore=tests/test_deploy_main_invariants_gate.py
+          -m "unit or not (integration or db or operator or e2e or slow)" -q
       - name: Set up Docker buildx (for compose validate)
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - name: Validate docker-compose.yml
@@ -144,6 +149,91 @@ jobs:
             tests/test_backup_restore_ops.py \
             tests/test_windows_local_db_reset_contract.py \
             -q
+
+  synchronous-tooling:
+    name: Synchronous PostgreSQL tooling (CPython 3.14)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up CPython 3.14 for synchronous tooling validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: scripts/checks/requirements.txt
+      - name: Install pinned Psycopg 3 tooling environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r scripts/checks/requirements.txt pytest==8.3.4 pytest-asyncio==1.2.0
+          python -c "import platform, psycopg, sys; assert platform.python_implementation() == 'CPython'; assert sys.version_info[:2] == (3, 14); assert psycopg.__version__ == '3.3.4'"
+      - name: Validate synchronous check entrypoints and invariant wrapper
+        run: |
+          python -m pytest \
+            tests/test_deploy_main_invariants_gate.py \
+            tests/test_data_trust_health_snapshot.py \
+            -q
+
+  # The importer remains bounded migration debt on Python 3.12 until its
+  # synchronous database paths move from psycopg2 to Psycopg 3. This lane owns
+  # those tests without making them part of the CPython 3.14 V3 API proof.
+  legacy-tooling:
+    name: Legacy importer/tooling tests (non-runtime)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: edfinder
+          POSTGRES_PASSWORD: edfinder
+          POSTGRES_DB: edfinder
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up legacy tooling Python 3.12 (non-runtime)
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            tests/requirements-ci.txt
+            apps/importer/requirements.txt
+      - name: Install legacy importer/tooling test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r tests/requirements-ci.txt
+      - name: Apply schema + seed (with ON_ERROR_STOP)
+        env:
+          PGPASSWORD: edfinder
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+        run: bash scripts/seed_check.sh
+      - name: Run bounded legacy importer/tooling unit and PostgreSQL tests
+        env:
+          DATABASE_URL: postgresql://edfinder:edfinder@localhost:5432/edfinder
+          REDIS_URL: redis://localhost:6379/15
+          CORS_ORIGINS: http://test
+          EDDN_SIMULATION_INGEST_ENABLED: "false"
+        run: |
+          mapfile -t legacy_unit_tests < <(
+            grep '^tests/test_' tests/legacy_psycopg2_test_paths.txt \
+              | grep -v '^tests/test_data_trust_runtime.py$'
+          )
+          mapfile -t legacy_postgres_tests < <(
+            grep -E '^tests/integration/|^tests/test_data_trust_runtime.py$' \
+              tests/legacy_psycopg2_test_paths.txt
+          )
+          python -m pytest "${legacy_unit_tests[@]}" \
+            -m "unit or not (integration or db or operator or e2e or slow)" -q
+          python -m pytest "${legacy_postgres_tests[@]}" -q
 
   # V3 production uses PostgreSQL 18. This protected integration lane therefore
   # validates every migration, seed invariant and DB-backed integration test on
@@ -225,7 +315,11 @@ jobs:
           ADMIN_TOKEN:  test-admin-token
           LOG_LEVEL:    WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
-        run: apps/api/.venv/bin/python -m pytest tests/integration/ tests/test_migration_applier_runtime.py tests/test_migration_ledger_baseline_runtime.py tests/test_data_trust_runtime.py -v
+        run: >-
+          apps/api/.venv/bin/python -m pytest --v3-api-only
+          tests/integration/
+          tests/test_migration_applier_runtime.py
+          tests/test_migration_ledger_baseline_runtime.py -v
 
   canonical-safety:
     name: Canonical safety tests

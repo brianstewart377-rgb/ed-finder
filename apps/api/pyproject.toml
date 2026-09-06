@@ -19,10 +19,9 @@ dependencies = [
 ]
 
 # CI-only dependencies are locked beside the deployable API dependencies so
-# validation cannot accidentally exercise a separately resolved runtime graph.
-# Importer libraries are present only because the repository's broad unit suite
-# collects legacy importer tests in the same process; they are not installed in
-# the release image, which syncs with --no-dev.
+# validation cannot accidentally exercise a separately resolved graph. Psycopg
+# 3 supports synchronous release/checkpoint checks; legacy importer-driver
+# tests run in the dedicated Python 3.12 tooling lane.
 [dependency-groups]
 test = [
   "PyYAML==6.0.3",
@@ -30,7 +29,7 @@ test = [
   "ijson==3.5.1",
   "jsonschema==4.25.1",
   "numpy==2.5.1",
-  "psycopg2-binary==2.9.12",
+  "psycopg[binary]==3.3.4",
   "pytest-asyncio==1.2.0",
   "pytest==8.3.4",
   "ruff==0.15.22",

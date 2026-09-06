@@ -6,6 +6,32 @@ import pytest
 
 
 _INTEGRATION_DIR = Path(__file__).resolve().parent / 'integration'
+_ROOT = Path(__file__).resolve().parent.parent
+_LEGACY_PSYCOPG2_TEST_PATHS = frozenset(
+    line
+    for raw_line in (_ROOT / 'tests' / 'legacy_psycopg2_test_paths.txt').read_text(encoding='utf-8').splitlines()
+    if (line := raw_line.strip()) and not line.startswith('#')
+)
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        '--v3-api-only',
+        action='store_true',
+        help='Ignore bounded psycopg2-backed legacy tooling tests before collection.',
+    )
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool | None:
+    if not config.getoption('--v3-api-only'):
+        return None
+    try:
+        relative_path = collection_path.resolve().relative_to(_ROOT).as_posix()
+    except (OSError, ValueError):
+        return None
+    if relative_path in _LEGACY_PSYCOPG2_TEST_PATHS:
+        return True
+    return None
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:

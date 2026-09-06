@@ -74,9 +74,13 @@ jobs:
           ADMIN_TOKEN: test-admin-token
           LOG_LEVEL: WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
+          PYTHONPATH: ${{ github.workspace }}/apps/api/src
         run: |
           apps/api/.venv/bin/python -m coverage erase
-          apps/api/.venv/bin/python -m coverage run -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q
+          apps/api/.venv/bin/python -m coverage run -m pytest \
+            --v3-api-only --ignore=tests/integration \
+            --ignore=tests/test_deploy_main_invariants_gate.py \
+            -m "unit or not (integration or db or operator or e2e or slow)" -q
 
       - name: Append integration coverage
         env:
@@ -87,11 +91,10 @@ jobs:
           LOG_LEVEL: WARNING
           EDDN_SIMULATION_INGEST_ENABLED: "false"
         run: |
-          apps/api/.venv/bin/python -m coverage run --append -m pytest \
+          apps/api/.venv/bin/python -m coverage run --append -m pytest --v3-api-only \
             tests/integration/ \
             tests/test_migration_applier_runtime.py \
             tests/test_migration_ledger_baseline_runtime.py \
-            tests/test_data_trust_runtime.py \
             -q
 
       - name: Build backend coverage reports

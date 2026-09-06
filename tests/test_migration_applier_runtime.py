@@ -25,7 +25,7 @@ MANUAL_MIGRATION = '019_nullable_coords.sql'
 
 
 def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     if bash is None:
         pytest.skip('bash is required to execute scripts/apply_migrations.sh')
@@ -47,7 +47,7 @@ def test_apply_migrations_uses_ledger_to_skip_replay_on_second_run():
     rehearsal_dsn = _dsn_for_database(db_target.dsn, rehearsal_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for migration runtime test: {exc}')
 
@@ -112,8 +112,8 @@ def _manifest_entries(*, include_manual: bool) -> list[str]:
 
 
 def _schema_migration_count(database_url: str) -> int:
-    psycopg2 = pytest.importorskip('psycopg2')
-    conn = psycopg2.connect(database_url)
+    psycopg = pytest.importorskip('psycopg')
+    conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:
             cur.execute('SELECT COUNT(*) FROM schema_migrations')
@@ -123,8 +123,8 @@ def _schema_migration_count(database_url: str) -> int:
 
 
 def _has_migration(database_url: str, filename: str) -> bool:
-    psycopg2 = pytest.importorskip('psycopg2')
-    conn = psycopg2.connect(database_url)
+    psycopg = pytest.importorskip('psycopg')
+    conn = psycopg.connect(database_url)
     try:
         with conn.cursor() as cur:
             cur.execute(

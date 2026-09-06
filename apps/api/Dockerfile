@@ -2,7 +2,7 @@ FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae
 
 WORKDIR /app
 
-# Runtime libs: libpq+gcc for asyncpg/psycopg2 wheel fallbacks; freetype+
+# Runtime libs: libpq+gcc for asyncpg build fallbacks; freetype+
 # zlib+jpeg+dejavu fonts for Pillow's OG share-card renderer.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl libpq-dev gcc \

@@ -13,11 +13,11 @@ FROM postgres:16-alpine
 # the full BusyBox cron — dcron's `crond -f` runs in foreground which
 # plays nicely with `docker logs`.
 #
-# `python3` + `py3-psycopg2` let this legacy sidecar run its guarded
+# `python3` + Psycopg 3 let this legacy sidecar run its guarded
 # invariants wrapper directly on its weekly schedule, `rclone`
 # provides the optional offsite backup sync path, and `curl` sends the
 # optional dead-man's-switch heartbeats.
-RUN apk add --no-cache dcron tini bash python3 py3-psycopg2 rclone curl
+RUN apk add --no-cache dcron tini bash python3 py3-psycopg rclone curl
 
 WORKDIR /opt/ed-finder
 
