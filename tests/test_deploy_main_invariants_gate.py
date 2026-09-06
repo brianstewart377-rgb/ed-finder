@@ -1,8 +1,10 @@
 """Invariant-wrapper contracts after retirement of the V2 deploy entrypoint."""
 import json
 import os
+import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,18 +44,18 @@ def test_invariant_wrapper_still_accepts_the_bounded_waiver_flags(tmp_path: Path
     if bash is None:
         pytest.skip('bash not found on this host')
 
-    venv_python = ROOT / '.venv' / 'Scripts' / 'python.exe'
-    path = os.environ['PATH']
-    if venv_python.is_file():
-        shim_dir = tmp_path / 'python_shim'
-        shim_dir.mkdir()
-        shim = shim_dir / 'python3'
-        shim.write_text(
-            f'#!/bin/sh\nexec "{venv_python.as_posix()}" "$@"\n',
-            encoding='utf-8',
-        )
-        shim.chmod(0o755)
-        path = f"{shim_dir}{os.pathsep}{path}"
+    pytest_python = Path(sys.executable).absolute()
+    assert pytest_python.is_file(), f'pytest interpreter not found: {pytest_python}'
+
+    shim_dir = tmp_path / 'python_shim'
+    shim_dir.mkdir()
+    shim = shim_dir / 'python3'
+    shim.write_text(
+        f'#!/bin/sh\nexec {shlex.quote(pytest_python.as_posix())} "$@"\n',
+        encoding='utf-8',
+    )
+    shim.chmod(0o755)
+    path = f"{shim_dir}{os.pathsep}{os.environ['PATH']}"
 
     receipt_file = tmp_path / 'receipt.json'
     result = subprocess.run(
