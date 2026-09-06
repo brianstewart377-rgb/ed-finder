@@ -18,11 +18,10 @@ Git history, removed workflows, old artifacts, and superseded design documents a
 
 ## Current programme
 
-The V3 application and One Spatial Platform programme is current. PR #601 is
-the single active application integration lane; at its currently known head it
-contains an Explore/Finder → fresh Babylon results → canonical Inspect slice.
-Because that work is an active PR, do not claim it has merged into `main`
-before repository state proves it.
+The V3 application and One Spatial Platform programme is current. PR #601's
+Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
+`main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The first non-production
+live-checkpoint exit path is now the bounded application release task.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
 owns the application, domain orchestration, routes, panels, and accessible DOM;
@@ -62,9 +61,10 @@ environment. Hetzner/V2 is decommissioned.
 - Redis/cache state is disposable and rebuildable.
 - NATS/JetStream transport state is not canonical domain truth.
 - Production commands must come from current V3 runbooks/workflows that explicitly identify the target and safety boundary.
-- Contabo hosts exactly three self-hosted Codex runners. It is not production
-  and is not automatically a live-checkpoint destination; that destination is
-  a deployment decision with explicit capacity and isolation limits.
+- Contabo hosts exactly three self-hosted Codex runners. It is not production.
+  It is the selected first live-checkpoint target only through the isolated,
+  bounded application deployment authority; missing runtime/data/route facts
+  still stop mutation.
 - Ollama was experimental Octopus residue and has been removed from production;
   do not restore or document it as architecture.
 
@@ -123,9 +123,8 @@ Rules:
 
 New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
 
-PR #601's known active head includes Finder, fresh Babylon results, and
-canonical Inspect integration. Treat that as active-PR state until merged, and
-keep new implementation in `apps/web/`.
+The merged #601 baseline includes Finder, fresh Babylon results, and canonical
+Inspect integration. Keep new implementation in `apps/web/`.
 
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 

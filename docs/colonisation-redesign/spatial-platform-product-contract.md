@@ -276,11 +276,10 @@ tests must prove:
 
 ## Current implementation posture
 
-PR #601 is the single active V3 application integration lane. At currently
-known head `190d26446a2487596299cbb6b497ffa5201fee0b`, it contains a real
-Explore/Finder → fresh Babylon results → canonical Inspect slice. This document
-governs that product behaviour, but does not claim the PR is merged into the
-`main` base used by this documentation branch.
+PR #601's real Explore/Finder → fresh Babylon results → canonical Inspect slice
+merged to `main` at exact commit
+`6d574a2908ebda146a2c271f8fb46a9e272ad12e`. This document continues to govern
+that product behaviour.
 
 System Map, Commander History/Journal, Routes, Powerplay, richer Colonisation,
 CPE planned overlays, and CRE Digital Twin contributions remain later product

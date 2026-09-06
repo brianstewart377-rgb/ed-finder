@@ -20,11 +20,9 @@ behaviour, user journeys, accessibility expectations, screenshots, and parity
 until equivalent coverage exists. It is not the architecture target or current
 production authority. R3F's Stage 26 bakeoff win remains accurate history.
 
-PR #601 is the single active V3 application integration lane. At the selected
-head `12eebac48ca9286e0fd8c180cc5f552dc922d07e`, it contains the real
-Explore/Finder → fresh Babylon results → canonical Inspect slice and the Review
-Lab rebase onto `apps/web` + Babylon. This is active-PR state, not a claim that
-it has merged into `main`.
+PR #601's Explore/Finder → fresh Babylon results → canonical Inspect slice and
+Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact commit
+`6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
 ## Historical post-cutover starting evidence
 
@@ -240,7 +238,8 @@ Deck.gl/Luma.gl are not automatically retained. Current use is renderer-bakeoff/
 The reset remains serialized to avoid unrelated simultaneous cutovers. The
 programme order is authoritative in [`../ROADMAP.md`](../ROADMAP.md):
 
-1. Stabilize and accept PR #601's Svelte/Finder/Babylon/Inspect product slice.
+1. Exit the merged Svelte/Finder/Babylon/Inspect slice through the bounded
+   non-production live-checkpoint path.
 2. Complete CPython 3.14/`uv` and immutable release/provenance hardening.
 3. Merge the exact accepted head, then make an explicit checkpoint decision.
 4. Resolve Search requirements, spatial index/grid/cluster design, scoring

@@ -85,6 +85,20 @@ _sse_pubsub_task: Optional[asyncio.Task] = None
 _eddn_simulation_ingest_task: Optional[asyncio.Task] = None
 
 
+async def _reap_stale_admin_runs_on_startup(pool: asyncpg.Pool) -> None:
+    """Run the normal admin-operation recovery unless explicitly disabled."""
+    if not settings.admin_operation_startup_reap_enabled:
+        log.info('Startup admin operation reaping disabled by configuration')
+        return
+
+    try:
+        reaped = await reap_stale_admin_operation_runs(pool)
+        if reaped:
+            log.warning('Reaped %d stale admin operation runs during startup', reaped)
+    except asyncpg.exceptions.UndefinedTableError:
+        log.warning('admin_job_runs table missing during startup reap; skipping stale admin run cleanup')
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _sse_pubsub_task, _eddn_simulation_ingest_task
@@ -177,12 +191,7 @@ async def lifespan(app: FastAPI):
         log.info('PostgreSQL read-only pool not configured; reusing primary pool')
     set_readonly_pool(readonly_pool)
 
-    try:
-        reaped = await reap_stale_admin_operation_runs(pool)
-        if reaped:
-            log.warning('Reaped %d stale admin operation runs during startup', reaped)
-    except asyncpg.exceptions.UndefinedTableError:
-        log.warning('admin_job_runs table missing during startup reap; skipping stale admin run cleanup')
+    await _reap_stale_admin_runs_on_startup(pool)
 
     redis = None
     try:

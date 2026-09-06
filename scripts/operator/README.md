@@ -10,15 +10,24 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Contabo live-checkpoint helper
 
-- `actions/v3-app-live-checkpoint-preflight.sh`: fail-closed, read-only checkpoint
-  deployment preflight for the Contabo live-checkpoint environment, which is
-  explicitly not production and is separate from the production operator
-  environment and credentials. The environment-gated workflow invokes it only after
-  verifying digest release and rollback manifests. It reports the observed host
-  identity while explicitly keeping authoritative Contabo identity unresolved,
-  emits every unresolved topology/secret/schema/rollback fact, and always stops
-  without reading target-host secret files, accessing the database, pulling
-  images, writing files, or changing services.
+- `actions/v3-app-live-checkpoint-preflight.sh`: CPython 3.14 launcher for the
+  fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
+  explicitly non-production and uses separate environment credentials. The
+  helper verifies digest manifests, target authority, the fixed `api`/`web`
+  allowlist, the selected context's exact `unix:///var/run/docker.sock` endpoint,
+  the local bridge network's exact app-only attachments and aliases, app absence
+  or the checksum-bound durable prior receipt/manifest, and the live database
+  identity plus current applied migration set before any pull or service change.
+  Database verification is read-only and never reports or persists the
+  credential-bearing `DATABASE_URL`; Compose receives only a private verified
+  snapshot that is retained through rollback and then removed. Candidate and
+  rollback starts receive bounded readiness polling before authoritative smoke
+  checks. Upgrade
+  rollback recreates from the already-verified prior digest images with
+  `--pull never` and no registry request; receipts account for database reads
+  independently from service mutation. The committed authority currently stops
+  because the runtime, database/config, origin/edge and receipt facts are absent.
+  It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt

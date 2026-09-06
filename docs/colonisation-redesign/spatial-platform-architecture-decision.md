@@ -2,9 +2,9 @@
 
 **Decision:** accepted in Stage 27A, 2026-08-31; current V3 architecture
 authority
-**Implementation status:** PR #601 is the active integration lane and contains
-a fresh Babylon Explore/Finder results → Inspect slice at its currently known
-head. This is active-PR state, not a claim that it has merged to `main`.
+**Implementation status:** PR #601's fresh Babylon Explore/Finder results →
+Inspect slice merged to `main` at exact commit
+`6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
 ## Context and historically accurate decision
 
