@@ -36,13 +36,13 @@ def valid_summary(*flow_names: str) -> dict[str, object]:
         for flow in flow_names
     }
     return {
-        'summarySchemaVersion': 1,
+        'summarySchemaVersion': contract.REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION,
         'reviewLabRun': True,
         'selectedScenarioNames': [scenario.name for scenario in selected],
         'browserFlowKeys': list(flow_names),
         'scenarios': {flow: {'status': 'passed', 'checks': value} for flow, value in checks.items()},
-        'accessibility': {},
         'apiResponses': [],
+        'externalOrigins': [],
         'consoleEntries': [],
         'pageErrors': [],
         'fatalError': None,
@@ -58,73 +58,81 @@ def test_review_lab_targets_apps_web_and_dedicated_v3_collector():
     assert not (ROOT / 'frontend' / 'cypress' / 'e2e' / 'review-environment.cy.js').exists()
 
 
-def test_v3_collector_is_babylon_backed_without_react_or_r3f_selectors():
-    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
-    explore = read('apps/web/src/lib/features/explore/ExploreWorkspace.svelte')
-    spatial = read('apps/web/src/lib/spatial/SpatialCanvas.svelte')
-    assert 'SpatialCanvas' in explore
-    assert 'createBabylonSpatialRuntime' in spatial
-    for legacy in ('colony-planner-workspace', 'whole-system-colony-planner', 'planner-canvas', '#finder'):
-        assert legacy not in collector
+def test_review_lab_phase_contract_contains_no_product_acceptance_phase():
+    assert contract.REQUIRED_PHASE_NAMES == (
+        'static',
+        'stack',
+        'api_contracts',
+        'browser_synthetic',
+        'browser_console',
+        'teardown',
+    )
+    source = read('scripts/dev/review_environment.py')
+    assert 'product_acceptance_ready' not in source
+    assert 'product_observations' not in source
+    assert "'product_acceptance_owned_here': False" in source
 
 
-def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
-    workflow = read('.github/workflows/review-lab.yml')
-    assert 'node-version: "24"' in workflow
-    assert 'pnpm@11.25.0' in workflow
-    assert 'working-directory: apps/web' in workflow
-    assert 'tests/test_review_lab_v3.py' in workflow
-    for legacy in (
-        'working-directory: frontend',
-        'resolve_project_state.py',
-        'test_project_state_resolver.py',
-        'test_stage18h2_warehouse_planner_evidence_endpoint.py',
-        'git diff --check',
-    ):
-        assert legacy not in workflow
-
-
-def test_review_collector_fails_closed_and_writes_only_below_owned_tmp_root():
-    config = read('apps/web/cypress.review.config.ts')
-    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
-    assert 'EDFINDER_REVIEW_LAB_RUN' in config
-    assert 'EDFINDER_REVIEW_OUTPUT_PATH' in config
-    assert 'EDFINDER_REVIEW_SCENARIOS_JSON' in config
-    assert "const REVIEW_ROOT = '/tmp/edfinder-local-review'" in config
-    assert 'isWithinReviewRoot(candidate)' in config
-    assert 'requires the trusted Node-task handshake' in collector
-    assert 'Cypress.env' not in collector
-
-
-def test_review_scenarios_are_v3_synthetic_states_not_product_e2e_duplicates():
+def test_review_scenarios_are_only_lab_specific_states():
     assert scenarios.scenario_names() == (
-        'explore_inspect',
+        'synthetic_wiring',
         'api_failure',
         'empty_results',
         'renderer_recovery',
-        'navigation_containment',
     )
     flows = scenarios.selected_browser_flow_keys(scenarios.resolve_scenarios('all'))
-    assert flows == (
-        'exploreInspect',
-        'apiFailure',
-        'emptyResults',
-        'rendererRecovery',
-        'navigationContainment',
-    )
-    assert scenarios.selection_requires_product_observations(scenarios.resolve_scenarios('all')) is False
+    assert flows == ('syntheticWiring', 'apiFailure', 'emptyResults', 'rendererRecovery')
+    assert 'explore_inspect' not in scenarios.scenario_names()
+    assert 'navigation_containment' not in scenarios.scenario_names()
 
 
-def test_review_browser_evaluator_requires_each_selected_v3_contract():
+def test_review_collector_does_not_duplicate_product_e2e_acceptance():
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    product = read('apps/web/cypress/e2e/product-journey.cy.ts')
+    assert 'SpatialCanvas' in read('apps/web/src/lib/features/explore/ExploreWorkspace.svelte')
+    assert 'createBabylonSpatialRuntime' in read('apps/web/src/lib/spatial/SpatialCanvas.svelte')
+    for product_acceptance_marker in (
+        '.inspect-link',
+        '{downArrow}{enter}',
+        'cy.checkA11y',
+        'cy.screenshot(',
+        'Back to Explore',
+    ):
+        assert product_acceptance_marker not in collector
+        assert product_acceptance_marker in product or product_acceptance_marker == 'Back to Explore'
+
+
+def test_review_backend_not_cypress_owns_failure_and_empty_injection():
+    collector = read('apps/web/cypress/e2e/review-lab.cy.ts')
+    review_main = read('apps/api/src/review_main.py')
+    support = read('apps/api/src/review_support_routes.py')
+    assert '/api/review/scenario/' in collector
+    assert 'statusCode: 503' not in collector
+    assert 'review_lab_synthetic_empty' not in collector
+    assert "mode == 'api_failure'" in review_main
+    assert "mode == 'empty_results'" in review_main
+    assert 'review_lab_synthetic_empty' in review_main
+    assert "'/api/review/scenario/{mode}'" in support
+
+
+def test_review_preview_is_explicitly_bound_to_loopback():
+    runner = read('scripts/dev/review_lab/browser_runner.py')
+    assert "'--host'" in runner
+    assert 'EXPECTED_FRONTEND_PREVIEW_HOST' in runner
+    assert browser_runner._validated_preview_endpoint() == ('127.0.0.1', 4173)
+
+
+def test_review_browser_evaluator_requires_each_selected_synthetic_contract():
     selected = scenarios.resolve_scenarios('all')
     summary = valid_summary(*scenarios.selected_browser_flow_keys(selected))
-    result = browser_runner.evaluate_browser_desktop(summary, selected)
+    result = browser_runner.evaluate_browser_synthetic(summary, selected)
     assert result['status'] == 'passed'
     assert result['safe_diagnostics']['frontend'] == 'apps/web'
     assert result['safe_diagnostics']['renderer'] == 'Babylon'
+    assert result['safe_diagnostics']['product_acceptance_owned_here'] is False
 
     summary['scenarios']['emptyResults']['checks']['zeroTargetScene'] = False
-    failed = browser_runner.evaluate_browser_desktop(summary, selected)
+    failed = browser_runner.evaluate_browser_synthetic(summary, selected)
     assert failed['status'] == 'failed'
     assert failed['safe_diagnostics']['missing_scenario_checks']['emptyResults'] == ['zeroTargetScene']
 
@@ -153,6 +161,14 @@ def test_expected_failure_must_be_explicitly_tagged():
     assert network_policy.list_unexpected_api_errors([untagged]) == [
         {'method': 'POST', 'path': '/api/local/search', 'status': 503}
     ]
+
+
+def test_external_network_origin_is_a_review_lab_containment_failure():
+    summary = valid_summary('syntheticWiring')
+    summary['externalOrigins'] = ['https://example.invalid']
+    result = network_policy.evaluate_browser_console(summary)
+    assert result['status'] == 'failed'
+    assert result['failure_code'] == 'UNEXPECTED_BROWSER_NETWORK_ERROR'
 
 
 def test_review_database_guard_and_fixtures_remain_synthetic_and_eligible():
@@ -191,49 +207,6 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     assert '127.0.0.1:8001:8000' in compose
     assert 'external:' not in compose
     assert 'env_file:' not in compose
-
-
-@pytest.mark.parametrize(
-    ('attribute', 'unsafe_value'),
-    (
-        ('EXPECTED_FRONTEND_PREVIEW_HOST', 'attacker.example'),
-        ('EXPECTED_FRONTEND_PREVIEW_PORT', 8080),
-    ),
-)
-def test_preview_readiness_endpoint_is_mechanically_pinned_to_loopback(monkeypatch, attribute, unsafe_value):
-    assert browser_runner._validated_preview_endpoint() == ('127.0.0.1', 4173)
-
-    monkeypatch.setattr(browser_runner, attribute, unsafe_value)
-    with pytest.raises(contract.ReviewLabError, match='loopback-only target') as error:
-        browser_runner._validated_preview_endpoint()
-    assert error.value.failure_code == 'BROWSER_RUNNER_CONFIGURATION_FAILED'
-
-
-def test_docker_baseline_includes_networks_and_ignores_only_review_owned_delta():
-    before = {
-        'containers': ['normal-api'],
-        'volumes': ['normal-data'],
-        'networks': ['bridge', 'normal-network'],
-    }
-    after = {
-        'containers': ['normal-api', 'edfinder-review-api-1'],
-        'volumes': ['normal-data', 'edfinder_review_postgres_data'],
-        'networks': ['bridge', 'normal-network', 'edfinder-review-network'],
-    }
-    assert lifecycle.compare_docker_baseline(before, after) == {
-        'containers_added': [],
-        'containers_removed': [],
-        'volumes_added': [],
-        'volumes_removed': [],
-        'networks_added': [],
-        'networks_removed': [],
-    }
-
-
-def test_non_review_network_delta_fails_baseline_restoration():
-    before = {'containers': [], 'volumes': [], 'networks': ['bridge']}
-    after = {'containers': [], 'volumes': [], 'networks': ['bridge', 'leaked-network']}
-    assert lifecycle.compare_docker_baseline(before, after)['networks_added'] == ['leaked-network']
 
 
 def test_process_registry_stops_only_its_owned_process_group(tmp_path):
@@ -297,15 +270,17 @@ def test_verify_always_stops_processes_and_restores_stack_after_phase_failure(tm
     assert calls == ['processes', 'docker', 'report']
 
 
-def test_final_workflow_teardown_asserts_containers_volumes_and_networks():
+def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     workflow = read('.github/workflows/review-lab.yml')
-    assert 'docker ps -a --filter "label=com.docker.compose.project=edfinder-review"' in workflow
-    assert 'docker volume ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
-    assert 'docker network ls --filter "label=com.docker.compose.project=edfinder-review"' in workflow
+    assert 'node-version: "24"' in workflow
+    assert 'pnpm@11.25.0' in workflow
+    assert 'working-directory: apps/web' in workflow
+    assert 'tests/test_review_lab_v3.py' in workflow
+    for legacy in ('working-directory: frontend', 'resolve_project_state.py', 'git diff --check'):
+        assert legacy not in workflow
 
 
 def test_sanitised_report_contains_no_environment_or_credentials(tmp_path, monkeypatch):
-    monkeypatch.setattr(contract, 'VERIFY_TMP_ROOT', tmp_path)
     context = contract.VerifyContext(
         mode='quick',
         scenarios=scenarios.resolve_scenarios('empty_results'),

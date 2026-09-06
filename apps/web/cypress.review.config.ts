@@ -4,7 +4,7 @@ import path from 'node:path';
 import { defineConfig } from 'cypress';
 
 const REVIEW_ROOT = '/tmp/edfinder-local-review';
-const SUMMARY_SCHEMA_VERSION = 1;
+const SUMMARY_SCHEMA_VERSION = 2;
 
 function isWithinReviewRoot(candidate: string): boolean {
   const relative = path.relative(REVIEW_ROOT, candidate);

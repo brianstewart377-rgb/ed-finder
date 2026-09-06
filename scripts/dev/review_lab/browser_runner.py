@@ -26,11 +26,10 @@ from .timeouts import TIMEOUTS
 
 
 REQUIRED_CHECKS_BY_FLOW: dict[str, set[str]] = {
-    'exploreInspect': {'exploreLoaded', 'syntheticSystemVisible', 'babylonReady', 'inspectLoaded', 'exactId64Preserved'},
-    'apiFailure': {'failureInjected', 'errorRendered', 'selectionContextPreserved'},
-    'emptyResults': {'emptyInjected', 'emptyRendered', 'zeroTargetScene', 'babylonReady'},
+    'syntheticWiring': {'syntheticSystemVisible', 'babylonReady'},
+    'apiFailure': {'failureModeActivated', 'errorRendered', 'selectionContextPreserved'},
+    'emptyResults': {'emptyModeActivated', 'emptyRendered', 'zeroTargetScene', 'babylonReady'},
     'rendererRecovery': {'babylonReady', 'rendererLifecycleExercised', 'rendererRemainedUsable', 'noUncaughtError'},
-    'navigationContainment': {'directInspectLoaded', 'headingFocused', 'returnedToExplore', 'sameOriginOnly'},
 }
 
 
@@ -44,7 +43,7 @@ def _validated_preview_endpoint() -> tuple[str, int]:
     return EXPECTED_FRONTEND_PREVIEW_HOST, EXPECTED_FRONTEND_PREVIEW_PORT
 
 
-def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
+def evaluate_browser_synthetic(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
     scenarios = summary.get('scenarios') or {}
     missing: dict[str, list[str]] = {}
     for flow in selected_browser_flow_keys(selected_scenarios):
@@ -60,46 +59,22 @@ def evaluate_browser_desktop(summary: dict[str, Any], selected_scenarios: tuple[
         return {
             'status': 'failed',
             'duration_ms': 0,
-            'summary': 'One or more synthetic V3 browser scenarios failed.',
+            'summary': 'One or more Review Lab-only synthetic scenarios failed.',
             'failure_code': 'BROWSER_JOURNEY_FAILED',
             'safe_diagnostics': {'missing_scenario_checks': missing},
         }
     return {
         'status': 'passed',
         'duration_ms': 0,
-        'summary': 'Synthetic V3 Explore, Inspect, Babylon, failure, empty-state, and containment scenarios passed.',
+        'summary': 'Selected Review Lab-only synthetic edge/failure scenarios passed.',
         'failure_code': None,
         'safe_diagnostics': {
             'scenario_names': list(selected_browser_flow_keys(selected_scenarios)),
             'profile_names': [profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES],
             'frontend': 'apps/web',
             'renderer': 'Babylon',
+            'product_acceptance_owned_here': False,
         },
-    }
-
-
-def evaluate_browser_accessibility(summary: dict[str, Any], selected_scenarios: tuple[ScenarioDefinition, ...]) -> dict[str, Any]:
-    required: list[str] = []
-    if any('keyboard_typeahead' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required.append('keyboardTypeaheadWorks')
-    if any('inspect_heading_focus' in scenario.accessibility_checks for scenario in selected_scenarios):
-        required.append('inspectHeadingFocused')
-    if not required:
-        return {
-            'status': 'skipped',
-            'duration_ms': 0,
-            'summary': 'Selected synthetic scenarios have no additional accessibility contract.',
-            'failure_code': None,
-            'safe_diagnostics': {'reason': 'no requested Review Lab accessibility checks'},
-        }
-    accessibility = summary.get('accessibility') or {}
-    missing = [name for name in required if not accessibility.get(name)]
-    return {
-        'status': 'failed' if missing else 'passed',
-        'duration_ms': 0,
-        'summary': 'Review Lab keyboard and focus contracts failed.' if missing else 'Review Lab keyboard and focus contracts passed.',
-        'failure_code': 'BROWSER_JOURNEY_FAILED' if missing else None,
-        'safe_diagnostics': {'missing_checks': missing, 'checks': required},
     }
 
 
@@ -144,8 +119,8 @@ def _validate_browser_summary(summary: Any, selected_scenarios: tuple[ScenarioDe
         and summary.get('selectedScenarioNames') == expected_names
         and summary.get('browserFlowKeys') == expected_flows
         and isinstance(summary.get('scenarios'), dict)
-        and isinstance(summary.get('accessibility'), dict)
         and isinstance(summary.get('apiResponses'), list)
+        and isinstance(summary.get('externalOrigins'), list)
         and isinstance(summary.get('consoleEntries'), list)
         and isinstance(summary.get('pageErrors'), list)
         and 'fatalError' in summary
@@ -196,7 +171,15 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
     run_subprocess(['pnpm', 'build'], cwd=FRONTEND_DIR, env_overrides=env, timeout_seconds=TIMEOUTS.frontend_build, failure_code='FRONTEND_BUILD_TIMEOUT')
     registry.start(
         'apps-web-preview',
-        ['pnpm', 'preview', '--port', str(EXPECTED_FRONTEND_PREVIEW_PORT), '--strictPort'],
+        [
+            'pnpm',
+            'preview',
+            '--host',
+            EXPECTED_FRONTEND_PREVIEW_HOST,
+            '--port',
+            str(EXPECTED_FRONTEND_PREVIEW_PORT),
+            '--strictPort',
+        ],
         cwd=FRONTEND_DIR,
         env=env,
         stdout_log_name='apps-web-preview.stdout.log',
@@ -227,24 +210,10 @@ def run_browser_phase(run_dir: Path, selected_scenarios: tuple[ScenarioDefinitio
         raise ReviewLabError('Browser summary was invalid.', failure_code='BROWSER_RUNNER_CONFIGURATION_FAILED', safe_diagnostics=diagnostics) from exc
     _ensure_cypress_succeeded(completed, diagnostics)
 
-    desktop_phase = evaluate_browser_desktop(summary, selected_scenarios)
-    accessibility_phase = evaluate_browser_accessibility(summary, selected_scenarios)
-    console_phase = evaluate_browser_console(summary)
-    product_phase = {
-        'status': 'skipped',
-        'duration_ms': 0,
-        'summary': 'Product acceptance and visual baselines belong to normal Product E2E.',
-        'failure_code': None,
-        'safe_diagnostics': {'reason': 'hard lane boundary'},
-    }
     return {
-        'browser_desktop': desktop_phase,
-        'browser_accessibility': accessibility_phase,
-        'browser_console': console_phase,
-        'product_observations': product_phase,
+        'browser_synthetic': evaluate_browser_synthetic(summary, selected_scenarios),
+        'browser_console': evaluate_browser_console(summary),
         'unexpected_api_errors': list_unexpected_api_errors(summary.get('apiResponses', [])),
         'unexpected_console_errors': list_unexpected_console_errors(summary),
-        'known_product_observations': [],
-        'unexpected_product_observations': [],
         'synthetic_failure_injection_verified': summary.get('scenarios', {}).get('apiFailure', {}).get('status') == 'passed',
     }

@@ -32,15 +32,14 @@ EXPECTED_REVIEW_STACK_MARKER = 'edfinder-review'
 EXPECTED_FRONTEND_PREVIEW_HOST = '127.0.0.1'
 EXPECTED_FRONTEND_PREVIEW_PORT = 4173
 REVIEW_LAB_BROWSER_MARKER = 'EDFINDER_REVIEW_LAB_RUN'
-REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION = 1
+REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION = 2
 REVIEW_LAB_VIEWPORT_PROFILES: tuple[dict[str, Any], ...] = (
     {
         'profile_name': 'v3_desktop_synthetic',
         'viewport_width': 1280,
         'viewport_height': 800,
         'device_scale_factor': 1,
-        'product_scope': 'explore_inspect_babylon',
-        'acceptance_level': 'required',
+        'review_scope': 'synthetic_edge_and_failure_proving',
     },
 )
 REVIEW_LAB_VIEWPORT_PROFILE_NAMES = tuple(profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES)
@@ -50,11 +49,9 @@ REQUIRED_PHASE_NAMES = (
     'static',
     'stack',
     'api_contracts',
-    'browser_desktop',
-    'browser_accessibility',
+    'browser_synthetic',
     'browser_console',
     'teardown',
-    'product_observations',
 )
 STATIC_TEST_FILES = (
     'tests/test_review_lab_v3.py',
@@ -111,11 +108,7 @@ class ScenarioDefinition:
     browser_journey: tuple[str, ...]
     expected_network_policy: tuple[str, ...]
     evidence_posture: str
-    accessibility_checks: tuple[str, ...]
-    viewport_checks: tuple[str, ...]
-    product_observation_policy: str
     browser_flow_keys: tuple[str, ...] = ()
-    requires_product_observations: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -127,11 +120,7 @@ class ScenarioDefinition:
             'browser_journey': list(self.browser_journey),
             'expected_network_policy': list(self.expected_network_policy),
             'evidence_posture': self.evidence_posture,
-            'accessibility_checks': list(self.accessibility_checks),
-            'viewport_checks': list(self.viewport_checks),
-            'product_observation_policy': self.product_observation_policy,
             'browser_flow_keys': list(self.browser_flow_keys),
-            'requires_product_observations': self.requires_product_observations,
         }
 
 
@@ -168,8 +157,8 @@ class VerifyContext:
     report_path: Path
 
     def command_text(self) -> str:
-        scenario_label = 'all' if tuple(s.name for s in self.scenarios) == () else ','.join(s.name for s in self.scenarios)
-        return f"scripts/dev/review_environment.py verify --mode {self.mode} --scenario {scenario_label or 'all'} {CONFIRM_FLAG}"
+        scenario_label = self.scenarios[0].name if len(self.scenarios) == 1 else 'all'
+        return f"scripts/dev/review_environment.py verify --mode {self.mode} --scenario {scenario_label} {CONFIRM_FLAG}"
 
 
 def elapsed_ms(started_at: float) -> int:

@@ -95,6 +95,7 @@ async def lifespan(app: FastAPI):
 
     app.state.pool = pool
     app.state.redis = redis
+    app.state.review_scenario = 'normal'
     log.info('Isolated review API ready')
     yield
 
@@ -122,6 +123,39 @@ app.add_middleware(
     allow_headers=['Content-Type', 'X-Admin-Token', 'Authorization'],
 )
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+
+
+@app.middleware('http')
+async def review_scenario_middleware(request: Request, call_next: Any) -> Response:
+    """Inject only Review Lab-owned synthetic search states.
+
+    The normal application router remains untouched. These modes exist only in
+    review_main.py, which is guarded to the disposable Review Lab runtime.
+    """
+    if request.method == 'POST' and request.url.path == '/api/local/search':
+        mode = getattr(request.app.state, 'review_scenario', 'normal')
+        if mode == 'api_failure':
+            return JSONResponse(
+                status_code=503,
+                media_type='application/problem+json',
+                headers={'x-edfinder-review-failure': 'api-failure'},
+                content={
+                    'type': 'https://ed-finder.invalid/problem/review-lab-search-failure',
+                    'title': 'Synthetic Review Lab search failure',
+                    'status': 503,
+                },
+            )
+        if mode == 'empty_results':
+            return JSONResponse(
+                status_code=200,
+                content={
+                    'results': [],
+                    'total': 0,
+                    'count': 0,
+                    'source': 'review_lab_synthetic_empty',
+                },
+            )
+    return await call_next(request)
 
 
 @app.middleware('http')

@@ -39,18 +39,24 @@ def list_unexpected_console_errors(summary: Mapping[str, Any]) -> list[dict[str,
 def evaluate_browser_console(summary: Mapping[str, Any]) -> dict[str, Any]:
     unexpected_console = list_unexpected_console_errors(summary)
     unexpected_api = list_unexpected_api_errors(summary.get('apiResponses', []))
-    if unexpected_console or unexpected_api:
+    external_origins = sorted({str(origin) for origin in summary.get('externalOrigins', []) if origin})
+    if unexpected_console or unexpected_api or external_origins:
+        failure_code = 'UNEXPECTED_BROWSER_CONSOLE_ERROR' if unexpected_console else 'UNEXPECTED_BROWSER_NETWORK_ERROR'
         return {
             'status': 'failed',
             'duration_ms': 0,
-            'summary': 'Unexpected browser console, page, or API errors were captured.',
-            'failure_code': 'UNEXPECTED_BROWSER_CONSOLE_ERROR' if unexpected_console else 'UNEXPECTED_BROWSER_NETWORK_ERROR',
-            'safe_diagnostics': {'console_errors': unexpected_console, 'api_errors': unexpected_api},
+            'summary': 'Unexpected browser console, API, or external-network activity was captured.',
+            'failure_code': failure_code,
+            'safe_diagnostics': {
+                'console_errors': unexpected_console,
+                'api_errors': unexpected_api,
+                'external_origins': external_origins,
+            },
         }
     return {
         'status': 'passed',
         'duration_ms': 0,
-        'summary': 'Browser diagnostics were clean apart from explicitly tagged Review Lab failure injection.',
+        'summary': 'Browser diagnostics were clean, same-origin, and contained apart from explicitly tagged Review Lab failure injection.',
         'failure_code': None,
-        'safe_diagnostics': {'api_response_count': len(summary.get('apiResponses', []))},
+        'safe_diagnostics': {'api_response_count': len(summary.get('apiResponses', [])), 'external_origins': []},
     }

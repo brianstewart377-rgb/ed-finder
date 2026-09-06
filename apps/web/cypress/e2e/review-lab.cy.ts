@@ -17,13 +17,13 @@ type ReviewSummary = {
       diagnostics?: Record<string, string>;
     }
   >;
-  accessibility: Record<string, boolean>;
   apiResponses: Array<{
     method: string;
     path: string;
     status: number;
     expectedFailure?: boolean;
   }>;
+  externalOrigins: string[];
   consoleEntries: Array<{ type: string; text: string }>;
   pageErrors: string[];
   fatalError: string | null;
@@ -73,33 +73,45 @@ describe('isolated V3 Review Lab', () => {
   let outputPath = '';
   let summary: ReviewSummary;
 
+  const setReviewMode = (mode: 'normal' | 'api_failure' | 'empty_results') =>
+    cy
+      .request('POST', `/api/review/scenario/${mode}`)
+      .its('status')
+      .should('eq', 200);
+
   before(() => {
     cy.task('getReviewLabConfig').then((raw) => {
       const config = parseTrustedConfig(raw as ReviewLabConfig);
       outputPath = config.outputPath;
       summary = {
-        summarySchemaVersion: 1,
+        summarySchemaVersion: 2,
         reviewLabRun: true,
         selectedScenarioNames: config.selectedScenarioNames,
         browserFlowKeys: config.browserFlowKeys,
         scenarios: {},
-        accessibility: {},
         apiResponses: [],
+        externalOrigins: [],
         consoleEntries: [],
         pageErrors: [],
         fatalError: null,
       };
     });
-    cy.intercept({ url: '**/api/**', middleware: true }, (request) => {
+    cy.intercept({ url: '**', middleware: true }, (request) => {
+      const url = new URL(request.url);
+      const baseUrl = Cypress.config('baseUrl');
+      if (typeof baseUrl === 'string' && url.origin !== new URL(baseUrl).origin) {
+        summary.externalOrigins.push(url.origin);
+      }
+      if (!url.pathname.startsWith('/api/')) return;
       request.on('response', (response) => {
-        const url = new URL(request.url);
         summary.apiResponses.push({
           method: request.method,
           path: `${url.pathname}${url.search}`,
           status: response.statusCode,
           expectedFailure:
             response.statusCode === 503 &&
-            response.headers['x-edfinder-review-failure'] === 'api-failure',
+            String(response.headers['x-edfinder-review-failure'] ?? '') ===
+              'api-failure',
         });
       });
     });
@@ -109,7 +121,7 @@ describe('isolated V3 Review Lab', () => {
     cy.task('writeReviewLabSummary', { outputPath, summary });
   });
 
-  it('executes only the selected synthetic V3 scenarios', () => {
+  it('executes only selected Review Lab synthetic edge and failure scenarios', () => {
     Cypress.once('fail', (error) => {
       summary.fatalError = clean(error.message);
       if (currentFlow) {
@@ -129,8 +141,7 @@ describe('isolated V3 Review Lab', () => {
         summary.pageErrors.push(clean(event.reason)),
       );
       for (const type of ['error', 'warn'] as const) {
-        const browserConsole = (window as Window & { console: Console })
-          .console;
+        const browserConsole = (window as Window & { console: Console }).console;
         const original = browserConsole[type];
         browserConsole[type] = (...args: unknown[]) => {
           summary.consoleEntries.push({ type, text: clean(args.join(' ')) });
@@ -148,63 +159,31 @@ describe('isolated V3 Review Lab', () => {
     };
 
     const flows = summary.browserFlowKeys;
-    if (flows.includes('exploreInspect')) {
-      currentFlow = 'exploreInspect';
-      cy.intercept('POST', '/api/local/search').as('reviewSearch');
-      cy.intercept('GET', '/api/local/autocomplete*').as('reviewAutocomplete');
+
+    if (flows.includes('syntheticWiring')) {
+      currentFlow = 'syntheticWiring';
+      setReviewMode('normal');
+      cy.intercept('POST', '/api/local/search').as('wiringSearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
-      cy.wait('@reviewSearch').its('response.statusCode').should('eq', 200);
-      cy.get('h1').should('contain.text', 'Chart a promising system');
+      cy.wait('@wiringSearch').its('response.statusCode').should('eq', 200);
       cy.get(`[data-system-result="${REVIEW_ALPHA.id64}"]`).should(
         'contain.text',
         REVIEW_ALPHA.name,
       );
-      cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
-      cy.get('#system-search').clear().type('Review Al');
-      cy.wait('@reviewAutocomplete')
-        .its('response.statusCode')
-        .should('eq', 200);
-      cy.get('#system-search').type('{downArrow}{enter}');
-      summary.accessibility.keyboardTypeaheadWorks = true;
-      cy.get(`[data-system-result="${REVIEW_ALPHA.id64}"] [data-result-select]`)
-        .should('be.focused')
-        .and('have.attr', 'aria-pressed', 'true');
-      cy.get(
-        `[data-system-result="${REVIEW_ALPHA.id64}"] .inspect-link`,
-      ).click();
-      cy.location('pathname').should('eq', '/inspect');
-      cy.location('search').should('eq', `?system=${REVIEW_ALPHA.id64}`);
-      cy.get(`[data-system-id64="${REVIEW_ALPHA.id64}"]`)
-        .should('contain.text', REVIEW_ALPHA.name)
-        .and('contain.text', REVIEW_ALPHA.id64)
+      cy.get(readySelector, { timeout: 20_000 })
+        .should('be.visible')
         .then(() =>
-          markPassed('exploreInspect', {
-            exploreLoaded: true,
+          markPassed('syntheticWiring', {
             syntheticSystemVisible: true,
             babylonReady: true,
-            inspectLoaded: true,
-            exactId64Preserved: true,
           }),
         );
     }
 
     if (flows.includes('apiFailure')) {
       currentFlow = 'apiFailure';
-      cy.intercept(
-        { method: 'POST', url: '/api/local/search', times: 2 },
-        {
-          statusCode: 503,
-          headers: {
-            'content-type': 'application/problem+json',
-            'x-edfinder-review-failure': 'api-failure',
-          },
-          body: {
-            type: 'https://ed-finder.invalid/problem/review-lab-search-failure',
-            title: 'Synthetic Review Lab search failure',
-            status: 503,
-          },
-        },
-      ).as('failedSearch');
+      setReviewMode('api_failure');
+      cy.intercept('POST', '/api/local/search').as('failedSearch');
       cy.visit('/explore', {
         onBeforeLoad(window) {
           instrumentWindow(window);
@@ -223,27 +202,18 @@ describe('isolated V3 Review Lab', () => {
         .should('eq', REVIEW_ALPHA.id64)
         .then(() =>
           markPassed('apiFailure', {
-            failureInjected: true,
+            failureModeActivated: true,
             errorRendered: true,
             selectionContextPreserved: true,
           }),
         );
+      setReviewMode('normal');
     }
 
     if (flows.includes('emptyResults')) {
       currentFlow = 'emptyResults';
-      cy.intercept(
-        { method: 'POST', url: '/api/local/search', times: 1 },
-        {
-          statusCode: 200,
-          body: {
-            results: [],
-            total: 0,
-            count: 0,
-            source: 'review_lab_synthetic_empty',
-          },
-        },
-      ).as('emptySearch');
+      setReviewMode('empty_results');
+      cy.intercept('POST', '/api/local/search').as('emptySearch');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       cy.wait('@emptySearch').its('response.statusCode').should('eq', 200);
       cy.contains('No systems match this discovery area.').should('be.visible');
@@ -252,16 +222,18 @@ describe('isolated V3 Review Lab', () => {
         .should('have.attr', 'data-scene-target-count', '0')
         .then(() =>
           markPassed('emptyResults', {
-            emptyInjected: true,
+            emptyModeActivated: true,
             emptyRendered: true,
             zeroTargetScene: true,
             babylonReady: true,
           }),
         );
+      setReviewMode('normal');
     }
 
     if (flows.includes('rendererRecovery')) {
       currentFlow = 'rendererRecovery';
+      setReviewMode('normal');
       cy.visit('/explore', { onBeforeLoad: instrumentWindow });
       cy.get(readySelector, { timeout: 20_000 })
         .should('be.visible')
@@ -270,7 +242,7 @@ describe('isolated V3 Review Lab', () => {
           cy.get<HTMLCanvasElement>('canvas[data-spatial-canvas]').then(
             ($canvas) => {
               const canvas = $canvas[0];
-              let recoveryMode = 'neutral-resize-lifecycle-fallback';
+              let recoveryMode = 'neutral-lifecycle-fallback';
               const context =
                 backend === 'WEBGL2' ? canvas.getContext('webgl2') : null;
               const extension = context?.getExtension('WEBGL_lose_context');
@@ -303,21 +275,16 @@ describe('isolated V3 Review Lab', () => {
                   .then((restored) => {
                     if (!restored) {
                       recoveryMode = 'webgl-context-loss-remount-fallback';
-                      cy.visit('/explore', { onBeforeLoad: instrumentWindow });
+                      cy.reload();
                       return;
                     }
                     recoveryMode = 'webgl-context-loss-and-restore';
                     expect(activeContext.isContextLost()).to.equal(false);
                   });
               } else {
-                cy.viewport(960, 680);
-                cy.get('canvas[data-spatial-canvas]')
-                  .invoke('attr', 'data-resize-revision')
-                  .then((revision) =>
-                    expect(Number(revision)).to.be.greaterThan(0),
-                  );
+                cy.reload();
               }
-              cy.get(readySelector).should('be.visible');
+              cy.get(readySelector, { timeout: 20_000 }).should('be.visible');
               cy.then(() =>
                 markPassed(
                   'rendererRecovery',
@@ -327,9 +294,7 @@ describe('isolated V3 Review Lab', () => {
                     rendererRemainedUsable: true,
                     noUncaughtError: summary.pageErrors.length === 0,
                   },
-                  {
-                    recoveryMode,
-                  },
+                  { recoveryMode },
                 ),
               );
             },
@@ -337,30 +302,11 @@ describe('isolated V3 Review Lab', () => {
         });
     }
 
-    if (flows.includes('navigationContainment')) {
-      currentFlow = 'navigationContainment';
-      cy.visit(`/inspect?system=${REVIEW_ALPHA.id64}`, {
-        onBeforeLoad: instrumentWindow,
-      });
-      cy.get(`[data-system-id64="${REVIEW_ALPHA.id64}"] h1`)
-        .should('contain.text', REVIEW_ALPHA.name)
-        .and('be.focused');
-      summary.accessibility.inspectHeadingFocused = true;
-      cy.contains('a', 'Back to Explore').click();
-      cy.location('pathname').should('eq', '/explore');
-      cy.window().then((window) => {
-        const external = window.performance
-          .getEntriesByType('resource')
-          .map((entry) => new URL(entry.name))
-          .filter((url) => url.origin !== window.location.origin);
-        expect(external, 'external resource requests').to.deep.equal([]);
-        markPassed('navigationContainment', {
-          directInspectLoaded: true,
-          headingFocused: true,
-          returnedToExplore: true,
-          sameOriginOnly: true,
-        });
-      });
-    }
+    cy.then(() => {
+      expect(
+        [...new Set(summary.externalOrigins)],
+        'Review Lab external resource origins',
+      ).to.deep.equal([]);
+    });
   });
 });

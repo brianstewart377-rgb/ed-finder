@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from .contract import REQUIRED_REVIEW_SYSTEM_NAMES, REVIEW_SYSTEM_IDS, ReviewLabError
+from .contract import REQUIRED_REVIEW_SYSTEM_NAMES, ReviewLabError
 from .lifecycle import ensure_contract_shape, fetch_json
 from .scenarios import ScenarioDefinition
 
@@ -19,23 +19,6 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
             safe_diagnostics={'route': '/api/health', 'status': health['status']},
         )
     diagnostics['contracts_checked'].append('health')
-
-    if 'autocomplete' in requested:
-        autocomplete = fetch_json('GET', '/api/local/autocomplete?q=Review&limit=10')
-        ensure_contract_shape(
-            autocomplete,
-            required_keys={'results'},
-            failure_code='UNEXPECTED_API_ERROR',
-            route='/api/local/autocomplete',
-        )
-        names = {row.get('name') for row in autocomplete['body']['results'] if isinstance(row, dict)}
-        if 'Review Alpha' not in names:
-            raise ReviewLabError(
-                'Autocomplete did not expose the required synthetic anchor.',
-                failure_code='UNEXPECTED_API_ERROR',
-                safe_diagnostics={'route': '/api/local/autocomplete'},
-            )
-        diagnostics['contracts_checked'].append('autocomplete')
 
     if 'finder' in requested:
         finder = fetch_json(
@@ -66,25 +49,24 @@ def run_api_contract_phase(selected_scenarios: Iterable[ScenarioDefinition]) -> 
         diagnostics['finder_systems'] = sorted(names)
         diagnostics['contracts_checked'].append('finder')
 
-    if 'system_detail' in requested:
-        detail = fetch_json('GET', f"/api/system/{REVIEW_SYSTEM_IDS['alpha']}")
+    if 'review_control' in requested:
+        control = fetch_json('POST', '/api/review/scenario/normal')
         ensure_contract_shape(
-            detail,
-            required_keys={'record', 'system'},
+            control,
+            required_keys={'scenario'},
             failure_code='UNEXPECTED_API_ERROR',
-            route='/api/system/{id64}',
+            route='/api/review/scenario/{mode}',
         )
-        system = detail['body']['system']
-        if not isinstance(system, dict) or system.get('name') != 'Review Alpha':
+        if control['body']['scenario'] != 'normal':
             raise ReviewLabError(
-                'System Detail did not return the Review Alpha synthetic contract.',
+                'Review Lab scenario control did not reset to normal mode.',
                 failure_code='UNEXPECTED_API_ERROR',
-                safe_diagnostics={'route': '/api/system/{id64}'},
+                safe_diagnostics={'route': '/api/review/scenario/{mode}'},
             )
-        diagnostics['contracts_checked'].append('system_detail')
+        diagnostics['contracts_checked'].append('review_control')
 
     diagnostics['contracts_checked'] = sorted(set(diagnostics['contracts_checked']))
     return {
-        'summary': 'Isolated V3 health, autocomplete, Finder, and System Detail contracts passed.',
+        'summary': 'Isolated Review Lab health, Finder wiring, and review-only control contracts passed.',
         'safe_diagnostics': diagnostics,
     }
