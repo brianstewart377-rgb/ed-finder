@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PROVISIONER = ROOT / "scripts/operator/actions/v3-live-checkpoint-provision.sh"
 CONTROL = ROOT / ".github/workflows/v3-live-checkpoint-control.yml"
 DEPLOY = ROOT / ".github/workflows/v3-application-live-checkpoint-preflight.yml"
+LOCAL = ROOT / "scripts/operator/actions/v3-live-checkpoint-local.sh"
 SEED = ROOT / "scripts/seed_check.sh"
 
 
@@ -135,11 +136,11 @@ def test_checkpoint_control_plane_keeps_canonical_release_and_deploy_boundaries(
     workflow = _read(CONTROL)
 
     assert "environment: v3-live-checkpoint" in workflow
-    assert "V3_LIVE_CHECKPOINT_SSH_KEY" in workflow
-    assert "V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS" in workflow
-    assert "StrictHostKeyChecking=yes" in workflow
-    assert "sudo -n env CHECKPOINT_OPERATOR_UID=" in workflow
-    assert "ref: main" in workflow
+    assert "V3_LIVE_CHECKPOINT_SSH_KEY" not in workflow
+    assert "runs-on: [self-hosted, Linux, X64, codex]" in workflow
+    assert "ref: ${{ github.sha }}" in workflow
+    assert "v3-live-checkpoint-local.sh provision" in workflow
+    assert "CHECKPOINT_OPERATOR_UID=1001" in _read(LOCAL)
     assert "actions/workflows/v3-application-release.yml/dispatches" in workflow
     assert "actions/workflows/v3-application-live-checkpoint-preflight.yml/dispatches" in workflow
     assert '"schema_compatibility": "exact"' in workflow
@@ -151,22 +152,20 @@ def test_checkpoint_control_plane_keeps_canonical_release_and_deploy_boundaries(
 
 def test_checkpoint_deploy_uses_ephemeral_ghcr_auth_only_for_the_deploy_window():
     workflow = _read(DEPLOY)
-
+    local = _read(LOCAL)
     assert "packages: read" in workflow
-    assert "Authenticate ephemeral Contabo GHCR pull authority" in workflow
-    assert "Clear ephemeral Contabo GHCR pull authority" in workflow
     assert "GHCR_TOKEN: ${{ github.token }}" in workflow
-    assert "docker login ghcr.io -u brianstewart377-rgb --password-stdin" in workflow
-    assert "docker logout ghcr.io" in workflow
-    assert "DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config" in workflow
-    assert "DOCKER_CONTEXT=edfinder-v3-checkpoint-local" in workflow
-    assert workflow.index("Authenticate ephemeral Contabo GHCR pull authority") < workflow.index(
-        "Run bounded Contabo deployment boundary"
-    )
-    assert workflow.index("Run bounded Contabo deployment boundary") < workflow.index(
-        "Clear ephemeral Contabo GHCR pull authority"
-    )
-    assert workflow.index("Clear ephemeral Contabo GHCR pull authority") < workflow.index(
+    assert "docker login ghcr.io -u brianstewart377-rgb --password-stdin" in local
+    assert "docker logout ghcr.io" in local
+    assert "trap cleanup EXIT" in local
+    assert "logged_in=true" in local
+    assert "DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config" in local
+    assert "DOCKER_CONTEXT=edfinder-v3-checkpoint-local" in local
+    assert "sudo -n -u codex -- env -i" in local
+    assert "ED_NEW_OPERATOR_" not in workflow
+    assert "default: local" in workflow
+    assert "if: inputs.transport != 'ssh'" in workflow
+    assert workflow.index("Run bounded Contabo local deployment boundary") < workflow.index(
         "Upload sanitized deployment receipt"
     )
 

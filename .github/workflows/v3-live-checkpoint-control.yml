@@ -12,6 +12,8 @@ permissions:
 jobs:
   resolve:
     if: >-
+      github.repository == 'brianstewart377-rgb/ed-finder' &&
+      github.ref == 'refs/heads/main' &&
       github.event.issue.number == 623 &&
       github.actor == 'brianstewart377-rgb' &&
       github.event.comment.user.login == 'brianstewart377-rgb' &&
@@ -102,74 +104,39 @@ jobs:
 
   provision:
     needs: resolve
-    if: needs.resolve.outputs.operation == 'provision'
-    runs-on: ubuntu-24.04
+    if: needs.resolve.outputs.operation == 'provision' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Linux, X64, codex]
     environment: v3-live-checkpoint
+    concurrency:
+      group: v3-application-live-checkpoint-deploy
+      cancel-in-progress: false
     timeout-minutes: 45
     steps:
-      - name: Checkout trusted main
+      - name: Verify existing Contabo runner identity before checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          [ "$(hostname -s)" = vmi3542235 ]
+          [ "$(uname -m)" = x86_64 ]
+          [ "$(id -un)" = codex ] && [ "$(id -u)" = 1001 ] && [ "$(id -g)" = 1001 ]
+      - name: Checkout trusted main event SHA
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up CPython 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.14"
-      - name: Prepare pinned Contabo SSH trust
-        shell: bash
-        env:
-          SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
-          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
-          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
-          SSH_KNOWN_HOSTS: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS }}
-        run: |
-          set -euo pipefail
-          test -n "$SSH_KEY" || { echo "Missing V3_LIVE_CHECKPOINT_SSH_KEY" >&2; exit 1; }
-          test -n "$SSH_HOST" || { echo "Missing V3_LIVE_CHECKPOINT_HOST" >&2; exit 1; }
-          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$SSH_PORT" -le 65535 ] || { echo "Invalid V3_LIVE_CHECKPOINT_PORT" >&2; exit 1; }
-          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned live-checkpoint known-hosts secret" >&2; exit 1; }
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_live_checkpoint_key
-          chmod 600 ~/.ssh/v3_live_checkpoint_key
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          if [ "$SSH_PORT" = 22 ]; then known_host_lookup="$SSH_HOST"; else known_host_lookup="[$SSH_HOST]:$SSH_PORT"; fi
-          ssh-keygen -F "$known_host_lookup" -f ~/.ssh/known_hosts >/dev/null || {
-            echo "Pinned known-host trust does not cover configured checkpoint host" >&2
-            exit 1
-          }
-      - name: Assemble source-free provisioning bundle
-        shell: bash
-        env:
-          BUNDLE: ${{ runner.temp }}/v3-checkpoint-provision
-        run: |
-          set -euo pipefail
-          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts" "$BUNDLE/sql" "$BUNDLE/deploy/v3-live-checkpoint"
-          install -m 700 scripts/operator/actions/v3-live-checkpoint-provision.sh "$BUNDLE/scripts/operator/actions/"
-          install -m 700 scripts/apply_migrations.sh scripts/seed_check.sh "$BUNDLE/scripts/"
-          cp -a sql/. "$BUNDLE/sql/"
-          install -m 600 deploy/v3-live-checkpoint/target-authority.json "$BUNDLE/deploy/v3-live-checkpoint/"
-          chmod -R a+rX "$BUNDLE"
       - name: Provision or verify persistent Contabo checkpoint infrastructure
         shell: bash
         env:
-          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
-          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
-          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
-          BUNDLE: ${{ runner.temp }}/v3-checkpoint-provision
           CANDIDATE: ${{ runner.temp }}/v3-live-checkpoint-authority-candidate.json
         run: |
           set -euo pipefail
-          test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
-          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_live_checkpoint_key \
-            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
-            'set -eu; umask 077; uid="$(id -u)"; gid="$(id -g)"; user="$(id -un)"; work="$(mktemp -d)"; trap '\''rm -rf -- "$work"'\'' EXIT HUP INT TERM; chmod 755 "$work"; tar -xf - -C "$work"; chmod -R a+rX "$work"; cd "$work"; sudo -n env CHECKPOINT_OPERATOR_UID="$uid" CHECKPOINT_OPERATOR_GID="$gid" CHECKPOINT_OPERATOR_USER="$user" bash scripts/operator/actions/v3-live-checkpoint-provision.sh' \
-            > "$CANDIDATE"
-          python -m json.tool "$CANDIDATE" >/dev/null
-          python - "$CANDIDATE" <<'PY'
+          bash scripts/operator/actions/v3-live-checkpoint-local.sh provision > "$CANDIDATE"
+          python - "$CANDIDATE" <<'PYCODE'
           import json, pathlib, sys
           value = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
           assert value["status"] == "authorized"
@@ -177,7 +144,7 @@ jobs:
           assert value["target"]["hostname"] == "vmi3542235"
           assert value["blockers"] == []
           print("Contabo checkpoint provisioning produced an authorized sanitized candidate.")
-          PY
+          PYCODE
       - name: Upload sanitized authority candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:

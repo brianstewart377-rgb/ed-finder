@@ -3,6 +3,14 @@ name: V3 application live-checkpoint deploy
 on:
   workflow_dispatch:
     inputs:
+      transport:
+        description: Existing local runner connection by default; SSH remains an explicit compatibility option
+        required: true
+        default: local
+        type: choice
+        options:
+          - local
+          - ssh
       deployment_mode:
         description: Bootstrap proves app absence; upgrade uses the durable accepted host receipt and manifest
         required: true
@@ -28,7 +36,10 @@ concurrency:
 jobs:
   deploy:
     name: Verify and apply the bounded live-checkpoint release
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.repository == 'brianstewart377-rgb/ed-finder'
+    runs-on: ${{ fromJSON(inputs.transport == 'ssh' && '["ubuntu-latest"]' || '["self-hosted","Linux","X64","codex"]') }}
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
     # This boundary is distinct from production credentials and routing.
     environment: v3-live-checkpoint
     # The operator bounds each command at 120 seconds and each candidate/rollback
@@ -37,10 +48,19 @@ jobs:
     # apply/smoke, SSH transfer and receipt handling, remains below this job ceiling.
     timeout-minutes: 75
     steps:
+      - name: Verify existing Contabo runner identity before checkout
+        if: inputs.transport != 'ssh'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          [ "$(hostname -s)" = vmi3542235 ]
+          [ "$(uname -m)" = x86_64 ]
+          [ "$(id -un)" = codex ] && [ "$(id -u)" = 1001 ] && [ "$(id -g)" = 1001 ]
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up CPython 3.14 for release verification
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -155,7 +175,57 @@ jobs:
         run: |
           set -euo pipefail
           python scripts/release/v3_release_manifest.py verify "$CANDIDATE" --purpose deploy-candidate
+      - name: Record authenticated candidate identity
+        id: identity
+        shell: bash
+        env:
+          CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
+        run: |
+          python - <<'PYCODE'
+          import json, os, pathlib, re
+          sha = json.loads(pathlib.Path(os.environ["CANDIDATE"]).read_text())["git_sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", sha)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"source_sha={sha}\n")
+          PYCODE
+      - name: Run bounded Contabo local deployment boundary
+        if: inputs.transport != 'ssh'
+        shell: bash
+        env:
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
+          GHCR_TOKEN: ${{ github.token }}
+          RECEIPT: ${{ runner.temp }}/v3-live-checkpoint-receipt.json
+        run: |
+          set -euo pipefail
+          # Local transport keeps the source-free bundle and refreshes only the
+          # non-root child process's Docker group. Login/logout are one trapped window.
+          local_receipt="$RECEIPT.local"
+          rc=0
+          bash scripts/operator/actions/v3-live-checkpoint-local.sh deploy \
+            "$DEPLOYMENT_MODE" "$CANDIDATE_RUN_ID" > "$local_receipt" || rc=$?
+          if [ -s "$local_receipt" ] && python -m json.tool "$local_receipt" >/dev/null; then
+            mv "$local_receipt" "$RECEIPT"
+          else
+            python - <<'PYCODE' > "$RECEIPT"
+          import json
+          print(json.dumps({
+              "schema_version": "ed-finder/v3-live-checkpoint-deployment-receipt/v1",
+              "status": "stopped",
+              "failures": ["local_transport_or_bundle_failed"],
+              "service_changes_performed": None,
+              "service_changes_may_have_been_performed": True,
+              "image_pulls_may_have_been_performed": True,
+              "database_access_may_have_been_performed": True,
+              "rollback_status": "unknown_require_durable_host_receipt_inspection",
+          }, sort_keys=True))
+          PYCODE
+            rc=78
+          fi
+          cat "$RECEIPT"
+          exit "$rc"
       - name: Prepare pinned Contabo live-checkpoint SSH trust boundary
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
           SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
@@ -180,6 +250,7 @@ jobs:
             exit 1
           }
       - name: Authenticate ephemeral Contabo GHCR pull authority
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
           GHCR_TOKEN: ${{ github.token }}
@@ -194,6 +265,7 @@ jobs:
             -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
             'set -eu; umask 077; env DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config DOCKER_CONTEXT=edfinder-v3-checkpoint-local docker login ghcr.io -u brianstewart377-rgb --password-stdin >/dev/null'
       - name: Assemble source-free deployment bundle
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
           BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-bundle
@@ -206,6 +278,7 @@ jobs:
           install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
           install -m 600 "$RUNNER_TEMP/candidate/v3-application-release.json" "$RUNNER_TEMP/candidate/v3-application-release.json.sha256" "$BUNDLE/artifacts/candidate/"
       - name: Run bounded Contabo deployment boundary
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
           DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
@@ -255,7 +328,7 @@ jobs:
           fi
           [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
       - name: Clear ephemeral Contabo GHCR pull authority
-        if: always()
+        if: always() && inputs.transport == 'ssh'
         shell: bash
         env:
           SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
@@ -277,4 +350,34 @@ jobs:
           name: v3-live-checkpoint-deployment-receipt
           path: ${{ runner.temp }}/v3-live-checkpoint-receipt.json
           if-no-files-found: warn
+          retention-days: 90
+
+  public-smoke:
+    name: Verify live checkpoint from outside Contabo
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact trusted main implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+      - name: Verify public Svelte and API release identity
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.deploy.outputs.source_sha }}
+        run: python scripts/operator/v3_checkpoint_public_smoke.py --receipt "$RUNNER_TEMP/v3-checkpoint-public-smoke.json"
+      - name: Upload public checkpoint smoke receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v3-live-checkpoint-public-smoke
+          path: ${{ runner.temp }}/v3-checkpoint-public-smoke.json
+          if-no-files-found: error
           retention-days: 90
