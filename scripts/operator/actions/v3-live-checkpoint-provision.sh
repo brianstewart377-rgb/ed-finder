@@ -107,9 +107,9 @@ finally:
 }
 
 read_checkpoint_password() {
-  python3.14 - "$API_ENV" "$OP_UID" "$DB_EXISTS" "$NETWORK_GATEWAY" "$DB_NAME" "$DB_APP_ROLE" <<'PY'
+  python3.14 - "$API_ENV" "$OP_UID" "$DB_EXISTS" "$NETWORK_GATEWAY" "$DB_NAME" "$DB_APP_ROLE" "$EXPECTED_FQDN" <<'PY'
 import os, re, stat, sys, urllib.parse
-path, uid, exists, gateway, database, role = sys.argv[1:]
+path, uid, exists, gateway, database, role, fqdn = sys.argv[1:]
 parent, name = os.path.split(path)
 dir_fd = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 try:
@@ -126,14 +126,25 @@ try:
             raise SystemExit("checkpoint API environment has unsafe type, owner or mode")
         if exists != "1":
             raise SystemExit("API environment exists while checkpoint database is missing")
-        values = [line.split("=", 1)[1] for line in handle.read().splitlines()
-                  if line.startswith("DATABASE_URL=")]
+        lines = handle.read().splitlines()
 finally:
     os.close(dir_fd)
-if len(values) != 1:
+# This is a managed environment, not an arbitrary dotenv extension point. Reject
+# missing, duplicate, extra or noncanonical assignments without printing values.
+settings = {}
+for line in lines:
+    if not line or line.startswith("#"):
+        continue
+    if "=" not in line or line != line.strip():
+        raise SystemExit("checkpoint API environment has a malformed assignment")
+    key, value = line.split("=", 1)
+    if key in settings:
+        raise SystemExit("checkpoint API environment has a duplicate assignment")
+    settings[key] = value
+if not settings.get("DATABASE_URL"):
     raise SystemExit("existing checkpoint database lacks one complete DATABASE_URL")
 try:
-    parsed = urllib.parse.urlsplit(values[0])
+    parsed = urllib.parse.urlsplit(settings["DATABASE_URL"])
     password = urllib.parse.unquote(parsed.password or "")
     valid = (parsed.scheme == "postgresql" and parsed.username == role
              and parsed.hostname == gateway and parsed.port == 5432
@@ -143,6 +154,17 @@ except ValueError:
     valid = False
 if not valid:
     raise SystemExit("checkpoint DATABASE_URL identity or password is invalid")
+expected = {
+    "DATABASE_URL": f"postgresql://{role}:{password}@{gateway}:5432/{database}",
+    "CORS_ORIGINS": f"http://{fqdn}",
+    "REDIS_URL": "redis://127.0.0.1:1/0",
+    "ADMIN_OPERATION_STARTUP_REAP_ENABLED": "false",
+    "EDDN_SIMULATION_INGEST_ENABLED": "false",
+    "AUTH_COOKIE_SECURE": "false",
+    "FRONTIER_REDIRECT_URI": f"http://{fqdn}/api/auth/frontier/callback",
+}
+if settings != expected:
+    raise SystemExit("checkpoint API environment differs from complete managed settings")
 print(password)
 PY
 }

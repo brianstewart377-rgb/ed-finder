@@ -217,6 +217,14 @@ def _api_env(tmp_path, content=None):
         # Synthetic fixture, never a live credential.
         content = "DATABASE_URL=postgresql://edfinder_checkpoint_app:" + "a" * 48
         content += "@172.22.0.1:5432/edfinder_checkpoint\n"
+        content += (
+            "CORS_ORIGINS=http://vmi3542235.contaboserver.net\n"
+            "REDIS_URL=redis://127.0.0.1:1/0\n"
+            "ADMIN_OPERATION_STARTUP_REAP_ENABLED=false\n"
+            "EDDN_SIMULATION_INGEST_ENABLED=false\n"
+            "AUTH_COOKIE_SECURE=false\n"
+            "FRONTIER_REDIRECT_URI=http://vmi3542235.contaboserver.net/api/auth/frontier/callback\n"
+        )
     path.write_text(content, encoding="utf-8")
     path.chmod(0o600)
     return path
@@ -289,6 +297,65 @@ def test_existing_database_rejects_invalid_credential_identity(tmp_path, replace
     result = _run_helper(tmp_path, "read_checkpoint_password")
     assert result.returncode != 0
     assert "DATABASE_URL identity or password is invalid" in result.stderr
+
+
+@pytest.mark.parametrize("key", [
+    "CORS_ORIGINS", "REDIS_URL", "ADMIN_OPERATION_STARTUP_REAP_ENABLED",
+    "EDDN_SIMULATION_INGEST_ENABLED", "AUTH_COOKIE_SECURE", "FRONTIER_REDIRECT_URI",
+])
+@pytest.mark.parametrize("change", ["remove", "replace", "duplicate"])
+def test_verification_rejects_noncredential_environment_drift(tmp_path, key, change):
+    path = _api_env(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assignment = next(line for line in lines if line.startswith(key + "="))
+    if change == "remove":
+        lines.remove(assignment)
+    elif change == "replace":
+        lines[lines.index(assignment)] = key + "=unexpected"
+    else:
+        lines.append(assignment)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    before = path.read_bytes(), path.stat().st_ino
+    result = _run_helper(tmp_path, "read_checkpoint_password")
+    assert result.returncode != 0
+    assert "checkpoint API environment" in result.stderr
+    assert (path.read_bytes(), path.stat().st_ino) == before
+    assert result.stdout == ""
+
+
+@pytest.mark.parametrize("change", ["database_url_only", "extra", "malformed", "duplicate_database_url"])
+def test_verification_requires_the_complete_managed_environment(tmp_path, change):
+    path = _api_env(tmp_path)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if change == "database_url_only":
+        lines = lines[:1]
+    elif change == "extra":
+        lines.append("UNMANAGED_SETTING=true")
+    elif change == "malformed":
+        lines.append("not-an-assignment")
+    else:
+        lines.append(lines[0])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    before = path.read_bytes(), path.stat().st_ino
+    script = _read(PROVISIONER)
+    selection = script.split('DB_PASSWORD="$(read_checkpoint_password)"', 1)[1].split("DB_CREATED=false", 1)[0]
+    _stub(tmp_path, "openssl", 'touch "$TEST_ROOT/password-rotated"; exit 90\n')
+    result = _run_helper(tmp_path, 'DB_PASSWORD="$(read_checkpoint_password)"' + selection)
+    assert result.returncode != 0
+    assert not (tmp_path / "password-rotated").exists()
+    assert (path.read_bytes(), path.stat().st_ino) == before
+
+
+def test_created_api_environment_passes_the_same_complete_rerun_validation(tmp_path):
+    script = _read(PROVISIONER)
+    start = script.index('if [ "$DB_CREATED" = true ]; then\n  atomic_checkpoint_file "$API_ENV"')
+    end = script.index("\nfi", start) + len("\nfi")
+    command = 'DB_CREATED=true\nDATABASE_URL="postgresql://edfinder_checkpoint_app:' + "a" * 48
+    command += '@172.22.0.1:5432/edfinder_checkpoint"\n'
+    command += script[start:end] + "\nread_checkpoint_password"
+    result = _run_helper(tmp_path, command)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "a" * 48
 
 
 def test_atomic_receipt_replacement_preserves_complete_document_and_metadata(tmp_path):
