@@ -234,6 +234,8 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     assert "FROM python:3.14-slim" in backend
     assert "uv==0.11.33" in backend
     assert "uv sync --frozen" in backend
+    assert backend.count("platform.python_implementation() == 'CPython'") == 2
+    assert backend.count("sys.version_info[:2] == (3, 14)") == 2
     assert (ROOT / "apps" / "api" / "uv.lock").is_file()
     assert 'requires-python = ">=3.14,<3.15"' in api_project
     assert 'required-version = "==0.11.33"' in api_project
@@ -256,15 +258,17 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     assert 'APP_VERSION="3.0.1"' in backend
 
 
-def test_release_runbook_distinguishes_python314_release_from_python312_ci():
+def test_release_runbook_distinguishes_python314_application_from_python312_tooling():
     runbook = (
         ROOT / "docs" / "operations" / "v3-application-checkpoint-release.md"
     ).read_text()
 
     assert "every-PR container parity lane" in runbook
-    assert "Routine backend, migration," in runbook
-    assert "remain on Python 3.12" in runbook
-    assert "in for this release-target proof" in runbook
+    assert "Normal V3 backend unit" in runbook
+    assert "Review Lab backend" in runbook
+    assert "real FastAPI lifespan" in runbook
+    assert "Codex worker bootstrap may remain on Python" in runbook
+    assert "those checks do not stand in for V3 application-runtime proof" in runbook
 
 
 def test_release_api_lock_inputs_match_the_existing_pinned_runtime_versions():

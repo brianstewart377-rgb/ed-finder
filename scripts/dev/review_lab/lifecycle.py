@@ -164,6 +164,8 @@ def validate_compose_text(compose_text: str) -> None:
     postgres_block = extract_service_block(compose_text, 'review-postgres')
     redis_block = extract_service_block(compose_text, 'review-redis')
     api_block = extract_service_block(compose_text, 'review-api')
+    if 'image: postgres:18-alpine' not in postgres_block:
+        raise ReviewLabError('review-postgres must use the V3 PostgreSQL 18 test service')
     if 'ports:' in postgres_block:
         raise ReviewLabError('review-postgres must not publish host ports')
     if 'ports:' in redis_block:
@@ -172,6 +174,8 @@ def validate_compose_text(compose_text: str) -> None:
         raise ReviewLabError('review-api must target review-postgres / edfinder_local_review only')
     if f'{EXPECTED_REVIEW_REDIS_HOST}:6379/0' not in api_block:
         raise ReviewLabError('review-api must target review-redis only')
+    if 'EDDN_SIMULATION_INGEST_ENABLED: "false"' not in api_block:
+        raise ReviewLabError('review-api must disable external EDDN ingest during validation')
 
 
 def validate_normal_api_sources() -> None:
@@ -319,6 +323,39 @@ def review_service_readiness() -> dict[str, dict[str, bool]]:
         'review-postgres': {'running': 'review-postgres' in running, 'ready': postgres_ready_ok()},
         'review-redis': {'running': 'review-redis' in running, 'ready': redis_ready_ok()},
         'review-api': {'running': 'review-api' in running, 'ready': api_health_ok()},
+    }
+
+
+def review_api_runtime_identity() -> dict[str, str]:
+    """Prove the interpreter of the running Review Lab server process."""
+
+    probe = (
+        "import json, platform, sys; "
+        "assert platform.python_implementation() == 'CPython'; "
+        "assert sys.version_info[:2] == (3, 14); "
+        "print(json.dumps({'implementation': platform.python_implementation(), "
+        "'version': platform.python_version()}))"
+    )
+    output = run_compose(
+        'exec', '-T', 'review-api', '/proc/1/exe', '-c', probe,
+        timeout_seconds=10,
+        failure_code='REVIEW_API_RUNTIME_MISMATCH',
+    )
+    try:
+        identity = json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise ReviewLabError(
+            'Review API runtime identity probe returned malformed evidence.',
+            failure_code='REVIEW_API_RUNTIME_MISMATCH',
+        ) from exc
+    if not isinstance(identity, dict):
+        raise ReviewLabError(
+            'Review API runtime identity probe returned an invalid shape.',
+            failure_code='REVIEW_API_RUNTIME_MISMATCH',
+        )
+    return {
+        'implementation': str(identity.get('implementation', '')),
+        'version': str(identity.get('version', '')),
     }
 
 
@@ -561,9 +598,13 @@ def run_stack_phase() -> dict[str, Any]:
     status = wait_for_review_status_ready()
     if not status.get('api_health_ok'):
         raise ReviewLabError('Review API health did not become ready.', failure_code='REVIEW_API_HEALTH_FAILED', safe_diagnostics=status)
+    runtime_identity = review_api_runtime_identity()
     return {
-        'summary': 'review-postgres, review-redis, and review-api became ready via the isolated wrapper workflow.',
-        'safe_diagnostics': {'services': status['services']},
+        'summary': 'review-postgres, review-redis, and the CPython 3.14 review-api became ready via the isolated wrapper workflow.',
+        'safe_diagnostics': {
+            'services': status['services'],
+            'runtime_identity': runtime_identity,
+        },
     }
 
 

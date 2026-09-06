@@ -106,8 +106,27 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'apps/api/Dockerfile.release' in workflow
     assert 'Release API CPython 3.14 build and startup' in workflow
     assert "sys.version_info[:2] == (3, 14)" in workflow
-    assert 'uvicorn edfinder_api.main:app' in workflow
-    assert 'http://127.0.0.1:18000/openapi.json' in workflow
+    assert 'postgres:18-alpine' in workflow
+    assert 'DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder' in workflow
+    assert 'EDDN_SIMULATION_INGEST_ENABLED=false' in workflow
+    assert 'http://127.0.0.1:18000/api/health' in workflow
+    assert 'health["database"] == "connected"' in workflow
+    assert 'health["build_sha"] == os.environ["EXPECTED_BUILD_SHA"]' in workflow
+    assert '/proc/1/exe -c' in workflow
+    assert '--lifespan off' not in workflow
+
+
+def test_local_and_release_api_images_use_the_frozen_python314_runtime():
+    local = _read('apps', 'api', 'Dockerfile')
+    release = _read('apps', 'api', 'Dockerfile.release')
+
+    for dockerfile in (local, release):
+        assert 'FROM python:3.14-slim@sha256:' in dockerfile
+        assert 'uv==0.11.33' in dockerfile
+        assert 'apps/api/pyproject.toml apps/api/uv.lock' in dockerfile
+        assert 'uv sync --frozen --no-dev --no-group test --no-install-project' in dockerfile
+        assert "platform.python_implementation() == 'CPython'" in dockerfile
+        assert 'sys.version_info[:2] == (3, 14)' in dockerfile
 
 
 @pytest.mark.integration

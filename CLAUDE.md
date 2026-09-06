@@ -101,7 +101,14 @@ Never expose repository write credentials to the Codex execution environment.
 
 ## Python/backend
 
-The checked-in backend still uses Python 3.12 and the repository-pinned test dependencies; use that toolchain when validating still-current legacy code. New V3 application implementation targets CPython 3.14 with uv as locked by `docs/development/v3-application-stack-decision.md`. Do not claim the migration has landed before its reviewed slices do.
+The deployable V3 API and every validation lane that claims V3 application
+runtime evidence use CPython 3.14 with uv 0.11.33 and the frozen
+`apps/api/pyproject.toml` + `apps/api/uv.lock` graph. Repository orchestration,
+static contracts, legacy importer/canonical tooling, and the Codex worker
+bootstrap may remain on Python 3.12, but those checks are not V3 runtime
+evidence. Do not change the Codex worker bootstrap merely to validate the
+application runtime, and do not claim the migration has landed before its
+reviewed slices do.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 

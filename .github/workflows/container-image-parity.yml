@@ -53,26 +53,67 @@ jobs:
             --tag ed-finder-release-api:python314 \
             .
 
-      - name: Prove release interpreter, import, and server startup
+      - name: Prove release interpreter and real lifespan startup
         run: |
-          container_name="ed-finder-release-api-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          cleanup() { docker rm --force "${container_name}" >/dev/null 2>&1 || true; }
+          set -euo pipefail
+          suffix="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          network_name="ed-finder-release-${suffix}"
+          postgres_name="ed-finder-release-postgres-${suffix}"
+          api_name="ed-finder-release-api-${suffix}"
+          cleanup() {
+            docker rm --force "${api_name}" "${postgres_name}" >/dev/null 2>&1 || true
+            docker network rm "${network_name}" >/dev/null 2>&1 || true
+          }
           trap cleanup EXIT
-          docker run --rm --env CORS_ORIGINS=http://127.0.0.1 \
-            ed-finder-release-api:python314 python -c \
-            "import sys; from edfinder_api.main import app; assert sys.version_info[:2] == (3, 14); assert app.title == 'ED Finder API'"
-          docker run --detach --name "${container_name}" \
-            --publish 127.0.0.1:18000:8000 \
-            --env CORS_ORIGINS=http://127.0.0.1 \
-            ed-finder-release-api:python314 \
-            uvicorn edfinder_api.main:app --host 0.0.0.0 --port 8000 --workers 1 --lifespan off
+
+          docker network create "${network_name}"
+          docker run --detach --name "${postgres_name}" \
+            --network "${network_name}" --network-alias postgres \
+            --env POSTGRES_USER=edfinder \
+            --env POSTGRES_PASSWORD=edfinder \
+            --env POSTGRES_DB=edfinder \
+            postgres:18-alpine
           for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18000/openapi.json >/dev/null; then
+            if docker exec "${postgres_name}" pg_isready -U edfinder -d edfinder >/dev/null 2>&1; then
+              break
+            fi
+            if [ "${attempt}" -eq 30 ]; then
+              docker logs "${postgres_name}"
+              exit 1
+            fi
+            sleep 1
+          done
+
+          # Do not override the image command: this must exercise the same
+          # uvicorn invocation and real FastAPI lifespan used in production.
+          docker run --detach --name "${api_name}" \
+            --network "${network_name}" \
+            --publish 127.0.0.1:18000:8000 \
+            --env DATABASE_URL=postgresql://edfinder:edfinder@postgres:5432/edfinder \
+            --env REDIS_URL=redis://127.0.0.1:1/0 \
+            --env CORS_ORIGINS=http://127.0.0.1 \
+            --env EDDN_SIMULATION_INGEST_ENABLED=false \
+            ed-finder-release-api:python314
+          for attempt in $(seq 1 30); do
+            if health="$(curl --fail --silent http://127.0.0.1:18000/api/health)"; then
+              HEALTH_JSON="${health}" EXPECTED_BUILD_SHA="${GITHUB_SHA}" python3 - <<'PY'
+          import json
+          import os
+
+          health = json.loads(os.environ["HEALTH_JSON"])
+          assert health["status"] == "ok", health
+          assert health["database"] == "connected", health
+          assert health["build_sha"] == os.environ["EXPECTED_BUILD_SHA"], health
+          print("Release API health/lifespan proof:", health)
+          PY
+              docker exec "${api_name}" /proc/1/exe -c \
+                "import platform, sys; print('Release server runtime:', platform.python_implementation(), platform.python_version()); assert platform.python_implementation() == 'CPython'; assert sys.version_info[:2] == (3, 14)"
               exit 0
             fi
             sleep 1
           done
-          docker logs "${container_name}"
+          docker logs "${api_name}"
+          docker logs "${postgres_name}"
           exit 1
 
   parity:
@@ -82,7 +123,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Python 3.12
+      # The parity harness is repository tooling on 3.12. The API application
+      # itself executes inside the CPython 3.14 images built by the tests.
+      - name: Set up tooling Python 3.12 (image orchestration only)
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'

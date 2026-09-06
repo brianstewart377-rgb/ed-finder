@@ -4,11 +4,12 @@ version = "3.0.1"
 description = "Elite Dangerous colonisation planner — searches 186M star systems by economy, body types, and distance."
 requires-python = ">=3.12"
 
-# This file is intentionally a thin project/tooling manifest. Real runtime
-# deps live in per-app requirements.txt files so each Docker image only
-# pulls what it needs (audit fix §Refactor 4 + §M15):
+# This file is intentionally a thin Python 3.12 repository/tooling manifest.
+# The V3 API runtime authority is apps/api/pyproject.toml + apps/api/uv.lock;
+# retained legacy services and compatibility tooling still use per-app
+# requirements files:
 #
-#   apps/api/requirements.txt        — FastAPI service
+#   apps/api/requirements.txt        — API compatibility mirror (not V3 lock authority)
 #   apps/eddn/requirements.txt       — EDDN listener
 #   apps/importer/requirements.txt   — Spansh importer + builders
 #

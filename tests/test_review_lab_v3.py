@@ -207,6 +207,31 @@ def test_compose_is_loopback_isolated_and_uses_no_external_resources():
     assert '127.0.0.1:8001:8000' in compose
     assert 'external:' not in compose
     assert 'env_file:' not in compose
+    with pytest.raises(contract.ReviewLabError, match='PostgreSQL 18'):
+        lifecycle.validate_compose_text(
+            compose.replace('image: postgres:18-alpine', 'image: postgres:16-alpine')
+        )
+    with pytest.raises(contract.ReviewLabError, match='disable external EDDN'):
+        lifecycle.validate_compose_text(
+            compose.replace('EDDN_SIMULATION_INGEST_ENABLED: "false"', '')
+        )
+
+
+def test_review_runtime_identity_probes_the_running_server_process(monkeypatch):
+    captured: list[tuple[str, ...]] = []
+
+    def fake_run_compose(*args: str, **_kwargs) -> str:
+        captured.append(args)
+        return json.dumps({'implementation': 'CPython', 'version': '3.14.6'})
+
+    monkeypatch.setattr(lifecycle, 'run_compose', fake_run_compose)
+
+    assert lifecycle.review_api_runtime_identity() == {
+        'implementation': 'CPython',
+        'version': '3.14.6',
+    }
+    assert captured[0][:5] == ('exec', '-T', 'review-api', '/proc/1/exe', '-c')
+    assert "sys.version_info[:2] == (3, 14)" in captured[0][5]
 
 
 def test_process_registry_stops_only_its_owned_process_group(tmp_path):
@@ -272,10 +297,19 @@ def test_verify_always_stops_processes_and_restores_stack_after_phase_failure(tm
 
 def test_review_workflow_uses_node24_pnpm_and_only_focused_lab_tests():
     workflow = read('.github/workflows/review-lab.yml')
+    compose = read('docker-compose.review.yml')
     assert 'node-version: "24"' in workflow
     assert 'pnpm@11.25.0' in workflow
+    assert 'python-version: "3.14"' in workflow
+    assert 'uv==0.11.33' in workflow
+    assert 'uv sync --project apps/api --frozen --group test --no-install-project' in workflow
+    assert 'Review backend runtime:' in workflow
+    assert "'review-api', '/proc/1/exe'" in read('scripts/dev/review_lab/lifecycle.py')
+    assert "sys.version_info[:2] == (3, 14)" in read('scripts/dev/review_lab/lifecycle.py')
     assert 'working-directory: apps/web' in workflow
     assert 'tests/test_review_lab_v3.py' in workflow
+    assert 'image: postgres:18-alpine' in compose
+    assert 'EDDN_SIMULATION_INGEST_ENABLED: "false"' in compose
     for legacy in ('working-directory: frontend', 'resolve_project_state.py', 'git diff --check'):
         assert legacy not in workflow
 

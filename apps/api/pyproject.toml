@@ -18,6 +18,25 @@ dependencies = [
   "uvicorn[standard]==0.52.4",
 ]
 
+# CI-only dependencies are locked beside the deployable API dependencies so
+# validation cannot accidentally exercise a separately resolved runtime graph.
+# Importer libraries are present only because the repository's broad unit suite
+# collects legacy importer tests in the same process; they are not installed in
+# the release image, which syncs with --no-dev.
+[dependency-groups]
+test = [
+  "PyYAML==6.0.3",
+  "coverage==7.10.7",
+  "ijson==3.5.1",
+  "jsonschema==4.25.1",
+  "numpy==2.5.1",
+  "psycopg2-binary==2.9.12",
+  "pytest-asyncio==1.2.0",
+  "pytest==8.3.4",
+  "ruff==0.15.22",
+  "tqdm==4.70.0",
+]
+
 [tool.uv]
 package = false
 required-version = "==0.11.33"

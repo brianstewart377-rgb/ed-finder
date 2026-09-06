@@ -30,12 +30,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.ref }}
 
-      - name: Set up Python 3.12
+      - name: Set up CPython 3.14 for V3 Review Lab validation
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: apps/api/requirements.txt
+          python-version: "3.14"
 
       - name: Set up Node 24 for V3 Review Lab collector
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -47,12 +45,15 @@ jobs:
           corepack enable
           corepack prepare pnpm@11.25.0 --activate
 
-      - name: Create repo virtualenv and install Python dependencies
+      - name: Install pinned uv and frozen V3 backend test environment
         run: |
-          python -m venv .venv
-          ./.venv/bin/python -m pip install --upgrade pip
-          ./.venv/bin/pip install -r apps/api/requirements.txt
-          ./.venv/bin/pip install pytest pytest-asyncio httpx anyio
+          python -m pip install uv==0.11.33
+          test "$(python -m uv --version | cut -d' ' -f1-2)" = "uv 0.11.33"
+          python -m uv lock --project apps/api --check
+          python -m uv sync --project apps/api --frozen --group test --no-install-project
+
+      - name: Assert V3 Review Lab host runtime identity
+        run: apps/api/.venv/bin/python scripts/checks/assert_v3_python_runtime.py
 
       - name: Install apps/web dependencies
         working-directory: apps/web
@@ -67,7 +68,7 @@ jobs:
 
       - name: Run focused Review Lab contract tests
         run: |
-          PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B -m pytest \
+          PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -B -m pytest \
             tests/test_review_lab_v3.py \
             tests/test_review_lab_timeouts.py \
             tests/test_db_isolation_guardrails.py \
@@ -75,12 +76,12 @@ jobs:
 
       - name: Run Review Lab preflight
         run: |
-          PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
+          PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -B \
             scripts/dev/review_environment.py preflight
 
       - name: Run Review Lab full verification
         run: |
-          PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
+          PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -B \
             scripts/dev/review_environment.py verify \
             --mode full \
             --scenario all \
@@ -89,7 +90,7 @@ jobs:
       - name: Invoke safe Review Lab teardown through wrapper
         if: always()
         run: |
-          PYTHONDONTWRITEBYTECODE=1 ./.venv/bin/python -B \
+          PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python -B \
             scripts/dev/review_environment.py down \
             --confirm-local-review-environment
 
@@ -115,7 +116,7 @@ jobs:
       - name: Write Review Lab job summary
         if: always()
         run: |
-          ./.venv/bin/python - <<'PY'
+          apps/api/.venv/bin/python - <<'PY'
           import json
           from pathlib import Path
 
@@ -128,12 +129,14 @@ jobs:
               duration_ms = report.get('verify_duration_ms')
               duration_text = f"{duration_ms / 1000:.2f}s" if isinstance(duration_ms, int) else 'unavailable'
               teardown = report.get('phase_results', {}).get('teardown', {})
+              runtime = report.get('phase_results', {}).get('stack', {}).get('safe_diagnostics', {}).get('runtime_identity', {})
               remaining = teardown.get('safe_diagnostics', {}).get('remaining_review_resources', {})
               remaining_absent = not remaining.get('containers') and not remaining.get('volumes') and not remaining.get('networks')
               lines.extend([
                   f"- Review Lab full verification: {'passed' if report.get('ok') else 'failed'}",
                   f"- Full duration: {duration_text}",
                   "- Frontend/runtime: apps/web + Babylon",
+                  f"- Review backend runtime: {runtime.get('implementation', 'unavailable')} {runtime.get('version', 'unavailable')}",
                   f"- Synthetic scenarios: {', '.join(report.get('selected_scenarios', [])) or 'none'}",
                   f"- Unexpected console errors: {report.get('unexpected_console_errors') or 'none'}",
                   f"- Unexpected API errors: {report.get('unexpected_api_errors') or 'none'}",
