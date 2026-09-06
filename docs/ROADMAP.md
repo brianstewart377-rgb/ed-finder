@@ -27,20 +27,18 @@ or override this set.
   new browser application work: Svelte/SvelteKit with a fresh Babylon renderer.
   React/R3F/Three is historical migration, behaviour, and parity evidence only;
   it is not the V3 target or current production authority.
-- **Active integration lane:** PR #601 is the single active V3 application
-  integration lane. Its current known head
-  `12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains the real
-  Explore/Finder → fresh Babylon results → canonical Inspect slice and the
-  Review Lab rebase to `apps/web` + Babylon. Exact-head validation remains in
-  stabilization, so that is active-PR state rather than a green checkpoint or
-  a claim that the implementation has merged into this `main`-based branch.
+- **Merged application baseline:** PR #601's Explore/Finder → fresh Babylon
+  results → canonical Inspect slice and Review Lab rebase to `apps/web` +
+  Babylon merged at exact `main` commit
+  `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 - **Historical renderer decision:** the equal Stage 26 bakeoff selected R3F and
   the subsequent Stage 26 work shipped. That result remains valuable history;
   it does not constrain the post-V2 V3 renderer target.
 - **Infrastructure separation:** Contabo is the host for exactly three
-  self-hosted Codex runners. It is not production. A live-checkpoint destination
-  remains a deployment decision; a prior read-only capacity audit established
-  only that a small isolated, bounded checkpoint might be feasible.
+  self-hosted Codex runners and the selected first live-checkpoint target. It
+  is not production. The checkpoint is limited to a persistent, isolated and
+  bounded two-service application namespace; current missing runtime, data and
+  route authority keeps mutation stopped.
 - **Inference:** Ollama was an Octopus experiment and has been removed from
   production. It is not part of the architecture.
 
@@ -62,16 +60,14 @@ evidence-interpretation, and Digital Twin owner.
 
 ## Execution order
 
-1. **Stabilize the active browser slice.** Complete review of PR #601's
-   Explore/Finder → Babylon results → Inspect journey, including typed
-   boundaries, accessibility, bounded data, Product E2E/Visual Acceptance, and
-   the separate Review Lab lane.
+1. **Exit the merged browser slice through a checkpoint.** Exercise the
+   accepted Explore/Finder → Babylon results → Inspect journey through the
+   bounded live-checkpoint path. That environment remains non-production.
 2. **Harden the V3 release.** Continue CPython 3.14/`uv`, immutable release
    provenance, same-origin route, health, migration compatibility, and rollback
    work without treating an application release as database recovery.
-3. **Merge, then choose checkpoint policy.** Accept the exact reviewed PR head
-   before any checkpoint/promotion decision. The destination and isolation
-   limits are deployment choices; Contabo is not a default.
+3. **Preserve the checkpoint boundary.** Keep Contabo non-production and its
+   persistent app-only namespace isolated from the three runner services.
 4. **Resolve search and data architecture in order.** Establish Search product
    and performance requirements, then choose the spatial index/grid/cluster
    design, then define the PostgreSQL 18 derived-data bootstrap.
@@ -89,7 +85,7 @@ evidence-interpretation, and Digital Twin owner.
 | Search and spatial data | Search requirements → spatial index/grid/cluster design → PG18 derived-data bootstrap. Current normal Finder uses raw `x/y/z` bounding and distance and does not establish `grid_cell_id` as a first-class accelerator. |
 | Scoring and judgement | Decide how Ratings v3.4 code/data dependencies relate to the intended archetype judgement layer. Do not trigger a full ratings/archetype rebuild from this roadmap. |
 | Derived-data bootstrap | Define sources, ordering, versioning, bounded resource use, rebuildability, verification, and rollback only after the preceding two gates. |
-| Live checkpoint | Choose destination, resource limits, isolation, data posture, lifecycle, and acceptance. Contabo runner hosting is not architectural authorization. |
+| Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
 | V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
 
 No final Search/Grid/Cluster authority document exists yet. Active audits feed

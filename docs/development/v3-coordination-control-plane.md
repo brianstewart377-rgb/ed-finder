@@ -18,7 +18,7 @@ Owner / ChatGPT
       v
 V3 Coordination Control Plane
       |
-      +--> GitHub / PR #601 integration state
+      +--> GitHub / merged #601 baseline state
       +--> Codex governed implementation workers
       +--> normal CI / code contracts
       +--> Product E2E / Visual Acceptance
@@ -55,7 +55,7 @@ It does **not** own:
 
 ### Integration state
 
-PR #601 is the single active Svelte V3 integration lane until a coherent checkpoint is accepted and merged. Worker branches may feed #601 but must not create a second integration hierarchy.
+PR #601 is the merged Svelte V3 application baseline at exact `main` commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. New worker branches must not create a second integration hierarchy.
 
 After a checkpoint merges, `main` is the only source from which a live checkpoint release may be built. Contabo must never deploy an unmerged worker branch or an arbitrary source checkout.
 
@@ -144,7 +144,7 @@ Do not make one lane compensate for another. A green Review Lab does not replace
 
 For each meaningful live checkpoint:
 
-1. consolidate the intended implementation into #601;
+1. select the intended implementation from the merged #601 baseline;
 2. run normal source/contract CI on the exact candidate head;
 3. run normal Product E2E / Visual Acceptance on the exact candidate head;
 4. run the relevant Review Lab synthetic scenarios on the exact candidate head;
@@ -160,14 +160,16 @@ No worker branch deploy, no production-host build, no `git pull`, and no unrecei
 
 ## Current implementation state
 
-As of PR #601:
+After PR #601 merged:
 
 - the Codex request/dispatch/worker/trusted-push bridge exists;
 - the narrow `ChatGPT ed-new Ops` workflow exists for a small allowlisted set of operator actions;
 - Product E2E and Review Lab are explicitly separate browser authorities: Product E2E covers the first normal Explore -> Babylon -> Inspect checkpoint in Chrome and Firefox, while Review Lab now drives that same `apps/web` + Babylon frontend against its isolated synthetic runtime;
 - `apps/web` is the V3 application destination and the fresh map will use Babylon;
 - the first bounded V3 Explore/Inspect/Babylon checkpoint now exists with renderer-neutral lifecycle contracts, normal Product E2E authority, and separate synthetic Review Lab coverage; later product expansion remains separately governed;
-- the immutable `main -> images -> Contabo -> smoke -> receipt` live-checkpoint path still needs to be completed;
+- the immutable `main -> images -> Contabo -> smoke -> receipt` boundary is
+  bootstrap-capable but deliberately stops before mutation until the recorded
+  container-runtime, database/config, origin/edge and receipt authorities exist;
 - the older `chatgpt-ops-control-plane.md` contains useful design history but is not the current authority for what operations are implemented or authorised.
 
 ## Safety rules

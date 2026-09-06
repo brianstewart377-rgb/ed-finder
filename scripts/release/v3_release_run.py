@@ -56,10 +56,7 @@ def fetch_run(repository: str, run_id: str, token: str) -> dict[str, Any]:
 
     # Keep the network authority literal and immutable. Only the already
     # validated decimal run id is interpolated into the origin-form resource.
-    url = (
-        "https://api.github.com/repos/"
-        f"{CANONICAL_REPOSITORY}/actions/runs/{run_id}"
-    )
+    url = f"https://api.github.com/repos/{CANONICAL_REPOSITORY}/actions/runs/{run_id}"
     headers = (
         "Accept: application/vnd.github+json\n"
         f"Authorization: Bearer {token}\n"
@@ -144,8 +141,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--repository", required=True)
     parser.add_argument("--candidate-run-id", required=True)
     parser.add_argument("--candidate-manifest", type=Path, required=True)
-    parser.add_argument("--rollback-run-id", required=True)
-    parser.add_argument("--rollback-manifest", type=Path, required=True)
+    parser.add_argument("--rollback-run-id")
+    parser.add_argument("--rollback-manifest", type=Path)
     return parser
 
 
@@ -153,17 +150,24 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         token = os.environ.get("GITHUB_TOKEN", "")
-        for role, run_id, manifest_path in (
-            ("candidate", args.candidate_run_id, args.candidate_manifest),
-            ("rollback", args.rollback_run_id, args.rollback_manifest),
-        ):
+        if (args.rollback_run_id is None) != (args.rollback_manifest is None):
+            raise ReleaseRunError(
+                "rollback run ID and manifest must be supplied together"
+            )
+        releases = [("candidate", args.candidate_run_id, args.candidate_manifest)]
+        if args.rollback_run_id is not None:
+            releases.append(("rollback", args.rollback_run_id, args.rollback_manifest))
+        verified_roles = []
+        for role, run_id, manifest_path in releases:
+            assert run_id is not None and manifest_path is not None
             manifest = _load_json(manifest_path)
             run = fetch_run(args.repository, run_id, token)
             validate_run_metadata(run, manifest, args.repository, role)
+            verified_roles.append(role)
     except ReleaseRunError as exc:
         print(json.dumps({"status": "stopped", "error": str(exc)}), file=sys.stderr)
         return 64
-    print(json.dumps({"status": "verified", "runs": ["candidate", "rollback"]}))
+    print(json.dumps({"status": "verified", "runs": verified_roles}))
     return 0
 
 

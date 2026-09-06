@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import re
@@ -19,6 +20,9 @@ RELEASE_RUN_TOOL = ROOT / "scripts" / "release" / "v3_release_run.py"
 HOST_PREFLIGHT = (
     ROOT / "scripts" / "operator" / "actions" / "v3-app-live-checkpoint-preflight.sh"
 )
+CHECKPOINT_TOOL = ROOT / "scripts" / "operator" / "v3_checkpoint_deploy.py"
+CHECKPOINT_COMPOSE = ROOT / "deploy" / "v3-live-checkpoint" / "compose.yml"
+CHECKPOINT_AUTHORITY = ROOT / "deploy" / "v3-live-checkpoint" / "target-authority.json"
 RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "v3-application-release.yml"
 DEPLOY_WORKFLOW = (
     ROOT / ".github" / "workflows" / "v3-application-live-checkpoint-preflight.yml"
@@ -49,6 +53,16 @@ def _load_module():
 
 def _load_release_run_module():
     spec = importlib.util.spec_from_file_location("v3_release_run", RELEASE_RUN_TOOL)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_checkpoint_module():
+    spec = importlib.util.spec_from_file_location(
+        "v3_checkpoint_deploy", CHECKPOINT_TOOL
+    )
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -304,7 +318,7 @@ def test_release_and_deploy_workflows_are_manual_only_and_separate():
     assert set(release["on"]) == {"workflow_dispatch"}
     assert set(deploy["on"]) == {"workflow_dispatch"}
     assert "environment" not in release["jobs"]["manifest"]
-    assert deploy["jobs"]["preflight"]["environment"] == "v3-live-checkpoint"
+    assert deploy["jobs"]["deploy"]["environment"] == "v3-live-checkpoint"
     for document in (release, deploy):
         assert "pull_request" not in document["on"]
         assert "push" not in document["on"]
@@ -323,21 +337,25 @@ def test_release_workflow_builds_both_images_from_one_exact_main_sha_and_digests
     assert "needs.build-web.outputs.digest" in workflow
     assert "v3_release_manifest.py verify" in workflow
     assert "--verify-source-migrations" in workflow
+    assert "(cd release && sha256sum v3-application-release.json" in workflow
     assert "git pull" not in workflow
 
 
-def test_deploy_preflight_consumes_manifests_reuses_only_existing_ssh_boundary():
+def test_deploy_workflow_supports_bootstrap_and_receipt_backed_upgrade():
     workflow = DEPLOY_WORKFLOW.read_text()
 
     assert "--purpose deploy-candidate" in workflow
     assert "--purpose rollback-candidate" in workflow
+    assert "inputs.deployment_mode == 'upgrade'" in workflow
+    assert "Bootstrap must not claim a prior release" in workflow
+    assert "Upgrade requires a valid rollback run ID" in workflow
     assert "Candidate cannot be its own rollback" in workflow
     assert "Authenticate release workflow run provenance" in workflow
     assert "scripts/release/v3_release_run.py" in workflow
     assert "StrictHostKeyChecking=yes" in workflow
     assert "UserKnownHostsFile=~/.ssh/known_hosts" in workflow
     assert "Contabo live-checkpoint" in workflow
-    assert "distinct from the production operator" in workflow
+    assert "distinct from production credentials" in workflow
     secret_names = set(re.findall(r"secrets\.([A-Z0-9_]+)", workflow))
     assert secret_names == {
         "V3_LIVE_CHECKPOINT_SSH_KEY",
@@ -347,14 +365,16 @@ def test_deploy_preflight_consumes_manifests_reuses_only_existing_ssh_boundary()
         "V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS",
     }
     assert "ED_NEW_OPERATOR_" not in workflow
-    for forbidden in (
-        "ssh-keyscan",
-        "docker compose",
-        "docker pull",
-        "git pull",
-        "psql",
-        "migrate",
-    ):
+    assert "v3_checkpoint_deploy.py" in workflow
+    assert "Upload sanitized deployment receipt" in workflow
+    assert "if: always()" in workflow
+    assert workflow.index(
+        "Stop locally when target authority is incomplete"
+    ) < workflow.index("Download candidate release manifest")
+    assert workflow.index("--authority-gate") < workflow.index("ssh -i")
+    assert 'remote_receipt="$RECEIPT.remote"' in workflow
+    assert "remote_transport_or_bundle_failed" in workflow
+    for forbidden in ("ssh-keyscan", "git pull", "pnpm install", "uv sync", "psql"):
         assert forbidden not in workflow.lower()
 
 
@@ -390,6 +410,39 @@ def test_release_run_provenance_requires_canonical_successful_main_workflow():
             )
 
 
+def test_release_run_cli_allows_candidate_only_bootstrap_and_pairs_upgrade_args():
+    module = _load_release_run_module()
+    bootstrap = module._parser().parse_args(
+        [
+            "--repository",
+            "brianstewart377-rgb/ed-finder",
+            "--candidate-run-id",
+            "123",
+            "--candidate-manifest",
+            "candidate.json",
+        ]
+    )
+    assert bootstrap.rollback_run_id is None
+    assert bootstrap.rollback_manifest is None
+
+    upgrade = module._parser().parse_args(
+        [
+            "--repository",
+            "brianstewart377-rgb/ed-finder",
+            "--candidate-run-id",
+            "123",
+            "--candidate-manifest",
+            "candidate.json",
+            "--rollback-run-id",
+            "122",
+            "--rollback-manifest",
+            "rollback.json",
+        ]
+    )
+    assert upgrade.rollback_run_id == "122"
+    assert upgrade.rollback_manifest == Path("rollback.json")
+
+
 def test_release_run_fetch_uses_one_fixed_https_authority_and_keeps_token_off_argv(
     monkeypatch,
 ):
@@ -403,9 +456,7 @@ def test_release_run_fetch_uses_one_fixed_https_authority_and_keeps_token_off_ar
         return subprocess.CompletedProcess(command, 0, stdout=payload, stderr=b"")
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
-    result = module.fetch_run(
-        "brianstewart377-rgb/ed-finder", "123456789", token
-    )
+    result = module.fetch_run("brianstewart377-rgb/ed-finder", "123456789", token)
 
     assert result == {"id": 42}
     command = observed["command"]
@@ -474,9 +525,7 @@ def test_release_run_fetch_rejects_header_injection_before_network(monkeypatch):
     )
 
     with pytest.raises(module.ReleaseRunError, match="header characters"):
-        module.fetch_run(
-            "brianstewart377-rgb/ed-finder", "123", "token\r\nX-Evil: yes"
-        )
+        module.fetch_run("brianstewart377-rgb/ed-finder", "123", "token\r\nX-Evil: yes")
 
 
 @pytest.mark.parametrize(
@@ -519,7 +568,539 @@ def test_release_run_fetch_enforces_a_post_transport_response_bound(monkeypatch)
         module.fetch_run("brianstewart377-rgb/ed-finder", "123", "token")
 
 
-def test_host_preflight_is_machine_readable_and_always_stops_before_mutation():
+def test_checkpoint_compose_owns_only_bounded_application_resources():
+    compose = yaml.safe_load(CHECKPOINT_COMPOSE.read_text())
+
+    assert compose["name"] == "edfinder-v3-checkpoint"
+    assert set(compose["services"]) == {"api", "web"}
+    assert compose.get("volumes") is None
+    assert compose["networks"] == {
+        "app": {"name": "edfinder-v3-checkpoint-app", "external": True}
+    }
+    assert compose["services"]["api"]["container_name"] == "edfinder-v3-checkpoint-api"
+    assert compose["services"]["web"]["container_name"] == "edfinder-v3-checkpoint-web"
+    assert compose["services"]["api"]["cpus"] == "1.50"
+    assert compose["services"]["api"]["mem_limit"] == "1536m"
+    assert compose["services"]["web"]["cpus"] == "0.50"
+    assert compose["services"]["web"]["mem_limit"] == "512m"
+    assert (
+        compose["services"]["api"]["environment"]["EDDN_SIMULATION_INGEST_ENABLED"]
+        == "false"
+    )
+    for service in compose["services"].values():
+        assert "build" not in service
+        assert "depends_on" not in service
+    assert all(
+        name not in compose["services"]
+        for name in ("postgres", "redis", "valkey", "nats", "edge", "runner")
+    )
+
+
+def test_bootstrap_and_upgrade_mutation_plans_are_literal_app_only_allowlists():
+    module = _load_checkpoint_module()
+    env = {
+        "V3_CHECKPOINT_API_IMAGE": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:"
+        + "b" * 64,
+        "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:"
+        + "c" * 64,
+        "V3_CHECKPOINT_SOURCE_SHA": GIT_SHA,
+    }
+    plan = module.command_plan(CHECKPOINT_COMPOSE, env)
+
+    assert plan[0] == ["docker", "pull", env["V3_CHECKPOINT_API_IMAGE"]]
+    assert plan[1] == ["docker", "pull", env["V3_CHECKPOINT_WEB_IMAGE"]]
+    assert plan[2][-2:] == ["api", "web"]
+    assert "--no-deps" in plan[2]
+    assert "--force-recreate" in plan[2]
+    assert plan[2][plan[2].index("--pull") + 1] == "never"
+
+    bootstrap_rollback, _ = module.rollback_plan(
+        CHECKPOINT_COMPOSE, "bootstrap", env, {"kind": "predeploy_absence"}
+    )
+    assert all(command[-2:] == ["api", "web"] for command in bootstrap_rollback)
+    flattened = " ".join(" ".join(command) for command in plan + bootstrap_rollback)
+    for forbidden in (
+        " down ",
+        "--remove-orphans",
+        "--volumes",
+        "postgres",
+        "redis",
+        "valkey",
+        "nats",
+    ):
+        assert forbidden not in f" {flattened.lower()} "
+
+
+def test_rendered_compose_allowlist_is_checked_before_any_pull():
+    module = _load_checkpoint_module()
+    env = {
+        "V3_CHECKPOINT_API_IMAGE": "ghcr.io/example/api@sha256:" + "b" * 64,
+        "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/example/web@sha256:" + "c" * 64,
+    }
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        stdout = "api web unexpected\n" if command[-1] == "--services" else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    with pytest.raises(module.DeploymentError, match="service allowlist"):
+        module.validate_host_runtime(CHECKPOINT_COMPOSE, env, runner)
+
+    assert not any(command[:2] == ["docker", "pull"] for command in commands)
+
+
+def _write_json_with_checksum(
+    directory: Path, name: str, value: dict
+) -> tuple[Path, Path]:
+    document = directory / name
+    document.write_text(json.dumps(value, sort_keys=True), encoding="utf-8")
+    checksum = directory / f"{name}.sha256"
+    checksum.write_text(
+        f"{hashlib.sha256(document.read_bytes()).hexdigest()}  {name}\n",
+        encoding="utf-8",
+    )
+    return document, checksum
+
+
+def _authorized_checkpoint_authority(tmp_path: Path, schema_path: Path) -> dict:
+    authority = json.loads(CHECKPOINT_AUTHORITY.read_text())
+    authority["status"] = "authorized"
+    authority["blockers"] = []
+    authority["observed_runtime"]["container_runtime"] = "Docker test authority"
+    authority["observed_runtime"]["compose"] = "Docker Compose test authority"
+    authority["observed_runtime"]["docker_networks"] = ["edfinder-v3-checkpoint-app"]
+    authority["external_authority"] = {
+        "api_env_file": str(tmp_path / "api.env"),
+        "api_env_owner_uid": 0,
+        "api_env_mode": "0600",
+        "database_source_authority": "approved-test-db",
+        "schema_identity_receipt": str(schema_path),
+        "schema_identity_receipt_sha256": hashlib.sha256(
+            schema_path.read_bytes()
+        ).hexdigest(),
+        "origin_bind": "http://127.0.0.1:12345",
+        "edge_route_authority": "approved-test-edge-route",
+        "receipt_directory": str(tmp_path),
+        "receipt_owner_uid": 0,
+        "receipt_mode": "0700",
+        "ghcr_pull_authority": "approved-test-ghcr-principal",
+        "docker_config_directory": str(tmp_path / "docker-config"),
+        "docker_config_owner_uid": 0,
+        "docker_config_mode": "0700",
+        "docker_context": "checkpoint-test",
+    }
+    return authority
+
+
+def test_bootstrap_needs_no_prior_release_but_upgrade_requires_receipt(tmp_path):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps(
+            {
+                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
+                "database_source_authority": "approved-test-db",
+                "migration_set_identity": candidate["migration_set"]["identity"],
+                "captured_at": "2026-09-06T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validated = module.validate_release_inputs(
+        mode="bootstrap",
+        candidate_path=candidate_path,
+        candidate_checksum=candidate_checksum,
+        current_schema_path=schema,
+        database_source_authority="approved-test-db",
+        rollback_path=None,
+        rollback_checksum=None,
+        prior_receipt_path=None,
+    )
+    assert validated["rollback"] == {"kind": "predeploy_absence"}
+
+    with pytest.raises(module.DeploymentError, match="upgrade requires"):
+        module.validate_release_inputs(
+            mode="upgrade",
+            candidate_path=candidate_path,
+            candidate_checksum=candidate_checksum,
+            current_schema_path=schema,
+            database_source_authority="approved-test-db",
+            rollback_path=None,
+            rollback_checksum=None,
+            prior_receipt_path=None,
+        )
+
+
+def test_upgrade_requires_receipt_matching_prior_digest_release(tmp_path):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    rollback = copy.deepcopy(candidate)
+    rollback["git_sha"] = "d" * 40
+    rollback["release_id"] = "git-" + "d" * 40
+    rollback["images"]["backend"] = (
+        "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:" + "e" * 64
+    )
+    rollback["images"]["web"] = (
+        "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "f" * 64
+    )
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    rollback_path, rollback_checksum = _write_json_with_checksum(
+        tmp_path, "rollback.json", rollback
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps(
+            {
+                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
+                "database_source_authority": "approved-test-db",
+                "migration_set_identity": candidate["migration_set"]["identity"],
+                "captured_at": "2026-09-06T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    rollback_sum = hashlib.sha256(rollback_path.read_bytes()).hexdigest()
+    prior_receipt = tmp_path / "prior.json"
+    prior_receipt.write_text(
+        json.dumps(
+            {
+                "schema_version": module.RECEIPT_SCHEMA,
+                "status": "accepted",
+                "mode": "bootstrap",
+                "source_sha": rollback["git_sha"],
+                "images": rollback["images"],
+                "manifest_sha256": rollback_sum,
+                "target": {
+                    "provider": "contabo",
+                    "classification": "live-checkpoint",
+                    "production": False,
+                    "hostname": "vmi3542235",
+                },
+                "compose_project": module.PROJECT,
+                "migration_set_identity": candidate["migration_set"]["identity"],
+                "changed_resources": list(module.CONTAINERS.values()),
+                "smoke": {
+                    path: {"status": 200}
+                    for path in (
+                        "/",
+                        "/api/health",
+                        "/openapi.json",
+                        "/api/auth/session",
+                    )
+                },
+                "database_mutation_performed": False,
+                "infrastructure_changes_performed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    validated = module.validate_release_inputs(
+        mode="upgrade",
+        candidate_path=candidate_path,
+        candidate_checksum=candidate_checksum,
+        current_schema_path=schema,
+        database_source_authority="approved-test-db",
+        rollback_path=rollback_path,
+        rollback_checksum=rollback_checksum,
+        prior_receipt_path=prior_receipt,
+    )
+    assert validated["rollback"]["source_sha"] == rollback["git_sha"]
+
+    bad_receipt = json.loads(prior_receipt.read_text())
+    bad_receipt["images"]["web"] = candidate["images"]["web"]
+    prior_receipt.write_text(json.dumps(bad_receipt), encoding="utf-8")
+    with pytest.raises(module.DeploymentError, match="does not authenticate"):
+        module.validate_release_inputs(
+            mode="upgrade",
+            candidate_path=candidate_path,
+            candidate_checksum=candidate_checksum,
+            current_schema_path=schema,
+            database_source_authority="approved-test-db",
+            rollback_path=rollback_path,
+            rollback_checksum=rollback_checksum,
+            prior_receipt_path=prior_receipt,
+        )
+
+
+def test_manifest_checksum_rejects_path_bearing_or_tampered_artifacts(tmp_path):
+    module = _load_checkpoint_module()
+    document = tmp_path / "manifest.json"
+    document.write_text("{}", encoding="utf-8")
+    digest = hashlib.sha256(document.read_bytes()).hexdigest()
+    checksum = tmp_path / "manifest.json.sha256"
+
+    checksum.write_text(f"{digest}  release/manifest.json\n", encoding="utf-8")
+    with pytest.raises(module.DeploymentError, match="adjacent manifest basename"):
+        module.verify_checksum(document, checksum)
+    checksum.write_text(f"{'0' * 64}  manifest.json\n", encoding="utf-8")
+    with pytest.raises(module.DeploymentError, match="mismatch"):
+        module.verify_checksum(document, checksum)
+
+
+def test_origin_smoke_checks_exact_required_routes_and_build_identity(monkeypatch):
+    module = _load_checkpoint_module()
+    responses = {
+        "/": (200, b"<!doctype html><html><body>ED-Finder</body></html>", "text/html"),
+        "/api/health": (
+            200,
+            json.dumps(
+                {"status": "ok", "database": "connected", "build_sha": GIT_SHA}
+            ).encode(),
+            "application/json",
+        ),
+        "/openapi.json": (
+            200,
+            json.dumps(
+                {"paths": {"/api/health": {}, "/api/auth/session": {}}}
+            ).encode(),
+            "application/json",
+        ),
+        "/api/auth/session": (
+            200,
+            json.dumps({"authenticated": False}).encode(),
+            "application/json",
+        ),
+    }
+    observed = []
+
+    def fake_get(origin, path):
+        observed.append((origin, path))
+        return responses[path]
+
+    monkeypatch.setattr(module, "get_origin", fake_get)
+    outcomes = module.smoke_origin("http://127.0.0.1:12345", GIT_SHA)
+
+    assert [path for _, path in observed] == [
+        "/",
+        "/api/health",
+        "/openapi.json",
+        "/api/auth/session",
+    ]
+    assert all(value["status"] == 200 for value in outcomes.values())
+
+    responses["/api/health"] = (
+        200,
+        json.dumps(
+            {"status": "ok", "database": "connected", "build_sha": "d" * 40}
+        ).encode(),
+        "application/json",
+    )
+    with pytest.raises(module.DeploymentError, match="build/database identity"):
+        module.smoke_origin("http://127.0.0.1:12345", GIT_SHA)
+
+
+def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
+    module = _load_checkpoint_module()
+    receipt = {
+        "schema_version": module.RECEIPT_SCHEMA,
+        "status": "accepted",
+        "source_sha": GIT_SHA,
+        "release_run_id": "12345",
+        "images": {
+            "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:"
+            + "b" * 64,
+            "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "c" * 64,
+        },
+        "manifest_sha256": "d" * 64,
+        "target": {"provider": "contabo", "production": False},
+        "changed_resources": list(module.CONTAINERS.values()),
+        "smoke": {
+            path: {"status": 200}
+            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+        },
+        "rollback": {"kind": "predeploy_absence"},
+    }
+    path = module.persist_receipt(tmp_path, receipt)
+
+    assert json.loads(path.read_text()) == receipt
+    pointer = json.loads((tmp_path / "current.json").read_text())
+    assert pointer == {
+        "schema_version": module.CURRENT_RECEIPT_SCHEMA,
+        "receipt_file": path.name,
+        "receipt_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+    }
+    assert module.load_current_receipt(tmp_path) == path
+    checksum = (tmp_path / f"{path.name}.sha256").read_text().split()
+    assert checksum == [hashlib.sha256(path.read_bytes()).hexdigest(), path.name]
+    serialized = path.read_text().lower()
+    for forbidden in ("database_url", "password", "private_key", "access_token"):
+        assert forbidden not in serialized
+
+    with pytest.raises(OSError, match="immutable deployment receipt"):
+        module.persist_receipt(tmp_path, receipt)
+
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(module.DeploymentError, match="checksum mismatch"):
+        module.load_current_receipt(tmp_path)
+
+
+def test_receipt_pointer_failure_removes_uncommitted_accepted_artifacts(
+    tmp_path, monkeypatch
+):
+    module = _load_checkpoint_module()
+    receipt = {
+        "source_sha": GIT_SHA,
+        "release_run_id": "12345",
+        "manifest_sha256": "d" * 64,
+        "status": "accepted",
+    }
+    real_replace = module.os.replace
+
+    def fail_current_pointer(source, destination):
+        if Path(destination).name == "current.json":
+            raise OSError("simulated current pointer failure")
+        return real_replace(source, destination)
+
+    monkeypatch.setattr(module.os, "replace", fail_current_pointer)
+    with pytest.raises(OSError, match="current pointer"):
+        module.persist_receipt(tmp_path, receipt)
+
+    assert not (tmp_path / "current.json").exists()
+    assert not list(tmp_path.glob(f"{GIT_SHA}-*.json"))
+    assert not list(tmp_path.glob(f"{GIT_SHA}-*.json.sha256"))
+
+
+def test_unsafe_host_identity_stops_before_any_runtime_or_mutation_command(
+    tmp_path, monkeypatch
+):
+    module = _load_checkpoint_module()
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    authority = _authorized_checkpoint_authority(tmp_path, schema)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    calls = []
+
+    monkeypatch.setattr(module.socket, "gethostname", lambda: "wrong-host")
+
+    def forbidden_runner(command, **_kwargs):
+        calls.append(command)
+        raise AssertionError("unsafe target facts reached the command boundary")
+
+    args = Namespace(
+        authority=authority_path,
+        compose=CHECKPOINT_COMPOSE,
+        mode="bootstrap",
+        candidate=tmp_path / "candidate.json",
+        candidate_checksum=tmp_path / "candidate.json.sha256",
+        candidate_run_id="12345",
+        rollback=None,
+        rollback_checksum=None,
+        rollback_run_id=None,
+    )
+    with pytest.raises(module.DeploymentError, match="host short identity"):
+        module.execute(args, runner=forbidden_runner)
+    assert calls == []
+    assert not (tmp_path / "deploy.lock").exists()
+
+
+def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
+    tmp_path, monkeypatch
+):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps(
+            {
+                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
+                "database_source_authority": "approved-test-db",
+                "migration_set_identity": candidate["migration_set"]["identity"],
+                "captured_at": "2026-09-06T12:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    authority = _authorized_checkpoint_authority(tmp_path, schema)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    commands = []
+
+    monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
+    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args: None)
+    monkeypatch.setattr(module, "verify_bootstrap_absence", lambda *_args: None)
+    monkeypatch.setattr(module, "verify_pulled_image", lambda *_args: None)
+    monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
+    monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        if "up" in command:
+            raise module.DeploymentError("simulated app recreation failure")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    args = Namespace(
+        authority=authority_path,
+        compose=CHECKPOINT_COMPOSE,
+        mode="bootstrap",
+        candidate=candidate_path,
+        candidate_checksum=candidate_checksum,
+        candidate_run_id="12345",
+        rollback=None,
+        rollback_checksum=None,
+        rollback_run_id=None,
+    )
+    with pytest.raises(module.OperationFailed) as failure:
+        module.execute(args, runner=runner)
+
+    receipt = failure.value.receipt
+    assert receipt["status"] == "failed"
+    assert receipt["pulled_images_verified"] == list(candidate["images"].values())
+    assert receipt["service_mutation_attempted"] is True
+    assert receipt["changed_resources"] == list(module.CONTAINERS.values())
+    assert receipt["rollback"] == {
+        "identity": {"kind": "predeploy_absence"},
+        "attempted": True,
+        "status": "verified",
+    }
+    assert (tmp_path / receipt["durable_failure_receipt"]).is_file()
+    mutation_commands = [command for command in commands if "up" in command]
+    rollback_commands = [
+        command for command in commands if "stop" in command or "rm" in command
+    ]
+    assert mutation_commands[0][-2:] == ["api", "web"]
+    assert all(command[-2:] == ["api", "web"] for command in rollback_commands)
+
+
+def test_current_target_authority_records_proven_facts_and_exact_blockers():
+    authority = json.loads(CHECKPOINT_AUTHORITY.read_text())
+    module = _load_checkpoint_module()
+
+    assert module.validate_authority(authority) == sorted(authority["blockers"])
+    assert authority["status"] == "stopped"
+    assert authority["target"] == {
+        "provider": "contabo",
+        "classification": "live-checkpoint",
+        "production": False,
+        "hostname": "vmi3542235",
+        "fqdn": "vmi3542235.contaboserver.net",
+        "architecture": "x86_64",
+    }
+    assert authority["observed_capacity"]["logical_cpus"] == 8
+    assert len(authority["observed_runtime"]["runner_services"]) == 3
+    assert authority["observed_runtime"]["container_runtime"] is None
+    assert authority["external_authority"]["database_source_authority"] is None
+    assert "authorized_checkpoint_database_source_missing" in authority["blockers"]
+    assert "container_runtime_and_compose_unavailable" in authority["blockers"]
+    assert (
+        hashlib.sha256(CHECKPOINT_COMPOSE.read_bytes()).hexdigest()
+        == authority["application_contract"]["compose_sha256"]
+    )
+
+
+def test_host_preflight_is_machine_readable_and_stops_before_mutation():
     result = subprocess.run(
         ["bash", str(HOST_PREFLIGHT)], capture_output=True, text=True
     )
@@ -527,45 +1108,22 @@ def test_host_preflight_is_machine_readable_and_always_stops_before_mutation():
     assert result.returncode == 78
     receipt = json.loads(result.stdout)
     assert receipt["status"] == "stopped"
-    assert receipt["target"] == {
-        "provider": "contabo",
-        "classification": "live-checkpoint",
-        "production": False,
-    }
-    assert receipt["authorized_recreate_targets"] == []
+    assert receipt["target"]["provider"] == "contabo"
+    assert receipt["target"]["classification"] == "live-checkpoint"
+    assert receipt["target"]["production"] is False
+    assert receipt["authorized_recreate_targets"] == ["api", "web"]
+    assert receipt["changed_resources"] == []
     assert receipt["service_changes_performed"] is False
     assert receipt["database_access_performed"] is False
     assert receipt["migrations_performed"] is False
-    assert receipt["filesystem_writes_performed"] is False
-    assert receipt["required_facts"] == sorted(receipt["required_facts"])
-    assert (
-        "accepted_prior_digest_release_and_receipt_compatible_with_current_database"
-        in receipt["required_facts"]
-    )
-    assert (
-        "explicit_postgresql18_redis_nats_and_edge_preservation_targets"
-        in receipt["required_facts"]
-    )
-    assert "live_checkpoint_topology_authority_incomplete" in receipt["failures"]
-    assert (
-        "authoritative_contabo_live_checkpoint_host_identity_unproven"
-        in receipt["failures"]
-    )
+    assert "authorized_checkpoint_database_source_missing" in receipt["failures"]
+    assert "container_runtime_and_compose_unavailable" in receipt["failures"]
 
     source = HOST_PREFLIGHT.read_text()
     assert "Contabo is a live-checkpoint environment, not production" in source
     assert "ed-finder-prod" not in source
     assert "nb79a3d.mevnode.com" not in source
-    for forbidden in (
-        "docker compose up",
-        "docker restart",
-        "docker rm",
-        "docker pull",
-        "git pull",
-        "psql",
-        "pg_restore",
-        'subprocess.run(["docker"',
-    ):
+    for forbidden in ("git pull", "psql", "pg_restore"):
         assert forbidden not in source
 
 
@@ -576,6 +1134,8 @@ def test_operator_runbook_keeps_contabo_outside_the_production_boundary():
 
     assert "**Contabo is not production.**" in runbook
     assert "exact `main` SHA" in runbook
-    assert "without a target-host source checkout" in runbook
+    assert "never runs `git pull`" in runbook
     assert "Evidence from Contabo must not be presented as production" in runbook
-    assert "V3 production Compose authority" not in runbook
+    assert "Bootstrap checkpoint #1 intentionally has no prior V3 release" in runbook
+    assert "persistent infrastructure" in runbook
+    assert "NATS is not a V3 checkpoint baseline dependency" in runbook

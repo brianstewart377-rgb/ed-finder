@@ -1,0 +1,51 @@
+name: edfinder-v3-checkpoint
+
+# This project owns only the isolated V3 checkpoint application containers and
+# their private application network. PostgreSQL, Redis/Valkey, NATS, edge and
+# runner services are deliberately absent and can never become Compose deps.
+services:
+  api:
+    image: ${V3_CHECKPOINT_API_IMAGE:?digest-pinned API image is required}
+    container_name: edfinder-v3-checkpoint-api
+    restart: unless-stopped
+    env_file:
+      - ${V3_CHECKPOINT_API_ENV_FILE:?authorized external API env file is required}
+    environment:
+      BUILD_SHA: ${V3_CHECKPOINT_SOURCE_SHA:?exact source SHA is required}
+      EDDN_SIMULATION_INGEST_ENABLED: "false"
+      # Cache is optional for core Finder/Inspect correctness. No cache service
+      # is owned by this project, and an unavailable endpoint degrades safely.
+      REDIS_URL: redis://127.0.0.1:1/0
+    expose:
+      - "8000"
+    networks:
+      app:
+        aliases:
+          - api
+    cpus: "1.50"
+    mem_limit: 1536m
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+
+  web:
+    image: ${V3_CHECKPOINT_WEB_IMAGE:?digest-pinned web image is required}
+    container_name: edfinder-v3-checkpoint-web
+    restart: unless-stopped
+    environment:
+      BUILD_SHA: ${V3_CHECKPOINT_SOURCE_SHA:?exact source SHA is required}
+      EDFINDER_API_UPSTREAM: api:8000
+    ports:
+      - ${V3_CHECKPOINT_ORIGIN_BIND:?reviewed loopback origin bind is required}:8080
+    networks:
+      - app
+    cpus: "0.50"
+    mem_limit: 512m
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  app:
+    name: edfinder-v3-checkpoint-app
+    external: true

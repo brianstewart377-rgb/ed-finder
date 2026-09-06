@@ -1,0 +1,93 @@
+{
+  "schema_version": "ed-finder/v3-live-checkpoint-target-authority/v1",
+  "status": "stopped",
+  "target": {
+    "provider": "contabo",
+    "classification": "live-checkpoint",
+    "production": false,
+    "hostname": "vmi3542235",
+    "fqdn": "vmi3542235.contaboserver.net",
+    "architecture": "x86_64"
+  },
+  "observed_at": "2026-09-06",
+  "observed_capacity": {
+    "logical_cpus": 8,
+    "cpu_model": "AMD EPYC Processor (with IBPB)",
+    "memory_total_kib": 24608576,
+    "memory_available_kib": 23340792,
+    "swap_total_kib": 0,
+    "root_bytes": 310911414272,
+    "root_available_bytes": 268809076736,
+    "root_filesystem": "ext4"
+  },
+  "observed_runtime": {
+    "container_runtime": null,
+    "compose": null,
+    "alternative_container_clis_present": [],
+    "container_names": [],
+    "docker_networks": [],
+    "docker_volumes": [],
+    "tcp_listeners": [
+      "0.0.0.0:22",
+      "[::]:22",
+      "127.0.0.53:53",
+      "127.0.0.54:53"
+    ],
+    "runner_services": [
+      "actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker.service",
+      "actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-2.service",
+      "actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-3.service"
+    ],
+    "checkpoint_directories_found_under_opt_srv_var_lib": []
+  },
+  "application_contract": {
+    "compose_project": "edfinder-v3-checkpoint",
+    "compose_sha256": "200d8c3047e0f975435a98d5cf3dfb06b8478bd64d8e073767eeeb09a6136d81",
+    "services": {
+      "api": {
+        "container_name": "edfinder-v3-checkpoint-api",
+        "cpus": "1.50",
+        "memory": "1536m",
+        "pids": 256
+      },
+      "web": {
+        "container_name": "edfinder-v3-checkpoint-web",
+        "cpus": "0.50",
+        "memory": "512m",
+        "pids": 128
+      }
+    },
+    "network": "edfinder-v3-checkpoint-app",
+    "network_lifecycle": "externally-provisioned-persistent",
+    "named_volumes": [],
+    "resource_derivation": "The two app services are capped at 2.00 of 8 observed logical CPUs and 2048 MiB of 24032 MiB observed RAM so the three runner services retain 75% of CPU and more than 90% of nominal RAM."
+  },
+  "external_authority": {
+    "api_env_file": null,
+    "api_env_owner_uid": null,
+    "api_env_mode": null,
+    "database_source_authority": null,
+    "schema_identity_receipt": null,
+    "schema_identity_receipt_sha256": null,
+    "origin_bind": null,
+    "edge_route_authority": null,
+    "receipt_directory": null,
+    "receipt_owner_uid": null,
+    "receipt_mode": null,
+    "ghcr_pull_authority": null,
+    "docker_config_directory": null,
+    "docker_config_owner_uid": null,
+    "docker_config_mode": null,
+    "docker_context": null
+  },
+  "blockers": [
+    "container_runtime_and_compose_unavailable",
+    "authorized_checkpoint_database_source_missing",
+    "authorized_external_api_secret_file_missing",
+    "authoritative_schema_identity_receipt_missing",
+    "origin_loopback_port_and_listener_authority_missing",
+    "edge_route_and_network_wiring_authority_missing",
+    "durable_deployment_receipt_directory_missing",
+    "approved_ghcr_pull_authentication_authority_missing"
+  ]
+}

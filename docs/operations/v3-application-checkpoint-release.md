@@ -1,143 +1,127 @@
 # V3 Application Live-Checkpoint Release
 
-## Scope and present state
+## Boundary and current state
 
-This is the owner-facing release foundation for the Svelte V3 application and
-the Contabo live-checkpoint environment. **Contabo is not production.** This
-foundation does not authorize or perform a Contabo deployment, service restart,
-migration, database read/write, DNS change, or secret inspection.
+This is the owner-facing release and deployment boundary for the Svelte V3
+application. **Contabo is not production.** Evidence from Contabo must not be presented as production
+deployment or health evidence, and nothing here grants
+production promotion, routing, credential, database-mutation or migration
+authority.
 
-The executable part today is the manual **V3 application immutable release**
-workflow. It builds the current FastAPI application and static SvelteKit shell
-off-host from the exact `main` SHA, publishes digest-addressed OCI images, and
-seals a machine-readable manifest. The separate **V3 application
-live-checkpoint deploy preflight** verifies a candidate and prior rollback
-manifest through the distinct `v3-live-checkpoint` environment and
-`V3_LIVE_CHECKPOINT_*` pinned SSH trust boundary. It does not reuse production
-credentials or grant deployment authority. The workflow then stops deliberately
-without pulling an image or changing a service.
-
-Before any SSH connection, the preflight authenticates both artifact run IDs
-against GitHub: each must be a successful manual run of the canonical release
-workflow in this repository on `main`, and its head SHA must equal the SHA in
-the downloaded manifest.
-
-That stopped state is required. Current repository/runtime evidence does not
-establish a reviewed Contabo live-checkpoint Compose/topology authority,
-application-service allowlist, network/edge wiring, mounted secret/config
-authority, current PostgreSQL migration identity receipt, receipt store, or an
-accepted immutable rollback release. The stale `edfinder-v3-api:phase4c-r5`
-runtime has a mutable tag and reports `build_sha=unknown`; it is not eligible
-rollback evidence.
-
-## Checkpoint cadence
-
-Use this sequence for every owner-test checkpoint:
-
-1. Make the intended PR head exact and green under the full acceptance policy,
-   including required review disposition.
-2. Merge that exact reviewed head to `main`.
-3. Manually dispatch **V3 application immutable release** with the full
-   40-character SHA now at the head of `main`.
-4. Review the uploaded manifest and its checksum. The workflow builds both
-   images from that one SHA and records only `repository@sha256:...` references.
-5. Select the candidate release run and a distinct, previously accepted,
-   receipt-backed rollback release. Explicitly dispatch the environment-gated
-   live-checkpoint preflight path.
-6. After a future reviewed topology slice makes deployment executable, require
-   successful Contabo origin and externally reachable live-checkpoint edge
-   smoke for the Svelte root/application route,
-   `/api/health` (including the exact `build_sha`), exact `/openapi.json`, and
-   anonymous `/api/auth/session`. Confirm the Frontier route surface before
-   attempting login.
-7. Retain the deployment receipt, candidate and rollback manifests, route
-   results, image digests, migration-set identity and compatibility decision.
-8. Only then hand the checkpoint to the owner for live testing.
-
-Normal PR, merge and `main` push events do not invoke either release or preflight.
-Both workflows accept only an explicit manual dispatch. Building a release is
-not permission to deploy it, and a successful preflight manifest check is not a
-successful deployment.
-
-## Release manifest contract
-
-`scripts/release/v3_release_manifest.py` computes the schema identity from the
-ordered `sql/migration-manifest.txt` entries and the SHA-256 of every referenced
-SQL file. A manifest records:
-
-- the exact Git SHA and derived release ID;
-- allowlisted backend and web image repositories with immutable SHA-256
-  digests;
-- the migration manifest checksum, per-file checksums and aggregate migration
-  identity;
-- an explicit compatibility status, compatible migration identities and a
-  non-secret reviewed evidence identifier;
-- explicit application-only rollback eligibility and rationale.
-
-Unknown or incompatible schema status cannot be rollback eligible. Actual
-application rollback additionally requires an authoritative receipt for the
-current database migration identity and an exact match in the old release's
-compatibility set. A manifest never carries DSNs, passwords, tokens, private
-keys, secret values or credential-bearing URLs.
-
-The release workflow uses Node 24/pnpm 11 with the committed frozen web lock and
-CPython 3.14/uv 0.11.33 with the committed API lock. Normal V3 backend unit,
-integration, coverage, OpenAPI, Product E2E API, Review Lab backend, and release
-image validation all assert CPython 3.14 and sync
-`apps/api/pyproject.toml` + `apps/api/uv.lock` with frozen resolution. The
-every-PR container parity lane builds that exact release Dockerfile and proves
-the running server interpreter plus a loopback-only `/api/health` response
-after the real FastAPI lifespan connects to a disposable PostgreSQL 18 service.
-Repository orchestration/static contracts, importer/canonical tooling,
+The immutable release workflow builds the FastAPI and static SvelteKit images
+off-host from one exact `main` SHA. Normal V3 backend unit, integration,
+coverage, OpenAPI, Product E2E API, Review Lab backend, release image and the
+every-PR container parity lane validate on exact CPython 3.14. The real FastAPI lifespan
+is exercised against disposable PostgreSQL 18. Repository tooling,
 retained frontend tooling, and the Codex worker bootstrap also validate on
-exact CPython 3.14. The API continues to own asyncpg while synchronous tooling
-uses pinned Psycopg 3.
-Static SvelteKit output is copied
-into nginx; no source checkout, build tool or dependency resolution is needed
-on the target host. nginx delegates only `/api` and `/api/*`, exact
-`/openapi.json`, and exact numeric `/s/{id64}` to the API. All other routes stay
-with the Svelte static application fallback.
+exact CPython 3.14. The API continues to own asyncpg; synchronous tooling uses pinned Psycopg 3.
 
-## Why live-checkpoint deployment still fails closed
+The environment-gated deployment workflow authenticates release artifacts
+against a successful manual run of the canonical release workflow on `main`,
+checks the adjacent manifest checksum, and accepts only the allowlisted GHCR
+repositories at `repository@sha256:...`. It never runs `git pull`, a build,
+package installation, migrations or dependency resolution on the target.
 
-The host preflight emits a machine-readable stopped receipt listing the facts
-still required. Review and land all of these as a separate topology authority
-before adding any mutation command:
+The repository now defines the deployment boundary, but the recorded Contabo
+authority remains deliberately stopped. Read-only inspection on 2026-09-06
+proved no container runtime/Compose installation and no authorized checkpoint
+database, HTTP origin, network/edge route, secret mount or receipt store. See
+`deploy/v3-live-checkpoint/target-authority.json` for the exact sanitized facts
+and blockers. Dispatching the workflow while that authority is stopped cannot
+pull an image or change a service.
 
-- Contabo live-checkpoint Compose project/config path and how the deployment
-  bundle is installed without a target-host source checkout;
-- exact app-owned service keys/container names and recreate allowlist;
-- explicit preservation targets for PostgreSQL 18, Redis, NATS and retained
-  edge services;
-- host CPU platform, Docker networks/aliases, API upstream, loopback port and
-  retained TLS-edge wiring;
-- approved GHCR pull/authentication authority;
-- non-secret configuration plus external secret-file/mount authority per
-  service, including ownership/mode and required data/log/receipt mounts;
-- approved read-only source for a current `schema_migrations` identity receipt;
-- durable manifest/deploy-receipt/rollback-history storage and update rules;
-- accepted prior digest release plus deploy receipt proved compatible with the
-  current database;
-- exact Contabo origin/live-checkpoint edge smoke authority and ordering.
+## Persistent topology contract
 
-Do not fill these gaps from the root legacy/local Compose file, old host source,
-historical workflows, or observed container names. The current status helper
-also expects a frontend inside the stale API image, so it remains diagnosis
-evidence rather than the final smoke authority for the separate nginx web image.
+The checkpoint is persistent infrastructure, not a rebuild-every-run stack.
+The fixed Compose project is `edfinder-v3-checkpoint`; its mutation allowlist is
+exactly the `api` and `web` services/containers plus their already-provisioned
+application network. The Compose bundle contains no PostgreSQL, Redis/Valkey,
+NATS, edge/proxy, runner service or named volume.
 
-## Rollback boundary
+Deployment and rollback may use only explicit `api web` service arguments with
+`--no-deps`. They must never use Compose `down`, `--remove-orphans`, volume
+removal, project-wide recreation, or start/stop/recreate PostgreSQL,
+Redis/Valkey, NATS, edge/proxy, runner or unrelated resources. The edge route,
+database, secret/config paths, application network and receipt directory must
+already exist under separate reviewed authority.
 
-Rollback is always explicit and receipt-backed. It may recreate only the
-eventually reviewed V3 application services and must preserve PostgreSQL 18.
-If the prior manifest is missing, tag-only, reports unknown compatibility, or
-does not list the current database migration identity as compatible,
-application-only rollback stops.
+The two app services are capped at 2.00 CPUs and 2 GiB combined: API at 1.50
+CPU/1536 MiB and web at 0.50 CPU/512 MiB. That ceiling is derived from the
+observed 8 logical CPUs and 23 GiB RAM, leaving 75% of CPU and more than 90% of
+nominal RAM outside the checkpoint for the OS and exactly three Codex runners.
+It is a conservative isolation ceiling, not workload sizing proof. The deploy
+preflight stops if the host falls below the audited total baseline or cannot
+currently satisfy the two app services' combined 2 GiB memory ceiling.
 
-This foundation does not implement database rollback/recovery or run
-migrations. A schema-incompatible release requires a separately reviewed and
-rehearsed database procedure; no one-click application rollback may imply that
-such a procedure exists.
+Redis/cache is optional for core Finder and Inspect correctness. The API
+already degrades to no cache when Redis is unavailable and uses in-memory rate
+limits, so the checkpoint baseline intentionally has no cache service. NATS is not a V3 checkpoint baseline dependency.
+Checkpoint configuration also disables
+the live EDDN simulation ingest so a first UI/API checkpoint cannot begin an
+unreviewed background database-writing workload.
 
-The production environment, any future production promotion, and production
-credentials are outside this runbook. Evidence from Contabo must not be presented as production
-deployment or production health evidence.
+## Bootstrap and upgrade modes
+
+Bootstrap checkpoint #1 intentionally has no prior V3 release or deployment
+receipt. It requires the candidate release plus authoritative current database
+migration identity and proves both allowlisted app containers are absent before
+the first pull. A failed bootstrap restores that absence by stopping/removing
+only `api` and `web`; persistent network, edge, database, cache, runners and
+volumes are untouched. Its rollback identity is `predeploy_absence`.
+
+Every subsequent upgrade requires all of the following before mutation:
+
+- a distinct prior digest-only release manifest;
+- its checksum and successful canonical release-run provenance;
+- a durable accepted deployment receipt matching its source SHA, both image
+  digests and manifest checksum;
+- an authoritative current database migration identity listed as compatible by
+  both the candidate and rollback manifests.
+
+If an upgrade smoke fails, only `api` and `web` may be recreated at the accepted
+prior digests. Database rollback/recovery and migrations are outside this path.
+
+## Deployment sequence and receipt
+
+For an owner checkpoint:
+
+1. Merge the exact accepted head to `main` and manually dispatch **V3
+   application immutable release** with that 40-character SHA.
+2. Review the sealed manifest, compatibility evidence, application-only
+   rollback eligibility and basename-only SHA-256 checksum. Both image
+   references must be digest pinned.
+3. Dispatch **V3 application live-checkpoint deploy** in `bootstrap` mode for
+   checkpoint #1, or `upgrade` with the accepted rollback run ID afterward.
+4. The target boundary validates all target/external facts, schema identity,
+   Compose checksum, allowlisted project resources and app absence/prior receipt
+   before an image pull or service change.
+5. It pulls and verifies the exact digest images and OCI build-SHA labels, then
+   recreates only `api web` with `--no-deps`.
+6. It makes bounded, no-redirect origin requests to `/`, `/api/health`,
+   `/openapi.json` and `/api/auth/session`. Health must report
+   `database=connected` and the candidate `build_sha`; OpenAPI must expose the
+   health and session paths; the session must be anonymous.
+7. Only after all smokes pass does it persist an immutable sanitized receipt
+   and checksum, then atomically advance the checksum-bound `current.json`
+   pointer. The workflow uploads the same output even for a stopped preflight.
+
+An accepted receipt contains the authenticated release run ID, source SHA,
+exact image digests, candidate manifest checksum, non-production target identity, current migration identity,
+exact changed app resources, smoke outcomes and rollback identity. It never
+contains DSNs, environment-file contents, passwords, tokens, private keys or
+credential-bearing URLs.
+
+## Exact blockers before checkpoint #1
+
+No authorized checkpoint `DATABASE_URL` or data source exists in current
+repository/host evidence. Production must not be used and production data must
+not be copied. An operator must provide a separately approved persistent
+non-production data source, external API secret/config file, and current schema
+identity receipt.
+
+The other current blockers are container-runtime/Compose installation
+authority, the origin loopback port/listener, persistent app network and edge
+route, target GHCR pull authentication, and a durable deployment receipt
+directory. These are explicit external authority requirements; no port, path,
+network, data source or edge wiring may be inferred from legacy Compose files,
+production, or observed runner names.

@@ -16,12 +16,12 @@ retained migration and behavioural evidence, not the V3 target or an authority
 for current production. Stage 26's R3F selection remains an accurate historical
 decision.
 
-PR #601 is the single active V3 application integration lane. Its current known
-head, `12eebac48ca9286e0fd8c180cc5f552dc922d07e`, contains the real
-Explore/Finder → fresh Babylon results → canonical Inspect product slice and
-the Review Lab rebase onto `apps/web` + Babylon. Exact-head validation is still
-stabilising, so this is active-PR state rather than a green checkpoint or a
-claim that the implementation has merged into this `main`-based branch.
+PR #601's Explore/Finder → fresh Babylon results → canonical Inspect product
+slice and Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact
+merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
+
+The current bounded exit task is the first non-production V3 live checkpoint;
+it is not a production promotion.
 
 ## Current authority
 
@@ -117,7 +117,8 @@ make state-check
 The root `docker-compose.yml` and retired V2 procedures do not describe V3
 production. Production or recovery work requires an explicitly current V3
 runbook and target. Contabo hosts exactly three self-hosted Codex runners; it is
-not production and is not automatically a live-checkpoint destination.
+not production. Its selected first live-checkpoint path remains isolated and
+fail-closed on the recorded missing runtime, data and route authorities.
 
 The repository currently has no executable PostgreSQL 18 recovery runbook.
 Stop rather than adapting V2 instructions or inventing host paths, credentials,
