@@ -20,6 +20,13 @@ RUNNERS=(
   actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-2.service
   actions.runner.brianstewart377-rgb-ed-finder.contabo-codex-worker-3.service
 )
+PW_SQL=""
+LEDGER_FILE=""
+cleanup_sensitive_temps() {
+  [ -z "$PW_SQL" ] || rm -f -- "$PW_SQL"
+  [ -z "$LEDGER_FILE" ] || rm -f -- "$LEDGER_FILE"
+}
+trap cleanup_sensitive_temps EXIT HUP INT TERM
 
 fail() { echo "checkpoint provisioning stopped: $*" >&2; exit 78; }
 
@@ -143,7 +150,8 @@ PW_SQL="$(mktemp)"
 chmod 0600 "$PW_SQL"
 printf "ALTER ROLE %s PASSWORD '%s';\n" "$DB_APP_ROLE" "$DB_PASSWORD" > "$PW_SQL"
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q -f "$PW_SQL"
-rm -f "$PW_SQL"
+rm -f -- "$PW_SQL"
+PW_SQL=""
 
 runuser -u postgres -- psql -X -v ON_ERROR_STOP=1 -q <<SQL
 ALTER ROLE $DB_APP_ROLE NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
@@ -245,7 +253,8 @@ pathlib.Path(out).write_text(
     json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8"
 )
 PY
-rm -f "$LEDGER_FILE"
+rm -f -- "$LEDGER_FILE"
+LEDGER_FILE=""
 chown "$OP_UID:$OP_GID" "$SCHEMA_RECEIPT"
 chmod 0600 "$SCHEMA_RECEIPT"
 SCHEMA_SHA="$(sha256sum "$SCHEMA_RECEIPT" | awk '{print $1}')"
