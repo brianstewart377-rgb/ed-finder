@@ -51,6 +51,7 @@ CHECKED_WORKFLOWS = (
     'semgrep.yml',
     'v3-application-live-checkpoint-preflight.yml',
     'v3-application-release.yml',
+    'v3-checkpoint-request-dispatch.yml',
     'v3-derived-data-status.yml',
 )
 
