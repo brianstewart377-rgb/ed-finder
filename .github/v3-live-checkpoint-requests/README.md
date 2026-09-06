@@ -1,0 +1,1 @@
+Push exactly one JSON request file per commit to the dedicated `v3-live-checkpoint-requests` branch. Supported operations are `provision`, `release`, and `deploy`, each validated by `.github/workflows/v3-live-checkpoint-control.yml` before it can reach the canonical checkpoint boundaries.
