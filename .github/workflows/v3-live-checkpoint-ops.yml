@@ -10,9 +10,6 @@ on:
 permissions:
   contents: read
 
-environments:
-  v3-live-checkpoint:
-
 jobs:
   provision:
     runs-on: ubuntu-latest
