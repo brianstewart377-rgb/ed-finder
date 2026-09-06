@@ -10,6 +10,10 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Contabo live-checkpoint helper
 
+- `deploy/v3-live-checkpoint/host-bootstrap.sh`: fixed, idempotent prerequisite
+  operator for the non-production `vmi3542235` checkpoint. It is transferred as
+  a source-free bundle by `v3-live-checkpoint-provision.yml`; do not run it
+  against any other host or adapt it for production.
 - `actions/v3-app-live-checkpoint-preflight.sh`: CPython 3.14 launcher for the
   fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
   explicitly non-production and uses separate environment credentials. The

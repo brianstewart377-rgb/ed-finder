@@ -36,6 +36,15 @@ authorized checkpoint database/data source, origin/edge wiring, secret mount,
 GHCR pull authority or durable receipt store yet, so first-deployment mutation
 remains stopped. Production PostgreSQL/data must not fill that gap.
 
+The reviewed way to close those blockers is the separate
+`v3-live-checkpoint-provision.yml` prerequisite operator. It targets only
+`vmi3542235`, preserves the three runner units, provisions a separate
+non-production PostgreSQL 18 data source from repository migrations plus a
+small synthetic fixture, and emits sanitized evidence rather than changing
+Git authority. A follow-up review and merge of the observed authority candidate
+is required before the application deploy can run. This path grants no
+production access, data copy, DNS change or routing authority.
+
 Ollama was experimental residue used to test local inference for Octopus. It
 has been removed from production and is not part of the V3 architecture.
 

@@ -27,6 +27,7 @@ concurrency:
 jobs:
   deploy:
     name: Verify and apply the bounded live-checkpoint release
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     # This boundary is distinct from production credentials and routing.
     environment: v3-live-checkpoint
@@ -39,7 +40,9 @@ jobs:
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          # workflow_dispatch is accepted only from main; pin the operator
+          # bundle to that dispatch SHA so a later main advance cannot swap it.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up CPython 3.14 for release verification
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0

@@ -1,0 +1,214 @@
+name: V3 live-checkpoint prerequisites operator
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Allowlisted non-production Contabo prerequisite operation
+        required: true
+        type: choice
+        options:
+          - check
+          - provision
+  push:
+    branches:
+      - main
+    paths:
+      - .github/v3-live-checkpoint-requests/*.json
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-live-checkpoint-prerequisites
+  cancel-in-progress: false
+
+jobs:
+  operator:
+    name: Check or provision vmi3542235 checkpoint prerequisites
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: v3-live-checkpoint
+    timeout-minutes: 30
+    steps:
+      - name: Checkout request event
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Resolve allowlisted request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = workflow_dispatch ]; then
+            operation="$INPUT_OPERATION"
+          elif [ "$EVENT_NAME" = push ]; then
+            mapfile -t changed_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+            [ "${#changed_files[@]}" -eq 1 ] || { echo "Expected exactly one changed live-checkpoint request file" >&2; exit 64; }
+            case "${changed_files[0]}" in
+              .github/v3-live-checkpoint-requests/*.json) ;;
+              *) echo "Push changed a path outside the live-checkpoint request allowlist" >&2; exit 64 ;;
+            esac
+            operation="$(python3 - "${changed_files[0]}" <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          value = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          if not isinstance(value, dict) or set(value.keys()) != {"operation"}:
+              raise SystemExit('request keys must be exactly ["operation"]')
+          operation = value.get("operation")
+          if operation not in {"check", "provision"}:
+              raise SystemExit("Unsupported operation")
+          print(operation)
+          PY
+            )"
+          else
+            echo "Unsupported event" >&2
+            exit 64
+          fi
+          case "$operation" in
+            check|provision) ;;
+            *) echo "Unsupported operation" >&2; exit 64 ;;
+          esac
+          echo "operation=$operation" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted main provisioning bundle
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Assemble fixed source-free provisioning bundle
+        id: bundle
+        shell: bash
+        env:
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-provision
+          GHCR_USERNAME: ${{ secrets.V3_LIVE_CHECKPOINT_GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.V3_LIVE_CHECKPOINT_GHCR_TOKEN }}
+          GHCR_PROOF_IMAGE: ${{ vars.V3_LIVE_CHECKPOINT_GHCR_PROOF_IMAGE }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+        run: |
+          set -euo pipefail
+          source_sha="$(git -C trusted-main rev-parse HEAD)"
+          [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "Trusted main SHA is invalid" >&2; exit 64; }
+          if [ -n "$GHCR_PROOF_IMAGE" ]; then
+            [[ "$GHCR_PROOF_IMAGE" =~ ^ghcr\.io/brianstewart377-rgb/ed-finder/v3-(backend|web)@sha256:[0-9a-f]{64}$ ]] || { echo "V3_LIVE_CHECKPOINT_GHCR_PROOF_IMAGE must be an allowlisted exact digest" >&2; exit 64; }
+          elif [ -z "$GHCR_USERNAME" ]; then
+            echo "Anonymous GHCR authority requires V3_LIVE_CHECKPOINT_GHCR_PROOF_IMAGE" >&2
+            exit 64
+          fi
+          install -d -m 700 "$BUNDLE/deploy/v3-live-checkpoint" "$BUNDLE/sql" "$BUNDLE/scripts/operator" "$BUNDLE/scripts/release" "$BUNDLE/secrets"
+          install -m 700 trusted-main/deploy/v3-live-checkpoint/host-bootstrap.sh trusted-main/deploy/v3-live-checkpoint/bootstrap_receipt.py "$BUNDLE/deploy/v3-live-checkpoint/"
+          install -m 600 trusted-main/deploy/v3-live-checkpoint/compose.yml trusted-main/deploy/v3-live-checkpoint/target-authority.json trusted-main/deploy/v3-live-checkpoint/synthetic-checkpoint-fixture.sql "$BUNDLE/deploy/v3-live-checkpoint/"
+          install -m 600 trusted-main/sql/migration-manifest.txt trusted-main/sql/*.sql "$BUNDLE/sql/"
+          install -m 700 trusted-main/scripts/apply_migrations.sh trusted-main/scripts/operator/v3_checkpoint_deploy.py "$BUNDLE/scripts/"
+          mv "$BUNDLE/scripts/v3_checkpoint_deploy.py" "$BUNDLE/scripts/operator/v3_checkpoint_deploy.py"
+          install -m 600 trusted-main/scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
+          if { [ -n "$GHCR_USERNAME" ] && [ -z "$GHCR_TOKEN" ]; } || { [ -z "$GHCR_USERNAME" ] && [ -n "$GHCR_TOKEN" ]; }; then
+            echo "GHCR username and token must be configured together" >&2
+            exit 64
+          fi
+          if [ -n "$GHCR_USERNAME" ]; then
+            printf '%s' "$GHCR_USERNAME" > "$BUNDLE/secrets/ghcr-username"
+            printf '%s' "$GHCR_TOKEN" > "$BUNDLE/secrets/ghcr-token"
+            chmod 600 "$BUNDLE/secrets/ghcr-username" "$BUNDLE/secrets/ghcr-token"
+          fi
+          printf '%s' "$OPERATION" > "$BUNDLE/request-operation"
+          printf '%s' "$source_sha" > "$BUNDLE/trusted-source-sha"
+          printf '%s' 'postgres:18' > "$BUNDLE/postgres-image"
+          printf '%s' "$GHCR_PROOF_IMAGE" > "$BUNDLE/ghcr-proof-image"
+          chmod 600 "$BUNDLE/request-operation" "$BUNDLE/trusted-source-sha" "$BUNDLE/postgres-image" "$BUNDLE/ghcr-proof-image"
+          {
+            echo "source_sha=$source_sha"
+            echo "postgres_image=postgres:18"
+            echo "ghcr_proof_image=$GHCR_PROOF_IMAGE"
+            echo "ghcr_credentials=$([ -n "$GHCR_USERNAME" ] && echo present || echo absent)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare pinned checkpoint SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing checkpoint SSH key" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing checkpoint SSH host" >&2; exit 1; }
+          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$SSH_PORT" -le 65535 ] || { echo "Invalid checkpoint SSH port" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned checkpoint known-hosts" >&2; exit 1; }
+          # The remote script independently requires vmi3542235 and
+          # vmi3542235.contaboserver.net before any mutation.
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_live_checkpoint_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/v3_live_checkpoint_key ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null || { echo "Pinned known-host trust does not cover configured endpoint" >&2; exit 1; }
+
+      - name: Run bounded source-free prerequisite operator
+        id: remote
+        shell: bash
+        env:
+          OPERATION: ${{ steps.request.outputs.operation }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-provision
+          RESULT_ARCHIVE: ${{ runner.temp }}/v3-live-checkpoint-provision-results.tar
+          RESULT_DIR: ${{ runner.temp }}/v3-live-checkpoint-provision-results
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing checkpoint SSH user" >&2; exit 1; }
+          remote_command='set -eu; umask 077; work="$(mktemp -d)"; trap '\''rm -rf -- "$work"'\'' EXIT HUP INT TERM; mkdir "$work/output"; tar -xf - -C "$work"; operation="$(cat "$work/request-operation")"; source_sha="$(cat "$work/trusted-source-sha")"; postgres_image="$(cat "$work/postgres-image")"; ghcr_proof_image="$(cat "$work/ghcr-proof-image")"; set -- --mode "$operation" --bundle-root "$work" --output-dir "$work/output" --source-sha "$source_sha" --postgres-image "$postgres_image"; if [ -n "$ghcr_proof_image" ]; then set -- "$@" --ghcr-proof-image "$ghcr_proof_image"; fi; if [ -f "$work/secrets/ghcr-username" ] && [ -f "$work/secrets/ghcr-token" ]; then set -- "$@" --ghcr-username-file "$work/secrets/ghcr-username" --ghcr-token-file "$work/secrets/ghcr-token"; fi; set +e; sudo -n timeout 1500 bash "$work/deploy/v3-live-checkpoint/host-bootstrap.sh" "$@" >/dev/null; rc="$?"; set -e; tar -C "$work/output" -cf - .; exit "$rc"'
+          set +e
+          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_live_checkpoint_key \
+            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "$remote_command" > "$RESULT_ARCHIVE"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          install -d -m 700 "$RESULT_DIR"
+          if [ -s "$RESULT_ARCHIVE" ] && tar -tf "$RESULT_ARCHIVE" >/dev/null 2>&1; then
+            tar -xf "$RESULT_ARCHIVE" -C "$RESULT_DIR"
+          fi
+          if [ ! -s "$RESULT_DIR/provisioning-receipt.json" ]; then
+            python3 - <<'PY' > "$RESULT_DIR/provisioning-receipt.json"
+          import json
+          print(json.dumps({
+              "schema_version": "ed-finder/v3-live-checkpoint-provisioning-receipt/v1",
+              "status": "stopped",
+              "target": {"hostname": "vmi3542235", "fqdn": "vmi3542235.contaboserver.net", "production": False},
+              "failures": ["remote_transport_or_bootstrap_failed"],
+              "secret_values_included": False,
+              "production_access_performed": False,
+          }, sort_keys=True))
+          PY
+          fi
+          python3 -m json.tool "$RESULT_DIR/provisioning-receipt.json" >/dev/null
+          cat "$RESULT_DIR/provisioning-receipt.json"
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ]
+
+      - name: Upload sanitized prerequisite evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-live-checkpoint-provisioning-evidence
+          path: |
+            ${{ runner.temp }}/v3-live-checkpoint-provision-results/provisioning-receipt.json
+            ${{ runner.temp }}/v3-live-checkpoint-provision-results/target-authority-candidate.json
+            ${{ runner.temp }}/v3-live-checkpoint-provision-results/schema-identity-receipt.json
+            ${{ runner.temp }}/v3-live-checkpoint-provision-results/schema-identity-receipt.json.sha256
+          if-no-files-found: warn
+          retention-days: 30
