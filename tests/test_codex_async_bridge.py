@@ -4,14 +4,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DISPATCH = ROOT / ".github" / "workflows" / "codex-dispatch.yml"
 WORKER = ROOT / ".github" / "workflows" / "codex-laptop.yml"
+CONTROL_PLANE_DOC = ROOT / "docs" / "development" / "chatgpt-ops-control-plane.md"
 
 
 def test_codex_request_push_is_acknowledged_by_short_dispatch_workflow() -> None:
     text = DISPATCH.read_text(encoding="utf-8")
+    setup_position = text.index("- name: Set up Python 3.14")
+    resolve_position = text.index("- name: Resolve request")
+    setup = text[setup_position:resolve_position]
 
     assert "branches:\n      - codex-task-requests" in text
     assert "actions: write" in text
     assert "timeout-minutes: 2" in text
+    assert setup_position < resolve_position
+    assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
+    assert 'python-version: "3.14"' in setup
+    assert "python3" not in text
+    assert text.count("$(python -c ") == 3
+    assert text.count("$(python -") == 5
     assert "codex-laptop.yml/dispatches" in text
     assert 'extra=set(d)-{"task","mode","target_branch"}' in text
     assert '"target_branch": os.environ["CODEX_TARGET_BRANCH"]' in text
@@ -65,19 +75,31 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() 
     gate = text.split("- name: Prepare repository state gate", 1)[1].split(
         "- name: Verify worker identity", 1
     )[0]
-    setup = text.split("- name: Set up Python 3.12", 1)[1].split(
+    setup = text.split("- name: Set up Python 3.14", 1)[1].split(
         "- name: Prepare repository state gate", 1
     )[0]
 
     assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
-    assert 'python-version: "3.12"' in setup
+    assert 'python-version: "3.14"' in setup
     assert "command -v python" in gate
     assert "::error::" in gate
-    assert "sys.version_info[:2] == (3, 12)" in gate
+    assert gate.count("sys.version_info[:2] == (3, 14)") == 2
+    assert "The selected interpreter did not report the required Python 3.14" in gate
     assert "python -m venv .venv" in gate
-    assert "The repository venv does not use the required Python 3.12" in gate
+    assert "The repository venv does not use the required Python 3.14" in gate
     assert "resolve_project_state.py --strict" in gate
     assert "CODEX_MAIN_STATE_GATE=PASS" in gate
+
+
+def test_current_control_plane_requires_python_314_and_rejects_312_authority() -> None:
+    worker = WORKER.read_text(encoding="utf-8")
+    dispatch = DISPATCH.read_text(encoding="utf-8")
+    documentation = CONTROL_PLANE_DOC.read_text(encoding="utf-8")
+
+    assert "Codex Worker requires Python 3.14" in worker
+    assert "The dispatcher and worker select exactly CPython 3.14" in documentation
+    for authority in (worker, dispatch, documentation):
+        assert "3.12" not in authority
 
 
 def test_selected_target_is_gated_before_dependency_install_or_codex() -> None:
