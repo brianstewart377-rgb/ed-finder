@@ -10,6 +10,15 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Contabo live-checkpoint helper
 
+- `actions/v3-live-checkpoint-provision.sh`: privileged, source-free and
+  idempotent infrastructure provisioner for exactly the non-production Contabo
+  checkpoint host and exact three-runner set. It provisions the separate
+  PostgreSQL 18 preview database, Docker/Compose and local context, persistent
+  external app network, private config/receipt paths, loopback origin and
+  provider-FQDN-only HTTP edge. It emits only sanitized provisioning evidence
+  and an authority candidate; it does not edit target authority or deploy the
+  application. See
+  [`docs/operations/v3-live-checkpoint-provisioning.md`](../../docs/operations/v3-live-checkpoint-provisioning.md).
 - `actions/v3-app-live-checkpoint-preflight.sh`: CPython 3.14 launcher for the
   fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
   explicitly non-production and uses separate environment credentials. The

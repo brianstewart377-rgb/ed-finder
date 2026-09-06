@@ -1,0 +1,288 @@
+name: V3 live-checkpoint infrastructure provisioning
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Allowlisted non-production provisioning operation
+        required: true
+        default: provision-infrastructure
+        type: choice
+        options:
+          - provision-infrastructure
+      backend_image:
+        description: Optional digest-pinned V3 backend image for an anonymous GHCR pull proof
+        required: false
+        type: string
+      web_image:
+        description: Optional digest-pinned V3 web image for an anonymous GHCR pull proof
+        required: false
+        type: string
+  push:
+    branches:
+      - v3-live-checkpoint-provision-requests
+    paths:
+      - '.github/v3-live-checkpoint-provision-requests/*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v3-live-checkpoint-infrastructure-provisioning
+  cancel-in-progress: false
+
+jobs:
+  provision:
+    name: Provision the bounded non-production Contabo checkpoint
+    runs-on: ubuntu-latest
+    environment: v3-live-checkpoint
+    # Includes bounded package operations plus the canonical fresh-schema and
+    # preview-seed window without pre-empting sanitized failure receipt output.
+    timeout-minutes: 150
+    steps:
+      - name: Checkout provisioning request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Set up CPython 3.14 for request and bundle validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+
+      - name: Resolve allowlisted provisioning request
+        id: request
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_OPERATION: ${{ inputs.operation }}
+          INPUT_BACKEND_IMAGE: ${{ inputs.backend_image }}
+          INPUT_WEB_IMAGE: ${{ inputs.web_image }}
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          operation=""
+          backend_image=""
+          web_image=""
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            operation="$INPUT_OPERATION"
+            backend_image="$INPUT_BACKEND_IMAGE"
+            web_image="$INPUT_WEB_IMAGE"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            [[ "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ && "$CURRENT_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+              echo "Request push SHAs are invalid" >&2
+              exit 64
+            }
+            mapfile -t changed_files < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+            [ "${#changed_files[@]}" -eq 1 ] || {
+              echo "Expected exactly one changed checkpoint provisioning request" >&2
+              exit 64
+            }
+            case "${changed_files[0]}" in
+              .github/v3-live-checkpoint-provision-requests/*.json) ;;
+              *) echo "Push changed a path outside the provisioning request allowlist" >&2; exit 64 ;;
+            esac
+            request_values="$RUNNER_TEMP/provision-request-values"
+            python - "${changed_files[0]}" > "$request_values" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          try:
+              value = json.loads(path.read_text(encoding="utf-8"))
+          except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+              raise SystemExit(f"Invalid provisioning request: {type(exc).__name__}") from exc
+          expected = {"operation", "backend_image", "web_image"}
+          if not isinstance(value, dict) or set(value) != expected:
+              raise SystemExit("Provisioning request keys must be exactly operation, backend_image, web_image")
+          if any(not isinstance(value[key], str) for key in expected):
+              raise SystemExit("Every provisioning request value must be a string")
+          if any("\n" in value[key] or "\r" in value[key] for key in expected):
+              raise SystemExit("Provisioning request values must be single-line")
+          print(value["operation"])
+          print(value["backend_image"])
+          print(value["web_image"])
+          PY
+            mapfile -t values < "$request_values"
+            [ "${#values[@]}" -eq 3 ] || { echo "Provisioning request shape is invalid" >&2; exit 64; }
+            operation="${values[0]}"
+            backend_image="${values[1]}"
+            web_image="${values[2]}"
+          else
+            echo "Unsupported event: $EVENT_NAME" >&2
+            exit 64
+          fi
+
+          [ "$operation" = "provision-infrastructure" ] || {
+            echo "Unsupported provisioning operation" >&2
+            exit 64
+          }
+          backend_prefix='ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:'
+          web_prefix='ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:'
+          if [ -n "$backend_image" ] || [ -n "$web_image" ]; then
+            [[ "$backend_image" =~ ^${backend_prefix}[0-9a-f]{64}$ ]] || { echo "Backend GHCR probe image is invalid" >&2; exit 64; }
+            [[ "$web_image" =~ ^${web_prefix}[0-9a-f]{64}$ ]] || { echo "Web GHCR probe image is invalid" >&2; exit 64; }
+          fi
+          {
+            echo "operation=$operation"
+            echo "backend_image=$backend_image"
+            echo "web_image=$web_image"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout trusted provisioning implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+
+      - name: Prepare pinned Contabo SSH trust boundary
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" || { echo "Missing V3_LIVE_CHECKPOINT_SSH_KEY" >&2; exit 1; }
+          test -n "$SSH_HOST" || { echo "Missing V3_LIVE_CHECKPOINT_HOST" >&2; exit 1; }
+          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$SSH_PORT" -le 65535 ] || { echo "Invalid V3_LIVE_CHECKPOINT_PORT" >&2; exit 1; }
+          test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned live-checkpoint known-hosts secret" >&2; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_live_checkpoint_key
+          chmod 600 ~/.ssh/v3_live_checkpoint_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = "22" ]; then known_host_lookup="$SSH_HOST"; else known_host_lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$known_host_lookup" -f ~/.ssh/known_hosts >/dev/null || {
+            echo "Pinned known-host trust does not cover the configured host and port" >&2
+            exit 1
+          }
+
+      - name: Assemble source-free provisioning bundle
+        shell: bash
+        env:
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-provisioning-bundle
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" "$BUNDLE/scripts" "$BUNDLE/sql" "$BUNDLE/deploy/v3-live-checkpoint" "$BUNDLE/artifacts"
+          install -m 700 trusted-main/scripts/operator/actions/v3-live-checkpoint-provision.sh "$BUNDLE/scripts/operator/actions/"
+          install -m 700 trusted-main/scripts/apply_migrations.sh trusted-main/scripts/seed_check.sh "$BUNDLE/scripts/"
+          install -m 600 trusted-main/scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
+          install -m 600 trusted-main/sql/*.sql trusted-main/sql/migration-manifest.txt "$BUNDLE/sql/"
+          install -m 600 trusted-main/deploy/v3-live-checkpoint/compose.yml "$BUNDLE/deploy/v3-live-checkpoint/"
+          (
+            cd trusted-main
+            python - <<'PY' > "$BUNDLE/artifacts/migration-set.json"
+          import json
+          from scripts.release.v3_release_manifest import migration_set
+          print(json.dumps(migration_set(), indent=2, sort_keys=True))
+          PY
+          )
+          python -m json.tool "$BUNDLE/artifacts/migration-set.json" >/dev/null
+
+      - name: Run bounded source-free provisioning
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-provisioning-bundle
+          OUTPUT: ${{ runner.temp }}/v3-live-checkpoint-provisioning-output
+          BACKEND_IMAGE: ${{ steps.request.outputs.backend_image }}
+          WEB_IMAGE: ${{ steps.request.outputs.web_image }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
+          printf '%s\0' --backend-image "$BACKEND_IMAGE" --web-image "$WEB_IMAGE" > "$BUNDLE/arguments"
+          remote_archive="$RUNNER_TEMP/v3-live-checkpoint-provisioning-output.tar"
+          set +e
+          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_live_checkpoint_key \
+            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; umask 077; work="$(mktemp -d)"; trap '\''rm -rf -- "$work"'\'' EXIT HUP INT TERM; tar -xf - -C "$work"; output="$work/output"; install -d -m 700 "$output"; operator_user="$(id -un)"; set +e; xargs -0 sudo -n bash "$work/scripts/operator/actions/v3-live-checkpoint-provision.sh" --operator-user "$operator_user" --output-dir "$output" < "$work/arguments"; rc="$?"; set -e; tar -C "$output" -cf - provisioning-receipt.json target-authority-candidate.json; exit "$rc"' \
+            > "$remote_archive"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          install -d -m 700 "$OUTPUT"
+          if [ "${pipeline_status[0]}" -eq 0 ] && [ -s "$remote_archive" ] && tar -tf "$remote_archive" | diff -u <(printf '%s\n' provisioning-receipt.json target-authority-candidate.json) - >/dev/null; then
+            tar -xf "$remote_archive" -C "$OUTPUT"
+          else
+            python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          output = Path(os.environ["OUTPUT"])
+          target = {"provider":"contabo","classification":"live-checkpoint","production":False,"hostname":"vmi3542235","fqdn":"vmi3542235.contaboserver.net","architecture":"x86_64"}
+          receipt = {"schema_version":"ed-finder/v3-live-checkpoint-provisioning-receipt/v1","operation":"provision-infrastructure","status":"stopped","target":target,"failures":["remote_transport_or_bundle_failed"],"mutation_started":None,"runner_services_verified_before":None,"runner_services_verified_after":None,"runner_service_continuity_preserved":None,"credentials_emitted":False,"production_access_performed":False,"production_data_copied":False,"dns_changes_performed":False,"application_deploy_performed":False}
+          authority_path = Path("trusted-main/deploy/v3-live-checkpoint/target-authority.json")
+          candidate = json.loads(authority_path.read_text(encoding="utf-8"))
+          candidate["status"] = "stopped"
+          candidate["blockers"] = sorted(set(candidate["blockers"] + ["remote_transport_or_bundle_failed"]))
+          (output / "provisioning-receipt.json").write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
+          (output / "target-authority-candidate.json").write_text(json.dumps(candidate, indent=2, sort_keys=True) + "\n")
+          PY
+          fi
+          python -m json.tool "$OUTPUT/provisioning-receipt.json" >/dev/null
+          python -m json.tool "$OUTPUT/target-authority-candidate.json" >/dev/null
+          python - "$OUTPUT/provisioning-receipt.json" "$OUTPUT/target-authority-candidate.json" <<'PY'
+          import importlib.util
+          import json
+          import re
+          import sys
+          from pathlib import Path
+
+          receipt = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          candidate = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+          if receipt.get("schema_version") != "ed-finder/v3-live-checkpoint-provisioning-receipt/v1":
+              raise SystemExit("Unexpected provisioning receipt schema")
+          if receipt.get("status") not in {"provisioned", "provisioned_with_blocker", "stopped"}:
+              raise SystemExit("Unexpected provisioning receipt status")
+          target = receipt.get("target", {})
+          if target.get("production") is not False or target.get("hostname") != "vmi3542235":
+              raise SystemExit("Provisioning receipt target is invalid")
+
+          forbidden_keys = {"password", "token", "dsn", "database_url", "secret"}
+          credential_url = re.compile(r"[a-z][a-z0-9+.-]*://[^/@\s:]+:[^/@\s]+@", re.I)
+          def check_sanitized(value):
+              if isinstance(value, dict):
+                  for key, item in value.items():
+                      if str(key).lower() in forbidden_keys:
+                          raise SystemExit("Provisioning evidence contains a forbidden secret field")
+                      check_sanitized(item)
+              elif isinstance(value, list):
+                  for item in value:
+                      check_sanitized(item)
+              elif isinstance(value, str) and credential_url.search(value):
+                  raise SystemExit("Provisioning evidence contains credential-bearing URL material")
+          check_sanitized(receipt)
+          check_sanitized(candidate)
+
+          deploy_path = Path("trusted-main/scripts/operator/v3_checkpoint_deploy.py")
+          spec = importlib.util.spec_from_file_location("trusted_v3_checkpoint_deploy", deploy_path)
+          if spec is None or spec.loader is None:
+              raise SystemExit("Unable to load trusted target-authority validator")
+          deploy = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(deploy)
+          blockers = deploy.validate_authority(candidate)
+          if candidate.get("status") == "authorized" and blockers:
+              raise SystemExit("Authorized candidate unexpectedly retains blockers")
+          if candidate.get("status") == "stopped" and not blockers:
+              raise SystemExit("Stopped candidate must retain a blocker")
+          PY
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+
+      - name: Upload sanitized provisioning evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-live-checkpoint-provisioning-evidence
+          path: |
+            ${{ runner.temp }}/v3-live-checkpoint-provisioning-output/provisioning-receipt.json
+            ${{ runner.temp }}/v3-live-checkpoint-provisioning-output/target-authority-candidate.json
+          if-no-files-found: warn
+          retention-days: 14

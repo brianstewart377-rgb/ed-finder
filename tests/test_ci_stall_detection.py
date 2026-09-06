@@ -52,6 +52,7 @@ CHECKED_WORKFLOWS = (
     'v3-application-live-checkpoint-preflight.yml',
     'v3-application-release.yml',
     'v3-derived-data-status.yml',
+    'v3-live-checkpoint-provision.yml',
 )
 
 

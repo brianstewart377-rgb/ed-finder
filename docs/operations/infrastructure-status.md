@@ -36,6 +36,12 @@ authorized checkpoint database/data source, origin/edge wiring, secret mount,
 GHCR pull authority or durable receipt store yet, so first-deployment mutation
 remains stopped. Production PostgreSQL/data must not fill that gap.
 
+The repository now includes a separately environment-gated, source-free
+[checkpoint infrastructure provisioner](./v3-live-checkpoint-provisioning.md)
+that can resolve those facts on the exact Contabo target. Its presence is not
+evidence that it ran: the committed target authority stays stopped until a
+sanitized real receipt and candidate are reviewed in a separate follow-up.
+
 Ollama was experimental residue used to test local inference for Octopus. It
 has been removed from production and is not part of the V3 architecture.
 

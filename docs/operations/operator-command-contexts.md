@@ -82,6 +82,13 @@ absent. When those facts are separately reviewed, the same boundary may mutate
 only its fixed `api` and `web` application allowlist; it never manages
 PostgreSQL, Redis/Valkey, NATS, edge, runners or volumes.
 
+`scripts/operator/actions/v3-live-checkpoint-provision.sh` is the still
+separate, request-triggered infrastructure operator for that non-production
+checkpoint. It may run only through the dedicated environment-gated workflow
+and exact host/runner guard documented in
+[`v3-live-checkpoint-provisioning.md`](./v3-live-checkpoint-provisioning.md).
+Its sanitized target-authority candidate is evidence for review, not authority.
+
 Other scripts in that directory, including surviving Stage 19 staging/research tools, are **not** current V3 production authority merely because they are checked in. Read `scripts/operator/README.md` and require an explicitly current V3 workflow/runbook before executing any operator script against production.
 
 ## Final recommendation

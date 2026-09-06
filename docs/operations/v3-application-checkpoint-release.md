@@ -196,3 +196,10 @@ route, target GHCR pull authentication, and a durable deployment receipt
 directory. These are explicit external authority requirements; no port, path,
 network, data source or edge wiring may be inferred from legacy Compose files,
 production, or observed runner names.
+
+The bounded procedure that may create these non-production resources is
+documented in
+[`v3-live-checkpoint-provisioning.md`](./v3-live-checkpoint-provisioning.md).
+It is deliberately separate from this release/deploy dispatcher and emits a
+candidate only; committed target authority remains stopped until a real run is
+reviewed and accepted by a follow-up change.
