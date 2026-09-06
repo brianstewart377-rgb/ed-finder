@@ -9,7 +9,6 @@ on:
       - '.github/v3-live-checkpoint-requests/*.json'
 
 permissions:
-  actions: write
   contents: read
 
 jobs:
@@ -136,8 +135,8 @@ jobs:
         run: |
           set -euo pipefail
           install -d -m 700 "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts" "$BUNDLE/sql" "$BUNDLE/deploy/v3-live-checkpoint"
-          install -m 700 scripts/operator/actions/v3-live-checkpoint-provision.sh scripts/apply_migrations.sh scripts/seed_check.sh "$BUNDLE/scripts/"
-          mv "$BUNDLE/scripts/v3-live-checkpoint-provision.sh" "$BUNDLE/scripts/operator/actions/"
+          install -m 700 scripts/operator/actions/v3-live-checkpoint-provision.sh "$BUNDLE/scripts/operator/actions/"
+          install -m 700 scripts/apply_migrations.sh scripts/seed_check.sh "$BUNDLE/scripts/"
           cp -a sql/. "$BUNDLE/sql/"
           install -m 600 deploy/v3-live-checkpoint/target-authority.json "$BUNDLE/deploy/v3-live-checkpoint/"
           chmod -R a+rX "$BUNDLE"
@@ -180,6 +179,9 @@ jobs:
     if: needs.resolve.outputs.operation == 'release'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Dispatch canonical immutable release
         shell: bash
@@ -216,6 +218,9 @@ jobs:
     if: needs.resolve.outputs.operation == 'deploy'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      actions: write
+      contents: read
     steps:
       - name: Dispatch canonical live-checkpoint deploy
         shell: bash
