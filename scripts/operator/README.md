@@ -15,11 +15,14 @@ Do not promote a repository helper into a production command merely because it e
   explicitly non-production and uses separate environment credentials. The
   helper verifies digest manifests, target authority, the fixed `api`/`web`
   allowlist, the selected context's exact `unix:///var/run/docker.sock` endpoint,
-  app absence or the checksum-bound durable prior receipt/manifest, and the live
-  database identity plus current applied migration set before any pull or
-  service change. Database verification is read-only and never reports or
-  persists the credential-bearing `DATABASE_URL`. Candidate and rollback starts
-  receive bounded readiness polling before authoritative smoke checks. Upgrade
+  the local bridge network's exact app-only attachments and aliases, app absence
+  or the checksum-bound durable prior receipt/manifest, and the live database
+  identity plus current applied migration set before any pull or service change.
+  Database verification is read-only and never reports or persists the
+  credential-bearing `DATABASE_URL`; Compose receives only a private verified
+  snapshot that is retained through rollback and then removed. Candidate and
+  rollback starts receive bounded readiness polling before authoritative smoke
+  checks. Upgrade
   rollback recreates from the already-verified prior digest images with
   `--pull never` and no registry request; receipts account for database reads
   independently from service mutation. The committed authority currently stops

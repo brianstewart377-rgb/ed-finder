@@ -41,6 +41,10 @@ CONTAINERS = {
     "api": "edfinder-v3-checkpoint-api",
     "web": "edfinder-v3-checkpoint-web",
 }
+NETWORK_ALIASES = {
+    service: frozenset((service, container))
+    for service, container in CONTAINERS.items()
+}
 APP_NETWORK = "edfinder-v3-checkpoint-app"
 RESOURCE_LIMITS = {
     "api": {"cpus": "1.50", "memory": "1536m", "pids": 256},
@@ -261,6 +265,7 @@ def stopped_receipt(authority: dict[str, Any], failures: list[str]) -> dict[str,
         "service_changes_performed": False,
         "image_pulls_performed": False,
         "filesystem_writes_performed": False,
+        "env_file_consumed_by_compose": False,
         "env_files_read": False,
         "private_keys_read": False,
     }
@@ -350,6 +355,179 @@ def read_checkpoint_database_url(
     ):
         raise DeploymentError("api_env_file DATABASE_URL is invalid")
     return database_url
+
+
+def freeze_authorized_env_file(
+    source: Path,
+    directory: Path,
+    *,
+    expected_uid: int,
+    expected_mode: str,
+    on_read: Callable[[], None] | None = None,
+) -> tuple[Path, dict[str, Any], int]:
+    """Copy one securely opened authority file into a private read-only snapshot."""
+
+    flags = os.O_RDONLY | os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor: int | None = None
+    snapshot: Path | None = None
+    try:
+        if not source.is_absolute():
+            raise DeploymentError("authorized api_env_file path is unsafe")
+        descriptor = os.open(source, flags)
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_uid != expected_uid
+            or stat.S_IMODE(before.st_mode) != int(expected_mode, 8)
+            or before.st_size > MAX_JSON_BYTES
+        ):
+            raise DeploymentError("authorized api_env_file is missing or unsafe")
+        data = bytearray()
+        while len(data) <= MAX_JSON_BYTES:
+            chunk = os.read(
+                descriptor, min(1024 * 1024, MAX_JSON_BYTES + 1 - len(data))
+            )
+            if not chunk:
+                break
+            data.extend(chunk)
+        if len(data) > MAX_JSON_BYTES:
+            raise DeploymentError("authorized api_env_file exceeds the size limit")
+        after = os.fstat(descriptor)
+        try:
+            lexical = os.lstat(source)
+        except OSError as exc:
+            raise DeploymentError("authorized api_env_file changed while read") from exc
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_uid",
+            "st_mode",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if any(
+            getattr(before, field) != getattr(after, field) for field in stable_fields
+        ) or (lexical.st_dev != after.st_dev or lexical.st_ino != after.st_ino):
+            raise DeploymentError("authorized api_env_file changed while read")
+        if on_read is not None:
+            on_read()
+        with tempfile.NamedTemporaryFile(
+            dir=directory, prefix=".v3-verified-api-env-", delete=False
+        ) as handle:
+            snapshot = Path(handle.name)
+            handle.write(data)
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o400)
+            os.fsync(handle.fileno())
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        snapshot_stat = snapshot.stat()
+        fingerprint = {
+            "source_dev": after.st_dev,
+            "source_ino": after.st_ino,
+            "source_size": after.st_size,
+            "source_mtime_ns": after.st_mtime_ns,
+            "source_ctime_ns": after.st_ctime_ns,
+            "sha256": hashlib.sha256(data).hexdigest(),
+            "snapshot_dev": snapshot_stat.st_dev,
+            "snapshot_ino": snapshot_stat.st_ino,
+        }
+        retained_descriptor = descriptor
+        descriptor = None
+        return snapshot, fingerprint, retained_descriptor
+    except (OSError, ValueError) as exc:
+        if snapshot is not None:
+            snapshot.unlink(missing_ok=True)
+        if isinstance(exc, DeploymentError):
+            raise
+        raise DeploymentError("unable to freeze authorized api_env_file") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+
+
+def verify_frozen_env_snapshot(
+    snapshot: Path,
+    fingerprint: dict[str, Any],
+) -> None:
+    try:
+        snapshot_stat = os.lstat(snapshot)
+    except OSError as exc:
+        raise DeploymentError("verified api_env_file snapshot changed") from exc
+    if (
+        not stat.S_ISREG(snapshot_stat.st_mode)
+        or stat.S_IMODE(snapshot_stat.st_mode) != 0o400
+        or snapshot_stat.st_dev != fingerprint["snapshot_dev"]
+        or snapshot_stat.st_ino != fingerprint["snapshot_ino"]
+        or sha256_file(snapshot) != fingerprint["sha256"]
+    ):
+        raise DeploymentError("verified api_env_file snapshot changed")
+
+
+def verify_authorized_env_unchanged(
+    source: Path,
+    snapshot: Path,
+    fingerprint: dict[str, Any],
+    source_descriptor: int,
+) -> None:
+    """Prove the authority path did not drift and the snapshot is still exact."""
+
+    try:
+        source_stat = os.lstat(source)
+        retained_source_stat = os.fstat(source_descriptor)
+    except OSError as exc:
+        raise DeploymentError("authorized api_env_file or snapshot changed") from exc
+    if (
+        stat.S_ISLNK(source_stat.st_mode)
+        or not stat.S_ISREG(source_stat.st_mode)
+        or source_stat.st_dev != fingerprint["source_dev"]
+        or source_stat.st_ino != fingerprint["source_ino"]
+        or source_stat.st_size != fingerprint["source_size"]
+        or source_stat.st_mtime_ns != fingerprint["source_mtime_ns"]
+        or source_stat.st_ctime_ns != fingerprint["source_ctime_ns"]
+        or retained_source_stat.st_dev != fingerprint["source_dev"]
+        or retained_source_stat.st_ino != fingerprint["source_ino"]
+        or retained_source_stat.st_size != fingerprint["source_size"]
+        or retained_source_stat.st_mtime_ns != fingerprint["source_mtime_ns"]
+        or retained_source_stat.st_ctime_ns != fingerprint["source_ctime_ns"]
+    ):
+        raise DeploymentError("authorized api_env_file or snapshot changed")
+    verify_frozen_env_snapshot(snapshot, fingerprint)
+
+
+def remove_env_file_snapshot(
+    snapshot: Path | None,
+    fingerprint: dict[str, Any] | None,
+    source_descriptor: int | None,
+) -> None:
+    try:
+        if source_descriptor is not None:
+            os.close(source_descriptor)
+        if snapshot is not None and fingerprint is not None:
+            snapshot_stat = os.lstat(snapshot)
+            if (
+                stat.S_ISREG(snapshot_stat.st_mode)
+                and snapshot_stat.st_dev == fingerprint["snapshot_dev"]
+                and snapshot_stat.st_ino == fingerprint["snapshot_ino"]
+            ):
+                snapshot.unlink()
+                directory_fd = os.open(snapshot.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        # Do not replace the deployment/rollback outcome with a cleanup error.
+        pass
 
 
 def verify_database_schema(
@@ -629,7 +807,10 @@ def validate_release_inputs(
 
 
 def compose_environment(
-    authority: dict[str, Any], release: dict[str, Any]
+    authority: dict[str, Any],
+    release: dict[str, Any],
+    *,
+    verified_api_env_file: Path | None = None,
 ) -> dict[str, str]:
     external = authority["external_authority"]
     match = LOOPBACK_ORIGIN.fullmatch(external["origin_bind"])
@@ -644,7 +825,9 @@ def compose_environment(
         "V3_CHECKPOINT_API_IMAGE": release["images"]["backend"],
         "V3_CHECKPOINT_WEB_IMAGE": release["images"]["web"],
         "V3_CHECKPOINT_SOURCE_SHA": release["git_sha"],
-        "V3_CHECKPOINT_API_ENV_FILE": external["api_env_file"],
+        "V3_CHECKPOINT_API_ENV_FILE": str(
+            verified_api_env_file or external["api_env_file"]
+        ),
         "V3_CHECKPOINT_ORIGIN_BIND": f"127.0.0.1:{match.group(1)}",
     }
 
@@ -804,10 +987,119 @@ def validate_host_files(authority: dict[str, Any], compose_path: Path) -> None:
         raise DeploymentError("reviewed Compose checksum does not match authority")
 
 
+def validate_network_topology(
+    mode: str,
+    inspection_output: str,
+    env: dict[str, str],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    try:
+        documents = json.loads(inspection_output)
+    except json.JSONDecodeError as exc:
+        raise DeploymentError("checkpoint network inspection is invalid") from exc
+    if not isinstance(documents, list) or len(documents) != 1:
+        raise DeploymentError("checkpoint network inspection is invalid")
+    network = documents[0]
+    network_id = network.get("Id") if isinstance(network, dict) else None
+    if (
+        not isinstance(network, dict)
+        or not isinstance(network_id, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", network_id)
+        or network.get("Name") != APP_NETWORK
+        or network.get("Driver") != "bridge"
+        or network.get("Scope") != "local"
+        or network.get("Ingress") is not False
+        or not isinstance(network.get("Containers"), dict)
+    ):
+        raise DeploymentError("checkpoint network topology is unauthorized")
+    endpoints = network["Containers"]
+    attached: dict[str, tuple[str, str]] = {}
+    for container_id, endpoint in endpoints.items():
+        endpoint_id = endpoint.get("EndpointID") if isinstance(endpoint, dict) else None
+        if (
+            not isinstance(container_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", container_id)
+            or not isinstance(endpoint, dict)
+            or not isinstance(endpoint.get("Name"), str)
+            or not isinstance(endpoint_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", endpoint_id)
+        ):
+            raise DeploymentError("checkpoint network inspection is unverifiable")
+        name = endpoint["Name"]
+        if name not in CONTAINERS.values() or name in attached:
+            raise DeploymentError("checkpoint network has an unexpected peer")
+        attached[name] = (container_id, endpoint_id)
+    if mode == "bootstrap":
+        attachments_valid = not attached
+    elif mode == "bootstrap-rollback":
+        attachments_valid = set(attached).issubset(CONTAINERS.values())
+    elif mode == "upgrade":
+        attachments_valid = set(attached) == set(CONTAINERS.values())
+    else:
+        raise DeploymentError("checkpoint network deploy mode is invalid")
+    if not attachments_valid:
+        raise DeploymentError("checkpoint network attachments do not match deploy mode")
+    for service, container in CONTAINERS.items():
+        if container not in attached:
+            continue
+        attachment = runner(
+            [
+                "docker",
+                "container",
+                "inspect",
+                container,
+            ],
+            env=env,
+        )
+        try:
+            container_documents = json.loads(attachment.stdout)
+        except json.JSONDecodeError as exc:
+            raise DeploymentError("container network attachment is invalid") from exc
+        if not isinstance(container_documents, list) or len(container_documents) != 1:
+            raise DeploymentError("container network attachment is invalid")
+        container_document = container_documents[0]
+        networks = (
+            container_document.get("NetworkSettings", {}).get("Networks")
+            if isinstance(container_document, dict)
+            else None
+        )
+        if not isinstance(networks, dict) or set(networks) != {APP_NETWORK}:
+            raise DeploymentError("container network attachment is unauthorized")
+        network_attachment = networks[APP_NETWORK]
+        aliases = (
+            network_attachment.get("Aliases")
+            if isinstance(network_attachment, dict)
+            else None
+        )
+        expected_container_id, expected_endpoint_id = attached[container]
+        if (
+            container_document.get("Id") != expected_container_id
+            or not isinstance(network_attachment, dict)
+            or network_attachment.get("NetworkID") != network_id
+            or network_attachment.get("EndpointID") != expected_endpoint_id
+            or not isinstance(aliases, list)
+            or any(not isinstance(alias, str) for alias in aliases)
+            or set(aliases) != NETWORK_ALIASES[service]
+            or len(aliases) != len(NETWORK_ALIASES[service])
+        ):
+            raise DeploymentError("checkpoint container network aliases are invalid")
+
+
+def inspect_network_topology(
+    mode: str,
+    env: dict[str, str],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    inspection = runner(["docker", "network", "inspect", APP_NETWORK], env=env)
+    validate_network_topology(mode, inspection.stdout, env, runner)
+
+
 def validate_host_runtime(
     compose_path: Path,
     env: dict[str, str],
     runner: Callable[..., subprocess.CompletedProcess[str]] = run_command,
+    *,
+    mode: str = "bootstrap",
 ) -> None:
     runner(["psql", "--version"], env=env)
     context_endpoint = runner(
@@ -852,7 +1144,7 @@ def validate_host_runtime(
     }
     if set(rendered_images.stdout.split()) != expected_images:
         raise DeploymentError("rendered Compose images are not exact release digests")
-    runner(["docker", "network", "inspect", APP_NETWORK], env=env)
+    inspect_network_topology(mode, env, runner)
     active_runners = runner(
         [
             "systemctl",
@@ -1324,6 +1616,16 @@ def load_current_release(directory: Path) -> tuple[Path, Path, Path]:
     return receipt_path, manifest_path, manifest_checksum_path
 
 
+def path_exists_lexically(path: Path) -> bool:
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise DeploymentError("unable to inspect durable prior-state path") from exc
+    return True
+
+
 def load_current_receipt(directory: Path) -> Path:
     receipt_path, _manifest_path, _manifest_checksum_path = load_current_release(
         directory
@@ -1386,6 +1688,7 @@ def operation_receipt(
     rollback: dict[str, Any],
     database_access_performed: bool,
     env_files_read: bool,
+    env_file_consumed_by_compose: bool,
 ) -> dict[str, Any]:
     candidate = release_info["candidate"]
     return {
@@ -1415,7 +1718,7 @@ def operation_receipt(
         "service_changes_performed": status == "accepted",
         "image_pulls_performed": status == "accepted",
         "filesystem_writes_performed": True,
-        "env_file_consumed_by_compose": status == "accepted",
+        "env_file_consumed_by_compose": env_file_consumed_by_compose,
         "env_files_read": env_files_read,
         "private_keys_read": False,
     }
@@ -1439,11 +1742,15 @@ def execute(
     image_pull_attempted = False
     pulled_images: list[str] = []
     service_mutation_attempted = False
-    runtime_validation_started = False
+    compose_recreate_attempted = False
     database_access_attempted = False
     database_access_performed = False
     env_file_read_attempted = False
     env_files_read = False
+    env_file_consumed_by_compose = False
+    verified_env_snapshot: Path | None = None
+    verified_env_fingerprint: dict[str, Any] | None = None
+    verified_env_source_descriptor: int | None = None
     smokes: dict[str, Any] = {}
     try:
         if args.mode == "upgrade":
@@ -1453,6 +1760,8 @@ def execute(
                 rollback_checksum,
             ) = load_current_release(receipt_directory)
         else:
+            if path_exists_lexically(receipt_directory / "current.json"):
+                raise DeploymentError("bootstrap requires proven prior receipt absence")
             prior_receipt_path = None
             rollback_path = None
             rollback_checksum = None
@@ -1467,9 +1776,6 @@ def execute(
             prior_receipt_path=prior_receipt_path,
         )
         candidate = release_info["candidate"]
-        env = compose_environment(authority, candidate)
-        runtime_validation_started = True
-        validate_host_runtime(args.compose, env, runner)
 
         def mark_env_file_read() -> None:
             nonlocal env_files_read
@@ -1480,17 +1786,35 @@ def execute(
             database_access_performed = True
 
         env_file_read_attempted = True
+        (
+            verified_env_snapshot,
+            verified_env_fingerprint,
+            verified_env_source_descriptor,
+        ) = freeze_authorized_env_file(
+            Path(external["api_env_file"]),
+            receipt_directory,
+            expected_uid=external["api_env_owner_uid"],
+            expected_mode=external["api_env_mode"],
+            on_read=mark_env_file_read,
+        )
         database_access_attempted = True
         verify_database_schema(
-            Path(external["api_env_file"]),
+            verified_env_snapshot,
             release_info["schema_receipt"],
             runner,
-            on_env_file_read=mark_env_file_read,
             on_query_completed=mark_database_query_completed,
         )
+        verify_authorized_env_unchanged(
+            Path(external["api_env_file"]),
+            verified_env_snapshot,
+            verified_env_fingerprint,
+            verified_env_source_descriptor,
+        )
+        env = compose_environment(
+            authority, candidate, verified_api_env_file=verified_env_snapshot
+        )
+        validate_host_runtime(args.compose, env, runner, mode=args.mode)
         if args.mode == "bootstrap":
-            if (receipt_directory / "current.json").exists():
-                raise DeploymentError("bootstrap requires proven prior receipt absence")
             verify_bootstrap_absence(env, external["origin_bind"], runner)
         else:
             rollback = release_info["rollback"]
@@ -1498,6 +1822,12 @@ def execute(
             smoke_origin(external["origin_bind"], rollback["source_sha"])
             verify_origin_state(external["origin_bind"], "upgrade")
 
+        verify_authorized_env_unchanged(
+            Path(external["api_env_file"]),
+            verified_env_snapshot,
+            verified_env_fingerprint,
+            verified_env_source_descriptor,
+        )
         plan = command_plan(args.compose, env)
         for command in plan[:2]:
             image_pull_attempted = True
@@ -1511,8 +1841,17 @@ def execute(
                 runner(["docker", "pull", image], env=env)
                 verify_pulled_image(image, rollback["source_sha"], env, runner)
                 pulled_images.append(image)
+        verify_authorized_env_unchanged(
+            Path(external["api_env_file"]),
+            verified_env_snapshot,
+            verified_env_fingerprint,
+            verified_env_source_descriptor,
+        )
+        inspect_network_topology(args.mode, env, runner)
         service_mutation_attempted = True
+        compose_recreate_attempted = True
         runner(plan[2], env=env)
+        env_file_consumed_by_compose = True
         wait_for_origin_ready(external["origin_bind"], candidate["git_sha"])
         verify_app_containers(env, candidate["git_sha"], candidate["images"])
         smokes = smoke_origin(external["origin_bind"], candidate["git_sha"])
@@ -1526,6 +1865,7 @@ def execute(
             rollback=release_info["rollback"],
             database_access_performed=database_access_performed,
             env_files_read=env_files_read,
+            env_file_consumed_by_compose=env_file_consumed_by_compose,
         )
         persist_receipt(receipt_directory, receipt, args.candidate)
         return receipt
@@ -1550,8 +1890,20 @@ def execute(
                 commands, rollback_env = rollback_plan(
                     args.compose, args.mode, env, release_info["rollback"]
                 )
+                inspect_network_topology(
+                    "bootstrap-rollback" if args.mode == "bootstrap" else "upgrade",
+                    rollback_env,
+                    runner,
+                )
                 for command in commands:
+                    verify_frozen_env_snapshot(
+                        verified_env_snapshot, verified_env_fingerprint
+                    )
+                    if "up" in command:
+                        compose_recreate_attempted = True
                     runner(command, env=rollback_env)
+                    if "up" in command:
+                        env_file_consumed_by_compose = True
                 if args.mode == "bootstrap":
                     verify_bootstrap_absence(
                         rollback_env, external["origin_bind"], runner
@@ -1584,6 +1936,7 @@ def execute(
             rollback=rollback_outcome,
             database_access_performed=database_access_performed,
             env_files_read=env_files_read,
+            env_file_consumed_by_compose=env_file_consumed_by_compose,
         )
         failure_receipt.update(
             failure=type(original).__name__,
@@ -1603,8 +1956,10 @@ def execute(
             env_files_may_have_been_read=(
                 env_file_read_attempted and not env_files_read
             ),
-            env_file_consumed_by_compose=False,
-            env_file_may_have_been_consumed_by_compose=runtime_validation_started,
+            env_file_consumed_by_compose=env_file_consumed_by_compose,
+            env_file_may_have_been_consumed_by_compose=(
+                compose_recreate_attempted and not env_file_consumed_by_compose
+            ),
         )
         try:
             failure_path = persist_failure_receipt(receipt_directory, failure_receipt)
@@ -1614,6 +1969,11 @@ def execute(
             failure_receipt["receipt_persistence"] = "failed"
         raise OperationFailed(failure_receipt) from original
     finally:
+        remove_env_file_snapshot(
+            verified_env_snapshot,
+            verified_env_fingerprint,
+            verified_env_source_descriptor,
+        )
         release_deployment_lock(deployment_lock)
 
 

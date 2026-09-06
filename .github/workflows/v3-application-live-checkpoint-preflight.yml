@@ -78,13 +78,6 @@ jobs:
           path: ${{ runner.temp }}/candidate
           run-id: ${{ inputs.release_run_id }}
           github-token: ${{ github.token }}
-      - name: Verify downloaded artifact checksum
-        shell: bash
-        env:
-          CANDIDATE_DIR: ${{ runner.temp }}/candidate
-        run: |
-          set -euo pipefail
-          (cd "$CANDIDATE_DIR" && sha256sum --check v3-application-release.json.sha256)
       - name: Authenticate release workflow run provenance
         shell: bash
         env:
@@ -99,6 +92,61 @@ jobs:
             --candidate-manifest "$CANDIDATE"
           )
           GITHUB_TOKEN="$GH_TOKEN" python scripts/release/v3_release_run.py "${args[@]}"
+      - name: Verify downloaded artifact checksum
+        shell: bash
+        env:
+          CANDIDATE_DIR: ${{ runner.temp }}/candidate
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+
+          candidate_dir = Path(os.environ["CANDIDATE_DIR"])
+          manifest_basename = "v3-application-release.json"
+          manifest = candidate_dir / manifest_basename
+          checksum = candidate_dir / f"{manifest_basename}.sha256"
+
+          try:
+              for artifact in (manifest, checksum):
+                  metadata = artifact.lstat()
+                  if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                      raise OSError("candidate artifact is not a regular file")
+              checksum_bytes = checksum.read_bytes()
+          except OSError as exc:
+              print(
+                  f"Unable to read candidate checksum: {type(exc).__name__}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64) from exc
+
+          match = re.fullmatch(
+              rb"([0-9a-f]{64})  v3-application-release[.]json\n",
+              checksum_bytes,
+          )
+          if match is None:
+              print(
+                  "Candidate checksum must name only v3-application-release.json",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64)
+
+          try:
+              digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+          except OSError as exc:
+              print(
+                  f"Unable to read candidate manifest: {type(exc).__name__}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64) from exc
+          if digest != match.group(1).decode("ascii"):
+              print("Candidate manifest checksum mismatch", file=sys.stderr)
+              raise SystemExit(64)
+          PY
       - name: Verify candidate manifest
         shell: bash
         env:

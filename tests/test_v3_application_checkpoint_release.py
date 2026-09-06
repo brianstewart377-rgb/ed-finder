@@ -70,6 +70,42 @@ def _load_checkpoint_module():
     return module
 
 
+def _network_inspection(module, services=()):
+    network_id = "1" * 64
+    containers = {}
+    attachments = {}
+    for index, service in enumerate(services, start=2):
+        container_id = str(index) * 64
+        endpoint_id = str(index + 2) * 64
+        container = module.CONTAINERS[service]
+        containers[container_id] = {
+            "Name": container,
+            "EndpointID": endpoint_id,
+        }
+        attachments[container] = [
+            {
+                "Id": container_id,
+                "NetworkSettings": {
+                    "Networks": {
+                        module.APP_NETWORK: {
+                            "Aliases": [container, service],
+                            "NetworkID": network_id,
+                            "EndpointID": endpoint_id,
+                        }
+                    }
+                },
+            }
+        ]
+    return {
+        "Id": network_id,
+        "Name": module.APP_NETWORK,
+        "Driver": "bridge",
+        "Scope": "local",
+        "Ingress": False,
+        "Containers": containers,
+    }, attachments
+
+
 def _manifest(
     *,
     compatibility: str = "exact",
@@ -808,6 +844,7 @@ def test_checkpoint_runtime_accepts_only_authorized_local_docker_context():
         "V3_CHECKPOINT_WEB_IMAGE": "ghcr.io/example/web@sha256:" + "c" * 64,
     }
     commands = []
+    network, _attachments = _network_inspection(module)
 
     def runner(command, **_kwargs):
         commands.append(command)
@@ -819,6 +856,8 @@ def test_checkpoint_runtime_accepts_only_authorized_local_docker_context():
             stdout = (
                 f"{env['V3_CHECKPOINT_API_IMAGE']}\n{env['V3_CHECKPOINT_WEB_IMAGE']}\n"
             )
+        elif command[:3] == ["docker", "network", "inspect"]:
+            stdout = json.dumps([network])
         elif command[:3] == ["systemctl", "list-units", "--type=service"]:
             stdout = "".join(
                 f"{service} loaded active running\n"
@@ -839,6 +878,103 @@ def test_checkpoint_runtime_accepts_only_authorized_local_docker_context():
         "--format",
         "{{json .Endpoints.docker.Host}}",
     ]
+
+
+def test_checkpoint_network_accepts_empty_bootstrap_and_exact_upgrade_topology():
+    module = _load_checkpoint_module()
+    bootstrap_network, _ = _network_inspection(module)
+    module.validate_network_topology(
+        "bootstrap", json.dumps([bootstrap_network]), {}, lambda *_args, **_kwargs: None
+    )
+
+    upgrade_network, attachments = _network_inspection(module, ("api", "web"))
+
+    def runner(command, **_kwargs):
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(attachments[command[-1]]), stderr=""
+        )
+
+    module.validate_network_topology(
+        "upgrade", json.dumps([upgrade_network]), {}, runner
+    )
+
+    partial_network, partial_attachments = _network_inspection(module, ("api",))
+
+    def partial_runner(command, **_kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(partial_attachments[command[-1]]),
+            stderr="",
+        )
+
+    module.validate_network_topology(
+        "bootstrap-rollback", json.dumps([partial_network]), {}, partial_runner
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("Driver", "overlay"), ("Scope", "swarm"), ("Ingress", True)],
+)
+def test_checkpoint_network_rejects_wrong_local_bridge_topology(field, value):
+    module = _load_checkpoint_module()
+    network, _ = _network_inspection(module)
+    network[field] = value
+
+    with pytest.raises(module.DeploymentError, match="topology is unauthorized"):
+        module.validate_network_topology(
+            "bootstrap", json.dumps([network]), {}, lambda *_args, **_kwargs: None
+        )
+
+
+@pytest.mark.parametrize("inspection_output", ["", "{}", "[]", "[{}, {}]"])
+def test_checkpoint_network_rejects_malformed_or_unverifiable_output(
+    inspection_output,
+):
+    module = _load_checkpoint_module()
+
+    with pytest.raises(module.DeploymentError, match="network inspection|topology"):
+        module.validate_network_topology(
+            "bootstrap", inspection_output, {}, lambda *_args, **_kwargs: None
+        )
+
+
+def test_upgrade_network_rejects_unexpected_peer_before_any_pull():
+    module = _load_checkpoint_module()
+    network, attachments = _network_inspection(module, ("api", "web"))
+    network["Containers"]["6" * 64] = {
+        "Name": "untrusted-api-peer",
+        "EndpointID": "7" * 64,
+    }
+    commands = []
+
+    def runner(command, **_kwargs):
+        commands.append(command)
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(attachments.get(command[-1], [])), stderr=""
+        )
+
+    with pytest.raises(module.DeploymentError, match="unexpected peer"):
+        module.validate_network_topology("upgrade", json.dumps([network]), {}, runner)
+    assert not any(command[:2] == ["docker", "pull"] for command in commands)
+
+
+def test_upgrade_network_rejects_unexpected_api_alias_on_web_peer():
+    module = _load_checkpoint_module()
+    network, attachments = _network_inspection(module, ("api", "web"))
+    web = module.CONTAINERS["web"]
+    attachments[web][0]["NetworkSettings"]["Networks"][module.APP_NETWORK][
+        "Aliases"
+    ].append("api")
+
+    def runner(command, **_kwargs):
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(attachments[command[-1]]), stderr=""
+        )
+
+    with pytest.raises(module.DeploymentError, match="network aliases"):
+        module.validate_network_topology("upgrade", json.dumps([network]), {}, runner)
 
 
 @pytest.mark.parametrize(
@@ -910,6 +1046,12 @@ def _schema_receipt(module, manifest, **overrides):
 
 
 def _authorized_checkpoint_authority(tmp_path: Path, schema_path: Path) -> dict:
+    api_env = tmp_path / "api.env"
+    api_env.write_text(
+        "DATABASE_URL=postgresql://checkpoint:test@192.0.2.10/checkpoint\n",
+        encoding="utf-8",
+    )
+    api_env.chmod(0o600)
     authority = json.loads(CHECKPOINT_AUTHORITY.read_text())
     authority["status"] = "authorized"
     authority["blockers"] = []
@@ -917,8 +1059,8 @@ def _authorized_checkpoint_authority(tmp_path: Path, schema_path: Path) -> dict:
     authority["observed_runtime"]["compose"] = "Docker Compose test authority"
     authority["observed_runtime"]["docker_networks"] = ["edfinder-v3-checkpoint-app"]
     authority["external_authority"] = {
-        "api_env_file": str(tmp_path / "api.env"),
-        "api_env_owner_uid": 0,
+        "api_env_file": str(api_env),
+        "api_env_owner_uid": os.getuid(),
         "api_env_mode": "0600",
         "database_source_authority": "approved-test-db",
         "schema_identity_receipt": str(schema_path),
@@ -928,11 +1070,11 @@ def _authorized_checkpoint_authority(tmp_path: Path, schema_path: Path) -> dict:
         "origin_bind": "http://127.0.0.1:12345",
         "edge_route_authority": "approved-test-edge-route",
         "receipt_directory": str(tmp_path),
-        "receipt_owner_uid": 0,
+        "receipt_owner_uid": os.getuid(),
         "receipt_mode": "0700",
         "ghcr_pull_authority": "approved-test-ghcr-principal",
         "docker_config_directory": str(tmp_path / "docker-config"),
-        "docker_config_owner_uid": 0,
+        "docker_config_owner_uid": os.getuid(),
         "docker_config_mode": "0700",
         "docker_context": "checkpoint-test",
     }
@@ -1416,6 +1558,108 @@ def test_unsafe_host_identity_stops_before_any_runtime_or_mutation_command(
     assert not (tmp_path / "deploy.lock").exists()
 
 
+def test_bootstrap_rejects_dangling_current_pointer_before_any_command(
+    tmp_path, monkeypatch
+):
+    module = _load_checkpoint_module()
+    schema = tmp_path / "schema.json"
+    schema.write_text("{}", encoding="utf-8")
+    authority = _authorized_checkpoint_authority(tmp_path, schema)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    current = tmp_path / "current.json"
+    current.symlink_to(tmp_path / "missing-prior-receipt.json")
+    commands = []
+
+    monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
+    monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
+    monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
+
+    args = Namespace(
+        authority=authority_path,
+        compose=CHECKPOINT_COMPOSE,
+        mode="bootstrap",
+        candidate=tmp_path / "candidate.json",
+        candidate_checksum=tmp_path / "candidate.json.sha256",
+        candidate_run_id="12345",
+    )
+    with pytest.raises(module.OperationFailed) as failure:
+        module.execute(
+            args,
+            runner=lambda command, **_kwargs: commands.append(command),
+        )
+
+    assert current.is_symlink()
+    assert commands == []
+    assert failure.value.receipt["service_changes_performed"] is False
+    assert failure.value.receipt["image_pulls_performed"] is False
+
+
+@pytest.mark.parametrize("drift", ["edit", "replacement", "symlink"])
+def test_verified_env_source_drift_stops_before_pull_and_cleans_snapshot(
+    tmp_path, monkeypatch, drift
+):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps(_schema_receipt(module, candidate)), encoding="utf-8")
+    authority = _authorized_checkpoint_authority(tmp_path, schema)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    source = Path(authority["external_authority"]["api_env_file"])
+    commands = []
+    schema_probe_paths = []
+
+    monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
+    monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
+    monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
+
+    def verified_database(path, _receipt, _runner, **callbacks):
+        schema_probe_paths.append(path)
+        assert path != source
+        assert path.read_bytes() == source.read_bytes()
+        callbacks["on_query_completed"]()
+        if drift == "edit":
+            source.write_text(
+                "DATABASE_URL=postgresql://changed:test@192.0.2.11/other\n",
+                encoding="utf-8",
+            )
+        else:
+            source.unlink()
+            if drift == "replacement":
+                source.write_text(
+                    "DATABASE_URL=postgresql://changed:test@192.0.2.11/other\n",
+                    encoding="utf-8",
+                )
+                source.chmod(0o600)
+            else:
+                source.symlink_to(tmp_path / "missing-api.env")
+
+    monkeypatch.setattr(module, "verify_database_schema", verified_database)
+    args = Namespace(
+        authority=authority_path,
+        compose=CHECKPOINT_COMPOSE,
+        mode="bootstrap",
+        candidate=candidate_path,
+        candidate_checksum=candidate_checksum,
+        candidate_run_id="12345",
+    )
+    with pytest.raises(module.OperationFailed) as failure:
+        module.execute(
+            args,
+            runner=lambda command, **_kwargs: commands.append(command),
+        )
+
+    assert schema_probe_paths
+    assert commands == []
+    assert failure.value.receipt["service_mutation_attempted"] is False
+    assert failure.value.receipt["image_pulls_performed"] is False
+    assert not list(tmp_path.glob(".v3-verified-api-env-*"))
+
+
 def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     tmp_path, monkeypatch
 ):
@@ -1432,14 +1676,14 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     commands = []
 
     monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
-    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args: None)
+    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(module, "verify_bootstrap_absence", lambda *_args: None)
     monkeypatch.setattr(module, "verify_pulled_image", lambda *_args: None)
+    monkeypatch.setattr(module, "inspect_network_topology", lambda *_args: None)
     monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
     monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
 
     def verified_database(_path, _receipt, _runner, **callbacks):
-        callbacks["on_env_file_read"]()
         callbacks["on_query_completed"]()
 
     monkeypatch.setattr(module, "verify_database_schema", verified_database)
@@ -1468,6 +1712,8 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     assert receipt["status"] == "failed"
     assert receipt["pulled_images_verified"] == list(candidate["images"].values())
     assert receipt["service_mutation_attempted"] is True
+    assert receipt["env_file_consumed_by_compose"] is False
+    assert receipt["env_file_may_have_been_consumed_by_compose"] is True
     assert receipt["database_access_performed"] is True
     assert receipt["env_files_read"] is True
     assert receipt["changed_resources"] == list(module.CONTAINERS.values())
@@ -1483,9 +1729,19 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     ]
     assert mutation_commands[0][-2:] == ["api", "web"]
     assert all(command[-2:] == ["api", "web"] for command in rollback_commands)
+    assert not list(tmp_path.glob(".v3-verified-api-env-*"))
 
 
-@pytest.mark.parametrize("failure_stage", ["candidate-container", "candidate-pull"])
+@pytest.mark.parametrize(
+    "failure_stage",
+    [
+        "candidate-container",
+        "candidate-readiness",
+        "candidate-smoke",
+        "candidate-receipt",
+        "candidate-pull",
+    ],
+)
 def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
     tmp_path, monkeypatch, failure_stage
 ):
@@ -1539,27 +1795,42 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
     commands = []
 
     monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
-    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args: None)
+    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(module, "verify_origin_state", lambda *_args: None)
     monkeypatch.setattr(module, "verify_pulled_image", lambda *_args: None)
+    monkeypatch.setattr(module, "inspect_network_topology", lambda *_args: None)
     monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
     monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
-    monkeypatch.setattr(
-        module,
-        "wait_for_origin_ready",
-        lambda _origin, source_sha: readiness_shas.append(source_sha),
-    )
-    monkeypatch.setattr(
-        module,
-        "smoke_origin",
-        lambda *_args: {
+
+    def wait_for_origin_ready(_origin, source_sha):
+        readiness_shas.append(source_sha)
+        if (
+            failure_stage == "candidate-readiness"
+            and source_sha == candidate["git_sha"]
+        ):
+            raise module.DeploymentError("candidate readiness failed")
+
+    monkeypatch.setattr(module, "wait_for_origin_ready", wait_for_origin_ready)
+
+    def smoke_origin(_origin, source_sha):
+        if failure_stage == "candidate-smoke" and source_sha == candidate["git_sha"]:
+            raise module.DeploymentError("candidate smoke failed")
+        return {
             path: {"status": 200}
             for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
-        },
-    )
+        }
+
+    monkeypatch.setattr(module, "smoke_origin", smoke_origin)
+    real_persist_receipt = module.persist_receipt
+
+    def persist_receipt(directory, receipt, manifest):
+        if failure_stage == "candidate-receipt":
+            raise OSError("candidate receipt persistence failed")
+        return real_persist_receipt(directory, receipt, manifest)
+
+    monkeypatch.setattr(module, "persist_receipt", persist_receipt)
 
     def verified_database(_path, _receipt, _runner, **callbacks):
-        callbacks["on_env_file_read"]()
         callbacks["on_query_completed"]()
 
     monkeypatch.setattr(module, "verify_database_schema", verified_database)
@@ -1581,6 +1852,15 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
             and command[-1] == candidate["images"]["backend"]
         ):
             raise module.DeploymentError("candidate pull failed")
+        if (
+            failure_stage != "candidate-pull"
+            and "up" in command
+            and len([item for item, _env in commands if "up" in item]) == 1
+        ):
+            Path(authority["external_authority"]["api_env_file"]).write_text(
+                "DATABASE_URL=postgresql://changed:test@192.0.2.11/other\n",
+                encoding="utf-8",
+            )
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     args = Namespace(
@@ -1595,7 +1875,7 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
         module.execute(args, runner=runner)
 
     receipt = failure.value.receipt
-    if failure_stage == "candidate-container":
+    if failure_stage != "candidate-pull":
         assert readiness_shas == [candidate["git_sha"], rollback["git_sha"]]
         assert receipt["rollback"]["status"] == "verified"
         compose_up_calls = [call for call in commands if "up" in call[0]]
@@ -1606,6 +1886,17 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
         assert rollback_env["V3_CHECKPOINT_API_IMAGE"] == rollback["images"]["backend"]
         assert rollback_env["V3_CHECKPOINT_WEB_IMAGE"] == rollback["images"]["web"]
         assert rollback_env["V3_CHECKPOINT_SOURCE_SHA"] == rollback["git_sha"]
+        candidate_env = compose_up_calls[0][1]
+        assert (
+            candidate_env["V3_CHECKPOINT_API_ENV_FILE"]
+            == rollback_env["V3_CHECKPOINT_API_ENV_FILE"]
+        )
+        assert (
+            candidate_env["V3_CHECKPOINT_API_ENV_FILE"]
+            != authority["external_authority"]["api_env_file"]
+        )
+        assert receipt["env_file_consumed_by_compose"] is True
+        assert receipt["env_file_may_have_been_consumed_by_compose"] is False
         rollback_index = commands.index(compose_up_calls[1])
         assert not any(
             command[:2] == ["docker", "pull"]
@@ -1615,7 +1906,10 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
         assert readiness_shas == []
         assert receipt["rollback"]["status"] == "not-required"
         assert receipt["service_mutation_attempted"] is False
+        assert receipt["env_file_consumed_by_compose"] is False
+        assert receipt["env_file_may_have_been_consumed_by_compose"] is False
     assert receipt["database_access_performed"] is True
+    assert not list(tmp_path.glob(".v3-verified-api-env-*"))
 
 
 def test_current_target_authority_records_proven_facts_and_exact_blockers():

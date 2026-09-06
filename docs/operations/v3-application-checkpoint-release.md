@@ -125,8 +125,16 @@ For an owner checkpoint:
    authorized external API env file without logging or persisting the URL, then
    uses a read-only database session to verify that identity and the complete
    applied `schema_migrations` set against the authoritative schema receipt.
-   Repointed env files, stale receipts, migration drift and unverifiable
-   database identity stop before service mutation.
+   Under the deployment lock it freezes the securely opened env-file bytes into
+   a private read-only snapshot, verifies the database through that snapshot,
+   and revalidates the retained source identity before mutation. Candidate and
+   rollback Compose operations use only that same snapshot; they never reread
+   the external env file after schema verification. Repointed or edited env
+   files, stale receipts, migration drift and unverifiable database identity
+   stop before service mutation. Preflight also parses the Docker network
+   topology and rejects a non-local bridge, unexpected attachments or aliases,
+   and malformed or drifting network evidence before pulls and again before an
+   application recreate.
 5. It pulls and verifies the exact digest images and OCI build-SHA labels, then
    recreates only `api web` with `--no-deps`.
 6. After each candidate or upgrade-rollback Compose apply, it polls bounded
