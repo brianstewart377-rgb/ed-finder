@@ -135,11 +135,18 @@ def test_checkpoint_control_plane_keeps_canonical_release_and_deploy_boundaries(
     workflow = _read(CONTROL)
 
     assert "environment: v3-live-checkpoint" in workflow
-    assert "V3_LIVE_CHECKPOINT_SSH_KEY" in workflow
-    assert "V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS" in workflow
-    assert "StrictHostKeyChecking=yes" in workflow
-    assert "sudo -n env CHECKPOINT_OPERATOR_UID=" in workflow
-    assert "ref: main" in workflow
+    assert "V3_LIVE_CHECKPOINT_SSH_KEY" not in workflow
+    assert "prepare-provision:" in workflow
+    import runpy
+    import yaml
+    checker = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_validator_runtime.py"))
+    assert checker["is_verified_checkpoint_preinstall_job"](
+        CONTROL, "provision", yaml.safe_load(workflow)["jobs"]["provision"]
+    )
+    bootstrap = _read(ROOT / "scripts/operator/v3_checkpoint_bootstrap.py")
+    assert "bundle checksum mismatch" in bootstrap
+    assert "os.environ.clear()" in bootstrap
+    assert "ref: ${{ github.sha }}" in workflow
     assert "actions/workflows/v3-application-release.yml/dispatches" in workflow
     assert "actions/workflows/v3-application-live-checkpoint-preflight.yml/dispatches" in workflow
     assert '"schema_compatibility": "exact"' in workflow

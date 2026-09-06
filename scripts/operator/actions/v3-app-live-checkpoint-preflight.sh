@@ -11,10 +11,10 @@ else
     printf '%s\n' '{"status":"stopped","failures":["python3_unavailable"],"service_changes_performed":false}'
     exit 78
 fi
-if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+if ! "$PYTHON_BIN" -I -S -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
     printf '%s\n' '{"status":"stopped","failures":["python314_required"],"service_changes_performed":false}'
     exit 78
 fi
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-exec "$PYTHON_BIN" "$SCRIPT_DIR/../v3_checkpoint_deploy.py" "$@"
+exec "$PYTHON_BIN" -I -S "$SCRIPT_DIR/../v3_checkpoint_deploy.py" "$@"

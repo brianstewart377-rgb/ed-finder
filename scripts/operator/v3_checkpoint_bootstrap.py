@@ -1,0 +1,137 @@
+"""Workflow command-line bootstrap; never opens Actions' mutable script file.
+
+The custom shell directly starts root-owned OS Python in isolated/no-site mode.
+The readable program is compressed and encoded only to survive Actions' shell argument and
+{0} formatting rules; contract tests compare the complete decoded bytes.
+Application and canonical deployment runtimes remain exact CPython 3.14.
+"""
+import hashlib
+import io
+import json
+import os
+import pwd
+import re
+import socket
+import subprocess
+import sys
+import tarfile
+import tempfile
+import zipfile
+from pathlib import Path, PurePosixPath
+
+LIMIT = 64 * 1024 * 1024
+REPOSITORY = "brianstewart377-rgb/ed-finder"
+ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
+PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def unpack_bundle(envelope, digest, directory):
+    require(len(envelope) <= LIMIT, "oversized artifact")
+    with zipfile.ZipFile(io.BytesIO(envelope)) as archive:
+        require(archive.namelist() == ["operation.tar"], "unexpected artifact members")
+        require(archive.getinfo("operation.tar").file_size <= LIMIT, "oversized bundle")
+        payload = archive.read("operation.tar")
+    require(hashlib.sha256(payload).hexdigest() == digest, "bundle checksum mismatch")
+    seen = set()
+    total = 0
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as archive:
+        for member in archive:
+            name = PurePosixPath(member.name)
+            require(not name.is_absolute() and ".." not in name.parts,
+                    "unsafe bundle path")
+            require(str(name) not in seen, "duplicate bundle member")
+            seen.add(str(name))
+            require(member.isdir() or member.isfile(), "non-regular bundle member")
+            target = directory.joinpath(*name.parts)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True, mode=0o755)
+                continue
+            total += member.size
+            require(0 <= member.size <= LIMIT and total <= LIMIT, "oversized bundle contents")
+            target.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+            with target.open("xb") as output:
+                output.write(archive.extractfile(member).read())
+            target.chmod(0o755 if member.mode & 0o111 else 0o644)
+    require(ENTRY in seen and "operation.json" in seen, "incomplete operation bundle")
+
+
+def save_receipt(document, path):
+    """Write only sanitized output, with the runner's privileges, never root's."""
+    require(len(document) <= LIMIT, "oversized operation output")
+    json.loads(document)
+    account = pwd.getpwnam("codex")
+    require(account.pw_uid > 0, "non-root receipt account required")
+    # This fixed child neither loads user-site Python nor evaluates the filename.
+    # Exclusive creation also prevents a rerun from uploading an old receipt.
+    writer = (
+        "import os,sys; "
+        "fd=os.open(sys.argv[1],os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600); "
+        "f=os.fdopen(fd,'wb'); f.write(sys.stdin.buffer.read()); f.close()"
+    )
+    subprocess.run([
+        "/usr/sbin/runuser", "-u", "codex", "--", "/usr/bin/python3", "-I", "-S",
+        "-c", writer, path,
+    ], input=document, env={"PATH": PATH, "HOME": account.pw_dir},
+       timeout=15, check=True)
+    # Root-produced log evidence can be checked against the uploaded copy.
+    print("checkpoint receipt sha256=" + hashlib.sha256(document).hexdigest(), file=sys.stderr)
+    sys.stdout.buffer.write(document)
+    sys.stdout.buffer.flush()
+
+
+def main():
+    # {0} is required by Actions' custom-shell contract but is not trusted input.
+    # Do not stat, open, source, import, or execute that generated file.
+    artifact, digest, source, operation, receipt, _ignored_script = sys.argv[1:]
+    token = os.environ.pop("GH_TOKEN", "")
+    os.environ.clear()
+    require(os.geteuid() == 0, "root bootstrap required")
+    require(re.fullmatch(r"[1-9][0-9]{0,19}", artifact), "invalid artifact id")
+    require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid bundle digest")
+    require(re.fullmatch(r"[0-9a-f]{40}", source), "invalid source identity")
+    require(operation in ("provision", "deploy"), "invalid operation")
+    require(Path(receipt).is_absolute(), "absolute receipt path required")
+    require(os.uname().nodename.split(".")[0] == "vmi3542235"
+            and os.uname().machine == "x86_64"
+            and socket.getfqdn() == "vmi3542235.contaboserver.net", "unexpected checkpoint host")
+    os.umask(0o022)
+    require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),
+            "invalid artifact token")
+    response = subprocess.run([
+        "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
+        "--location", "--proto", "=https", "--proto-redir", "=https",
+        "--noproxy", "*", "--connect-timeout", "10", "--max-time", "120",
+        "--max-filesize", str(LIMIT), "--header", "@-",
+        f"https://api.github.com/repos/{REPOSITORY}/actions/artifacts/{artifact}/zip",
+    ], input=f"Authorization: Bearer {token}\n".encode(), stdout=subprocess.PIPE,
+       stderr=subprocess.DEVNULL, env={"PATH": PATH}, timeout=130, check=True)
+    with tempfile.TemporaryDirectory(prefix="edfinder-v3-", dir="/run") as temporary:
+        directory = Path(temporary)
+        unpack_bundle(response.stdout, digest, directory)
+        request = json.loads((directory / "operation.json").read_text())
+        require(request.get("source_sha") == source and request.get("operation") == operation,
+                "operation bundle identity mismatch")
+        directory.chmod(0o755)
+        environment = {"PATH": PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}
+        if operation == "deploy":
+            environment["GHCR_TOKEN"] = token
+        outcome = subprocess.run(["/bin/bash", ENTRY], cwd=directory,
+                                 env=environment, stdout=subprocess.PIPE, check=False)
+        if outcome.stdout:
+            save_receipt(outcome.stdout, receipt)
+        return outcome.returncode
+
+
+if __name__ == "__main__":
+    try:
+        result = main()
+    except (OSError, ValueError, KeyError, tarfile.TarError, zipfile.BadZipFile,
+            subprocess.SubprocessError):
+        print("Checkpoint bootstrap stopped; inspect the operation log for its last completed step", file=sys.stderr)
+        result = 78
+    raise SystemExit(result)
