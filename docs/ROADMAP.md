@@ -66,9 +66,10 @@ evidence-interpretation, and Digital Twin owner.
    Explore/Finder → Babylon results → Inspect journey, including typed
    boundaries, accessibility, bounded data, Product E2E/Visual Acceptance, and
    the separate Review Lab lane.
-2. **Harden the V3 release.** Continue CPython 3.14/`uv`, immutable release
-   provenance, same-origin route, health, migration compatibility, and rollback
-   work without treating an application release as database recovery.
+2. **Harden the V3 release.** Preserve the repository-wide CPython 3.14
+   execution baseline and frozen V3 API `uv` graph while completing immutable
+   release provenance, same-origin route, health, migration compatibility, and
+   rollback work without treating an application release as database recovery.
 3. **Merge, then choose checkpoint policy.** Accept the exact reviewed PR head
    before any checkpoint/promotion decision. The destination and isolation
    limits are deployment choices; Contabo is not a default.

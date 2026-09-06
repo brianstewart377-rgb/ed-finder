@@ -101,14 +101,13 @@ Never expose repository write credentials to the Codex execution environment.
 
 ## Python/backend
 
-The deployable V3 API and every validation lane that claims V3 application
-runtime evidence use CPython 3.14 with uv 0.11.33 and the frozen
-`apps/api/pyproject.toml` + `apps/api/uv.lock` graph. Repository orchestration,
-static contracts, legacy importer/canonical tooling, and the Codex worker
-bootstrap may remain on Python 3.12, but those checks are not V3 runtime
-evidence. Do not change the Codex worker bootstrap merely to validate the
-application runtime, and do not claim the migration has landed before its
-reviewed slices do.
+Every active Python execution, configuration, developer, and runtime surface
+uses CPython 3.14. The deployable V3 API and its validation lanes additionally
+use uv 0.11.33 and the frozen `apps/api/pyproject.toml` + `apps/api/uv.lock`
+graph. Repository orchestration, static contracts, importer/canonical tooling,
+container images, and the Codex worker bootstrap must not introduce an older
+Python fallback. This version unification does not make retained importer
+PostgreSQL-driver debt part of the V3 API runtime graph.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 

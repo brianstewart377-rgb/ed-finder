@@ -1,5 +1,9 @@
 ﻿# Stage 18T — Canonical Safety Test Environment
 
+> **Historical evidence:** this stage record describes the CI environment at
+> the time it was completed. Its older-Python statement below is not a current
+> execution or configuration authority; active surfaces require CPython 3.14.
+
 ## Purpose
 
 Stage 18T hardens the test environment around canonical-write-capable code.
@@ -199,4 +203,3 @@ safety CI job is green, the local runner passes, a suitable report-only
 production reconciliation artifact exists, and a separate explicit approval
 names the exact artifact hash, candidate count, source run/file, table, field,
 max row count, and apply DSN context.
-

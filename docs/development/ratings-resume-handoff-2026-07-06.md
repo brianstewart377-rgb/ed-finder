@@ -110,7 +110,10 @@ Legacy rating terminology and payloads are removed from the active frontend cont
 Tooling in the older OneDrive-synced workspace was unreliable for long frontend
 commands. The canonical dev workspace is now a local checkout outside OneDrive.
 
-Python note: the backend expects a Python version with `asyncpg` wheels available. Python 3.14 does not currently support `asyncpg` on Windows, so use Python 3.12/3.11 for backend work.
+Python note: this handoff predates the repository-wide runtime migration. Current
+backend and tooling work requires CPython 3.14; do not use an older interpreter
+fallback. The historical environment limitation described here is no longer
+current authority.
 
 Useful verification:
 
@@ -132,4 +135,3 @@ If starting a historical reconstruction chat, use something close to this:
 - Archetype/development data should drive active ranking and display behavior
 - Legacy rating should remain visible only where explicitly intended as context
 - Compatibility aliases should remain intact unless there is a deliberate migration step to remove them
-

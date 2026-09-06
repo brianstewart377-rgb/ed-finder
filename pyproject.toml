@@ -2,11 +2,14 @@
 name = "ed-finder"
 version = "3.0.1"
 description = "Elite Dangerous colonisation planner — searches 186M star systems by economy, body types, and distance."
-requires-python = ">=3.12"
+requires-python = ">=3.14,<3.15"
+classifiers = [
+  "Programming Language :: Python :: 3.14",
+]
 
-# This file is intentionally a thin Python 3.12 repository/tooling manifest.
-# The V3 API runtime authority is apps/api/pyproject.toml + apps/api/uv.lock;
-# retained legacy services and compatibility tooling still use per-app
+# This file is intentionally a thin CPython 3.14 repository/tooling manifest.
+# The V3 API dependency authority is apps/api/pyproject.toml + apps/api/uv.lock;
+# retained services and compatibility tooling still use per-app
 # requirements files:
 #
 #   apps/api/requirements.txt        — API compatibility mirror (not V3 lock authority)
@@ -20,7 +23,7 @@ requires-python = ">=3.12"
 #               -r apps/importer/requirements.txt
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["B905", "E4", "E7", "E9", "F"]

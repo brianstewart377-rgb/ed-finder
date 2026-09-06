@@ -41,7 +41,7 @@ Recommended local tools:
 
 - Git for Windows, including `bash.exe`
 - GNU Make 4.4+ for the repository convenience targets
-- Python `3.12+`
+- CPython `3.14.x` (the bootstrap and doctor reject older or newer feature versions)
 - Node.js with Yarn support (`yarn` or `corepack yarn`)
 - Docker Desktop
 - PostgreSQL client tools if you want `pg_isready` checks in the doctor output

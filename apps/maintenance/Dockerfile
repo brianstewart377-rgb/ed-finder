@@ -1,23 +1,23 @@
-FROM postgres:16-alpine
+FROM python:3.14-alpine3.22
 
 # LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY.
-# PostgreSQL 16 matches the retained root Compose environment only. Current V3
-# production uses PostgreSQL 18 and requires an explicitly current backup/PITR
-# runbook and runtime definition; this image deliberately does not define them.
+# Its PostgreSQL 16 client matches the retained root Compose environment only.
+# Current V3 production uses PostgreSQL 18 and requires an explicitly current
+# backup/PITR runbook and runtime definition; this image deliberately does not
+# define them.
 
-# We use the official postgres:16-alpine image as a base because it
-# already has psql, libpq, and a thin runtime — no point pulling
-# alpine then re-installing 100 MB of psql client packages on top.
-#
+# CPython 3.14 is the repository-wide Python execution baseline, including this
+# retained local helper. Install only the PostgreSQL 16 client tools it needs;
+# this is not a PostgreSQL server image or V3 production authority.
 # Add `dcron` for the nightly schedule. We deliberately do NOT install
 # the full BusyBox cron — dcron's `crond -f` runs in foreground which
 # plays nicely with `docker logs`.
 #
-# `python3` + Psycopg 3 let this legacy sidecar run its guarded
-# invariants wrapper directly on its weekly schedule, `rclone`
-# provides the optional offsite backup sync path, and `curl` sends the
-# optional dead-man's-switch heartbeats.
-RUN apk add --no-cache dcron tini bash python3 py3-psycopg rclone curl
+# Psycopg 3 lets this legacy sidecar run its guarded invariants wrapper directly
+# on its weekly schedule, `rclone` provides the optional offsite backup sync
+# path, and `curl` sends the optional dead-man's-switch heartbeats.
+RUN apk add --no-cache dcron tini bash postgresql16-client rclone curl \
+    && python3 -m pip install --no-cache-dir "psycopg==3.3.4"
 
 WORKDIR /opt/ed-finder
 

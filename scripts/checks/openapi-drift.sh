@@ -43,6 +43,8 @@ pick_python() {
     printf '%s\n' "$ROOT/.venv/bin/python"
   elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
     printf '%s\n' "$ROOT/.venv/Scripts/python.exe"
+  elif command -v python3.14 >/dev/null 2>&1; then
+    command -v python3.14
   elif command -v python3 >/dev/null 2>&1; then
     command -v python3
   elif command -v python >/dev/null 2>&1; then
@@ -50,6 +52,11 @@ pick_python() {
   else
     die "missing Python. Install backend deps or set PYTHON=/path/to/python."
   fi
+}
+
+assert_python314() {
+  "$1" -c 'import sys; raise SystemExit(0 if sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 14) else 1)' \
+    || die "selected Python must be CPython 3.14.x: $1"
 }
 
 pick_yarn() {
@@ -96,6 +103,7 @@ cleanup() {
 trap cleanup EXIT
 
 PYTHON_BIN="$(pick_python)"
+assert_python314 "$PYTHON_BIN"
 YARN_BIN="$(pick_yarn)"
 PNPM_BIN="$(pick_pnpm)"
 

@@ -88,9 +88,10 @@ image validation all assert CPython 3.14 and sync
 every-PR container parity lane builds that exact release Dockerfile and proves
 the running server interpreter plus a loopback-only `/api/health` response
 after the real FastAPI lifespan connects to a disposable PostgreSQL 18 service.
-Repository orchestration/static contracts, legacy importer/canonical tooling,
-retained frontend tooling, and the Codex worker bootstrap may remain on Python
-3.12; those checks do not stand in for V3 application-runtime proof.
+Repository orchestration/static contracts, retained importer/canonical tooling,
+frontend tooling, and the Codex worker bootstrap also use CPython 3.14. Those
+checks remain separate from V3 application-runtime proof and do not expand the
+API dependency graph or erase the bounded importer-driver migration debt.
 Static SvelteKit output is copied
 into nginx; no source checkout, build tool or dependency resolution is needed
 on the target host. nginx delegates only `/api` and `/api/*`, exact

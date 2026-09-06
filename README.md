@@ -105,6 +105,10 @@ The retained React lane still has protected migration checks where coverage has
 not yet moved. Its commands and retirement conditions are documented in
 [`CLAUDE.md`](CLAUDE.md).
 
+All active repository Python execution, configuration, developer tooling, and
+container surfaces require CPython 3.14.x. An older interpreter is not a
+supported fallback. The deployable API additionally uses its frozen uv graph.
+
 Before a repository change, run the strict state resolver and the focused tests
 for the touched surface:
 

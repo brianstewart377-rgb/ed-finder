@@ -241,7 +241,9 @@ The reset remains serialized to avoid unrelated simultaneous cutovers. The
 programme order is authoritative in [`../ROADMAP.md`](../ROADMAP.md):
 
 1. Stabilize and accept PR #601's Svelte/Finder/Babylon/Inspect product slice.
-2. Complete CPython 3.14/`uv` and immutable release/provenance hardening.
+2. Preserve CPython 3.14 across every active Python execution surface and the
+   frozen V3 API `uv` graph while completing immutable release/provenance
+   hardening.
 3. Merge the exact accepted head, then make an explicit checkpoint decision.
 4. Resolve Search requirements, spatial index/grid/cluster design, scoring
    dependencies, and only then the PostgreSQL 18 derived-data bootstrap.

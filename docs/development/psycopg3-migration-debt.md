@@ -4,8 +4,8 @@ The V3 API dependency graph contains asyncpg for application database access
 and Psycopg 3 only for synchronous release/checkpoint test tooling. It contains
 no psycopg2 dependency.
 
-The following Python 3.12 importer modules still import psycopg2 and are
-bounded migration debt. They remain covered by the non-runtime legacy tooling
+The following CPython 3.14 importer modules still import psycopg2 and are
+bounded driver-migration debt. They remain covered by the non-runtime retained-tooling
 lane defined in `.github/workflows/ci.yml`; this correction does not attempt an
 unbounded importer rewrite:
 

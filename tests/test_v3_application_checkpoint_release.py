@@ -258,7 +258,7 @@ def test_release_dockerfiles_use_frozen_off_host_builds_and_exact_provenance():
     assert 'APP_VERSION="3.0.1"' in backend
 
 
-def test_release_runbook_distinguishes_python314_application_from_python312_tooling():
+def test_release_runbook_uses_python314_across_active_execution_surfaces():
     runbook = (
         ROOT / "docs" / "operations" / "v3-application-checkpoint-release.md"
     ).read_text()
@@ -267,8 +267,8 @@ def test_release_runbook_distinguishes_python314_application_from_python312_tool
     assert "Normal V3 backend unit" in runbook
     assert "Review Lab backend" in runbook
     assert "real FastAPI lifespan" in runbook
-    assert "Codex worker bootstrap may remain on Python" in runbook
-    assert "those checks do not stand in for V3 application-runtime proof" in runbook
+    assert "Codex worker bootstrap also use CPython 3.14" in runbook
+    assert "checks remain separate from V3 application-runtime proof" in runbook
 
 
 def test_release_api_lock_inputs_match_the_existing_pinned_runtime_versions():

@@ -126,29 +126,29 @@ jobs:
           git reset --hard refs/remotes/origin/main
           git clean -ffdx
 
-      - name: Set up Python 3.12
+      - name: Set up CPython 3.14
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Prepare repository state gate
         shell: bash
         run: |
           set -euo pipefail
           if ! command -v python >/dev/null 2>&1; then
-            echo "::error::Codex Worker requires Python 3.12, but the selected interpreter is unavailable."
+            echo "::error::Codex Worker requires CPython 3.14, but the selected interpreter is unavailable."
             exit 69
           fi
-          if ! python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
-            echo "::error::The selected interpreter did not report the required Python 3.12 version."
+          if ! python -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+            echo "::error::The selected interpreter did not report the required CPython 3.14 runtime."
             python --version >&2 || true
             exit 69
           fi
           if [ ! -x .venv/bin/python ]; then
             python -m venv .venv
           fi
-          if ! .venv/bin/python -c 'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
-            echo "::error::The repository venv does not use the required Python 3.12 interpreter."
+          if ! .venv/bin/python -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+            echo "::error::The repository venv does not use the required CPython 3.14 interpreter."
             .venv/bin/python --version >&2 || true
             exit 69
           fi

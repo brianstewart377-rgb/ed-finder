@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -131,8 +132,55 @@ def test_remaining_psycopg2_source_debt_is_explicit_and_outside_v3_checks():
     assert not any(path.startswith("scripts/checks/") for path in remaining_paths)
 
 
-def test_canonical_worker_bootstrap_remains_python312_and_is_not_runtime_evidence():
+def test_canonical_worker_bootstrap_fails_closed_on_cpython314():
     worker = (WORKFLOWS / "codex-laptop.yml").read_text(encoding="utf-8")
-    assert '- name: Set up Python 3.12' in worker
-    assert 'python-version: "3.12"' in worker
-    assert "assert_v3_python_runtime.py" not in worker
+    assert '- name: Set up CPython 3.14' in worker
+    assert 'python-version: "3.14"' in worker
+    assert 'platform.python_implementation() == "CPython"' in worker
+    assert "sys.version_info[:2] == (3, 14)" in worker
+
+
+def test_every_active_workflow_python_job_selects_exact_cpython314():
+    python_command = re.compile(
+        r"(?<![\w.-])python(?:3(?:\.(?P<minor>\d+))?)?(?![\w.-])"
+    )
+
+    workflow_paths = (*WORKFLOWS.glob("*.yml"), *WORKFLOWS.glob("*.yaml"))
+    for workflow_path in sorted(workflow_paths):
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        assert "3.11" not in workflow_text
+        assert "3.12" not in workflow_text
+
+        for job_name, job in _workflow(workflow_path.name)["jobs"].items():
+            steps = job.get("steps", [])
+            setup_indexes = [
+                index
+                for index, step in enumerate(steps)
+                if step.get("uses", "").startswith("actions/setup-python@")
+            ]
+            for setup_index in setup_indexes:
+                assert steps[setup_index]["with"]["python-version"] == "3.14", (
+                    workflow_path.name,
+                    job_name,
+                )
+
+            python_indexes = []
+            for index, step in enumerate(steps):
+                matches = list(python_command.finditer(str(step.get("run", ""))))
+                if not matches:
+                    continue
+                python_indexes.append(index)
+                assert all(
+                    match.group("minor") in (None, "14") for match in matches
+                ), (workflow_path.name, job_name)
+            matrix_languages = (
+                job.get("strategy", {}).get("matrix", {}).get("language", [])
+            )
+            configures_python_analysis = "python" in matrix_languages
+            if python_indexes or configures_python_analysis:
+                assert setup_indexes, (workflow_path.name, job_name)
+            if python_indexes:
+                assert min(setup_indexes) < min(python_indexes), (
+                    workflow_path.name,
+                    job_name,
+                )
