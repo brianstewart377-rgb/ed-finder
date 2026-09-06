@@ -79,6 +79,23 @@ describe('isolated V3 Review Lab', () => {
       .its('status')
       .should('eq', 200);
 
+  const collectExternalResourceOrigins = (window: Window) => {
+    const currentOrigin = window.location.origin;
+    for (const entry of window.performance.getEntriesByType('resource')) {
+      try {
+        const url = new URL(entry.name, window.location.href);
+        if (
+          (url.protocol === 'http:' || url.protocol === 'https:') &&
+          url.origin !== currentOrigin
+        ) {
+          summary.externalOrigins.push(url.origin);
+        }
+      } catch {
+        // Ignore non-URL performance entries; containment only concerns origins.
+      }
+    }
+  };
+
   before(() => {
     cy.task('getReviewLabConfig').then((raw) => {
       const config = parseTrustedConfig(raw as ReviewLabConfig);
@@ -96,14 +113,9 @@ describe('isolated V3 Review Lab', () => {
         fatalError: null,
       };
     });
-    cy.intercept({ url: '**', middleware: true }, (request) => {
-      const url = new URL(request.url);
-      const baseUrl = Cypress.config('baseUrl');
-      if (typeof baseUrl === 'string' && url.origin !== new URL(baseUrl).origin) {
-        summary.externalOrigins.push(url.origin);
-      }
-      if (!url.pathname.startsWith('/api/')) return;
+    cy.intercept({ url: '**/api/**', middleware: true }, (request) => {
       request.on('response', (response) => {
+        const url = new URL(request.url);
         summary.apiResponses.push({
           method: request.method,
           path: `${url.pathname}${url.search}`,
@@ -178,6 +190,7 @@ describe('isolated V3 Review Lab', () => {
             babylonReady: true,
           }),
         );
+      cy.window().then(collectExternalResourceOrigins);
     }
 
     if (flows.includes('apiFailure')) {
@@ -207,6 +220,7 @@ describe('isolated V3 Review Lab', () => {
             selectionContextPreserved: true,
           }),
         );
+      cy.window().then(collectExternalResourceOrigins);
       setReviewMode('normal');
     }
 
@@ -228,6 +242,7 @@ describe('isolated V3 Review Lab', () => {
             babylonReady: true,
           }),
         );
+      cy.window().then(collectExternalResourceOrigins);
       setReviewMode('normal');
     }
 
@@ -300,9 +315,11 @@ describe('isolated V3 Review Lab', () => {
             },
           );
         });
+      cy.window().then(collectExternalResourceOrigins);
     }
 
     cy.then(() => {
+      currentFlow = '';
       expect(
         [...new Set(summary.externalOrigins)],
         'Review Lab external resource origins',
