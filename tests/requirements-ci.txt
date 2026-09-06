@@ -13,6 +13,5 @@ jsonschema==4.25.1
 ruff==0.15.22
 PyYAML==6.0.3
 
-# Release/checkpoint synchronous PostgreSQL tooling. The importer requirements
-# above retain psycopg2 only as bounded legacy migration debt.
-psycopg[binary]==3.3.4
+# Synchronous PostgreSQL tooling uses the Psycopg 3 pin inherited from the
+# importer requirements above.

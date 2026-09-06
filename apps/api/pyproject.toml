@@ -20,8 +20,8 @@ dependencies = [
 
 # CI-only dependencies are locked beside the deployable API dependencies so
 # validation cannot accidentally exercise a separately resolved graph. Psycopg
-# 3 supports synchronous release/checkpoint checks; legacy importer-driver
-# tests run in the dedicated Python 3.12 tooling lane.
+# 3 supports synchronous release/checkpoint and importer tests under the V3
+# CPython 3.14 validation authority.
 [dependency-groups]
 test = [
   "PyYAML==6.0.3",

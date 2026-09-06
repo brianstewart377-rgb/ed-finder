@@ -329,6 +329,20 @@ def test_cli_defaults_to_read_only_and_does_not_commit_without_flag(tmp_path):
     assert not any('insert into source_runs' in sql.lower() for sql, _params in conn.statements)
 
 
+def test_connection_mode_uses_psycopg3_transaction_properties():
+    conn = FakeConn()
+
+    rehearsal.set_connection_mode(conn, commit=False)
+
+    assert conn.read_only is True
+    assert conn.autocommit is False
+
+    rehearsal.set_connection_mode(conn, commit=True)
+
+    assert conn.read_only is False
+    assert conn.autocommit is False
+
+
 def test_preflight_detects_existing_stage19anr_rows_and_stops():
     conn = FakeConn(existing_stage19anr_counts={
         'source_runs': 1,

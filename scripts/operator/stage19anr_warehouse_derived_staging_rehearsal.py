@@ -788,16 +788,15 @@ def build_operator_dsn(args: argparse.Namespace, env: Mapping[str, str] | None =
 
 
 def connect_operator_db(dsn: str) -> Any:
-    import psycopg2  # noqa: PLC0415
-    import psycopg2.extras  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
+    from psycopg.rows import dict_row  # noqa: PLC0415
 
-    return psycopg2.connect(dsn, cursor_factory=psycopg2.extras.RealDictCursor)
+    return psycopg.connect(dsn, row_factory=dict_row)
 
 
 def set_connection_mode(conn: Any, *, commit: bool) -> None:
-    set_session = getattr(conn, 'set_session', None)
-    if callable(set_session):
-        set_session(readonly=not commit, autocommit=False)
+    conn.read_only = not commit
+    conn.autocommit = False
 
 
 def resolve_git_head(value: str) -> str:

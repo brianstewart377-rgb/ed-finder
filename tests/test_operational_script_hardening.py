@@ -199,7 +199,7 @@ def test_long_running_index_paths_default_to_reviewed_timeout_overrides():
     assert 'docker exec -e "PGOPTIONS=$PGOPTIONS_VALUE" -i ed-postgres' in postgis_source
     assert "os.getenv('MIGRATION_STATEMENT_TIMEOUT', '3h')" in fix_index_source
     assert "os.getenv('MIGRATION_LOCK_TIMEOUT', '30s')" in fix_index_source
-    assert 'psycopg2.connect(_raw_url, options=connection_options)' in fix_index_source
+    assert 'psycopg.connect(_raw_url, options=connection_options)' in fix_index_source
 
 
 def test_fix_index_passes_timeout_overrides_to_postgres(monkeypatch):
@@ -227,7 +227,7 @@ def test_fix_index_passes_timeout_overrides_to_postgres(monkeypatch):
         captured.update(dsn=dsn, **kwargs)
         return Connection()
 
-    monkeypatch.setattr(fix_index.psycopg2, 'connect', connect)
+    monkeypatch.setattr(fix_index.psycopg, 'connect', connect)
     monkeypatch.setenv('MIGRATION_STATEMENT_TIMEOUT', '2h')
     monkeypatch.setenv('MIGRATION_LOCK_TIMEOUT', '45s')
 
@@ -243,7 +243,7 @@ def test_fix_index_rejects_zero_timeout_before_database_access(monkeypatch):
         nonlocal connect_called
         connect_called = True
 
-    monkeypatch.setattr(fix_index.psycopg2, 'connect', connect)
+    monkeypatch.setattr(fix_index.psycopg, 'connect', connect)
     monkeypatch.setenv('MIGRATION_STATEMENT_TIMEOUT', '0')
     monkeypatch.delenv('EDFINDER_ALLOW_UNBOUNDED_MIGRATION_TIMEOUTS', raising=False)
 

@@ -70,11 +70,11 @@ def test_backend_ci_runs_real_unit_suite_instead_of_smoke_only():
 
     assert 'name: Backend unit tests + compose validate' in workflow
     assert 'Run backend unit test suite (no DB required)' in workflow
-    assert 'apps/api/.venv/bin/python -m pytest --v3-api-only' in workflow
+    assert 'apps/api/.venv/bin/python -m pytest' in workflow
     assert '--ignore=tests/integration' in workflow
     assert '-m "unit or not (integration or db or operator or e2e or slow)" -q' in workflow
-    assert 'Legacy importer/tooling tests (non-runtime)' in workflow
-    assert 'tests/legacy_psycopg2_test_paths.txt' in workflow
+    assert 'legacy-tooling:' not in workflow
+    assert '--v3-api-only' not in workflow
     assert 'python -m unittest discover -s tests -p "test_smoke.py"' not in workflow
 
 

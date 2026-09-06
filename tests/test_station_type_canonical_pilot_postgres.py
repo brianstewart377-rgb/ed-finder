@@ -169,8 +169,8 @@ def test_postgres_permission_boundary_roles_are_disposable_and_scoped(pg_env):
 
 @pytest.fixture
 def pg_env():
-    psycopg2 = pytest.importorskip('psycopg2')
-    from psycopg2 import sql
+    psycopg = pytest.importorskip('psycopg')
+    from psycopg import sql
 
     dsn = _canonical_test_dsn_or_skip()
     token = uuid.uuid4().hex[:12]
@@ -178,10 +178,10 @@ def pg_env():
     warehouse_loader_role = f'warehouse_loader_test_{token}'
     canonical_apply_role = f'canonical_apply_test_{token}'
     canonical_read_role = f'canonical_read_test_{token}'
-    admin_conn = psycopg2.connect(dsn)
+    admin_conn = psycopg.connect(dsn)
     admin_conn.autocommit = True
     env = _PgEnv(
-        psycopg2=psycopg2,
+        psycopg=psycopg,
         dsn=dsn,
         admin_conn=admin_conn,
         schema=schema,
@@ -206,7 +206,7 @@ class _PgEnv:
     def __init__(
         self,
         *,
-        psycopg2,
+        psycopg,
         dsn,
         admin_conn,
         schema,
@@ -215,7 +215,7 @@ class _PgEnv:
         canonical_read_role,
         role_password,
     ):
-        self.psycopg2 = psycopg2
+        self.psycopg = psycopg
         self.dsn = dsn
         self.admin_conn = admin_conn
         self.schema = schema
@@ -225,7 +225,7 @@ class _PgEnv:
         self.role_password = role_password
 
     def connect_as(self, role):
-        conn = self.psycopg2.connect(self.dsn, user=role, password=self.role_password)
+        conn = self.psycopg.connect(self.dsn, user=role, password=self.role_password)
         conn.autocommit = False
         return conn
 
@@ -283,14 +283,14 @@ def _create_schema(cur, sql, env):
 
 
 def _set_search_path(conn, schema):
-    from psycopg2 import sql
+    from psycopg import sql
 
     with conn.cursor() as cur:
         cur.execute(sql.SQL('SET search_path TO {}').format(sql.Identifier(schema)))
 
 
 def _reset_station(conn, schema, *, name='Harper Plant', station_type='Unknown'):
-    from psycopg2 import sql
+    from psycopg import sql
 
     with conn.cursor() as cur:
         cur.execute(
@@ -302,7 +302,7 @@ def _reset_station(conn, schema, *, name='Harper Plant', station_type='Unknown')
 
 
 def _station_row(conn, schema):
-    from psycopg2 import sql
+    from psycopg import sql
 
     with conn.cursor() as cur:
         cur.execute(
@@ -321,7 +321,7 @@ def _station_row(conn, schema):
 
 
 def _table_counts(conn, schema):
-    from psycopg2 import sql
+    from psycopg import sql
 
     counts = {}
     with conn.cursor() as cur:

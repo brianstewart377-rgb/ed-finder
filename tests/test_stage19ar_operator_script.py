@@ -418,6 +418,20 @@ def test_cli_defaults_to_25_row_read_only_and_does_not_commit_without_flag(tmp_p
     assert summary['inserted_row_ids'] == []
 
 
+def test_connection_mode_uses_psycopg3_transaction_properties():
+    conn = FakeConn()
+
+    rehearsal.set_connection_mode(conn, commit=False)
+
+    assert conn.read_only is True
+    assert conn.autocommit is False
+
+    rehearsal.set_connection_mode(conn, commit=True)
+
+    assert conn.read_only is False
+    assert conn.autocommit is False
+
+
 def test_limit_hard_max_is_25(tmp_path):
     with pytest.raises(SystemExit):
         rehearsal.parse_args(['--limit', '26', '--artifact-dir', str(tmp_path)])

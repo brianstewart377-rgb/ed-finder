@@ -16,8 +16,8 @@ import sys
 from collections import Counter
 from typing import Any
 
-import psycopg2
-from psycopg2.extras import RealDictCursor, execute_values
+import psycopg
+from psycopg.rows import dict_row
 from shared_contracts.evidence_identity import (
     content_addressed_evidence_key as _content_addressed_evidence_key,
     datetime_to_utc_isoformat as _dt_to_str,
@@ -77,7 +77,7 @@ def fetch_system_ids(conn, *, system_id64: int | None, limit: int | None) -> lis
 
 
 def fetch_system_payload(conn, system_id64: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[int, dict[str, Any]]]:
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute("""
             SELECT id, system_id64, name, distance_from_star
             FROM bodies
@@ -115,9 +115,10 @@ def upsert_links(conn, rows, *, overwrite_confirmed: bool) -> None:
         return
 
     conflict_filter = '' if overwrite_confirmed else "WHERE station_body_links.association_status <> 'confirmed'"
+    placeholders = ', '.join(['%s'] * len(UPSERT_COLUMNS))
     sql = f"""
         INSERT INTO station_body_links ({', '.join(UPSERT_COLUMNS)})
-        VALUES %s
+        VALUES ({placeholders})
         ON CONFLICT (station_id) DO UPDATE SET
             market_id = EXCLUDED.market_id,
             system_id64 = EXCLUDED.system_id64,
@@ -132,11 +133,11 @@ def upsert_links(conn, rows, *, overwrite_confirmed: bool) -> None:
         {conflict_filter}
     """
     with conn.cursor() as cur:
-        execute_values(cur, sql, values)
+        cur.executemany(sql, values)
 
 
 def build_station_set_evidence_payload(conn, system_id64: int) -> dict[str, Any] | None:
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
             SELECT
@@ -222,7 +223,7 @@ def promote_station_set_evidence(conn, system_id64: int) -> str:
     if payload is None:
         return 'missing'
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             """
             SELECT *
@@ -374,7 +375,7 @@ def main() -> int:
         return 2
     dry_run = args.dry_run or not args.apply
 
-    with psycopg2.connect(args.dsn) as conn:
+    with psycopg.connect(args.dsn) as conn:
         system_ids = fetch_system_ids(conn, system_id64=args.system_id64, limit=args.limit)
         total_counts: Counter = Counter()
         total_rows = 0

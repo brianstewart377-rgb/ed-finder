@@ -73,6 +73,65 @@ class _FakeConnection:
         self.rollbacks += 1
 
 
+def test_copy_records_uses_psycopg3_copy_and_quotes_identifiers():
+    class RecordingCopy:
+        def __init__(self) -> None:
+            self.writes: list[str] = []
+
+        def __enter__(self) -> 'RecordingCopy':
+            return self
+
+        def __exit__(self, *_exc_info: object) -> None:
+            return None
+
+        def write(self, data: str) -> None:
+            self.writes.append(data)
+
+    class RecordingCursor:
+        def __init__(self) -> None:
+            self.statement = None
+            self.copy_stream = RecordingCopy()
+
+        def __enter__(self) -> 'RecordingCursor':
+            return self
+
+        def __exit__(self, *_exc_info: object) -> None:
+            return None
+
+        def copy(self, statement: object) -> RecordingCopy:
+            self.statement = statement
+            return self.copy_stream
+
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.cursor_instance = RecordingCursor()
+            self.commits = 0
+
+        def cursor(self) -> RecordingCursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    conn = RecordingConnection()
+
+    count = import_spansh.copy_records(
+        conn,
+        'table with space',
+        ['select', 'payload'],
+        [(1, 'line one\nline two'), (None, 'tab\tbackslash\\')],
+    )
+
+    assert count == 2
+    assert conn.commits == 1
+    assert conn.cursor_instance.statement.as_string() == (
+        'COPY "table with space" ("select", "payload") FROM STDIN'
+    )
+    assert conn.cursor_instance.copy_stream.writes == [
+        '1\tline one\\nline two\n\\N\ttab\\tbackslash\\\\\n'
+    ]
+
+
 class _DeadlockCursor:
     def __init__(self, connection: '_DeadlockConnection') -> None:
         self.connection = connection
@@ -85,8 +144,10 @@ class _DeadlockCursor:
     def __exit__(self, *_args: object) -> None:
         return None
 
-    def execute(self, sql: str, _params: object = None) -> None:
-        normalized = ' '.join(sql.split())
+    def execute(self, sql: object, _params: object = None) -> None:
+        if hasattr(sql, 'as_string'):
+            sql = sql.as_string()
+        normalized = ' '.join(sql.split()).replace('"', '')
         if normalized == 'SHOW session_replication_role':
             self.result = (self.connection.current_role,)
             return
@@ -96,14 +157,27 @@ class _DeadlockCursor:
         if self.connection.deadlock_sql in normalized:
             self.connection.attempts += 1
             if self.connection.attempts <= self.connection.deadlocks_before_success:
-                raise import_spansh.psycopg2.errors.DeadlockDetected()
+                raise import_spansh.psycopg.errors.DeadlockDetected()
             self.rowcount = self.connection.success_rowcount
+
+    def executemany(self, _sql: object, _params: object) -> None:
+        return None
 
     def fetchone(self):
         return self.result
 
-    def copy_from(self, *_args: object, **_kwargs: object) -> None:
-        return None
+    def copy(self, *_args: object, **_kwargs: object):
+        class _Copy:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc_info: object) -> None:
+                return None
+
+            def write(self, _data: str) -> None:
+                return None
+
+        return _Copy()
 
 
 class _DeadlockConnection:
@@ -140,8 +214,12 @@ class _DeadlockConnection:
         self.rollbacks += 1
         self.pending_role = None
 
-    def get_transaction_status(self) -> int:
-        return import_spansh.psycopg2.extensions.TRANSACTION_STATUS_IDLE
+    @property
+    def info(self):
+        class _Info:
+            transaction_status = import_spansh.TransactionStatus.IDLE
+
+        return _Info()
 
 
 def test_upsert_via_temp_retries_deadlocks_then_succeeds(monkeypatch: pytest.MonkeyPatch):
@@ -173,7 +251,7 @@ def test_upsert_via_temp_reraises_after_final_deadlock(monkeypatch: pytest.Monke
     )
     monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
 
-    with pytest.raises(import_spansh.psycopg2.errors.DeadlockDetected):
+    with pytest.raises(import_spansh.psycopg.errors.DeadlockDetected):
         import_spansh.upsert_via_temp(
             connection,
             'systems',
@@ -193,8 +271,6 @@ def test_upsert_body_rings_retries_deadlocks_then_succeeds(monkeypatch: pytest.M
         success_rowcount=1,
     )
     monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
-    monkeypatch.setattr(import_spansh.psycopg2.extras, 'execute_values', lambda *_args, **_kwargs: None)
-
     count = import_spansh.upsert_body_rings(connection, [{
         'system_id64': 10477373803,
         'body_id': 1,
@@ -217,7 +293,7 @@ def test_get_conn_disables_the_role_statement_timeout(monkeypatch: pytest.Monkey
         captured.update(kwargs)
         return fake_connection
 
-    monkeypatch.setattr(import_spansh.psycopg2, 'connect', fake_connect)
+    monkeypatch.setattr(import_spansh.psycopg, 'connect', fake_connect)
 
     connection = import_spansh.get_conn()
 

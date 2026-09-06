@@ -16,7 +16,10 @@ FROM postgres:16-alpine
 # `python3` + Psycopg 3 let this legacy sidecar run its guarded
 # invariants wrapper directly on its weekly schedule, `rclone`
 # provides the optional offsite backup sync path, and `curl` sends the
-# optional dead-man's-switch heartbeats.
+# optional dead-man's-switch heartbeats. This local-only Alpine sidecar uses
+# the distribution Psycopg package with the distribution Python/libpq stack;
+# pip-based importer and CPython 3.14 validation authorities use the exact
+# `psycopg[binary]==3.3.4` pin instead.
 RUN apk add --no-cache dcron tini bash python3 py3-psycopg rclone curl
 
 WORKDIR /opt/ed-finder

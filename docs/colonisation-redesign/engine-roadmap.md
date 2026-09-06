@@ -1977,11 +1977,11 @@ Goal: make the production continuation safer after the first nullable-coordinate
 and v3.4 rating-version deployment.
 
 - **Ratings INSERT safety**: `build_ratings.py` now exposes one tested INSERT
-  shape contract. The ratings column list, row tuple, and `execute_values`
-  template must have the same count, and `rating_version` must be present in the
+  shape contract. The ratings column list, row tuple, and `executemany`
+  placeholders must have the same count, and `rating_version` must be present in the
   returned rating dict, `score_breakdown`, INSERT columns, and conflict update.
 - **Worker connection safety**: ratings workers use the shared retry helper with
-  `statement_timeout=0` and `lock_timeout=0` instead of direct `psycopg2.connect`
+  `statement_timeout=0` and `lock_timeout=0` instead of unconfigured direct connections
   calls that can inherit production defaults.
 - **Dirty cleanup safety**: `systems.rating_dirty = FALSE` is chunked, retried on
   transient timeout/connection errors, and committed independently from rating

@@ -1,5 +1,5 @@
 # apps/api — runtime dependencies for the FastAPI service only.
-# Importer-only libraries (ijson, psycopg2, tqdm) live in
+# Importer-only libraries (ijson, Psycopg 3, tqdm) live in
 # apps/importer/requirements.txt and are NOT installed into this image.
 asyncpg==0.31.0
 fastapi==0.141.1

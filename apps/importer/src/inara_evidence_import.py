@@ -605,9 +605,9 @@ def close_cursor(cur: Any) -> None:
 
 
 def connect_db(dsn: str) -> Any:
-    import psycopg2  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
 
-    return psycopg2.connect(dsn)
+    return psycopg.connect(dsn)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

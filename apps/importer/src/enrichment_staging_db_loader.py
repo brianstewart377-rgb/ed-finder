@@ -212,9 +212,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def connect_staging_db(dsn: str):
     """Connect lazily so dry-runs and tests do not import or touch Postgres."""
-    import psycopg2  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
 
-    return psycopg2.connect(dsn)
+    return psycopg.connect(dsn)
 
 
 def target_tables_for_source(source: str | None) -> tuple[str, ...]:

@@ -14,7 +14,8 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'api', 'src'))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 
-import psycopg2
+import psycopg
+import pytest
 
 from edfinder_api.helpers import safe_coords_from_row, sys_row_to_dict
 from local_search import _build_distance_expr, _build_system_record, _parse_local_search_context, _safe_distance
@@ -32,6 +33,7 @@ from build_ratings import (
     _rating_row_tuple,
     _rating_template_placeholder_count,
     _ratings_insert_sql,
+    _write_ratings,
     attenuate_economy_scores,
     rate_system,
     worker_process,
@@ -618,6 +620,46 @@ def test_rating_version_write_shape_is_explicit():
     assert 'rating_version' in RATING_CONFLICT_UPDATE_COLUMNS
     assert 'rating_version' in sql
     assert 'EXCLUDED.rating_version' in sql
+    assert 'VALUES %s' not in sql
+    assert sql.count('%s') == len(RATING_INSERT_COLUMNS)
+    assert '%s::economy_type' in sql
+
+
+def test_rating_batch_uses_executemany_and_commits_only_after_success():
+    class RecordingCursor:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def executemany(self, statement, rows) -> None:
+            self.calls.append((statement, list(rows)))
+
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.commits = 0
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    cursor = RecordingCursor()
+    connection = RecordingConnection()
+
+    _write_ratings(connection, cursor, [rate_system(123, [], None)])
+
+    assert connection.commits == 1
+    assert len(cursor.calls) == 1
+    statement, rows = cursor.calls[0]
+    assert statement.count('%s') == len(RATING_INSERT_COLUMNS)
+    assert len(rows) == 1
+    assert len(rows[0]) == len(RATING_INSERT_COLUMNS)
+
+    class FailingCursor:
+        def executemany(self, _statement, _rows) -> None:
+            raise RuntimeError('write failed')
+
+    failed_connection = RecordingConnection()
+    with pytest.raises(RuntimeError, match='write failed'):
+        _write_ratings(failed_connection, FailingCursor(), [rate_system(123, [], None)])
+    assert failed_connection.commits == 0
 
 
 def test_dirty_mode_selects_only_rating_dirty_systems():
@@ -769,7 +811,7 @@ class _FakeCursor:
             return
         if self.fail_first_update:
             self.fail_first_update = False
-            raise psycopg2.errors.QueryCanceled('canceling statement due to statement timeout')
+            raise psycopg.errors.QueryCanceled('canceling statement due to statement timeout')
         chunk = list(params[0])
         self.update_chunks.append(chunk)
         self.rowcount = len(chunk)

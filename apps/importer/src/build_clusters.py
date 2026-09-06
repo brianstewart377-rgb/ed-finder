@@ -44,8 +44,7 @@ import multiprocessing as mp
 from multiprocessing import Queue, Value
 import ctypes
 
-import psycopg2
-import psycopg2.extras
+import psycopg
 
 from shared_contracts.bulk_update_helper import bulk_update_replica_mode
 
@@ -199,6 +198,11 @@ INSERT_TEMPLATE = """(%s,
     %s,%s,%s, %s,%s,%s, %s,%s,%s,
     %s,%s,%s, %s,%s, FALSE, NOW(), NOW())"""
 
+
+def _cluster_insert_sql() -> str:
+    """Return the single-row shape used by Psycopg 3 ``executemany``."""
+    return INSERT_SQL.replace('VALUES %s', f'VALUES {INSERT_TEMPLATE}')
+
 # ---------------------------------------------------------------------------
 # Coverage score (Python side — mirrors the SQL function)
 # ---------------------------------------------------------------------------
@@ -250,7 +254,7 @@ def _connect_with_retry(worker_id: int, db_url: str, cell_timeout: int = 120,
     """Connect with exponential backoff retry. Returns (conn, cur)."""
     for attempt in range(1, max_attempts + 1):
         try:
-            conn = psycopg2.connect(db_url)
+            conn = psycopg.connect(db_url)
             conn.autocommit = False
             cur = conn.cursor()
             cur.execute(f"SET statement_timeout = '{cell_timeout}s'")
@@ -424,22 +428,31 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
         # Step 3: Write batch to cluster_summary
         if write_batch:
             try:
-                psycopg2.extras.execute_values(
-                    cur, INSERT_SQL, write_batch,
-                    template=INSERT_TEMPLATE, page_size=50
+                cur.executemany(
+                    _cluster_insert_sql(),
+                    write_batch,
                 )
                 conn.commit()
-            except psycopg2.OperationalError as e:
+            except psycopg.OperationalError as e:
                 print(f"[W{worker_id}] Write lost connection: {e} — reconnecting", flush=True)
                 try:
+                    try:
+                        cur.close()
+                        conn.close()
+                    except Exception:
+                        pass
                     conn, cur = _connect_with_retry(worker_id, db_url, cell_timeout)
-                    psycopg2.extras.execute_values(
-                        cur, INSERT_SQL, write_batch,
-                        template=INSERT_TEMPLATE, page_size=50
+                    cur.executemany(
+                        _cluster_insert_sql(),
+                        write_batch,
                     )
                     conn.commit()
                 except Exception as e2:
                     print(f"[W{worker_id}] Write failed after reconnect: {e2}", flush=True)
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[W{worker_id}] Write error: {e}", flush=True)
                 try:
@@ -500,7 +513,7 @@ def main():
     ])
 
     try:
-        conn = psycopg2.connect(DATABASE_URL)
+        conn = psycopg.connect(DATABASE_URL)
     except Exception as e:
         log.error(f"FATAL: Cannot connect to database: {e}")
         sys.exit(1)
@@ -600,7 +613,7 @@ def main():
     # ------------------------------------------------------------------
     # Step 5: Mark build complete
     # ------------------------------------------------------------------
-    conn2 = psycopg2.connect(DATABASE_URL)
+    conn2 = psycopg.connect(DATABASE_URL)
     cur2  = conn2.cursor()
     cur2.execute("""
         INSERT INTO app_meta (key, value, updated_at)

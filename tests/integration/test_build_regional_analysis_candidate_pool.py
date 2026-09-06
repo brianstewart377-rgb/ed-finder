@@ -6,8 +6,8 @@ import os
 import sys
 from pathlib import Path
 
-import psycopg2
-import psycopg2.extras
+import psycopg
+from psycopg.rows import dict_row
 import pytest
 
 os.environ.setdefault('LOG_FILE', os.devnull)
@@ -81,7 +81,7 @@ def _populate_fixture(conn, extra_null_coord_id: int) -> None:
 
 @pytest.fixture
 def pg_conn():
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     null_coord_id = 97_000_000_000_009
     all_ids = ALL_TEST_IDS + [null_coord_id]
@@ -105,7 +105,7 @@ def test_candidate_pool_matches_old_per_target_query(pg_conn):
     conn, null_coord_id = pg_conn
     _populate_fixture(conn, null_coord_id)
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         target = {'id64': TARGET_ID, 'x': 0.0, 'y': 0.0, 'z': 0.0}
         radius = max(build_regional_analysis.REGIONAL_DISTANCE_BUCKETS)
 
@@ -147,7 +147,7 @@ def test_nan_coordinates_are_excluded_like_null():
     must always see zero candidates, matching what the old per-target query
     would have returned for it, rather than trusting np.searchsorted with a
     NaN search key (which doesn't reliably behave like a real comparison)."""
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     target_id = 97_000_000_000_010
     nan_candidate_id = 97_000_000_000_011
@@ -181,7 +181,7 @@ def test_nan_coordinates_are_excluded_like_null():
             )
         conn.commit()
 
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             pool = build_regional_analysis._load_candidate_pool(cur)
 
             assert nan_candidate_id not in set(pool.id64.tolist())
@@ -208,7 +208,7 @@ def test_load_targets_persists_exclusion_for_non_finite_coords_across_runs():
     re-fetched by every future run, permanently eating into --limit. Proves
     it end to end against real Postgres: selected and written on the first
     call, gone from the second call's result."""
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     nan_id = 97_000_000_000_020
 
@@ -229,7 +229,7 @@ def test_load_targets_persists_exclusion_for_non_finite_coords_across_runs():
         conn.commit()
 
         args = argparse.Namespace(dirty=False, all=False, limit=None)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             first_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
         conn.commit()
         assert nan_id not in first_run_ids  # excluded from targets...
@@ -243,7 +243,7 @@ def test_load_targets_persists_exclusion_for_non_finite_coords_across_runs():
         assert row is not None, 'non-finite target should have gotten a persisted degenerate row'
         assert row == ('unknown', build_regional_analysis.NON_FINITE_COORDS_SOURCE)
 
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             second_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
         conn.commit()
         assert nan_id not in second_run_ids  # ...and never selected again, not just skipped this once
@@ -263,7 +263,7 @@ def test_load_targets_reprocesses_after_coordinates_are_repaired():
     still finds it (now via the NON_FINITE_COORDS_SOURCE OR EXISTS branch)
     once its coordinates are fixed, and the UPSERT then overwrites the
     placeholder with a real computed result."""
-    conn = psycopg2.connect(os.environ['DATABASE_URL'])
+    conn = psycopg.connect(os.environ['DATABASE_URL'])
     conn.autocommit = False
     system_id = 97_000_000_000_021
 
@@ -284,7 +284,7 @@ def test_load_targets_reprocesses_after_coordinates_are_repaired():
         conn.commit()
 
         args = argparse.Namespace(dirty=False, all=False, limit=None)
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             build_regional_analysis._load_targets(cur, args)
         conn.commit()
 
@@ -298,7 +298,7 @@ def test_load_targets_reprocesses_after_coordinates_are_repaired():
             cur.execute('UPDATE systems SET x = 5.0 WHERE id64 = %s', (system_id,))
         conn.commit()
 
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             repaired_run_ids = {row['id64'] for row in build_regional_analysis._load_targets(cur, args)}
         conn.commit()
         assert system_id in repaired_run_ids, 'repaired system should be eligible for reprocessing'

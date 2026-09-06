@@ -30,7 +30,7 @@ DATA_TRUST_HEALTH_SNAPSHOT = ROOT / 'scripts' / 'checks' / 'data_trust_health_sn
 
 
 def test_body_contract_repair_and_reconcile_restore_clean_invariants():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
@@ -46,7 +46,7 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for data trust runtime test: {exc}')
 
@@ -127,7 +127,7 @@ def test_body_contract_repair_and_reconcile_restore_clean_invariants():
         assert after.returncode == 0, after.stderr
         assert 'PASS: checked invariants satisfied' in after.stdout
 
-        with psycopg2.connect(runtime_dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(runtime_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT has_body_data, body_count, rating_dirty, cluster_dirty
@@ -167,7 +167,7 @@ def test_no_body_reconcile_skip_summary_requires_apply():
 
 
 def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drift():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
@@ -183,7 +183,7 @@ def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drif
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for production-safe invariant test: {exc}')
 
@@ -231,7 +231,7 @@ def test_data_invariants_production_safe_mode_skips_heavy_scans_but_catches_drif
 
 
 def test_station_body_link_repair_restores_clean_invariants():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
@@ -247,7 +247,7 @@ def test_station_body_link_repair_restores_clean_invariants():
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for data trust runtime test: {exc}')
 
@@ -335,7 +335,7 @@ def test_station_body_link_repair_restores_clean_invariants():
         assert after.returncode == 0, after.stderr
         assert 'PASS: checked invariants satisfied' in after.stdout
 
-        with psycopg2.connect(runtime_dsn) as conn, conn.cursor() as cur:
+        with psycopg.connect(runtime_dsn) as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT system_id64, body_id, body_name, association_status,
@@ -364,7 +364,7 @@ def test_station_body_link_repair_restores_clean_invariants():
 
 
 def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
-    psycopg2 = pytest.importorskip('psycopg2')
+    psycopg = pytest.importorskip('psycopg')
     bash = shutil.which('bash')
     psql = shutil.which('psql')
     if bash is None or psql is None:
@@ -380,7 +380,7 @@ def test_data_trust_health_snapshot_reports_runtime_drift_buckets():
     runtime_dsn = _dsn_for_database(db_target.dsn, runtime_db)
 
     try:
-        admin_conn = psycopg2.connect(db_target.dsn)
+        admin_conn = psycopg.connect(db_target.dsn)
     except Exception as exc:  # pragma: no cover - explicit local skip path
         pytest.skip(f'disposable Postgres unavailable for health snapshot runtime test: {exc}')
 
@@ -533,8 +533,8 @@ def _apply_schema_via_migrations(bash: str, database_url: str) -> None:
 
 
 def _exec_sql(database_url: str, sql: str) -> None:
-    psycopg2 = pytest.importorskip('psycopg2')
-    with psycopg2.connect(database_url) as conn, conn.cursor() as cur:
+    psycopg = pytest.importorskip('psycopg')
+    with psycopg.connect(database_url) as conn, conn.cursor() as cur:
         cur.execute(sql)
 
 

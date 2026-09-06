@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+import psycopg
 
 
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
@@ -21,6 +22,25 @@ import station_external_identity_candidates as candidates  # noqa: E402
 
 WRITE_SQL_RE = re.compile(r'\b(INSERT|UPDATE|DELETE|MERGE|TRUNCATE|DROP|ALTER)\b', re.IGNORECASE)
 GENERATED_AT = '2026-01-02T00:00:00Z'
+
+
+def test_read_only_connection_uses_psycopg3_transaction_property(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class Connection:
+        read_only = False
+
+    connection = Connection()
+
+    def connect(dsn: str, **kwargs):
+        captured.update(dsn=dsn, **kwargs)
+        return connection
+
+    monkeypatch.setattr(psycopg, 'connect', connect)
+
+    assert candidates.connect_read_only_db('postgresql://test/test') is connection
+    assert captured == {'dsn': 'postgresql://test/test', 'autocommit': False}
+    assert connection.read_only is True
 
 
 class FakeCursor:

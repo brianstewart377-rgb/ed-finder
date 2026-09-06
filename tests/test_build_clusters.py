@@ -30,6 +30,17 @@ def test_row_to_dict_rejects_cursor_shape_mismatch(monkeypatch, tmp_path):
         build_clusters._row_to_dict(description, (42,))
 
 
+def test_cluster_executemany_sql_preserves_complete_insert_shape(monkeypatch, tmp_path):
+    build_clusters = _load_build_clusters(monkeypatch, tmp_path)
+
+    statement = build_clusters._cluster_insert_sql()
+
+    assert 'VALUES %s' not in statement
+    assert statement.count('%s') == 24
+    assert 'FALSE, NOW(), NOW()' in statement
+    assert 'ON CONFLICT (system_id64) DO UPDATE' in statement
+
+
 def test_full_rebuild_only_clears_genuinely_dirty_eligible_systems():
     script = SCRIPT_PATH.read_text(encoding='utf-8')
 

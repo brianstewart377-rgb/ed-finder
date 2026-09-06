@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ast
+import re
 import tomllib
+from itertools import chain
 from pathlib import Path
 
 import yaml
@@ -91,22 +94,14 @@ def test_v3_api_graph_uses_asyncpg_and_psycopg3_without_legacy_driver():
     assert "psycopg2" not in lock_text
 
 
-def test_v3_api_and_legacy_psycopg2_test_lanes_are_explicitly_separated():
-    manifest = ROOT / "tests" / "legacy_psycopg2_test_paths.txt"
-    paths = [
-        line.strip()
-        for line in manifest.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    ]
+def test_psycopg3_sync_tests_run_without_the_temporary_quarantine_boundary():
     ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     coverage = (WORKFLOWS / "coverage.yml").read_text(encoding="utf-8")
 
-    assert len(paths) == len(set(paths))
-    assert all((ROOT / path).is_file() for path in paths)
-    assert "--v3-api-only" in ci
-    assert "--v3-api-only" in coverage
-    assert "Legacy importer/tooling tests (non-runtime)" in ci
-    assert "tests/legacy_psycopg2_test_paths.txt" in ci
+    assert not (ROOT / "tests" / "legacy_psycopg2_test_paths.txt").exists()
+    assert "--v3-api-only" not in ci
+    assert "--v3-api-only" not in coverage
+    assert "legacy-tooling:" not in ci
     assert "Synchronous PostgreSQL tooling (CPython 3.14)" in ci
     assert "scripts/checks/requirements.txt" in ci
     assert "tests/test_deploy_main_invariants_gate.py" in ci
@@ -114,21 +109,89 @@ def test_v3_api_and_legacy_psycopg2_test_lanes_are_explicitly_separated():
     assert "--ignore=tests/test_deploy_main_invariants_gate.py" in coverage
 
 
-def test_remaining_psycopg2_source_debt_is_explicit_and_outside_v3_checks():
-    debt = (ROOT / "docs" / "development" / "psycopg3-migration-debt.md").read_text()
-    remaining_paths = sorted(
-        path.relative_to(ROOT).as_posix()
-        for search_root in (ROOT / "apps" / "importer" / "src", ROOT / "scripts")
+def _imports(path: Path) -> set[str]:
+    # A few retained source files carry a UTF-8 BOM. Tokenize them the same way
+    # Python's source loader does before applying the import-only AST guard.
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    return imported
+
+
+def _active_python_files(search_root: Path):
+    ignored_parts = {".venv", "__pycache__", "archive", "node_modules"}
+    return (
+        path
         for path in search_root.rglob("*.py")
-        if any(
-            marker in path.read_text(encoding="utf-8")
-            for marker in ("import psycopg2", "from psycopg2")
-        )
+        if not ignored_parts.intersection(path.relative_to(search_root).parts)
     )
 
-    assert remaining_paths
-    assert all(f"`{path}`" in debt for path in remaining_paths)
-    assert not any(path.startswith("scripts/checks/") for path in remaining_paths)
+
+def test_active_python_has_no_psycopg2_imports():
+    active_roots = (
+        ROOT / "apps",
+        ROOT / "scripts",
+        ROOT / "shared_contracts",
+        ROOT / "tests",
+    )
+    violations = sorted(
+        path.relative_to(ROOT).as_posix()
+        for search_root in active_roots
+        for path in _active_python_files(search_root)
+        if any(name == "psycopg2" or name.startswith("psycopg2.") for name in _imports(path))
+    )
+
+    assert violations == []
+
+
+def test_active_dependency_authority_has_no_psycopg2_packages():
+    ignored_parts = {".git", ".venv", "archive", "artifacts", "node_modules"}
+    dependency_authority = (
+        path
+        for path in chain(
+            ROOT.rglob("pyproject.toml"),
+            ROOT.rglob("*requirements*.txt"),
+            ROOT.rglob("uv.lock"),
+            ROOT.rglob("Dockerfile*"),
+            (ROOT / ".github").rglob("*.yml"),
+        )
+        if not ignored_parts.intersection(path.relative_to(ROOT).parts)
+    )
+    legacy_package = re.compile(r"(?i)(?:types-|py3-)?psycopg2(?:-binary)?")
+    violations = sorted(
+        path.relative_to(ROOT).as_posix()
+        for path in dependency_authority
+        if legacy_package.search(path.read_text(encoding="utf-8"))
+    )
+
+    assert violations == []
+
+
+def test_synchronous_pip_authorities_share_the_psycopg_334_pin():
+    importer = (ROOT / "apps" / "importer" / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+    checks = (ROOT / "scripts" / "checks" / "requirements.txt").read_text(
+        encoding="utf-8"
+    )
+
+    assert importer.splitlines().count("psycopg[binary]==3.3.4") == 1
+    assert checks.splitlines().count("psycopg[binary]==3.3.4") == 1
+
+
+def test_api_and_eddn_runtime_sources_remain_asyncpg_owned():
+    for source_root in (ROOT / "apps" / "api" / "src", ROOT / "apps" / "eddn" / "src"):
+        imports = {
+            name
+            for path in source_root.rglob("*.py")
+            for name in _imports(path)
+        }
+        assert "asyncpg" in imports
+        assert not any(name == "psycopg" or name.startswith("psycopg.") for name in imports)
 
 
 def test_canonical_worker_bootstrap_remains_python312_and_is_not_runtime_evidence():
