@@ -74,6 +74,14 @@ OP_USER="${CHECKPOINT_OPERATOR_USER:-}"
 [ "$(id -u "$OP_USER")" = "$OP_UID" ] || fail "checkpoint operator uid mismatch"
 [ "$(id -g "$OP_USER")" = "$OP_GID" ] || fail "checkpoint operator gid mismatch"
 
+# Serialize provisioning with the canonical deployer using its durable host lock.
+install -d -m 0700 -o "$OP_UID" -g "$OP_GID" "$STATE_ROOT" "$RECEIPT_DIR"
+touch "$RECEIPT_DIR/deploy.lock"
+chown "$OP_UID:$OP_GID" "$RECEIPT_DIR/deploy.lock"
+chmod 0600 "$RECEIPT_DIR/deploy.lock"
+exec 9<>"$RECEIPT_DIR/deploy.lock"
+flock -n 9 || fail "live-checkpoint deployment lock is unavailable"
+
 verify_exact_runners
 
 . /etc/os-release
