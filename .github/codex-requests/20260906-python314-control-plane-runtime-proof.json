@@ -1,0 +1,4 @@
+{
+  "task": "Read-only control-plane runtime proof after PR #615 merged. Do not modify files, commit, push, deploy, access production, or use production credentials. Report the exact interpreter version seen by this governed Codex worker and verify that the repository venv is also CPython 3.14. Confirm the current main `.github/workflows/codex-laptop.yml` and `.github/workflows/codex-dispatch.yml` both select exact Python 3.14 and that tests/test_codex_async_bridge.py contains the regression guard against 3.12. Keep this investigation narrowly limited to proving the post-merge governed worker/dispatcher Python authority.",
+  "mode": "investigate"
+}
