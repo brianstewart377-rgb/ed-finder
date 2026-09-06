@@ -93,7 +93,9 @@ def test_env_and_compose_expose_optional_readonly_database_dsn():
     assert 'COPY shared_contracts/ ./shared_contracts/' in api_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in eddn_dockerfile
     assert 'COPY shared_contracts/ ./shared_contracts/' in importer_dockerfile
-    assert 'python3 py3-psycopg rclone' in maintenance_dockerfile
+    assert 'FROM python:3.14-alpine' in maintenance_dockerfile
+    assert "'psycopg[binary]==3.3.4'" in maintenance_dockerfile
+    assert 'postgresql-client rclone curl' in maintenance_dockerfile
     assert 'COPY scripts/checks/data_invariants.py' in maintenance_dockerfile
     assert 'COPY shared_contracts/data_invariant_contracts.py' in maintenance_dockerfile
     assert "EDFINDER_RUN_CONTAINER_PARITY: 'yes'" in workflow

@@ -179,9 +179,9 @@ def emit_batch_progress(
 
 
 def fetch_summary(conn) -> dict[str, int]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(SUMMARY_SQL)
         row = dict(cur.fetchone() or {})
     return {key: int(row.get(key) or 0) for key in SUMMARY_KEYS}
@@ -192,9 +192,9 @@ def empty_summary() -> dict[str, None]:
 
 
 def fetch_batch(conn, batch_size: int) -> list[dict[str, object]]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(FETCH_BATCH_SQL, (batch_size,))
         return [dict(row) for row in cur.fetchall()]
 
@@ -340,9 +340,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("--skip-summary requires --apply", file=sys.stderr)
         return 2
 
-    import psycopg2
+    import psycopg
 
-    conn = psycopg2.connect(args.dsn)
+    conn = psycopg.connect(args.dsn)
     conn.autocommit = False
     try:
         report = run(conn, args)

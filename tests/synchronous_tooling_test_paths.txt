@@ -1,6 +1,6 @@
-# Bounded migration debt: tests that import psycopg2-backed importer/repair
-# modules. The Python 3.14 V3 API lanes ignore exactly these paths before
-# collection; the Python 3.12 legacy-tooling lane runs every path below.
+# Explicit importer and synchronous-tooling validation owned by the CPython
+# 3.14 CI lane. Unit paths are also eligible for the normal backend suite;
+# integration paths run with the lane's disposable PostgreSQL 18 service.
 tests/test_backfill_station_body_links.py
 tests/test_build_archetype_scores_limit.py
 tests/test_build_clusters.py

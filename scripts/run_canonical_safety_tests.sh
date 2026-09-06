@@ -1,11 +1,22 @@
 #!/usr/bin/env sh
 set -eu
 
-if [ -x ".venv/bin/python" ]; then
+if [ -n "${PYTHON:-}" ]; then
+    :
+elif [ -x "apps/api/.venv/bin/python" ]; then
+    PYTHON="apps/api/.venv/bin/python"
+elif [ -x ".venv/bin/python" ]; then
     PYTHON=".venv/bin/python"
+elif command -v python3.14 >/dev/null 2>&1; then
+    PYTHON="$(command -v python3.14)"
 else
     PYTHON="${PYTHON:-python}"
 fi
+
+"$PYTHON" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14)" || {
+    echo "Canonical safety tests require exact CPython 3.14; set PYTHON to the repository's 3.14 interpreter." >&2
+    exit 1
+}
 
 "$PYTHON" -m pytest \
     tests/test_station_type_canonical_pilot.py \

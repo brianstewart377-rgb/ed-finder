@@ -42,6 +42,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Set up CPython 3.14 for image validation
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+
       - name: Set up Docker buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
@@ -123,12 +128,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The parity harness is repository tooling on 3.12. The API application
-      # itself executes inside the CPython 3.14 images built by the tests.
-      - name: Set up tooling Python 3.12 (image orchestration only)
+      - name: Set up CPython 3.14 for image parity
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: pip
           cache-dependency-path: tests/requirements-ci.txt
 

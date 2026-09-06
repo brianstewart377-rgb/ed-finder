@@ -233,19 +233,19 @@ def configure_session(conn) -> None:
 
 
 def fetch_summary(conn) -> dict[str, int]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(SUMMARY_SQL)
         row = dict(cur.fetchone() or {})
     return {key: int(row.get(key) or 0) for key in SUMMARY_KEYS}
 
 
 def fetch_repair_batch(conn, batch_size: int) -> list[dict[str, Any]]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
     query = FETCH_REPAIR_BATCH_SQL.replace("%s", str(int(batch_size)), 1)
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(query)
         return [dict(row) for row in cur.fetchall()]
 
@@ -401,9 +401,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("DATABASE_URL or --dsn is required", file=sys.stderr)
         return 2
 
-    import psycopg2
+    import psycopg
 
-    conn = psycopg2.connect(args.dsn)
+    conn = psycopg.connect(args.dsn)
     conn.autocommit = False
     try:
         report = run(conn, args)

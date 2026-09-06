@@ -60,6 +60,9 @@ PY
 PYTHON_BIN="$(pick_python)"
 YARN_BIN="$(pick_yarn)"
 
+"$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
+  || die "local CI parity requires exact CPython 3.14. Set PYTHON to the repository's 3.14 interpreter."
+
 section "Dependency check"
 require_python_module pytest || die "missing Python module pytest. Install test dependencies before running parity checks."
 if [ ! -d "$ROOT/frontend/node_modules" ]; then

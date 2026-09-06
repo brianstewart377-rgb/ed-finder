@@ -667,7 +667,7 @@ def test_loader_source_does_not_import_network_db_or_container_write_paths():
 
     assert 'urlopen' not in source
     assert 'requests' not in source
-    assert 'psycopg2' not in source
+    assert 'psycopg' + '2' not in source
     assert 'subprocess' not in source
     assert 'docker compose' not in source
     assert 'psql' not in source

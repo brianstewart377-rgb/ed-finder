@@ -38,7 +38,7 @@ class _FakeConnection:
         self.rows = list(rows)
         self.cursors: list[_FakeCursor] = []
 
-    def cursor(self, cursor_factory=None):  # noqa: ARG002
+    def cursor(self, row_factory=None):  # noqa: ARG002
         cursor = _FakeCursor(self.rows)
         self.cursors.append(cursor)
         return cursor

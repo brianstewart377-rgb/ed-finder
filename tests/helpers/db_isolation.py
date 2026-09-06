@@ -257,7 +257,10 @@ def rollback_transaction(
     dsn = target.dsn if isinstance(target, DbTarget) else target
     conn = connect(dsn)
     try:
-        if hasattr(conn, 'set_session'):
+        if hasattr(conn, 'read_only'):
+            conn.autocommit = False
+            conn.read_only = readonly
+        elif hasattr(conn, 'set_session'):
             conn.set_session(readonly=readonly, autocommit=False)
         elif hasattr(conn, 'autocommit'):
             conn.autocommit = False

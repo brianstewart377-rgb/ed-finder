@@ -14,7 +14,7 @@ ROOT = os.path.dirname(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'api', 'src'))
 sys.path.insert(0, os.path.join(ROOT, 'apps', 'importer', 'src'))
 
-import psycopg2
+import psycopg
 
 from edfinder_api.helpers import safe_coords_from_row, sys_row_to_dict
 from local_search import _build_distance_expr, _build_system_record, _parse_local_search_context, _safe_distance
@@ -475,7 +475,7 @@ def test_spansh_temp_upsert_skips_noop_updates():
 
     assert "excluded_change_cols = {'updated_at', 'rating_dirty', 'cluster_dirty'}" in source
     assert 'IS DISTINCT FROM EXCLUDED' in source
-    assert 'WHERE {change_clause}' in source
+    assert 'where_clause = sql.SQL("\\n            WHERE {}").format(change_clause)' in source
 
 
 def test_spansh_temp_upsert_guard_col_scopes_to_matching_owner():
@@ -487,8 +487,10 @@ def test_spansh_temp_upsert_guard_col_scopes_to_matching_owner():
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert "guard_col: Optional[str] = None" in source
-    assert 'WHERE {guard_clause}' in source
-    assert 'AND ({change_clause})' in source
+    assert 'where_clause = sql.SQL("\\n            WHERE {}").format(guard_clause)' in source
+    assert 'sql.Identifier(guard_col)' in source
+    assert 'AND ({})").format(' in source
+    assert 'guard_clause, change_clause' in source
     assert "guard_col='system_id64'" in source
 
 
@@ -543,7 +545,8 @@ def test_spansh_upsert_via_temp_rejection_uses_ownership_query_not_returning():
     source = Path(ROOT, 'apps', 'importer', 'src', 'import_spansh.py').read_text(encoding='utf-8')
 
     assert 'if returning_col and guard_col:' in source
-    assert 'WHERE {conflict_col} = ANY(%s)' in source
+    assert 'WHERE {} = ANY(%s)' in source
+    assert 'sql.Identifier(conflict_col)' in source
     assert 'actual_owner_by_conflict_value = dict(cur.fetchall())' in source
 
 
@@ -690,7 +693,7 @@ def test_worker_connection_uses_timeout_disabled_helper():
     helper_source = inspect.getsource(_connect_with_retry)
 
     assert '_connect_with_retry' in worker_source
-    assert 'psycopg2.connect' not in worker_source
+    assert 'psycopg.connect' not in worker_source
     assert 'statement_timeout=0' in helper_source
     assert 'lock_timeout=0' in helper_source
     assert 'idle_in_transaction_session_timeout=3600000' in helper_source
@@ -769,7 +772,7 @@ class _FakeCursor:
             return
         if self.fail_first_update:
             self.fail_first_update = False
-            raise psycopg2.errors.QueryCanceled('canceling statement due to statement timeout')
+            raise psycopg.errors.QueryCanceled('canceling statement due to statement timeout')
         chunk = list(params[0])
         self.update_chunks.append(chunk)
         self.rowcount = len(chunk)

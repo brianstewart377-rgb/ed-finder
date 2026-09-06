@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPORTER_SRC = ROOT / 'apps' / 'importer' / 'src'
 IMPORTER_DOCKERFILE = ROOT / 'apps' / 'importer' / 'Dockerfile'
 os.environ.setdefault('DATABASE_URL', 'postgresql://test.invalid/edfinder')
+os.environ.setdefault('LOG_FILE', os.devnull)
 sys.path.insert(0, str(IMPORTER_SRC))
 
 import import_spansh  # noqa: E402
@@ -85,8 +86,9 @@ class _DeadlockCursor:
     def __exit__(self, *_args: object) -> None:
         return None
 
-    def execute(self, sql: str, _params: object = None) -> None:
-        normalized = ' '.join(sql.split())
+    def execute(self, sql: object, _params: object = None) -> None:
+        rendered = sql.as_string() if hasattr(sql, 'as_string') else str(sql)
+        normalized = ' '.join(rendered.replace('"', '').split())
         if normalized == 'SHOW session_replication_role':
             self.result = (self.connection.current_role,)
             return
@@ -96,14 +98,32 @@ class _DeadlockCursor:
         if self.connection.deadlock_sql in normalized:
             self.connection.attempts += 1
             if self.connection.attempts <= self.connection.deadlocks_before_success:
-                raise import_spansh.psycopg2.errors.DeadlockDetected()
+                raise import_spansh.psycopg.errors.DeadlockDetected()
             self.rowcount = self.connection.success_rowcount
 
     def fetchone(self):
         return self.result
 
-    def copy_from(self, *_args: object, **_kwargs: object) -> None:
+    def executemany(self, _sql: object, _rows: object) -> None:
         return None
+
+    def copy(self, _statement: object) -> '_FakeCopy':
+        return _FakeCopy()
+
+
+class _FakeCopy:
+    def __enter__(self) -> '_FakeCopy':
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def write_row(self, _row: object) -> None:
+        return None
+
+
+class _FakeConnectionInfo:
+    transaction_status = import_spansh.TransactionStatus.IDLE
 
 
 class _DeadlockConnection:
@@ -122,6 +142,7 @@ class _DeadlockConnection:
         self.rollbacks = 0
         self.role = 'origin'
         self.pending_role = None
+        self.info = _FakeConnectionInfo()
 
     @property
     def current_role(self) -> str:
@@ -139,10 +160,6 @@ class _DeadlockConnection:
     def rollback(self) -> None:
         self.rollbacks += 1
         self.pending_role = None
-
-    def get_transaction_status(self) -> int:
-        return import_spansh.psycopg2.extensions.TRANSACTION_STATUS_IDLE
-
 
 def test_upsert_via_temp_retries_deadlocks_then_succeeds(monkeypatch: pytest.MonkeyPatch):
     connection = _DeadlockConnection(
@@ -173,7 +190,7 @@ def test_upsert_via_temp_reraises_after_final_deadlock(monkeypatch: pytest.Monke
     )
     monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
 
-    with pytest.raises(import_spansh.psycopg2.errors.DeadlockDetected):
+    with pytest.raises(import_spansh.psycopg.errors.DeadlockDetected):
         import_spansh.upsert_via_temp(
             connection,
             'systems',
@@ -193,8 +210,6 @@ def test_upsert_body_rings_retries_deadlocks_then_succeeds(monkeypatch: pytest.M
         success_rowcount=1,
     )
     monkeypatch.setattr(import_spansh.time, 'sleep', lambda _delay: None)
-    monkeypatch.setattr(import_spansh.psycopg2.extras, 'execute_values', lambda *_args, **_kwargs: None)
-
     count = import_spansh.upsert_body_rings(connection, [{
         'system_id64': 10477373803,
         'body_id': 1,
@@ -217,7 +232,7 @@ def test_get_conn_disables_the_role_statement_timeout(monkeypatch: pytest.Monkey
         captured.update(kwargs)
         return fake_connection
 
-    monkeypatch.setattr(import_spansh.psycopg2, 'connect', fake_connect)
+    monkeypatch.setattr(import_spansh.psycopg, 'connect', fake_connect)
 
     connection = import_spansh.get_conn()
 

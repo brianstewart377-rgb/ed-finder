@@ -91,7 +91,7 @@ The generator keeps `../packages/api-client/src/generated/api.gen.ts` aligned wi
 
 Requirements:
 
-- use the repository-supported Python 3.12 environment for backend schema generation;
+- use the repository-supported exact CPython 3.14 environment for backend schema generation;
 - install backend dependencies from the repository's pinned requirements;
 - use `ED_FINDER_PYTHON` only when an explicit interpreter override is needed.
 

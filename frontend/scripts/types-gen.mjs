@@ -26,15 +26,13 @@ function resolvePython() {
     ? [
         envCandidate,
         [path.resolve(repoRoot, '.venv/Scripts/python.exe')],
-        ['py', '-3.12'],
-        ['py', '-3.11'],
+        ['py', '-3.14'],
         ['python'],
       ]
     : [
         envCandidate,
         [path.resolve(repoRoot, '.venv/bin/python')],
-        ['python3.12'],
-        ['python3.11'],
+        ['python3.14'],
         ['python3'],
         ['python'],
       ];
@@ -44,14 +42,14 @@ function resolvePython() {
     const [command, ...prefixArgs] = candidate;
     const probe = spawnSync(
       command,
-      [...prefixArgs, '-c', 'import asyncpg'],
+      [...prefixArgs, '-c', "import asyncpg, platform, sys; assert platform.python_implementation() == 'CPython'; assert sys.version_info[:2] == (3, 14)"],
       { stdio: 'ignore', shell: false, cwd: repoRoot },
     );
     if (!probe.error && probe.status === 0) return candidate;
   }
 
   throw new Error(
-    'No usable Python interpreter found for local OpenAPI generation. Install Python 3.12/3.11 and ensure asyncpg can be imported, or set ED_FINDER_PYTHON to a compatible interpreter.',
+    'No usable CPython 3.14 interpreter found for local OpenAPI generation. Install CPython 3.14 with the frozen API dependencies, or set ED_FINDER_PYTHON to that interpreter.',
   );
 }
 

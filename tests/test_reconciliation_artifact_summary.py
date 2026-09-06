@@ -188,7 +188,7 @@ def test_tool_runs_without_db_access(tmp_path, monkeypatch):
     real_import = builtins.__import__
 
     def fail_on_db_import(name, *args, **kwargs):
-        if name.startswith('psycopg2'):
+        if name.startswith('psycopg'):
             raise AssertionError('summary tool must not import DB drivers')
         return real_import(name, *args, **kwargs)
 

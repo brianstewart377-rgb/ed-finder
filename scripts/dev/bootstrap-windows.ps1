@@ -18,10 +18,10 @@ $doctorScript = Join-Path $repoRoot 'scripts\dev\doctor.ps1'
 
 function Find-BasePython {
   try {
-    $version = (& py -3.12 --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $version = (& py -3.14 --version 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
       command = 'py'
-      args = @('-3.12')
+      args = @('-3.14')
       version = $version
     }
   } catch {
@@ -30,8 +30,8 @@ function Find-BasePython {
   try {
     $command = Get-Command python -ErrorAction Stop
     $version = (& $command.Path --version 2>&1 | Select-Object -First 1).ToString().Trim()
-    if ($version -notmatch 'Python 3\.1[2-9]') {
-      throw "Expected Python 3.12+, found $version"
+    if ($version -notmatch '^Python 3\.14(?:\.|$)') {
+      throw "Expected CPython 3.14, found $version"
     }
     return @{
       command = $command.Path
@@ -41,7 +41,7 @@ function Find-BasePython {
   } catch {
   }
 
-  throw 'Python 3.12+ was not found. Install Python 3.12 and ensure py.exe or python.exe is available.'
+  throw 'CPython 3.14 was not found. Install CPython 3.14 and ensure py.exe or python.exe is available.'
 }
 
 function Invoke-Checked {
@@ -103,6 +103,11 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 
 if (-not (Test-Path -LiteralPath $venvPython)) {
   throw "Virtualenv creation failed: missing $venvPython"
+}
+
+$venvVersion = (& $venvPython --version 2>&1 | Select-Object -First 1).ToString().Trim()
+if ($venvVersion -notmatch '^Python 3\.14(?:\.|$)') {
+  throw "Repository virtualenv must use CPython 3.14, found $venvVersion. Remove .venv and rerun this bootstrap."
 }
 
 Invoke-Checked -FilePath $venvPython -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip', 'wheel')

@@ -298,6 +298,19 @@ def normalised_import_row(index=1, **overrides):
     return row
 
 
+@pytest.mark.parametrize(('commit', 'expected_read_only'), [(False, True), (True, False)])
+def test_connection_mode_uses_psycopg3_transaction_properties(commit, expected_read_only):
+    class ConnectionMode:
+        autocommit = True
+        read_only = None
+
+    conn = ConnectionMode()
+    rehearsal.set_connection_mode(conn, commit=commit)
+
+    assert conn.autocommit is False
+    assert conn.read_only is expected_read_only
+
+
 def test_cli_defaults_to_read_only_and_does_not_commit_without_flag(tmp_path):
     args = rehearsal.parse_args([
         '--limit',

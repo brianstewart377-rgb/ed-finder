@@ -99,6 +99,9 @@ PYTHON_BIN="$(pick_python)"
 YARN_BIN="$(pick_yarn)"
 PNPM_BIN="$(pick_pnpm)"
 
+"$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
+  || die "OpenAPI generation requires exact CPython 3.14. Set PYTHON to the repository's 3.14 interpreter."
+
 need_cmd git "Git is required to detect generated type drift."
 need_cmd curl "curl is required to wait for the local API."
 need_cmd psql "psql is required because this check mirrors CI schema seeding."

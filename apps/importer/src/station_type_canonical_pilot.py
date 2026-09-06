@@ -800,10 +800,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def _connect_postgres(dsn: str) -> Any:
     try:
-        import psycopg2  # type: ignore
+        import psycopg  # type: ignore
     except ImportError as exc:  # pragma: no cover - exercised only in real apply environments
-        raise Stage18JPlanError('psycopg2 is required for guarded apply mode') from exc
-    return psycopg2.connect(dsn)
+        raise Stage18JPlanError('psycopg is required for guarded apply mode') from exc
+    return psycopg.connect(dsn)
 
 
 def _file_sha256(path: Path) -> str:

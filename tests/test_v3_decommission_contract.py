@@ -88,7 +88,7 @@ def test_legacy_compose_and_maintenance_are_not_v3_pg18_authority():
     assert 'PostgreSQL 16 — legacy/local Compose compatibility' in compose
     assert 'PostgreSQL 18' in compose
     assert 'LEGACY SELF-HOST / LOCAL-CI IMAGE — NEVER V3 PRODUCTION OR BACKUP AUTHORITY' in maintenance
-    assert 'PostgreSQL 16 matches the retained root Compose environment only' in maintenance
+    assert 'retained root Compose environment still uses PostgreSQL 16' in maintenance
     assert 'Current V3' in maintenance and 'PostgreSQL 18' in maintenance
 
 

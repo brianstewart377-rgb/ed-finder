@@ -100,9 +100,7 @@ import logging
 import argparse
 from multiprocessing import Process
 
-import psycopg2
-import psycopg2.extras
-import psycopg2.extensions
+import psycopg
 
 from progress import (
     ProgressReporter,
@@ -170,14 +168,14 @@ signal.signal(signal.SIGTERM, _handle_signal)
 # ---------------------------------------------------------------------------
 
 def _connect(dsn: str, readonly: bool = False,
-             application_name: str = 'build_grid') -> psycopg2.extensions.connection:
+             application_name: str = 'build_grid') -> psycopg.Connection:
     """
     Open a PostgreSQL connection with:
     - TCP keepalives to survive long-running operations without being dropped
     - statement_timeout=0 to allow unbounded single-UPDATE runs
     - lock_timeout=30s to fail fast rather than hang on ALTER TABLE / locks
     """
-    conn = psycopg2.connect(
+    conn = psycopg.connect(
         dsn,
         keepalives=1,
         keepalives_idle=60,
@@ -192,13 +190,13 @@ def _connect(dsn: str, readonly: bool = False,
     )
     conn.autocommit = False
     if readonly:
-        conn.set_session(readonly=True)
+        conn.read_only = True
     return conn
 
 
 def _connect_with_retry(dsn: str, label: str = "", retries: int = 10,
                          delay: float = 5.0,
-                         readonly: bool = False) -> psycopg2.extensions.connection:
+                         readonly: bool = False) -> psycopg.Connection:
     """Connect with exponential back-off retries."""
     for attempt in range(1, retries + 1):
         try:
@@ -483,7 +481,7 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                 total_updated += rows_updated
                 break  # success
 
-            except psycopg2.OperationalError as e:
+            except psycopg.OperationalError as e:
                 log.warning(f"  Connection lost on batch {batch_num} page {current_page} "
                             f"(attempt {attempt+1}/4): {e}")
                 try:
@@ -792,7 +790,7 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                     skipped += 1
                 break
 
-            except psycopg2.OperationalError as e:
+            except psycopg.OperationalError as e:
                 log.warning(f"  Connection lost on cell {cell_id} (attempt {attempt+1}/3): {e}")
                 try:
                     write_cur.close()
@@ -1162,8 +1160,7 @@ Strategies:
             try:
                 # Must be outside a transaction block.
                 # The monitoring conn may have an in-flight transaction from
-                # earlier SELECTs — commit/rollback first or psycopg2 raises
-                # "set_session cannot be used inside a transaction".
+                # earlier SELECTs — commit/rollback before changing autocommit.
                 try: conn.commit()
                 except Exception: pass
                 conn.autocommit = True

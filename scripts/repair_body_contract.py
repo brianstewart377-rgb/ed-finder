@@ -302,9 +302,9 @@ def emit_startup_progress(*, focus: str, batch_size: int, limit: int | None, sum
 
 
 def fetch_summary(conn, *, focus: str) -> dict[str, int]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         if focus == "missing-bodies-only":
             cur.execute(MISSING_BODIES_ONLY_SUMMARY_SQL)
         else:
@@ -318,9 +318,9 @@ def empty_summary() -> dict[str, int | None]:
 
 
 def fetch_repair_batch(conn, batch_size: int, *, focus: str) -> list[dict[str, object]]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         if focus != "missing-bodies-only":
             cur.execute(FETCH_REPAIR_BATCH_SQL, (batch_size,))
             return [dict(row) for row in cur.fetchall()]
@@ -328,13 +328,13 @@ def fetch_repair_batch(conn, batch_size: int, *, focus: str) -> list[dict[str, o
 
 
 def fetch_missing_bodies_only_batch(conn, batch_size: int) -> list[dict[str, object]]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
     cursor_after: int | None = None
     remaining_scans = MISSING_BODIES_PREFILTER_MULTIPLIER
 
     while remaining_scans > 0:
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 MISSING_BODIES_ONLY_FETCH_REPAIR_BATCH_SQL,
                 (
@@ -359,7 +359,7 @@ def fetch_missing_bodies_only_batch(conn, batch_size: int) -> list[dict[str, obj
 
 
 def hydrate_missing_bodies_only_candidates(conn, candidates: list[dict[str, object]]) -> list[dict[str, object]]:
-    from psycopg2.extras import RealDictCursor
+    from psycopg.rows import dict_row
 
     if not candidates:
         return []
@@ -369,7 +369,7 @@ def hydrate_missing_bodies_only_candidates(conn, candidates: list[dict[str, obje
     stored_body_count = [int(row["stored_body_count"]) for row in candidates]
     rating_dirty = [bool(row["rating_dirty"]) for row in candidates]
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
             MISSING_BODIES_ONLY_HYDRATE_BATCH_SQL,
             (id64s, stored_has_body_data, stored_body_count, rating_dirty),
@@ -522,9 +522,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("--skip-summary requires --apply", file=sys.stderr)
         return 2
 
-    import psycopg2
+    import psycopg
 
-    conn = psycopg2.connect(args.dsn)
+    conn = psycopg.connect(args.dsn)
     conn.autocommit = False
     try:
         report = run(conn, args)

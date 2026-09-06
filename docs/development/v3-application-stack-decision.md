@@ -98,7 +98,7 @@ The existing Stage 27 renderer-neutral `SpatialSceneContract`, contribution, com
 | API framework | **FastAPI** |
 | Validation/contracts | **Pydantic 2** + FastAPI OpenAPI |
 | API PostgreSQL driver | **asyncpg** |
-| Importer/synchronous PostgreSQL driver | **Psycopg 3**; retire `psycopg2-binary` as importer code is ported |
+| Importer/synchronous PostgreSQL driver | **Psycopg 3**, pinned as `psycopg[binary]==3.3.4` |
 | Database | Existing **PostgreSQL 18** V3 database; do not recreate or restore V2 wholesale |
 | Schema migrations | Existing reviewed SQL manifest/checksum `schema_migrations` ledger |
 | ORM | **None by default**; do not add SQLAlchemy merely as part of the reset |

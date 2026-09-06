@@ -91,20 +91,22 @@ function Find-PythonRecord {
   if (Test-Path -LiteralPath $venvPython) {
     $version = (& $venvPython --version 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
-      ok = $true
+      ok = ($version -match '^Python 3\.14(?:\.|$)')
       path = $venvPython
       source = 'venv'
       version = $version
+      failure = if ($version -match '^Python 3\.14(?:\.|$)') { $null } else { 'python_3_14_required' }
     }
   }
 
   try {
-    $version = (& py -3.12 --version 2>&1 | Select-Object -First 1).ToString().Trim()
+    $version = (& py -3.14 --version 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
-      ok = $true
-      path = 'py -3.12'
+      ok = ($version -match '^Python 3\.14(?:\.|$)')
+      path = 'py -3.14'
       source = 'py_launcher'
       version = $version
+      failure = if ($version -match '^Python 3\.14(?:\.|$)') { $null } else { 'python_3_14_required' }
     }
   } catch {
   }
@@ -113,10 +115,11 @@ function Find-PythonRecord {
     $command = Get-Command python -ErrorAction Stop
     $version = (& $command.Path --version 2>&1 | Select-Object -First 1).ToString().Trim()
     return @{
-      ok = $true
+      ok = ($version -match '^Python 3\.14(?:\.|$)')
       path = $command.Path
       source = 'PATH'
       version = $version
+      failure = if ($version -match '^Python 3\.14(?:\.|$)') { $null } else { 'python_3_14_required' }
     }
   } catch {
   }

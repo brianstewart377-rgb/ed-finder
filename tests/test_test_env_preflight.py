@@ -1,10 +1,13 @@
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import psycopg
+from psycopg.rows import dict_row
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +21,7 @@ spec.loader.exec_module(preflight)
 
 
 pytestmark = pytest.mark.unit
+os.environ.setdefault('CORS_ORIGINS', 'http://test')
 
 
 def successful_runner(args, timeout):
@@ -67,6 +71,58 @@ def test_preflight_runs_read_only_select_when_credentials_are_present_without_pr
     assert result['writes_performed'] is False
     assert result['checks']['db_credentials']['detail']['present_without_printing'] is True
     assert 'do-not-print-this' not in encoded
+
+
+def test_database_probe_uses_psycopg_dict_rows_and_read_only_transaction(monkeypatch):
+    class FakeCursor:
+        def __init__(self):
+            self.rows = iter(({'transaction_read_only': 'on'}, {'db_preflight_ok': 1}))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, _query):
+            return None
+
+        def fetchone(self):
+            return next(self.rows)
+
+    class FakeConnection:
+        def __init__(self):
+            self.read_only = False
+            self.rollbacks = 0
+            self.closed = False
+
+        def cursor(self):
+            return FakeCursor()
+
+        def rollback(self):
+            self.rollbacks += 1
+
+        def close(self):
+            self.closed = True
+
+    connection = FakeConnection()
+
+    def connect(dsn, *, row_factory):
+        assert dsn == 'postgresql://test.invalid/edfinder'
+        assert row_factory is dict_row
+        return connection
+
+    monkeypatch.setattr(psycopg, 'connect', connect)
+
+    result = preflight.run_read_only_select_one(
+        {'DATABASE_URL': 'postgresql://test.invalid/edfinder'},
+        {},
+    )
+
+    assert result.ok is True
+    assert connection.read_only is True
+    assert connection.rollbacks == 1
+    assert connection.closed is True
 
 
 def test_preflight_uses_isolated_project_postgres_port_by_default():

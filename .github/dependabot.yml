@@ -19,7 +19,7 @@ updates:
           - "*"
 
   # 2026-08-08: extended from github-actions-only to pip/npm — real
-  # production dependencies (fastapi, pydantic, psycopg2, etc.) for a
+  # production dependencies (fastapi, pydantic, Psycopg 3, etc.) for a
   # service handling live user data, and every Dependabot PR already goes
   # through the full required-checks CI gauntlet before it can merge, so
   # the safety net for a bad bump already exists.

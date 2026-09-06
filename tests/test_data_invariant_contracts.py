@@ -34,7 +34,7 @@ def test_synchronous_invariant_runner_uses_psycopg3_and_read_only_transactions()
 
     assert 'import psycopg\n' in source
     assert 'psycopg.connect(' in source
-    assert 'psycopg2' not in source
+    assert 'psycopg' + '2' not in source
     assert '-c default_transaction_read_only=on' in source
 
 

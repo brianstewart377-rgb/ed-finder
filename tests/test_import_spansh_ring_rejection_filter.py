@@ -24,6 +24,7 @@ if IMPORTER_SRC not in sys.path:
     sys.path.insert(0, IMPORTER_SRC)
 
 os.environ.setdefault('DATABASE_URL', 'postgresql://test:test@localhost:5432/test')
+os.environ.setdefault('LOG_FILE', os.devnull)
 
 import import_spansh  # noqa: E402
 

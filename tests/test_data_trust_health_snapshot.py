@@ -14,7 +14,7 @@ def test_data_trust_snapshot_uses_psycopg3_read_only_connection():
 
     assert "import psycopg\n" in source
     assert "psycopg.connect(" in source
-    assert "psycopg2" not in source
+    assert "psycopg" + "2" not in source
     assert "-c default_transaction_read_only=on" in source
 
 
@@ -23,7 +23,7 @@ def test_telemetry_snapshot_uses_psycopg3_read_only_connection():
 
     assert "import psycopg\n" in source
     assert "psycopg.connect(" in source
-    assert "psycopg2" not in source
+    assert "psycopg" + "2" not in source
     assert "-c default_transaction_read_only=on" in source
 
 
