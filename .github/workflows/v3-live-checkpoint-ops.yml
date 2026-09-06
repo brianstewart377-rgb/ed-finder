@@ -1,0 +1,106 @@
+name: V3 live-checkpoint infrastructure ops
+
+on:
+  push:
+    branches:
+      - v3-checkpoint-ops-requests
+    paths:
+      - '.github/v3-checkpoint-ops-requests/*.json'
+
+permissions:
+  contents: read
+
+environments:
+  v3-live-checkpoint:
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    environment: v3-live-checkpoint
+    timeout-minutes: 45
+    steps:
+      - name: Checkout request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Validate one allowlisted request
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mapfile -t changed < <(git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA")
+          [ "${#changed[@]}" -eq 1 ] || { echo 'Expected exactly one request file' >&2; exit 64; }
+          file="${changed[0]}"
+          [[ "$file" == .github/v3-checkpoint-ops-requests/*.json ]] || { echo 'Request path is not allowlisted' >&2; exit 64; }
+          python - "$file" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1],encoding='utf-8'))
+          if d != {'operation':'provision'}:
+              raise SystemExit('Only exact {"operation":"provision"} is accepted')
+          PY
+      - name: Checkout trusted main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          path: trusted-main
+          persist-credentials: false
+      - name: Prepare pinned Contabo SSH trust
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$SSH_PORT" -le 65535 ]
+          mkdir -p ~/.ssh; chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_checkpoint_key; chmod 600 ~/.ssh/v3_checkpoint_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts; chmod 600 ~/.ssh/known_hosts
+          if [ "$SSH_PORT" = 22 ]; then lookup="$SSH_HOST"; else lookup="[$SSH_HOST]:$SSH_PORT"; fi
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Assemble source-only provisioning bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          b="$RUNNER_TEMP/bundle"; install -d -m 700 "$b/scripts/operator/actions" "$b/scripts" "$b/sql" "$b/deploy/v3-live-checkpoint"
+          install -m 700 trusted-main/scripts/operator/actions/v3-live-checkpoint-provision-v2.sh "$b/scripts/operator/actions/"
+          install -m 700 trusted-main/scripts/apply_migrations.sh trusted-main/scripts/seed_check.sh "$b/scripts/"
+          cp trusted-main/sql/migration-manifest.txt trusted-main/sql/seed_preview.sql "$b/sql/"
+          while IFS='|' read -r name mode; do
+            name="${name%%#*}"; name="${name//[[:space:]]/}"; [ -n "$name" ] || continue
+            install -m 600 "trusted-main/sql/$name" "$b/sql/$name"
+          done < trusted-main/sql/migration-manifest.txt
+          install -m 600 trusted-main/deploy/v3-live-checkpoint/target-authority.json "$b/deploy/v3-live-checkpoint/"
+      - name: Provision persistent Contabo checkpoint infrastructure
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          out="$RUNNER_TEMP/target-authority-candidate.json"
+          tar -C "$RUNNER_TEMP/bundle" -cf - . | ssh -i ~/.ssh/v3_checkpoint_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'set -eu; umask 077; w="$(mktemp -d)"; trap '\''rm -rf "$w"'\'' EXIT; tar -xf - -C "$w"; cd "$w"; sudo -n bash scripts/operator/actions/v3-live-checkpoint-provision-v2.sh' > "$out"
+          python -m json.tool "$out" >/dev/null
+          python - "$out" <<'PY'
+          import json,sys
+          d=json.load(open(sys.argv[1]))
+          assert d['status']=='authorized'
+          assert d['target']['provider']=='contabo'
+          assert d['target']['production'] is False
+          assert d['target']['hostname']=='vmi3542235'
+          assert d['blockers']==[]
+          PY
+          cat "$out"
+      - name: Upload sanitized authority candidate
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v3-live-checkpoint-target-authority-candidate
+          path: ${{ runner.temp }}/target-authority-candidate.json
+          if-no-files-found: error
+          retention-days: 7
