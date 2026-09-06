@@ -104,6 +104,10 @@ jobs:
         with:
           ref: main
           persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
       - name: Prepare pinned Contabo SSH trust
         shell: bash
         env:
@@ -183,6 +187,10 @@ jobs:
       actions: write
       contents: read
     steps:
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
       - name: Dispatch canonical immutable release
         shell: bash
         env:
@@ -222,6 +230,10 @@ jobs:
       actions: write
       contents: read
     steps:
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
       - name: Dispatch canonical live-checkpoint deploy
         shell: bash
         env:
