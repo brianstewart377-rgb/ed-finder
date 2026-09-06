@@ -153,7 +153,8 @@ describe('isolated V3 Review Lab', () => {
         summary.pageErrors.push(clean(event.reason)),
       );
       for (const type of ['error', 'warn'] as const) {
-        const browserConsole = (window as Window & { console: Console }).console;
+        const browserConsole = (window as Window & { console: Console })
+          .console;
         const original = browserConsole[type];
         browserConsole[type] = (...args: unknown[]) => {
           summary.consoleEntries.push({ type, text: clean(args.join(' ')) });
