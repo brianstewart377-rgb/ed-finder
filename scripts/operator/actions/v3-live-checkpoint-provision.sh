@@ -46,6 +46,21 @@ verify_exact_runners() {
   done
 }
 
+verify_origin_authority() {
+  local listener=""
+  listener="$(ss -lntH "sport = :$ORIGIN_PORT" 2>/dev/null || true)"
+  if [ -z "$listener" ]; then
+    return 0
+  fi
+  docker inspect edfinder-v3-checkpoint-web >/dev/null 2>&1 ||
+    fail "checkpoint origin port is occupied by an unauthorized process"
+  [ "$(docker inspect -f '{{.State.Running}}' edfinder-v3-checkpoint-web)" = true ] ||
+    fail "checkpoint origin port occupant is not a running checkpoint web container"
+  docker port edfinder-v3-checkpoint-web 8080/tcp 2>/dev/null |
+    grep -qx "127.0.0.1:$ORIGIN_PORT" ||
+    fail "checkpoint web container does not own the authorized loopback origin"
+}
+
 [ "$(id -u)" -eq 0 ] || fail "root authority required"
 [ "$(hostname -s)" = "$EXPECTED_HOST" ] || fail "unexpected host"
 [ "$(uname -m)" = "x86_64" ] || fail "unexpected architecture"
@@ -66,7 +81,17 @@ verify_exact_runners
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ca-certificates curl gnupg jq nginx openssl >/dev/null
+apt-get install -y -qq ca-certificates curl gnupg jq nginx openssl software-properties-common >/dev/null
+
+if ! command -v python3.14 >/dev/null 2>&1; then
+  add-apt-repository -y ppa:deadsnakes/ppa >/dev/null
+  apt-get update -qq
+  apt-get install -y -qq python3.14 >/dev/null
+fi
+python3.14 -c 'import platform,sys; raise SystemExit(0 if platform.python_implementation()=="CPython" and sys.version_info[:2]==(3,14) else 1)' ||
+  fail "checkpoint target requires exact CPython 3.14"
+ACTUAL_FQDN="$(python3.14 -c 'import socket; print(socket.getfqdn())')"
+[ "$ACTUAL_FQDN" = "$EXPECTED_FQDN" ] || fail "unexpected checkpoint FQDN"
 
 install -d -m 0755 /etc/apt/keyrings
 if [ ! -s /etc/apt/keyrings/docker.asc ]; then
@@ -90,6 +115,7 @@ apt-get install -y -qq \
 
 systemctl enable --now docker >/dev/null
 usermod -aG docker "$OP_USER"
+verify_origin_authority
 
 if ! docker network inspect "$APP_NETWORK" >/dev/null 2>&1; then
   docker network create --driver bridge "$APP_NETWORK" >/dev/null
@@ -100,7 +126,7 @@ NETWORK_SCOPE="$(docker network inspect "$APP_NETWORK" --format '{{.Scope}}')"
   fail "checkpoint app network is not a local bridge"
 NETWORK_GATEWAY="$(docker network inspect "$APP_NETWORK" --format '{{(index .IPAM.Config 0).Gateway}}')"
 NETWORK_SUBNET="$(docker network inspect "$APP_NETWORK" --format '{{(index .IPAM.Config 0).Subnet}}')"
-python3 - "$NETWORK_GATEWAY" "$NETWORK_SUBNET" <<'PY' || fail "invalid checkpoint network"
+python3.14 - "$NETWORK_GATEWAY" "$NETWORK_SUBNET" <<'PY' || fail "invalid checkpoint network"
 import ipaddress, sys
 address = ipaddress.ip_address(sys.argv[1])
 network = ipaddress.ip_network(sys.argv[2], strict=False)
@@ -144,7 +170,7 @@ fi
 
 DB_PASSWORD=""
 if [ -f "$API_ENV" ]; then
-  DB_PASSWORD="$(python3 - "$API_ENV" <<'PY'
+  DB_PASSWORD="$(python3.14 - "$API_ENV" <<'PY'
 import pathlib, sys, urllib.parse
 for line in pathlib.Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
     if line.startswith("DATABASE_URL="):
@@ -230,7 +256,7 @@ env PGDATABASE="$DATABASE_URL" psql -X -At -F '|' -q \
 
 RECEIPT_MODE=verify
 [ "$DB_CREATED" = false ] || RECEIPT_MODE=create
-python3 - "$RECEIPT_MODE" "$DB_AUTHORITY" "$OBSERVED_DB" "$OBSERVED_ADDRESS" "$OBSERVED_PORT" \
+python3.14 - "$RECEIPT_MODE" "$DB_AUTHORITY" "$OBSERVED_DB" "$OBSERVED_ADDRESS" "$OBSERVED_PORT" \
   "$LEDGER_FILE" "$SCHEMA_RECEIPT" <<'PY'
 import datetime, hashlib, json, pathlib, sys
 
@@ -271,6 +297,7 @@ database_identity = {
     "server_port": int(port),
 }
 receipt = pathlib.Path(receipt_path)
+captured_at = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 if receipt_mode == "create":
     document = {
@@ -279,9 +306,8 @@ if receipt_mode == "create":
         "database_identity": database_identity,
         "migration_set_identity": identity,
         "migration_set_entries": entries,
-        "captured_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "captured_at": captured_at,
     }
-    receipt.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 elif receipt_mode == "verify":
     document = json.loads(receipt.read_text(encoding="utf-8"))
     expected = {
@@ -294,16 +320,17 @@ elif receipt_mode == "verify":
     for key, value in expected.items():
         if document.get(key) != value:
             raise SystemExit(f"trusted schema receipt mismatch: {key}")
+    document["captured_at"] = captured_at
 else:
     raise SystemExit("unknown schema receipt mode")
+
+receipt.write_text(json.dumps(document, sort_keys=True, indent=2) + "\n", encoding="utf-8")
 PY
 rm -f -- "$LEDGER_FILE"
 LEDGER_FILE=""
 
-if [ "$DB_CREATED" = true ]; then
-  chown "$OP_UID:$OP_GID" "$SCHEMA_RECEIPT"
-  chmod 0600 "$SCHEMA_RECEIPT"
-fi
+chown "$OP_UID:$OP_GID" "$SCHEMA_RECEIPT"
+chmod 0600 "$SCHEMA_RECEIPT"
 SCHEMA_SHA="$(sha256sum "$SCHEMA_RECEIPT" | awk '{print $1}')"
 
 install -d -m 0700 -o "$OP_UID" -g "$OP_GID" "$DOCKER_CONFIG_DIR"
@@ -339,11 +366,12 @@ systemctl enable --now nginx >/dev/null
 systemctl reload nginx
 
 verify_exact_runners
+verify_origin_authority
 docker version >/dev/null
 docker compose version >/dev/null
 
 AUTHORITY_SOURCE="deploy/v3-live-checkpoint/target-authority.json"
-python3 - "$AUTHORITY_SOURCE" "$OP_UID" "$SCHEMA_SHA" <<'PY'
+python3.14 - "$AUTHORITY_SOURCE" "$OP_UID" "$SCHEMA_SHA" <<'PY'
 import datetime, json, pathlib, subprocess, sys
 
 source, uid, schema_sha = sys.argv[1:]
