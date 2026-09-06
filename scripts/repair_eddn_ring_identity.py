@@ -15,6 +15,9 @@ import sys
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 14):
+    raise SystemExit('repair_eddn_ring_identity.py requires exact CPython 3.14.x')
+
 
 DEFAULT_BATCH_SIZE = 500
 SUMMARY_KEYS = (

@@ -17,6 +17,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 14):
+    raise SystemExit('station_enrichment_guard.py requires exact CPython 3.14.x')
+
 
 DEFAULT_OUTPUT_ROOT = Path('/tmp/edfinder-station-enrichment')
 DEFAULT_ALL_RECORDS_CHECKPOINT = (

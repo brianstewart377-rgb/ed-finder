@@ -26,7 +26,8 @@ added here even when their original package is also in a lockfile.
 4. EDAssets is a discovery and provenance catalogue only. Its repository's MIT
    license and its statement about Frontier permission do not automatically
    license individual media files or transfer that permission to ED-Finder.
-5. Run `python scripts/checks/asset_provenance.py` before review. CI runs the
+5. Run `make check-python314 PYTHON=python3.14` and then
+   `python3.14 scripts/checks/asset_provenance.py` before review. CI runs the
    same guard and rejects missing public-file entries, stale entries, invalid
    fields, missing notice references, and SHA-256 drift.
 

@@ -23,10 +23,7 @@ classifiers = [
 #               -r apps/importer/requirements.txt
 
 [tool.ruff]
-# Named exception: py313 is the repository's Ruff lint/parser compatibility
-# target. It does not select a runtime; every executable Python surface remains
-# pinned to and verified as exact CPython 3.14.
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["B905", "E4", "E7", "E9", "F"]

@@ -19,7 +19,7 @@ FIXED_HEALTHCHECK = ('test: ["CMD-SHELL", "while read -r _ local _ state _; do i
 
 def _editor_source():
     source = ACTION.read_text(encoding="utf-8")
-    marker = 'if editor_state="$(python3 - "$COMPOSE_FILE" "$replacement_file" "$EXPECTED_HEALTHCHECK" <<\'PY\'\n'
+    marker = 'if editor_state="$("$PYTHON_BIN" - "$COMPOSE_FILE" "$replacement_file" "$EXPECTED_HEALTHCHECK" <<\'PY\'\n'
     return source.split(marker, 1)[1].split("\nPY\n)\"; then", 1)[0]
 
 

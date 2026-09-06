@@ -355,6 +355,7 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
             continue
 
         write_batch = []
+        cell_complete = True
 
         # Step 2: Compute 500 LY bubble for each anchor
         for anchor_id, anchor_x, anchor_y, anchor_z, anchor_score in anchors:
@@ -367,9 +368,15 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
                 )
                 row = cur.fetchone()
                 if not row or not row[0]:
+                    cell_complete = False
                     continue
                 anchor_cell = row[0]
             except Exception:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                cell_complete = False
                 continue
 
             # Decode cell coordinates from cell_id
@@ -401,9 +408,11 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
                     conn.rollback()
                 except Exception:
                     pass
+                cell_complete = False
                 continue
 
             if not row:
+                cell_complete = False
                 continue
 
             rd = _row_to_dict(cur.description, row)
@@ -447,15 +456,17 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
                         conn.rollback()
                     except Exception:
                         pass
+                    cell_complete = False
             except Exception as e:
                 print(f"[W{worker_id}] Write error: {e}", flush=True)
                 try:
                     conn.rollback()
                 except Exception:
                     pass
+                cell_complete = False
 
         # Clear dirty flags for systems in this macro-cell if dirty-only mode
-        if dirty_only:
+        if dirty_only and cell_complete:
             try:
                 _clear_cell_dirty_flags(conn, cur, macro_cell_id)
             except Exception as e:

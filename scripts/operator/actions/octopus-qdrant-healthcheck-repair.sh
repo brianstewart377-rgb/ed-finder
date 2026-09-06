@@ -12,9 +12,22 @@ QDRANT_RECREATED=false
 WEB_STARTED=false
 EXPECTED_HEALTHCHECK='test: ["CMD-SHELL", "while read -r _ local _ state _; do if [ $$state = 0A ]; then case $$local in *:18BD) exit 0;; esac; fi; done < /proc/net/tcp; while read -r _ local _ state _; do if [ $$state = 0A ]; then case $$local in *:18BD) exit 0;; esac; fi; done < /proc/net/tcp6; exit 1"]'
 
+if command -v python3.14 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3.14)"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"octopus-qdrant-healthcheck-repair","status":"stopped","reason":"python3_unavailable","qdrant_recreated":false,"web_started":false,"db_access_performed":false,"db_writes_performed":false}' >&2
+  exit 1
+fi
+if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+  printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"octopus-qdrant-healthcheck-repair","status":"stopped","reason":"python314_required","qdrant_recreated":false,"web_started":false,"db_access_performed":false,"db_writes_performed":false}' >&2
+  exit 1
+fi
+
 receipt() {
   local status="$1" reason="$2"
-  python3 - "$status" "$reason" "$BACKUP" "$QDRANT_RECREATED" "$WEB_STARTED" <<'PY'
+  "$PYTHON_BIN" - "$status" "$reason" "$BACKUP" "$QDRANT_RECREATED" "$WEB_STARTED" <<'PY'
 import json
 import sys
 
@@ -62,7 +75,7 @@ docker compose version >/dev/null 2>&1 || stop "docker_compose_missing"
 
 # Validate the rendered service identity without displaying interpolated values.
 read -r rendered_image rendered_web_image rendered_postgres_image < <(docker compose --project-directory "$OCTOPUS_DIR" -f "$COMPOSE_FILE" config --format json \
-  | python3 -c 'import json,sys; d=json.load(sys.stdin).get("services",{}); print((d.get("qdrant",{}) or {}).get("image", ""), (d.get("web",{}) or {}).get("image", ""), (d.get("postgres",{}) or {}).get("image", ""))') \
+  | "$PYTHON_BIN" -c 'import json,sys; d=json.load(sys.stdin).get("services",{}); print((d.get("qdrant",{}) or {}).get("image", ""), (d.get("web",{}) or {}).get("image", ""), (d.get("postgres",{}) or {}).get("image", ""))') \
   || stop "compose_render_failed"
 [ "$rendered_image" = "$EXPECTED_IMAGE" ] || stop "unexpected_qdrant_image"
 case "$rendered_web_image" in
@@ -79,7 +92,7 @@ current_qdrant_image="$(docker inspect --format '{{.Config.Image}}' "$current_qd
 # The editor accepts exactly one qdrant healthcheck block and exactly the known
 # wget /readyz failure mode. It changes only healthcheck.test, preserving timing.
 replacement_file="$(mktemp "$OCTOPUS_DIR/.qdrant-healthcheck.XXXXXX")"
-if editor_state="$(python3 - "$COMPOSE_FILE" "$replacement_file" "$EXPECTED_HEALTHCHECK" <<'PY'
+if editor_state="$("$PYTHON_BIN" - "$COMPOSE_FILE" "$replacement_file" "$EXPECTED_HEALTHCHECK" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -183,7 +196,7 @@ for _ in $(seq 1 60); do
 done
 [ "$healthy" = true ] || stop "qdrant_health_timeout"
 
-python3 - <<'PY' || stop "host_qdrant_readyz_failed"
+"$PYTHON_BIN" - <<'PY' || stop "host_qdrant_readyz_failed"
 from urllib.request import urlopen
 with urlopen("http://127.0.0.1:43333/readyz", timeout=5) as response:
     body = response.read(1024).decode("utf-8", "replace").strip()
@@ -206,7 +219,7 @@ WEB_STARTED=true
 
 web_ready=false
 for _ in $(seq 1 60); do
-  if python3 - <<'PY'
+  if "$PYTHON_BIN" - <<'PY'
 import json
 from urllib.request import urlopen
 

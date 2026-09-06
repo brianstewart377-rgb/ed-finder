@@ -270,6 +270,37 @@ def _enable_system_triggers(conn) -> None:
     _run_in_autocommit(conn, _enable)
 
 
+def _restore_system_triggers(conn, dsn: str) -> None:
+    """Restore globally disabled triggers, reconnecting if necessary."""
+    try:
+        _enable_system_triggers(conn)
+        return
+    except Exception as first_error:
+        log.warning(
+            "  Trigger restoration failed on the Stage 3 connection; "
+            f"retrying on a fresh direct connection: {first_error}"
+        )
+
+    recovery_conn = _connect_with_retry(dsn, label="trigger-restore")
+    try:
+        _enable_system_triggers(recovery_conn)
+    except Exception as recovery_error:
+        raise RuntimeError(
+            "FATAL: could not restore systems triggers after ALTER fallback"
+        ) from recovery_error
+    finally:
+        _safe_close(recovery_conn)
+
+
+def _run_with_trigger_restoration(conn, trigger_mode, operation, *, dsn: str):
+    """Run an operation and always reverse a global ALTER fallback."""
+    try:
+        return operation()
+    finally:
+        if trigger_mode == 'alter':
+            _restore_system_triggers(conn, dsn)
+
+
 # ---------------------------------------------------------------------------
 # Kill competing connections (non-blocking best-effort)
 # ---------------------------------------------------------------------------
@@ -475,7 +506,9 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     # ALTER TABLE ... DISABLE TRIGGER ALL requires table ownership.
     trigger_mode = None
     try:
-        trigger_mode = _set_replica_mode(write_conn, allow_alter_fallback=True)
+        # The outer Stage 3 guard owns the global ALTER fallback. This writer
+        # only needs the connection-scoped replica role.
+        trigger_mode = _set_replica_mode(write_conn)
         if trigger_mode == 'session':
             log.info("  ✓ RI triggers disabled via session_replication_role = replica")
         else:
@@ -512,17 +545,22 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
         for attempt in range(4):
             try:
-                write_cur.execute(f"""
+                write_cur.execute("""
                     UPDATE systems
                     SET grid_cell_id = (
-                        floor((x - {min_x!r}) / {cell_size!r})::bigint * 100000000 +
-                        floor((y - {min_y!r}) / {cell_size!r})::bigint * 10000 +
-                        floor((z - {min_z!r}) / {cell_size!r})::bigint
+                        floor((x - %s) / %s)::bigint * 100000000 +
+                        floor((y - %s) / %s)::bigint * 10000 +
+                        floor((z - %s) / %s)::bigint
                     )
                     WHERE ctid >= %s::tid
                       AND ctid <  %s::tid
                       AND grid_cell_id IS NULL
-                """, (ctid_lo, ctid_hi))
+                """, (
+                    min_x, cell_size,
+                    min_y, cell_size,
+                    min_z, cell_size,
+                    ctid_lo, ctid_hi,
+                ))
                 rows_updated = write_cur.rowcount
                 write_conn.commit()
                 total_updated += rows_updated
@@ -537,6 +575,10 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                     _safe_close(write_conn)
                 except Exception:
                     pass
+                rows_updated = 0
+                if attempt == 3:
+                    log.error(f"  FATAL: 4 retries failed on page {current_page}")
+                    raise
                 wait = 15 * (attempt + 1)
                 log.info(f"  Reconnecting in {wait}s ...")
                 time.sleep(wait)
@@ -548,10 +590,6 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                     log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying batch {batch_num}")
-                rows_updated = 0
-                if attempt == 3:
-                    log.error(f"  FATAL: 4 retries failed on page {current_page}")
-                    raise
 
             except Exception as e:
                 log.error(f"  Unexpected error on batch {batch_num} page {current_page}: {e}")
@@ -611,14 +649,6 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
     progress.finish()
     
-    # Only ALTER TABLE changes global table state and needs explicit reversal.
-    if trigger_mode == 'alter':
-        try:
-            _enable_system_triggers(write_conn)
-            log.info("  ✓ Triggers re-enabled")
-        except Exception as enable_error:
-            log.warning(f"  Could not re-enable triggers: {enable_error}")
-
     write_cur.close()
     _safe_close(write_conn)
 
@@ -1100,39 +1130,44 @@ Strategies:
         crash_hint(log, "from Stage 2 (cells rebuilt automatically on next run)")
         t0 = time.time()
 
-        cur.execute(f"""
+        cur.execute("""
             INSERT INTO spatial_grid
                 (cell_id, cell_x, cell_y, cell_z,
                  min_x, max_x, min_y, max_y, min_z, max_z,
                  system_count)
             WITH cells AS (
                 SELECT
-                    floor((x - {min_x!r}) / {cell_size!r})::bigint AS cx,
-                    floor((y - {min_y!r}) / {cell_size!r})::bigint AS cy,
-                    floor((z - {min_z!r}) / {cell_size!r})::bigint AS cz,
+                    floor((x - %(min_x)s) / %(cell_size)s)::bigint AS cx,
+                    floor((y - %(min_y)s) / %(cell_size)s)::bigint AS cy,
+                    floor((z - %(min_z)s) / %(cell_size)s)::bigint AS cz,
                     COUNT(*) AS cnt
                 FROM systems
                 GROUP BY
-                    floor((x - {min_x!r}) / {cell_size!r}),
-                    floor((y - {min_y!r}) / {cell_size!r}),
-                    floor((z - {min_z!r}) / {cell_size!r})
+                    floor((x - %(min_x)s) / %(cell_size)s),
+                    floor((y - %(min_y)s) / %(cell_size)s),
+                    floor((z - %(min_z)s) / %(cell_size)s)
             )
             SELECT
                 (cx * 100000000 + cy * 10000 + cz) AS cell_id,
                 cx::smallint,
                 cy::smallint,
                 cz::smallint,
-                (cx * {cell_size!r} + {min_x!r})::real,
-                (cx * {cell_size!r} + {min_x!r} + {cell_size!r})::real,
-                (cy * {cell_size!r} + {min_y!r})::real,
-                (cy * {cell_size!r} + {min_y!r} + {cell_size!r})::real,
-                (cz * {cell_size!r} + {min_z!r})::real,
-                (cz * {cell_size!r} + {min_z!r} + {cell_size!r})::real,
+                (cx * %(cell_size)s + %(min_x)s)::real,
+                (cx * %(cell_size)s + %(min_x)s + %(cell_size)s)::real,
+                (cy * %(cell_size)s + %(min_y)s)::real,
+                (cy * %(cell_size)s + %(min_y)s + %(cell_size)s)::real,
+                (cz * %(cell_size)s + %(min_z)s)::real,
+                (cz * %(cell_size)s + %(min_z)s + %(cell_size)s)::real,
                 cnt
             FROM cells
             ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
                 system_count = EXCLUDED.system_count
-        """)
+        """, {
+            'min_x': min_x,
+            'min_y': min_y,
+            'min_z': min_z,
+            'cell_size': cell_size,
+        })
         conn.commit()
         cur.execute("SELECT COUNT(*) FROM spatial_grid")
         cell_count = cur.fetchone()[0]
@@ -1204,39 +1239,38 @@ Strategies:
         else:
             log.warning("  --no-disable-triggers set — RI triggers remain active (SLOW!)")
 
-        if strategy == 'parallel':
+        def _assign_grid_cells():
+            if strategy == 'parallel':
+                stage3_parallel(
+                    dsn=DB_DSN,
+                    min_x=min_x,
+                    min_y=min_y,
+                    min_z=min_z,
+                    cell_size=cell_size,
+                    workers=6,
+                    batch_size=250_000,
+                )
+                return 0, conn, cur
 
-            stage3_parallel(
-                dsn=DB_DSN,
-                min_x=min_x,
-                min_y=min_y,
-                min_z=min_z,
-                cell_size=cell_size,
-                workers=6,
-                batch_size=250_000,
+            if strategy == 'formula':
+                return stage3_formula(
+                    conn, cur, min_x, min_y, min_z,
+                    cell_size, total_systems, already_assigned,
+                    pages_per_batch=pages_per_batch)
+
+            return (
+                stage3_batched_cells(
+                    conn, cur, cell_count, already_assigned, total_systems,
+                ),
+                conn,
+                cur,
             )
 
-            total_rows_updated = 0
-
-        elif strategy == 'formula':
-
-            total_rows_updated, conn, cur = stage3_formula(
-                conn, cur, min_x, min_y, min_z,
-                cell_size, total_systems, already_assigned,
-                pages_per_batch=pages_per_batch)
-
-        else:
-
-            total_rows_updated = stage3_batched_cells(
-                conn, cur, cell_count, already_assigned, total_systems)
-
-        # Re-enable triggers if we disabled via ALTER TABLE
+        total_rows_updated, conn, cur = _run_with_trigger_restoration(
+            conn, disable_triggers, _assign_grid_cells, dsn=dsn,
+        )
         if disable_triggers == 'alter':
-            try:
-                _enable_system_triggers(conn)
-                log.info("  ✓ Triggers re-enabled via ALTER TABLE")
-            except Exception as e:
-                log.warning(f"  Could not re-enable triggers: {e} (reconnect will restore)")
+            log.info("  ✓ Triggers re-enabled via ALTER TABLE")
         # session_replication_role = replica reverts automatically on disconnect
 
         # Reconnect in case the long Stage 3 connection timed out
@@ -1284,37 +1318,42 @@ Strategies:
         if macro_cells_existing == 0:
             log.info("  Building macro_grid table ...")
             t0 = time.time()
-            cur.execute(f"""
+            cur.execute("""
                 INSERT INTO macro_grid
                     (cell_id, cell_x, cell_y, cell_z,
                      min_x, max_x, min_y, max_y, min_z, max_z,
                      system_count)
                 WITH cells AS (
                     SELECT
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint AS cx,
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint AS cy,
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint AS cz,
+                        floor((x - %(min_x)s) / %(cell_size)s)::bigint AS cx,
+                        floor((y - %(min_y)s) / %(cell_size)s)::bigint AS cy,
+                        floor((z - %(min_z)s) / %(cell_size)s)::bigint AS cz,
                         COUNT(*) AS cnt
                     FROM systems
                     GROUP BY
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r}),
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r}),
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})
+                        floor((x - %(min_x)s) / %(cell_size)s),
+                        floor((y - %(min_y)s) / %(cell_size)s),
+                        floor((z - %(min_z)s) / %(cell_size)s)
                 )
                 SELECT
                     (cx * 100000000 + cy * 10000 + cz) AS cell_id,
                     cx::smallint, cy::smallint, cz::smallint,
-                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r})::real,
-                    (cx * {MACRO_CELL_SIZE!r} + {min_x!r} + {MACRO_CELL_SIZE!r})::real,
-                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r})::real,
-                    (cy * {MACRO_CELL_SIZE!r} + {min_y!r} + {MACRO_CELL_SIZE!r})::real,
-                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r})::real,
-                    (cz * {MACRO_CELL_SIZE!r} + {min_z!r} + {MACRO_CELL_SIZE!r})::real,
+                    (cx * %(cell_size)s + %(min_x)s)::real,
+                    (cx * %(cell_size)s + %(min_x)s + %(cell_size)s)::real,
+                    (cy * %(cell_size)s + %(min_y)s)::real,
+                    (cy * %(cell_size)s + %(min_y)s + %(cell_size)s)::real,
+                    (cz * %(cell_size)s + %(min_z)s)::real,
+                    (cz * %(cell_size)s + %(min_z)s + %(cell_size)s)::real,
                     cnt
                 FROM cells
                 ON CONFLICT (cell_x, cell_y, cell_z) DO UPDATE SET
                     system_count = EXCLUDED.system_count
-            """)
+            """, {
+                'min_x': min_x,
+                'min_y': min_y,
+                'min_z': min_z,
+                'cell_size': MACRO_CELL_SIZE,
+            })
             conn.commit()
             cur.execute("SELECT COUNT(*) FROM macro_grid")
             macro_cell_count = cur.fetchone()[0]
@@ -1346,7 +1385,7 @@ Strategies:
 
             while not _shutdown:
 
-                cur.execute(f"""
+                cur.execute("""
                     WITH batch AS (
                         SELECT id64
                         FROM systems
@@ -1357,13 +1396,18 @@ Strategies:
                     )
                     UPDATE systems s
                     SET macro_grid_id = (
-                        floor((x - {min_x!r}) / {MACRO_CELL_SIZE!r})::bigint * 100000000 +
-                        floor((y - {min_y!r}) / {MACRO_CELL_SIZE!r})::bigint * 10000 +
-                        floor((z - {min_z!r}) / {MACRO_CELL_SIZE!r})::bigint
+                        floor((x - %(min_x)s) / %(cell_size)s)::bigint * 100000000 +
+                        floor((y - %(min_y)s) / %(cell_size)s)::bigint * 10000 +
+                        floor((z - %(min_z)s) / %(cell_size)s)::bigint
                     )
                     FROM batch
                     WHERE s.id64 = batch.id64
-                """)
+                """, {
+                    'min_x': min_x,
+                    'min_y': min_y,
+                    'min_z': min_z,
+                    'cell_size': MACRO_CELL_SIZE,
+                })
 
                 rows = cur.rowcount
 

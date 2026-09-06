@@ -4,12 +4,20 @@ set -euo pipefail
 # This is deliberately a read-only, stopped preflight. It must not grow a
 # live-checkpoint deployment command until every item below has reviewed V3
 # authority. Contabo is a live-checkpoint environment, not production.
-if ! command -v python3 >/dev/null 2>&1; then
+if command -v python3.14 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3.14)"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+else
     printf '%s\n' '{"schema_version":"ed-finder/v3-application-live-checkpoint-preflight/v1","operation":"v3-application-live-checkpoint-deploy-preflight","status":"stopped","target":{"provider":"contabo","classification":"live-checkpoint","production":false},"failures":["python3_unavailable"],"service_changes_performed":false,"filesystem_writes_performed":false,"database_access_performed":false}'
     exit 78
 fi
+if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+    printf '%s\n' '{"schema_version":"ed-finder/v3-application-live-checkpoint-preflight/v1","operation":"v3-application-live-checkpoint-deploy-preflight","status":"stopped","target":{"provider":"contabo","classification":"live-checkpoint","production":false},"failures":["python314_required"],"service_changes_performed":false,"filesystem_writes_performed":false,"database_access_performed":false}'
+    exit 78
+fi
 
-exec python3 - <<'PY'
+exec "$PYTHON_BIN" - <<'PY'
 from __future__ import annotations
 
 import json

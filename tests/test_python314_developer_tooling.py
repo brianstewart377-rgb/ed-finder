@@ -28,7 +28,7 @@ def _read(*parts: str) -> str:
 def test_current_developer_launchers_and_docs_have_no_pre314_fallback(parts: tuple[str, ...]):
     source = _read(*parts)
 
-    assert re.search(r"\b3\.(?:11|12)\b", source) is None
+    assert re.search(r"\b3\.(?:11|12|13)\b", source) is None
 
 
 def test_windows_bootstrap_selects_and_verifies_exact_cpython314():

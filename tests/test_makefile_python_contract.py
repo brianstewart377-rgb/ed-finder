@@ -29,7 +29,7 @@ def test_makefile_python_targets_fail_closed_on_exact_cpython314():
     for target in (
         'data-invariants', 'test', 'test-env-check', 'state-check',
         'state-check-docs', 'test-unit', 'test-operator', 'test-db',
-        'test-db-isolation', 'test-integration', 'api-smoke',
+        'test-db-isolation', 'test-integration', 'api-smoke', 'lint',
     ):
         assert f'{target}: check-python314' in makefile
 
@@ -41,6 +41,14 @@ def test_makefile_test_target_uses_configured_python_variable_everywhere():
     assert '\t$(PYTHON) -m pytest tests/integration/ -q' in makefile
     assert '\tpython -m unittest discover -s tests -p test_smoke.py' not in makefile
     assert '\tpython -m pytest tests/integration/ -q' not in makefile
+
+
+def test_makefile_lint_uses_exact_checked_python_and_full_ruff_scope():
+    makefile = ROOT.joinpath('Makefile').read_text(encoding='utf-8')
+
+    assert 'lint: check-python314' in makefile
+    assert '$(PYTHON) -m ruff check apps tests scripts shared_contracts' in makefile
+    assert '\truff check ' not in makefile
 
 
 def test_makefile_exports_python_policy_without_shell_specific_assignment():

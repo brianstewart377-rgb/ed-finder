@@ -9,6 +9,9 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 14):
+    raise SystemExit('review_environment.py requires exact CPython 3.14.x')
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))

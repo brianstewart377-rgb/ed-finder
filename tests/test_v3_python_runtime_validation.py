@@ -15,8 +15,13 @@ EXPECTED_SYNC = (
     "--no-install-project"
 )
 LEGACY_DRIVER = "psycopg" + "2"
-OLD_PYTHON = re.compile(r"(?<![\d.])3\.(?:11|12)(?![\d.])")
-OLD_VERSION_FRAGMENTS = ("3." + "11", "3." + "12")
+OLD_PYTHON = re.compile(
+    r"(?i)(?:(?:cpython|python)\s+3\.(?:11|12|13)\b|"
+    r"python-version\s*:\s*['\"]?3\.(?:11|12|13)\b|"
+    r"FROM\s+python:3\.(?:11|12|13)\b|"
+    r"python3\.(?:11|12|13)\b|py\s+-3\.(?:11|12|13)\b|"
+    r"\b(?:py|cp)3(?:11|12|13)\b)"
+)
 
 
 def _workflow(filename: str) -> dict:
@@ -117,10 +122,7 @@ def test_python_project_and_container_authorities_are_exactly_314():
 
     assert root_project["project"]["requires-python"] == ">=3.14,<3.15"
     assert root_project["project"]["classifiers"] == ["Programming Language :: Python :: 3.14"]
-    assert root_project["tool"]["ruff"]["target-version"] == "py313"
-    root_manifest = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert "py313 is the repository's Ruff lint/parser compatibility" in root_manifest
-    assert "It does not select a runtime" in root_manifest
+    assert root_project["tool"]["ruff"]["target-version"] == "py314"
     assert api_project["project"]["requires-python"] == ">=3.14,<3.15"
 
     for path in (
@@ -215,7 +217,7 @@ def test_repository_legacy_strings_are_only_historical_or_non_python_data():
         relative = path.relative_to(ROOT).as_posix()
         if LEGACY_DRIVER in text.lower():
             driver_hits.add(relative)
-        if any(fragment in text for fragment in OLD_VERSION_FRAGMENTS):
+        if OLD_PYTHON.search(text):
             old_version_hits.add(relative)
 
     assert driver_hits == {
@@ -228,12 +230,7 @@ def test_repository_legacy_strings_are_only_historical_or_non_python_data():
         assert "Historical implementation evidence only" in text or "RESOLVED" in text
 
     assert old_version_hits == {
-        "apps/api/uv.lock",  # package artifact upload timestamp
-        "apps/web/pnpm-lock.yaml",  # JavaScript package version
-        "apps/web/pnpm-workspace.yaml",  # JavaScript package version
-        "docs/colonisation-redesign/edastro-data-source-inventory.md",  # GiB measurement
-        "frontend/public/assets/elite-dangerous-region-map.svg",  # path coordinates
-        "frontend/yarn.lock",  # JavaScript package versions
+        "apps/api/uv.lock",  # platform-specific wheel filenames for dependencies
     }
 
 

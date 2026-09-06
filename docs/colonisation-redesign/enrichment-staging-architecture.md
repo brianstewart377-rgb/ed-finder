@@ -202,7 +202,8 @@ integration path.
 Run from the repo root:
 
 ```sh
-python3 apps/importer/src/enrichment_snapshot_loader.py \
+make check-python314 PYTHON=python3.14
+python3.14 apps/importer/src/enrichment_snapshot_loader.py \
     --source edsm_nightly_stations \
     --source-file tests/fixtures/edsm_station_snapshot.json \
     --json
@@ -211,7 +212,8 @@ python3 apps/importer/src/enrichment_snapshot_loader.py \
 For gzip input:
 
 ```sh
-python3 apps/importer/src/enrichment_snapshot_loader.py \
+make check-python314 PYTHON=python3.14
+python3.14 apps/importer/src/enrichment_snapshot_loader.py \
     --source edsm_nightly_stations \
     --source-file path/to/local-edsm-stations.json.gz \
     --limit 1000 \
@@ -307,4 +309,3 @@ analytics around staged station/body/ring evidence, improve candidate quality
 signals, and add more skipped-by-default smoke coverage. Any future canonical
 write path is out of scope until it has a separate design, safety review, and
 test plan.
-

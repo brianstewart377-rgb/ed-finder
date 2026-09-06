@@ -93,8 +93,8 @@ api-smoke: check-python314  ## Curl the Phase-2 happy paths against a running AP
 typecheck:  ## yarn typecheck the frontend
 	cd frontend && yarn typecheck
 
-lint:  ## ruff backend + eslint frontend
-	ruff check apps tests
+lint: check-python314  ## ruff backend + eslint frontend
+	$(PYTHON) -m ruff check apps tests scripts shared_contracts
 	cd frontend && yarn lint
 
 dev-test:  ## Open Cypress for interactive browser testing

@@ -120,6 +120,12 @@ def test_cluster_reconnect_failure_rolls_back_new_connection(monkeypatch, tmp_pa
         'total_viable': 0,
     })
     monkeypatch.setattr(build_clusters, 'compute_coverage_score', lambda _row: 0)
+    cleared_cells = []
+    monkeypatch.setattr(
+        build_clusters,
+        '_clear_cell_dirty_flags',
+        lambda _conn, _cur, cell_id: cleared_cells.append(cell_id),
+    )
 
     build_clusters.worker_fn(
         1,
@@ -128,12 +134,13 @@ def test_cluster_reconnect_failure_rolls_back_new_connection(monkeypatch, tmp_pa
         'postgresql://test.invalid/db',
         500.0,
         1,
-        False,
+        True,
     )
 
     assert first.cursor_obj.closed is True
     assert first.closed is True
     assert second.rollbacks == 1
+    assert cleared_cells == []
 
 
 def test_full_rebuild_only_clears_genuinely_dirty_eligible_systems():

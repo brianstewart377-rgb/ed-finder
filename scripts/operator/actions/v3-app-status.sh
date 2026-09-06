@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if ! command -v python3 >/dev/null 2>&1; then
+if command -v python3.14 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3.14)"
+elif command -v python3 >/dev/null 2>&1; then
+    PYTHON_BIN="$(command -v python3)"
+else
     printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-app-status","status":"stopped","failures":["python3_unavailable"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"oauth_login_started":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
     exit 1
 fi
+if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+    printf '%s\n' '{"schema_version":"ed-finder/operator-operation-result/v1","operation":"v3-app-status","status":"stopped","failures":["python314_required"],"read_only":true,"direct_db_access_performed":false,"db_writes_performed":false,"oauth_login_started":false,"env_files_read":false,"private_keys_read":false,"service_changes_performed":false,"filesystem_writes_performed":false}'
+    exit 1
+fi
 
-exec python3 - <<'PY'
+exec "$PYTHON_BIN" - <<'PY'
 from __future__ import annotations
 
 import hashlib

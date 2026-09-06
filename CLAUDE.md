@@ -107,8 +107,7 @@ exact CPython 3.14. The deployable V3 API uses uv 0.11.33 and the frozen
 asynchronous PostgreSQL access; active synchronous/importer PostgreSQL paths
 use pinned Psycopg 3. The Codex worker, repository tooling, importer, canonical
 safety, and static-contract lanes follow the same CPython 3.14 authority.
-Ruff's `py313` setting is a grammar-compatibility exception only and does not
-select an interpreter or runtime.
+Ruff targets `py314` so its parser and lint contract matches the exact runtime.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 

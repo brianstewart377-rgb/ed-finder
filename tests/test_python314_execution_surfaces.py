@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -9,6 +11,14 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_REQUIRES_PYTHON = ">=3.14,<3.15"
+CURRENT_OPERATOR_ACTIONS = (
+    "octopus-edge-status.sh",
+    "octopus-qdrant-healthcheck-repair.sh",
+    "remove-ollama.sh",
+    "v3-app-live-checkpoint-preflight.sh",
+    "v3-app-status.sh",
+    "v3-derived-data-status.sh",
+)
 
 
 def _active_execution_surfaces() -> list[Path]:
@@ -53,10 +63,6 @@ def test_active_execution_surfaces_only_select_python314() -> None:
         for line_number, line in enumerate(
             path.read_text(encoding="utf-8-sig").splitlines(), start=1
         ):
-            # Ruff's py313 setting is a documented grammar-only exception,
-            # not an interpreter/runtime selection.
-            if path == ROOT / "pyproject.toml" and "py313" in line:
-                continue
             for pattern in PYTHON_SELECTORS:
                 for match in pattern.finditer(line):
                     if int(match.group("minor")) != 14:
@@ -108,9 +114,8 @@ def test_all_python_workflow_jobs_setup_exact_cpython314_before_use() -> None:
                 assert min(setup_indexes) < min(python_indexes), (path.name, job_name)
 
 
-def test_python_projects_publish_exact_314_and_lint_exception_is_non_runtime() -> None:
+def test_python_projects_and_ruff_target_exact_314() -> None:
     root_text = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    repository_authority = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     root_project = tomllib.loads(root_text)
     api_project = tomllib.loads(
         (ROOT / "apps" / "api" / "pyproject.toml").read_text(encoding="utf-8")
@@ -121,7 +126,81 @@ def test_python_projects_publish_exact_314_and_lint_exception_is_non_runtime() -
     assert root_project["project"]["classifiers"] == [
         "Programming Language :: Python :: 3.14"
     ]
-    assert root_project["tool"]["ruff"]["target-version"] == "py313"
-    assert "It does not select a runtime" in root_text
-    assert "grammar-compatibility exception only" in repository_authority
-    assert "does not\nselect an interpreter or runtime" in repository_authority
+    assert root_project["tool"]["ruff"]["target-version"] == "py314"
+
+
+def test_importer_image_verifies_exact_cpython314_before_install() -> None:
+    dockerfile = (ROOT / "apps" / "importer" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+
+    runtime_check = dockerfile.index("platform.python_implementation() == 'CPython'")
+    dependency_install = dockerfile.index("python -m pip install")
+    assert "sys.version_info[:2] == (3, 14)" in dockerfile
+    assert runtime_check < dependency_install
+
+
+def test_current_remote_operator_actions_reject_non_cpython314_before_work(
+    tmp_path: Path,
+) -> None:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_python = fake_bin / "python3"
+    fake_python.write_text("#!/bin/sh\nexit 1\n", encoding="utf-8")
+    fake_python.chmod(0o755)
+    env = {**os.environ, "PATH": str(fake_bin)}
+
+    for script_name in CURRENT_OPERATOR_ACTIONS:
+        action = ROOT / "scripts" / "operator" / "actions" / script_name
+        source = action.read_text(encoding="utf-8")
+        assert "command -v python3.14" in source
+        assert "platform.python_implementation()" in source
+        assert "sys.version_info[:2] == (3, 14)" in source
+
+        result = subprocess.run(
+            ["/bin/bash", str(action)],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode != 0, script_name
+        assert "python314_required" in result.stdout + result.stderr, script_name
+
+
+def test_host_shell_launchers_select_and_verify_exact_cpython314() -> None:
+    enrichment_launcher = (
+        ROOT / "scripts" / "run_station_enrichment_guarded.sh"
+    ).read_text(encoding="utf-8")
+    assert "command -v python3.14" in enrichment_launcher
+    assert "platform.python_implementation()" in enrichment_launcher
+    assert "sys.version_info[:2] == (3, 14)" in enrichment_launcher
+    assert enrichment_launcher.index("sys.version_info[:2] == (3, 14)") < (
+        enrichment_launcher.index("station_enrichment_guard.py")
+    )
+
+    for relative in (
+        "scripts/apply_migrations.sh",
+        "scripts/baseline_migration_ledger.sh",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "command -v python3.14" in source
+        assert "platform.python_implementation()" in source
+        assert "sys.version_info[:2] == (3, 14)" in source
+        assert "command -v python3 >" not in source
+        assert "command -v python >" not in source
+
+
+def test_directly_executable_python_tools_reject_non_cpython314() -> None:
+    for relative in (
+        "scripts/dev/review_environment.py",
+        "scripts/repair_eddn_ring_identity.py",
+        "scripts/station_enrichment_guard.py",
+        "scripts/station_enrichment_status.py",
+    ):
+        path = ROOT / relative
+        assert path.stat().st_mode & 0o111, relative
+        source = path.read_text(encoding="utf-8")
+        assert "sys.implementation.name != 'cpython'" in source
+        assert "sys.version_info[:2] != (3, 14)" in source

@@ -109,7 +109,7 @@ Before a repository change, run the strict state resolver and the focused tests
 for the touched surface:
 
 ```bash
-python3 scripts/dev/resolve_project_state.py --strict
+make state-check
 ```
 
 ## Operations boundary
