@@ -42,7 +42,7 @@
   },
   "application_contract": {
     "compose_project": "edfinder-v3-checkpoint",
-    "compose_sha256": "200d8c3047e0f975435a98d5cf3dfb06b8478bd64d8e073767eeeb09a6136d81",
+    "compose_sha256": "f1a56dcd587a24e0513d12577c7af416d6e94f7f2ef5cc5f7d72e58a45386bcd",
     "services": {
       "api": {
         "container_name": "edfinder-v3-checkpoint-api",

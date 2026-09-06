@@ -13,6 +13,9 @@ services:
     environment:
       BUILD_SHA: ${V3_CHECKPOINT_SOURCE_SHA:?exact source SHA is required}
       EDDN_SIMULATION_INGEST_ENABLED: "false"
+      # This checkpoint is authorized for read-only DB access. Disable only
+      # the standard startup recovery UPDATE against admin_job_runs.
+      ADMIN_OPERATION_STARTUP_REAP_ENABLED: "false"
       # Cache is optional for core Finder/Inspect correctness. No cache service
       # is owned by this project, and an unavailable endpoint degrades safely.
       REDIS_URL: redis://127.0.0.1:1/0

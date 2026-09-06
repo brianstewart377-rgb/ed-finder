@@ -7,6 +7,7 @@ import argparse
 import fcntl
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import os
 import re
@@ -15,9 +16,11 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,8 +30,8 @@ DEFAULT_AUTHORITY = ROOT / "deploy/v3-live-checkpoint/target-authority.json"
 DEFAULT_COMPOSE = ROOT / "deploy/v3-live-checkpoint/compose.yml"
 TARGET_SCHEMA = "ed-finder/v3-live-checkpoint-target-authority/v1"
 RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-deployment-receipt/v1"
-CURRENT_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-current-receipt/v1"
-SCHEMA_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-schema-identity/v1"
+CURRENT_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-current-receipt/v2"
+SCHEMA_RECEIPT_SCHEMA = "ed-finder/v3-live-checkpoint-schema-identity/v2"
 PROJECT = "edfinder-v3-checkpoint"
 TARGET_HOSTNAME = "vmi3542235"
 TARGET_FQDN = "vmi3542235.contaboserver.net"
@@ -52,6 +55,12 @@ RUN_ID = re.compile(r"[1-9][0-9]{0,19}\Z")
 LOOPBACK_ORIGIN = re.compile(r"http://127\.0\.0\.1:([1-9][0-9]{0,4})\Z")
 MAX_JSON_BYTES = 1024 * 1024
 MAX_SMOKE_BYTES = 2 * 1024 * 1024
+SCHEMA_RECEIPT_MAX_AGE = timedelta(hours=24)
+SCHEMA_RECEIPT_FUTURE_TOLERANCE = timedelta(minutes=5)
+READINESS_TIMEOUT_SECONDS = 120.0
+READINESS_INTERVAL_SECONDS = 2.0
+ORIGIN_REQUEST_TIMEOUT_SECONDS = 10.0
+DATABASE_QUERY_TIMEOUT_SECONDS = 10
 
 
 class DeploymentError(ValueError):
@@ -256,6 +265,192 @@ def stopped_receipt(authority: dict[str, Any], failures: list[str]) -> dict[str,
     }
 
 
+def validate_database_identity(value: object) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "database_name",
+        "server_address",
+        "server_port",
+    }:
+        raise DeploymentError("schema receipt database identity is invalid")
+    database_name = value.get("database_name")
+    server_address = value.get("server_address")
+    server_port = value.get("server_port")
+    if not isinstance(database_name, str) or not re.fullmatch(
+        r"[A-Za-z0-9_.-]{1,63}", database_name
+    ):
+        raise DeploymentError("schema receipt database name is invalid")
+    try:
+        if not isinstance(server_address, str):
+            raise ValueError
+        ipaddress.ip_address(server_address)
+    except ValueError as exc:
+        raise DeploymentError("schema receipt database address is invalid") from exc
+    if not isinstance(server_port, int) or not 1 <= server_port <= 65535:
+        raise DeploymentError("schema receipt database port is invalid")
+    return value
+
+
+def read_checkpoint_database_url(
+    api_env_path: Path, *, on_read: Callable[[], None] | None = None
+) -> str:
+    """Read only the exact Compose-compatible DATABASE_URL assignment.
+
+    The checkpoint contract deliberately requires a single unquoted literal URL.
+    Rejecting interpolation and shell syntax makes the value used here identical
+    to the value Compose gives the API without evaluating the env file.
+    """
+
+    try:
+        if api_env_path.stat().st_size > MAX_JSON_BYTES:
+            raise DeploymentError("authorized api_env_file exceeds the size limit")
+        lines = api_env_path.read_text(encoding="utf-8").splitlines()
+        if on_read is not None:
+            on_read()
+    except DeploymentError:
+        raise
+    except (OSError, UnicodeDecodeError) as exc:
+        raise DeploymentError("unable to read authorized api_env_file") from exc
+    values: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key.strip() == "DATABASE_URL":
+            values.append(value.strip())
+    if len(values) != 1:
+        raise DeploymentError("api_env_file must contain exactly one DATABASE_URL")
+    database_url = values[0]
+    if (
+        not database_url
+        or any(character.isspace() for character in database_url)
+        or database_url[0] in {'"', "'"}
+        or "$" in database_url
+        or "#" in database_url
+    ):
+        raise DeploymentError("api_env_file DATABASE_URL must be an unquoted literal")
+    try:
+        parsed = urllib.parse.urlsplit(database_url)
+        database_name = urllib.parse.unquote(parsed.path.removeprefix("/"))
+        port = parsed.port or 5432
+        query_keys = {
+            key.lower() for key, _value in urllib.parse.parse_qsl(parsed.query)
+        }
+    except ValueError as exc:
+        raise DeploymentError("api_env_file DATABASE_URL is invalid") from exc
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or not parsed.hostname
+        or not database_name
+        or "/" in database_name
+        or parsed.fragment
+        or "options" in query_keys
+        or not 1 <= port <= 65535
+    ):
+        raise DeploymentError("api_env_file DATABASE_URL is invalid")
+    return database_url
+
+
+def verify_database_schema(
+    api_env_path: Path,
+    schema_receipt: dict[str, Any],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+    *,
+    on_env_file_read: Callable[[], None] | None = None,
+    on_query_completed: Callable[[], None] | None = None,
+) -> None:
+    """Verify database and ledger identity through a bounded read-only query."""
+
+    database_url = read_checkpoint_database_url(api_env_path, on_read=on_env_file_read)
+    expected_identity = validate_database_identity(
+        schema_receipt.get("database_identity")
+    )
+    expected_entries = schema_receipt["migration_set_entries"]
+    database_env = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        # libpq accepts a connection URI through PGDATABASE. Keeping it out of
+        # argv and error text prevents credentials from entering receipts/logs.
+        "PGDATABASE": database_url,
+        "PGCONNECT_TIMEOUT": str(DATABASE_QUERY_TIMEOUT_SECONDS),
+        "PGOPTIONS": (
+            "-c default_transaction_read_only=on "
+            f"-c statement_timeout={DATABASE_QUERY_TIMEOUT_SECONDS * 1000}"
+        ),
+    }
+    query = """
+SELECT json_build_object(
+  'database_name', current_database(),
+  'server_address', inet_server_addr()::text,
+  'server_port', inet_server_port(),
+  'transaction_read_only', current_setting('transaction_read_only'),
+  'migrations', COALESCE((
+    SELECT json_agg(
+      json_build_object('filename', filename, 'checksum_sha256', checksum_sha256)
+      ORDER BY filename
+    )
+    FROM public.schema_migrations
+  ), '[]'::json)
+)::text;
+""".strip()
+    result = runner(
+        [
+            "psql",
+            "-X",
+            "--no-password",
+            "--tuples-only",
+            "--no-align",
+            "--quiet",
+            "--command",
+            query,
+        ],
+        env=database_env,
+    )
+    if on_query_completed is not None:
+        on_query_completed()
+    try:
+        observed = json.loads(result.stdout.strip())
+    except json.JSONDecodeError as exc:
+        raise DeploymentError("database identity query returned invalid JSON") from exc
+    if not isinstance(observed, dict) or set(observed) != {
+        "database_name",
+        "server_address",
+        "server_port",
+        "transaction_read_only",
+        "migrations",
+    }:
+        raise DeploymentError("database identity query returned an invalid shape")
+    if observed["transaction_read_only"] != "on":
+        raise DeploymentError("database identity query was not read-only")
+    observed_identity = {
+        key: observed[key] for key in ("database_name", "server_address", "server_port")
+    }
+    if observed_identity != expected_identity:
+        raise DeploymentError("configured database identity does not match receipt")
+    migrations = observed["migrations"]
+    if not isinstance(migrations, list) or any(
+        not isinstance(item, dict)
+        or set(item) != {"filename", "checksum_sha256"}
+        or not isinstance(item["filename"], str)
+        or not isinstance(item["checksum_sha256"], str)
+        for item in migrations
+    ):
+        raise DeploymentError("database migration ledger query returned invalid data")
+    expected_ledger = sorted(
+        (
+            {
+                "filename": entry["path"].removeprefix("sql/"),
+                "checksum_sha256": entry["sha256"],
+            }
+            for entry in expected_entries
+        ),
+        key=lambda item: item["filename"],
+    )
+    if migrations != expected_ledger:
+        raise DeploymentError("configured database migration ledger has drifted")
+
+
 def validate_release_inputs(
     *,
     mode: str,
@@ -266,7 +461,6 @@ def validate_release_inputs(
     rollback_path: Path | None,
     rollback_checksum: Path | None,
     prior_receipt_path: Path | None,
-    rollback_run_id: str | None = None,
 ) -> dict[str, Any]:
     manifest_tool = load_manifest_tool()
     candidate_sum = verify_checksum(candidate_path, candidate_checksum)
@@ -277,7 +471,9 @@ def validate_release_inputs(
         != {
             "schema_version",
             "database_source_authority",
+            "database_identity",
             "migration_set_identity",
+            "migration_set_entries",
             "captured_at",
         }
         or schema_receipt.get("schema_version") != SCHEMA_RECEIPT_SCHEMA
@@ -289,12 +485,54 @@ def validate_release_inputs(
     try:
         if not isinstance(captured_at, str):
             raise ValueError
-        datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ")
+        captured = datetime.strptime(captured_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
     except ValueError:
         raise DeploymentError("schema identity receipt timestamp is invalid")
+    now = datetime.now(timezone.utc)
+    if captured > now + SCHEMA_RECEIPT_FUTURE_TOLERANCE:
+        raise DeploymentError("schema identity receipt timestamp is in the future")
+    if now - captured > SCHEMA_RECEIPT_MAX_AGE:
+        raise DeploymentError("schema identity receipt is stale")
     current_schema = schema_receipt.get("migration_set_identity")
     if not isinstance(current_schema, str) or not SHA256.fullmatch(current_schema):
         raise DeploymentError("schema identity receipt has no valid migration identity")
+    migration_entries = schema_receipt.get("migration_set_entries")
+    if not isinstance(migration_entries, list) or not migration_entries:
+        raise DeploymentError("schema identity receipt has no migration entries")
+    canonical_entries: list[dict[str, str]] = []
+    for index, entry in enumerate(migration_entries):
+        if not isinstance(entry, dict) or set(entry) != {"path", "mode", "sha256"}:
+            raise DeploymentError(
+                f"schema migration entry {index} has an invalid shape"
+            )
+        if not isinstance(entry["path"], str) or not re.fullmatch(
+            r"sql/[0-9]{3}_[a-z0-9_]+\.sql", entry["path"]
+        ):
+            raise DeploymentError(f"schema migration entry {index} has an invalid path")
+        if (
+            entry["mode"] not in {"auto", "manual"}
+            or not isinstance(entry["sha256"], str)
+            or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])
+        ):
+            raise DeploymentError(f"schema migration entry {index} is invalid")
+        canonical_entries.append(entry)
+    if len({entry["path"] for entry in canonical_entries}) != len(canonical_entries):
+        raise DeploymentError("schema identity receipt repeats a migration path")
+    calculated_schema = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(
+                canonical_entries, sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+    )
+    if calculated_schema != current_schema:
+        raise DeploymentError(
+            "schema identity receipt migration identity is inconsistent"
+        )
+    validate_database_identity(schema_receipt.get("database_identity"))
     try:
         manifest_tool.validate_manifest(
             candidate, purpose="deploy", current_migration_set=current_schema
@@ -365,10 +603,10 @@ def validate_release_inputs(
             "images": rollback.get("images"),
             "manifest_sha256": rollback_sum,
         }
-        if rollback_run_id is not None:
-            if not RUN_ID.fullmatch(rollback_run_id):
-                raise DeploymentError("rollback release run ID is invalid")
-            expected_prior["release_run_id"] = rollback_run_id
+        prior_run_id = prior.get("release_run_id")
+        if not isinstance(prior_run_id, str) or not RUN_ID.fullmatch(prior_run_id):
+            raise DeploymentError("prior receipt release run ID is invalid")
+        expected_prior["release_run_id"] = prior_run_id
         if any(prior.get(key) != value for key, value in expected_prior.items()):
             raise DeploymentError(
                 "prior receipt does not authenticate the rollback release"
@@ -379,12 +617,12 @@ def validate_release_inputs(
             "images": rollback["images"],
             "manifest_sha256": rollback_sum,
         }
-        if rollback_run_id is not None:
-            rollback_identity["release_run_id"] = rollback_run_id
+        rollback_identity["release_run_id"] = prior_run_id
     return {
         "candidate": candidate,
         "candidate_sha256": candidate_sum,
         "current_schema": current_schema,
+        "schema_receipt": schema_receipt,
         "rollback": rollback_identity,
     }
 
@@ -559,6 +797,7 @@ def validate_host_runtime(
     env: dict[str, str],
     runner: Callable[..., subprocess.CompletedProcess[str]] = run_command,
 ) -> None:
+    runner(["psql", "--version"], env=env)
     runner(["docker", "compose", "version"], env=env)
     compose_base = [
         "docker",
@@ -748,13 +987,20 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def get_origin(origin: str, path: str) -> tuple[int, bytes, str]:
+def get_origin(
+    origin: str,
+    path: str,
+    *,
+    timeout_seconds: float = ORIGIN_REQUEST_TIMEOUT_SECONDS,
+) -> tuple[int, bytes, str]:
+    if timeout_seconds <= 0:
+        raise DeploymentError("origin request timeout must be positive")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
     request = urllib.request.Request(
         origin + path, headers={"Accept": "application/json,text/html"}
     )
     try:
-        with opener.open(request, timeout=10) as response:
+        with opener.open(request, timeout=timeout_seconds) as response:
             body = response.read(MAX_SMOKE_BYTES + 1)
             status = response.status
             content_type = response.headers.get("Content-Type", "")
@@ -763,6 +1009,54 @@ def get_origin(origin: str, path: str) -> tuple[int, bytes, str]:
     if not 200 <= status < 300 or len(body) > MAX_SMOKE_BYTES:
         raise DeploymentError(f"origin smoke rejected for {path}")
     return status, body, content_type
+
+
+def _validate_health_body(body: bytes, source_sha: str) -> None:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise DeploymentError("origin health JSON is invalid") from exc
+    if not isinstance(payload, dict) or not (
+        payload.get("status") == "ok"
+        and payload.get("database") == "connected"
+        and payload.get("build_sha") == source_sha
+    ):
+        raise DeploymentError("health smoke build/database identity mismatch")
+
+
+def wait_for_origin_ready(
+    origin: str,
+    source_sha: str,
+    *,
+    timeout_seconds: float = READINESS_TIMEOUT_SECONDS,
+    interval_seconds: float = READINESS_INTERVAL_SECONDS,
+    clock: Callable[[], float] = time.monotonic,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> int:
+    """Poll the release health endpoint before the authoritative smoke suite."""
+
+    if timeout_seconds <= 0 or interval_seconds <= 0:
+        raise DeploymentError("readiness timeout and interval must be positive")
+    deadline = clock() + timeout_seconds
+    attempts = 0
+    while True:
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise DeploymentError("origin readiness timed out")
+        attempts += 1
+        try:
+            _status, body, _content_type = get_origin(
+                origin,
+                "/api/health",
+                timeout_seconds=min(ORIGIN_REQUEST_TIMEOUT_SECONDS, remaining),
+            )
+            _validate_health_body(body, source_sha)
+            return attempts
+        except DeploymentError as exc:
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise DeploymentError("origin readiness timed out") from exc
+            sleeper(min(interval_seconds, remaining))
 
 
 def smoke_origin(origin: str, source_sha: str) -> dict[str, Any]:
@@ -774,18 +1068,15 @@ def smoke_origin(origin: str, source_sha: str) -> dict[str, Any]:
             if "text/html" not in content_type.lower() or b"<html" not in body.lower():
                 raise DeploymentError("root smoke is not the Svelte HTML application")
             continue
+        if path == "/api/health":
+            _validate_health_body(body, source_sha)
+            continue
         try:
             payload = json.loads(body)
         except json.JSONDecodeError as exc:
             raise DeploymentError(f"origin smoke JSON is invalid for {path}") from exc
         if not isinstance(payload, dict):
             raise DeploymentError(f"origin smoke payload is invalid for {path}")
-        if path == "/api/health" and not (
-            payload.get("status") == "ok"
-            and payload.get("database") == "connected"
-            and payload.get("build_sha") == source_sha
-        ):
-            raise DeploymentError("health smoke build/database identity mismatch")
         if path == "/openapi.json" and not (
             isinstance(payload.get("paths"), dict)
             and "/api/health" in payload["paths"]
@@ -797,24 +1088,40 @@ def smoke_origin(origin: str, source_sha: str) -> dict[str, Any]:
     return outcomes
 
 
-def persist_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
+def persist_receipt(
+    directory: Path, receipt: dict[str, Any], accepted_manifest_path: Path
+) -> Path:
     data = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode()
+    try:
+        if accepted_manifest_path.stat().st_size > MAX_JSON_BYTES:
+            raise OSError("accepted manifest exceeds the size limit")
+        manifest_data = accepted_manifest_path.read_bytes()
+    except OSError:
+        raise
+    manifest_digest = hashlib.sha256(manifest_data).hexdigest()
+    if manifest_digest != receipt["manifest_sha256"]:
+        raise OSError("accepted manifest changed before durable persistence")
     identity = (
         f"{receipt['source_sha']}-{receipt['release_run_id']}-"
         f"{receipt['manifest_sha256']}"
     )
     final = directory / f"{identity}.json"
     checksum = directory / f"{identity}.json.sha256"
-    if final.exists() or checksum.exists():
+    manifest = directory / f"{identity}.release.json"
+    manifest_checksum = directory / f"{identity}.release.json.sha256"
+    if any(path.exists() for path in (final, checksum, manifest, manifest_checksum)):
         raise OSError("immutable deployment receipt identity already exists")
     digest = hashlib.sha256(data).hexdigest()
     checksum_data = f"{digest}  {final.name}\n".encode()
+    manifest_checksum_data = f"{manifest_digest}  {manifest.name}\n".encode()
     pointer_data = (
         json.dumps(
             {
                 "schema_version": CURRENT_RECEIPT_SCHEMA,
                 "receipt_file": final.name,
                 "receipt_sha256": digest,
+                "manifest_file": manifest.name,
+                "manifest_sha256": manifest_digest,
             },
             indent=2,
             sort_keys=True,
@@ -829,6 +1136,8 @@ def persist_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
     temporaries: list[Path] = []
     final_created = False
     checksum_created = False
+    manifest_created = False
+    manifest_checksum_created = False
     current_replaced = False
 
     def staged(data_to_write: bytes, prefix: str) -> Path:
@@ -845,6 +1154,10 @@ def persist_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
     try:
         receipt_temporary = staged(data, ".v3-receipt-")
         checksum_temporary = staged(checksum_data, ".v3-checksum-")
+        manifest_temporary = staged(manifest_data, ".v3-manifest-")
+        manifest_checksum_temporary = staged(
+            manifest_checksum_data, ".v3-manifest-checksum-"
+        )
         current_temporary = staged(pointer_data, ".v3-current-")
         os.replace(receipt_temporary, final)
         temporaries.remove(receipt_temporary)
@@ -852,6 +1165,12 @@ def persist_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
         os.replace(checksum_temporary, checksum)
         temporaries.remove(checksum_temporary)
         checksum_created = True
+        os.replace(manifest_temporary, manifest)
+        temporaries.remove(manifest_temporary)
+        manifest_created = True
+        os.replace(manifest_checksum_temporary, manifest_checksum)
+        temporaries.remove(manifest_checksum_temporary)
+        manifest_checksum_created = True
         os.fsync(directory_fd)
         os.replace(current_temporary, current)
         temporaries.remove(current_temporary)
@@ -872,6 +1191,10 @@ def persist_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
             checksum.unlink(missing_ok=True)
         if final_created:
             final.unlink(missing_ok=True)
+        if manifest_checksum_created:
+            manifest_checksum.unlink(missing_ok=True)
+        if manifest_created:
+            manifest.unlink(missing_ok=True)
         os.fsync(directory_fd)
         raise
     finally:
@@ -910,16 +1233,25 @@ def persist_failure_receipt(directory: Path, receipt: dict[str, Any]) -> Path:
         os.close(directory_fd)
 
 
-def load_current_receipt(directory: Path) -> Path:
-    pointer = load_json(
-        directory / "current.json", "current deployment receipt pointer"
-    )
-    if set(pointer) != {"schema_version", "receipt_file", "receipt_sha256"}:
+def load_current_release(directory: Path) -> tuple[Path, Path, Path]:
+    current_path = directory / "current.json"
+    if current_path.is_symlink():
+        raise DeploymentError("current deployment receipt pointer is unsafe")
+    pointer = load_json(current_path, "current deployment receipt pointer")
+    if set(pointer) != {
+        "schema_version",
+        "receipt_file",
+        "receipt_sha256",
+        "manifest_file",
+        "manifest_sha256",
+    }:
         raise DeploymentError("current deployment receipt pointer shape is invalid")
     if pointer.get("schema_version") != CURRENT_RECEIPT_SCHEMA:
         raise DeploymentError("current deployment receipt pointer schema is invalid")
     receipt_file = pointer.get("receipt_file")
     receipt_sha = pointer.get("receipt_sha256")
+    manifest_file = pointer.get("manifest_file")
+    manifest_sha = pointer.get("manifest_sha256")
     if not isinstance(receipt_file, str) or not re.fullmatch(
         r"[0-9a-f]{40}-[1-9][0-9]{0,19}-[0-9a-f]{64}\.json", receipt_file
     ):
@@ -928,13 +1260,43 @@ def load_current_receipt(directory: Path) -> Path:
         r"[0-9a-f]{64}", receipt_sha
     ):
         raise DeploymentError("current deployment receipt checksum is invalid")
+    expected_manifest_file = receipt_file.removesuffix(".json") + ".release.json"
+    if manifest_file != expected_manifest_file:
+        raise DeploymentError("current accepted manifest filename is invalid")
+    if not isinstance(manifest_sha, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", manifest_sha
+    ):
+        raise DeploymentError("current accepted manifest checksum is invalid")
     receipt_path = directory / receipt_file
     if not receipt_path.is_file() or receipt_path.is_symlink():
         raise DeploymentError("current deployment receipt is missing or unsafe")
+    receipt_checksum_path = Path(f"{receipt_path}.sha256")
+    if receipt_checksum_path.is_symlink():
+        raise DeploymentError("current deployment receipt sidecar is unsafe")
     if sha256_file(receipt_path) != receipt_sha:
         raise DeploymentError("current deployment receipt checksum mismatch")
-    if verify_checksum(receipt_path, Path(f"{receipt_path}.sha256")) != receipt_sha:
+    if verify_checksum(receipt_path, receipt_checksum_path) != receipt_sha:
         raise DeploymentError("current deployment receipt sidecar mismatch")
+    manifest_path = directory / manifest_file
+    manifest_checksum_path = Path(f"{manifest_path}.sha256")
+    if not manifest_path.is_file() or manifest_path.is_symlink():
+        raise DeploymentError("current accepted manifest is missing or unsafe")
+    if manifest_checksum_path.is_symlink():
+        raise DeploymentError("current accepted manifest sidecar is unsafe")
+    if sha256_file(manifest_path) != manifest_sha:
+        raise DeploymentError("current accepted manifest checksum mismatch")
+    if verify_checksum(manifest_path, manifest_checksum_path) != manifest_sha:
+        raise DeploymentError("current accepted manifest sidecar mismatch")
+    prior = load_json(receipt_path, "current deployment receipt")
+    if prior.get("manifest_sha256") != manifest_sha:
+        raise DeploymentError("current receipt does not bind accepted manifest")
+    return receipt_path, manifest_path, manifest_checksum_path
+
+
+def load_current_receipt(directory: Path) -> Path:
+    receipt_path, _manifest_path, _manifest_checksum_path = load_current_release(
+        directory
+    )
     return receipt_path
 
 
@@ -991,6 +1353,8 @@ def operation_receipt(
     changed_resources: list[str],
     smokes: dict[str, Any],
     rollback: dict[str, Any],
+    database_access_performed: bool,
+    env_files_read: bool,
 ) -> dict[str, Any]:
     candidate = release_info["candidate"]
     return {
@@ -1013,7 +1377,7 @@ def operation_receipt(
         "changed_resources": changed_resources,
         "smoke": smokes,
         "rollback": rollback,
-        "database_access_performed": status == "accepted",
+        "database_access_performed": database_access_performed,
         "database_mutation_performed": False,
         "migrations_performed": False,
         "infrastructure_changes_performed": False,
@@ -1021,6 +1385,7 @@ def operation_receipt(
         "image_pulls_performed": status == "accepted",
         "filesystem_writes_performed": True,
         "env_file_consumed_by_compose": status == "accepted",
+        "env_files_read": env_files_read,
         "private_keys_read": False,
     }
 
@@ -1036,12 +1401,6 @@ def execute(
     external = authority["external_authority"]
     if args.candidate_run_id is None or not RUN_ID.fullmatch(args.candidate_run_id):
         raise DeploymentError("candidate release run ID is required")
-    if args.mode == "bootstrap" and args.rollback_run_id is not None:
-        raise DeploymentError("bootstrap must not claim a rollback release run")
-    if args.mode == "upgrade" and (
-        args.rollback_run_id is None or not RUN_ID.fullmatch(args.rollback_run_id)
-    ):
-        raise DeploymentError("upgrade requires a rollback release run ID")
     receipt_directory = Path(external["receipt_directory"])
     validate_host_files(authority, args.compose)
     deployment_lock = acquire_deployment_lock(receipt_directory)
@@ -1050,26 +1409,54 @@ def execute(
     pulled_images: list[str] = []
     service_mutation_attempted = False
     runtime_validation_started = False
+    database_access_attempted = False
+    database_access_performed = False
+    env_file_read_attempted = False
+    env_files_read = False
     smokes: dict[str, Any] = {}
     try:
-        prior_receipt_path = (
-            load_current_receipt(receipt_directory) if args.mode == "upgrade" else None
-        )
+        if args.mode == "upgrade":
+            (
+                prior_receipt_path,
+                rollback_path,
+                rollback_checksum,
+            ) = load_current_release(receipt_directory)
+        else:
+            prior_receipt_path = None
+            rollback_path = None
+            rollback_checksum = None
         release_info = validate_release_inputs(
             mode=args.mode,
             candidate_path=args.candidate,
             candidate_checksum=args.candidate_checksum,
             current_schema_path=Path(external["schema_identity_receipt"]),
             database_source_authority=external["database_source_authority"],
-            rollback_path=args.rollback,
-            rollback_checksum=args.rollback_checksum,
+            rollback_path=rollback_path,
+            rollback_checksum=rollback_checksum,
             prior_receipt_path=prior_receipt_path,
-            rollback_run_id=args.rollback_run_id,
         )
         candidate = release_info["candidate"]
         env = compose_environment(authority, candidate)
         runtime_validation_started = True
         validate_host_runtime(args.compose, env, runner)
+
+        def mark_env_file_read() -> None:
+            nonlocal env_files_read
+            env_files_read = True
+
+        def mark_database_query_completed() -> None:
+            nonlocal database_access_performed
+            database_access_performed = True
+
+        env_file_read_attempted = True
+        database_access_attempted = True
+        verify_database_schema(
+            Path(external["api_env_file"]),
+            release_info["schema_receipt"],
+            runner,
+            on_env_file_read=mark_env_file_read,
+            on_query_completed=mark_database_query_completed,
+        )
         if args.mode == "bootstrap":
             if (receipt_directory / "current.json").exists():
                 raise DeploymentError("bootstrap requires proven prior receipt absence")
@@ -1095,6 +1482,7 @@ def execute(
                 pulled_images.append(image)
         service_mutation_attempted = True
         runner(plan[2], env=env)
+        wait_for_origin_ready(external["origin_bind"], candidate["git_sha"])
         verify_app_containers(env, candidate["git_sha"], candidate["images"])
         smokes = smoke_origin(external["origin_bind"], candidate["git_sha"])
         receipt = operation_receipt(
@@ -1105,8 +1493,10 @@ def execute(
             changed_resources=[CONTAINERS[service] for service in SERVICES],
             smokes=smokes,
             rollback=release_info["rollback"],
+            database_access_performed=database_access_performed,
+            env_files_read=env_files_read,
         )
-        persist_receipt(receipt_directory, receipt)
+        persist_receipt(receipt_directory, receipt, args.candidate)
         return receipt
     except Exception as original:
         # A failure before release validation has no authenticated candidate
@@ -1137,6 +1527,9 @@ def execute(
                     )
                 else:
                     rollback = release_info["rollback"]
+                    wait_for_origin_ready(
+                        external["origin_bind"], rollback["source_sha"]
+                    )
                     verify_app_containers(
                         rollback_env, rollback["source_sha"], rollback["images"]
                     )
@@ -1158,6 +1551,8 @@ def execute(
             ),
             smokes=smokes,
             rollback=rollback_outcome,
+            database_access_performed=database_access_performed,
+            env_files_read=env_files_read,
         )
         failure_receipt.update(
             failure=type(original).__name__,
@@ -1169,7 +1564,14 @@ def execute(
             pulled_images_verified=pulled_images,
             service_mutation_attempted=service_mutation_attempted,
             service_changes_performed=service_mutation_attempted,
-            database_access_may_have_been_performed=service_mutation_attempted,
+            database_access_attempted=database_access_attempted,
+            database_access_may_have_been_performed=(
+                database_access_attempted and not database_access_performed
+            ),
+            env_file_read_attempted=env_file_read_attempted,
+            env_files_may_have_been_read=(
+                env_file_read_attempted and not env_files_read
+            ),
             env_file_consumed_by_compose=False,
             env_file_may_have_been_consumed_by_compose=runtime_validation_started,
         )
@@ -1192,9 +1594,6 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--candidate", type=Path)
     result.add_argument("--candidate-checksum", type=Path)
     result.add_argument("--candidate-run-id")
-    result.add_argument("--rollback", type=Path)
-    result.add_argument("--rollback-checksum", type=Path)
-    result.add_argument("--rollback-run-id")
     result.add_argument("--authority-gate", action="store_true")
     return result
 

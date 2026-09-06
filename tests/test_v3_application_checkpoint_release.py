@@ -345,11 +345,6 @@ def test_deploy_workflow_supports_bootstrap_and_receipt_backed_upgrade():
     workflow = DEPLOY_WORKFLOW.read_text()
 
     assert "--purpose deploy-candidate" in workflow
-    assert "--purpose rollback-candidate" in workflow
-    assert "inputs.deployment_mode == 'upgrade'" in workflow
-    assert "Bootstrap must not claim a prior release" in workflow
-    assert "Upgrade requires a valid rollback run ID" in workflow
-    assert "Candidate cannot be its own rollback" in workflow
     assert "Authenticate release workflow run provenance" in workflow
     assert "scripts/release/v3_release_run.py" in workflow
     assert "StrictHostKeyChecking=yes" in workflow
@@ -374,6 +369,8 @@ def test_deploy_workflow_supports_bootstrap_and_receipt_backed_upgrade():
     assert workflow.index("--authority-gate") < workflow.index("ssh -i")
     assert 'remote_receipt="$RECEIPT.remote"' in workflow
     assert "remote_transport_or_bundle_failed" in workflow
+    assert "rollback_run_id" not in workflow
+    assert "artifacts/rollback" not in workflow
     for forbidden in ("ssh-keyscan", "git pull", "pnpm install", "uv sync", "psql"):
         assert forbidden not in workflow.lower()
 
@@ -587,6 +584,12 @@ def test_checkpoint_compose_owns_only_bounded_application_resources():
         compose["services"]["api"]["environment"]["EDDN_SIMULATION_INGEST_ENABLED"]
         == "false"
     )
+    assert (
+        compose["services"]["api"]["environment"][
+            "ADMIN_OPERATION_STARTUP_REAP_ENABLED"
+        ]
+        == "false"
+    )
     for service in compose["services"].values():
         assert "build" not in service
         assert "depends_on" not in service
@@ -663,6 +666,25 @@ def _write_json_with_checksum(
     return document, checksum
 
 
+def _schema_receipt(module, manifest, **overrides):
+    value = {
+        "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
+        "database_source_authority": "approved-test-db",
+        "database_identity": {
+            "database_name": "checkpoint",
+            "server_address": "192.0.2.10",
+            "server_port": 5432,
+        },
+        "migration_set_identity": manifest["migration_set"]["identity"],
+        "migration_set_entries": manifest["migration_set"]["entries"],
+        "captured_at": module.datetime.now(module.timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
+    }
+    value.update(overrides)
+    return value
+
+
 def _authorized_checkpoint_authority(tmp_path: Path, schema_path: Path) -> dict:
     authority = json.loads(CHECKPOINT_AUTHORITY.read_text())
     authority["status"] = "authorized"
@@ -700,17 +722,7 @@ def test_bootstrap_needs_no_prior_release_but_upgrade_requires_receipt(tmp_path)
         tmp_path, "candidate.json", candidate
     )
     schema = tmp_path / "schema.json"
-    schema.write_text(
-        json.dumps(
-            {
-                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
-                "database_source_authority": "approved-test-db",
-                "migration_set_identity": candidate["migration_set"]["identity"],
-                "captured_at": "2026-09-06T12:00:00Z",
-            }
-        ),
-        encoding="utf-8",
-    )
+    schema.write_text(json.dumps(_schema_receipt(module, candidate)), encoding="utf-8")
 
     validated = module.validate_release_inputs(
         mode="bootstrap",
@@ -756,17 +768,7 @@ def test_upgrade_requires_receipt_matching_prior_digest_release(tmp_path):
         tmp_path, "rollback.json", rollback
     )
     schema = tmp_path / "schema.json"
-    schema.write_text(
-        json.dumps(
-            {
-                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
-                "database_source_authority": "approved-test-db",
-                "migration_set_identity": candidate["migration_set"]["identity"],
-                "captured_at": "2026-09-06T12:00:00Z",
-            }
-        ),
-        encoding="utf-8",
-    )
+    schema.write_text(json.dumps(_schema_receipt(module, candidate)), encoding="utf-8")
     rollback_sum = hashlib.sha256(rollback_path.read_bytes()).hexdigest()
     prior_receipt = tmp_path / "prior.json"
     prior_receipt.write_text(
@@ -776,6 +778,7 @@ def test_upgrade_requires_receipt_matching_prior_digest_release(tmp_path):
                 "status": "accepted",
                 "mode": "bootstrap",
                 "source_sha": rollback["git_sha"],
+                "release_run_id": "122",
                 "images": rollback["images"],
                 "manifest_sha256": rollback_sum,
                 "target": {
@@ -814,6 +817,24 @@ def test_upgrade_requires_receipt_matching_prior_digest_release(tmp_path):
         prior_receipt_path=prior_receipt,
     )
     assert validated["rollback"]["source_sha"] == rollback["git_sha"]
+    assert validated["rollback"]["release_run_id"] == "122"
+
+    prior_document = json.loads(prior_receipt.read_text())
+    module.persist_receipt(tmp_path, prior_document, rollback_path)
+    durable_receipt, durable_manifest, durable_checksum = module.load_current_release(
+        tmp_path
+    )
+    durable_validated = module.validate_release_inputs(
+        mode="upgrade",
+        candidate_path=candidate_path,
+        candidate_checksum=candidate_checksum,
+        current_schema_path=schema,
+        database_source_authority="approved-test-db",
+        rollback_path=durable_manifest,
+        rollback_checksum=durable_checksum,
+        prior_receipt_path=durable_receipt,
+    )
+    assert durable_validated["rollback"] == validated["rollback"]
 
     bad_receipt = json.loads(prior_receipt.read_text())
     bad_receipt["images"]["web"] = candidate["images"]["web"]
@@ -898,8 +919,156 @@ def test_origin_smoke_checks_exact_required_routes_and_build_identity(monkeypatc
         module.smoke_origin("http://127.0.0.1:12345", GIT_SHA)
 
 
+def test_readiness_poll_tolerates_startup_latency_and_has_bounded_timeout(monkeypatch):
+    module = _load_checkpoint_module()
+    elapsed = [0.0]
+    attempts = [0]
+
+    def clock():
+        return elapsed[0]
+
+    def sleeper(seconds):
+        elapsed[0] += seconds
+
+    def eventually_ready(_origin, _path, **_kwargs):
+        attempts[0] += 1
+        if attempts[0] < 3:
+            raise module.DeploymentError("still starting")
+        return (
+            200,
+            json.dumps(
+                {"status": "ok", "database": "connected", "build_sha": GIT_SHA}
+            ).encode(),
+            "application/json",
+        )
+
+    monkeypatch.setattr(module, "get_origin", eventually_ready)
+    assert (
+        module.wait_for_origin_ready(
+            "http://127.0.0.1:12345",
+            GIT_SHA,
+            timeout_seconds=10,
+            interval_seconds=2,
+            clock=clock,
+            sleeper=sleeper,
+        )
+        == 3
+    )
+    assert elapsed[0] == 4
+
+    monkeypatch.setattr(
+        module,
+        "get_origin",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            module.DeploymentError("not ready")
+        ),
+    )
+    elapsed[0] = 0
+    with pytest.raises(module.DeploymentError, match="readiness timed out"):
+        module.wait_for_origin_ready(
+            "http://127.0.0.1:12345",
+            GIT_SHA,
+            timeout_seconds=4,
+            interval_seconds=2,
+            clock=clock,
+            sleeper=sleeper,
+        )
+    assert elapsed[0] == 4
+
+
+def test_database_schema_probe_binds_env_target_and_ledger_without_leaking_url(
+    tmp_path,
+):
+    module = _load_checkpoint_module()
+    _, manifest = _manifest()
+    schema_receipt = _schema_receipt(module, manifest)
+    secret_url = "postgresql://checkpoint:do-not-log@db.example:5432/checkpoint"
+    api_env = tmp_path / "api.env"
+    api_env.write_text(f"DATABASE_URL={secret_url}\n", encoding="utf-8")
+    expected_migrations = [
+        {
+            "filename": entry["path"].removeprefix("sql/"),
+            "checksum_sha256": entry["sha256"],
+        }
+        for entry in manifest["migration_set"]["entries"]
+    ]
+    observed = {
+        **schema_receipt["database_identity"],
+        "transaction_read_only": "on",
+        "migrations": sorted(expected_migrations, key=lambda item: item["filename"]),
+    }
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append((command, kwargs["env"]))
+        return subprocess.CompletedProcess(
+            command, 0, stdout=json.dumps(observed), stderr=""
+        )
+
+    module.verify_database_schema(api_env, schema_receipt, runner)
+    command, env = calls[0]
+    assert command[0] == "psql"
+    assert secret_url not in " ".join(command)
+    assert env["PGDATABASE"] == secret_url
+    assert "default_transaction_read_only=on" in env["PGOPTIONS"]
+
+    mismatched = copy.deepcopy(observed)
+    mismatched["server_address"] = "192.0.2.11"
+    completed = []
+    with pytest.raises(module.DeploymentError, match="identity does not match"):
+        module.verify_database_schema(
+            api_env,
+            schema_receipt,
+            lambda command, **_kwargs: subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps(mismatched), stderr=""
+            ),
+            on_query_completed=lambda: completed.append(True),
+        )
+    assert completed == [True]
+
+    drifted = copy.deepcopy(observed)
+    drifted["migrations"][0]["checksum_sha256"] = "0" * 64
+    with pytest.raises(module.DeploymentError, match="ledger has drifted"):
+        module.verify_database_schema(
+            api_env,
+            schema_receipt,
+            lambda command, **_kwargs: subprocess.CompletedProcess(
+                command, 0, stdout=json.dumps(drifted), stderr=""
+            ),
+        )
+
+
+def test_schema_receipt_fails_closed_when_stale(tmp_path):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(
+        json.dumps(
+            _schema_receipt(module, candidate, captured_at="2020-01-01T00:00:00Z")
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(module.DeploymentError, match="receipt is stale"):
+        module.validate_release_inputs(
+            mode="bootstrap",
+            candidate_path=candidate_path,
+            candidate_checksum=candidate_checksum,
+            current_schema_path=schema,
+            database_source_authority="approved-test-db",
+            rollback_path=None,
+            rollback_checksum=None,
+            prior_receipt_path=None,
+        )
+
+
 def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
     module = _load_checkpoint_module()
+    accepted_manifest = tmp_path / "accepted-input.json"
+    accepted_manifest.write_text("{}", encoding="utf-8")
+    accepted_manifest_sha = hashlib.sha256(accepted_manifest.read_bytes()).hexdigest()
     receipt = {
         "schema_version": module.RECEIPT_SCHEMA,
         "status": "accepted",
@@ -910,7 +1079,7 @@ def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
             + "b" * 64,
             "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "c" * 64,
         },
-        "manifest_sha256": "d" * 64,
+        "manifest_sha256": accepted_manifest_sha,
         "target": {"provider": "contabo", "production": False},
         "changed_resources": list(module.CONTAINERS.values()),
         "smoke": {
@@ -919,7 +1088,7 @@ def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
         },
         "rollback": {"kind": "predeploy_absence"},
     }
-    path = module.persist_receipt(tmp_path, receipt)
+    path = module.persist_receipt(tmp_path, receipt, accepted_manifest)
 
     assert json.loads(path.read_text()) == receipt
     pointer = json.loads((tmp_path / "current.json").read_text())
@@ -927,8 +1096,13 @@ def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
         "schema_version": module.CURRENT_RECEIPT_SCHEMA,
         "receipt_file": path.name,
         "receipt_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "manifest_file": path.name.removesuffix(".json") + ".release.json",
+        "manifest_sha256": accepted_manifest_sha,
     }
     assert module.load_current_receipt(tmp_path) == path
+    _, durable_manifest, durable_checksum = module.load_current_release(tmp_path)
+    assert durable_manifest.read_bytes() == accepted_manifest.read_bytes()
+    assert durable_checksum.is_file()
     checksum = (tmp_path / f"{path.name}.sha256").read_text().split()
     assert checksum == [hashlib.sha256(path.read_bytes()).hexdigest(), path.name]
     serialized = path.read_text().lower()
@@ -936,7 +1110,17 @@ def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
         assert forbidden not in serialized
 
     with pytest.raises(OSError, match="immutable deployment receipt"):
-        module.persist_receipt(tmp_path, receipt)
+        module.persist_receipt(tmp_path, receipt, accepted_manifest)
+
+    original_manifest = durable_manifest.read_bytes()
+    durable_manifest.write_text("{}\n", encoding="utf-8")
+    with pytest.raises(module.DeploymentError, match="manifest checksum mismatch"):
+        module.load_current_release(tmp_path)
+    durable_manifest.write_bytes(original_manifest)
+    durable_manifest.unlink()
+    with pytest.raises(module.DeploymentError, match="manifest is missing"):
+        module.load_current_release(tmp_path)
+    durable_manifest.write_bytes(original_manifest)
 
     path.write_text("{}", encoding="utf-8")
     with pytest.raises(module.DeploymentError, match="checksum mismatch"):
@@ -953,6 +1137,11 @@ def test_receipt_pointer_failure_removes_uncommitted_accepted_artifacts(
         "manifest_sha256": "d" * 64,
         "status": "accepted",
     }
+    accepted_manifest = tmp_path / "accepted-input.json"
+    accepted_manifest.write_text("{}", encoding="utf-8")
+    receipt["manifest_sha256"] = hashlib.sha256(
+        accepted_manifest.read_bytes()
+    ).hexdigest()
     real_replace = module.os.replace
 
     def fail_current_pointer(source, destination):
@@ -962,7 +1151,7 @@ def test_receipt_pointer_failure_removes_uncommitted_accepted_artifacts(
 
     monkeypatch.setattr(module.os, "replace", fail_current_pointer)
     with pytest.raises(OSError, match="current pointer"):
-        module.persist_receipt(tmp_path, receipt)
+        module.persist_receipt(tmp_path, receipt, accepted_manifest)
 
     assert not (tmp_path / "current.json").exists()
     assert not list(tmp_path.glob(f"{GIT_SHA}-*.json"))
@@ -1012,17 +1201,7 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
         tmp_path, "candidate.json", candidate
     )
     schema = tmp_path / "schema.json"
-    schema.write_text(
-        json.dumps(
-            {
-                "schema_version": module.SCHEMA_RECEIPT_SCHEMA,
-                "database_source_authority": "approved-test-db",
-                "migration_set_identity": candidate["migration_set"]["identity"],
-                "captured_at": "2026-09-06T12:00:00Z",
-            }
-        ),
-        encoding="utf-8",
-    )
+    schema.write_text(json.dumps(_schema_receipt(module, candidate)), encoding="utf-8")
     authority = _authorized_checkpoint_authority(tmp_path, schema)
     authority_path = tmp_path / "authority.json"
     authority_path.write_text(json.dumps(authority), encoding="utf-8")
@@ -1034,6 +1213,12 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     monkeypatch.setattr(module, "verify_pulled_image", lambda *_args: None)
     monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
     monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
+
+    def verified_database(_path, _receipt, _runner, **callbacks):
+        callbacks["on_env_file_read"]()
+        callbacks["on_query_completed"]()
+
+    monkeypatch.setattr(module, "verify_database_schema", verified_database)
 
     def runner(command, **_kwargs):
         commands.append(command)
@@ -1059,6 +1244,8 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     assert receipt["status"] == "failed"
     assert receipt["pulled_images_verified"] == list(candidate["images"].values())
     assert receipt["service_mutation_attempted"] is True
+    assert receipt["database_access_performed"] is True
+    assert receipt["env_files_read"] is True
     assert receipt["changed_resources"] == list(module.CONTAINERS.values())
     assert receipt["rollback"] == {
         "identity": {"kind": "predeploy_absence"},
@@ -1072,6 +1259,124 @@ def test_failed_bootstrap_reports_pulls_mutation_and_verified_absence_rollback(
     ]
     assert mutation_commands[0][-2:] == ["api", "web"]
     assert all(command[-2:] == ["api", "web"] for command in rollback_commands)
+
+
+@pytest.mark.parametrize("failure_stage", ["candidate-container", "candidate-pull"])
+def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
+    tmp_path, monkeypatch, failure_stage
+):
+    module = _load_checkpoint_module()
+    _, candidate = _manifest()
+    rollback = copy.deepcopy(candidate)
+    rollback["git_sha"] = "d" * 40
+    rollback["release_id"] = "git-" + "d" * 40
+    rollback["images"] = {
+        "backend": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:"
+        + "e" * 64,
+        "web": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:" + "f" * 64,
+    }
+    candidate_path, candidate_checksum = _write_json_with_checksum(
+        tmp_path, "candidate.json", candidate
+    )
+    rollback_path, _rollback_checksum = _write_json_with_checksum(
+        tmp_path, "prior-input.json", rollback
+    )
+    schema = tmp_path / "schema.json"
+    schema.write_text(json.dumps(_schema_receipt(module, candidate)), encoding="utf-8")
+    prior_receipt = {
+        "schema_version": module.RECEIPT_SCHEMA,
+        "status": "accepted",
+        "mode": "bootstrap",
+        "source_sha": rollback["git_sha"],
+        "release_run_id": "122",
+        "images": rollback["images"],
+        "manifest_sha256": hashlib.sha256(rollback_path.read_bytes()).hexdigest(),
+        "target": {
+            "provider": "contabo",
+            "classification": "live-checkpoint",
+            "production": False,
+            "hostname": module.TARGET_HOSTNAME,
+        },
+        "compose_project": module.PROJECT,
+        "migration_set_identity": candidate["migration_set"]["identity"],
+        "changed_resources": list(module.CONTAINERS.values()),
+        "smoke": {
+            path: {"status": 200}
+            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+        },
+        "database_mutation_performed": False,
+        "infrastructure_changes_performed": False,
+    }
+    module.persist_receipt(tmp_path, prior_receipt, rollback_path)
+    authority = _authorized_checkpoint_authority(tmp_path, schema)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(json.dumps(authority), encoding="utf-8")
+    readiness_shas = []
+
+    monkeypatch.setattr(module, "validate_host_files", lambda *_args: None)
+    monkeypatch.setattr(module, "validate_host_runtime", lambda *_args: None)
+    monkeypatch.setattr(module, "verify_origin_state", lambda *_args: None)
+    monkeypatch.setattr(module, "verify_pulled_image", lambda *_args: None)
+    monkeypatch.setattr(module, "acquire_deployment_lock", lambda *_args: object())
+    monkeypatch.setattr(module, "release_deployment_lock", lambda *_args: None)
+    monkeypatch.setattr(
+        module,
+        "wait_for_origin_ready",
+        lambda _origin, source_sha: readiness_shas.append(source_sha),
+    )
+    monkeypatch.setattr(
+        module,
+        "smoke_origin",
+        lambda *_args: {
+            path: {"status": 200}
+            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+        },
+    )
+
+    def verified_database(_path, _receipt, _runner, **callbacks):
+        callbacks["on_env_file_read"]()
+        callbacks["on_query_completed"]()
+
+    monkeypatch.setattr(module, "verify_database_schema", verified_database)
+
+    def verify_containers(_env, source_sha, _images):
+        if (
+            failure_stage == "candidate-container"
+            and source_sha == candidate["git_sha"]
+        ):
+            raise module.DeploymentError("candidate container verification failed")
+
+    monkeypatch.setattr(module, "verify_app_containers", verify_containers)
+
+    def runner(command, **_kwargs):
+        if (
+            failure_stage == "candidate-pull"
+            and command[:2] == ["docker", "pull"]
+            and command[-1] == candidate["images"]["backend"]
+        ):
+            raise module.DeploymentError("candidate pull failed")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    args = Namespace(
+        authority=authority_path,
+        compose=CHECKPOINT_COMPOSE,
+        mode="upgrade",
+        candidate=candidate_path,
+        candidate_checksum=candidate_checksum,
+        candidate_run_id="123",
+    )
+    with pytest.raises(module.OperationFailed) as failure:
+        module.execute(args, runner=runner)
+
+    receipt = failure.value.receipt
+    if failure_stage == "candidate-container":
+        assert readiness_shas == [candidate["git_sha"], rollback["git_sha"]]
+        assert receipt["rollback"]["status"] == "verified"
+    else:
+        assert readiness_shas == []
+        assert receipt["rollback"]["status"] == "not-required"
+        assert receipt["service_mutation_attempted"] is False
+    assert receipt["database_access_performed"] is True
 
 
 def test_current_target_authority_records_proven_facts_and_exact_blockers():

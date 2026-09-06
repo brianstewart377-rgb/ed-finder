@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       deployment_mode:
-        description: Bootstrap requires proven app absence; upgrade requires the accepted prior release receipt
+        description: Bootstrap proves app absence; upgrade uses the durable accepted host receipt and manifest
         required: true
         default: bootstrap
         type: choice
@@ -14,10 +14,6 @@ on:
       release_run_id:
         description: Release workflow run containing the Contabo live-checkpoint candidate
         required: true
-        type: string
-      rollback_run_id:
-        description: Upgrade only - accepted prior release run containing the rollback manifest
-        required: false
         type: string
 
 permissions:
@@ -34,7 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     # This boundary is distinct from production credentials and routing.
     environment: v3-live-checkpoint
-    timeout-minutes: 15
+    # The operator bounds each command at 120 seconds and each candidate/rollback
+    # readiness window at 120 seconds. A worst-case upgrade, including host/runtime
+    # validation, four digest pull/inspect pairs, candidate apply/smoke, rollback
+    # apply/smoke, SSH transfer and receipt handling, remains below this job ceiling.
+    timeout-minutes: 75
     steps:
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,15 +50,10 @@ jobs:
         env:
           DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
-          ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
         run: |
           set -euo pipefail
           [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "Candidate release run ID is invalid" >&2; exit 64; }
-          if [ "$DEPLOYMENT_MODE" = bootstrap ]; then
-            [ -z "$ROLLBACK_RUN_ID" ] || { echo "Bootstrap must not claim a prior release" >&2; exit 64; }
-          else
-            [[ "$ROLLBACK_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "Upgrade requires a valid rollback run ID" >&2; exit 64; }
-          fi
+          [[ "$DEPLOYMENT_MODE" = bootstrap || "$DEPLOYMENT_MODE" = upgrade ]] || { echo "Deployment mode is invalid" >&2; exit 64; }
       - name: Stop locally when target authority is incomplete
         shell: bash
         env:
@@ -83,35 +78,19 @@ jobs:
           path: ${{ runner.temp }}/candidate
           run-id: ${{ inputs.release_run_id }}
           github-token: ${{ github.token }}
-      - name: Download accepted rollback manifest
-        if: inputs.deployment_mode == 'upgrade'
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: v3-application-release-manifest
-          path: ${{ runner.temp }}/rollback
-          run-id: ${{ inputs.rollback_run_id }}
-          github-token: ${{ github.token }}
-      - name: Verify downloaded artifact checksums
+      - name: Verify downloaded artifact checksum
         shell: bash
         env:
-          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           CANDIDATE_DIR: ${{ runner.temp }}/candidate
-          ROLLBACK_DIR: ${{ runner.temp }}/rollback
         run: |
           set -euo pipefail
           (cd "$CANDIDATE_DIR" && sha256sum --check v3-application-release.json.sha256)
-          if [ "$DEPLOYMENT_MODE" = upgrade ]; then
-            (cd "$ROLLBACK_DIR" && sha256sum --check v3-application-release.json.sha256)
-          fi
       - name: Authenticate release workflow run provenance
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
-          ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
           CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
-          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
         run: |
           set -euo pipefail
           args=(
@@ -119,25 +98,14 @@ jobs:
             --candidate-run-id "$CANDIDATE_RUN_ID"
             --candidate-manifest "$CANDIDATE"
           )
-          if [ "$DEPLOYMENT_MODE" = upgrade ]; then
-            args+=(--rollback-run-id "$ROLLBACK_RUN_ID" --rollback-manifest "$ROLLBACK")
-          fi
           GITHUB_TOKEN="$GH_TOKEN" python scripts/release/v3_release_run.py "${args[@]}"
-      - name: Verify candidate and conditional rollback manifests
+      - name: Verify candidate manifest
         shell: bash
         env:
-          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
-          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
         run: |
           set -euo pipefail
           python scripts/release/v3_release_manifest.py verify "$CANDIDATE" --purpose deploy-candidate
-          if [ "$DEPLOYMENT_MODE" = upgrade ]; then
-            python scripts/release/v3_release_manifest.py verify "$ROLLBACK" --purpose rollback-candidate
-            candidate_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$CANDIDATE")"
-            rollback_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$ROLLBACK")"
-            [ "$candidate_sha" != "$rollback_sha" ] || { echo "Candidate cannot be its own rollback" >&2; exit 64; }
-          fi
       - name: Prepare pinned Contabo live-checkpoint SSH trust boundary
         shell: bash
         env:
@@ -165,7 +133,6 @@ jobs:
       - name: Assemble source-free deployment bundle
         shell: bash
         env:
-          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-bundle
         run: |
           set -euo pipefail
@@ -175,16 +142,11 @@ jobs:
           install -m 700 scripts/operator/actions/v3-app-live-checkpoint-preflight.sh "$BUNDLE/scripts/operator/actions/"
           install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
           install -m 600 "$RUNNER_TEMP/candidate/v3-application-release.json" "$RUNNER_TEMP/candidate/v3-application-release.json.sha256" "$BUNDLE/artifacts/candidate/"
-          if [ "$DEPLOYMENT_MODE" = upgrade ]; then
-            install -d -m 700 "$BUNDLE/artifacts/rollback"
-            install -m 600 "$RUNNER_TEMP/rollback/v3-application-release.json" "$RUNNER_TEMP/rollback/v3-application-release.json.sha256" "$BUNDLE/artifacts/rollback/"
-          fi
       - name: Run bounded Contabo deployment boundary
         shell: bash
         env:
           DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
           CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
-          ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
           SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
           SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
           SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
@@ -195,9 +157,6 @@ jobs:
           test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
           remote_receipt="$RECEIPT.remote"
           remote_args=(--mode "$DEPLOYMENT_MODE" --candidate-run-id "$CANDIDATE_RUN_ID" --candidate artifacts/candidate/v3-application-release.json --candidate-checksum artifacts/candidate/v3-application-release.json.sha256)
-          if [ "$DEPLOYMENT_MODE" = upgrade ]; then
-            remote_args+=(--rollback-run-id "$ROLLBACK_RUN_ID" --rollback artifacts/rollback/v3-application-release.json --rollback-checksum artifacts/rollback/v3-application-release.json.sha256)
-          fi
           printf '%s\0' "${remote_args[@]}" > "$BUNDLE/arguments"
           set +e
           tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_live_checkpoint_key \

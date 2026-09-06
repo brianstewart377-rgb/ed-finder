@@ -58,7 +58,11 @@ already degrades to no cache when Redis is unavailable and uses in-memory rate
 limits, so the checkpoint baseline intentionally has no cache service. NATS is not a V3 checkpoint baseline dependency.
 Checkpoint configuration also disables
 the live EDDN simulation ingest so a first UI/API checkpoint cannot begin an
-unreviewed background database-writing workload.
+unreviewed background database-writing workload. It also explicitly sets
+`ADMIN_OPERATION_STARTUP_REAP_ENABLED=false`. That checkpoint-only opt-out
+suppresses the FastAPI lifespan's stale `admin_job_runs` housekeeping update;
+it does not make the API generally read-only. Ordinary deployments retain the
+default enabled startup reap and all normal runtime semantics.
 
 ## Bootstrap and upgrade modes
 
@@ -71,12 +75,21 @@ volumes are untouched. Its rollback identity is `predeploy_absence`.
 
 Every subsequent upgrade requires all of the following before mutation:
 
-- a distinct prior digest-only release manifest;
-- its checksum and successful canonical release-run provenance;
-- a durable accepted deployment receipt matching its source SHA, both image
-  digests and manifest checksum;
+- a distinct prior digest-only release manifest and adjacent checksum durably
+  stored in the host receipt directory when that release was accepted;
+- a durable accepted deployment receipt matching the prior manifest's source
+  SHA, release run ID, both image digests and manifest checksum;
 - an authoritative current database migration identity listed as compatible by
   both the candidate and rollback manifests.
+
+Upgrade never reconstructs or re-downloads the rollback manifest from a source
+checkout, a different SHA, or an expiring GitHub Actions artifact. It loads the
+checksum-bound accepted manifest through the durable `current.json` receipt
+chain, re-verifies its release-manifest schema, digest provenance and rollback
+eligibility, and fails closed if any durable file, checksum or receipt binding
+is missing, unsafe, corrupt or inconsistent. GitHub Actions authenticates only
+the new candidate artifact; successful acceptance makes that exact candidate
+the next durable rollback source.
 
 If an upgrade smoke fails, only `api` and `web` may be recreated at the accepted
 prior digests. Database rollback/recovery and migrations are outside this path.
@@ -91,25 +104,63 @@ For an owner checkpoint:
    rollback eligibility and basename-only SHA-256 checksum. Both image
    references must be digest pinned.
 3. Dispatch **V3 application live-checkpoint deploy** in `bootstrap` mode for
-   checkpoint #1, or `upgrade` with the accepted rollback run ID afterward.
-4. The target boundary validates all target/external facts, schema identity,
-   Compose checksum, allowlisted project resources and app absence/prior receipt
-   before an image pull or service change.
+   checkpoint #1, or `upgrade` afterward. Upgrade selects only the release
+   authenticated by the host's durable accepted-receipt/manifest chain; there
+   is no operator-supplied rollback artifact or rollback run ID.
+4. The target boundary validates all target/external facts, Compose checksum,
+   allowlisted project resources and app absence/prior receipt before an image
+   pull or service change. It obtains the non-secret database identity from the
+   `DATABASE_URL` in the authorized external API env file without logging or
+   persisting the URL, then uses a read-only database session to verify that
+   identity and the complete applied `schema_migrations` set against the
+   authoritative schema receipt. Repointed env files, stale receipts, migration
+   drift and unverifiable database identity stop before service mutation.
 5. It pulls and verifies the exact digest images and OCI build-SHA labels, then
    recreates only `api web` with `--no-deps`.
-6. It makes bounded, no-redirect origin requests to `/`, `/api/health`,
-   `/openapi.json` and `/api/auth/session`. Health must report
-   `database=connected` and the candidate `build_sha`; OpenAPI must expose the
-   health and session paths; the session must be anonymous.
+6. After each candidate or upgrade-rollback Compose apply, it polls bounded
+   `/api/health` readiness for at most 120 seconds with a two-second interval.
+   Only after readiness succeeds does it run the authoritative bounded,
+   no-redirect smoke suite against `/`, `/api/health`, `/openapi.json` and
+   `/api/auth/session`. Health must report `database=connected` and the expected
+   `build_sha`; OpenAPI must expose the health and session paths; the session
+   must be anonymous. A transient startup delay therefore cannot trigger an
+   immediate false rollback, while readiness failure remains bounded.
 7. Only after all smokes pass does it persist an immutable sanitized receipt
-   and checksum, then atomically advance the checksum-bound `current.json`
-   pointer. The workflow uploads the same output even for a stopped preflight.
+   and checksum together with the byte-exact accepted release manifest and its
+   checksum, then atomically advance the `current.json` pointer that binds both
+   durable files. The workflow uploads the same receipt output even for a
+   stopped preflight.
 
 An accepted receipt contains the authenticated release run ID, source SHA,
 exact image digests, candidate manifest checksum, non-production target identity, current migration identity,
 exact changed app resources, smoke outcomes and rollback identity. It never
 contains DSNs, environment-file contents, passwords, tokens, private keys or
 credential-bearing URLs.
+
+Database access and service mutation are accounted independently. The
+pre-mutation live schema verification and an upgrade's prior-release health
+smoke are database reads even when a later pull, image verification or apply
+fails; failure receipts record that access without claiming a database
+mutation. The checkpoint path performs no migrations, and the startup reap
+opt-out keeps candidate and rollback startup from updating `admin_job_runs`.
+
+The external schema authority is the
+`ed-finder/v3-live-checkpoint-schema-identity/v2` receipt named by target
+authority. It contains the approved `database_source_authority`, a non-secret
+`database_identity` (`database_name`, literal `server_address`, and
+`server_port`), the canonical `migration_set_identity`, the complete
+release-format `migration_set_entries`, and `captured_at`. The receipt must be
+no more than 24 hours old (with at most five minutes of clock skew), and its
+checksum remains pinned in target authority. The host must provide `psql` on
+the fixed operator `PATH`; preflight verifies the client before any pull and
+then uses it only for the bounded read-only identity/ledger query.
+
+The workflow job ceiling is 75 minutes. Individual operator commands retain
+their 120-second limit, and candidate/rollback readiness windows retain their
+120-second limit; the larger job ceiling covers the full valid worst-case host
+validation, candidate and prior-image pull/inspection, apply, readiness, smoke,
+rollback and receipt/SSH overhead rather than pre-empting the deployer's own
+bounded recovery path.
 
 ## Exact blockers before checkpoint #1
 
