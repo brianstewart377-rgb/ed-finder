@@ -39,6 +39,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 # intentionally absent because they no longer exist in the V3 control plane.
 CHECKED_WORKFLOWS = (
     'chatgpt-ed-new-ops.yml',
+    'checkpoint-workflow-validation.yml',
     'ci.yml',
     'codeql.yml',
     'codex-dispatch.yml',
@@ -61,7 +62,7 @@ class _NoBoolCoercionLoader(yaml.SafeLoader):
 
     By default PyYAML resolves bare `on`/`off`/`yes`/`no`/`true`/`false`
     (any case) to Python bool, for BOTH mapping keys and values. A GitHub
-    Actions job literally named `on` or `yes` — both legal job IDs — would
+    Actions job literally named `on` or `yes` — both legal GitHub Actions job IDs — would
     collide with any other job of the opposite boolean-ish name into a
     single `True`/`False` dict key, and the later one silently overwrites
     the earlier before this test ever sees it. This repo's real
@@ -160,7 +161,8 @@ def test_boolean_like_job_ids_do_not_collide():
     job IDs, but PyYAML's default (YAML 1.1) boolean coercion resolves
     bare `on`/`yes` mapping keys to Python True, so two such jobs would
     collide with any other job of the opposite boolean-ish name into a
-    single `True`/`False` dict key and silently overwrite one another."""
+    single `True`/`False` dict key, and the later one silently overwrites
+    the earlier before this test ever sees it."""
     workflow_yaml = (
         'jobs:\n'
         '  on:\n'

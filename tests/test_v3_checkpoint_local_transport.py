@@ -145,8 +145,8 @@ def test_custom_shell_never_opens_actions_generated_file(tmp_path):
     import runpy
     helper = runpy.run_path(str(ROOT / "tests/test_v3_checkpoint_validator_runtime.py"))
     path = ROOT / ".github/workflows/v3-live-checkpoint-control.yml"
-    step = yaml.safe_load(path.read_text())["jobs"]["provision"]["steps"][0]
-    words = helper["shell_words"](step["shell"])
+    job = yaml.safe_load(path.read_text())["jobs"]["provision"]
+    words = helper["shell_words"](job["defaults"]["run"]["shell"])
     malicious = tmp_path / "mutable.sh"
     marker = tmp_path / "executed"
     malicious.write_text(f"touch '{marker}'\n")

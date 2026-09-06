@@ -67,21 +67,26 @@ def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) 
     assert step["working-directory"] == "/"
     assert step["env"] == {"GH_TOKEN": "${{ github.token }}"}
     assert "if" not in step and "continue-on-error" not in step
-    expected_path = ("${{ runner.temp }}/" + receipt
+    assert "shell" not in step
+    assert set(job["defaults"]) == {"run"}
+    assert set(job["defaults"]["run"]) == {"shell"}
+    shell = job["defaults"]["run"]["shell"]
+    assert "runner." not in shell
+    expected_path = ("/tmp/" + receipt
                      + "-${{ github.run_id }}-${{ github.run_attempt }}.json")
     expected_suffix = (
         "${{ needs." + parent + ".outputs.artifact_id }} "
         + "${{ needs." + parent + ".outputs.bundle_sha256 }} "
         + '${{ github.sha }} ' + operation + ' "' + expected_path + '" {0}'
     )
-    assert step["shell"].endswith(expected_suffix)
-    words = shell_words(step["shell"])
+    assert shell.endswith(expected_suffix)
+    words = shell_words(shell)
     assert words[:7] == [
         "/usr/bin/sudo", "-n", "--preserve-env=GH_TOKEN", "/usr/bin/python3", "-I", "-S", "-c",
     ]
     assert decoded_program(words[7]) == SOURCE.read_bytes()
     assert words[8:] == ["123", "b" * 64, "a" * 40, operation,
-                         f"/tmp/runner-temp/{receipt}-42-1.json", "{0}"]
+                         f"/tmp/{receipt}-42-1.json", "{0}"]
     upload = steps[1]
     assert upload["uses"] == "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     assert upload["with"]["name"] == receipt
@@ -138,7 +143,7 @@ def test_preinstall_exception_rejects_broader_runtime_bypasses(file, name, chang
     job = yaml.safe_load(path.read_text())["jobs"][name]
     step = job["steps"][0]
     if change == "program":
-        step["shell"] = step["shell"].replace("import base64,zlib;", "import os;")
+        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("import base64,zlib;", "import os;")
     elif change == "extra-command":
         job["steps"].append({"run": "python arbitrary.py"})
     elif change == "inline-command":
@@ -158,7 +163,7 @@ def test_preinstall_exception_rejects_broader_runtime_bypasses(file, name, chang
     elif change == "needs":
         job["needs"] = "untrusted"
     elif change == "artifact":
-        step["shell"] = step["shell"].replace("outputs.artifact_id", "outputs.untrusted_id")
+        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("outputs.artifact_id", "outputs.untrusted_id")
     elif change == "env":
         step["env"]["PYTHONPATH"] = "/home/codex/poison"
     else:
