@@ -19,7 +19,7 @@ after `jobs:` (e.g. `defaults:`) wasn't detected as the end of the jobs
 section, so its children were misread as job blocks; `.yaml` (as opposed to
 `.yml`) workflow files were never enumerated; and (a second-round finding,
 on this file's own PyYAML-based rewrite) YAML 1.1's boolean coercion turns
-bare mapping keys like `on` or `yes` into Python `True`, so two distinctly-
+bare mapping keys like `on` or `yes` into Python True, so two distinctly-
 named jobs (both legal GitHub Actions job IDs) would collide into one dict
 key and silently overwrite each other. Real YAML parsing avoids the first
 four by construction; the fifth needs an explicit loader that disables that
@@ -52,6 +52,7 @@ CHECKED_WORKFLOWS = (
     'v3-application-live-checkpoint-preflight.yml',
     'v3-application-release.yml',
     'v3-derived-data-status.yml',
+    'v3-live-checkpoint-control.yml',
 )
 
 
