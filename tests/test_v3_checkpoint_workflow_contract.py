@@ -51,7 +51,9 @@ def test_upgrade_uses_durable_host_rollback_state_not_expiring_artifact():
     inputs = workflow["on"]["workflow_dispatch"]["inputs"]
     step_names = [step.get("name") for step in workflow["jobs"]["deploy"]["steps"]]
 
-    assert set(inputs) == {"deployment_mode", "release_run_id"}
+    assert set(inputs) == {"deployment_mode", "release_run_id", "transport"}
+    assert inputs["transport"]["default"] == "local"
+    assert inputs["transport"]["options"] == ["local", "ssh"]
     assert "Download candidate release manifest" in step_names
     assert "Download accepted rollback manifest" not in step_names
 

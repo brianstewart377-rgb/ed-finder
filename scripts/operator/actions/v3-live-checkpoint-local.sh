@@ -9,7 +9,7 @@ verify_local_identity() {
   [ "$(id -un)" = codex ] && [ "$(id -u)" = 1001 ] && [ "$(id -g)" = 1001 ] || {
     echo 'Unexpected checkpoint operator' >&2; return 78;
   }
-  python3.14 - <<'PY'
+  "$CHECKPOINT_PYTHON" - <<'PY'
 import platform, socket, sys
 assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14)
 assert socket.getfqdn() == 'vmi3542235.contaboserver.net'
@@ -40,6 +40,9 @@ verify_local_request() {
 }
 
 # Function definitions above are exercised with stubs by the regression tests.
+# Preserve the setup-python interpreter for unprivileged identity checks. The
+# provisioner establishes its own system CPython before any Python host mutation.
+CHECKPOINT_PYTHON="$(command -v python3.14)" || { echo 'Missing CPython 3.14 validator' >&2; exit 78; }
 export PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 unset BASH_ENV ENV PYTHONPATH PYTHONHOME
 verify_local_request "$@"
