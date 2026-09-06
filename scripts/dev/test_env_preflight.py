@@ -284,7 +284,11 @@ def run_read_only_select_one(env: Mapping[str, str], database: Mapping[str, Any]
 
     conn = None
     try:
-        conn = psycopg.connect(build_db_dsn(env, database), row_factory=dict_row)
+        conn = psycopg.connect(
+            build_db_dsn(env, database),
+            autocommit=False,
+            row_factory=dict_row,
+        )
         conn.read_only = True
         with conn.cursor() as cur:
             cur.execute('SHOW transaction_read_only')

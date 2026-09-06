@@ -96,7 +96,7 @@ def connect_read_only_db(dsn: str):
     """Connect lazily so tests and imports do not require Postgres."""
     import psycopg  # noqa: PLC0415
 
-    conn = psycopg.connect(dsn)
+    conn = psycopg.connect(dsn, autocommit=False)
     conn.read_only = True
     return conn
 

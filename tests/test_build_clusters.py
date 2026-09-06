@@ -30,6 +30,112 @@ def test_row_to_dict_rejects_cursor_shape_mismatch(monkeypatch, tmp_path):
         build_clusters._row_to_dict(description, (42,))
 
 
+def test_cluster_executemany_sql_preserves_complete_insert_shape(monkeypatch, tmp_path):
+    build_clusters = _load_build_clusters(monkeypatch, tmp_path)
+
+    statement = build_clusters._cluster_insert_sql()
+
+    assert 'VALUES %s' not in statement
+    assert statement.count('%s') == 24
+    assert 'FALSE, NOW(), NOW()' in statement
+    assert 'ON CONFLICT (system_id64) DO UPDATE' in statement
+
+
+def test_cluster_reconnect_failure_rolls_back_new_connection(monkeypatch, tmp_path):
+    build_clusters = _load_build_clusters(monkeypatch, tmp_path)
+
+    class FakeCursor:
+        def __init__(self, write_error):
+            self.write_error = write_error
+            self.result_kind = None
+            self.description = []
+            self.closed = False
+
+        def execute(self, statement, _params=None):
+            if statement == build_clusters.FIND_ANCHORS_SQL:
+                self.result_kind = 'anchors'
+            elif 'SELECT grid_cell_id' in statement:
+                self.result_kind = 'grid'
+            else:
+                self.result_kind = 'aggregate'
+
+        def fetchall(self):
+            return [(42, 1.0, 2.0, 3.0, 90)] if self.result_kind == 'anchors' else []
+
+        def fetchone(self):
+            if self.result_kind == 'grid':
+                return (100020003,)
+            if self.result_kind == 'aggregate':
+                return (1,)
+            return None
+
+        def executemany(self, _statement, _rows):
+            raise self.write_error
+
+        def close(self):
+            self.closed = True
+
+    class FakeConnection:
+        def __init__(self, write_error):
+            self.cursor_obj = FakeCursor(write_error)
+            self.rollbacks = 0
+            self.closed = False
+
+        def rollback(self):
+            self.rollbacks += 1
+
+        def close(self):
+            self.closed = True
+
+    class FakeQueue:
+        def __init__(self):
+            self.values = [7, None]
+
+        def get(self, timeout):  # noqa: ARG002
+            return self.values.pop(0)
+
+    class FakeCounter:
+        value = 0
+
+        class Lock:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_exc_info):
+                return None
+
+        def get_lock(self):
+            return self.Lock()
+
+    first = FakeConnection(build_clusters.psycopg.OperationalError('lost'))
+    second = FakeConnection(RuntimeError('retry failed'))
+    connections = iter(((first, first.cursor_obj), (second, second.cursor_obj)))
+    monkeypatch.setattr(build_clusters, '_connect_with_retry', lambda *_args: next(connections))
+    monkeypatch.setattr(build_clusters, '_row_to_dict', lambda *_args: {
+        **{
+            f'{economy}_{field}': 0
+            for economy in ('agriculture', 'refinery', 'industrial', 'hightech', 'military', 'tourism')
+            for field in ('count', 'best', 'top_id')
+        },
+        'total_viable': 0,
+    })
+    monkeypatch.setattr(build_clusters, 'compute_coverage_score', lambda _row: 0)
+
+    build_clusters.worker_fn(
+        1,
+        FakeQueue(),
+        FakeCounter(),
+        'postgresql://test.invalid/db',
+        500.0,
+        1,
+        False,
+    )
+
+    assert first.cursor_obj.closed is True
+    assert first.closed is True
+    assert second.rollbacks == 1
+
+
 def test_full_rebuild_only_clears_genuinely_dirty_eligible_systems():
     script = SCRIPT_PATH.read_text(encoding='utf-8')
 

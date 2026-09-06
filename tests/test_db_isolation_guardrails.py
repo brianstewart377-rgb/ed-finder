@@ -187,12 +187,10 @@ def test_safe_schema_names_are_generated_and_validated():
 def test_rollback_transaction_rolls_back_and_closes():
     class FakeConn:
         def __init__(self):
-            self.session = None
+            self.read_only = None
+            self.autocommit = None
             self.rollbacks = 0
             self.closed = False
-
-        def set_session(self, **kwargs):
-            self.session = kwargs
 
         def rollback(self):
             self.rollbacks += 1
@@ -212,7 +210,8 @@ def test_rollback_transaction_rolls_back_and_closes():
         readonly=True,
     ) as conn:
         assert conn is fake
-        assert fake.session == {'readonly': True, 'autocommit': False}
+        assert fake.read_only is True
+        assert fake.autocommit is False
 
     assert fake.rollbacks == 1
     assert fake.closed is True

@@ -204,7 +204,7 @@ jobs:
               -o StrictHostKeyChecking=yes \
               -o UserKnownHostsFile=~/.ssh/known_hosts \
               "$SSH_USER@$SSH_HOST" \
-              'python3 - --container edfinder-v3-phase4c-full-20260827_r5-postgres' \
+              'python3.14 - --container edfinder-v3-phase4c-full-20260827_r5-postgres' \
               < trusted-main/scripts/operator/recover_v3_runtime_contract.py \
               > "$archive"
           test -s "$archive"

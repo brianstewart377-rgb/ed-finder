@@ -17,7 +17,21 @@ def test_makefile_prefers_repo_venv_python_before_global_python():
     assert 'VENV_PYTHON := .venv/Scripts/python.exe' in makefile
     assert 'VENV_PYTHON := .venv/bin/python' in makefile
     assert 'PYTHON ?= $(VENV_PYTHON)' in makefile
-    assert 'PYTHON ?= python' in makefile
+    assert 'PYTHON ?= python3.14' in makefile
+
+
+def test_makefile_python_targets_fail_closed_on_exact_cpython314():
+    makefile = ROOT.joinpath('Makefile').read_text(encoding='utf-8')
+
+    assert 'check-python314:' in makefile
+    assert 'sys.implementation.name == "cpython"' in makefile
+    assert 'sys.version_info[:2] == (3, 14)' in makefile
+    for target in (
+        'data-invariants', 'test', 'test-env-check', 'state-check',
+        'state-check-docs', 'test-unit', 'test-operator', 'test-db',
+        'test-db-isolation', 'test-integration', 'api-smoke',
+    ):
+        assert f'{target}: check-python314' in makefile
 
 
 def test_makefile_test_target_uses_configured_python_variable_everywhere():
@@ -148,6 +162,6 @@ def test_windows_make_dry_run_uses_cmd_safe_python_command():
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    expected_python = '.venv/Scripts/python.exe' if ROOT.joinpath('.venv', 'Scripts', 'python.exe').exists() else 'python'
+    expected_python = '.venv/Scripts/python.exe' if ROOT.joinpath('.venv', 'Scripts', 'python.exe').exists() else 'python3.14'
     assert f'{expected_python} -B -m pytest' in result.stdout
     assert 'PYTHONDONTWRITEBYTECODE=1' not in result.stdout

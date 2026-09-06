@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import re
 import tomllib
 from pathlib import Path
@@ -20,6 +21,17 @@ OLD_VERSION_FRAGMENTS = ("3." + "11", "3." + "12")
 
 def _workflow(filename: str) -> dict:
     return yaml.safe_load((WORKFLOWS / filename).read_text(encoding="utf-8"))
+
+
+def _imports(path: Path) -> set[str]:
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    return imported
 
 
 def _repository_text_files():
@@ -105,7 +117,10 @@ def test_python_project_and_container_authorities_are_exactly_314():
 
     assert root_project["project"]["requires-python"] == ">=3.14,<3.15"
     assert root_project["project"]["classifiers"] == ["Programming Language :: Python :: 3.14"]
-    assert root_project["tool"]["ruff"]["target-version"] == "py314"
+    assert root_project["tool"]["ruff"]["target-version"] == "py313"
+    root_manifest = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert "py313 is the repository's Ruff lint/parser compatibility" in root_manifest
+    assert "It does not select a runtime" in root_manifest
     assert api_project["project"]["requires-python"] == ">=3.14,<3.15"
 
     for path in (
@@ -157,6 +172,17 @@ def test_driver_ownership_and_dependency_pins_are_explicit():
     assert "psycopg[binary]==3.3.4" in root_tests
     assert "import asyncpg" in (ROOT / "apps" / "api" / "src" / "state.py").read_text()
     assert "import asyncpg" in (ROOT / "apps" / "eddn" / "src" / "eddn_listener.py").read_text()
+
+
+def test_api_and_eddn_runtime_sources_remain_asyncpg_owned():
+    for source_root in (ROOT / "apps" / "api" / "src", ROOT / "apps" / "eddn" / "src"):
+        imports = {
+            name
+            for path in source_root.rglob("*.py")
+            for name in _imports(path)
+        }
+        assert "asyncpg" in imports
+        assert not any(name == "psycopg" or name.startswith("psycopg.") for name in imports)
 
 
 def test_no_active_dependency_or_python_source_reintroduces_legacy_driver():

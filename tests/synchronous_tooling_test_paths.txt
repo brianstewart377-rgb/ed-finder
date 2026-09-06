@@ -4,6 +4,7 @@
 tests/test_backfill_station_body_links.py
 tests/test_build_archetype_scores_limit.py
 tests/test_build_clusters.py
+tests/test_build_grid_psycopg3_runtime.py
 tests/test_data_trust_runtime.py
 tests/test_edsm_station_enrichment_probe.py
 tests/test_edsm_station_normalization.py

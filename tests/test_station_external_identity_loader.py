@@ -3,6 +3,7 @@ import json
 import sys
 from pathlib import Path
 
+import psycopg
 import pytest
 
 
@@ -15,6 +16,20 @@ import station_external_identity_loader as loader  # noqa: E402
 
 
 GENERATED_AT = '2026-01-02T00:00:00Z'
+
+
+def test_write_connection_uses_explicit_psycopg3_transaction_mode(monkeypatch):
+    captured: dict[str, object] = {}
+    connection = object()
+
+    def connect(dsn: str, **kwargs):
+        captured.update(dsn=dsn, **kwargs)
+        return connection
+
+    monkeypatch.setattr(psycopg, 'connect', connect)
+
+    assert loader.connect_write_db('postgresql://test/test') is connection
+    assert captured == {'dsn': 'postgresql://test/test', 'autocommit': False}
 
 
 def planned_row(index: int, **overrides):

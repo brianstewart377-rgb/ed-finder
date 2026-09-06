@@ -93,6 +93,7 @@ def test_database_probe_uses_psycopg_dict_rows_and_read_only_transaction(monkeyp
     class FakeConnection:
         def __init__(self):
             self.read_only = False
+            self.autocommit = None
             self.rollbacks = 0
             self.closed = False
 
@@ -107,8 +108,9 @@ def test_database_probe_uses_psycopg_dict_rows_and_read_only_transaction(monkeyp
 
     connection = FakeConnection()
 
-    def connect(dsn, *, row_factory):
+    def connect(dsn, *, autocommit, row_factory):
         assert dsn == 'postgresql://test.invalid/edfinder'
+        assert autocommit is False
         assert row_factory is dict_row
         return connection
 
@@ -121,6 +123,7 @@ def test_database_probe_uses_psycopg_dict_rows_and_read_only_transaction(monkeyp
 
     assert result.ok is True
     assert connection.read_only is True
+    assert connection.autocommit is None
     assert connection.rollbacks == 1
     assert connection.closed is True
 

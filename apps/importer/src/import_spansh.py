@@ -227,6 +227,10 @@ def flush_error_batch(conn, dump_file: str):
             )
         conn.commit()
     except Exception as e:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         log.warning(f"Failed to write error batch to import_errors: {e}")
     finally:
         _error_batch.clear()

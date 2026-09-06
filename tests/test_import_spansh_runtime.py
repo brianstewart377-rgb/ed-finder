@@ -74,6 +74,64 @@ class _FakeConnection:
         self.rollbacks += 1
 
 
+def test_copy_records_uses_psycopg3_typed_rows_and_quotes_identifiers():
+    class RecordingCopy:
+        def __init__(self) -> None:
+            self.rows: list[tuple[object, ...]] = []
+
+        def __enter__(self) -> 'RecordingCopy':
+            return self
+
+        def __exit__(self, *_exc_info: object) -> None:
+            return None
+
+        def write_row(self, row: tuple[object, ...]) -> None:
+            self.rows.append(row)
+
+    class RecordingCursor:
+        def __init__(self) -> None:
+            self.statement = None
+            self.copy_stream = RecordingCopy()
+
+        def __enter__(self) -> 'RecordingCursor':
+            return self
+
+        def __exit__(self, *_exc_info: object) -> None:
+            return None
+
+        def copy(self, statement: object) -> RecordingCopy:
+            self.statement = statement
+            return self.copy_stream
+
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.cursor_instance = RecordingCursor()
+            self.commits = 0
+
+        def cursor(self) -> RecordingCursor:
+            return self.cursor_instance
+
+        def commit(self) -> None:
+            self.commits += 1
+
+    conn = RecordingConnection()
+    rows = [(1, 'line one\nline two'), (None, 'tab\tbackslash\\')]
+
+    count = import_spansh.copy_records(
+        conn,
+        'table with space',
+        ['select', 'payload'],
+        rows,
+    )
+
+    assert count == 2
+    assert conn.commits == 1
+    assert conn.cursor_instance.statement.as_string() == (
+        'COPY "table with space" ("select", "payload") FROM STDIN'
+    )
+    assert conn.cursor_instance.copy_stream.rows == rows
+
+
 class _DeadlockCursor:
     def __init__(self, connection: '_DeadlockConnection') -> None:
         self.connection = connection

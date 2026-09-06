@@ -198,6 +198,11 @@ INSERT_TEMPLATE = """(%s,
     %s,%s,%s, %s,%s,%s, %s,%s,%s,
     %s,%s,%s, %s,%s, FALSE, NOW(), NOW())"""
 
+
+def _cluster_insert_sql() -> str:
+    """Return the single-row shape used by Psycopg 3 ``executemany``."""
+    return INSERT_SQL.format(values_template=INSERT_TEMPLATE)
+
 # ---------------------------------------------------------------------------
 # Coverage score (Python side — mirrors the SQL function)
 # ---------------------------------------------------------------------------
@@ -423,16 +428,25 @@ def worker_fn(worker_id: int, macro_queue: Queue, done_counter, db_url: str,
         # Step 3: Write batch to cluster_summary
         if write_batch:
             try:
-                cur.executemany(INSERT_SQL.format(values_template=INSERT_TEMPLATE), write_batch)
+                cur.executemany(_cluster_insert_sql(), write_batch)
                 conn.commit()
             except psycopg.OperationalError as e:
                 print(f"[W{worker_id}] Write lost connection: {e} — reconnecting", flush=True)
                 try:
+                    try:
+                        cur.close()
+                        conn.close()
+                    except Exception:
+                        pass
                     conn, cur = _connect_with_retry(worker_id, db_url, cell_timeout)
-                    cur.executemany(INSERT_SQL.format(values_template=INSERT_TEMPLATE), write_batch)
+                    cur.executemany(_cluster_insert_sql(), write_batch)
                     conn.commit()
                 except Exception as e2:
                     print(f"[W{worker_id}] Write failed after reconnect: {e2}", flush=True)
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
             except Exception as e:
                 print(f"[W{worker_id}] Write error: {e}", flush=True)
                 try:

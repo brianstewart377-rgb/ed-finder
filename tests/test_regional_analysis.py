@@ -53,6 +53,7 @@ def test_main_sets_bounded_session_statement_timeout(monkeypatch):
     build_regional_analysis.main()
 
     assert 'statement_timeout=1800000' in connect.call_args.kwargs['options']
+    connection.cursor.assert_called_once_with(row_factory=build_regional_analysis.dict_row)
 
 
 def test_load_targets_filters_coordinate_less_systems_in_all_modes(capsys):

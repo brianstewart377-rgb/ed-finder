@@ -221,6 +221,55 @@ def _safe_close(conn):
         pass
 
 
+def _run_in_autocommit(conn, operation):
+    """Run ``operation`` outside a transaction and restore connection mode.
+
+    Psycopg 3 rejects changing ``autocommit`` while a transaction is active.
+    Several grid phases perform reads before session-level SET/ALTER/CREATE
+    statements, so close that transaction first and restore the exact prior
+    mode even when the operation fails.
+    """
+    old_autocommit = conn.autocommit
+    if not old_autocommit:
+        try:
+            conn.commit()
+        except Exception:
+            conn.rollback()
+    conn.autocommit = True
+    try:
+        return operation()
+    finally:
+        conn.autocommit = old_autocommit
+
+
+def _set_replica_mode(conn, *, allow_alter_fallback: bool = False) -> str:
+    """Disable ordinary triggers on *conn*, returning the method used."""
+
+    def _set_role():
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET session_replication_role = replica")
+            return 'session'
+        except Exception:
+            if not allow_alter_fallback:
+                raise
+            # An autocommit statement failure does not leave a transaction
+            # open; use a fresh cursor for the ownership-based fallback.
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
+            return 'alter'
+
+    return _run_in_autocommit(conn, _set_role)
+
+
+def _enable_system_triggers(conn) -> None:
+    def _enable():
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+
+    _run_in_autocommit(conn, _enable)
+
+
 # ---------------------------------------------------------------------------
 # Kill competing connections (non-blocking best-effort)
 # ---------------------------------------------------------------------------
@@ -373,19 +422,22 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     try:
         with conn.cursor() as _cur:
             _cur.execute("SELECT 1 FROM pg_indexes WHERE indexname = 'idx_sys_grid_null'")
-            if not _cur.fetchone():
-                log.info("  [Auto-Fix] Index 'idx_sys_grid_null' is missing. Attempting to create it...")
-                # We need a non-transactional connection for CREATE INDEX CONCURRENTLY
-                # but since we're already in a script that bypasses pgbouncer, we'll try a simple CREATE INDEX.
-                # If it fails (e.g. permission), we just log it and continue with the fallback logic.
-                try:
-                    old_autocommit = conn.autocommit
-                    conn.autocommit = True
-                    _cur.execute("CREATE INDEX IF NOT EXISTS idx_sys_grid_null ON systems(id64) WHERE grid_cell_id IS NULL")
-                    conn.autocommit = old_autocommit
-                    log.info("  [Auto-Fix] ✓ Index created successfully.")
-                except Exception as _e:
-                    log.warning(f"  [Auto-Fix] Could not create index automatically: {_e}")
+            index_missing = not _cur.fetchone()
+        if index_missing:
+            log.info("  [Auto-Fix] Index 'idx_sys_grid_null' is missing. Attempting to create it...")
+            # Run outside the read transaction opened by the existence check.
+            try:
+                def _create_index():
+                    with conn.cursor() as index_cur:
+                        index_cur.execute(
+                            "CREATE INDEX IF NOT EXISTS idx_sys_grid_null "
+                            "ON systems(id64) WHERE grid_cell_id IS NULL"
+                        )
+
+                _run_in_autocommit(conn, _create_index)
+                log.info("  [Auto-Fix] ✓ Index created successfully.")
+            except Exception as _e:
+                log.warning(f"  [Auto-Fix] Could not create index automatically: {_e}")
     except Exception:
         pass
 
@@ -421,18 +473,13 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
     # The setting is session-scoped and reverts automatically on disconnect.
     # Disable triggers if possible. session_replication_role requires superuser.
     # ALTER TABLE ... DISABLE TRIGGER ALL requires table ownership.
+    trigger_mode = None
     try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            try:
-                _wac.execute("SET session_replication_role = replica")
-                log.info("  ✓ RI triggers disabled via session_replication_role = replica")
-            except Exception:
-                # Fallback: Try ALTER TABLE (requires ownership)
-                write_conn.rollback()
-                _wac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
-                log.info("  ✓ RI triggers disabled via ALTER TABLE DISABLE TRIGGER ALL")
-        write_conn.autocommit = False
+        trigger_mode = _set_replica_mode(write_conn, allow_alter_fallback=True)
+        if trigger_mode == 'session':
+            log.info("  ✓ RI triggers disabled via session_replication_role = replica")
+        else:
+            log.info("  ✓ RI triggers disabled via ALTER TABLE DISABLE TRIGGER ALL")
     except Exception as _e:
         log.warning(f"  Could not disable triggers (not superuser or owner?): {_e}")
         log.warning("  Continuing with triggers ENABLED — Stage 3 will be significantly slower.")
@@ -495,12 +542,10 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
                 time.sleep(wait)
                 write_conn = _connect_with_retry(DB_DSN, label=f"ctid-retry-{attempt}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying batch {batch_num}")
                 rows_updated = 0
@@ -566,14 +611,13 @@ def stage3_formula(conn, cur, min_x, min_y, min_z, cell_size,
 
     progress.finish()
     
-    # Re-enable triggers if we used ALTER TABLE
-    try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+    # Only ALTER TABLE changes global table state and needs explicit reversal.
+    if trigger_mode == 'alter':
+        try:
+            _enable_system_triggers(write_conn)
             log.info("  ✓ Triggers re-enabled")
-    except Exception:
-        pass
+        except Exception as enable_error:
+            log.warning(f"  Could not re-enable triggers: {enable_error}")
 
     write_cur.close()
     _safe_close(write_conn)
@@ -603,13 +647,12 @@ def grid_worker(
     cur = conn.cursor()
 
     try:
-        conn.autocommit = True
+        def _configure_worker():
+            cur.execute("SET session_replication_role = replica")
+            cur.execute("SET synchronous_commit = OFF")
+            cur.execute("SET work_mem = '256MB'")
 
-        cur.execute("SET session_replication_role = replica")
-        cur.execute("SET synchronous_commit = OFF")
-        cur.execute("SET work_mem = '256MB'")
-
-        conn.autocommit = False
+        _run_in_autocommit(conn, _configure_worker)
 
     except Exception as e:
         log.warning(f"[worker-{worker_id}] session setup failed: {e}")
@@ -754,11 +797,9 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
     write_conn = _connect_with_retry(DB_DSN, label="batched-writer")
     # FIX v2.3 (corrected): apply session_replication_role to the write_conn
     # that executes the UPDATE, not the monitoring connection.
+    trigger_mode = None
     try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("SET session_replication_role = replica")
-        write_conn.autocommit = False
+        trigger_mode = _set_replica_mode(write_conn)
         log.info("  ✓ RI triggers disabled on write_conn (batched-writer)")
     except Exception as _e:
         log.warning(f"  Could not disable RI triggers on write_conn: {_e} — continuing (Stage 3 may be slow)")
@@ -801,12 +842,10 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                 time.sleep(10 * (attempt + 1))
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-retry-{attempt}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 log.info(f"  Reconnected — retrying cell {cell_id}")
 
@@ -819,12 +858,10 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
                     pass
                 write_conn = _connect_with_retry(DB_DSN, label=f"batched-error-{i}")
                 try:
-                    write_conn.autocommit = True
-                    with write_conn.cursor() as _wac:
-                        _wac.execute("SET session_replication_role = replica")
-                    write_conn.autocommit = False
-                except Exception:
-                    pass
+                    if trigger_mode == 'session':
+                        _set_replica_mode(write_conn)
+                except Exception as setup_error:
+                    log.warning(f"  Reconnected with RI triggers enabled: {setup_error}")
                 write_cur  = write_conn.cursor()
                 break
 
@@ -839,14 +876,12 @@ def stage3_batched_cells(conn, cur, cell_count, already_assigned, total_systems)
 
     progress.finish()
     
-    # Re-enable triggers if we used ALTER TABLE
-    try:
-        write_conn.autocommit = True
-        with write_conn.cursor() as _wac:
-            _wac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
+    if trigger_mode == 'alter':
+        try:
+            _enable_system_triggers(write_conn)
             log.info("  ✓ Triggers re-enabled")
-    except Exception:
-        pass
+        except Exception as enable_error:
+            log.warning(f"  Could not re-enable triggers: {enable_error}")
 
     write_cur.close()
     _safe_close(write_conn)
@@ -1158,32 +1193,14 @@ Strategies:
             log.info("  │  Reverts automatically on session disconnect            │")
             log.info("  └───────────────────────────────────────────────────────┘")
             try:
-                # Must be outside a transaction block.
-                # The monitoring conn may have an in-flight transaction from
-                # earlier SELECTs — commit/rollback before changing autocommit.
-                try: conn.commit()
-                except Exception: pass
-                conn.autocommit = True
-                with conn.cursor() as ac:
-                    ac.execute("SET session_replication_role = replica")
-                conn.autocommit = False
+                disable_triggers = _set_replica_mode(
+                    conn, allow_alter_fallback=True,
+                )
                 log.info("  ✓ RI triggers disabled for this session")
             except Exception as e:
                 log.warning(f"  Could not disable triggers: {e}")
-                log.warning("  Trying ALTER TABLE DISABLE TRIGGER ALL ...")
-                try:
-                    try: conn.rollback()
-                    except Exception: pass
-                    conn.autocommit = True
-                    with conn.cursor() as ac:
-                        ac.execute("ALTER TABLE systems DISABLE TRIGGER ALL")
-                    conn.autocommit = False
-                    log.info("  ✓ Triggers disabled via ALTER TABLE")
-                    disable_triggers = 'alter'  # track which method we used
-                except Exception as e2:
-                    log.warning(f"  Could not disable via ALTER TABLE either: {e2}")
-                    log.warning("  Continuing with triggers ENABLED — Stage 3 will be SLOW")
-                    disable_triggers = False
+                log.warning("  Continuing with triggers ENABLED — Stage 3 will be SLOW")
+                disable_triggers = False
         else:
             log.warning("  --no-disable-triggers set — RI triggers remain active (SLOW!)")
 
@@ -1216,10 +1233,7 @@ Strategies:
         # Re-enable triggers if we disabled via ALTER TABLE
         if disable_triggers == 'alter':
             try:
-                conn.autocommit = True
-                with conn.cursor() as ac:
-                    ac.execute("ALTER TABLE systems ENABLE TRIGGER ALL")
-                conn.autocommit = False
+                _enable_system_triggers(conn)
                 log.info("  ✓ Triggers re-enabled via ALTER TABLE")
             except Exception as e:
                 log.warning(f"  Could not re-enable triggers: {e} (reconnect will restore)")
@@ -1318,13 +1332,12 @@ Strategies:
             cur = conn.cursor()
 
             try:
-                conn.autocommit = True
+                def _configure_macro_worker():
+                    cur.execute("SET session_replication_role = replica")
+                    cur.execute("SET synchronous_commit = OFF")
+                    cur.execute("SET work_mem = '256MB'")
 
-                cur.execute("SET session_replication_role = replica")
-                cur.execute("SET synchronous_commit = OFF")
-                cur.execute("SET work_mem = '256MB'")
-
-                conn.autocommit = False
+                _run_in_autocommit(conn, _configure_macro_worker)
 
             except Exception as e:
                 log.warning(f"[macro-worker-{worker_id}] setup failed: {e}")

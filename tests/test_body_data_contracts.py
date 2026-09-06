@@ -14,6 +14,15 @@ def test_worker_process_leaves_empty_body_systems_dirty_for_retry():
     assert "failed_ids.add(system_id64)" in source
 
 
+def test_ratings_stream_uses_psycopg3_read_only_connection_property():
+    source = (ROOT / "apps" / "importer" / "src" / "build_ratings.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "stream_conn.read_only = True" in source
+    assert "stream_conn.set_session" not in source
+
+
 def test_data_invariants_check_reports_body_contract_drift():
     source = (ROOT / "scripts" / "checks" / "data_invariants.py").read_text(encoding="utf-8")
 

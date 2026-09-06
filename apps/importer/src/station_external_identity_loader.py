@@ -173,7 +173,7 @@ def connect_write_db(dsn: str):
     """Connect lazily so tests and dry-run imports do not require Postgres."""
     import psycopg  # noqa: PLC0415
 
-    return psycopg.connect(dsn)
+    return psycopg.connect(dsn, autocommit=False)
 
 
 def build_execution_plan_from_files(

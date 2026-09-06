@@ -13,6 +13,11 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
   throw "Virtualenv not found at $venvPython"
 }
 
+$venvRuntime = (& $venvPython -c 'import sys; print(f"{sys.implementation.name}:{sys.version_info.major}.{sys.version_info.minor}")' 2>&1 | Select-Object -First 1).ToString().Trim()
+if ($venvRuntime -ne 'cpython:3.14') {
+  throw "The repository virtualenv must use CPython 3.14.x; found $venvRuntime. Rerun scripts/dev/bootstrap-windows.ps1."
+}
+
 if (-not (Test-Path -LiteralPath $envFile)) {
   throw "Expected repo .env at $envFile"
 }

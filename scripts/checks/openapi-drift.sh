@@ -43,6 +43,8 @@ pick_python() {
     printf '%s\n' "$ROOT/.venv/bin/python"
   elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
     printf '%s\n' "$ROOT/.venv/Scripts/python.exe"
+  elif command -v python3.14 >/dev/null 2>&1; then
+    command -v python3.14
   elif command -v python3 >/dev/null 2>&1; then
     command -v python3
   elif command -v python >/dev/null 2>&1; then
