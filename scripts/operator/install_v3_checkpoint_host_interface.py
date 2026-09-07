@@ -1,7 +1,5 @@
 """Install the fixed, least-privilege Contabo checkpoint host interface."""
 import hashlib
-import urllib.error
-import urllib.request
 import json
 import os
 import pwd
@@ -185,18 +183,30 @@ def verify_state(path, expected):
 
 
 def resolve_trusted_main_sha():
-    request = urllib.request.Request(
-        "https://api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main",
-        headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "edfinder-checkpoint-interface-installer"},
-    )
+    """Return the exact current trusted-main SHA over a fixed HTTPS-only curl path."""
+    endpoint = "https://api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main"
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            if response.status != 200:
-                stop(f"GitHub trusted-main lookup returned HTTP {response.status}")
-            payload = response.read(1024 * 1024 + 1)
-    except urllib.error.HTTPError as exc:
-        stop(f"GitHub trusted-main lookup returned HTTP {exc.code}")
+        response = subprocess.run(
+            [
+                "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
+                "--location", "--proto", "=https", "--proto-redir", "=https",
+                "--tlsv1.2", "--noproxy", "*", "--connect-timeout", "10",
+                "--max-time", "20", "--max-filesize", str(1024 * 1024),
+                "--header", "Accept: application/vnd.github+json",
+                "--header", "User-Agent: edfinder-checkpoint-interface-installer",
+                endpoint,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"},
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        stop(f"GitHub trusted-main lookup failed: {type(exc).__name__}")
+    if response.returncode != 0 or not response.stdout:
+        stop("GitHub trusted-main lookup failed")
+    payload = response.stdout
     if len(payload) > 1024 * 1024:
         stop("GitHub trusted-main response is oversized")
     try:

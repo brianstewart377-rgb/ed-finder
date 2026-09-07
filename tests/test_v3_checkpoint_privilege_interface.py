@@ -2,6 +2,7 @@
 import hashlib
 import importlib.machinery
 import importlib.util
+import json
 import os
 import shutil
 import stat
@@ -220,6 +221,56 @@ def test_installer_rejects_source_that_is_not_current_trusted_main(tmp_path):
             owner_uid=os.getuid(), staging_parent=tmp_path,
             installer_path=source / module.INSTALLER_SOURCE,
         )
+
+
+def test_resolver_uses_fixed_hardened_curl_endpoint(monkeypatch):
+    module = load(INSTALLER, "checkpoint_installer_resolver_curl_test")
+    endpoint = "https://api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main"
+    payload = json.dumps({"sha": "a" * 40}).encode("ascii")
+    calls = []
+
+    def fake_run(argv, **kwargs):
+        calls.append((argv, kwargs))
+        assert argv[0] == "/usr/bin/curl"
+        assert argv[-1] == endpoint
+        assert "--disable" in argv
+        assert "--noproxy" in argv and "*" in argv
+        assert "--proto" in argv and "=https" in argv
+        assert "--proto-redir" in argv and "=https" in argv
+        assert "--tlsv1.2" in argv
+        assert "--fail" in argv
+        assert "--silent" in argv
+        assert "--show-error" in argv
+        assert "--max-time" in argv and "20" in argv
+        assert kwargs["env"] == {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+        return subprocess.CompletedProcess(argv, 0, stdout=payload)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    assert module.resolve_trusted_main_sha() == "a" * 40
+    assert len(calls) == 1
+
+
+def test_resolver_rejects_invalid_json(monkeypatch):
+    module = load(INSTALLER, "checkpoint_installer_resolver_json_test")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, stdout=b"not-json")
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="invalid JSON"):
+        module.resolve_trusted_main_sha()
+
+
+def test_resolver_rejects_invalid_sha(monkeypatch):
+    module = load(INSTALLER, "checkpoint_installer_resolver_sha_test")
+    payload = json.dumps({"sha": "B" * 40}).encode("ascii")
+
+    def fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(argv, 0, stdout=payload)
+
+    monkeypatch.setattr(module.subprocess, "run", fake_run)
+    with pytest.raises(RuntimeError, match="invalid commit SHA"):
+        module.resolve_trusted_main_sha()
 
 
 def test_sudoers_rule_parses_with_visudo_when_available(tmp_path):
