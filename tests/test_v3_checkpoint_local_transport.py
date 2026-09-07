@@ -1,5 +1,6 @@
 """Executable regressions for the sealed, worktree-independent host handoff."""
 import hashlib
+import importlib.machinery
 import importlib.util
 import io
 import json
@@ -130,6 +131,69 @@ def test_stale_installed_bootstrap_stops_before_artifact_download(monkeypatch, t
                         pytest.fail("stale helper must stop before download"))
     with pytest.raises(ValueError, match="bootstrap digest mismatch"):
         module.main()
+
+
+def test_launcher_check_argv_is_accepted_by_bootstrap_self_test(
+    tmp_path, monkeypatch, capsys
+):
+    launcher_source = ROOT / "scripts/operator/actions/edfinder-v3-checkpoint-launcher"
+    loader = importlib.machinery.SourceFileLoader(
+        "checkpoint_launcher_protocol_test", str(launcher_source)
+    )
+    spec = importlib.util.spec_from_loader("checkpoint_launcher_protocol_test", loader)
+    launcher = importlib.util.module_from_spec(spec)
+    loader.exec_module(launcher)
+
+    installed_launcher = tmp_path / "installed-launcher"
+    installed_launcher.write_bytes(launcher_source.read_bytes())
+    installed_bootstrap = tmp_path / "installed-bootstrap.py"
+    installed_bootstrap.write_bytes(SOURCE.read_bytes())
+
+    monkeypatch.setattr(launcher, "LAUNCHER", installed_launcher)
+    monkeypatch.setattr(launcher, "BOOTSTRAP", installed_bootstrap)
+    monkeypatch.setattr(launcher, "validate_identity", lambda: None)
+    monkeypatch.setattr(launcher.os, "environ", {
+        "GH_TOKEN": "synthetic-token", "SUDO_USER": "codex",
+        "SUDO_UID": "1", "SUDO_GID": "1",
+    })
+
+    emitted = []
+
+    def execve(program, arguments, environment):
+        emitted.append((program, arguments, environment))
+        raise RuntimeError("captured launcher exec")
+
+    monkeypatch.setattr(launcher.os, "execve", execve)
+    expected_bootstrap = hashlib.sha256(installed_bootstrap.read_bytes()).hexdigest()
+    expected_launcher = hashlib.sha256(installed_launcher.read_bytes()).hexdigest()
+    monkeypatch.setattr(sys, "argv", [
+        str(launcher_source), "--check",
+        "--bootstrap-sha", expected_bootstrap,
+        "--launcher-sha", expected_launcher,
+    ])
+    with pytest.raises(RuntimeError, match="captured launcher exec"):
+        launcher.main()
+
+    program, arguments, _ = emitted[0]
+    assert program == "/usr/bin/python3"
+    assert arguments[:4] == ["/usr/bin/python3", "-I", "-S", str(installed_bootstrap)]
+    bootstrap_argv = arguments[4:]
+
+    bootstrap = load_module()
+    monkeypatch.setattr(bootstrap, "LAUNCHER", installed_launcher)
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), *bootstrap_argv])
+    monkeypatch.setattr(bootstrap.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(bootstrap.os, "uname", lambda: types.SimpleNamespace(
+        nodename="vmi3542235", machine="x86_64",
+    ))
+    monkeypatch.setattr(bootstrap.socket, "getfqdn", lambda: "vmi3542235.contaboserver.net")
+
+    assert bootstrap.main() == 0
+    output = capsys.readouterr().out
+    assert expected_bootstrap in output
+    assert expected_launcher in output
+    assert "bootstrap_sha256=" in output
+    assert "launcher_sha256=" in output
 
 
 @pytest.mark.parametrize("kind", ["parent", "absolute", "symlink", "hardlink", "duplicate"])

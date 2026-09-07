@@ -193,16 +193,23 @@ def save_receipt(document, path):
 
 def main():
     if sys.argv[1:2] == ["--check"]:
-        require(len(sys.argv) == 3, "invalid self-test arguments")
+        require(len(sys.argv) == 6 and sys.argv[2] == "--bootstrap-sha"
+                and sys.argv[4] == "--launcher-sha",
+                "invalid self-test arguments")
+        expected_bootstrap = sys.argv[3]
+        expected_launcher = sys.argv[5]
         os.environ.clear()
         require(os.geteuid() == 0, "root bootstrap required")
         require(os.uname().nodename.split(".")[0] == "vmi3542235"
                 and os.uname().machine == "x86_64"
                 and socket.getfqdn() == "vmi3542235.contaboserver.net",
                 "unexpected checkpoint host")
-        verify_bootstrap_identity(sys.argv[2])
+        verify_bootstrap_identity(expected_bootstrap)
+        verify_launcher_identity(expected_launcher)
         print("checkpoint launcher self-test ok "
-              f"interface={INTERFACE_VERSION} bootstrap_sha256={sys.argv[2]}")
+              f"interface={INTERFACE_VERSION} "
+              f"bootstrap_sha256={expected_bootstrap} "
+              f"launcher_sha256={expected_launcher}")
         return 0
     # {0} is required by Actions' custom-shell contract but is not trusted input.
     # Do not stat, open, source, import, or execute that generated file.

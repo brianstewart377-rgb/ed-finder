@@ -47,7 +47,6 @@ def test_installer_writes_narrow_root_owned_interface_idempotently(tmp_path):
     target = make_install_root(tmp_path)
     owner = os.getuid()
     validations = []
-    checks = []
 
     def validate(path):
         validations.append(path)
