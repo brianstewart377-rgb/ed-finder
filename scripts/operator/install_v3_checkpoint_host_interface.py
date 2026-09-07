@@ -1,6 +1,7 @@
 """Install the fixed, least-privilege Contabo checkpoint host interface."""
 import hashlib
-import http.client
+import urllib.error
+import urllib.request
 import json
 import os
 import pwd
@@ -184,20 +185,18 @@ def verify_state(path, expected):
 
 
 def resolve_trusted_main_sha():
-    connection = http.client.HTTPSConnection("api.github.com", timeout=20)
+    request = urllib.request.Request(
+        "https://api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main",
+        headers={"Accept": "application/vnd.github+json",
+                 "User-Agent": "edfinder-checkpoint-interface-installer"},
+    )
     try:
-        connection.request(
-            "GET",
-            "/repos/brianstewart377-rgb/ed-finder/commits/main",
-            headers={"Accept": "application/vnd.github+json",
-                     "User-Agent": "edfinder-checkpoint-interface-installer"},
-        )
-        response = connection.getresponse()
-        if response.status != 200:
-            stop(f"GitHub trusted-main lookup returned HTTP {response.status}")
-        payload = response.read(1024 * 1024 + 1)
-    finally:
-        connection.close()
+        with urllib.request.urlopen(request, timeout=20) as response:
+            if response.status != 200:
+                stop(f"GitHub trusted-main lookup returned HTTP {response.status}")
+            payload = response.read(1024 * 1024 + 1)
+    except urllib.error.HTTPError as exc:
+        stop(f"GitHub trusted-main lookup returned HTTP {exc.code}")
     if len(payload) > 1024 * 1024:
         stop("GitHub trusted-main response is oversized")
     try:
