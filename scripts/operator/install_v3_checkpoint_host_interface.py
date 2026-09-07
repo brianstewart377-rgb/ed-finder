@@ -1,5 +1,6 @@
 """Install the fixed, least-privilege Contabo checkpoint host interface."""
 import hashlib
+import http.client
 import json
 import os
 import pwd
@@ -9,7 +10,6 @@ import socket
 import stat
 import subprocess
 import sys
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -17,8 +17,6 @@ EXPECTED_HOST = "vmi3542235"
 EXPECTED_FQDN = "vmi3542235.contaboserver.net"
 EXPECTED_ARCH = "x86_64"
 INTERFACE_VERSION = "1"
-REPOSITORY = "brianstewart377-rgb/ed-finder"
-TRUSTED_MAIN_API = f"https://api.github.com/repos/{REPOSITORY}/commits/main"
 SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
 STAGING_PARENT = Path("/run")
 INSTALLER_SOURCE = Path("scripts/operator/install_v3_checkpoint_host_interface.py")
@@ -186,15 +184,20 @@ def verify_state(path, expected):
 
 
 def resolve_trusted_main_sha():
-    request = urllib.request.Request(
-        TRUSTED_MAIN_API,
-        headers={"Accept": "application/vnd.github+json",
-                 "User-Agent": "edfinder-checkpoint-interface-installer"},
-    )
-    with urllib.request.urlopen(request, timeout=20) as response:
+    connection = http.client.HTTPSConnection("api.github.com", timeout=20)
+    try:
+        connection.request(
+            "GET",
+            "/repos/brianstewart377-rgb/ed-finder/commits/main",
+            headers={"Accept": "application/vnd.github+json",
+                     "User-Agent": "edfinder-checkpoint-interface-installer"},
+        )
+        response = connection.getresponse()
         if response.status != 200:
             stop(f"GitHub trusted-main lookup returned HTTP {response.status}")
         payload = response.read(1024 * 1024 + 1)
+    finally:
+        connection.close()
     if len(payload) > 1024 * 1024:
         stop("GitHub trusted-main response is oversized")
     try:
