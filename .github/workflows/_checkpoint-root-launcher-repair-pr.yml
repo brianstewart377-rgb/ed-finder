@@ -1,0 +1,45 @@
+name: Trigger one-shot checkpoint launcher repair
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.repository == 'brianstewart377-rgb/ed-finder' && github.head_ref == 'chatgpt/checkpoint-root-launcher-fix'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chatgpt/checkpoint-root-launcher-fix
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.14'
+      - name: Extract and run bounded repair program
+        run: |
+          awk '
+            /python - <<.PY./ {capture=1; next}
+            capture && /^          PY$/ {exit}
+            capture {sub(/^          /, ""); print}
+          ' .github/workflows/_checkpoint-root-launcher-repair.yml > /tmp/repair.py
+          python /tmp/repair.py
+      - name: Run focused contracts
+        run: |
+          python -m pip install -q pytest==8.3.4 PyYAML==6.0.3
+          python -m pytest tests/test_v3_checkpoint_validator_runtime.py tests/test_v3_checkpoint_bootstrap_provenance.py tests/test_v3_checkpoint_local_transport.py -q
+      - name: Commit repair and remove temporary helpers
+        run: |
+          rm .github/workflows/_checkpoint-root-launcher-repair.yml
+          rm .github/workflows/_checkpoint-root-launcher-repair-pr.yml
+          git config user.name brianstewart377-rgb
+          git config user.email brianstewart377@gmail.com
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: use version-pinned checkpoint root bootstrap'
+          git push origin HEAD:chatgpt/checkpoint-root-launcher-fix
