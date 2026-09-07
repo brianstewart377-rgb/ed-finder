@@ -10,6 +10,34 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Contabo live-checkpoint helper
 
+- `install_v3_checkpoint_host_interface.py`: the one-time, idempotent
+  non-production host privilege installer. The owner uses the single command
+  in `docs/operations/v3-live-checkpoint-infrastructure.md`; it resolves
+  protected `main` through GitHub and stages immutable-SHA source in a fresh
+  root-owned `/run` directory. Never execute this file as root from a mutable
+  runner checkout. The installer independently checks that exact head before
+  and after installation. It
+  atomically installs the root-owned fixed launcher and bootstrap. It first
+  removes the checkpoint sudo rule from the active include path and validates
+  the complete policy, then installs the helper pair and installs the
+  single host-specific sudoers rule for `codex` last. It validates the rule and
+  full policy with `visudo`, and exercises `sudo -n` through the launcher's
+  `--check` path. A failed validation or self-test transactionally restores all
+  three prior files and revalidates the complete sudo policy, with sudo
+  authority revoked first and the prior sudoers rule restored last. The rule preserves only `GH_TOKEN` and grants only
+  `/usr/local/sbin/edfinder-v3-checkpoint-launcher`, never Python, Bash,
+  `runuser`, Docker, or general command authority.
+- `actions/edfinder-v3-checkpoint-launcher` and `v3_checkpoint_bootstrap.py`:
+  reviewed sources for the installed root-owned interface. Workflows invoke
+  only the fixed installed launcher. A SHA-256 handshake binds the committed
+  launcher and bootstrap sources, both installed helpers, and the sealed
+  request; the root-owned launcher enforces it. A stale launcher or bootstrap
+  stops before artifact access and requires a deliberate installer rerun.
+  Before download, the bootstrap also resolves
+  the artifact's GitHub-owned workflow-run association and requires the exact
+  operation artifact name, canonical workflow/event/repository, active trusted
+  `main` head, and matching source SHA. These files must not be executed as
+  privileged worktree helpers during normal provisioning or deployment.
 - `actions/v3-app-live-checkpoint-preflight.sh`: CPython 3.14 launcher for the
   fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
   explicitly non-production and uses separate environment credentials. The

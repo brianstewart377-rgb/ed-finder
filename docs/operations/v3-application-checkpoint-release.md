@@ -102,19 +102,33 @@ Database rollback/recovery and migrations are outside this path.
 
 For an owner checkpoint:
 
-1. Merge the exact accepted head to `main` and manually dispatch **V3
-   application immutable release** with that 40-character SHA. For a reviewed
-   `backward-compatible` release, supply any additional compatible migration-set
-   identities as lowercase `sha256:` identities, one per line; other modes
-   reject that input, and `exact` always records only the source migration
-   identity.
+1. Merge the exact accepted head to `main`, then add this single-line owner
+   comment to issue #623 (substituting the exact lowercase 40-character `main`
+   SHA and its reviewed evidence reference):
+
+   ```text
+   V3-CHECKPOINT {"operation":"release","source_sha":"<40-lowercase-hex-main-sha>","compatibility_evidence":"issue-623","rollback_eligible":true}
+   ```
+
+   The trusted control workflow dispatches the canonical **V3 application
+   immutable release** with exact schema compatibility. The canonical release
+   workflow retains its separately reviewed manual compatibility modes; the
+   ordinary issue #623 path does not broaden them.
 2. Review the sealed manifest, compatibility evidence, application-only
    rollback eligibility and basename-only SHA-256 checksum. Both image
    references must be digest pinned.
-3. Dispatch **V3 application live-checkpoint deploy** in `bootstrap` mode for
-   checkpoint #1, or `upgrade` afterward. Upgrade selects only the release
-   authenticated by the host's durable accepted-receipt/manifest chain; there
-   is no operator-supplied rollback artifact or rollback run ID.
+3. Add a second single-line owner comment using the authenticated immutable
+   release workflow run ID. Use `bootstrap` for checkpoint #1 and `upgrade`
+   after the first accepted deployment:
+
+   ```text
+   V3-CHECKPOINT {"operation":"deploy","deployment_mode":"bootstrap","release_run_id":"<run-id>"}
+   ```
+
+   The control workflow dispatches the unchanged canonical **V3 application
+   live-checkpoint deploy**. Upgrade selects only the release authenticated by
+   the host's durable accepted-receipt/manifest chain; there is no
+   operator-supplied rollback artifact or rollback run ID.
 4. The target boundary validates all target/external facts, Compose checksum,
    allowlisted project resources and app absence/prior receipt before an image
    pull or service change. The selected Docker context must be inspectable and
@@ -156,6 +170,14 @@ exact image digests, candidate manifest checksum, non-production target identity
 exact changed app resources, smoke outcomes and rollback identity. It never
 contains DSNs, environment-file contents, passwords, tokens, private keys or
 credential-bearing URLs.
+
+The normal staging path is therefore issue #623 `release` → `deploy` → the
+automatic GitHub-hosted public smoke. It does not require another host command.
+Routine deployment never invokes provisioning, installs OS packages,
+initializes or reseeds PostgreSQL, changes nginx, or mutates runner services or
+other infrastructure. It remains the digest-pinned, app-only `api web
+--no-deps` deployment with bounded rollback, loopback/public smoke, and
+sanitized receipts described above.
 
 Database access and service mutation are accounted independently. The
 pre-mutation live schema verification and an upgrade's prior-release health

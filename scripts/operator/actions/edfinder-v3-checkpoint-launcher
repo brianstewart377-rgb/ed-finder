@@ -1,0 +1,153 @@
+#!/usr/bin/python3 -I
+"""Fixed least-privilege entrypoint for the non-production Contabo checkpoint."""
+import hashlib
+import os
+import pwd
+import re
+import socket
+import stat
+import sys
+from pathlib import Path
+
+INTERFACE_VERSION = "1"
+LAUNCHER = Path("/usr/local/sbin/edfinder-v3-checkpoint-launcher")
+BOOTSTRAP = Path("/usr/local/libexec/edfinder-v3-checkpoint/v3_checkpoint_bootstrap.py")
+SAFE_PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def fail(message):
+    print(f"checkpoint launcher stopped: {message}", file=sys.stderr)
+    raise SystemExit(78)
+
+
+def require(condition, message):
+    if not condition:
+        fail(message)
+
+
+def require_root_file(path, mode):
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"missing installed {path.name}")
+    require(stat.S_ISREG(metadata.st_mode) and metadata.st_nlink == 1,
+            f"unsafe installed {path.name} type")
+    require(metadata.st_uid == 0 and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == mode,
+            f"unsafe installed {path.name} ownership or mode")
+
+
+def require_root_directory(path):
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"missing installed directory: {path}")
+    require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
+            and metadata.st_gid == 0 and not metadata.st_mode & 0o022,
+            f"unsafe installed directory: {path}")
+
+
+def validate_identity():
+    require(os.geteuid() == 0, "root execution required")
+    try:
+        account = pwd.getpwnam("codex")
+    except KeyError:
+        fail("codex account required")
+    require(account.pw_uid > 0, "non-root codex account required")
+    require(os.environ.get("SUDO_USER") == "codex", "SUDO_USER must be codex")
+    require(os.environ.get("SUDO_UID") == str(account.pw_uid),
+            "unexpected sudo user identity")
+    require(os.environ.get("SUDO_GID") == str(account.pw_gid),
+            "unexpected sudo group identity")
+    require(os.uname().nodename.split(".")[0] == "vmi3542235"
+            and os.uname().machine == "x86_64"
+            and socket.getfqdn() == "vmi3542235.contaboserver.net",
+            "unexpected checkpoint host")
+    require(Path(sys.argv[0]) == LAUNCHER, "unexpected launcher path")
+    for directory in (Path("/usr/local"), LAUNCHER.parent,
+                      BOOTSTRAP.parent.parent, BOOTSTRAP.parent):
+        require_root_directory(directory)
+    require_root_file(LAUNCHER, 0o755)
+    require_root_file(BOOTSTRAP, 0o600)
+
+
+def validate_expected_bootstrap(expected):
+    require(re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+            "invalid expected bootstrap digest")
+    try:
+        actual = hashlib.sha256(BOOTSTRAP.read_bytes()).hexdigest()
+    except OSError:
+        fail("unable to read installed bootstrap")
+    require(actual == expected,
+            f"installed bootstrap is stale (expected {expected}, installed {actual}); reinstall required")
+
+
+def validate_installed_launcher(expected):
+    require(re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+            "invalid expected launcher digest")
+    try:
+        actual = hashlib.sha256(LAUNCHER.read_bytes()).hexdigest()
+    except OSError:
+        fail("unable to read installed launcher")
+    require(actual == expected,
+            f"installed launcher is stale (expected {expected}, installed {actual}); reinstall required")
+
+
+def main():
+    token = os.environ.get("GH_TOKEN", "")
+    sudo_identity = {name: os.environ.get(name, "")
+                     for name in ("SUDO_USER", "SUDO_UID", "SUDO_GID")}
+    os.environ.clear()
+    os.environ.update(sudo_identity)
+    validate_identity()
+
+    if (len(sys.argv) == 6 and sys.argv[1] == "--check"
+            and sys.argv[2] == "--bootstrap-sha"
+            and sys.argv[4] == "--launcher-sha"):
+        expected_bootstrap = sys.argv[3]
+        expected_launcher = sys.argv[5]
+        validate_expected_bootstrap(expected_bootstrap)
+        validate_installed_launcher(expected_launcher)
+        arguments = ["--check", "--bootstrap-sha", expected_bootstrap,
+                     "--launcher-sha", expected_launcher]
+        environment = {"PATH": SAFE_PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}
+    else:
+        require(len(sys.argv) == 11 and sys.argv[1] == "--bootstrap-sha"
+                and sys.argv[3] == "--launcher-sha",
+                "invalid arguments")
+        expected_bootstrap = sys.argv[2]
+        expected_launcher = sys.argv[4]
+        artifact, digest, source, operation, receipt, ignored_script = sys.argv[5:]
+        validate_expected_bootstrap(expected_bootstrap)
+        validate_installed_launcher(expected_launcher)
+        require(re.fullmatch(r"[1-9][0-9]{0,19}", artifact) is not None,
+                "invalid artifact id")
+        require(re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
+                "invalid bundle digest")
+        require(re.fullmatch(r"[0-9a-f]{40}", source) is not None,
+                "invalid source identity")
+        require(operation in ("provision", "deploy"), "invalid operation")
+        receipt_kind = ("authority-candidate" if operation == "provision"
+                        else "deployment-receipt")
+        receipt_pattern = (rf"/tmp/v3-live-checkpoint-{receipt_kind}-"
+                           r"[1-9][0-9]{0,19}-[1-9][0-9]{0,9}[.]json")
+        require(len(receipt) <= 255 and re.fullmatch(receipt_pattern, receipt) is not None,
+                "invalid receipt path")
+        require(len(ignored_script) <= 4096 and ignored_script.startswith("/")
+                and not any(ord(character) < 32 for character in ignored_script),
+                "invalid generated script argument")
+        require(0 < len(token) <= 8192 and not any(character.isspace() for character in token),
+                "invalid artifact token")
+        arguments = ["--expected-bootstrap-sha", expected_bootstrap,
+                     "--expected-launcher-sha", expected_launcher,
+                     artifact, digest, source, operation, receipt, ignored_script]
+        environment = {"PATH": SAFE_PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C",
+                       "GH_TOKEN": token}
+
+    os.umask(0o077)
+    os.execve("/usr/bin/python3", ["/usr/bin/python3", "-I", "-S", str(BOOTSTRAP),
+                                   *arguments], environment)
+
+
+if __name__ == "__main__":
+    main()
