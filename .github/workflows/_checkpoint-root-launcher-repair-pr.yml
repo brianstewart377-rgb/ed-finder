@@ -28,6 +28,25 @@ jobs:
             capture && /^          PY$/ {exit}
             capture {sub(/^          /, ""); print}
           ' .github/workflows/_checkpoint-root-launcher-repair.yml > /tmp/repair.py
+          python - <<'PATCH'
+          from pathlib import Path
+          path = Path('/tmp/repair.py')
+          text = path.read_text(encoding='utf-8')
+          start = text.index("token_anchor = '''")
+          end = text.index("bootstrap_path.write_text(bootstrap, encoding='utf-8')", start)
+          replacement = (
+              "token_anchor = '''    require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),\n"
+              "            \"invalid artifact token\")\n"
+              "'''\n"
+              "assert token_anchor in bootstrap\n"
+              "bootstrap = bootstrap.replace(\n"
+              "    token_anchor,\n"
+              "    token_anchor + \"    verify_artifact_provenance(token, artifact, source, operation)\\n\",\n"
+              "    1,\n"
+              ")\n"
+          )
+          path.write_text(text[:start] + replacement + text[end:], encoding='utf-8')
+          PATCH
           python /tmp/repair.py
       - name: Run focused contracts
         run: |
