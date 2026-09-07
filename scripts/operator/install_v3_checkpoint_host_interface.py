@@ -325,14 +325,26 @@ def install(source_root, destination_root=Path("/"), owner_uid=0,
         validate_sudoers(destination_root / "etc/sudoers")
         if helpers_unchanged:
             if not sudoers_unchanged:
-                atomic_install(sudoers_target, SUDOERS, 0o440, validate_sudoers)
+                atomic_install(
+                    sudoers_target,
+                    SUDOERS,
+                    0o440,
+                    owner_uid=owner_uid,
+                    validator=validate_sudoers,
+                )
         else:
             remove_checkpoint_sudo_authority()
             for path, content, mode, validator in helper_targets:
                 atomic_install(path, content, mode, owner_uid, validator)
             # The candidate rule is parsed before it can enter sudo's include directory,
             # and is installed only after both helpers are internally consistent.
-            atomic_install(sudoers_target, SUDOERS, 0o440, validate_sudoers)
+            atomic_install(
+                sudoers_target,
+                SUDOERS,
+                0o440,
+                owner_uid=owner_uid,
+                validator=validate_sudoers,
+            )
             validate_sudoers(destination_root / "etc/sudoers")
         self_test(bootstrap_sha, launcher_sha)
         if final_verify is not None:
