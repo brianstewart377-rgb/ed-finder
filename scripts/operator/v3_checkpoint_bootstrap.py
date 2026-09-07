@@ -1,8 +1,8 @@
-"""Workflow command-line bootstrap; never opens Actions' mutable script file.
+"""Installed root-owned bootstrap for sealed Contabo checkpoint operations.
 
-The custom shell directly starts root-owned OS Python in isolated/no-site mode.
-The readable program is compressed and encoded only to survive Actions' shell argument and
-{0} formatting rules; contract tests compare the complete decoded bytes.
+The fixed checkpoint launcher starts this file with root-owned OS Python in
+isolated/no-site mode. A SHA-256 handshake binds the committed bootstrap
+source, installed helper and sealed request before any artifact is downloaded.
 Application and canonical deployment runtimes remain exact CPython 3.14.
 """
 import hashlib
@@ -20,6 +20,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 LIMIT = 64 * 1024 * 1024
+INTERFACE_VERSION = "1"
 REPOSITORY = "brianstewart377-rgb/ed-finder"
 ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
 PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -28,6 +29,17 @@ PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def bootstrap_sha256():
+    return hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def verify_bootstrap_identity(expected):
+    require(re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+            "invalid expected bootstrap digest")
+    require(bootstrap_sha256() == expected,
+            "installed checkpoint bootstrap digest mismatch")
 
 
 def unpack_bundle(envelope, digest, directory):
@@ -85,12 +97,28 @@ def save_receipt(document, path):
 
 
 def main():
+    if sys.argv[1:2] == ["--check"]:
+        require(len(sys.argv) == 3, "invalid self-test arguments")
+        os.environ.clear()
+        require(os.geteuid() == 0, "root bootstrap required")
+        require(os.uname().nodename.split(".")[0] == "vmi3542235"
+                and os.uname().machine == "x86_64"
+                and socket.getfqdn() == "vmi3542235.contaboserver.net",
+                "unexpected checkpoint host")
+        verify_bootstrap_identity(sys.argv[2])
+        print("checkpoint launcher self-test ok "
+              f"interface={INTERFACE_VERSION} bootstrap_sha256={sys.argv[2]}")
+        return 0
     # {0} is required by Actions' custom-shell contract but is not trusted input.
     # Do not stat, open, source, import, or execute that generated file.
-    artifact, digest, source, operation, receipt, _ignored_script = sys.argv[1:]
+    require(len(sys.argv) == 9 and sys.argv[1] == "--expected-bootstrap-sha",
+            "invalid bootstrap arguments")
+    expected_bootstrap = sys.argv[2]
+    artifact, digest, source, operation, receipt, _ignored_script = sys.argv[3:]
     token = os.environ.pop("GH_TOKEN", "")
     os.environ.clear()
     require(os.geteuid() == 0, "root bootstrap required")
+    verify_bootstrap_identity(expected_bootstrap)
     require(re.fullmatch(r"[1-9][0-9]{0,19}", artifact), "invalid artifact id")
     require(re.fullmatch(r"[0-9a-f]{64}", digest), "invalid bundle digest")
     require(re.fullmatch(r"[0-9a-f]{40}", source), "invalid source identity")
@@ -114,7 +142,9 @@ def main():
         directory = Path(temporary)
         unpack_bundle(response.stdout, digest, directory)
         request = json.loads((directory / "operation.json").read_text())
-        require(request.get("source_sha") == source and request.get("operation") == operation,
+        require(request.get("source_sha") == source
+                and request.get("operation") == operation
+                and request.get("bootstrap_sha256") == expected_bootstrap,
                 "operation bundle identity mismatch")
         directory.chmod(0o755)
         environment = {"PATH": PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}

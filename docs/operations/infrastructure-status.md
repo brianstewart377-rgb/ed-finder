@@ -26,6 +26,11 @@ Read-only inspection on 2026-09-06 proved host identity
 free on the root filesystem. Exactly three runner services were active. Only
 SSH on TCP 22 and loopback DNS on TCP 53 were listening. No container runtime,
 Compose installation, containers, container networks or volumes were present.
+Provision run `34066816058` subsequently reached `contabo-codex-worker` on that
+host, but job `101576958599` stopped at the immutable provision step with
+`sudo: a password is required`. It performed no provisioning mutation. The
+current checkpoint runbook defines the one-time narrow host-interface install
+required before retrying provisioning; it does not grant broad sudo authority.
 
 The reviewed checkpoint namespace is `edfinder-v3-checkpoint`, limited to the
 `api` and `web` application services and 2 CPUs/2 GiB combined. Its lifecycle

@@ -109,11 +109,13 @@ use pinned Psycopg 3. The Codex worker, repository tooling, importer, canonical
 safety, and static-contract lanes follow the same CPython 3.14 authority.
 Ruff targets `py314` so its parser and lint contract matches the exact runtime.
 
-Named pre-install exception: the workflow-embedded checkpoint bundle bootstrap
-uses root-owned `/usr/bin/python3 -I` with standard-library modules only to verify
-and unpack the sealed operation artifact before system CPython 3.14 exists.
-It must never load coding-worktree or toolcache code. This exception does not
-apply to application, migration, release-verification or canonical deploy runtimes.
+Named pre-install exception: the fixed root-owned checkpoint launcher executes
+the installed root-owned bootstrap with `/usr/bin/python3 -I -S` and
+standard-library modules only to verify and unpack the sealed operation artifact
+before system CPython 3.14 exists. A committed-source SHA handshake must match
+the installed helper before artifact access. Neither launcher nor bootstrap may
+load coding-worktree or toolcache code. This exception does not apply to
+application, migration, release-verification or canonical deploy runtimes.
 
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 

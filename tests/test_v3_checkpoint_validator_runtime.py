@@ -1,15 +1,12 @@
-"""Exact contracts for the OS-only bootstrap and its direct process launch."""
-import base64
+"""Exact contracts for the installed checkpoint privilege interface."""
 from pathlib import Path
-import re
 import shlex
-import zlib
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "scripts/operator/v3_checkpoint_bootstrap.py"
+LAUNCHER = "/usr/local/sbin/edfinder-v3-checkpoint-launcher"
 GUARD = "github.ref == 'refs/heads/main' && github.repository == 'brianstewart377-rgb/ed-finder'"
 PREINSTALL_BOOTSTRAPS = {
     ("v3-live-checkpoint-control.yml", "provision"): (
@@ -31,19 +28,11 @@ def shell_words(shell):
     for parent in ("prepare-provision", "deploy"):
         values[f"needs.{parent}.outputs.artifact_id"] = "123"
         values[f"needs.{parent}.outputs.bundle_sha256"] = "b" * 64
+        values[f"needs.{parent}.outputs.bootstrap_sha256"] = "c" * 64
     for expression, value in values.items():
         shell = shell.replace("${{ " + expression + " }}", value)
     assert "${{" not in shell
     return shlex.split(shell)
-
-
-def decoded_program(command):
-    match = re.fullmatch(
-        r"import base64,zlib;exec\(zlib\.decompress\(base64\.b64decode\('([A-Za-z0-9+/=]+)'\)\)\)",
-        command,
-    )
-    assert match, "Unexpected bootstrap decoder command"
-    return zlib.decompress(base64.b64decode(match[1], validate=True))
 
 
 def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) -> bool:
@@ -75,18 +64,22 @@ def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) 
     expected_path = ("/tmp/" + receipt
                      + "-${{ github.run_id }}-${{ github.run_attempt }}.json")
     expected_suffix = (
-        "${{ needs." + parent + ".outputs.artifact_id }} "
+        "${{ needs." + parent + ".outputs.bootstrap_sha256 }} "
+        + "${{ needs." + parent + ".outputs.artifact_id }} "
         + "${{ needs." + parent + ".outputs.bundle_sha256 }} "
         + '${{ github.sha }} ' + operation + ' "' + expected_path + '" {0}'
     )
     assert shell.endswith(expected_suffix)
     words = shell_words(shell)
-    assert words[:7] == [
-        "/usr/bin/sudo", "-n", "--preserve-env=GH_TOKEN", "/usr/bin/python3", "-I", "-S", "-c",
+    assert words[:4] == [
+        "/usr/bin/sudo", "-n", "--preserve-env=GH_TOKEN", LAUNCHER,
     ]
-    assert decoded_program(words[7]) == SOURCE.read_bytes()
-    assert words[8:] == ["123", "b" * 64, "a" * 40, operation,
-                         f"/tmp/{receipt}-42-1.json", "{0}"]
+    assert words[4:] == ["--bootstrap-sha", "c" * 64, "123", "b" * 64,
+                         "a" * 40, operation, f"/tmp/{receipt}-42-1.json", "{0}"]
+    assert "/usr/bin/python3" not in words
+    assert "/bin/bash" not in words
+    assert "/usr/sbin/runuser" not in words
+    assert "docker" not in words
     upload = steps[1]
     assert upload["uses"] == "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
     assert upload["with"]["name"] == receipt
@@ -94,12 +87,16 @@ def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) 
     return True
 
 
-def test_privileged_bootstrap_uses_only_root_os_interpreter_in_isolated_mode():
+def test_privileged_jobs_use_only_fixed_launcher_and_bootstrap_uses_isolated_os_python():
     for file, name in PREINSTALL_BOOTSTRAPS:
         path = ROOT / ".github/workflows" / file
         job = yaml.safe_load(path.read_text())["jobs"][name]
         assert is_verified_checkpoint_preinstall_job(path, name, job)
     local = (ROOT / "scripts/operator/actions/v3-live-checkpoint-local.sh").read_text()
+    launcher = (ROOT / "scripts/operator/actions/edfinder-v3-checkpoint-launcher").read_text()
+    assert 'os.environ.clear()' in launcher
+    assert 'os.execve("/usr/bin/python3"' in launcher
+    assert '["/usr/bin/python3", "-I", "-S"' in launcher
     assert "python3.14 -I -S -c" in local
     assert "sys.version_info[:2]==(3,14)" in local
     assert "runuser -u codex -- env -i" in local
@@ -135,15 +132,17 @@ def test_bootstrap_preserves_script_execution_without_setuid_or_group_write(tmp_
 
 @pytest.mark.parametrize("file,name", list(PREINSTALL_BOOTSTRAPS))
 @pytest.mark.parametrize("change", [
-    "program", "extra-command", "inline-command", "setup", "shell", "ref",
+    "launcher", "bootstrap-sha", "extra-command", "inline-command", "setup", "shell", "ref",
     "or-true", "or-false", "negated", "repository-bypass", "needs", "artifact", "env", "cwd",
 ])
 def test_preinstall_exception_rejects_broader_runtime_bypasses(file, name, change):
     path = ROOT / ".github/workflows" / file
     job = yaml.safe_load(path.read_text())["jobs"][name]
     step = job["steps"][0]
-    if change == "program":
-        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("import base64,zlib;", "import os;")
+    if change == "launcher":
+        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace(LAUNCHER, "/usr/bin/python3")
+    elif change == "bootstrap-sha":
+        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("outputs.bootstrap_sha256", "outputs.untrusted_sha")
     elif change == "extra-command":
         job["steps"].append({"run": "python arbitrary.py"})
     elif change == "inline-command":

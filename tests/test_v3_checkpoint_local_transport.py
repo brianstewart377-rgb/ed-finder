@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "scripts/operator/v3_checkpoint_bootstrap.py"
 ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
 SHA = "a" * 40
+BOOTSTRAP_SHA = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
 
 
 def load_module(path=SOURCE):
@@ -27,11 +28,14 @@ def load_module(path=SOURCE):
     return module
 
 
-def envelope(extra=None, source=SHA, operation="provision"):
+def envelope(extra=None, source=SHA, operation="provision", bootstrap_sha=BOOTSTRAP_SHA):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w") as archive:
         files = {ENTRY: b"echo verified-operation\n",
-                 "operation.json": json.dumps({"source_sha": source, "operation": operation}).encode()}
+                 "operation.json": json.dumps({
+                     "source_sha": source, "operation": operation,
+                     "bootstrap_sha256": bootstrap_sha,
+                 }).encode()}
         for name, data in files.items():
             member = tarfile.TarInfo(name)
             member.size = len(data)
@@ -61,6 +65,19 @@ def test_wrong_digest_stops_before_any_operation_file_is_written(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_stale_installed_bootstrap_stops_before_artifact_download(monkeypatch, tmp_path):
+    module = load_module()
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), "--expected-bootstrap-sha", "0" * 64,
+                                     "123", "b" * 64, SHA, "provision",
+                                     str(tmp_path / "receipt.json"), "/ignored.sh"])
+    monkeypatch.setattr(module.os, "environ", {"GH_TOKEN": "synthetic-token"})
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs:
+                        pytest.fail("stale helper must stop before download"))
+    with pytest.raises(ValueError, match="bootstrap digest mismatch"):
+        module.main()
+
+
 @pytest.mark.parametrize("kind", ["parent", "absolute", "symlink", "hardlink", "duplicate"])
 def test_authenticated_bundle_still_rejects_unsafe_members(tmp_path, kind):
     module = load_module()
@@ -75,7 +92,7 @@ def test_authenticated_bundle_still_rejects_unsafe_members(tmp_path, kind):
     assert not (tmp_path.parent / "outside").exists()
 
 
-@pytest.mark.parametrize("drift", ["none", "checksum", "source", "operation"])
+@pytest.mark.parametrize("drift", ["none", "checksum", "source", "operation", "bootstrap"])
 def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp_path, monkeypatch, drift):
     module = load_module()
     worktree = tmp_path / "coding-worktree"
@@ -83,12 +100,14 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
     (worktree / ENTRY).write_text("echo COMPROMISED\n")
     monkeypatch.chdir(worktree)
     payload, digest = envelope(source="b" * 40 if drift == "source" else SHA,
-                               operation="deploy" if drift == "operation" else "provision")
+                               operation="deploy" if drift == "operation" else "provision",
+                               bootstrap_sha="0" * 64 if drift == "bootstrap" else BOOTSTRAP_SHA)
     if drift == "checksum":
         digest = "0" * 64
     ignored_script = tmp_path / "mutable-runner-script"
     ignored_script.write_text("raise RuntimeError('MUTABLE SCRIPT EXECUTED')\n")
-    monkeypatch.setattr(sys, "argv", [str(SOURCE), "123", digest, SHA, "provision",
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), "--expected-bootstrap-sha", BOOTSTRAP_SHA,
+                                     "123", digest, SHA, "provision",
                                      str(tmp_path / "receipt.json"), str(ignored_script)])
     monkeypatch.setattr(module.os, "environ", {"GH_TOKEN": "synthetic-token", "PYTHONPATH": str(worktree)})
     monkeypatch.setattr(module.os, "geteuid", lambda: 0)
@@ -150,16 +169,17 @@ def test_custom_shell_never_opens_actions_generated_file(tmp_path):
     malicious = tmp_path / "mutable.sh"
     marker = tmp_path / "executed"
     malicious.write_text(f"touch '{marker}'\n")
-    # Invoke only the OS Python portion. The real bootstrap stops at host identity
-    # on CI; changing or removing the generated script cannot change that outcome.
-    args = [sys.executable, *words[4:-1], str(malicious)]
+    launcher = ROOT / "scripts/operator/actions/edfinder-v3-checkpoint-launcher"
+    # Directly exercise the reviewed launcher source. It stops on CI host identity;
+    # changing or removing the ignored generated script cannot affect that result.
+    args = [sys.executable, str(launcher), *words[4:-1], str(malicious)]
     first = subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)
     malicious.unlink()
     second = subprocess.run(args, text=True, capture_output=True, check=False, timeout=10)
     assert first.returncode == second.returncode == 78
     assert first.stderr == second.stderr
     assert not marker.exists()
-    assert "Checkpoint bootstrap stopped" in first.stderr
+    assert "checkpoint launcher stopped" in first.stderr
 
 
 def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monkeypatch):
@@ -176,6 +196,8 @@ def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monk
     calls = []
     def archive(command):
         calls.append(command)
+        if command[:2] == ["git", "show"]:
+            return SOURCE.read_bytes()
         return git_tar.getvalue()
     monkeypatch.setattr(module.subprocess, "check_output", archive)
     output = tmp_path / "operation.tar"
@@ -183,10 +205,16 @@ def test_bundle_builder_reads_committed_objects_and_seals_request(tmp_path, monk
     monkeypatch.setenv("GITHUB_OUTPUT", str(gh_output))
     monkeypatch.setattr(sys, "argv", [str(path), "provision", "--source", SHA, "--output", str(output)])
     module.main()
-    assert calls[0][:3] == ["git", "archive", SHA]
+    assert calls[0] == ["git", "show", f"{SHA}:scripts/operator/v3_checkpoint_bootstrap.py"]
+    assert calls[1][:3] == ["git", "archive", SHA]
     with tarfile.open(output) as archive:
-        assert json.load(archive.extractfile("operation.json")) == {"operation": "provision", "source_sha": SHA}
-    assert gh_output.read_text() == "bundle_sha256=" + hashlib.sha256(output.read_bytes()).hexdigest() + "\n"
+        assert json.load(archive.extractfile("operation.json")) == {
+            "bootstrap_sha256": BOOTSTRAP_SHA, "operation": "provision", "source_sha": SHA,
+        }
+    assert gh_output.read_text() == (
+        "bundle_sha256=" + hashlib.sha256(output.read_bytes()).hexdigest() + "\n"
+        "bootstrap_sha256=" + BOOTSTRAP_SHA + "\n"
+    )
 
 
 @pytest.mark.parametrize("login, apply, logout, expected", [
