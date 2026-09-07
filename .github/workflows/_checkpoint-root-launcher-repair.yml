@@ -1,0 +1,275 @@
+name: One-shot checkpoint root launcher repair
+
+on:
+  push:
+    branches:
+      - chatgpt/checkpoint-root-launcher-fix
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.repository == 'brianstewart377-rgb/ed-finder'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: chatgpt/checkpoint-root-launcher-fix
+          fetch-depth: 0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.14'
+      - name: Apply bounded launcher repair
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+
+          root = Path('.')
+          bootstrap_path = root / 'scripts/operator/v3_checkpoint_bootstrap.py'
+          bootstrap = bootstrap_path.read_text(encoding='utf-8')
+
+          constants_anchor = 'PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\n\n\n'
+          assert constants_anchor in bootstrap
+          provenance_constants = '''PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+          PROVENANCE = {
+              "provision": (
+                  "checkpoint-provision-operation",
+                  ".github/workflows/v3-live-checkpoint-control.yml",
+                  "issue_comment",
+                  {"brianstewart377-rgb"},
+              ),
+              "deploy": (
+                  "checkpoint-deploy-operation",
+                  ".github/workflows/v3-application-live-checkpoint-preflight.yml",
+                  "workflow_dispatch",
+                  {"brianstewart377-rgb", "github-actions[bot]"},
+              ),
+          }
+
+
+          '''
+          bootstrap = bootstrap.replace(constants_anchor, provenance_constants, 1)
+
+          save_anchor = '\n\ndef save_receipt(document, path):\n'
+          assert save_anchor in bootstrap
+          provenance_functions = r'''
+
+          def github_json(token, endpoint):
+              response = subprocess.run([
+                  "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
+                  "--location", "--proto", "=https", "--proto-redir", "=https",
+                  "--noproxy", "*", "--connect-timeout", "10", "--max-time", "30",
+                  "--max-filesize", str(1024 * 1024), "--header", "@-",
+                  f"https://api.github.com/repos/{REPOSITORY}/{endpoint}",
+              ], input=f"Authorization: Bearer {token}\n".encode(), stdout=subprocess.PIPE,
+                 stderr=subprocess.DEVNULL, env={"PATH": PATH}, timeout=40, check=True)
+              require(len(response.stdout) <= 1024 * 1024, "oversized GitHub metadata")
+              document = json.loads(response.stdout)
+              require(isinstance(document, dict), "invalid GitHub metadata")
+              return document
+
+
+          def verify_artifact_provenance(token, artifact, source, operation):
+              artifact_name, workflow_path, event, actors = PROVENANCE[operation]
+              metadata = github_json(token, f"actions/artifacts/{artifact}")
+              require(metadata.get("id") == int(artifact), "artifact metadata id mismatch")
+              require(metadata.get("name") == artifact_name, "unexpected operation artifact name")
+              require(metadata.get("expired") is False, "operation artifact is expired")
+              artifact_run = metadata.get("workflow_run") or {}
+              require(artifact_run.get("head_sha") == source, "artifact source provenance mismatch")
+              run_id = artifact_run.get("id")
+              require(isinstance(run_id, int) and run_id > 0, "artifact workflow run is invalid")
+              workflow = github_json(token, f"actions/runs/{run_id}")
+              require(workflow.get("path") == workflow_path, "artifact workflow path is not canonical")
+              require(workflow.get("event") == event, "artifact workflow event is not canonical")
+              require(workflow.get("head_sha") == source, "workflow source provenance mismatch")
+              require(workflow.get("status") == "in_progress", "artifact workflow is not currently active")
+              require((workflow.get("repository") or {}).get("full_name") == REPOSITORY,
+                      "artifact repository provenance mismatch")
+              require((workflow.get("actor") or {}).get("login") in actors,
+                      "artifact workflow actor is not authorized")
+
+
+          def save_receipt(document, path):
+          '''
+          bootstrap = bootstrap.replace(save_anchor, provenance_functions, 1)
+
+          token_anchor = '''    require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),
+                  "invalid artifact token")
+              response = subprocess.run([\n'''
+          assert token_anchor in bootstrap
+          bootstrap = bootstrap.replace(
+              token_anchor,
+              '''    require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),
+                  "invalid artifact token")
+              verify_artifact_provenance(token, artifact, source, operation)
+              response = subprocess.run([\n''',
+              1,
+          )
+          bootstrap_path.write_text(bootstrap, encoding='utf-8')
+
+          payload = bootstrap.encode('utf-8')
+          blob = hashlib.sha1(f"blob {len(payload)}\\0".encode() + payload).hexdigest()
+          install_path = f"/usr/local/libexec/edfinder-v3-checkpoint-bootstrap-{blob}.py"
+
+          def rewrite_workflow(path_name):
+              path = root / '.github/workflows' / path_name
+              lines = path.read_text(encoding='utf-8').splitlines(keepends=True)
+              count = 0
+              out = []
+              for line in lines:
+                  marker = '/usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/bin/python3 -I -S -c "'
+                  if marker in line:
+                      close = line.rfind('" ${{')
+                      assert close > 0, path_name
+                      suffix = line[close + 2:].rstrip('\n')
+                      indent = line[:len(line) - len(line.lstrip())]
+                      line = (indent + '/usr/bin/sudo -n /usr/bin/python3 -I -S ' + install_path
+                              + ' ' + suffix + '\n')
+                      count += 1
+                  line = line.replace(
+                      '# The runner starts sudo directly. The generated {0} file is ignored.',
+                      '# The runner starts the version-pinned root bootstrap directly; {0} is ignored.'
+                  )
+                  line = line.replace(
+                      '# Encoded program is the exact readable v3_checkpoint_bootstrap.py, checked by tests.',
+                      '# The installed path is derived from the exact Git blob of v3_checkpoint_bootstrap.py.'
+                  )
+                  out.append(line)
+              assert count == 1, (path_name, count)
+              path.write_text(''.join(out), encoding='utf-8')
+
+          rewrite_workflow('v3-live-checkpoint-control.yml')
+          rewrite_workflow('v3-application-live-checkpoint-preflight.yml')
+
+          test_path = root / 'tests/test_v3_checkpoint_validator_runtime.py'
+          test = test_path.read_text(encoding='utf-8')
+          test = test.replace('import base64\n', '')
+          test = test.replace('import zlib\n', '')
+          test = test.replace('from pathlib import Path\n', 'from pathlib import Path\nimport hashlib\n')
+          start = test.index('\ndef decoded_program(command):\n')
+          end = test.index('\n\ndef is_verified_checkpoint_preinstall_job', start)
+          helper = '''\n\ndef expected_bootstrap_path():
+              payload = SOURCE.read_bytes()
+              digest = hashlib.sha1(f"blob {len(payload)}\\0".encode() + payload).hexdigest()
+              return f"/usr/local/libexec/edfinder-v3-checkpoint-bootstrap-{digest}.py"
+          '''
+          test = test[:start] + helper + test[end:]
+          old_assert = '''    assert words[:7] == [
+                  "/usr/bin/sudo", "-n", "--preserve-env=GH_TOKEN", "/usr/bin/python3", "-I", "-S", "-c",
+              ]
+              assert decoded_program(words[7]) == SOURCE.read_bytes()
+              assert words[8:] == ["123", "b" * 64, "a" * 40, operation,
+                                   f"/tmp/{receipt}-42-1.json", "{0}"]
+          '''
+          new_assert = '''    assert words[:6] == [
+                  "/usr/bin/sudo", "-n", "/usr/bin/python3", "-I", "-S", expected_bootstrap_path(),
+              ]
+              assert "--preserve-env=GH_TOKEN" not in words
+              assert words[6:] == ["123", "b" * 64, "a" * 40, operation,
+                                   f"/tmp/{receipt}-42-1.json", "{0}"]
+          '''
+          assert old_assert in test
+          test = test.replace(old_assert, new_assert, 1)
+          old_program_mutation = '''    if change == "program":
+                  job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("import base64,zlib;", "import os;")
+          '''
+          new_program_mutation = '''    if change == "program":
+                  job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace(
+                      expected_bootstrap_path(), "/usr/local/libexec/edfinder-v3-checkpoint-bootstrap-untrusted.py"
+                  )
+          '''
+          assert old_program_mutation in test
+          test = test.replace(old_program_mutation, new_program_mutation, 1)
+          test_path.write_text(test, encoding='utf-8')
+
+          provenance_test = root / 'tests/test_v3_checkpoint_bootstrap_provenance.py'
+          provenance_test.write_text(r'''import runpy
+          from pathlib import Path
+
+          import pytest
+
+          ROOT = Path(__file__).resolve().parents[1]
+          MODULE = runpy.run_path(str(ROOT / "scripts/operator/v3_checkpoint_bootstrap.py"))
+
+
+          def fixture(operation="provision"):
+              if operation == "provision":
+                  return {
+                      "artifact": {"id": 123, "name": "checkpoint-provision-operation", "expired": False,
+                                   "workflow_run": {"id": 456, "head_sha": "a" * 40}},
+                      "run": {"path": ".github/workflows/v3-live-checkpoint-control.yml",
+                              "event": "issue_comment", "head_sha": "a" * 40,
+                              "status": "in_progress",
+                              "repository": {"full_name": "brianstewart377-rgb/ed-finder"},
+                              "actor": {"login": "brianstewart377-rgb"}},
+                  }
+              return {
+                  "artifact": {"id": 123, "name": "checkpoint-deploy-operation", "expired": False,
+                               "workflow_run": {"id": 456, "head_sha": "a" * 40}},
+                  "run": {"path": ".github/workflows/v3-application-live-checkpoint-preflight.yml",
+                          "event": "workflow_dispatch", "head_sha": "a" * 40,
+                          "status": "in_progress",
+                          "repository": {"full_name": "brianstewart377-rgb/ed-finder"},
+                          "actor": {"login": "github-actions[bot]"}},
+              }
+
+
+          def invoke(monkeypatch, operation="provision", mutate=None):
+              data = fixture(operation)
+              if mutate:
+                  mutate(data)
+              def fake(_token, endpoint):
+                  return data["artifact"] if endpoint.startswith("actions/artifacts/") else data["run"]
+              monkeypatch.setitem(MODULE["verify_artifact_provenance"].__globals__, "github_json", fake)
+              MODULE["verify_artifact_provenance"]("token", "123", "a" * 40, operation)
+
+
+          @pytest.mark.parametrize("operation", ["provision", "deploy"])
+          def test_canonical_in_progress_artifact_is_accepted(monkeypatch, operation):
+              invoke(monkeypatch, operation)
+
+
+          @pytest.mark.parametrize("mutation", [
+              lambda d: d["artifact"].update(name="wrong"),
+              lambda d: d["artifact"]["workflow_run"].update(head_sha="b" * 40),
+              lambda d: d["run"].update(path=".github/workflows/other.yml"),
+              lambda d: d["run"].update(event="push"),
+              lambda d: d["run"].update(head_sha="b" * 40),
+              lambda d: d["run"].update(status="completed"),
+              lambda d: d["run"].update(repository={"full_name": "other/repo"}),
+              lambda d: d["run"].update(actor={"login": "someone-else"}),
+          ])
+          def test_noncanonical_artifact_provenance_is_rejected(monkeypatch, mutation):
+              with pytest.raises(ValueError):
+                  invoke(monkeypatch, mutate=mutation)
+          ''', encoding='utf-8')
+
+          docs = root / 'docs/operations/v3-live-checkpoint-infrastructure.md'
+          text = docs.read_text(encoding='utf-8')
+          old = ('Existing noninteractive sudo capability is required, never granted by the workflow. '
+                 'The operator UID/GID are read from the existing `codex` account instead of guessing 1001.')
+          new = ('The host grants no general passwordless root shell or Python authority. Instead, `codex` may run only '
+                 'the version-pinned root-owned bootstrap path selected by the workflow; sudo keeps only `GH_TOKEN`. '
+                 'The bootstrap verifies the artifact name, canonical workflow path/event, exact source SHA, repository, '
+                 'authorized actor, and that the producing workflow is still in progress before it downloads or executes '
+                 'the sealed bundle. The operator UID/GID are read from the existing `codex` account instead of guessing 1001.')
+          assert old in text
+          docs.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Run focused contracts
+        run: |
+          python -m pip install -q pytest==8.3.4 PyYAML==6.0.3
+          python -m pytest tests/test_v3_checkpoint_validator_runtime.py tests/test_v3_checkpoint_bootstrap_provenance.py tests/test_v3_checkpoint_local_transport.py -q
+      - name: Commit bounded repair and remove helper
+        run: |
+          rm .github/workflows/_checkpoint-root-launcher-repair.yml
+          git config user.name brianstewart377-rgb
+          git config user.email brianstewart377@gmail.com
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: use version-pinned checkpoint root bootstrap'
+          git push origin HEAD:chatgpt/checkpoint-root-launcher-fix
