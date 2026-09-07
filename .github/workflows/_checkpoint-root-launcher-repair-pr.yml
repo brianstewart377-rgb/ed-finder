@@ -80,6 +80,23 @@ jobs:
         run: |
           python -m pip install -q pytest==8.3.4 PyYAML==6.0.3
           python -m pytest tests/test_v3_checkpoint_validator_runtime.py tests/test_v3_checkpoint_bootstrap_provenance.py tests/test_v3_checkpoint_local_transport.py -q
+      - name: Package tested repair files
+        run: |
+          tar -czf /tmp/checkpoint-root-launcher-repair.tar.gz \
+            scripts/operator/v3_checkpoint_bootstrap.py \
+            .github/workflows/v3-live-checkpoint-control.yml \
+            .github/workflows/v3-application-live-checkpoint-preflight.yml \
+            tests/test_v3_checkpoint_validator_runtime.py \
+            tests/test_v3_checkpoint_bootstrap_provenance.py \
+            tests/test_v3_checkpoint_local_transport.py \
+            docs/operations/v3-live-checkpoint-infrastructure.md
+      - name: Upload tested repair files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: checkpoint-root-launcher-repair
+          path: /tmp/checkpoint-root-launcher-repair.tar.gz
+          if-no-files-found: error
+          retention-days: 1
       - name: Commit repair and remove temporary helpers
         run: |
           rm .github/workflows/_checkpoint-root-launcher-repair.yml
