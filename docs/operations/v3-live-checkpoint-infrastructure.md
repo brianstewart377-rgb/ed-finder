@@ -57,15 +57,19 @@ preserves only `GH_TOKEN` for that command, uses `NOSETENV`, and grants `codex`
 passwordless execution of only the fixed launcher. It does not grant
 passwordless Python, Bash, `runuser`, Docker, or `ALL` command authority.
 
-The installer validates both the staged rule and the complete sudo policy with
-`visudo`, then exercises the launcher's idempotent `--check` through the real
+The installer validates the complete sudo policy, removes the checkpoint sudo
+rule from the active include path, and validates the policy again before either
+installed helper changes. Only after the bootstrap and launcher are internally
+consistent does it install the narrow sudoers rule and exercise the launcher's
+idempotent `--check` through the real
 `codex` → `sudo -n` boundary. If any install, final policy validation,
-trusted-main recheck, or self-test fails, it restores the prior launcher,
-bootstrap, and sudoers rule (including absence, ownership, and modes) and
-validates the restored policy. Re-running the same installer is safe and does
-not replace identical files. A deliberate bootstrap change, a stale installed
-helper, or repair of this interface requires the owner to rerun the same
-reviewed installation command; workflows never update their own root helper.
+trusted-main recheck, or self-test fails, it first removes checkpoint sudo
+authority, restores the prior launcher and bootstrap, restores the prior sudoers
+rule last, and validates the restored policy. Re-running the same installer is
+safe and does not replace identical files. A deliberate helper change, a stale
+installed helper, or repair of this interface requires the owner to rerun the
+same reviewed installation command; workflows never update their own root
+helper.
 
 The governed provisioning workflow is an explicit establishment/repair
 operation. It establishes every host prerequisite required by the canonical
@@ -90,14 +94,15 @@ The unified checkpoint control plane is driven from dedicated issue #623. Only a
 
 Normal issue #623 requests reuse the existing Contabo runner connection; they do not require new SSH secrets. The host-mutating jobs perform no repository checkout and execute no coding-worktree helper or toolcache interpreter. A GitHub-hosted job archives the exact trusted-main operation source and, for deployment, verifies the release provenance/checksum/manifest before sealing it with the inputs. Its artifact ID and SHA-256 pass through job outputs, not a file on the coding runner.
 
-The hosted prepare job calculates the SHA-256 of the bootstrap in the exact
-committed source object. The fixed launcher clears the ambient environment,
-requires root execution through `SUDO_USER=codex`, verifies the exact
-host/FQDN/architecture and bounded arguments, and compares that expected SHA
-with the root-owned installed helper. The installed bootstrap verifies its own
-SHA again and requires the sealed operation request to carry the same value.
-A stale or mismatched helper therefore stops with an explicit reinstall error
-before artifact access instead of silently running different bootstrap code.
+The hosted prepare job calculates the SHA-256 of both the fixed launcher and the
+bootstrap from their exact committed source objects. The fixed launcher clears
+the ambient environment, requires root execution through `SUDO_USER=codex`,
+verifies the exact host/FQDN/architecture and bounded arguments, and compares
+those expected SHAs with both root-owned installed helpers. The installed
+bootstrap verifies its own SHA again and requires the sealed operation request
+to carry both expected digests. A stale or mismatched launcher or bootstrap
+therefore stops with an explicit reinstall error before artifact access instead
+of silently running a different helper generation.
 
 The installed bootstrap runs under root-owned OS Python with `-I -S`. It
 first resolves the selected artifact through GitHub's API and derives its

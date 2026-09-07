@@ -29,6 +29,7 @@ def shell_words(shell):
         values[f"needs.{parent}.outputs.artifact_id"] = "123"
         values[f"needs.{parent}.outputs.bundle_sha256"] = "b" * 64
         values[f"needs.{parent}.outputs.bootstrap_sha256"] = "c" * 64
+        values[f"needs.{parent}.outputs.launcher_sha256"] = "d" * 64
     for expression, value in values.items():
         shell = shell.replace("${{ " + expression + " }}", value)
     assert "${{" not in shell
@@ -65,6 +66,7 @@ def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) 
                      + "-${{ github.run_id }}-${{ github.run_attempt }}.json")
     expected_suffix = (
         "${{ needs." + parent + ".outputs.bootstrap_sha256 }} "
+        + "--launcher-sha ${{ needs." + parent + ".outputs.launcher_sha256 }} "
         + "${{ needs." + parent + ".outputs.artifact_id }} "
         + "${{ needs." + parent + ".outputs.bundle_sha256 }} "
         + '${{ github.sha }} ' + operation + ' "' + expected_path + '" {0}'
@@ -74,8 +76,9 @@ def is_verified_checkpoint_preinstall_job(path: Path, job_name: str, job: dict) 
     assert words[:4] == [
         "/usr/bin/sudo", "-n", "--preserve-env=GH_TOKEN", LAUNCHER,
     ]
-    assert words[4:] == ["--bootstrap-sha", "c" * 64, "123", "b" * 64,
-                         "a" * 40, operation, f"/tmp/{receipt}-42-1.json", "{0}"]
+    assert words[4:] == ["--bootstrap-sha", "c" * 64, "--launcher-sha", "d" * 64,
+                         "123", "b" * 64, "a" * 40, operation,
+                         f"/tmp/{receipt}-42-1.json", "{0}"]
     assert "/usr/bin/python3" not in words
     assert "/bin/bash" not in words
     assert "/usr/sbin/runuser" not in words
@@ -97,6 +100,8 @@ def test_privileged_jobs_use_only_fixed_launcher_and_bootstrap_uses_isolated_os_
     assert 'os.environ.clear()' in launcher
     assert 'os.execve("/usr/bin/python3"' in launcher
     assert '["/usr/bin/python3", "-I", "-S"' in launcher
+    assert "validate_installed_launcher" in launcher
+    assert "installed launcher is stale" in launcher
     assert "python3.14 -I -S -c" in local
     assert "sys.version_info[:2]==(3,14)" in local
     assert "runuser -u codex -- env -i" in local
@@ -132,7 +137,7 @@ def test_bootstrap_preserves_script_execution_without_setuid_or_group_write(tmp_
 
 @pytest.mark.parametrize("file,name", list(PREINSTALL_BOOTSTRAPS))
 @pytest.mark.parametrize("change", [
-    "launcher", "bootstrap-sha", "extra-command", "inline-command", "setup", "shell", "ref",
+    "launcher", "bootstrap-sha", "launcher-sha", "extra-command", "inline-command", "setup", "shell", "ref",
     "or-true", "or-false", "negated", "repository-bypass", "needs", "artifact", "env", "cwd",
 ])
 def test_preinstall_exception_rejects_broader_runtime_bypasses(file, name, change):
@@ -143,6 +148,8 @@ def test_preinstall_exception_rejects_broader_runtime_bypasses(file, name, chang
         job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace(LAUNCHER, "/usr/bin/python3")
     elif change == "bootstrap-sha":
         job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("outputs.bootstrap_sha256", "outputs.untrusted_sha")
+    elif change == "launcher-sha":
+        job["defaults"]["run"]["shell"] = job["defaults"]["run"]["shell"].replace("outputs.launcher_sha256", "outputs.untrusted_sha")
     elif change == "extra-command":
         job["steps"].append({"run": "python arbitrary.py"})
     elif change == "inline-command":

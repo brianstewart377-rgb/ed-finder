@@ -82,6 +82,17 @@ def validate_expected_bootstrap(expected):
             f"installed bootstrap is stale (expected {expected}, installed {actual}); reinstall required")
 
 
+def validate_installed_launcher(expected):
+    require(re.fullmatch(r"[0-9a-f]{64}", expected) is not None,
+            "invalid expected launcher digest")
+    try:
+        actual = hashlib.sha256(LAUNCHER.read_bytes()).hexdigest()
+    except OSError:
+        fail("unable to read installed launcher")
+    require(actual == expected,
+            f"installed launcher is stale (expected {expected}, installed {actual}); reinstall required")
+
+
 def main():
     token = os.environ.get("GH_TOKEN", "")
     sudo_identity = {name: os.environ.get(name, "")
@@ -90,16 +101,25 @@ def main():
     os.environ.update(sudo_identity)
     validate_identity()
 
-    if len(sys.argv) == 3 and sys.argv[1] == "--check":
-        expected = sys.argv[2]
-        validate_expected_bootstrap(expected)
-        arguments = ["--check", expected]
+    if (len(sys.argv) == 6 and sys.argv[1] == "--check"
+            and sys.argv[2] == "--bootstrap-sha"
+            and sys.argv[4] == "--launcher-sha"):
+        expected_bootstrap = sys.argv[3]
+        expected_launcher = sys.argv[5]
+        validate_expected_bootstrap(expected_bootstrap)
+        validate_installed_launcher(expected_launcher)
+        arguments = ["--check", "--bootstrap-sha", expected_bootstrap,
+                     "--launcher-sha", expected_launcher]
         environment = {"PATH": SAFE_PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C"}
     else:
-        require(len(sys.argv) == 9 and sys.argv[1] == "--bootstrap-sha",
+        require(len(sys.argv) == 11 and sys.argv[1] == "--bootstrap-sha"
+                and sys.argv[3] == "--launcher-sha",
                 "invalid arguments")
-        expected, artifact, digest, source, operation, receipt, ignored_script = sys.argv[2:]
-        validate_expected_bootstrap(expected)
+        expected_bootstrap = sys.argv[2]
+        expected_launcher = sys.argv[4]
+        artifact, digest, source, operation, receipt, ignored_script = sys.argv[5:]
+        validate_expected_bootstrap(expected_bootstrap)
+        validate_installed_launcher(expected_launcher)
         require(re.fullmatch(r"[1-9][0-9]{0,19}", artifact) is not None,
                 "invalid artifact id")
         require(re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
@@ -118,8 +138,9 @@ def main():
                 "invalid generated script argument")
         require(0 < len(token) <= 8192 and not any(character.isspace() for character in token),
                 "invalid artifact token")
-        arguments = ["--expected-bootstrap-sha", expected, artifact, digest, source,
-                     operation, receipt, ignored_script]
+        arguments = ["--expected-bootstrap-sha", expected_bootstrap,
+                     "--expected-launcher-sha", expected_launcher,
+                     artifact, digest, source, operation, receipt, ignored_script]
         environment = {"PATH": SAFE_PATH, "HOME": "/root", "LANG": "C", "LC_ALL": "C",
                        "GH_TOKEN": token}
 

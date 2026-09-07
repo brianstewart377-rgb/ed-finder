@@ -43,6 +43,7 @@ jobs:
       artifact_id: ${{ steps.bundle-artifact.outputs.artifact-id }}
       bundle_sha256: ${{ steps.bundle.outputs.bundle_sha256 }}
       bootstrap_sha256: ${{ steps.bundle.outputs.bootstrap_sha256 }}
+      launcher_sha256: ${{ steps.bundle.outputs.launcher_sha256 }}
     # This boundary is distinct from production credentials and routing.
     environment: v3-live-checkpoint
     # The operator bounds each command at 120 seconds and each candidate/rollback
@@ -339,7 +340,7 @@ jobs:
     defaults:
       run:
         shell: >-
-          /usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/local/sbin/edfinder-v3-checkpoint-launcher --bootstrap-sha ${{ needs.deploy.outputs.bootstrap_sha256 }} ${{ needs.deploy.outputs.artifact_id }} ${{ needs.deploy.outputs.bundle_sha256 }} ${{ github.sha }} deploy "/tmp/v3-live-checkpoint-deployment-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json" {0}
+          /usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/local/sbin/edfinder-v3-checkpoint-launcher --bootstrap-sha ${{ needs.deploy.outputs.bootstrap_sha256 }} --launcher-sha ${{ needs.deploy.outputs.launcher_sha256 }} ${{ needs.deploy.outputs.artifact_id }} ${{ needs.deploy.outputs.bundle_sha256 }} ${{ github.sha }} deploy "/tmp/v3-live-checkpoint-deployment-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json" {0}
     steps:
       - name: Execute sealed deploy bundle without a mutable launch script
         # The runner starts only the installed checkpoint launcher via sudo. The generated {0} file is ignored.

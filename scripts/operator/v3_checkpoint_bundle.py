@@ -11,6 +11,7 @@ from pathlib import Path
 
 ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
 BOOTSTRAP = "scripts/operator/v3_checkpoint_bootstrap.py"
+LAUNCHER = "scripts/operator/actions/edfinder-v3-checkpoint-launcher"
 COMMON = [ENTRY, "deploy/v3-live-checkpoint/target-authority.json"]
 FILES = {
     "provision": COMMON + ["scripts/operator/actions/v3-live-checkpoint-provision.sh",
@@ -34,9 +35,12 @@ def main():
     if not re.fullmatch(r"[0-9a-f]{40}", args.source):
         parser.error("invalid exact source SHA")
     bootstrap = subprocess.check_output(["git", "show", f"{args.source}:{BOOTSTRAP}"])
+    launcher = subprocess.check_output(["git", "show", f"{args.source}:{LAUNCHER}"])
     bootstrap_sha256 = hashlib.sha256(bootstrap).hexdigest()
+    launcher_sha256 = hashlib.sha256(launcher).hexdigest()
     request = {"source_sha": args.source, "operation": args.operation,
-               "bootstrap_sha256": bootstrap_sha256}
+               "bootstrap_sha256": bootstrap_sha256,
+               "launcher_sha256": launcher_sha256}
     if args.operation == "deploy":
         if (args.mode is None or args.candidate is None or args.run_id is None
                 or not re.fullmatch(r"[1-9][0-9]{0,19}", args.run_id)):
@@ -61,6 +65,7 @@ def main():
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write(f"bundle_sha256={digest}\n")
         output.write(f"bootstrap_sha256={bootstrap_sha256}\n")
+        output.write(f"launcher_sha256={launcher_sha256}\n")
     print("Sealed checkpoint operation bundle")
 
 

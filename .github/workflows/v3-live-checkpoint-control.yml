@@ -110,6 +110,7 @@ jobs:
       artifact_id: ${{ steps.bundle-artifact.outputs.artifact-id }}
       bundle_sha256: ${{ steps.bundle.outputs.bundle_sha256 }}
       bootstrap_sha256: ${{ steps.bundle.outputs.bootstrap_sha256 }}
+      launcher_sha256: ${{ steps.bundle.outputs.launcher_sha256 }}
     steps:
       - name: Checkout exact trusted main source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -150,7 +151,7 @@ jobs:
     defaults:
       run:
         shell: >-
-          /usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/local/sbin/edfinder-v3-checkpoint-launcher --bootstrap-sha ${{ needs.prepare-provision.outputs.bootstrap_sha256 }} ${{ needs.prepare-provision.outputs.artifact_id }} ${{ needs.prepare-provision.outputs.bundle_sha256 }} ${{ github.sha }} provision "/tmp/v3-live-checkpoint-authority-candidate-${{ github.run_id }}-${{ github.run_attempt }}.json" {0}
+          /usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/local/sbin/edfinder-v3-checkpoint-launcher --bootstrap-sha ${{ needs.prepare-provision.outputs.bootstrap_sha256 }} --launcher-sha ${{ needs.prepare-provision.outputs.launcher_sha256 }} ${{ needs.prepare-provision.outputs.artifact_id }} ${{ needs.prepare-provision.outputs.bundle_sha256 }} ${{ github.sha }} provision "/tmp/v3-live-checkpoint-authority-candidate-${{ github.run_id }}-${{ github.run_attempt }}.json" {0}
     steps:
       - name: Execute sealed provision bundle without a mutable launch script
         # The runner starts only the installed checkpoint launcher via sudo. The generated {0} file is ignored.

@@ -104,6 +104,13 @@ def existing_bytes(path):
     return None if state is None else state.content
 
 
+def matches_state(path, content, mode, owner_uid):
+    state = existing_state(path)
+    return (state is not None and state.content == content
+            and state.mode == mode and state.uid == owner_uid
+            and state.gid == owner_uid)
+
+
 def atomic_install(path, content, mode, owner_uid, validator=None, owner_gid=None):
     if owner_gid is None:
         owner_gid = owner_uid
@@ -152,13 +159,14 @@ def system_visudo(path):
                    stdin=subprocess.DEVNULL, env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin"})
 
 
-def system_self_test(bootstrap_sha):
+def system_self_test(bootstrap_sha, launcher_sha):
     subprocess.run([
         "/usr/sbin/runuser", "-u", "codex", "--", "/usr/bin/env", "-i",
         "PATH=/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/home/codex",
         "GH_TOKEN=checkpoint-installer-self-test", "/usr/bin/sudo", "-n",
         "--preserve-env=GH_TOKEN",
-        "/usr/local/sbin/edfinder-v3-checkpoint-launcher", "--check", bootstrap_sha,
+        "/usr/local/sbin/edfinder-v3-checkpoint-launcher", "--check",
+        "--bootstrap-sha", bootstrap_sha, "--launcher-sha", launcher_sha,
     ], check=True, stdin=subprocess.DEVNULL,
        env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/home/codex"})
 
@@ -270,6 +278,7 @@ def install(source_root, destination_root=Path("/"), owner_uid=0,
     launcher = read_source(source_root / LAUNCHER_SOURCE, source_owner)
     bootstrap = read_source(source_root / BOOTSTRAP_SOURCE, source_owner)
     bootstrap_sha = hashlib.sha256(bootstrap).hexdigest()
+    launcher_sha = hashlib.sha256(launcher).hexdigest()
 
     # Refuse to modify anything while the host's existing sudo policy is invalid.
     validate_sudoers(destination_root / "etc/sudoers")
@@ -285,28 +294,66 @@ def install(source_root, destination_root=Path("/"), owner_uid=0,
     launcher_target = destination_root / LAUNCHER_TARGET
     bootstrap_target = destination_root / BOOTSTRAP_TARGET
     sudoers_target = destination_root / SUDOERS_TARGET
-    targets = (
+    helper_targets = (
         (bootstrap_target, bootstrap, 0o600, None),
         (launcher_target, launcher, 0o755, None),
-        # The candidate rule is parsed before it can enter sudo's include directory.
-        (sudoers_target, SUDOERS, 0o440, validate_sudoers),
     )
-    previous = {path: existing_state(path) for path, _, _, _ in targets}
-    try:
-        for path, content, mode, validator in targets:
-            atomic_install(path, content, mode, owner_uid, validator)
+    previous = {
+        path: existing_state(path)
+        for path in (bootstrap_target, launcher_target, sudoers_target)
+    }
+    helpers_unchanged = (
+        matches_state(bootstrap_target, bootstrap, 0o600, owner_uid)
+        and matches_state(launcher_target, launcher, 0o755, owner_uid)
+    )
+    sudoers_unchanged = matches_state(
+        sudoers_target, SUDOERS, 0o440, owner_uid
+    )
+
+    def remove_checkpoint_sudo_authority():
+        """Keep the active sudo include path clear while helpers can change."""
+        if sudoers_target.exists():
+            sudoers_target.unlink()
+            directory = os.open(sudoers_target.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         validate_sudoers(destination_root / "etc/sudoers")
-        self_test(bootstrap_sha)
+
+    try:
+        validate_sudoers(destination_root / "etc/sudoers")
+        if helpers_unchanged:
+            if not sudoers_unchanged:
+                atomic_install(sudoers_target, SUDOERS, 0o440, validate_sudoers)
+        else:
+            remove_checkpoint_sudo_authority()
+            for path, content, mode, validator in helper_targets:
+                atomic_install(path, content, mode, owner_uid, validator)
+            # The candidate rule is parsed before it can enter sudo's include directory,
+            # and is installed only after both helpers are internally consistent.
+            atomic_install(sudoers_target, SUDOERS, 0o440, validate_sudoers)
+            validate_sudoers(destination_root / "etc/sudoers")
+        self_test(bootstrap_sha, launcher_sha)
         if final_verify is not None:
             final_verify()
     except Exception as installation_error:
         rollback_errors = []
-        for path, _, _, _ in reversed(targets):
+        try:
+            remove_checkpoint_sudo_authority()
+        except Exception as exc:
+            rollback_errors.append(f"revoke checkpoint sudo authority: {exc}")
+        for path in (bootstrap_target, launcher_target):
             try:
                 restore_state(path, previous[path])
                 verify_state(path, previous[path])
             except Exception as exc:  # retain every rollback failure for diagnosis
                 rollback_errors.append(f"{path}: {exc}")
+        try:
+            restore_state(sudoers_target, previous[sudoers_target])
+            verify_state(sudoers_target, previous[sudoers_target])
+        except Exception as exc:
+            rollback_errors.append(f"{sudoers_target}: {exc}")
         try:
             validate_sudoers(destination_root / "etc/sudoers")
         except Exception as exc:
@@ -315,7 +362,7 @@ def install(source_root, destination_root=Path("/"), owner_uid=0,
             stop("installation failed and rollback was incomplete: "
                  + "; ".join(rollback_errors))
         raise installation_error
-    return bootstrap_sha
+    return bootstrap_sha, launcher_sha
 
 
 def require_host_authority():
@@ -340,13 +387,14 @@ def main():
     reviewed_sha = sys.argv[2]
     source_root = Path(sys.argv[4])
     require_authenticated_source(source_root, reviewed_sha)
-    digest = install(
+    bootstrap_sha, launcher_sha = install(
         source_root,
         source_owner=0,
         final_verify=lambda: require_authenticated_source(source_root, reviewed_sha),
     )
     print("checkpoint host interface installed and verified "
-          f"interface={INTERFACE_VERSION} bootstrap_sha256={digest}")
+          f"interface={INTERFACE_VERSION} bootstrap_sha256={bootstrap_sha} "
+          f"launcher_sha256={launcher_sha}")
 
 
 if __name__ == "__main__":
