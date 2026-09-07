@@ -49,7 +49,10 @@ def require_root_directory(path):
 
 def validate_identity():
     require(os.geteuid() == 0, "root execution required")
-    account = pwd.getpwnam("codex")
+    try:
+        account = pwd.getpwnam("codex")
+    except KeyError:
+        fail("codex account required")
     require(account.pw_uid > 0, "non-root codex account required")
     require(os.environ.get("SUDO_USER") == "codex", "SUDO_USER must be codex")
     require(os.environ.get("SUDO_UID") == str(account.pw_uid),

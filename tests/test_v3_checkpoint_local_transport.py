@@ -19,6 +19,48 @@ SOURCE = ROOT / "scripts/operator/v3_checkpoint_bootstrap.py"
 ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
 SHA = "a" * 40
 BOOTSTRAP_SHA = hashlib.sha256(SOURCE.read_bytes()).hexdigest()
+RUN_ID = 456
+REPOSITORY_ID = 987
+
+
+def provenance(operation="provision"):
+    artifact_name, workflow_path, event = {
+        "provision": (
+            "checkpoint-provision-operation",
+            ".github/workflows/v3-live-checkpoint-control.yml",
+            "issue_comment",
+        ),
+        "deploy": (
+            "checkpoint-deploy-operation",
+            ".github/workflows/v3-application-live-checkpoint-preflight.yml",
+            "workflow_dispatch",
+        ),
+    }[operation]
+    artifact = {
+        "id": 123,
+        "name": artifact_name,
+        "expired": False,
+        "workflow_run": {
+            "id": RUN_ID,
+            "repository_id": REPOSITORY_ID,
+            "head_repository_id": REPOSITORY_ID,
+            "head_branch": "main",
+            "head_sha": SHA,
+        },
+    }
+    repository = {"id": REPOSITORY_ID, "full_name": "brianstewart377-rgb/ed-finder"}
+    run = {
+        "id": RUN_ID,
+        "repository": repository.copy(),
+        "head_repository": repository.copy(),
+        "path": workflow_path,
+        "event": event,
+        "head_branch": "main",
+        "head_sha": SHA,
+        "status": "in_progress",
+        "conclusion": None,
+    }
+    return artifact, run
 
 
 def load_module(path=SOURCE):
@@ -121,9 +163,18 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
         assert module.os.environ == {}
         if command[0] == "/usr/bin/curl":
             assert "--location-trusted" not in command
-            assert kwargs["input"] == b"Authorization: Bearer synthetic-token\n"
+            assert b"Authorization: Bearer synthetic-token\n" in kwargs["input"]
             assert "synthetic-token" not in " ".join(command)
-            return subprocess.CompletedProcess(command, 0, stdout=payload)
+            if command[-1].endswith("/actions/artifacts/123"):
+                metadata, _ = provenance()
+                response = json.dumps(metadata).encode()
+            elif command[-1].endswith(f"/actions/runs/{RUN_ID}"):
+                _, metadata = provenance()
+                response = json.dumps(metadata).encode()
+            else:
+                assert command[-1].endswith("/actions/artifacts/123/zip")
+                response = payload
+            return subprocess.CompletedProcess(command, 0, stdout=response)
         private = kwargs["cwd"]
         assert private != worktree and not private.is_relative_to(worktree)
         assert (private / ENTRY).read_text() == "echo verified-operation\n"
@@ -140,6 +191,83 @@ def test_bootstrap_executes_only_verified_private_code_not_poisoned_checkout(tmp
             module.main()
         assert executed == []
     assert not list(tmp_path.glob("edfinder-v3-*"))
+
+
+@pytest.mark.parametrize("operation", ["provision", "deploy"])
+def test_operation_artifact_accepts_only_its_canonical_active_main_workflow(operation):
+    module = load_module()
+    artifact, run = provenance(operation)
+    assert module.verify_artifact_provenance(
+        artifact, run, "123", SHA, operation,
+    ) == str(RUN_ID)
+
+
+@pytest.mark.parametrize("drift", [
+    "artifact-id", "artifact-name", "expired", "association", "association-repository",
+    "association-branch", "association-sha", "run-id", "repository", "head-repository",
+    "workflow", "event", "branch", "sha", "completed",
+])
+def test_untrusted_operation_artifact_provenance_stops_before_download(
+    tmp_path, monkeypatch, drift
+):
+    module = load_module()
+    artifact, run = provenance()
+    if drift == "artifact-id":
+        artifact["id"] = 124
+    elif drift == "artifact-name":
+        artifact["name"] = "attacker-operation"
+    elif drift == "expired":
+        artifact["expired"] = True
+    elif drift == "association":
+        artifact["workflow_run"] = None
+    elif drift == "association-repository":
+        artifact["workflow_run"]["head_repository_id"] = 654
+    elif drift == "association-branch":
+        artifact["workflow_run"]["head_branch"] = "codex/attacker"
+    elif drift == "association-sha":
+        artifact["workflow_run"]["head_sha"] = "b" * 40
+    elif drift == "run-id":
+        run["id"] = RUN_ID + 1
+    elif drift == "repository":
+        run["repository"]["full_name"] = "attacker/ed-finder"
+    elif drift == "head-repository":
+        run["head_repository"]["id"] = 654
+    elif drift == "workflow":
+        run["path"] = ".github/workflows/attacker.yml"
+    elif drift == "event":
+        run["event"] = "pull_request"
+    elif drift == "branch":
+        run["head_branch"] = "codex/attacker"
+    elif drift == "sha":
+        run["head_sha"] = "b" * 40
+    else:
+        run.update(status="completed", conclusion="success")
+
+    monkeypatch.setattr(sys, "argv", [str(SOURCE), "--expected-bootstrap-sha", BOOTSTRAP_SHA,
+                                     "123", "b" * 64, SHA, "provision",
+                                     str(tmp_path / "receipt.json"), "/ignored.sh"])
+    monkeypatch.setattr(module.os, "environ", {"GH_TOKEN": "synthetic-token"})
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+    monkeypatch.setattr(module.os, "uname", lambda: types.SimpleNamespace(
+        nodename="vmi3542235", machine="x86_64",
+    ))
+    monkeypatch.setattr(module.socket, "getfqdn", lambda: "vmi3542235.contaboserver.net")
+    calls = []
+
+    def fetch(command, **_kwargs):
+        calls.append(command[-1])
+        if command[-1].endswith("/actions/artifacts/123"):
+            response = artifact
+        elif command[-1].endswith(f"/actions/runs/{RUN_ID}"):
+            response = run
+        else:
+            pytest.fail("untrusted provenance must stop before artifact download")
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(response).encode())
+
+    monkeypatch.setattr(module.subprocess, "run", fetch)
+    with pytest.raises(ValueError, match="provenance"):
+        module.main()
+    assert all(not call.endswith("/zip") for call in calls)
 
 
 def test_privileged_jobs_have_no_worktree_or_toolcache_execution():

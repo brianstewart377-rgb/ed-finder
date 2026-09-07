@@ -24,6 +24,20 @@ INTERFACE_VERSION = "1"
 REPOSITORY = "brianstewart377-rgb/ed-finder"
 ENTRY = "scripts/operator/actions/v3-live-checkpoint-local.sh"
 PATH = "/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+API = f"https://api.github.com/repos/{REPOSITORY}"
+MAX_METADATA = 1024 * 1024
+TRUSTED_OPERATIONS = {
+    "provision": (
+        "checkpoint-provision-operation",
+        ".github/workflows/v3-live-checkpoint-control.yml",
+        "issue_comment",
+    ),
+    "deploy": (
+        "checkpoint-deploy-operation",
+        ".github/workflows/v3-application-live-checkpoint-preflight.yml",
+        "workflow_dispatch",
+    ),
+}
 
 
 def require(condition, message):
@@ -40,6 +54,78 @@ def verify_bootstrap_identity(expected):
             "invalid expected bootstrap digest")
     require(bootstrap_sha256() == expected,
             "installed checkpoint bootstrap digest mismatch")
+
+
+def github_response(token, resource, limit):
+    """Read one fixed-origin GitHub API resource without exposing the token."""
+    response = subprocess.run([
+        "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
+        "--location", "--proto", "=https", "--proto-redir", "=https",
+        "--tlsv1.2", "--noproxy", "*", "--connect-timeout", "10",
+        "--max-time", "120", "--max-filesize", str(limit), "--header", "@-",
+        API + resource,
+    ], input=("Accept: application/vnd.github+json\n"
+              f"Authorization: Bearer {token}\n"
+              "X-GitHub-Api-Version: 2022-11-28\n").encode(),
+       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={"PATH": PATH},
+       timeout=130, check=True)
+    require(len(response.stdout) <= limit, "oversized GitHub response")
+    return response.stdout
+
+
+def github_json(token, resource):
+    try:
+        value = json.loads(github_response(token, resource, MAX_METADATA))
+    except json.JSONDecodeError as exc:
+        raise ValueError("invalid GitHub metadata response") from exc
+    require(isinstance(value, dict), "invalid GitHub metadata response")
+    return value
+
+
+def positive_identifier(value):
+    return (isinstance(value, int) and not isinstance(value, bool)
+            and re.fullmatch(r"[1-9][0-9]{0,19}", str(value)) is not None)
+
+
+def verify_artifact_provenance(artifact_metadata, run, artifact, source, operation):
+    """Bind an operation artifact to its immutable trusted-main workflow run."""
+    artifact_name, workflow_path, event = TRUSTED_OPERATIONS[operation]
+    association = artifact_metadata.get("workflow_run")
+    require(isinstance(association, dict), "artifact has no workflow run provenance")
+    run_id = association.get("id")
+    repository_id = association.get("repository_id")
+    head_repository_id = association.get("head_repository_id")
+    repository = run.get("repository")
+    head_repository = run.get("head_repository")
+    checks = {
+        "artifact_id": positive_identifier(artifact_metadata.get("id"))
+        and str(artifact_metadata.get("id")) == artifact,
+        "artifact_name": artifact_metadata.get("name") == artifact_name,
+        "artifact_current": artifact_metadata.get("expired") is False,
+        "artifact_run": positive_identifier(run_id)
+        and positive_identifier(run.get("id")) and run.get("id") == run_id,
+        "artifact_repository": positive_identifier(repository_id)
+        and repository_id == head_repository_id,
+        "artifact_main_head": association.get("head_branch") == "main"
+        and association.get("head_sha") == source,
+        "canonical_repository": isinstance(repository, dict)
+        and isinstance(head_repository, dict)
+        and repository.get("id") == repository_id
+        and head_repository.get("id") == repository_id
+        and str(repository.get("full_name", "")).casefold() == REPOSITORY.casefold()
+        and str(head_repository.get("full_name", "")).casefold() == REPOSITORY.casefold(),
+        "canonical_workflow": run.get("path") == workflow_path,
+        "trusted_event": run.get("event") == event,
+        "trusted_main_head": run.get("head_branch") == "main"
+        and run.get("head_sha") == source,
+        # The artifact is consumed by a later job in this same canonical run.
+        # A completed artifact from an old run is not a fresh operation grant.
+        "active_run": run.get("status") == "in_progress"
+        and run.get("conclusion") is None,
+    }
+    failures = sorted(name for name, passed in checks.items() if not passed)
+    require(not failures, "operation artifact provenance failed: " + ",".join(failures))
+    return str(run_id)
 
 
 def unpack_bundle(envelope, digest, directory):
@@ -130,17 +216,18 @@ def main():
     os.umask(0o022)
     require(0 < len(token) <= 8192 and not any(c.isspace() for c in token),
             "invalid artifact token")
-    response = subprocess.run([
-        "/usr/bin/curl", "--disable", "--silent", "--show-error", "--fail",
-        "--location", "--proto", "=https", "--proto-redir", "=https",
-        "--noproxy", "*", "--connect-timeout", "10", "--max-time", "120",
-        "--max-filesize", str(LIMIT), "--header", "@-",
-        f"https://api.github.com/repos/{REPOSITORY}/actions/artifacts/{artifact}/zip",
-    ], input=f"Authorization: Bearer {token}\n".encode(), stdout=subprocess.PIPE,
-       stderr=subprocess.DEVNULL, env={"PATH": PATH}, timeout=130, check=True)
+    artifact_metadata = github_json(token, f"/actions/artifacts/{artifact}")
+    association = artifact_metadata.get("workflow_run")
+    require(isinstance(association, dict)
+            and positive_identifier(association.get("id")),
+            "artifact has no workflow run provenance")
+    run_id = str(association["id"])
+    run = github_json(token, f"/actions/runs/{run_id}")
+    verify_artifact_provenance(artifact_metadata, run, artifact, source, operation)
+    envelope = github_response(token, f"/actions/artifacts/{artifact}/zip", LIMIT)
     with tempfile.TemporaryDirectory(prefix="edfinder-v3-", dir="/run") as temporary:
         directory = Path(temporary)
-        unpack_bundle(response.stdout, digest, directory)
+        unpack_bundle(envelope, digest, directory)
         request = json.loads((directory / "operation.json").read_text())
         require(request.get("source_sha") == source
                 and request.get("operation") == operation

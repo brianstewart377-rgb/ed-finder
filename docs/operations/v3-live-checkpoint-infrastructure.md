@@ -4,12 +4,47 @@ The first persistent checkpoint lives on the non-production Contabo host `vmi354
 
 ## One-time host privilege interface
 
-After this change merges, the owner must use a clean checkout of the exact
-merged `main` SHA on `vmi3542235` and run this one direct host command from the
-repository root while logged in as `codex`:
+After this change merges, the owner must copy the command below from the
+reviewed `main` runbook and run it on `vmi3542235` while logged in as `codex`.
+It is the single installation path; do not run an installer from a runner
+checkout. The root shell resolves the exact current protected `main` head from
+GitHub, downloads only immutable-SHA URLs into a fresh root-owned `/run`
+directory, and passes that exact SHA to the installer. The installer
+independently confirms the SHA is still the GitHub `main` head before changing
+the interface and again after its self-test.
 
 ```bash
-sudo /usr/bin/python3 -I -S scripts/operator/install_v3_checkpoint_host_interface.py
+/usr/bin/sudo /bin/bash -ceu '
+umask 077
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C LC_ALL=C
+unset BASH_ENV ENV PYTHONHOME PYTHONPATH CURL_HOME XDG_CONFIG_HOME \
+  HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy \
+  SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE
+stage=$(/usr/bin/mktemp -d /run/edfinder-v3-checkpoint-install.XXXXXXXX)
+trap '\''/bin/rm -rf -- "$stage"'\'' EXIT
+/usr/bin/curl --disable --noproxy "*" --proto "=https" --proto-redir "=https" \
+  --tlsv1.2 --fail --location --silent --show-error \
+  -H "Accept: application/vnd.github+json" \
+  https://api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main \
+  -o "$stage/main.json"
+sha=$(/usr/bin/python3 -I -S -c "import json,sys; print(json.load(open(sys.argv[1]))[\"sha\"])" "$stage/main.json")
+[[ "$sha" =~ ^[0-9a-f]{40}$ ]] || exit 78
+source_root="$stage/source"
+/usr/bin/install -d -m 0700 "$source_root/scripts/operator/actions"
+for path in scripts/operator/install_v3_checkpoint_host_interface.py scripts/operator/actions/edfinder-v3-checkpoint-launcher scripts/operator/v3_checkpoint_bootstrap.py scripts/operator/v3_checkpoint_host_interface.sha256; do
+  /usr/bin/curl --disable --noproxy "*" --proto "=https" --proto-redir "=https" \
+    --tlsv1.2 --fail --location --silent --show-error \
+    "https://raw.githubusercontent.com/brianstewart377-rgb/ed-finder/$sha/$path" \
+    -o "$source_root/$path"
+done
+/bin/chmod 0600 "$source_root/scripts/operator/install_v3_checkpoint_host_interface.py" \
+  "$source_root/scripts/operator/actions/edfinder-v3-checkpoint-launcher" \
+  "$source_root/scripts/operator/v3_checkpoint_bootstrap.py" \
+  "$source_root/scripts/operator/v3_checkpoint_host_interface.sha256"
+(cd "$source_root" && /usr/bin/sha256sum --check scripts/operator/v3_checkpoint_host_interface.sha256)
+/usr/bin/python3 -I -S "$source_root/scripts/operator/install_v3_checkpoint_host_interface.py" \
+  --reviewed-main-sha "$sha" --source-root "$source_root"
+'
 ```
 
 That interactive, one-time installation is the only manual privilege bootstrap.
@@ -24,7 +59,10 @@ passwordless Python, Bash, `runuser`, Docker, or `ALL` command authority.
 
 The installer validates both the staged rule and the complete sudo policy with
 `visudo`, then exercises the launcher's idempotent `--check` through the real
-`codex` → `sudo -n` boundary. Re-running the same installer is safe and does
+`codex` → `sudo -n` boundary. If any install, final policy validation,
+trusted-main recheck, or self-test fails, it restores the prior launcher,
+bootstrap, and sudoers rule (including absence, ownership, and modes) and
+validates the restored policy. Re-running the same installer is safe and does
 not replace identical files. A deliberate bootstrap change, a stale installed
 helper, or repair of this interface requires the owner to rerun the same
 reviewed installation command; workflows never update their own root helper.
@@ -62,14 +100,21 @@ A stale or mismatched helper therefore stops with an explicit reinstall error
 before artifact access instead of silently running different bootstrap code.
 
 The installed bootstrap runs under root-owned OS Python with `-I -S`. It
-downloads only the selected GitHub artifact, verifies its bundle checksum
-before writing or executing operation files, rejects traversal, duplicate
-names, links and oversized contents, and creates a root-owned staging directory
-under `/run`. Only the verified entrypoint runs. The non-root deployer and
-postgres may read that code but cannot overwrite it. Tests also exercise a
-poisoned local checkout: it is never consulted. This protects the operation-file
-handoff; it does not claim that an already-compromised root account or runner
-service has become a security sandbox.
+first resolves the selected artifact through GitHub's API and derives its
+workflow run identity from that authenticated record. Before downloading any
+operation bytes, it requires the operation-specific artifact name, canonical
+workflow path and event, the canonical repository as both repository and head
+repository, an active trusted `main` run, and the exact run head SHA carried by
+the request. The caller cannot replace that API provenance with command-line or
+bundle metadata. The bootstrap then downloads only that authenticated artifact,
+verifies its bundle checksum before writing or executing operation files,
+rejects traversal, duplicate names, links and oversized contents, and creates a
+root-owned staging directory under `/run`. Only the verified entrypoint runs.
+The non-root deployer and postgres may read that code but cannot overwrite it.
+Tests also exercise a poisoned local checkout: it is never consulted. This
+protects the operation-file handoff; it does not claim that an
+already-compromised root account or runner service has become a security
+sandbox.
 
 The OS Python is a narrow installed-bootstrap dependency, not the application
 or deployment runtime. Provisioning establishes system CPython 3.14; canonical

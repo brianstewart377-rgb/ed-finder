@@ -1,20 +1,30 @@
 """Install the fixed, least-privilege Contabo checkpoint host interface."""
 import hashlib
+import json
 import os
 import pwd
+import re
 import secrets
 import socket
 import stat
 import subprocess
 import sys
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 EXPECTED_HOST = "vmi3542235"
 EXPECTED_FQDN = "vmi3542235.contaboserver.net"
 EXPECTED_ARCH = "x86_64"
 INTERFACE_VERSION = "1"
+REPOSITORY = "brianstewart377-rgb/ed-finder"
+TRUSTED_MAIN_API = f"https://api.github.com/repos/{REPOSITORY}/commits/main"
+SHA_PATTERN = re.compile(r"[0-9a-f]{40}")
+STAGING_PARENT = Path("/run")
+INSTALLER_SOURCE = Path("scripts/operator/install_v3_checkpoint_host_interface.py")
 LAUNCHER_SOURCE = Path("scripts/operator/actions/edfinder-v3-checkpoint-launcher")
 BOOTSTRAP_SOURCE = Path("scripts/operator/v3_checkpoint_bootstrap.py")
+MANIFEST_SOURCE = Path("scripts/operator/v3_checkpoint_host_interface.sha256")
 LAUNCHER_TARGET = Path("usr/local/sbin/edfinder-v3-checkpoint-launcher")
 BOOTSTRAP_TARGET = Path("usr/local/libexec/edfinder-v3-checkpoint/v3_checkpoint_bootstrap.py")
 SUDOERS_TARGET = Path("etc/sudoers.d/edfinder-v3-checkpoint")
@@ -28,7 +38,15 @@ def stop(message):
     raise RuntimeError(f"checkpoint host-interface installation stopped: {message}")
 
 
-def read_source(path):
+@dataclass(frozen=True)
+class FileState:
+    content: bytes
+    mode: int
+    uid: int
+    gid: int
+
+
+def read_source(path, required_owner=None):
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = os.open(path, flags)
@@ -37,6 +55,10 @@ def read_source(path):
             if (not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
                     or metadata.st_mode & 0o022):
                 stop(f"unsafe source file: {path}")
+            if (required_owner is not None
+                    and (metadata.st_uid != required_owner
+                         or metadata.st_gid != required_owner)):
+                stop(f"untrusted source file owner: {path}")
             if not 0 < metadata.st_size <= 1024 * 1024:
                 stop(f"invalid source file size: {path}")
             chunks = []
@@ -69,21 +91,29 @@ def ensure_directory(path, owner_uid):
     require_secure_directory(path, owner_uid)
 
 
-def existing_bytes(path):
+def existing_state(path):
     try:
         metadata = path.lstat()
     except FileNotFoundError:
         return None
     if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
         stop(f"unsafe existing target: {path}")
-    return path.read_bytes()
+    return FileState(path.read_bytes(), stat.S_IMODE(metadata.st_mode),
+                     metadata.st_uid, metadata.st_gid)
 
 
-def atomic_install(path, content, mode, owner_uid, validator=None):
+def existing_bytes(path):
+    state = existing_state(path)
+    return None if state is None else state.content
+
+
+def atomic_install(path, content, mode, owner_uid, validator=None, owner_gid=None):
+    if owner_gid is None:
+        owner_gid = owner_uid
     previous = existing_bytes(path)
     if previous == content:
         metadata = path.lstat()
-        if (metadata.st_uid == owner_uid and metadata.st_gid == owner_uid
+        if (metadata.st_uid == owner_uid and metadata.st_gid == owner_gid
                 and stat.S_IMODE(metadata.st_mode) == mode):
             if validator is not None:
                 validator(path)
@@ -98,7 +128,7 @@ def atomic_install(path, content, mode, owner_uid, validator=None):
             written = os.write(descriptor, view)
             view = view[written:]
         os.fchmod(descriptor, mode)
-        os.fchown(descriptor, owner_uid, owner_uid)
+        os.fchown(descriptor, owner_uid, owner_gid)
         os.fsync(descriptor)
         os.close(descriptor)
         descriptor = None
@@ -136,10 +166,97 @@ def system_self_test(bootstrap_sha):
        env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/home/codex"})
 
 
+def restore_state(path, previous):
+    if previous is None:
+        path.unlink(missing_ok=True)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+        return
+    atomic_install(path, previous.content, previous.mode, previous.uid,
+                   owner_gid=previous.gid)
+
+
+def verify_state(path, expected):
+    observed = existing_state(path)
+    if observed != expected:
+        stop(f"transaction rollback did not restore: {path}")
+
+
+def resolve_trusted_main_sha():
+    request = urllib.request.Request(
+        TRUSTED_MAIN_API,
+        headers={"Accept": "application/vnd.github+json",
+                 "User-Agent": "edfinder-checkpoint-interface-installer"},
+    )
+    with urllib.request.urlopen(request, timeout=20) as response:
+        if response.status != 200:
+            stop(f"GitHub trusted-main lookup returned HTTP {response.status}")
+        payload = response.read(1024 * 1024 + 1)
+    if len(payload) > 1024 * 1024:
+        stop("GitHub trusted-main response is oversized")
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        stop("GitHub trusted-main lookup returned invalid JSON")
+    sha = document.get("sha") if isinstance(document, dict) else None
+    if not isinstance(sha, str) or SHA_PATTERN.fullmatch(sha) is None:
+        stop("GitHub trusted-main lookup returned an invalid commit SHA")
+    return sha
+
+
+def verify_source_manifest(source_root, owner_uid):
+    manifest = read_source(source_root / MANIFEST_SOURCE, required_owner=owner_uid)
+    try:
+        lines = manifest.decode("ascii").splitlines()
+    except UnicodeDecodeError:
+        stop("reviewed source digest manifest is not ASCII")
+    expected_paths = (INSTALLER_SOURCE, LAUNCHER_SOURCE, BOOTSTRAP_SOURCE)
+    expected_names = {str(path) for path in expected_paths}
+    observed = {}
+    for line in lines:
+        parts = line.split("  ")
+        if (len(parts) != 2
+                or re.fullmatch(r"[0-9a-f]{64}", parts[0]) is None
+                or parts[1] not in expected_names or parts[1] in observed):
+            stop("reviewed source digest manifest is invalid")
+        observed[parts[1]] = parts[0]
+    if set(observed) != expected_names:
+        stop("reviewed source digest manifest is incomplete")
+    for relative in expected_paths:
+        content = read_source(source_root / relative, required_owner=owner_uid)
+        if not secrets.compare_digest(hashlib.sha256(content).hexdigest(),
+                                      observed[str(relative)]):
+            stop(f"reviewed source digest mismatch: {relative}")
+
+
+def require_authenticated_source(source_root, reviewed_sha,
+                                 resolve_main=resolve_trusted_main_sha,
+                                 owner_uid=0, staging_parent=STAGING_PARENT,
+                                 installer_path=None):
+    if (not source_root.is_absolute() or source_root != source_root.resolve()
+            or source_root.parent.parent != staging_parent):
+        stop("reviewed source must be in a root-controlled /run staging directory")
+    require_secure_directory(source_root.parent, owner_uid)
+    require_secure_directory(source_root, owner_uid)
+    if SHA_PATTERN.fullmatch(reviewed_sha) is None:
+        stop("reviewed main SHA is invalid")
+    if resolve_main() != reviewed_sha:
+        stop("reviewed source is not the exact current trusted-main head")
+    expected_installer = (source_root / INSTALLER_SOURCE).resolve()
+    running_installer = Path(__file__).resolve() if installer_path is None else installer_path.resolve()
+    if running_installer != expected_installer:
+        stop("installer is not executing from the authenticated source directory")
+    verify_source_manifest(source_root, owner_uid)
+
+
 def install(source_root, destination_root=Path("/"), owner_uid=0,
-            validate_sudoers=system_visudo, self_test=system_self_test):
-    launcher = read_source(source_root / LAUNCHER_SOURCE)
-    bootstrap = read_source(source_root / BOOTSTRAP_SOURCE)
+            validate_sudoers=system_visudo, self_test=system_self_test,
+            source_owner=None, final_verify=None):
+    launcher = read_source(source_root / LAUNCHER_SOURCE, source_owner)
+    bootstrap = read_source(source_root / BOOTSTRAP_SOURCE, source_owner)
     bootstrap_sha = hashlib.sha256(bootstrap).hexdigest()
 
     # Refuse to modify anything while the host's existing sudo policy is invalid.
@@ -156,22 +273,36 @@ def install(source_root, destination_root=Path("/"), owner_uid=0,
     launcher_target = destination_root / LAUNCHER_TARGET
     bootstrap_target = destination_root / BOOTSTRAP_TARGET
     sudoers_target = destination_root / SUDOERS_TARGET
-    atomic_install(bootstrap_target, bootstrap, 0o600, owner_uid)
-    atomic_install(launcher_target, launcher, 0o755, owner_uid)
-
-    # The candidate rule is parsed before it can enter sudo's include directory.
-    old_sudoers = existing_bytes(sudoers_target)
-    changed = atomic_install(sudoers_target, SUDOERS, 0o440, owner_uid, validate_sudoers)
+    targets = (
+        (bootstrap_target, bootstrap, 0o600, None),
+        (launcher_target, launcher, 0o755, None),
+        # The candidate rule is parsed before it can enter sudo's include directory.
+        (sudoers_target, SUDOERS, 0o440, validate_sudoers),
+    )
+    previous = {path: existing_state(path) for path, _, _, _ in targets}
     try:
+        for path, content, mode, validator in targets:
+            atomic_install(path, content, mode, owner_uid, validator)
         validate_sudoers(destination_root / "etc/sudoers")
-    except Exception:
-        if changed:
-            if old_sudoers is None:
-                sudoers_target.unlink(missing_ok=True)
-            else:
-                atomic_install(sudoers_target, old_sudoers, 0o440, owner_uid)
-        raise
-    self_test(bootstrap_sha)
+        self_test(bootstrap_sha)
+        if final_verify is not None:
+            final_verify()
+    except Exception as installation_error:
+        rollback_errors = []
+        for path, _, _, _ in reversed(targets):
+            try:
+                restore_state(path, previous[path])
+                verify_state(path, previous[path])
+            except Exception as exc:  # retain every rollback failure for diagnosis
+                rollback_errors.append(f"{path}: {exc}")
+        try:
+            validate_sudoers(destination_root / "etc/sudoers")
+        except Exception as exc:
+            rollback_errors.append(f"complete sudo policy: {exc}")
+        if rollback_errors:
+            stop("installation failed and rollback was incomplete: "
+                 + "; ".join(rollback_errors))
+        raise installation_error
     return bootstrap_sha
 
 
@@ -190,11 +321,18 @@ def require_host_authority():
 
 
 def main():
-    if len(sys.argv) != 1:
-        stop("arguments are not accepted")
+    if (len(sys.argv) != 5 or sys.argv[1] != "--reviewed-main-sha"
+            or sys.argv[3] != "--source-root"):
+        stop("exact reviewed source arguments are required")
     require_host_authority()
-    source_root = Path(__file__).resolve().parents[2]
-    digest = install(source_root)
+    reviewed_sha = sys.argv[2]
+    source_root = Path(sys.argv[4])
+    require_authenticated_source(source_root, reviewed_sha)
+    digest = install(
+        source_root,
+        source_owner=0,
+        final_verify=lambda: require_authenticated_source(source_root, reviewed_sha),
+    )
     print("checkpoint host interface installed and verified "
           f"interface={INTERFACE_VERSION} bootstrap_sha256={digest}")
 

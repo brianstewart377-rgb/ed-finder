@@ -3,6 +3,7 @@ import hashlib
 import importlib.machinery
 import importlib.util
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -110,6 +111,117 @@ def test_installer_rejects_unsafe_parent_and_never_changes_existing_directory_mo
     assert stat.S_IMODE(sudoers_directory.stat().st_mode) == 0o777
 
 
+@pytest.mark.parametrize("failure_point", ["self_test", "final_verify"])
+def test_installer_failure_restores_all_prior_interface_files_and_metadata(
+    tmp_path, failure_point
+):
+    module = load(INSTALLER, f"checkpoint_installer_rollback_{failure_point}")
+    target = make_install_root(tmp_path)
+    owner = os.getuid()
+    paths = (
+        target / module.BOOTSTRAP_TARGET,
+        target / module.LAUNCHER_TARGET,
+        target / module.SUDOERS_TARGET,
+    )
+    modes = (0o640, 0o711, 0o400)
+    for index, (path, mode) in enumerate(zip(paths, modes, strict=True)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"prior-{index}".encode("ascii"))
+        path.chmod(mode)
+        os.chown(path, owner, owner)
+    before = {
+        path: (path.read_bytes(), stat.S_IMODE(path.stat().st_mode),
+               path.stat().st_uid, path.stat().st_gid)
+        for path in paths
+    }
+
+    def self_test(_digest):
+        if failure_point == "self_test":
+            raise RuntimeError("synthetic self-test failure")
+
+    def final_verify():
+        if failure_point == "final_verify":
+            raise RuntimeError("synthetic final verification failure")
+
+    with pytest.raises(RuntimeError, match="synthetic"):
+        module.install(
+            ROOT, target, owner, lambda _path: None, self_test,
+            final_verify=final_verify,
+        )
+
+    after = {
+        path: (path.read_bytes(), stat.S_IMODE(path.stat().st_mode),
+               path.stat().st_uid, path.stat().st_gid)
+        for path in paths
+    }
+    assert after == before
+
+
+def test_installer_failure_removes_all_new_interface_files(tmp_path):
+    module = load(INSTALLER, "checkpoint_installer_new_install_rollback")
+    target = make_install_root(tmp_path)
+    paths = (
+        target / module.BOOTSTRAP_TARGET,
+        target / module.LAUNCHER_TARGET,
+        target / module.SUDOERS_TARGET,
+    )
+    with pytest.raises(RuntimeError, match="synthetic self-test failure"):
+        module.install(
+            ROOT, target, os.getuid(), lambda _path: None,
+            lambda _digest: (_ for _ in ()).throw(
+                RuntimeError("synthetic self-test failure")
+            ),
+        )
+    assert all(not path.exists() for path in paths)
+
+
+def test_installer_accepts_only_root_controlled_exact_main_digest_source(tmp_path):
+    module = load(INSTALLER, "checkpoint_installer_source_authentication")
+    stage = tmp_path / "stage"
+    source = stage / "source"
+    stage.mkdir(mode=0o700)
+    source.mkdir(mode=0o700)
+    for relative in (
+        module.INSTALLER_SOURCE,
+        module.LAUNCHER_SOURCE,
+        module.BOOTSTRAP_SOURCE,
+        module.MANIFEST_SOURCE,
+    ):
+        destination = source / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, destination)
+        destination.chmod(0o600)
+
+    reviewed_sha = "a" * 40
+    module.require_authenticated_source(
+        source, reviewed_sha, resolve_main=lambda: reviewed_sha,
+        owner_uid=os.getuid(), staging_parent=tmp_path,
+        installer_path=source / module.INSTALLER_SOURCE,
+    )
+
+    (source / module.LAUNCHER_SOURCE).write_bytes(b"locally replaced launcher")
+    with pytest.raises(RuntimeError, match="reviewed source digest mismatch"):
+        module.require_authenticated_source(
+            source, reviewed_sha, resolve_main=lambda: reviewed_sha,
+            owner_uid=os.getuid(), staging_parent=tmp_path,
+            installer_path=source / module.INSTALLER_SOURCE,
+        )
+
+
+def test_installer_rejects_source_that_is_not_current_trusted_main(tmp_path):
+    module = load(INSTALLER, "checkpoint_installer_stale_source")
+    source = tmp_path / "stage/source"
+    source.mkdir(parents=True)
+    source.parent.chmod(0o700)
+    source.chmod(0o700)
+    with pytest.raises(RuntimeError, match="exact current trusted-main head"):
+        module.require_authenticated_source(
+            source, "a" * 40, resolve_main=lambda: "b" * 40,
+            owner_uid=os.getuid(), staging_parent=tmp_path,
+            installer_path=source / module.INSTALLER_SOURCE,
+        )
+
+
 def test_sudoers_rule_parses_with_visudo_when_available(tmp_path):
     visudo = Path("/usr/sbin/visudo")
     if not visudo.exists():
@@ -133,6 +245,24 @@ def launcher_fixture(tmp_path, monkeypatch):
         "BASH_ENV": "/poison",
     })
     return module, hashlib.sha256(helper.read_bytes()).hexdigest()
+
+
+def test_launcher_missing_codex_account_fails_closed_without_traceback(monkeypatch, capsys):
+    module = load(LAUNCHER_SOURCE, "checkpoint_launcher_missing_account_test")
+    monkeypatch.setattr(module.os, "geteuid", lambda: 0)
+
+    def missing_account(_name):
+        raise KeyError("getpwnam(): name not found: 'codex'")
+
+    monkeypatch.setattr(module.pwd, "getpwnam", missing_account)
+
+    with pytest.raises(SystemExit) as stopped:
+        module.validate_identity()
+
+    assert stopped.value.code == 78
+    error = capsys.readouterr().err
+    assert error == "checkpoint launcher stopped: codex account required\n"
+    assert "Traceback" not in error
 
 
 def test_launcher_clears_environment_and_execs_only_installed_os_python(tmp_path, monkeypatch):
@@ -204,8 +334,13 @@ def test_workflow_sudo_targets_only_the_fixed_launcher():
 def test_current_runbooks_document_single_install_then_release_deploy_smoke():
     infrastructure = (ROOT / "docs/operations/v3-live-checkpoint-infrastructure.md").read_text()
     release = (ROOT / "docs/operations/v3-application-checkpoint-release.md").read_text()
-    command = "sudo /usr/bin/python3 -I -S scripts/operator/install_v3_checkpoint_host_interface.py"
-    assert command in infrastructure
+    assert "/usr/bin/sudo /bin/bash -ceu" in infrastructure
+    assert "mktemp -d /run/edfinder-v3-checkpoint-install.XXXXXXXX" in infrastructure
+    assert '--disable --noproxy "*" --proto "=https" --proto-redir "=https"' in infrastructure
+    assert "api.github.com/repos/brianstewart377-rgb/ed-finder/commits/main" in infrastructure
+    assert "raw.githubusercontent.com/brianstewart377-rgb/ed-finder/$sha/$path" in infrastructure
+    assert "sha256sum --check scripts/operator/v3_checkpoint_host_interface.sha256" in infrastructure
+    assert "sudo /usr/bin/python3 -I -S scripts/operator/install_v3_checkpoint_host_interface.py" not in infrastructure
     assert 'V3-CHECKPOINT {"operation":"provision"}' in infrastructure
     assert "repeatable staging path is issue #623 `release`" in infrastructure
     assert "`deploy` → the canonical workflow's automatic external public smoke" in infrastructure
