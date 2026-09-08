@@ -40,7 +40,8 @@ jobs:
           SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          output="$RUNNER_TEMP/ratings-v4-real-systems.json"
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' > "$output" <<'PY'
           import json, socket, subprocess
 
           PG='edfinder-v3-phase4c-full-20260827_r5-postgres'
@@ -136,3 +137,20 @@ jobs:
           }
           print(json.dumps(result,sort_keys=True,separators=(',',':')))
           PY
+          python3 - <<'PY' "$output"
+          import json, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          payload = json.loads(path.read_text())
+          assert payload['status'] == 'success'
+          assert payload['read_only'] is True
+          assert payload['db_writes_performed'] is False
+          print(f"exported {len(payload['systems'])} systems and {len(payload['bodies'])} bodies")
+          PY
+
+      - name: Upload Ratings V4 fixture export
+        uses: actions/upload-artifact@v4
+        with:
+          name: ratings-v4-real-systems
+          path: ${{ runner.temp }}/ratings-v4-real-systems.json
+          if-no-files-found: error
+          retention-days: 7
