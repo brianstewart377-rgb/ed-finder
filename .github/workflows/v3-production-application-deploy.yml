@@ -1,0 +1,369 @@
+name: V3 production application promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Read-only inventory/preflight or protected application promotion
+        required: true
+        default: inventory
+        type: choice
+        options:
+          - inventory
+          - preflight
+          - promote
+      deployment_mode:
+        description: First accepted V3 release or receipt-backed blue/green upgrade
+        required: true
+        default: bootstrap
+        type: choice
+        options:
+          - bootstrap
+          - upgrade
+      release_run_id:
+        description: Successful canonical immutable release run (not used by inventory)
+        required: false
+        type: string
+      target_confirmation:
+        description: Type ed-finder-prod/nb79a3d.mevnode.com
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+concurrency:
+  group: v3-production-application-authority
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Resolve exact trusted production request
+    if: github.repository == 'brianstewart377-rgb/ed-finder' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      source_sha: ${{ steps.guard.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Require literal target and exact current main
+        id: guard
+        env:
+          TARGET_CONFIRMATION: ${{ inputs.target_confirmation }}
+        run: |
+          set -euo pipefail
+          [ "$TARGET_CONFIRMATION" = "ed-finder-prod/nb79a3d.mevnode.com" ] || {
+            echo "Exact production target confirmation is required" >&2
+            exit 64
+          }
+          [ "$(git rev-parse HEAD)" = "$GITHUB_SHA" ] || exit 64
+          git fetch --no-tags origin refs/heads/main
+          [ "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA" ] || {
+            echo "Dispatched SHA is no longer the exact current main head" >&2
+            exit 64
+          }
+          echo "source_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+  inventory:
+    name: Read-only production inventory
+    needs: guard
+    if: inputs.operation == 'inventory'
+    runs-on: ubuntu-24.04
+    environment: v3-production-readonly
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Prepare pinned production SSH trust
+        env:
+          SSH_KEY: ${{ secrets.V3_PRODUCTION_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || { echo "Unexpected production SSH host" >&2; exit 64; }
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || exit 64
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/v3_production_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+      - name: Collect bounded read-only production receipt
+        env:
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_USER: ${{ secrets.V3_PRODUCTION_USER }}
+          RECEIPT: ${{ runner.temp }}/v3-production-inventory.json
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          set +e
+          ssh -i ~/.ssh/v3_production_key -p "$SSH_PORT" -o BatchMode=yes \
+              -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+              'if command -v python3 >/dev/null 2>&1; then exec python3 -I -S -; else printf "%s\n" "{\"schema_version\":\"ed-finder/v3-production-inventory/v1\",\"operation\":\"v3-production-inventory\",\"status\":\"stopped\",\"read_only\":true,\"filesystem_writes_performed\":false,\"failures\":[\"python3_unavailable\"]}"; exit 78; fi' \
+              < scripts/operator/v3_production_inventory.py > "$RECEIPT"
+          remote_status=$?
+          set -e
+          python -m json.tool "$RECEIPT" >/dev/null
+          cat "$RECEIPT"
+          [ "$remote_status" -eq 0 ] || exit "$remote_status"
+      - name: Upload sanitized production inventory
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-production-inventory
+          path: ${{ runner.temp }}/v3-production-inventory.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  prepare:
+    name: Authenticate and seal production operation
+    needs: guard
+    if: inputs.operation != 'inventory'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      source_sha: ${{ steps.manifest.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Stop before credentials or SSH while production authority is blocked
+        run: python scripts/operator/v3_production_deploy.py --operation authority-gate
+      - name: Require a bounded release run ID
+        env:
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "release_run_id is required" >&2; exit 64; }
+      - name: Authenticate canonical immutable release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" > "$RUNNER_TEMP/release-run.json"
+          python - "$RUNNER_TEMP/release-run.json" <<'PY'
+          import json, os, pathlib, sys
+          run = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          checks = {
+              "workflow": run.get("path") == ".github/workflows/v3-application-release.yml",
+              "event": run.get("event") == "workflow_dispatch",
+              "result": run.get("status") == "completed" and run.get("conclusion") == "success",
+              "branch": run.get("head_branch") == "main",
+              "repository": (run.get("head_repository") or {}).get("full_name", "").lower() == os.environ["GITHUB_REPOSITORY"].lower(),
+          }
+          failed = sorted(key for key, passed in checks.items() if not passed)
+          if failed:
+              raise SystemExit("Release provenance failed: " + ",".join(failed))
+          PY
+      - name: Download candidate release manifest
+        uses: actions/download-artifact@37930b1c80d454462c3107e7378932bdb48a5e8e # v8.0.1
+        with:
+          name: v3-application-release-manifest
+          path: ${{ runner.temp }}/candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.release_run_id }}
+      - name: Verify candidate checksum, manifest, and run SHA
+        id: manifest
+        env:
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          CURRENT_MAIN_SHA: ${{ needs.guard.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          python "$GITHUB_WORKSPACE/scripts/release/v3_release_manifest.py" verify \
+            v3-application-release.json --purpose deploy-candidate
+          python "$GITHUB_WORKSPACE/scripts/release/v3_release_run.py" \
+            --repository "$GITHUB_REPOSITORY" \
+            --candidate-run-id "$RELEASE_RUN_ID" \
+            --candidate-manifest v3-application-release.json
+          python - "$RUNNER_TEMP/release-run.json" <<'PY'
+          import hashlib, json, os, pathlib, re, sys
+          directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "candidate"
+          manifest_path = directory / "v3-application-release.json"
+          sidecar = (directory / "v3-application-release.json.sha256").read_text().strip().split()
+          if len(sidecar) != 2 or sidecar[1].lstrip("*") != manifest_path.name or not re.fullmatch(r"[0-9a-f]{64}", sidecar[0]):
+              raise SystemExit("Checksum must name only the adjacent manifest basename")
+          if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != sidecar[0]:
+              raise SystemExit("Candidate checksum mismatch")
+          manifest = json.loads(manifest_path.read_text())
+          run = json.loads(pathlib.Path(sys.argv[1]).read_text())
+          if manifest.get("git_sha") != run.get("head_sha"):
+              raise SystemExit("Candidate manifest does not match release run SHA")
+          if manifest.get("git_sha") != os.environ["CURRENT_MAIN_SHA"]:
+              raise SystemExit("Candidate is not the exact current main release")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              print("source_sha=" + manifest["git_sha"], file=output)
+          PY
+
+  production-operation:
+    name: Run protected production preflight or promotion
+    needs: [guard, prepare]
+    if: inputs.operation != 'inventory'
+    runs-on: ubuntu-24.04
+    environment: v3-production
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.guard.outputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Download candidate release manifest in this isolated job
+        uses: actions/download-artifact@37930b1c80d454462c3107e7378932bdb48a5e8e # v8.0.1
+        with:
+          name: v3-application-release-manifest
+          path: ${{ runner.temp }}/candidate
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.release_run_id }}
+      - name: Reauthenticate candidate in the protected production job
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          EXPECTED_SOURCE_SHA: ${{ needs.guard.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/candidate"
+          python "$GITHUB_WORKSPACE/scripts/release/v3_release_run.py" \
+            --repository "$GITHUB_REPOSITORY" \
+            --candidate-run-id "$RELEASE_RUN_ID" \
+            --candidate-manifest v3-application-release.json
+          python "$GITHUB_WORKSPACE/scripts/release/v3_release_manifest.py" verify \
+            v3-application-release.json --purpose deploy-candidate \
+            --expected-git-sha "$EXPECTED_SOURCE_SHA"
+          python - <<'PY'
+          import hashlib, pathlib, re
+          manifest = pathlib.Path("v3-application-release.json")
+          fields = pathlib.Path("v3-application-release.json.sha256").read_text().strip().split()
+          if len(fields) != 2 or fields[1].lstrip("*") != manifest.name or not re.fullmatch(r"[0-9a-f]{64}", fields[0]):
+              raise SystemExit("Checksum must name only the adjacent manifest basename")
+          if hashlib.sha256(manifest.read_bytes()).hexdigest() != fields[0]:
+              raise SystemExit("Candidate checksum mismatch")
+          PY
+      - name: Prepare sealed source-free operation bundle and pinned SSH trust
+        env:
+          SSH_KEY: ${{ secrets.V3_PRODUCTION_SSH_KEY }}
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
+          REGISTRY_TOKEN: ${{ github.token }}
+          BUNDLE: ${{ runner.temp }}/v3-production-bundle
+          REQUESTED_OPERATION: ${{ inputs.operation }}
+        run: |
+          set -euo pipefail
+          [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || { echo "Unexpected production SSH host" >&2; exit 64; }
+          [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || exit 64
+          test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 ~/.ssh "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" "$BUNDLE/deploy/v3-production" "$BUNDLE/artifacts/candidate"
+          install -m 600 /dev/null ~/.ssh/v3_production_key
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/v3_production_key
+          install -m 600 /dev/null ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+          install -m 700 scripts/operator/v3_production_deploy.py "$BUNDLE/scripts/operator/"
+          install -m 700 scripts/operator/actions/v3-production-promote.sh "$BUNDLE/scripts/operator/actions/"
+          install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
+          install -m 600 deploy/v3-production/compose.yml deploy/v3-production/target-authority.json "$BUNDLE/deploy/v3-production/"
+          install -m 600 "$RUNNER_TEMP/candidate/v3-application-release.json" "$RUNNER_TEMP/candidate/v3-application-release.json.sha256" "$BUNDLE/artifacts/candidate/"
+          if [ "$REQUESTED_OPERATION" = promote ]; then
+            install -m 600 /dev/null "$BUNDLE/registry-token"
+            printf '%s' "$REGISTRY_TOKEN" > "$BUNDLE/registry-token"
+          fi
+      - name: Execute exact production authority
+        env:
+          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
+          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
+          SSH_USER: ${{ secrets.V3_PRODUCTION_USER }}
+          BUNDLE: ${{ runner.temp }}/v3-production-bundle
+          RECEIPT: ${{ runner.temp }}/v3-production-operation.json
+          OPERATION: ${{ inputs.operation }}
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER"
+          remote_receipt="$RECEIPT.remote"
+          set +e
+          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_production_key -p "$SSH_PORT" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            "set -eu; umask 077; work=\"\$(mktemp -d)\"; child=''; cleanup() { rm -rf -- \"\$work\"; }; terminate() { trap - HUP INT TERM; if [ -n \"\$child\" ]; then kill -TERM \"\$child\" 2>/dev/null || true; wait \"\$child\" 2>/dev/null || true; fi; exit 143; }; trap cleanup EXIT; trap terminate HUP INT TERM; tar -xf - -C \"\$work\"; cd \"\$work\"; bash scripts/operator/actions/v3-production-promote.sh --operation '$OPERATION' --mode '$DEPLOYMENT_MODE' --candidate artifacts/candidate/v3-application-release.json --candidate-checksum artifacts/candidate/v3-application-release.json.sha256 --candidate-run-id '$RELEASE_RUN_ID' --registry-token-file registry-token --registry-username '$REGISTRY_USERNAME' --runtime-directory \"\$work\" & child=\$!; wait \"\$child\"" \
+            > "$remote_receipt"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if [ -s "$remote_receipt" ] && python -m json.tool "$remote_receipt" >/dev/null 2>&1; then
+            mv "$remote_receipt" "$RECEIPT"
+            cat "$RECEIPT"
+          else
+            python - <<'PY' > "$RECEIPT"
+          import json
+          print(json.dumps({
+              "schema_version": "ed-finder/v3-production-deployment-receipt/v1",
+              "operation": "production-promotion", "status": "stopped",
+              "target": {"production": True, "hostname": "ed-finder-prod", "fqdn": "nb79a3d.mevnode.com"},
+              "failures": ["remote_transport_or_receipt_failed"],
+              "database_access_performed": None, "database_access_may_have_been_performed": True,
+              "database_writes_performed": None, "migrations_performed": None,
+              "application_data_writes_performed": None, "image_pulls_performed": None,
+              "service_changes_performed": None, "service_changes_may_have_been_performed": True,
+              "edge_recreated": None, "protected_resources_changed": None,
+              "filesystem_writes_performed": None, "rollback_status": "inspect_durable_host_receipts",
+          }, sort_keys=True))
+          PY
+            cat "$RECEIPT"
+          fi
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+      - name: Remove local ephemeral registry credential
+        if: always()
+        env:
+          BUNDLE: ${{ runner.temp }}/v3-production-bundle
+        run: |
+          if [ -f "$BUNDLE/registry-token" ]; then
+            chmod 600 "$BUNDLE/registry-token"
+            python - "$BUNDLE/registry-token" <<'PY'
+          import os, pathlib, sys
+          path = pathlib.Path(sys.argv[1])
+          try:
+              size = path.stat().st_size
+              with path.open("r+b", buffering=0) as handle:
+                  handle.write(b"\0" * size)
+                  handle.flush()
+                  os.fsync(handle.fileno())
+          finally:
+              path.unlink(missing_ok=True)
+          PY
+          fi
+      - name: Upload sanitized production operation receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-production-application-operation
+          path: ${{ runner.temp }}/v3-production-operation.json
+          if-no-files-found: warn
+          retention-days: 180

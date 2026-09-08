@@ -20,8 +20,11 @@ Git history, removed workflows, old artifacts, and superseded design documents a
 
 The V3 application and One Spatial Platform programme is current. PR #601's
 Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
-`main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The first non-production
-live-checkpoint exit path is now the bounded application release task.
+`main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The non-production live
+checkpoint remains a separate rehearsal boundary. The explicitly V3 production
+application authority is app-only and currently stopped pending reviewed live
+inventory/schema and external network, secret-file, receipt-store, Docker-context
+and unchanged-edge cutover facts; its presence is not permission to deploy.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
 owns the application, domain orchestration, routes, panels, and accessible DOM;
@@ -83,6 +86,10 @@ Current operator helpers include:
 - `scripts/operator/actions/octopus-edge-status.sh`
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
 - `scripts/operator/recover_v3_runtime_contract.py`
+- `scripts/operator/v3_production_inventory.py` (read-only, already-present host
+  Python runtime allowed; no host Python installation authority)
+- `scripts/operator/v3_production_deploy.py` (only through the protected,
+  manual production workflow and its fail-closed target authority)
 
 Other scripts under `scripts/operator/` are repository tooling unless a current V3 runbook explicitly promotes them to production authority.
 

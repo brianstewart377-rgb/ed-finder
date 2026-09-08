@@ -58,6 +58,22 @@ Do not promote a repository helper into a production command merely because it e
   It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
+- `actions/v3-production-inventory.sh` and `v3_production_inventory.py`: the
+  exact-host, read-only production inventory authority. It reports bounded
+  container/listener/network/HTTP facts and the complete migration ledger from
+  a `BEGIN READ ONLY` transaction without reading container environments or
+  secret files. It intentionally uses already-present host Python 3 and does
+  not authorize installing host Python 3.14.
+- `actions/v3-production-promote.sh` and `v3_production_deploy.py`: the separate
+  fail-closed production-in-place application authority selected only by the
+  protected manual workflow and current production runbook. It consumes the
+  generic immutable release artifact but never the Contabo or root Compose
+  authority. The committed target is stopped until exact inventory/schema,
+  network, env-file, receipt-store, Docker-context, and edge cutover facts are
+  reviewed. When authorized, it owns only blue/green API/web slots, preserves
+  PostgreSQL 18, Redis, NATS, public-auth/TLS edge, Octopus and unrelated
+  containers, and allows rollback only to a schema-compatible prior accepted
+  immutable production release.
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,
