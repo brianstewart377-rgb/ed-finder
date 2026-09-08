@@ -3,6 +3,10 @@
 PR #646 remains stacked on architecture PR #645. This continues the accepted
 architecture and advances the harness to `4.0-candidate-2`; it does not freeze V4.0.
 
+This note records the candidate-2 pass. The subsequent candidate-3 constraint
+implementation and current remaining gates are documented in
+`ratings-v4-specialisation-constraints.md`.
+
 ## Coefficients and scope
 
 The active candidate remains native 75, modifier-only 55, native + modifier 85,
@@ -101,11 +105,10 @@ production execution is part of this validation.
 
 ## Remaining gates
 
-1. Implement the separate economy-specific specialisation constraint component,
-   including known/unknown usable ground opportunity for Refinery. Current
-   specialisation measures inherited competition and preferred fit; it must not
-   be presented as a verified buildability score. The corresponding review finding
-   is not resolved by this change.
+1. Completed in candidate 3: the separate economy-specific specialisation
+   constraint component, including known/unknown usable ground opportunity for
+   Refinery. See `ratings-v4-specialisation-constraints.md` for nullable quality,
+   bounds, source evidence and the updated cohort baseline.
 2. Retain detailed body classification and body/ring reserve evidence in canonical
    ingestion with provenance. Do not promote the synthetic system reserve scalar
    into a production schema by assumption.

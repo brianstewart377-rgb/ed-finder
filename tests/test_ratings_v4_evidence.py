@@ -226,7 +226,7 @@ def test_every_weighted_site_and_capped_rule_is_auditable():
 
 
 def test_contaminated_depth_never_becomes_pure():
-    bodies = tuple(known_body('Rocky Ice world', candidate_id=str(i)) for i in range(4))
+    bodies = tuple(known_body('Rocky Ice world', candidate_id=str(i), usable_ground_opportunity=True) for i in range(4))
     ratings = rate_system_facts(SystemFacts(bodies=bodies))
     assert ratings['Industrial'].potential_score == ratings['Refinery'].potential_score == 75
     assert ratings['Industrial'].specialisation_quality == ratings['Refinery'].specialisation_quality == 92

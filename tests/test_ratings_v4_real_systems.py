@@ -60,6 +60,24 @@ def test_v4_real_system_frozen_specialisation_scores(case: dict) -> None:
     assert actual == case['s']
 
 
+@pytest.mark.parametrize('case', CASES, ids=[case['n'] for case in CASES])
+def test_real_system_refinery_constraints_preserve_missing_ground_evidence(case: dict) -> None:
+    rating = rate_system_facts(_facts(case))['Refinery']
+    assert rating.specialisation_quality_min == 0
+    assert rating.specialisation_quality_max == case['s_candidate_2']['Refinery']
+    if case['s_candidate_2']['Refinery']:
+        assert rating.specialisation_quality is None
+        assert rating.best_specialisation_candidate_id is None
+        assert all(
+            constraint.satisfied is None
+            for candidate in rating.specialisation_candidates
+            for constraint in candidate.constraints
+        )
+    else:
+        assert rating.specialisation_quality == 0
+        assert rating.specialisation_candidates == ()
+
+
 def _case(name: str) -> dict:
     return next(case for case in CASES if case['n'] == name)
 

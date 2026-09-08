@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from math import isfinite
 import re
 from typing import Iterable, Mapping
@@ -11,7 +11,7 @@ ECONOMIES = (
     'Military', 'Tourism', 'Extraction',
 )
 
-SCORER_VERSION = '4.0-candidate-2'
+SCORER_VERSION = '4.0-candidate-3'
 MECHANICS_VERSION = 'v4-mechanics-2026-09'
 
 NATIVE_BASE = 75
@@ -20,6 +20,7 @@ NATIVE_AND_MODIFIER_BASE = 85
 STRONG_LINK_STEP = 10
 STRONG_LINK_CAP = 25
 SYSTEM_WEIGHTS = (0.82, 0.11, 0.05, 0.02)
+REFINERY_GROUND_RULE = 'refinery-usable-ground-opportunity'
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,27 @@ class EvidenceFeature:
     confidence: float
     provenance: str | None = None
     value: str | bool | None = None
+
+
+@dataclass(frozen=True)
+class SpecialisationConstraint:
+    rule_id: str
+    satisfied: bool | None
+    feature_type: str
+    confidence: float = 1.0
+    provenance: str | None = None
+
+
+@dataclass(frozen=True)
+class CandidateSpecialisation:
+    candidate_id: str
+    intrinsic_quality: int
+    quality: int | None
+    minimum_quality: int
+    maximum_quality: int
+    competing_economies: tuple[str, ...]
+    preferred_specialisation: bool
+    constraints: tuple[SpecialisationConstraint, ...]
 
 
 @dataclass(frozen=True)
@@ -46,6 +68,7 @@ class Opportunity:
     confidence: float = 1.0
     contributors: tuple[str, ...] = ()
     evidence: tuple[EvidenceFeature, ...] = ()
+    specialisation_constraints: tuple[SpecialisationConstraint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -68,7 +91,7 @@ class CandidateContribution:
 class EconomyRating:
     economy: str
     potential_score: int
-    specialisation_quality: int
+    specialisation_quality: int | None
     evidence_completeness: float
     confidence: float
     best_candidate_id: str | None
@@ -77,6 +100,10 @@ class EconomyRating:
     mechanics_version: str = MECHANICS_VERSION
     scorer_version: str = SCORER_VERSION
     contributions: tuple[CandidateContribution, ...] = ()
+    specialisation_quality_min: int = 0
+    specialisation_quality_max: int = 0
+    best_specialisation_candidate_id: str | None = None
+    specialisation_candidates: tuple[CandidateSpecialisation, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -95,6 +122,7 @@ class BodyFact:
     is_main_star: bool | None = None
     feature_confidence: Mapping[str, float] = field(default_factory=dict)
     feature_provenance: Mapping[str, str] = field(default_factory=dict)
+    usable_ground_opportunity: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -133,7 +161,7 @@ def local_opportunity_score(opportunity: Opportunity) -> int:
     return round(_clamp(base + positives - negatives, 0, 100))
 
 
-def candidate_specialisation(opportunity: Opportunity) -> int:
+def _intrinsic_specialisation(opportunity: Opportunity) -> int:
     if not (opportunity.native or opportunity.modifier):
         return 0
     competitors = len(set(opportunity.competing_economies) - {opportunity.economy})
@@ -147,6 +175,61 @@ def candidate_specialisation(opportunity: Opportunity) -> int:
         penalty = 35
     bonus = 5 if opportunity.preferred_specialisation else 0
     return round(_clamp(100 - penalty + bonus, 0, 100))
+
+
+def _specialisation_constraints(opportunity: Opportunity) -> tuple[SpecialisationConstraint, ...]:
+    constraints: dict[str, SpecialisationConstraint] = {}
+    for constraint in opportunity.specialisation_constraints:
+        if constraint.satisfied is not None and type(constraint.satisfied) is not bool:
+            raise ValueError('constraint state must be True, False or None')
+        _ratio(constraint.confidence)
+        if constraint.rule_id in constraints and constraints[constraint.rule_id] != constraint:
+            raise ValueError(f'conflicting specialisation constraint: {constraint.rule_id}')
+        constraints[constraint.rule_id] = constraint
+    if opportunity.economy == 'Refinery':
+        constraints.setdefault(REFINERY_GROUND_RULE, SpecialisationConstraint(
+            REFINERY_GROUND_RULE, None, 'usable_ground_opportunity',
+        ))
+    return tuple(constraints[key] for key in sorted(constraints))
+
+
+def _candidate_specialisation(opportunity: Opportunity) -> CandidateSpecialisation:
+    intrinsic = _intrinsic_specialisation(opportunity)
+    constraints = _specialisation_constraints(opportunity)
+    blocked = any(constraint.satisfied is False for constraint in constraints)
+    unknown = any(constraint.satisfied is None for constraint in constraints)
+    minimum = 0 if blocked or unknown else intrinsic
+    maximum = 0 if blocked else intrinsic
+    return CandidateSpecialisation(
+        candidate_id=opportunity.candidate_id,
+        intrinsic_quality=intrinsic,
+        quality=minimum if minimum == maximum else None,
+        minimum_quality=minimum,
+        maximum_quality=maximum,
+        competing_economies=tuple(sorted(set(opportunity.competing_economies) - {opportunity.economy})),
+        preferred_specialisation=opportunity.preferred_specialisation,
+        constraints=constraints,
+    )
+
+
+def candidate_specialisation(opportunity: Opportunity) -> int | None:
+    return _candidate_specialisation(opportunity).quality
+
+
+def _system_specialisation(
+    candidates: tuple[CandidateSpecialisation, ...], *, optimistic: bool,
+) -> tuple[int, str | None]:
+    def quality(candidate: CandidateSpecialisation) -> int:
+        return candidate.maximum_quality if optimistic else candidate.minimum_quality
+
+    eligible = sorted(
+        (candidate for candidate in candidates if quality(candidate) > 0),
+        key=lambda candidate: (-quality(candidate), candidate.candidate_id),
+    )
+    if not eligible:
+        return 0, None
+    clean_extra = sum(not candidate.competing_economies for candidate in eligible[1:])
+    return min(100, quality(eligible[0]) + min(10, 3 * clean_extra)), eligible[0].candidate_id
 
 
 def _weighted_mean(values: Iterable[tuple[float, float]]) -> float:
@@ -171,6 +254,7 @@ def _unique_opportunities(opportunities: Iterable[Opportunity]) -> tuple[Opportu
             raise ValueError(f'unknown economy: {item.economy}')
         _ratio(item.completeness)
         _ratio(item.confidence)
+        item = replace(item, specialisation_constraints=_specialisation_constraints(item))
         key = (item.economy, item.candidate_id)
         if key in unique and unique[key] != item:
             raise ValueError(f'conflicting duplicate candidate: {key}')
@@ -196,18 +280,13 @@ def rate_economy(economy: str, opportunities: Iterable[Opportunity]) -> EconomyR
         for weight, (score, _) in zip(SYSTEM_WEIGHTS, top, strict=False)
     ))
 
-    specialisations = sorted(
-        (item for _, item in scored),
-        key=lambda item: (-candidate_specialisation(item), item.candidate_id),
+    specialisation_candidates = tuple(
+        _candidate_specialisation(item)
+        for item in sorted((item for _, item in scored), key=lambda item: item.candidate_id)
     )
-    clean_extra = sum(
-        not (set(item.competing_economies) - {economy})
-        for item in specialisations[1:]
-    )
-    specialisation = (
-        min(100, candidate_specialisation(specialisations[0]) + min(10, 3 * clean_extra))
-        if specialisations else 0
-    )
+    specialisation_min, confirmed_best = _system_specialisation(specialisation_candidates, optimistic=False)
+    specialisation_max, _ = _system_specialisation(specialisation_candidates, optimistic=True)
+    specialisation = specialisation_min if specialisation_min == specialisation_max else None
 
     completeness = _weighted_mean((item.completeness, 1.0) for item in candidates)
     source_confidence = _weighted_mean((item.confidence, 1.0) for item in candidates)
@@ -237,6 +316,16 @@ def rate_economy(economy: str, opportunities: Iterable[Opportunity]) -> EconomyR
         missing = [feature.feature_type for feature in item.evidence if not feature.known]
         if missing:
             explanation.append(f'{item.candidate_id}: unknown evidence: {", ".join(missing)}')
+    for candidate in specialisation_candidates:
+        for constraint in candidate.constraints:
+            state = 'unknown' if constraint.satisfied is None else ('satisfied' if constraint.satisfied else 'blocked')
+            explanation.append(
+                f'{candidate.candidate_id}: specialisation constraint {constraint.rule_id}: {state}; '
+                f'intrinsic {candidate.intrinsic_quality}; quality range '
+                f'{candidate.minimum_quality}..{candidate.maximum_quality}'
+            )
+    if specialisation is None:
+        explanation.append(f'specialisation unresolved: {specialisation_min}..{specialisation_max}')
 
     return EconomyRating(
         economy=economy,
@@ -248,6 +337,10 @@ def rate_economy(economy: str, opportunities: Iterable[Opportunity]) -> EconomyR
         local_scores=tuple(score for score, _ in scored),
         explanation=tuple(explanation),
         contributions=tuple(contributions),
+        specialisation_quality_min=specialisation_min,
+        specialisation_quality_max=specialisation_max,
+        best_specialisation_candidate_id=confirmed_best if specialisation is not None else None,
+        specialisation_candidates=specialisation_candidates,
     )
 
 
@@ -527,6 +620,13 @@ def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
             confidence = _weighted_mean(
                 (feature.confidence, feature.weight) for feature in evidence if feature.known
             )
+            constraints = ()
+            if economy == 'Refinery' and economy in candidate_economies:
+                constraints = (SpecialisationConstraint(
+                    REFINERY_GROUND_RULE, body.usable_ground_opportunity, 'usable_ground_opportunity',
+                    confidence=body.feature_confidence.get('usable_ground_opportunity', body.confidence),
+                    provenance=body.feature_provenance.get('usable_ground_opportunity'),
+                ),)
             result.append(Opportunity(
                 economy=economy,
                 candidate_id=body.candidate_id,
@@ -540,6 +640,7 @@ def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
                 confidence=confidence,
                 contributors=tuple(contributors),
                 evidence=evidence,
+                specialisation_constraints=constraints,
             ))
 
     return tuple(result)

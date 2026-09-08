@@ -254,6 +254,29 @@ specialisation = min(100, best_candidate_quality + min(10, 3 * additional_clean_
 
 The August 2025 top-two-economy protection is respected: one competing economy is only a modest penalty, not a reason to crush the score.
 
+### 8.1 Mandatory constraints and unresolved quality
+
+The candidate-3 harness implements the separate constraint component using
+three-state evidence. A confirmed satisfied requirement preserves the intrinsic
+competition/preferred-fit quality; a confirmed failed mandatory requirement
+blocks that candidate's specialisation; an unknown requirement leaves its quality
+unresolved. Refinery's required local usable-ground opportunity defaults to
+unknown, including for low-level scorer callers.
+
+Evaluate the system specialisation roll-up over confirmed usable candidates for
+the minimum, and over all candidates not confirmed blocked for the maximum.
+Expose `specialisation_quality_min` and `specialisation_quality_max`. When these
+agree, `specialisation_quality` is the exact value; otherwise it is null. Bounds
+are conditional on currently known inheritance/modifier evidence and describe
+unresolved constraints, not a probabilistic confidence interval. Raw potential,
+its completeness/confidence and its best candidate remain independent.
+
+Retain every candidate's constraints, source evidence and intrinsic/constrained
+quality. `best_specialisation_candidate_id` separately identifies a confirmed
+site supporting an exact positive specialisation result. See
+`ratings-v4-specialisation-constraints.md` for the implementation and cohort
+validation. No ground or generic capacity value adds raw economy points.
+
 ## 9. Potential and specialisation examples
 
 ### Example A: clean Rocky Refinery system

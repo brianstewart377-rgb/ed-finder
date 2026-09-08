@@ -141,7 +141,9 @@ v3_derived.economy_opportunity
 - scorer_version TEXT
 - eligibility_class NATIVE|MODIFIER|NATIVE_AND_MODIFIER
 - local_opportunity_score SMALLINT
-- local_specialisation_quality SMALLINT
+- local_specialisation_quality SMALLINT NULL CHECK 0..100
+- local_specialisation_quality_min SMALLINT CHECK 0..100
+- local_specialisation_quality_max SMALLINT CHECK 0..100
 - evidence_completeness DOUBLE PRECISION
 - confidence DOUBLE PRECISION
 - competing_economies TEXT[] / normalized child relation
@@ -164,11 +166,15 @@ v3_derived.system_economy_rating
 - mechanics_version TEXT
 - scorer_version TEXT
 - potential_score SMALLINT CHECK 0..100
-- specialisation_quality SMALLINT CHECK 0..100
+- specialisation_quality SMALLINT NULL CHECK 0..100
+- specialisation_quality_min SMALLINT CHECK 0..100
+- specialisation_quality_max SMALLINT CHECK 0..100
 - evidence_completeness DOUBLE PRECISION CHECK 0..1
 - confidence DOUBLE PRECISION CHECK 0..1
 - best_candidate_kind SYSTEM|BODY
 - best_candidate_body_pk BIGINT NULL
+- best_specialisation_candidate_kind SYSTEM|BODY NULL
+- best_specialisation_candidate_body_pk BIGINT NULL
 - contributor_count INTEGER
 - constraint_count INTEGER
 - explanation JSONB
@@ -177,6 +183,15 @@ PRIMARY KEY (derived_generation_id, system_id64, economy)
 ```
 
 For hot Finder queries a separate wide projection may expose seven potential/specialisation columns, but it is only a performance projection. The normalized row-per-economy relation remains semantic authority.
+
+Specialisation bounds represent unresolved mandatory constraints, conditional on
+known inheritance/modifier evidence. The quality is null when the bounds differ;
+an exact zero remains distinct from unknown. Store constraint rule IDs, states,
+confidence, provenance and per-candidate intrinsic/constrained quality in the
+explanation payload. The specialisation candidate is independent of the raw
+potential candidate and is nullable for unresolved/zero specialisation. These
+are proposed derived-data fields, not a production migration; see the candidate-3
+contract in `ratings-v4-specialisation-constraints.md`.
 
 ## 7. Contributor relation
 

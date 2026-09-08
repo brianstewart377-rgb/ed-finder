@@ -75,7 +75,7 @@ def test_strong_link_rules_deduplicate_and_cap():
 # F1 — Pure Rocky Refinery specialist
 def test_f1_pure_rocky_refinery_specialist():
     facts = SystemFacts(
-        bodies=tuple(body(f'r{i}', 'Rocky body') for i in range(4)),
+        bodies=tuple(body(f'r{i}', 'Rocky body', usable_ground_opportunity=True) for i in range(4)),
         reserve_level='Pristine',
     )
     ratings = rate_system_facts(facts)
@@ -87,8 +87,8 @@ def test_f1_pure_rocky_refinery_specialist():
 
 # F2 — Mixed Rocky contamination
 def test_f2_mixed_rocky_changes_specialisation_more_than_refinery_potential():
-    clean = SystemFacts(bodies=(body('r', 'Rocky body'),), reserve_level='Pristine')
-    mixed = SystemFacts(bodies=(body('r', 'Rocky body', rings=True, biologicals=True, geologicals=True),), reserve_level='Pristine')
+    clean = SystemFacts(bodies=(body('r', 'Rocky body', usable_ground_opportunity=True),), reserve_level='Pristine')
+    mixed = SystemFacts(bodies=(body('r', 'Rocky body', rings=True, biologicals=True, geologicals=True, usable_ground_opportunity=True),), reserve_level='Pristine')
     clean_ref = rating(clean, 'Refinery')
     mixed_ratings = rate_system_facts(mixed)
     mixed_ref = mixed_ratings['Refinery']
@@ -114,7 +114,7 @@ def test_f3_pure_icy_industrial_specialist():
 
 # F4 — Rocky-Ice dual Industrial / Refinery
 def test_f4_rocky_ice_dual_economies_are_not_attenuated():
-    facts = SystemFacts(bodies=tuple(body(f'ri{i}', 'Rocky ice body') for i in range(3)))
+    facts = SystemFacts(bodies=tuple(body(f'ri{i}', 'Rocky ice body', usable_ground_opportunity=True) for i in range(3)))
     ratings = rate_system_facts(facts)
     assert ratings['Industrial'].potential_score == ratings['Refinery'].potential_score
     assert ratings['Industrial'].potential_score >= 70
