@@ -75,7 +75,7 @@ jobs:
     needs: guard
     if: inputs.operation == 'inventory'
     runs-on: ubuntu-24.04
-    environment: v3-production-readonly
+    environment: ed-new-operator
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -87,10 +87,10 @@ jobs:
           python-version: "3.14"
       - name: Prepare pinned production SSH trust
         env:
-          SSH_KEY: ${{ secrets.V3_PRODUCTION_SSH_KEY }}
-          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
-          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
-          SSH_KNOWN_HOSTS: ${{ secrets.V3_PRODUCTION_SSH_KNOWN_HOSTS }}
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
           [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || { echo "Unexpected production SSH host" >&2; exit 64; }
@@ -105,9 +105,9 @@ jobs:
           ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
       - name: Collect bounded read-only production receipt
         env:
-          SSH_HOST: ${{ secrets.V3_PRODUCTION_HOST }}
-          SSH_PORT: ${{ secrets.V3_PRODUCTION_PORT }}
-          SSH_USER: ${{ secrets.V3_PRODUCTION_USER }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
           RECEIPT: ${{ runner.temp }}/v3-production-inventory.json
         run: |
           set -euo pipefail
