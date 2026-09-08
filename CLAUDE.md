@@ -11,8 +11,10 @@ Start at `README.md`, then use this small current authority chain:
 3. `docs/colonisation-redesign/spatial-platform-product-contract.md` — product and spatial feature contract.
 4. `docs/colonisation-redesign/spatial-platform-architecture-decision.md` — renderer-neutral architecture and ownership.
 5. `docs/development/v3-browser-validation-lanes.md` — browser acceptance lanes.
-6. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
-7. this file — engineering and agent constraints, followed by current code/tests on the target branch.
+6. `docs/development/v3-search-spatial-derived-data-decision.md` — merged search/spatial and derived-generation authority.
+7. `docs/development/ratings-v4-freeze/README.md` — frozen Ratings V4.0 mechanics and validation.
+8. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
+9. this file — engineering and agent constraints, followed by current code/tests on the target branch.
 
 Git history, removed workflows, old artifacts, and superseded design documents are evidence only. They are not current execution authority.
 

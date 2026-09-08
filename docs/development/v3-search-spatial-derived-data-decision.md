@@ -1,6 +1,6 @@
 # ED-Finder V3 Search, Spatial and Derived-Data Decision
 
-**Status:** proposed V3 authority; becomes authoritative only when reviewed and merged
+**Status:** merged V3 architecture authority (PR #645); implementation and production publication require their own validation
 **Scope:** PostgreSQL 18 search, spatial indexing, map aggregation, clustering, Ratings V4, archetype judgement, derived-data generation and publication
 
 ## Why this decision exists

@@ -26,8 +26,8 @@ from typing import Any
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
-DB_USER = "edfinder"
-DB_NAME = "edfinder"
+DB_USER = "edfinder_v3"
+DB_NAME = "edfinder_v3_phase4c_full_20260827_r5"
 ORIGIN = "http://127.0.0.1:58080"
 PUBLIC = "https://ed-finder.app"
 MAX_CONTAINERS = 256
@@ -49,9 +49,10 @@ SELECT json_build_object(
   'transaction_read_only', current_setting('transaction_read_only'),
   'migrations', COALESCE((
     SELECT json_agg(
-      json_build_object('filename', filename, 'checksum_sha256', checksum_sha256)
-      ORDER BY filename
-    ) FROM public.schema_migrations
+      json_build_object('filename', migration_name,
+                        'checksum_sha256', encode(migration_sha256, 'hex'))
+      ORDER BY migration_name
+    ) FROM v3_meta.schema_migration
   ), '[]'::json)
 )::text;
 COMMIT;
@@ -501,12 +502,15 @@ def parse_ledger(result: subprocess.CompletedProcess[str]) -> dict[str, Any]:
         return value
     entries = observed["migrations"]
     if (
-        not isinstance(entries, list)
+        observed['database_name'] != DB_NAME
+        or observed['server_address'] != 'local'
+        or observed['server_port'] != 5432
+        or not isinstance(entries, list)
         or not entries
         or any(
             not isinstance(item, dict)
             or set(item) != {"filename", "checksum_sha256"}
-            or not re.fullmatch(r"[0-9]{3}_[a-z0-9_]+\.sql", str(item["filename"]))
+            or not re.fullmatch(r"(?:r[0-9]+_v3/)?[0-9]{3}_[a-z0-9_]+\.sql", str(item["filename"]))
             or not re.fullmatch(r"[0-9a-f]{64}", str(item["checksum_sha256"]))
             for item in entries
         )

@@ -5,6 +5,9 @@ on:
     paths:
       - 'apps/api/src/domain/ratings_v4*'
       - 'apps/importer/src/build_ratings.py'
+      - 'apps/importer/src/v3_spansh/**'
+      - 'sql/v3/**'
+      - 'docs/development/v3-canonical-source-recovery.json'
       - 'scripts/ratings_v4/**'
       - 'scripts/checks/requirements.txt'
       - 'tests/test_ratings_v4*'
@@ -41,7 +44,7 @@ jobs:
         with:
           python-version: '3.14'
       - name: Install validation dependencies
-        run: python -m pip install -r scripts/checks/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 ruff==0.16.6
+        run: python -m pip install -r scripts/checks/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 ruff==0.16.6 ijson==3.5.1
       - name: Verify scorer, source adapter and PostgreSQL failure gates
         env:
           RATINGS_V4_VALIDATION_DATABASE_URL: postgresql://v4validator:v4test@127.0.0.1:5432/ratings_v4_validation
