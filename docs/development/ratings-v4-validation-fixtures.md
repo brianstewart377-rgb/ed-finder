@@ -226,27 +226,159 @@ Expected:
 
 This proves scores are absolute rather than galaxy-relative.
 
-## Real-system validation lane
+## Real-system validation cohort
 
-After deterministic fixtures pass, select a small reviewed set of real systems representing:
+The following twelve systems are the fixed initial real-world V4 regression cohort. They were selected before the V4 implementation is run against them. The implementation may not tune coefficients merely to make these systems pass; a violated expectation needs a mechanics/product explanation and explicit review.
 
-- known Tourism/Agriculture showcase
-- known extraction/refinery specialist
-- strong Industrial chain candidate
-- High-Tech/exotic system
-- Military specialist
-- mixed multi-role system
-- sparse/uncertain system
+### R1 — Wregoe ZN-X c28-28
 
-For each, record expert expected ordering before running V4. Exact system names and expected results belong in the validation receipt, not hard-coded in the scoring algorithm.
+Role: user-known mining/refining system.
+
+Expected V4 character:
+
+- Extraction and Refinery should be among the strongest raw economies.
+- Industrial may be strong where the canonical body mix independently supports it.
+- Existing built station economies are comparison evidence only and must not feed the intrinsic rating.
+- Failure caught: a scorer that cannot recognise an obvious mining/refining candidate from physical mechanics.
+
+### R2 — Praea Euq WV-W b2-2
+
+Role: user-known four-Water-World system; the four WWs form two orbital pairs.
+
+Expected V4 character:
+
+- Agriculture and Tourism should dominate the raw economy profile.
+- Agriculture and Tourism should both show strong depth without either being attenuated because the other is strong.
+- Military must not be elevated merely because WW/ELW-style mixed-economy rules exist elsewhere.
+- The two-pair orbital topology belongs to archetype/planning judgement, not raw Agriculture/Tourism mechanics unless a later verified rule says otherwise.
+- Failure caught: body-count inflation, cross-economy attenuation, or leaking topology into raw economy scoring.
+
+### R3 — Sol
+
+Role: broad mixed baseline.
+
+Expected V4 character:
+
+- Multiple credible economy families should appear from the varied stellar/body composition.
+- No blanket "famous/mixed system" bonus is permitted.
+- Common/ordinary reserve evidence should not behave like Pristine/Major.
+- Failure caught: generic diversity or strategic-value heuristics leaking into raw economy scores.
+
+### R4 — Achenar
+
+Role: ELW-heavy mixed-economy stress case.
+
+Expected V4 character:
+
+- Agriculture, Tourism and High Tech should all receive strong ELW-backed support.
+- Military receives legitimate inheritance evidence but should normally trail Agriculture/Tourism in an otherwise uncomplicated ELW-led interpretation because it lacks equivalent strong-link environmental support.
+- Failure caught: flattening ELW into equal Agriculture/High Tech/Military/Tourism values.
+
+### R5 — Alioth
+
+Role: strong habitable-world evidence combined with poor/depleted resource conditions.
+
+Expected V4 character:
+
+- Agriculture/Tourism should remain healthy where the body facts support them.
+- Extraction/Industrial/Refinery should reflect poor reserve evidence rather than dragging unrelated economies down.
+- Failure caught: reserve modifiers being applied globally rather than economy-specifically.
+
+### R6 — Maia
+
+Role: exotic-star / Brown-Dwarf separation case.
+
+Expected V4 character:
+
+- Black-hole/exotic stellar evidence should support High Tech and Tourism.
+- Brown-Dwarf inheritance should independently support Military.
+- The scorer must explain both rather than turning exoticness into a universal bonus.
+- Failure caught: generic "exotic system" scoring and incorrect Military inheritance.
+
+### R7 — Borann
+
+Role: deep icy/gas-giant, high-resource and diminishing-returns stress case.
+
+Expected V4 character:
+
+- Industrial/resource-related potential should be prominent where supported.
+- Many contributing bodies must not create scores above 100 or overwhelm the quality-first roll-up.
+- Failure caught: raw body-count domination.
+
+### R8 — HD 38179
+
+Role: resource-rich Extraction fixture with separate Brown-Dwarf Military evidence.
+
+Expected V4 character:
+
+- Extraction should be strong from the relevant mineral/resource facts.
+- Military may also be credible for a different, explicitly inherited reason.
+- Neither should silently boost the other.
+- Failure caught: unrelated economy coupling.
+
+### R9 — Col 285 Sector BW-U c3-5
+
+Role: Industrial/Refinery dual-economy fixture.
+
+Expected V4 character:
+
+- Industrial and Refinery should both be strong where Icy/Rocky-Ice/gas-giant facts justify them.
+- Neither raw score is reduced simply because the other is strong.
+- Failure caught: survival of v3.4-style cross-economy attenuation.
+
+### R10 — Smojoo ZE-R d4-109 (Musica Universalis)
+
+Role: broad multi-role "kitchen sink" system.
+
+Expected V4 character:
+
+- Agriculture, Tourism, High Tech and resource-oriented economies may all be strong for different explainable reasons.
+- The contributor output must show which bodies/rules caused each economy result.
+- A single opaque universal raw score is not acceptable.
+- Failure caught: explanation collapse and over-compression of genuinely multi-role systems.
+
+### R11 — Thaile HW-V e2-7 (Three Worlds Nebula)
+
+Role: exotic mixed-world fixture with ELW/WW/Ammonia/resource evidence.
+
+Expected V4 character:
+
+- Tourism and High Tech should be especially strong from exotic stellar/world evidence.
+- Agriculture should independently benefit from ELW/WW evidence.
+- Extraction should arise only from its own mineral/ring/geological/reserve evidence.
+- Failure caught: one strong archetype contaminating unrelated raw economy scores.
+
+### R12 — Deriv-Dar
+
+Role: intrinsic-potential versus accessibility separation case.
+
+Expected V4 character:
+
+- Agriculture/Tourism can remain intrinsically strong from ELW/WW/terraformable mechanics even where attractive bodies are very distant from arrival.
+- Raw economy potential must not be reduced merely because travel within the system is inconvenient.
+- Finder/accessibility or archetype practicality may later penalise the system strongly.
+- Failure caught: v3.4-style distance/compactness heuristics leaking back into raw economy suitability.
+
+## Real-system acceptance rules
+
+For the cohort above:
+
+1. Record the exact canonical-generation facts consumed for every system.
+2. Record the active mechanics ruleset and scorer version.
+3. Evaluate expected **ordering and character**, not hand-picked exact scores, until coefficient calibration is frozen.
+4. Existing station economies, popularity, fame and user knowledge are post-hoc comparison evidence only.
+5. A system may expose an unexpected economy if the contributor trace proves real mechanics evidence; that is not automatically a failure.
+6. Any unexplained major reversal versus the expected character must be reviewed before V4.0 is frozen.
+7. The cohort is a regression set, not training data.
 
 ## Freeze rule
 
-Do not freeze coefficients solely because all numerical tests pass. The fixture suite must also demonstrate:
+Do not freeze coefficients solely because all numerical tests pass. The fixture suite and real-system cohort must also demonstrate:
 
 - explanations match the mechanics evidence;
 - unknown remains unknown;
 - specialisation and potential are visibly distinct;
 - ELW is not flattened into equal Agriculture/HighTech/Military/Tourism treatment;
 - no old v3.4 global attenuation survives;
-- score changes from coefficient tuning are understandable from stored contributors.
+- score changes from coefficient tuning are understandable from stored contributors;
+- the twelve real systems retain believable, explainable economy ordering without tuning directly to their observed built economies.
