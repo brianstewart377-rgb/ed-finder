@@ -11,10 +11,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
 import re
+import shutil
 import socket
 import subprocess
+import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -30,6 +34,9 @@ MAX_CONTAINERS = 256
 MAX_LISTENERS = 128
 MAX_BODY = 65536
 TIMEOUT_SECONDS = 15
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+MAX_RUNTIME_VERSION = 64
+MAX_DOCKER_ENDPOINT = 256
 LEDGER_SQL = r"""
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '10000ms';
@@ -49,11 +56,59 @@ COMMIT;
 """.strip()
 
 
+def bounded_executable(value: str | None) -> str | None:
+    if (
+        isinstance(value, str)
+        and len(value) <= 256
+        and re.fullmatch(r"/[A-Za-z0-9_./+-]+", value)
+        and ".." not in value.split("/")
+    ):
+        return value
+    return None
+
+
+def bounded_docker_endpoint(value: Any) -> str | None:
+    if (
+        not isinstance(value, str)
+        or not 0 < len(value) <= MAX_DOCKER_ENDPOINT
+        or not value.isprintable()
+        or any(character.isspace() for character in value)
+    ):
+        return None
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.username is not None or parsed.password is not None:
+        return None
+    if parsed.query or parsed.fragment:
+        return None
+    if parsed.scheme == "unix":
+        if (
+            parsed.netloc
+            or not re.fullmatch(r"/[A-Za-z0-9_./-]+", parsed.path)
+            or ".." in parsed.path.split("/")
+        ):
+            return None
+        return value
+    if parsed.scheme == "tcp":
+        if (
+            parsed.hostname is None
+            or port is None
+            or parsed.path not in {"", "/"}
+            or not re.fullmatch(r"[A-Za-z0-9_.:-]+", parsed.hostname)
+        ):
+            return None
+        return value
+    return None
+
+
 def run(argv: list[str], *, timeout: int = TIMEOUT_SECONDS) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
             argv, text=True, capture_output=True, timeout=timeout, check=False,
-            env={"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "LANG": "C", "LC_ALL": "C"},
+            env={"PATH": SAFE_PATH, "LANG": "C", "LC_ALL": "C"},
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         return subprocess.CompletedProcess(argv, 125, "", type(exc).__name__)
@@ -82,6 +137,204 @@ def sanitize_container(item: dict[str, Any]) -> dict[str, Any]:
 def sanitize_network(item: dict[str, Any]) -> dict[str, Any]:
     allowed = ("Name", "ID", "Driver", "Scope", "Internal", "IPv6")
     return {key: item.get(key) for key in allowed}
+
+
+def inventory_runtime() -> dict[str, Any]:
+    """Describe the interpreter already selected by the read-only launcher."""
+    implementation = platform.python_implementation()
+    version = platform.python_version()
+    executable = bounded_executable(sys.executable)
+    return {
+        "inspection_succeeded": (
+            0 < len(implementation) <= MAX_RUNTIME_VERSION
+            and 0 < len(version) <= MAX_RUNTIME_VERSION
+            and executable is not None
+        ),
+        "command": "python3",
+        "used_for_inventory": True,
+        "executable": executable,
+        "implementation": implementation[:MAX_RUNTIME_VERSION],
+        "version": version[:MAX_RUNTIME_VERSION],
+        "version_info": [
+            sys.version_info.major,
+            sys.version_info.minor,
+            sys.version_info.micro,
+        ],
+        "is_exact_cpython_3_14": (
+            implementation == "CPython"
+            and sys.version_info[:2] == (3, 14)
+        ),
+    }
+
+
+def inspect_python314_runtime() -> dict[str, Any]:
+    """Inspect, but never install, the mutation runtime required by authority."""
+    executable = shutil.which("python3.14", path=SAFE_PATH)
+    unavailable: dict[str, Any] = {
+        "inspection_succeeded": True,
+        "command": "python3.14",
+        "exists": False,
+        "executable": None,
+        "implementation": None,
+        "version": None,
+        "version_info": None,
+        "is_exact_cpython_3_14": False,
+    }
+    if executable is None:
+        return unavailable
+    bounded_path = bounded_executable(executable)
+    if bounded_path is None:
+        return {**unavailable, "inspection_succeeded": False, "exists": True}
+    probe = run(
+        [
+            bounded_path,
+            "-I",
+            "-S",
+            "-c",
+            (
+                "import json,platform,sys;"
+                "print(json.dumps({'implementation':platform.python_implementation(),"
+                "'version':platform.python_version(),"
+                "'version_info':list(sys.version_info[:3])},separators=(',',':')))"
+            ),
+        ]
+    )
+    failed = {
+        **unavailable,
+        "inspection_succeeded": False,
+        "exists": True,
+        "executable": bounded_path,
+    }
+    if probe.returncode != 0 or len(probe.stdout) > 512:
+        return failed
+    try:
+        observed = json.loads(probe.stdout.strip())
+    except json.JSONDecodeError:
+        return failed
+    if not isinstance(observed, dict) or set(observed) != {
+        "implementation", "version", "version_info",
+    }:
+        return failed
+    implementation = observed["implementation"]
+    version = observed["version"]
+    version_info = observed["version_info"]
+    if (
+        not isinstance(implementation, str)
+        or not 0 < len(implementation) <= MAX_RUNTIME_VERSION
+        or not isinstance(version, str)
+        or not re.fullmatch(r"[0-9A-Za-z.+-]{1,64}", version)
+        or not isinstance(version_info, list)
+        or len(version_info) != 3
+        or any(
+            not isinstance(item, int) or isinstance(item, bool)
+            for item in version_info
+        )
+    ):
+        return failed
+    return {
+        "inspection_succeeded": True,
+        "exists": True,
+        "executable": bounded_path,
+        "implementation": implementation,
+        "version": version,
+        "version_info": version_info,
+        "is_exact_cpython_3_14": (
+            implementation == "CPython" and version_info[:2] == [3, 14]
+        ),
+    }
+
+
+def inspect_default_docker_context() -> dict[str, Any]:
+    """Return only the bounded name and endpoint, never context config data."""
+    result = run(
+        [
+            "docker", "context", "inspect", "default", "--format",
+            "{{json .Name}}\t{{json .Endpoints.docker.Host}}",
+        ]
+    )
+    failed = {
+        "inspection_succeeded": False,
+        "name": None,
+        "docker_endpoint": None,
+    }
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or len(lines) != 1:
+        return failed
+    raw_name, separator, raw_endpoint = lines[0].partition("\t")
+    if not separator:
+        return failed
+    try:
+        name = json.loads(raw_name)
+        endpoint = json.loads(raw_endpoint)
+    except json.JSONDecodeError:
+        return failed
+    endpoint = bounded_docker_endpoint(endpoint)
+    if name != "default" or endpoint is None:
+        return failed
+    return {
+        "inspection_succeeded": True,
+        "name": name,
+        "docker_endpoint": endpoint,
+    }
+
+
+def loopback_origin_ownership(
+    containers: list[dict[str, Any]], *, inspection_succeeded: bool,
+) -> dict[str, Any]:
+    """Derive bounded exact-loopback bindings from sanitized Docker port data."""
+    ports = {
+        "58080": {"bind_address": "127.0.0.1", "owners": [], "bindings": []},
+        "58081": {"bind_address": "127.0.0.1", "owners": [], "bindings": []},
+    }
+    complete = inspection_succeeded
+    pattern = re.compile(
+        r"(?:^|,\s*)127\.0\.0\.1:(58080|58081)->([0-9]{1,5})/(tcp|udp)(?=,|$)"
+    )
+    for item in containers:
+        name = item.get("Names")
+        published = item.get("Ports")
+        state = item.get("State")
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name)
+            or not isinstance(state, str)
+        ):
+            complete = False
+            continue
+        if state.lower() != "running":
+            continue
+        if published is None:
+            published = ""
+        if not isinstance(published, str) or len(published) > 4096:
+            complete = False
+            continue
+        for match in pattern.finditer(published):
+            host_port, container_port, protocol = match.groups()
+            target_port = int(container_port)
+            if not 1 <= target_port <= 65535:
+                complete = False
+                continue
+            binding = {
+                "container": name,
+                "container_port": target_port,
+                "protocol": protocol,
+            }
+            if binding not in ports[host_port]["bindings"]:
+                ports[host_port]["bindings"].append(binding)
+    for value in ports.values():
+        value["bindings"].sort(
+            key=lambda item: (
+                item["container"], item["container_port"], item["protocol"]
+            )
+        )
+        value["owners"] = sorted(
+            {item["container"] for item in value["bindings"]}
+        )
+    return {
+        "inspection_succeeded": complete,
+        "source": "docker_ps_ports",
+        "ports": ports,
+    }
 
 
 def host_capacity() -> dict[str, Any]:
@@ -266,13 +519,26 @@ def main() -> int:
         receipt["failures"] = ["unexpected_production_host_identity"]
         print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
         return 78
+    receipt["host_runtime"] = {
+        "inventory_python": inventory_runtime(),
+        "python3_14": inspect_python314_runtime(),
+    }
+    if not receipt["host_runtime"]["inventory_python"]["inspection_succeeded"]:
+        failures.append("inventory_python_runtime_inspection_failed")
+    if not receipt["host_runtime"]["python3_14"]["inspection_succeeded"]:
+        failures.append("python314_runtime_inspection_failed")
     receipt["capacity"] = host_capacity()
+    receipt["docker_context"] = inspect_default_docker_context()
+    if not receipt["docker_context"]["inspection_succeeded"]:
+        failures.append("default_docker_context_inventory_failed")
 
     docker_ok, containers = docker_json_lines(
         ["docker", "ps", "--all", "--no-trunc", "--format", "{{json .}}"]
     )
+    containers_complete = docker_ok
     if len(containers) > MAX_CONTAINERS:
         containers = containers[:MAX_CONTAINERS]
+        containers_complete = False
         failures.append("container_inventory_truncated")
     if not docker_ok:
         failures.append("container_inventory_failed")
@@ -281,6 +547,11 @@ def main() -> int:
         name = item.get("Names")
         item["NetworksDetail"] = inspect_container_networks(name) if isinstance(name, str) else None
     receipt["containers"] = {"inspection_succeeded": docker_ok, "items": containers, "limit": MAX_CONTAINERS}
+    receipt["loopback_origin_port_ownership"] = loopback_origin_ownership(
+        containers, inspection_succeeded=containers_complete
+    )
+    if not receipt["loopback_origin_port_ownership"]["inspection_succeeded"]:
+        failures.append("loopback_origin_ownership_derivation_failed")
     required_containers = {
         "edfinder-v3-api", "edfinder-v3-proxy", "edfinder-v3-public-auth-edge",
         POSTGRES_CONTAINER, "edfinder-v3-support-redis", "edfinder-v3-support-nats",

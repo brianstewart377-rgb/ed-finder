@@ -28,6 +28,14 @@ def _load_deployer():
     return module
 
 
+def _load_inventory():
+    spec = importlib.util.spec_from_file_location("v3_production_inventory", INVENTORY)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _workflow() -> dict:
     return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
@@ -46,6 +54,11 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     }
     assert value["status"] == "stopped"
     assert set(module.validate_authority(value)) == set(value["blockers"])
+    assert {
+        "production_local_docker_context_authority_missing",
+        "production_promotion_cpython314_runtime_unproved",
+        "production_edge_loopback_cutover_topology_authority_missing",
+    }.issubset(value["blockers"])
     assert value["application_contract"]["compose_project"] == "edfinder-v3-production"
     assert "checkpoint" not in value["application_contract"]["compose_project"]
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()
@@ -86,9 +99,35 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
     assert "ORDER BY filename" in source
     assert '"container_environment_read": False' in source
     assert '"filesystem_writes_performed": False' in source
+    for required_inventory_fact in (
+        'receipt["host_runtime"]',
+        '"inventory_python"',
+        '"python3_14"',
+        '"command": "python3"',
+        '"command": "python3.14"',
+        '"executable"',
+        '"implementation"',
+        '"version"',
+        '"version_info"',
+        '"is_exact_cpython_3_14"',
+        'receipt["docker_context"]',
+        '"docker_endpoint"',
+        '"loopback_origin_port_ownership"',
+        '"docker_ps_ports"',
+        '"58080"',
+        '"58081"',
+        '"bindings"',
+        '"owners"',
+    ):
+        assert required_inventory_fact in source
+    assert '"docker", "context", "inspect", "default"' in source
     assert "command -v python3.14" not in action
     assert "command -v python3" in action
-    for forbidden in (".Config.Env", "docker restart", "docker stop", "docker start", "compose up", "INSERT INTO", "UPDATE ", "DELETE FROM", "TRUNCATE", "ALTER TABLE", "DROP TABLE"):
+    for forbidden in (
+        ".Config.Env", ".docker/config", "docker context export", "docker restart",
+        "docker stop", "docker start", "compose up", "INSERT INTO", "UPDATE ",
+        "DELETE FROM", "TRUNCATE", "ALTER TABLE", "DROP TABLE",
+    ):
         assert forbidden not in source
 
 
@@ -221,6 +260,13 @@ def test_runbook_states_no_execution_boundary_and_concrete_first_run_blockers():
     assert "root `docker-compose.yml`" in source
     assert "Contabo checkpoint" in source
     assert "production_migration_authority_absent_or_schema_incompatible" in source
+    assert "production_promotion_cpython314_runtime_unproved" in source
+    assert "production_local_docker_context_authority_missing" in source
+    assert "default `python3` used to run inventory" in source
+    assert "exactly CPython 3.14" in source
+    assert "Docker context `default`" in source
+    assert "loopback ports `58080` and `58081`" in source
+    assert "fills a blocker" in source
     assert "stale `edfinder-v3-api:phase4c-r5`" in source
     assert "Redis and NATS are not removed or replaced" in source
 
@@ -232,12 +278,7 @@ def test_new_shell_launchers_parse():
 
 
 def test_inventory_ledger_parser_rejects_extra_or_malformed_output():
-    spec = importlib.util.spec_from_file_location(
-        "v3_production_inventory_for_parser_test", INVENTORY
-    )
-    assert spec and spec.loader
-    inventory = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(inventory)
+    inventory = _load_inventory()
     good = json.dumps(
         {
             "database_name": "edfinder",
@@ -268,3 +309,186 @@ def test_inventory_ledger_parser_rejects_extra_or_malformed_output():
             subprocess.CompletedProcess(["psql"], 0, hostile, "")
         )
         assert result["inspection_succeeded"] is False
+
+
+def test_inventory_runtime_facts_are_bounded_and_exact(monkeypatch):
+    inventory = _load_inventory()
+
+    current = inventory.inventory_runtime()
+    assert current["command"] == "python3"
+    assert current["used_for_inventory"] is True
+    assert current["inspection_succeeded"] is True
+    assert current["executable"].startswith("/")
+    assert len(current["executable"]) <= 256
+    assert len(current["implementation"]) <= inventory.MAX_RUNTIME_VERSION
+    assert len(current["version"]) <= inventory.MAX_RUNTIME_VERSION
+    assert len(current["version_info"]) == 3
+    assert isinstance(current["is_exact_cpython_3_14"], bool)
+
+    monkeypatch.setattr(inventory.shutil, "which", lambda *_args, **_kwargs: None)
+    unavailable = inventory.inspect_python314_runtime()
+    assert unavailable["exists"] is False
+    assert unavailable["inspection_succeeded"] is True
+    assert unavailable["command"] == "python3.14"
+    assert unavailable["executable"] is None
+    assert unavailable["is_exact_cpython_3_14"] is False
+    assert unavailable["version"] is None
+
+    monkeypatch.setattr(
+        inventory.shutil,
+        "which",
+        lambda *_args, **_kwargs: "/usr/bin/python3.14",
+    )
+    monkeypatch.setattr(
+        inventory,
+        "run",
+        lambda _argv: subprocess.CompletedProcess(
+            _argv,
+            0,
+            '{"implementation":"CPython","version":"3.14.1",'
+            '"version_info":[3,14,1]}\n',
+            "",
+        ),
+    )
+    exact = inventory.inspect_python314_runtime()
+    assert exact["inspection_succeeded"] is True
+    assert exact["exists"] is True
+    assert exact["executable"] == "/usr/bin/python3.14"
+    assert exact["implementation"] == "CPython"
+    assert exact["version"] == "3.14.1"
+    assert exact["version_info"] == [3, 14, 1]
+    assert exact["is_exact_cpython_3_14"] is True
+
+    monkeypatch.setattr(
+        inventory,
+        "run",
+        lambda _argv: subprocess.CompletedProcess(
+            _argv,
+            0,
+            '{"implementation":"PyPy","version":"3.14.1",'
+            '"version_info":[3,14,1]}\n',
+            "",
+        ),
+    )
+    wrong_implementation = inventory.inspect_python314_runtime()
+    assert wrong_implementation["inspection_succeeded"] is True
+    assert wrong_implementation["exists"] is True
+    assert wrong_implementation["is_exact_cpython_3_14"] is False
+
+    monkeypatch.setattr(
+        inventory,
+        "run",
+        lambda _argv: subprocess.CompletedProcess(
+            _argv,
+            0,
+            '{"implementation":"CPython","version":"3.13.9",'
+            '"version_info":[3,13,9]}\n',
+            "",
+        ),
+    )
+    wrong_version = inventory.inspect_python314_runtime()
+    assert wrong_version["inspection_succeeded"] is True
+    assert wrong_version["exists"] is True
+    assert wrong_version["is_exact_cpython_3_14"] is False
+
+    monkeypatch.setattr(
+        inventory,
+        "run",
+        lambda _argv: subprocess.CompletedProcess(_argv, 0, "not-json\n", ""),
+    )
+    malformed = inventory.inspect_python314_runtime()
+    assert malformed["inspection_succeeded"] is False
+    assert malformed["exists"] is True
+    assert malformed["implementation"] is None
+    assert malformed["version"] is None
+
+
+def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monkeypatch):
+    inventory = _load_inventory()
+    observed_argv: list[str] = []
+
+    def context_run(argv):
+        observed_argv.extend(argv)
+        return subprocess.CompletedProcess(
+            argv, 0, '"default"\t"unix:///var/run/docker.sock"\n', ""
+        )
+
+    monkeypatch.setattr(inventory, "run", context_run)
+    assert inventory.inspect_default_docker_context() == {
+        "inspection_succeeded": True,
+        "name": "default",
+        "docker_endpoint": "unix:///var/run/docker.sock",
+    }
+    assert observed_argv == [
+        "docker", "context", "inspect", "default", "--format",
+        "{{json .Name}}\t{{json .Endpoints.docker.Host}}",
+    ]
+
+    monkeypatch.setattr(
+        inventory,
+        "run",
+        lambda argv: subprocess.CompletedProcess(
+            argv, 0, '"default"\t"tcp://127.0.0.1:2375"\n', ""
+        ),
+    )
+    assert inventory.inspect_default_docker_context() == {
+        "inspection_succeeded": True,
+        "name": "default",
+        "docker_endpoint": "tcp://127.0.0.1:2375",
+    }
+
+    for unsafe_endpoint in (
+        "ssh://user:password@example.invalid/run/docker.sock",
+        "tcp://token@example.invalid:2375",
+    ):
+        monkeypatch.setattr(
+            inventory,
+            "run",
+            lambda argv, endpoint=unsafe_endpoint: subprocess.CompletedProcess(
+                argv, 0, json.dumps("default") + "\t" + json.dumps(endpoint) + "\n", ""
+            ),
+        )
+        rejected = inventory.inspect_default_docker_context()
+        assert rejected == {
+            "inspection_succeeded": False,
+            "name": None,
+            "docker_endpoint": None,
+        }
+
+    ownership = inventory.loopback_origin_ownership(
+        [
+            {
+                "Names": "edfinder-v3-proxy",
+                "State": "running",
+                "Ports": "127.0.0.1:58080->80/tcp, 0.0.0.0:58081->81/tcp",
+            },
+            {
+                "Names": "candidate-web",
+                "State": "running",
+                "Ports": "127.0.0.1:58081->3000/tcp",
+            },
+            {
+                "Names": "stopped-web",
+                "State": "exited",
+                "Ports": "127.0.0.1:58081->3000/tcp",
+            },
+        ],
+        inspection_succeeded=True,
+    )
+    assert ownership["inspection_succeeded"] is True
+    assert ownership["ports"]["58080"]["owners"] == ["edfinder-v3-proxy"]
+    assert ownership["ports"]["58080"]["bindings"] == [
+        {"container": "edfinder-v3-proxy", "container_port": 80, "protocol": "tcp"}
+    ]
+    assert ownership["ports"]["58081"]["owners"] == ["candidate-web"]
+    assert ownership["ports"]["58081"]["bindings"] == [
+        {"container": "candidate-web", "container_port": 3000, "protocol": "tcp"}
+    ]
+
+    incomplete = inventory.loopback_origin_ownership(
+        [{"Names": "malformed", "State": "running", "Ports": ["not-a-string"]}],
+        inspection_succeeded=False,
+    )
+    assert incomplete["inspection_succeeded"] is False
+    assert incomplete["ports"]["58080"]["owners"] == []
+    assert incomplete["ports"]["58081"]["owners"] == []

@@ -61,9 +61,16 @@ Do not promote a repository helper into a production command merely because it e
 - `actions/v3-production-inventory.sh` and `v3_production_inventory.py`: the
   exact-host, read-only production inventory authority. It reports bounded
   container/listener/network/HTTP facts and the complete migration ledger from
-  a `BEGIN READ ONLY` transaction without reading container environments or
-  secret files. It intentionally uses already-present host Python 3 and does
-  not authorize installing host Python 3.14.
+  a `BEGIN READ ONLY` transaction. Its sanitized receipt also reports the
+  bounded executable path, implementation, and version of the default host
+  `python3` used for inventory, whether `python3.14` exists and is exactly
+  CPython 3.14 plus its bounded executable path/version when present, the
+  `default` Docker context name and endpoint/host only, and bounded container
+  ownership of loopback ports `58080`/`58081` when the existing Docker port
+  data supports it. It never reads container environments, secret files,
+  Docker credentials/configuration content, or private keys. It installs
+  nothing and never edits the stopped target authority or fills a blocker
+  automatically.
 - `actions/v3-production-promote.sh` and `v3_production_deploy.py`: the separate
   fail-closed production-in-place application authority selected only by the
   protected manual workflow and current production runbook. It consumes the

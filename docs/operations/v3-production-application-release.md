@@ -30,17 +30,35 @@ local Docker context, receipt store, live migration ledger identity, or the
 exact edge-to-loopback cutover topology.
 
 Run only the workflow's default `inventory` operation first. It uses the
-already-present host `python3` standard library—there is no reason or authority
-to install host Python 3.14 for status tooling—and performs only bounded Docker,
-listener, HTTP, and `BEGIN READ ONLY` ledger inspection. Its machine-readable
-receipt excludes container environments, env-file contents, DSNs, passwords,
-tokens, and private keys. Review that sanitized receipt in a separate PR and
-replace every `null` authority plus every blocker with exact reviewed facts.
-Changing the target to `authorized` without those facts is invalid.
+already-present host `python3` standard library and performs only bounded
+runtime, Docker, listener, HTTP, and `BEGIN READ ONLY` ledger inspection. The
+machine-readable receipt must identify the bounded executable path,
+implementation, and version of the default `python3` used to run inventory,
+and separately state whether `python3.14` exists, its bounded executable path
+and version when present, and whether it is exactly CPython 3.14. This
+inspection is evidence for
+`production_promotion_cpython314_runtime_unproved`; it does not install or
+provision a runtime.
 
-Read-only inventory and preflight may use the already-present host Python 3
-standard library. Actual production mutation retains the repository's exact
-CPython 3.14 execution contract and stops with
+The same receipt must inspect Docker context `default` and expose only its
+context name and Docker endpoint/host. It must not emit Docker configuration or
+credentials. Review that fact as evidence for
+`production_local_docker_context_authority_missing`. Where the already-bounded
+Docker port inventory makes it possible, the receipt must also identify the
+container owners of loopback ports `58080` and `58081`, including an explicit
+unowned result, as evidence for the unchanged-edge/cutover topology review.
+
+The receipt excludes container environments, env-file contents, DSNs,
+passwords, tokens, private keys, and Docker credential/configuration content.
+Review the sanitized receipt in a separate PR and replace every `null`
+authority plus every blocker only with exact reviewed facts. Inventory never
+edits `target-authority.json`, fills a blocker, or changes its committed
+`stopped` status automatically. Changing the target to `authorized` without
+those facts is invalid.
+
+Read-only inventory and preflight may use the reported already-present default
+host `python3` standard-library runtime. Actual production mutation retains the
+repository's exact CPython 3.14 execution contract and stops with
 `python314_required_for_production_mutation` if that runtime is absent. This
 runbook does not authorize installing it; runtime provisioning, if genuinely
 needed for promotion, requires separate review and is not a status-tool repair.
@@ -103,7 +121,11 @@ with `--pull never`. There is no database rollback in this path.
 ## Owner sequence after blockers are reviewed away
 
 1. Dispatch `inventory` and review the sanitized receipt without changing the
-   host.
+   host. Require the default inventory Python executable,
+   implementation/version, the separate exact-CPython-3.14 executable and
+   availability result, Docker `default` context name and endpoint/host, and
+   bounded ownership of loopback ports `58080` and `58081`; missing or
+   malformed facts keep the corresponding blockers in place.
 2. Land a separate reviewed PR that supplies exact non-secret target and schema
    authority. Required secrets live only in the protected
    `v3-production-readonly` / `v3-production` environments as
