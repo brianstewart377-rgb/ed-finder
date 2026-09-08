@@ -1,0 +1,103 @@
+name: V3 native schema shape diagnostic
+
+on:
+  push:
+    branches: [diagnostic/v3-native-schema-shape]
+    paths: ['.github/workflows/v3-native-schema-shape-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Inspect native V3 table shapes read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, socket, subprocess
+
+          PG="edfinder-v3-phase4c-full-20260827_r5-postgres"
+          DB="edfinder_v3_phase4c_full_20260827_r5"
+          USER="edfinder_v3"
+          E={"PATH":"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","LANG":"C","LC_ALL":"C"}
+          fqdn=subprocess.run(["hostname","-f"],text=True,capture_output=True,env=E,check=False,timeout=5).stdout.strip()
+          assert socket.gethostname().split('.')[0]=="ed-finder-prod" and fqdn=="nb79a3d.mevnode.com"
+
+          targets=[
+            ("v3_gen_phase4c_full_20260827_r5","systems"),
+            ("v3_gen_phase4c_full_20260827_r5","bodies"),
+            ("v3_gen_phase4c_full_20260827_r5","stations"),
+            ("v3_identity","account"),
+            ("v3_identity","commander"),
+            ("v3_identity","session"),
+            ("v3_vocab","galaxy_region"),
+            ("v3_vocab","economy"),
+            ("v3_meta","current_canonical_generation"),
+            ("v3_meta","canonical_generation"),
+          ]
+          wanted=','.join("('%s','%s')"%(s,t) for s,t in targets)
+          sql=f"""BEGIN READ ONLY;
+          SET LOCAL statement_timeout='10000ms';
+          WITH wanted(schema_name, table_name) AS (VALUES {wanted})
+          SELECT json_build_object(
+            'columns', COALESCE((
+              SELECT json_agg(json_build_object(
+                'schema',c.table_schema,'table',c.table_name,'ordinal',c.ordinal_position,
+                'name',c.column_name,'type',c.data_type,'udt',c.udt_name,'nullable',c.is_nullable
+              ) ORDER BY c.table_schema,c.table_name,c.ordinal_position)
+              FROM information_schema.columns c
+              JOIN wanted w ON w.schema_name=c.table_schema AND w.table_name=c.table_name
+            ),'[]'::json),
+            'constraints', COALESCE((
+              SELECT json_agg(json_build_object(
+                'schema',n.nspname,'table',cl.relname,'name',con.conname,'type',con.contype,
+                'definition',pg_get_constraintdef(con.oid,true)
+              ) ORDER BY n.nspname,cl.relname,con.conname)
+              FROM pg_constraint con
+              JOIN pg_class cl ON cl.oid=con.conrelid
+              JOIN pg_namespace n ON n.oid=cl.relnamespace
+              JOIN wanted w ON w.schema_name=n.nspname AND w.table_name=cl.relname
+            ),'[]'::json),
+            'indexes', COALESCE((
+              SELECT json_agg(json_build_object('schema',schemaname,'table',tablename,'name',indexname,'definition',indexdef)
+                ORDER BY schemaname,tablename,indexname)
+              FROM pg_indexes i JOIN wanted w ON w.schema_name=i.schemaname AND w.table_name=i.tablename
+            ),'[]'::json)
+          )::text;
+          COMMIT;"""
+          argv=["docker","--context","default","exec",PG,"psql","-X","--no-password","--tuples-only","--no-align","--quiet","--set","ON_ERROR_STOP=1","--username",USER,"--dbname",DB,"--command",sql]
+          p=subprocess.run(argv,text=True,capture_output=True,env=E,check=True,timeout=20)
+          rows=[]
+          for line in p.stdout.splitlines():
+              line=line.strip()
+              if line.startswith('{') and line.endswith('}'):
+                  rows.append(json.loads(line))
+          assert len(rows)==1
+          result=rows[0]
+          result.update({"status":"success","read_only":True,"db_writes_performed":False,"migrations_performed":False,"service_changes_performed":False})
+          print(json.dumps(result,sort_keys=True,separators=(",",":")))
+          PY
