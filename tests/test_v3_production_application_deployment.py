@@ -64,7 +64,6 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     assert value["status"] == "stopped"
     assert set(module.validate_authority(value)) == set(value["blockers"])
     assert {
-        "production_local_docker_context_authority_missing",
         "production_promotion_cpython314_runtime_unproved",
         "production_edge_loopback_cutover_topology_authority_missing",
     }.issubset(value["blockers"])
@@ -73,8 +72,9 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()
     assert all(value["external_authority"][key] is None for key in (
         "application_network", "api_env_file", "schema_identity_file",
-        "edge_route_authority", "receipt_directory", "docker_context",
+        "edge_route_authority", "receipt_directory",
     ))
+    assert value["external_authority"]["docker_context"] == "default"
 
 
 def test_production_compose_owns_only_blue_green_application_slots():
@@ -332,7 +332,7 @@ def test_workflow_is_manual_main_only_protected_and_uses_pinned_ssh_trust():
     assert set(workflow["on"]) == {"workflow_dispatch"}
     assert "github.ref == 'refs/heads/main'" in source
     assert "github.repository == 'brianstewart377-rgb/ed-finder'" in source
-    assert workflow["jobs"]["inventory"]["environment"] == "v3-production-readonly"
+    assert workflow["jobs"]["inventory"]["environment"] == "ed-new-operator"
     assert workflow["jobs"]["production-operation"]["environment"] == "v3-production"
     assert source.count("persist-credentials: false") >= 4
     assert "StrictHostKeyChecking=yes" in source
@@ -340,7 +340,7 @@ def test_workflow_is_manual_main_only_protected_and_uses_pinned_ssh_trust():
     assert "ssh-keyscan" not in source
     assert "V3_PRODUCTION_SSH_KEY" in source
     assert "V3_LIVE_CHECKPOINT" not in source
-    assert "ED_NEW_OPERATOR" not in source
+    assert "ED_NEW_OPERATOR_SSH_KEY" in source
     assert "target_confirmation" in source
     assert source.count("uses: actions/download-artifact@") == 2
     assert source.count("scripts/release/v3_release_run.py") == 2
