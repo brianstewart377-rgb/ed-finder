@@ -14,7 +14,6 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-24.04
-    environment: ed-new-operator
     timeout-minutes: 8
     steps:
       - name: Set up CPython 3.14
@@ -22,65 +21,45 @@ jobs:
         with:
           python-version: '3.14'
 
-      - name: Prepare SSH
+      - name: Fetch 12 Spansh system dumps
         shell: bash
-        env:
-          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
-          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
-          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
-          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
-          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
-          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
-
-      - name: Export source metadata read-only
-        shell: bash
-        env:
-          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
-          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
-          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
-        run: |
-          set -euo pipefail
-          output="$RUNNER_TEMP/ratings-v4-source-metadata.json"
-          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' > "$output" <<'PY'
-          import json, socket, subprocess
-          PG='edfinder-v3-phase4c-full-20260827_r5-postgres'
-          DB='edfinder_v3_phase4c_full_20260827_r5'
-          USER='edfinder_v3'
-          RUN='3a52e525-eb1e-5e96-90af-0da7ce1f4922'
-          E={'PATH':'/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C','LC_ALL':'C'}
-          fqdn=subprocess.run(['hostname','-f'],text=True,capture_output=True,env=E,check=False,timeout=5).stdout.strip()
-          assert socket.gethostname().split('.')[0]=='ed-finder-prod' and fqdn=='nb79a3d.mevnode.com'
-          def psql(sql):
-              p=subprocess.run(['docker','--context','default','exec',PG,'psql','-X','--no-password','--tuples-only','--no-align','--quiet','--set','ON_ERROR_STOP=1','--username',USER,'--dbname',DB,'--command',sql],text=True,capture_output=True,env=E,check=True,timeout=30)
-              return [line.strip() for line in p.stdout.splitlines() if line.strip()]
-          sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
-          SELECT json_build_object('run',to_jsonb(r),'artifact',to_jsonb(a),'source',to_jsonb(s))::text
-          FROM v3_source.source_run r
-          JOIN v3_source.source_artifact a ON a.artifact_id=r.artifact_id
-          JOIN v3_source.source s ON s.source_id=r.source_id
-          WHERE r.source_run_id='{RUN}'::uuid;
-          COMMIT;"""
-          payload=next(line for line in psql(sql) if line.startswith('{'))
-          result=json.loads(payload)
-          result.update({'status':'success','read_only':True,'db_writes_performed':False})
-          print(json.dumps(result,sort_keys=True,separators=(',',':')))
-          PY
-          python3 - <<'PY' "$output"
+          out="$RUNNER_TEMP/spansh-v4"
+          mkdir -p "$out"
+          for id64 in \
+            7780836610810 \
+            5076786292249 \
+            10477373803 \
+            164098653 \
+            1109989017963 \
+            8216113749 \
+            5070611621289 \
+            158872029 \
+            1457973727914 \
+            3754967435947 \
+            31639717276 \
+            2037701937507
+          do
+            curl --fail --silent --show-error --location --retry 3 --max-time 30 \
+              "https://spansh.co.uk/api/dump/${id64}" \
+              --output "$out/${id64}.json"
+          done
+          python3 - <<'PY' "$out"
           import json, pathlib, sys
-          p=json.loads(pathlib.Path(sys.argv[1]).read_text())
-          assert p['status']=='success' and p['read_only'] is True and p['db_writes_performed'] is False
-          print(p['source']['source_code'], p['artifact']['artifact_kind'], p['artifact']['storage_locator'])
+          root = pathlib.Path(sys.argv[1])
+          files = sorted(root.glob('*.json'))
+          assert len(files) == 12
+          for path in files:
+              payload = json.loads(path.read_text())
+              assert isinstance(payload, dict)
+          print(f'fetched {len(files)} Spansh system dumps')
           PY
 
-      - name: Upload source metadata
+      - name: Upload Spansh fixtures
         uses: actions/upload-artifact@v4
         with:
-          name: ratings-v4-source-metadata
-          path: ${{ runner.temp }}/ratings-v4-source-metadata.json
+          name: ratings-v4-spansh-system-dumps
+          path: ${{ runner.temp }}/spansh-v4/*.json
           if-no-files-found: error
           retention-days: 1
