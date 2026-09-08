@@ -10,11 +10,19 @@
     "architecture": "x86_64"
   },
   "evidence": {
-    "source": "read-only host-status workflow run 34202433965",
+    "source": "reviewed read-only production inventory workflow run 34236384791",
     "fresh_for_implementation": true,
     "deployment_evidence": false
   },
-  "reviewed_capacity": null,
+  "reviewed_capacity": {
+    "logical_cpus": 32,
+    "memory_available_kib": 184655448,
+    "root_available_bytes": 1037594374144,
+    "blue_green_peak": {
+      "cpus": "6.00",
+      "memory": "10240m"
+    }
+  },
   "observed_runtime": {
     "api_container": "edfinder-v3-api",
     "api_image": "edfinder-v3-api:phase4c-r5",
@@ -75,17 +83,14 @@
     "receipt_directory": null,
     "receipt_owner_uid": null,
     "receipt_mode": null,
-    "docker_context": null
+    "docker_context": "default"
   },
   "blockers": [
-    "fresh_production_inventory_receipt_not_reviewed",
     "production_application_network_authority_missing",
     "production_api_secret_file_authority_missing",
     "production_schema_identity_and_live_ledger_compatibility_unproved",
     "production_edge_loopback_cutover_topology_authority_missing",
     "production_receipt_store_authority_missing",
-    "production_local_docker_context_authority_missing",
-    "production_promotion_cpython314_runtime_unproved",
-    "production_application_resource_capacity_unproved"
+    "production_promotion_cpython314_runtime_unproved"
   ]
 }
