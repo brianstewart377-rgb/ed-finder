@@ -1,6 +1,6 @@
 # Ratings V4 Validation Fixtures
 
-**Status:** proposed acceptance fixtures for Ratings V4 coefficient tuning
+**Status:** accepted fixture contract, validated for frozen scorer 4.0.0; see [freeze evidence](ratings-v4-freeze/README.md) and the [source-aware cohort review](ratings-v4-freeze-comparison.md)
 **Depends on:** `ratings-v4-mechanics-evidence.md`, `ratings-v4-scoring-contract.md`
 
 ## Purpose

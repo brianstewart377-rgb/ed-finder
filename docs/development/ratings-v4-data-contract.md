@@ -1,6 +1,6 @@
 # Ratings V4 Data Contract
 
-**Status:** proposed V4 data authority; review before implementation
+**Status:** frozen V4.0 scorer/data representation authority; production bootstrap and publication remain pending
 **Depends on:** `ratings-v4-mechanics-evidence.md`, `ratings-v4-scoring-contract.md`, `ratings-v4-validation-fixtures.md`
 
 ## Purpose
@@ -30,57 +30,94 @@ The current published canonical generation is resolved through `v3_meta.current_
 | x/y/z | generation `systems.x_ly/y_ly/z_ly` | AVAILABLE | Finder/spatial only; not raw economy scoring |
 | region | `systems.galaxy_region_id` + `v3_vocab.galaxy_region` | AVAILABLE | Finder/map; not raw economy scoring |
 | body identity | generation `bodies.body_pk`, `system_id64`, source/frontier body ids | AVAILABLE | scorer candidate identity; preserve source identity/provenance |
-| body type/classification | `bodies.body_type_id` + V3 vocab | AVAILABLE | native economy inheritance |
+| broad body type | `bodies.body_type_id` + `v3_vocab.body_type` | AVAILABLE | distinguishes Star, Planet, Barycentre and Belt Cluster; does not establish planetary native inheritance |
+| detailed body classification | Spansh `subType`, absent from the retained canonical body row | MISSING_SOURCE in canonical; separately retained enrichment for freeze validation | exact system/source-body identity join; retain the newer source snapshot and field hash separately |
 | stellar class | `bodies.spectral_class`, `luminosity_class`, `is_main_star` | AVAILABLE | Military / exotic-star inheritance classification |
-| landable | `bodies.is_landable` | AVAILABLE, UNKNOWN_CAPABLE by source completeness | specialisation/buildability only where mechanics require it |
+| landable | `bodies.is_landable` | AVAILABLE, UNKNOWN_CAPABLE | retain as a canonical fact; landability alone does not establish usable ground |
+| usable ground opportunity | no retained canonical/source fact in the freeze cohort | MISSING_SOURCE | Refinery specialisation remains unresolved where this mandatory requirement matters |
 | tidal lock | `bodies.is_tidally_locked` | AVAILABLE, UNKNOWN_CAPABLE | Agriculture modifier only under active mechanics rule |
 | terraforming state | `bodies.terraforming_state_id` + vocab | AVAILABLE, UNKNOWN_CAPABLE | Agriculture strong-link amplifier; never standalone inheritance |
 | volcanism | `bodies.volcanism_type_id` + vocab | AVAILABLE, UNKNOWN_CAPABLE | Extraction strong-link amplifier; distinct from geological signals |
 | atmosphere classification | `bodies.atmosphere_classification_id` | AVAILABLE | retained for later archetypes; not current raw seven unless a ruleset explicitly uses it |
-| rings | generation ring relations / trusted ring facts | AVAILABLE, UNKNOWN_CAPABLE | Extraction modifier inheritance; missing evidence is unknown, not no-rings |
-| biological signals | generation body signal/current relations where retained | AVAILABLE/DERIVABLE, UNKNOWN_CAPABLE | Agriculture modifier inheritance; High Tech/Tourism modifiers per ruleset |
-| geological signals | generation body signal/current relations where retained | AVAILABLE/DERIVABLE, UNKNOWN_CAPABLE | Extraction + Industrial modifier inheritance; Tourism/High Tech modifiers per ruleset |
+| rings / stellar asteroid belts | generation `rings`, retaining `kind=RING|BELT` | AVAILABLE, UNKNOWN_CAPABLE | both provide accepted Extraction modifier inheritance; kinds and provenance remain distinct; missing observations are unknown |
+| biological signals | `body_signal_current.signal_count` + signal vocab; `bodies.signals_complete` | AVAILABLE/DERIVABLE, UNKNOWN_CAPABLE | explicit positive/zero counts are known; missing counts become absent only when body signal coverage is complete |
+| geological signals | `body_signal_current.signal_count` + signal vocab; `bodies.signals_complete` | AVAILABLE/DERIVABLE, UNKNOWN_CAPABLE | same coverage rule; distinct from volcanism |
 | system exotic-star presence | stellar bodies in generation | DERIVABLE | Tourism system modifier and High Tech/Tourism inheritance opportunities |
 | main-sequence/Brown-Dwarf presence | stellar bodies in generation | DERIVABLE | Military inheritance opportunities |
 | competing inherited economies at one body | body type + ring/bio/geo mechanics features | DERIVABLE | specialisation quality only |
 | source freshness/provenance | generation source/lifecycle/completeness fields | AVAILABLE | evidence completeness/confidence |
-| reserve level | not retained by current ED-Finder importer/canonical V3 shape | MISSING_SOURCE | must remain unknown until ingestion is added |
+| reserve level | generation `rings.reserve_type_id` + `v3_vocab.reserve_type`, with source/run/timestamp provenance | AVAILABLE, UNKNOWN_CAPABLE | attached body/ring observations only; no system-wide maximum or fallback |
 | distance from arrival | body/station orbital-distance facts where present | AVAILABLE | archetype/Finder practicality only, not raw economy scores |
 | generic diversity/compactness | canonical facts | DERIVABLE | archetype/Finder only |
 
 ## 3. Reserve-level source decision
 
-Reserve level is a real mechanics input for Extraction, Industrial and Refinery, but current ED-Finder code does not ingest or retain it.
-
-Elite scan/journal data exposes `ReserveLevel` for ring-bearing bodies/ring systems using game values such as `PristineResources`, `MajorResources`, `CommonResources`, `LowResources`, and `DepletedResources`. Spansh is the preferred bulk-ingestion source because ED-Finder already uses whole-galaxy Spansh body data and it preserves scan-derived body/ring facts.
-
-### Important semantic correction
-
-Do **not** add a guessed scalar `systems.reserve_level` merely because old code referred to one.
-
-Reserve evidence belongs to the body/ring fact domain. V4 derives any economy-level/system summary from retained reserve observations with explicit provenance.
-
-Target canonical enrichment should retain, at minimum:
+The retained V3 generation already contains reserve observations. The recovered
+canonical export and source-run metadata supersede the earlier assumption that
+reserves were missing. `rings.reserve_type_id` joins `v3_vocab.reserve_type`;
+the ring row retains:
 
 ```text
-body/ring reserve fact
+canonical body/ring reserve fact
 - system_id64
-- body identity / ring identity where available
-- reserve_level enum/code
+- body_pk / ring_pk / source_ring_id64 where available
+- reserve_type_id -> depleted / low / common / major / pristine
 - source_id / source_run_id
-- observed/source-updated timestamp
-- coverage/completeness state
+- source_updated_at / freshness_checked_at
+- lifecycle state
 ```
 
-If a future authoritative source proves reserve level is genuinely system-wide rather than ring/body scoped for the relevant mechanic, that can be represented as another source fact without changing the V4 derived schema.
+The adapter exposes a reserve only to the body to which the observations are
+attached. Contradictory attached known reserve observations fail validation;
+missing observations remain unknown. It sets `BodyFact.reserve_scope='body'`
+even when the reserve is unknown, and never supplies a system reserve fallback.
+The historical synthetic `SystemFacts.reserve_level` interface is not canonical
+reserve authority. Do not add a guessed `systems.reserve_level` or broadcast a
+system's best observed reserve to unrelated opportunities.
 
-Until enrichment is populated, reserve-dependent score families remain partially incomplete rather than assuming `Common`, `None`, or any neutral value.
+The lossless 12-system cohort contains 81 ring/belt rows and known reserves
+attached to 46 bodies. Other body reserves lower evidence completeness; they
+do not become Common, depleted or neutral observations.
+
+### 3.1 Canonical adapter and source authority
+
+[`ratings_v4_canonical.py`](../../apps/api/src/domain/ratings_v4_canonical.py)
+implements `adapt_canonical_export(canonical_export, source_metadata,
+subtype_sources) -> dict[int, SystemFacts]`. It validates source/run/artifact
+identity, admitted canonical status, successful acquisition, exact body joins,
+duplicate/conflicting identities and the exported body count. Barycentres and
+belt-cluster placeholder bodies do not become local scoring candidates.
+
+The actual V3 generation builder is the retained `v3_spansh.pipeline` /
+`v3_spansh.adapter` package, version `v3-spansh-4c-correction-gate.1`; the legacy
+`apps/importer/src/import_spansh.py` is not that builder. The adapter reads
+exported generation facts and does not change either ingestion path or any
+published canonical row. Production subtype ingestion requires a separately
+reviewed recovery/integration of the V3 builder and canonical lifecycle.
+
+[`tests/fixtures/ratings_v4_sources`](../../tests/fixtures/ratings_v4_sources/manifest.json)
+retains the original canonical export, source-run metadata and all 12 original
+Spansh API response bytes, with byte checksums and GitHub artifact provenance.
+The canonical snapshot is effective 2026-08-24; the subtype API artifact was
+retrieved 2026-09-08. Only `subType` is taken from the API artifact. Its distinct
+source hash and body update timestamp accompany that field; canonical reserve,
+ring, signal, stellar and landability facts retain canonical provenance.
+`canonical_lineage` exposes both source identities for the derived manifest.
+
+A successful complete acquisition and matching exported `loaded_body_count`
+establish source catalogue inventory coverage. They do not establish complete
+scan evidence for every body. `signals_complete` controls absent signal values;
+explicit counts, including zero, remain observations regardless of that flag.
+There is no equivalent retained per-body ring-completeness flag, so absent
+ring/belt rows stay unknown even in a complete galaxy acquisition. Landability
+does not establish the required Refinery ground opportunity.
 
 ## 4. Derived mechanics feature relation
 
-V4 should materialize normalized mechanics features so the scorer does not repeatedly reinterpret raw canonical rows.
+V4 materializes normalized mechanics features so stored ratings can be rebuilt
+and checked without reinterpreting raw canonical rows.
 
-Conceptually:
+The following is the frozen logical representation, not production DDL:
 
 ```text
 v3_derived.system_mechanics_feature
@@ -126,6 +163,14 @@ Examples of `feature_type`:
 
 This table is derived and rebuildable. It does not replace canonical normalized facts.
 
+The implemented disposable proof in
+[`scripts/ratings_v4/generation.py`](../../scripts/ratings_v4/generation.py)
+uses only a new `ratings_v4_validation_*` schema. It stores normalized feature
+identity plus a JSON payload containing known state, value, confidence and
+provenance; economy-specific evidence weights remain in opportunity payloads.
+That representation preserves the logical states above without claiming the
+production `v3_derived` relations have been created.
+
 ## 5. Local economy opportunity relation
 
 The scoring contract evaluates candidate local opportunities before system roll-up.
@@ -141,7 +186,9 @@ v3_derived.economy_opportunity
 - scorer_version TEXT
 - eligibility_class NATIVE|MODIFIER|NATIVE_AND_MODIFIER
 - local_opportunity_score SMALLINT
-- local_specialisation_quality SMALLINT
+- local_specialisation_quality SMALLINT NULL CHECK 0..100
+- local_specialisation_quality_min SMALLINT CHECK 0..100
+- local_specialisation_quality_max SMALLINT CHECK 0..100
 - evidence_completeness DOUBLE PRECISION
 - confidence DOUBLE PRECISION
 - competing_economies TEXT[] / normalized child relation
@@ -164,11 +211,15 @@ v3_derived.system_economy_rating
 - mechanics_version TEXT
 - scorer_version TEXT
 - potential_score SMALLINT CHECK 0..100
-- specialisation_quality SMALLINT CHECK 0..100
+- specialisation_quality SMALLINT NULL CHECK 0..100
+- specialisation_quality_min SMALLINT CHECK 0..100
+- specialisation_quality_max SMALLINT CHECK 0..100
 - evidence_completeness DOUBLE PRECISION CHECK 0..1
 - confidence DOUBLE PRECISION CHECK 0..1
 - best_candidate_kind SYSTEM|BODY
 - best_candidate_body_pk BIGINT NULL
+- best_specialisation_candidate_kind SYSTEM|BODY NULL
+- best_specialisation_candidate_body_pk BIGINT NULL
 - contributor_count INTEGER
 - constraint_count INTEGER
 - explanation JSONB
@@ -177,6 +228,16 @@ PRIMARY KEY (derived_generation_id, system_id64, economy)
 ```
 
 For hot Finder queries a separate wide projection may expose seven potential/specialisation columns, but it is only a performance projection. The normalized row-per-economy relation remains semantic authority.
+
+Specialisation bounds represent unresolved mandatory constraints, conditional on
+known inheritance/modifier evidence. The quality is null when the bounds differ;
+an exact zero remains distinct from unknown. Store constraint rule IDs, states,
+confidence, provenance and per-candidate intrinsic/constrained quality in the
+explanation payload. The specialisation candidate is independent of the raw
+potential candidate and is nullable for unresolved/zero specialisation. These
+are frozen derived-data semantics, represented and round-tripped by the isolated
+generation proof; they do not authorize a production migration. See
+`ratings-v4-specialisation-constraints.md`.
 
 ## 7. Contributor relation
 
@@ -210,7 +271,8 @@ Those dimensions must not be copied back into raw economy potential.
 
 ## 9. Stable application boundary
 
-FastAPI reads stable published-generation relations such as:
+The production application boundary remains stable published-generation
+relations such as:
 
 ```text
 v3_app.system_economy_rating
@@ -219,22 +281,33 @@ v3_app.system_archetype
 v3_app.system_search
 ```
 
-The stable boundary resolves `v3_meta.current_derived_generation` explicitly. No generation schema names or `search_path` assumptions leak into application routes.
+The eventual production boundary resolves `v3_meta.current_derived_generation`
+explicitly. No generation schema names or `search_path` assumptions leak into
+application routes. V4 freeze validation does not create these application
+views, publish a generation or enable a production route.
 
-## 10. Implementation order
+## 10. Freeze and production boundary
 
-1. Add/verify reserve-level source ingestion with provenance; do not block synthetic V4 fixture development on live population.
-2. Implement canonical-to-mechanics feature adapter against current V3 generation relations.
-3. Implement deterministic V4 scorer against synthetic fixtures.
-4. Persist mechanics features/opportunities/ratings into a disposable test derived generation.
-5. Run coefficient/ordering validation, including V3.4 side-by-side regression evidence.
-6. Freeze V4.0 coefficient/ruleset manifest.
-7. Only then create the reviewed production derived-data bootstrap/migration authority.
+The implemented freeze path is the lossless source fixture -> validated
+canonical adapter -> deterministic mechanics/scorer -> disposable derived
+generation. The isolated writer stores source inputs, mechanics features,
+opportunities, all seven economy ratings and contributors; it preserves
+specialisation bounds and complete explanation payloads. Its generation
+manifest binds input/content/metadata hashes and ruleset versions. Validation
+checks persisted content and replay before marking the isolated generation
+ready. No publication pointer or replacement of an existing schema is exposed.
+
+Synthetic fixtures, real-system calibration and the separate V3.4 comparison
+validate this scorer/data representation. Production remains subsequent work:
+recover and review the V3 subtype ingestion boundary, establish governed
+production derived-generation bootstrap/migration, build against the chosen
+canonical generation, validate it and then publish through reviewed authority.
+The freeze alone does not claim production readiness or authorize those changes.
 
 ## Acceptance rules
 
 - No scorer input is silently defaulted from unknown to false/neutral.
-- Reserve absence before enrichment lowers completeness; it does not fabricate reserve state.
+- Missing attached reserve observations lower completeness; they do not fabricate reserve state or borrow another body's reserve.
 - Geologicals and volcanism remain separate features.
 - ELW inherited Military remains visible but receives no unsupported raw strategic bonus.
 - Any coefficient-only V4.x change requires derived rebuild, not schema migration.
