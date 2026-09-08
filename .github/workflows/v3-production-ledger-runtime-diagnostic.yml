@@ -1,0 +1,124 @@
+name: V3 production ledger runtime diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v3-production-ledger-runtime-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare pinned production SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY" && test -n "$SSH_HOST" && test -n "$SSH_PORT" && test -n "$SSH_KNOWN_HOSTS"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/ed_new_operator_key
+          chmod 600 ~/.ssh/ed_new_operator_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Inspect runtime DB identity and ledger read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/v3-production-ledger-runtime-diagnostic.json"
+          ssh -i ~/.ssh/ed_new_operator_key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' > "$output" <<'PY'
+          import json, re, socket, subprocess
+
+          HOST="ed-finder-prod"
+          FQDN="nb79a3d.mevnode.com"
+          CONTAINER="edfinder-v3-phase4c-full-20260827_r5-postgres"
+          ENV={"PATH":"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","LANG":"C","LC_ALL":"C"}
+          out={"schema_version":"ed-finder/v3-ledger-runtime-diagnostic/v1","read_only":True,"db_writes_performed":False,"migrations_performed":False,"service_changes_performed":False}
+
+          hostname=socket.gethostname().split('.')[0]
+          fqdn=subprocess.run(["hostname","-f"],text=True,capture_output=True,check=False,env=ENV,timeout=5)
+          out["host"]={"hostname":hostname,"fqdn":fqdn.stdout.strip()}
+          if hostname != HOST or fqdn.returncode or fqdn.stdout.strip() != FQDN:
+              out.update(status="stopped",stage="host_identity")
+              print(json.dumps(out,sort_keys=True,separators=(",",":"))); raise SystemExit
+
+          inspect=subprocess.run(["docker","--context","default","inspect",CONTAINER,"--format","{{range .Config.Env}}{{println .}}{{end}}"],text=True,capture_output=True,check=False,env=ENV,timeout=10)
+          if inspect.returncode:
+              out.update(status="stopped",stage="docker_inspect",docker_returncode=inspect.returncode)
+              print(json.dumps(out,sort_keys=True,separators=(",",":"))); raise SystemExit
+          safe={}
+          for line in inspect.stdout.splitlines():
+              if line.startswith("POSTGRES_USER="):
+                  safe["user"]=line.split("=",1)[1]
+              elif line.startswith("POSTGRES_DB="):
+                  safe["database"]=line.split("=",1)[1]
+          out["runtime_database_identity"]=safe
+          user=safe.get("user")
+          database=safe.get("database")
+          if not user or not database or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",user) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*",database):
+              out.update(status="stopped",stage="runtime_database_identity")
+              print(json.dumps(out,sort_keys=True,separators=(",",":"))); raise SystemExit
+
+          sql="""BEGIN READ ONLY;
+          SET LOCAL statement_timeout = '10000ms';
+          SELECT json_build_object(
+            'database_name', current_database(),
+            'current_user', current_user,
+            'transaction_read_only', current_setting('transaction_read_only'),
+            'migrations', COALESCE((SELECT json_agg(json_build_object('filename', filename, 'checksum_sha256', checksum_sha256) ORDER BY filename) FROM public.schema_migrations), '[]'::json)
+          )::text;
+          COMMIT;"""
+          p=subprocess.run(["docker","--context","default","exec",CONTAINER,"psql","-X","--no-password","--tuples-only","--no-align","--quiet","--set","ON_ERROR_STOP=1","--username",user,"--dbname",database,"--command",sql],text=True,capture_output=True,check=False,env=ENV,timeout=20)
+          out["psql"]={"returncode":p.returncode,"stdout_line_count":len(p.stdout.splitlines()),"stderr_bytes":len(p.stderr.encode())}
+          if p.returncode:
+              lines=[x.strip() for x in p.stderr.splitlines() if x.strip()]
+              out["psql"]["stderr_tail"]=(lines[-1][:240] if lines else None)
+              out.update(status="stopped",stage="psql_execution")
+              print(json.dumps(out,sort_keys=True,separators=(",",":"))); raise SystemExit
+
+          json_lines=[]
+          for line in p.stdout.splitlines():
+              line=line.strip()
+              if line.startswith("{") and line.endswith("}"):
+                  try: json_lines.append(json.loads(line))
+                  except json.JSONDecodeError: pass
+          out["psql"]["json_row_count"]=len(json_lines)
+          if len(json_lines) != 1:
+              out["psql"]["stdout_preview"]=p.stdout.strip().replace("\n","\\n")[:240]
+              out.update(status="stopped",stage="ledger_json_row")
+              print(json.dumps(out,sort_keys=True,separators=(",",":"))); raise SystemExit
+
+          data=json_lines[0]
+          migrations=data.get("migrations")
+          out.update(database_name=data.get("database_name"),current_user=data.get("current_user"),transaction_read_only=data.get("transaction_read_only"),migration_count=(len(migrations) if isinstance(migrations,list) else None))
+          if isinstance(migrations,list) and migrations:
+              out["first_filename"]=migrations[0].get("filename") if isinstance(migrations[0],dict) else None
+              out["last_filename"]=migrations[-1].get("filename") if isinstance(migrations[-1],dict) else None
+              out["invalid_checksum_entries"]=sum(not isinstance(x,dict) or not re.fullmatch(r"[0-9a-f]{64}",str(x.get("checksum_sha256",""))) for x in migrations)
+          out["status"]="success"
+          print(json.dumps(out,sort_keys=True,separators=(",",":")))
+          PY
+          python3 -m json.tool "$output" >/dev/null
+
+      - name: Upload diagnostic
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-production-ledger-runtime-diagnostic
+          path: ${{ runner.temp }}/v3-production-ledger-runtime-diagnostic.json
+          if-no-files-found: error
+          retention-days: 2
