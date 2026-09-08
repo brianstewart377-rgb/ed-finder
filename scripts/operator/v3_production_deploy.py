@@ -280,7 +280,7 @@ def stopped_receipt(
     authority: dict[str, Any], failures: list[str], *, operation: str = "production-promotion",
 ) -> dict[str, Any]:
     target = authority.get("target") if isinstance(authority.get("target"), dict) else {}
-    return {
+    receipt = {
         "schema_version": RECEIPT_SCHEMA,
         "operation": operation,
         "status": "stopped",
@@ -298,11 +298,15 @@ def stopped_receipt(
         "service_changes_performed": False,
         "edge_recreated": False,
         "protected_resources_changed": False,
-        "filesystem_writes_performed": False,
+        "filesystem_writes_performed": operation
+        in {"production-preflight", "production-promotion"},
         "env_files_read": False,
         "env_contents_recorded": False,
         "private_keys_read": False,
     }
+    if operation == "production-preflight":
+        receipt["filesystem_write_scope"] = "ephemeral-operation-bundle-only"
+    return receipt
 
 
 def validate_authority(value: dict[str, Any]) -> list[str]:
@@ -777,11 +781,15 @@ def validate_schema_file(path: Path, expected_sha: str) -> dict[str, Any]:
     return value
 
 
-def database_identity_from_env(path: Path) -> dict[str, Any]:
+def database_identity_from_env(
+    path: Path, *, on_read: Callable[[], None] | None = None,
+) -> dict[str, Any]:
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise DeploymentError("unable to read verified production API env snapshot") from exc
+    if on_read is not None:
+        on_read()
     assignments: list[str] = []
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -1092,6 +1100,16 @@ def persist_accepted(
     ):
         if Path(name).name != name:
             raise DeploymentError("unsafe receipt identity")
+    current_path = directory / "current.json"
+    if current_path.is_symlink():
+        raise DeploymentError("current production release pointer is unsafe")
+    try:
+        prior_pointer = current_path.read_bytes() if current_path.exists() else None
+    except OSError as exc:
+        raise DeploymentError("unable to preserve current production release pointer") from exc
+    if prior_pointer is not None and len(prior_pointer) > MAX_JSON:
+        raise DeploymentError("current production release pointer is oversized")
+
     def atomic(name: str, data: bytes) -> None:
         handle, temp_name = tempfile.mkstemp(prefix=".v3-production-", dir=directory)
         try:
@@ -1102,12 +1120,21 @@ def persist_accepted(
         finally:
             try: os.unlink(temp_name)
             except FileNotFoundError: pass
+
+    def fsync_directory() -> None:
+        directory_handle = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_handle)
+        finally:
+            os.close(directory_handle)
+
     if any(
         (directory / name).exists()
         for name in (receipt_name, manifest_name, receipt_sidecar, manifest_sidecar)
     ):
         raise DeploymentError("immutable production receipt identity already exists")
     created: list[str] = []
+    pointer_replaced = False
     try:
         atomic(receipt_name, receipt_bytes)
         created.append(receipt_name)
@@ -1130,30 +1157,37 @@ def persist_accepted(
             "manifest_file": manifest_name,
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
         }
-        directory_handle = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_handle)
-        finally:
-            os.close(directory_handle)
+        fsync_directory()
         atomic(
             "current.json",
             (json.dumps(pointer, sort_keys=True, indent=2) + "\n").encode(),
         )
-        directory_handle = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_handle)
-        except OSError:
-            # The pointer and every target are already complete and consistent;
-            # never delete its targets after advancing it.
-            pass
-        finally:
-            os.close(directory_handle)
+        pointer_replaced = True
+        fsync_directory()
     except Exception:
-        for name in reversed(created):
+        pointer_restored = not pointer_replaced
+        if pointer_replaced:
             try:
-                (directory / name).unlink()
-            except OSError:
-                pass
+                if prior_pointer is None:
+                    current_path.unlink()
+                else:
+                    atomic("current.json", prior_pointer)
+                fsync_directory()
+                pointer_restored = True
+            except Exception as restore_error:
+                raise DeploymentError(
+                    "accepted production pointer restoration failed; candidate artifacts retained"
+                ) from restore_error
+        if pointer_restored:
+            for name in reversed(created):
+                try:
+                    (directory / name).unlink()
+                except OSError:
+                    pass
+        try:
+            fsync_directory()
+        except OSError:
+            pass
         raise
 
 
@@ -1315,82 +1349,93 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         network_slots.add(network_active_slot)
     validate_network(external, schema, network_slots, env, runner)
     live_capacity = live_capacity_guard()
+    env_files_read = False
+    preflight_database_access_attempted = False
+    preflight_database_access_performed = False
+
+    def mark_env_file_read() -> None:
+        nonlocal env_files_read
+        env_files_read = True
+
     try:
         api_database_identity = database_identity_from_env(
-            Path(external["api_env_file"])
+            Path(external["api_env_file"]), on_read=mark_env_file_read
         )
-    except DeploymentError as exc:
-        receipt = stopped_receipt(
-            authority, [str(exc)], operation=receipt_operation
+        if api_database_identity != schema["database_identity"]:
+            raise DeploymentError(
+                "production API database target does not match schema authority"
+            )
+        candidate, candidate_sum, candidate_bytes = validate_candidate(
+            args.candidate, args.candidate_checksum, schema
         )
-        receipt["env_files_read"] = True
-        raise OperationFailed(receipt) from exc
-    if api_database_identity != schema["database_identity"]:
-        receipt = stopped_receipt(
-            authority,
-            ["production API database target does not match schema authority"],
-            operation=receipt_operation,
-        )
-        receipt["env_files_read"] = True
-        raise OperationFailed(receipt)
-    candidate, candidate_sum, candidate_bytes = validate_candidate(
-        args.candidate, args.candidate_checksum, schema
-    )
-    if not RUN_ID.fullmatch(args.candidate_run_id or ""):
-        raise DeploymentError("authenticated candidate release run ID required")
-    protected = set(authority["preservation_contract"]["exact_containers"])
-    protected_before = container_snapshot(protected, env, runner)
-    all_before = all_container_snapshot(env, runner)
+        if not RUN_ID.fullmatch(args.candidate_run_id or ""):
+            raise DeploymentError("authenticated candidate release run ID required")
+        protected = set(authority["preservation_contract"]["exact_containers"])
+        protected_before = container_snapshot(protected, env, runner)
+        all_before = all_container_snapshot(env, runner)
 
-    if args.mode == "bootstrap":
-        prior_slot_for_preflight = None
-        if set(CONTAINERS.values()) & set(all_before):
-            raise DeploymentError("bootstrap requires production slot absence")
-        for legacy_name in (LEGACY_API, LEGACY_ORIGIN):
-            if not all_before.get(legacy_name, "").endswith(":running"):
-                raise DeploymentError("bootstrap requires running legacy application services")
-    else:
-        prior_for_preflight, prior_manifest_for_preflight, _ = load_current(
-            receipt_dir
-        )
-        prior_slot_for_preflight = validate_prior_runtime(
-            prior_for_preflight, prior_manifest_for_preflight, schema, env, runner
-        )
-    verify_origin_ownership(args.mode, prior_slot_for_preflight, env, runner)
-    verify_edge_routes_to_active_origin()
+        if args.mode == "bootstrap":
+            prior_slot_for_preflight = None
+            if set(CONTAINERS.values()) & set(all_before):
+                raise DeploymentError("bootstrap requires production slot absence")
+            for legacy_name in (LEGACY_API, LEGACY_ORIGIN):
+                if not all_before.get(legacy_name, "").endswith(":running"):
+                    raise DeploymentError(
+                        "bootstrap requires running legacy application services"
+                    )
+        else:
+            prior_for_preflight, prior_manifest_for_preflight, _ = load_current(
+                receipt_dir
+            )
+            prior_slot_for_preflight = validate_prior_runtime(
+                prior_for_preflight, prior_manifest_for_preflight, schema, env, runner
+            )
+        verify_origin_ownership(args.mode, prior_slot_for_preflight, env, runner)
+        verify_edge_routes_to_active_origin()
 
-    if args.operation == "preflight":
-        try:
+        if args.operation == "preflight":
+            preflight_database_access_attempted = True
             verify_live_schema(schema, env, runner)
+            preflight_database_access_performed = True
             verify_snapshot(protected_before, env, runner)
             verify_unrelated_snapshot(all_before, set(), env, runner)
             live_capacity = live_capacity_guard()
-        except DeploymentError as exc:
-            receipt = stopped_receipt(
-                authority, [str(exc)], operation="production-preflight"
-            )
+            return {
+                **stopped_receipt(authority, [], operation="production-preflight"),
+                "status": "preflight-passed", "mode": args.mode,
+                "source_sha": candidate["git_sha"], "release_run_id": args.candidate_run_id,
+                "manifest_sha256": candidate_sum, "migration_set_identity": schema["migration_set_identity"],
+                "images": candidate["images"],
+                "rollback_compatible": args.mode == "upgrade",
+                "live_capacity": live_capacity,
+                "database_access_performed": True,
+                "env_files_read": True,
+            }
+        if args.runtime_directory is None:
+            raise DeploymentError("private production operation runtime directory required")
+        runtime_directory = validate_runtime_directory(args.runtime_directory)
+        lock = acquire_lock(receipt_dir)
+    except OperationFailed:
+        raise
+    except Exception as exc:
+        failure = (
+            str(exc)
+            if isinstance(exc, DeploymentError)
+            else f"internal_failure:{type(exc).__name__}"
+        )
+        receipt = stopped_receipt(authority, [failure], operation=receipt_operation)
+        receipt["env_files_read"] = env_files_read
+        if preflight_database_access_attempted:
             receipt.update(
-                database_access_performed=None,
-                database_access_may_have_been_performed=True,
-                env_files_read=True,
+                database_access_performed=(
+                    True if preflight_database_access_performed else None
+                ),
+                database_access_may_have_been_performed=(
+                    not preflight_database_access_performed
+                ),
             )
-            raise OperationFailed(receipt) from exc
-        return {
-            **stopped_receipt(authority, [], operation="production-preflight"),
-            "status": "preflight-passed", "mode": args.mode,
-            "source_sha": candidate["git_sha"], "release_run_id": args.candidate_run_id,
-            "manifest_sha256": candidate_sum, "migration_set_identity": schema["migration_set_identity"],
-            "images": candidate["images"],
-            "rollback_compatible": args.mode == "upgrade",
-            "live_capacity": live_capacity,
-            "database_access_performed": True,
-            "env_files_read": True,
-        }
+        raise OperationFailed(receipt) from exc
 
-    if args.runtime_directory is None:
-        raise DeploymentError("private production operation runtime directory required")
-    runtime_directory = validate_runtime_directory(args.runtime_directory)
-    lock = acquire_lock(receipt_dir)
     snapshot: Path | None = None
     docker_config: str | None = None
     mutation_started = False

@@ -65,8 +65,11 @@ Do not promote a repository helper into a production command merely because it e
   bounded executable path, implementation, and version of the default host
   `python3` used for inventory, whether `python3.14` exists and is exactly
   CPython 3.14 plus its bounded executable path/version when present, the
-  `default` Docker context name and endpoint/host only, and bounded container
-  ownership of loopback ports `58080`/`58081` when the existing Docker port
+  `default` Docker context name and endpoint/host only, requiring exactly the
+  local rootful `unix:///var/run/docker.sock` endpoint and explicitly pinning
+  every Docker evidence command to that context. Context drift stops before
+  daemon inventory. The receipt also includes bounded container ownership of
+  loopback ports `58080`/`58081` when the existing Docker port
   data supports it. It never reads container environments, secret files,
   Docker credentials/configuration content, or private keys. It installs
   nothing and never edits the stopped target authority or fills a blocker

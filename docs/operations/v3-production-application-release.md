@@ -42,7 +42,10 @@ provision a runtime.
 
 The same receipt must inspect Docker context `default` and expose only its
 context name and Docker endpoint/host. It must not emit Docker configuration or
-credentials. Review that fact as evidence for
+credentials. The context must resolve exactly to the local rootful
+`unix:///var/run/docker.sock` endpoint, and every Docker inventory command is
+explicitly pinned to it. An unexpected endpoint stops before any container,
+network, port, or ledger evidence is queried. Review that fact as evidence for
 `production_local_docker_context_authority_missing`. Where the already-bounded
 Docker port inventory makes it possible, the receipt must also identify the
 container owners of loopback ports `58080` and `58081`, including an explicit
@@ -65,6 +68,16 @@ repository's exact CPython 3.14 execution contract and stops with
 `python314_required_for_production_mutation` if that runtime is absent. This
 runbook does not authorize installing it; runtime provisioning, if genuinely
 needed for promotion, requires separate review and is not a status-tool repair.
+
+Workflow-driven preflight remains application- and data-read-only, but it is
+not host-filesystem-write-free: the workflow creates a private temporary
+operation directory, extracts the sealed bundle into it, and removes it on
+exit. Preflight receipts therefore report `filesystem_writes_performed=true`
+with scope `ephemeral-operation-bundle-only`, while database writes,
+application-data writes, migrations, image pulls, service changes, edge
+recreation, and protected-resource changes remain `false`. A transport failure
+that cannot prove whether remote extraction began reports that filesystem fact
+as unknown/may-have-occurred rather than falsely reporting `false`.
 
 No current production migration authority exists in this repository. If the
 fresh complete `public.schema_migrations` filename/checksum ledger cannot be
@@ -111,8 +124,10 @@ Promotion uses these gates in order:
    stop the stale legacy API on bootstrap or retire the prior managed slot on
    an upgrade.
 7. Persist a sanitized immutable receipt, byte-exact manifest and checksums, then
-   atomically advance `current.json`. Remove the secret snapshot and registry
-   credentials on every exit.
+   atomically advance `current.json`. If any later persistence step fails,
+   atomically restore the prior pointer (or its prior absence) before candidate
+   artifacts are removed. Remove the secret snapshot and registry credentials
+   on every exit.
 
 Cancellation is a controlled deployment failure. The remote transport forwards
 one termination signal and waits while the deployer terminates and reaps its

@@ -129,7 +129,8 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         '"owners"',
     ):
         assert required_inventory_fact in source
-    assert '"docker", "context", "inspect", "default"' in source
+    assert 'return ["docker", "--context", DOCKER_CONTEXT, *arguments]' in source
+    assert source.count('"docker"') == 1
     assert "command -v python3.14" not in action
     assert "command -v python3" in action
     for forbidden in (
@@ -220,6 +221,110 @@ def test_rollback_comes_only_from_checksum_bound_prior_accepted_release():
     assert "rollback-manifest" not in workflow
 
 
+def _accepted_receipt(deployer, source_sha: str, run_id: str, manifest: bytes) -> dict:
+    return {
+        "schema_version": deployer.RECEIPT_SCHEMA,
+        "operation": "production-promotion",
+        "status": "accepted",
+        "source_sha": source_sha,
+        "release_run_id": run_id,
+        "manifest_sha256": hashlib.sha256(manifest).hexdigest(),
+    }
+
+
+@pytest.mark.parametrize("prior_exists", [True, False])
+def test_post_replace_persistence_failure_restores_prior_pointer_or_absence(
+    monkeypatch, tmp_path, prior_exists
+):
+    deployer = _load_deployer()
+    prior_manifest = b'{"git_sha":"' + b"a" * 40 + b'"}\n'
+    prior_receipt = _accepted_receipt(deployer, "a" * 40, "111", prior_manifest)
+    if prior_exists:
+        deployer.persist_accepted(tmp_path, prior_receipt, prior_manifest)
+        prior_pointer_bytes = (tmp_path / "current.json").read_bytes()
+        prior_pointer = json.loads(prior_pointer_bytes)
+    else:
+        prior_pointer_bytes = None
+        prior_pointer = None
+
+    candidate_manifest = b'{"git_sha":"' + b"b" * 40 + b'"}\n'
+    candidate_receipt = _accepted_receipt(
+        deployer, "b" * 40, "222", candidate_manifest
+    )
+    candidate_stem = f"{'b' * 40}-222-{hashlib.sha256(candidate_manifest).hexdigest()}"
+    original_fsync = deployer.os.fsync
+    directory_fsyncs = 0
+
+    def fail_after_pointer_replace(descriptor):
+        nonlocal directory_fsyncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_fsyncs += 1
+            if directory_fsyncs == 2:
+                raise OSError("injected post-replace fsync failure")
+        return original_fsync(descriptor)
+
+    monkeypatch.setattr(deployer.os, "fsync", fail_after_pointer_replace)
+    with pytest.raises(OSError, match="post-replace"):
+        deployer.persist_accepted(tmp_path, candidate_receipt, candidate_manifest)
+
+    if prior_exists:
+        assert (tmp_path / "current.json").read_bytes() == prior_pointer_bytes
+        assert prior_pointer is not None
+        for key in ("receipt_file", "manifest_file"):
+            path = tmp_path / prior_pointer[key]
+            assert path.is_file()
+            assert Path(str(path) + ".sha256").is_file()
+    else:
+        assert not (tmp_path / "current.json").exists()
+    for suffix in (".json", ".release.json", ".json.sha256", ".release.json.sha256"):
+        assert not (tmp_path / f"{candidate_stem}{suffix}").exists()
+
+
+def test_pointer_restore_failure_retains_candidate_targets(monkeypatch, tmp_path):
+    deployer = _load_deployer()
+    prior_manifest = b'{"git_sha":"' + b"a" * 40 + b'"}\n'
+    deployer.persist_accepted(
+        tmp_path,
+        _accepted_receipt(deployer, "a" * 40, "111", prior_manifest),
+        prior_manifest,
+    )
+    candidate_manifest = b'{"git_sha":"' + b"b" * 40 + b'"}\n'
+    candidate_receipt = _accepted_receipt(
+        deployer, "b" * 40, "222", candidate_manifest
+    )
+    original_fsync = deployer.os.fsync
+    original_replace = deployer.os.replace
+    directory_fsyncs = 0
+    current_replacements = 0
+
+    def fail_after_pointer_replace(descriptor):
+        nonlocal directory_fsyncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_fsyncs += 1
+            if directory_fsyncs == 2:
+                raise OSError("injected post-replace fsync failure")
+        return original_fsync(descriptor)
+
+    def fail_pointer_restore(source, destination):
+        nonlocal current_replacements
+        if Path(destination) == tmp_path / "current.json":
+            current_replacements += 1
+            if current_replacements == 2:
+                raise OSError("injected pointer restore failure")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr(deployer.os, "fsync", fail_after_pointer_replace)
+    monkeypatch.setattr(deployer.os, "replace", fail_pointer_restore)
+    with pytest.raises(deployer.DeploymentError, match="candidate artifacts retained"):
+        deployer.persist_accepted(tmp_path, candidate_receipt, candidate_manifest)
+
+    current = json.loads((tmp_path / "current.json").read_text(encoding="utf-8"))
+    for key in ("receipt_file", "manifest_file"):
+        path = tmp_path / current[key]
+        assert path.is_file()
+        assert Path(str(path) + ".sha256").is_file()
+
+
 def test_workflow_is_manual_main_only_protected_and_uses_pinned_ssh_trust():
     workflow = _workflow()
     source = WORKFLOW.read_text(encoding="utf-8")
@@ -280,6 +385,10 @@ def test_runbook_states_no_execution_boundary_and_concrete_first_run_blockers():
     assert "default `python3` used to run inventory" in source
     assert "exactly CPython 3.14" in source
     assert "Docker context `default`" in source
+    assert "`unix:///var/run/docker.sock`" in source
+    assert "ephemeral-operation-bundle-only" in source
+    assert "application- and data-read-only" in source
+    assert "atomically restore the prior pointer" in source
     assert "loopback ports `58080` and `58081`" in source
     assert "fills a blocker" in source
     assert "stale `edfinder-v3-api:phase4c-r5`" in source
@@ -435,7 +544,7 @@ def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monk
         "docker_endpoint": "unix:///var/run/docker.sock",
     }
     assert observed_argv == [
-        "docker", "context", "inspect", "default", "--format",
+        "docker", "--context", "default", "context", "inspect", "default", "--format",
         "{{json .Name}}\t{{json .Endpoints.docker.Host}}",
     ]
 
@@ -447,14 +556,15 @@ def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monk
         ),
     )
     assert inventory.inspect_default_docker_context() == {
-        "inspection_succeeded": True,
-        "name": "default",
-        "docker_endpoint": "tcp://127.0.0.1:2375",
+        "inspection_succeeded": False,
+        "name": None,
+        "docker_endpoint": None,
     }
 
     for unsafe_endpoint in (
         "ssh://user:password@example.invalid/run/docker.sock",
         "tcp://token@example.invalid:2375",
+        "unix:///tmp/docker.sock",
     ):
         monkeypatch.setattr(
             inventory,
@@ -538,6 +648,44 @@ def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monk
     assert incomplete["ports"]["58081"]["owners"] == []
 
 
+def test_inventory_stops_before_daemon_evidence_when_default_context_is_not_local(
+    monkeypatch, capsys
+):
+    inventory = _load_inventory()
+    docker_commands = []
+
+    monkeypatch.setattr(inventory.socket, "gethostname", lambda: inventory.EXPECTED_HOST)
+    monkeypatch.setattr(
+        inventory, "inventory_runtime", lambda: {"inspection_succeeded": True}
+    )
+    monkeypatch.setattr(
+        inventory, "inspect_python314_runtime", lambda: {"inspection_succeeded": True}
+    )
+    monkeypatch.setattr(inventory, "host_capacity", lambda: {})
+
+    def context_only(argv, **_kwargs):
+        if argv == ["hostname", "-f"]:
+            return subprocess.CompletedProcess(
+                argv, 0, inventory.EXPECTED_FQDN + "\n", ""
+            )
+        if argv[:3] == ["docker", "--context", "default"]:
+            docker_commands.append(argv)
+            if argv[3:6] != ["context", "inspect", "default"]:
+                raise AssertionError(f"daemon evidence escaped failed context gate: {argv}")
+            return subprocess.CompletedProcess(
+                argv, 0, '"default"\t"tcp://127.0.0.1:2375"\n', ""
+            )
+        raise AssertionError(argv)
+
+    monkeypatch.setattr(inventory, "run", context_only)
+    assert inventory.main() == 78
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["failures"] == ["default_docker_context_inventory_failed"]
+    assert receipt["direct_db_access_performed"] is False
+    assert len(docker_commands) == 1
+    assert docker_commands[0][:3] == ["docker", "--context", "default"]
+
+
 def test_protected_job_refetches_main_before_credentials_and_maps_fallback_receipts():
     workflow = _workflow()
     steps = workflow["jobs"]["production-operation"]["steps"]
@@ -557,6 +705,12 @@ def test_protected_job_refetches_main_before_credentials_and_maps_fallback_recei
     assert "promote) receipt_operation=production-promotion" in execute
     assert 'os.environ["RECEIPT_OPERATION"]' in execute
     assert '"operation": "production-promotion"' not in execute
+    assert 'preflight = operation == "production-preflight"' in execute
+    assert '"database_writes_performed": False if preflight else None' in execute
+    assert '"service_changes_performed": False if preflight else None' in execute
+    assert '"filesystem_writes_performed": None' in execute
+    assert '"filesystem_writes_may_have_been_performed": True' in execute
+    assert '"env_files_read": None, "env_files_may_have_been_read": True' in execute
 
 
 def test_bundle_and_remote_runtime_roots_remain_private_after_archive_extraction(tmp_path):
@@ -658,6 +812,17 @@ def test_launcher_runtime_failures_use_only_validated_operation_names(tmp_path):
     assert unsupported_receipt["failures"] == [
         "python3_unsupported_for_production_readonly"
     ]
+    assert unsupported_receipt["filesystem_writes_performed"] is True
+    assert unsupported_receipt["filesystem_write_scope"] == (
+        "ephemeral-operation-bundle-only"
+    )
+    for field in (
+        "database_writes_performed", "migrations_performed",
+        "application_data_writes_performed", "image_pulls_performed",
+        "service_changes_performed", "edge_recreated",
+        "protected_resources_changed",
+    ):
+        assert unsupported_receipt[field] is False
 
     mutation = subprocess.run(
         ["bash", str(PROMOTE_ACTION), "--operation", "promote"],
@@ -672,6 +837,7 @@ def test_launcher_runtime_failures_use_only_validated_operation_names(tmp_path):
     assert mutation_receipt["failures"] == [
         "python314_required_for_production_mutation"
     ]
+    assert mutation_receipt["filesystem_writes_performed"] is True
 
     hostile = subprocess.run(
         ["bash", str(PROMOTE_ACTION), "--operation", 'promote\"bad'],
@@ -956,7 +1122,14 @@ def _cancellation_promote_setup(monkeypatch, tmp_path, deployer):
     monkeypatch.setattr(deployer, "validate_schema_file", lambda *_args: schema)
     monkeypatch.setattr(deployer, "validate_network", lambda *_args: None)
     monkeypatch.setattr(deployer, "live_capacity_guard", lambda: {"logical_cpus": 16})
-    monkeypatch.setattr(deployer, "database_identity_from_env", lambda _path: database_identity)
+    def database_identity_from_env(_path, *, on_read=None):
+        if on_read is not None:
+            on_read()
+        return database_identity
+
+    monkeypatch.setattr(
+        deployer, "database_identity_from_env", database_identity_from_env
+    )
     monkeypatch.setattr(
         deployer, "validate_candidate",
         lambda *_args: (candidate, "f" * 64, b'{}'),
@@ -1001,6 +1174,91 @@ def _assert_durable_failure_receipt(receipt_dir: Path, receipt: dict) -> None:
     assert persisted["service_changes_performed"] == receipt[
         "service_changes_performed"
     ]
+
+
+def test_preflight_reports_ephemeral_bundle_writes_without_application_mutation(
+    monkeypatch, tmp_path
+):
+    deployer = _load_deployer()
+    args, authority, _receipt_dir, _snapshot = _cancellation_promote_setup(
+        monkeypatch, tmp_path, deployer
+    )
+    args.operation = "preflight"
+    monkeypatch.setattr(deployer, "verify_live_schema", lambda *_args: None)
+
+    receipt = deployer.promote(
+        args,
+        authority,
+        lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, "", ""),
+    )
+
+    assert receipt["status"] == "preflight-passed"
+    assert receipt["filesystem_writes_performed"] is True
+    assert receipt["filesystem_write_scope"] == "ephemeral-operation-bundle-only"
+    assert receipt["env_files_read"] is True
+    for field in (
+        "database_writes_performed", "migrations_performed",
+        "application_data_writes_performed", "image_pulls_performed",
+        "service_changes_performed", "edge_recreated",
+        "protected_resources_changed",
+    ):
+        assert receipt[field] is False
+
+
+@pytest.mark.parametrize(
+    ("failure_point", "message"),
+    [
+        ("validate_candidate", "candidate validation stopped"),
+        ("all_container_snapshot", "container validation stopped"),
+        ("verify_origin_ownership", "origin validation stopped"),
+    ],
+)
+def test_failures_after_api_env_read_preserve_audit_state(
+    monkeypatch, tmp_path, failure_point, message
+):
+    deployer = _load_deployer()
+    args, authority, _receipt_dir, _snapshot = _cancellation_promote_setup(
+        monkeypatch, tmp_path, deployer
+    )
+    args.operation = "preflight"
+
+    def stop(*_args, **_kwargs):
+        raise deployer.DeploymentError(message)
+
+    monkeypatch.setattr(deployer, failure_point, stop)
+    with pytest.raises(deployer.OperationFailed) as failed:
+        deployer.promote(
+            args,
+            authority,
+            lambda argv, **_kwargs: subprocess.CompletedProcess(argv, 0, "", ""),
+        )
+
+    receipt = failed.value.receipt
+    assert receipt["failures"] == [message]
+    assert receipt["env_files_read"] is True
+    assert receipt["env_contents_recorded"] is False
+    assert receipt["filesystem_writes_performed"] is True
+    assert "postgresql://" not in json.dumps(receipt)
+
+
+def test_env_audit_marker_changes_only_after_file_read_succeeds(tmp_path):
+    deployer = _load_deployer()
+    marker = []
+    env_file = tmp_path / "api.env"
+    env_file.write_text("not-a-database-url\n", encoding="utf-8")
+
+    with pytest.raises(deployer.DeploymentError, match="exactly one DATABASE_URL"):
+        deployer.database_identity_from_env(
+            env_file, on_read=lambda: marker.append("read")
+        )
+    assert marker == ["read"]
+
+    marker.clear()
+    with pytest.raises(deployer.DeploymentError, match="unable to read"):
+        deployer.database_identity_from_env(
+            tmp_path / "missing.env", on_read=lambda: marker.append("read")
+        )
+    assert marker == []
 
 
 def test_cancellation_before_mutation_writes_durable_failure_without_service_change(monkeypatch, tmp_path):

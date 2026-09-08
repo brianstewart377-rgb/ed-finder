@@ -26,7 +26,13 @@ esac
 
 stopped_runtime_receipt() {
     failure="$1"
-    printf '{"schema_version":"ed-finder/v3-production-deployment-receipt/v1","operation":"%s","status":"stopped","target":{"production":true,"hostname":"ed-finder-prod","fqdn":"nb79a3d.mevnode.com"},"failures":["%s"],"database_access_performed":false,"database_writes_performed":false,"migrations_performed":false,"application_data_writes_performed":false,"image_pulls_performed":false,"service_changes_performed":false,"edge_recreated":false,"filesystem_writes_performed":false}\n' "$receipt_operation" "$failure"
+    filesystem_writes=false
+    filesystem_scope=""
+    if [ "$operation" = preflight ] || [ "$operation" = promote ]; then
+        filesystem_writes=true
+        filesystem_scope=',"filesystem_write_scope":"ephemeral-operation-bundle-only"'
+    fi
+    printf '{"schema_version":"ed-finder/v3-production-deployment-receipt/v1","operation":"%s","status":"stopped","target":{"production":true,"hostname":"ed-finder-prod","fqdn":"nb79a3d.mevnode.com"},"failures":["%s"],"database_access_performed":false,"database_writes_performed":false,"migrations_performed":false,"application_data_writes_performed":false,"image_pulls_performed":false,"service_changes_performed":false,"edge_recreated":false,"protected_resources_changed":false,"filesystem_writes_performed":%s,"env_files_read":false,"env_contents_recorded":false,"private_keys_read":false%s}\n' "$receipt_operation" "$failure" "$filesystem_writes" "$filesystem_scope"
 }
 
 exact_cpython314() {

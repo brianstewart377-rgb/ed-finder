@@ -37,6 +37,8 @@ TIMEOUT_SECONDS = 15
 SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 MAX_RUNTIME_VERSION = 64
 MAX_DOCKER_ENDPOINT = 256
+DOCKER_CONTEXT = "default"
+LOCAL_DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
 LEDGER_SQL = r"""
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '10000ms';
@@ -114,8 +116,13 @@ def run(argv: list[str], *, timeout: int = TIMEOUT_SECONDS) -> subprocess.Comple
         return subprocess.CompletedProcess(argv, 125, "", type(exc).__name__)
 
 
-def docker_json_lines(argv: list[str]) -> tuple[bool, list[dict[str, Any]]]:
-    result = run(argv)
+def docker_argv(*arguments: str) -> list[str]:
+    """Pin every daemon evidence command to the reviewed local context."""
+    return ["docker", "--context", DOCKER_CONTEXT, *arguments]
+
+
+def docker_json_lines(arguments: list[str]) -> tuple[bool, list[dict[str, Any]]]:
+    result = run(docker_argv(*arguments))
     items: list[dict[str, Any]] = []
     if result.returncode == 0:
         try:
@@ -248,7 +255,7 @@ def inspect_default_docker_context() -> dict[str, Any]:
     """Return only the bounded name and endpoint, never context config data."""
     result = run(
         [
-            "docker", "context", "inspect", "default", "--format",
+            *docker_argv("context", "inspect", DOCKER_CONTEXT, "--format"),
             "{{json .Name}}\t{{json .Endpoints.docker.Host}}",
         ]
     )
@@ -269,7 +276,7 @@ def inspect_default_docker_context() -> dict[str, Any]:
     except json.JSONDecodeError:
         return failed
     endpoint = bounded_docker_endpoint(endpoint)
-    if name != "default" or endpoint is None:
+    if name != DOCKER_CONTEXT or endpoint != LOCAL_DOCKER_ENDPOINT:
         return failed
     return {
         "inspection_succeeded": True,
@@ -284,7 +291,7 @@ def inspect_container_port_bindings(name: str) -> list[dict[str, Any]] | None:
         return None
     result = run(
         [
-            "docker", "inspect", "--format",
+            *docker_argv("inspect", "--format"),
             "{{json .NetworkSettings.Ports}}", name,
         ]
     )
@@ -449,7 +456,7 @@ def inspect_container_networks(name: str) -> dict[str, Any] | None:
         return None
     result = run(
         [
-            "docker", "inspect", "--format",
+            *docker_argv("inspect", "--format"),
             "{{json .NetworkSettings.Networks}}", name,
         ]
     )
@@ -612,9 +619,12 @@ def main() -> int:
     receipt["docker_context"] = inspect_default_docker_context()
     if not receipt["docker_context"]["inspection_succeeded"]:
         failures.append("default_docker_context_inventory_failed")
+        receipt["failures"] = failures
+        print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+        return 78
 
     docker_ok, containers = docker_json_lines(
-        ["docker", "ps", "--all", "--no-trunc", "--format", "{{json .}}"]
+        ["ps", "--all", "--no-trunc", "--format", "{{json .}}"]
     )
     containers_complete = docker_ok
     if len(containers) > MAX_CONTAINERS:
@@ -653,7 +663,7 @@ def main() -> int:
         failures.append("octopus_container_inventory_missing")
 
     network_ok, networks = docker_json_lines(
-        ["docker", "network", "ls", "--no-trunc", "--format", "{{json .}}"]
+        ["network", "ls", "--no-trunc", "--format", "{{json .}}"]
     )
     if len(networks) > MAX_CONTAINERS:
         failures.append("network_inventory_truncated")
@@ -687,7 +697,7 @@ def main() -> int:
         receipt["direct_db_access_performed"] = True
         ledger_result = run(
             [
-                "docker", "exec", POSTGRES_CONTAINER,
+                *docker_argv("exec", POSTGRES_CONTAINER),
                 "psql", "-X", "--no-password", "--tuples-only", "--no-align", "--quiet",
                 "--field-separator", "\t", "--set", "ON_ERROR_STOP=1",
                 "--username", DB_USER, "--dbname", DB_NAME, "--command", LEDGER_SQL,

@@ -321,18 +321,29 @@ jobs:
           else
             RECEIPT_OPERATION="$receipt_operation" python - <<'PY' > "$RECEIPT"
           import json, os
-          print(json.dumps({
+          operation = os.environ["RECEIPT_OPERATION"]
+          preflight = operation == "production-preflight"
+          receipt = {
               "schema_version": "ed-finder/v3-production-deployment-receipt/v1",
-              "operation": os.environ["RECEIPT_OPERATION"], "status": "stopped",
+              "operation": operation, "status": "stopped",
               "target": {"production": True, "hostname": "ed-finder-prod", "fqdn": "nb79a3d.mevnode.com"},
               "failures": ["remote_transport_or_receipt_failed"],
               "database_access_performed": None, "database_access_may_have_been_performed": True,
-              "database_writes_performed": None, "migrations_performed": None,
-              "application_data_writes_performed": None, "image_pulls_performed": None,
-              "service_changes_performed": None, "service_changes_may_have_been_performed": True,
-              "edge_recreated": None, "protected_resources_changed": None,
-              "filesystem_writes_performed": None, "rollback_status": "inspect_durable_host_receipts",
-          }, sort_keys=True))
+              "database_writes_performed": False if preflight else None,
+              "migrations_performed": False if preflight else None,
+              "application_data_writes_performed": False if preflight else None,
+              "image_pulls_performed": False if preflight else None,
+              "service_changes_performed": False if preflight else None,
+              "service_changes_may_have_been_performed": not preflight,
+              "edge_recreated": False if preflight else None,
+              "protected_resources_changed": False if preflight else None,
+              "filesystem_writes_performed": None,
+              "filesystem_writes_may_have_been_performed": True,
+              "env_files_read": None, "env_files_may_have_been_read": True,
+              "env_contents_recorded": False, "private_keys_read": False,
+              "rollback_status": "inspect_durable_host_receipts",
+          }
+          print(json.dumps(receipt, sort_keys=True))
           PY
             cat "$RECEIPT"
           fi
