@@ -10,7 +10,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
 
-from domain.ratings_v4 import BodyFact, SystemFacts, rate_system_facts
+from domain.ratings_v4 import BodyFact, SCORER_VERSION, SystemFacts, rate_system_facts  # noqa: E402
 
 
 FIXTURE_PATH = ROOT / 'tests' / 'fixtures' / 'ratings_v4_real_systems.json'
@@ -38,7 +38,12 @@ def _facts(case: dict) -> SystemFacts:
         bodies=tuple(bodies),
         reserve_level=case['res'],
         exotic_star=case['ex'],
+        body_inventory_complete=True,
     )
+
+
+def test_real_system_baseline_uses_the_current_candidate_version() -> None:
+    assert FIXTURE['scorer'] == SCORER_VERSION
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['n'] for case in CASES])
