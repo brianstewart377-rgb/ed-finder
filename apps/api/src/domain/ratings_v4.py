@@ -128,7 +128,10 @@ def rate_economy(economy: str, opportunities: Iterable[Opportunity]) -> EconomyR
         reverse=True,
     )
     top = scored[:4]
-    potential = round(sum(weight * score for weight, (score, _) in zip(SYSTEM_WEIGHTS, top)))
+    potential = round(sum(
+        weight * score
+        for weight, (score, _) in zip(SYSTEM_WEIGHTS, top, strict=False)
+    ))
 
     specialisations = sorted(
         (candidate_specialisation(item) for _, item in scored), reverse=True
