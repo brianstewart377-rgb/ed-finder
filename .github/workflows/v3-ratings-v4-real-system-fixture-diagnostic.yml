@@ -51,97 +51,91 @@ jobs:
           fqdn=subprocess.run(['hostname','-f'],text=True,capture_output=True,env=E,check=False,timeout=5).stdout.strip()
           assert socket.gethostname().split('.')[0]=='ed-finder-prod' and fqdn=='nb79a3d.mevnode.com'
 
-          names = [
-            'Wregoe ZN-X c28-28', 'Praea Euq WV-W b2-2', 'Sol', 'Achenar',
-            'Alioth', 'Maia', 'Borann', 'HD 38179', 'Col 285 Sector BW-U c3-5',
-            'Smojoo ZE-R d4-109', 'Thaile HW-V e2-7', 'Deriv-Dar',
+          names=[
+            'Wregoe ZN-X c28-28','Praea Euq WV-W b2-2','Sol','Achenar','Alioth','Maia',
+            'Borann','HD 38179','Col 285 Sector BW-U c3-5','Smojoo ZE-R d4-109',
+            'Thaile HW-V e2-7','Deriv-Dar',
           ]
-          names_sql = ','.join("'%s'" % n.replace("'", "''") for n in names)
+          names_sql=','.join("'%s'"%n.replace("'","''") for n in names)
 
           def psql(sql):
               argv=['docker','--context','default','exec',PG,'psql','-X','--no-password','--tuples-only','--no-align','--quiet','--set','ON_ERROR_STOP=1','--username',USER,'--dbname',DB,'--command',sql]
               p=subprocess.run(argv,text=True,capture_output=True,env=E,check=True,timeout=60)
               return [line.strip() for line in p.stdout.splitlines() if line.strip()]
 
-          schema_rows = psql("""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
-            SELECT cg.relation_schema
-            FROM v3_meta.current_canonical_generation ccg
+          schema=psql("""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
+            SELECT cg.relation_schema FROM v3_meta.current_canonical_generation ccg
             JOIN v3_meta.canonical_generation cg USING (generation_id)
-            WHERE ccg.singleton IS TRUE; COMMIT;""")
-          assert len(schema_rows)==1
-          schema=schema_rows[0]
+            WHERE ccg.singleton IS TRUE; COMMIT;""")[0]
           assert schema.startswith('v3_gen_')
 
-          systems_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='15000ms';
+          systems=json.loads(next(line for line in psql(f"""BEGIN READ ONLY; SET LOCAL statement_timeout='15000ms';
             SELECT json_build_object('rows',COALESCE(json_agg(to_jsonb(s) ORDER BY s.name),'[]'::json))::text
-            FROM {schema}.systems s WHERE s.name IN ({names_sql}); COMMIT;"""
-          systems=json.loads(next(line for line in psql(systems_sql) if line.startswith('{')))['rows']
-          ids=[str(row['id64']) for row in systems]
-          assert ids, 'none of the 12 systems found'
-          ids_sql=','.join(ids)
-
-          bodies_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='20000ms';
+            FROM {schema}.systems s WHERE s.name IN ({names_sql}); COMMIT;""") if line.startswith('{')))['rows']
+          ids=[str(row['id64']) for row in systems]; ids_sql=','.join(ids)
+          bodies=json.loads(next(line for line in psql(f"""BEGIN READ ONLY; SET LOCAL statement_timeout='20000ms';
             SELECT json_build_object('rows',COALESCE(json_agg(to_jsonb(b) ORDER BY b.system_id64,b.body_pk),'[]'::json))::text
-            FROM {schema}.bodies b WHERE b.system_id64 IN ({ids_sql}); COMMIT;"""
-          bodies=json.loads(next(line for line in psql(bodies_sql) if line.startswith('{')))['rows']
+            FROM {schema}.bodies b WHERE b.system_id64 IN ({ids_sql}); COMMIT;""") if line.startswith('{')))['rows']
           body_pks=[str(row['body_pk']) for row in bodies]
 
-          # Full relation/column catalogue for the canonical generation, vocab and source schemas.
-          # This is metadata only and lets the V4 adapter prove where detailed body class lives.
-          catalog_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
+          catalog=json.loads(next(line for line in psql(f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
             SELECT json_build_object('rows',COALESCE(json_agg(json_build_object(
               'schema',c.table_schema,'relation',c.table_name,'column',c.column_name,
               'ordinal',c.ordinal_position,'type',c.data_type,'udt',c.udt_name
             ) ORDER BY c.table_schema,c.table_name,c.ordinal_position),'[]'::json))::text
-            FROM information_schema.columns c
-            WHERE c.table_schema IN ('{schema}','v3_vocab','v3_source'); COMMIT;"""
-          catalog=json.loads(next(line for line in psql(catalog_sql) if line.startswith('{')))['rows']
+            FROM information_schema.columns c WHERE c.table_schema IN ('{schema}','v3_vocab','v3_source'); COMMIT;""") if line.startswith('{')))['rows']
 
-          relation_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
+          relations=json.loads(next(line for line in psql(f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
             SELECT json_build_object('rows',COALESCE(json_agg(json_build_object('schema',n.nspname,'relation',c.relname) ORDER BY n.nspname,c.relname),'[]'::json))::text
             FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
             WHERE c.relkind IN ('r','v','m') AND (
               (n.nspname='{schema}' AND (c.relname ILIKE '%body%' OR c.relname ILIKE '%ring%' OR c.relname ILIKE '%signal%' OR c.relname ILIKE '%reserve%' OR c.relname ILIKE '%class%'))
-              OR n.nspname='v3_vocab'
-              OR (n.nspname='v3_source' AND (c.relname ILIKE '%body%' OR c.relname ILIKE '%system%' OR c.relname ILIKE '%scan%'))
-            ); COMMIT;"""
-          relations=json.loads(next(line for line in psql(relation_sql) if line.startswith('{')))['rows']
+              OR n.nspname='v3_vocab'); COMMIT;""") if line.startswith('{')))['rows']
 
           extras=[]
           for item in relations:
-              sch=item['schema']; rel=item['relation']
-              qrel='"%s"."%s"' % (sch.replace('"','""'), rel.replace('"','""'))
+              sch=item['schema']; rel=item['relation']; qrel='"%s"."%s"'%(sch.replace('"','""'),rel.replace('"','""'))
               cols=[row['column'] for row in catalog if row['schema']==sch and row['relation']==rel]
               try:
                   if sch=='v3_vocab':
-                      rows_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='8000ms';
-                        SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x; COMMIT;"""
+                      rows_sql=f"SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x"
                   elif 'system_id64' in cols:
-                      rows_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='12000ms';
-                        SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x WHERE x.system_id64 IN ({ids_sql}); COMMIT;"""
+                      rows_sql=f"SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x WHERE x.system_id64 IN ({ids_sql})"
                   elif 'body_pk' in cols and body_pks:
-                      rows_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='12000ms';
-                        SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x WHERE x.body_pk IN ({','.join(body_pks)}); COMMIT;"""
+                      rows_sql=f"SELECT json_build_object('schema','{sch}','relation','{rel}','rows',COALESCE(json_agg(to_jsonb(x)),'[]'::json))::text FROM {qrel} x WHERE x.body_pk IN ({','.join(body_pks)})"
                   else:
                       continue
-                  payload=next((line for line in psql(rows_sql) if line.startswith('{')),None)
-                  if payload:
-                      extras.append(json.loads(payload))
+                  payload=next((line for line in psql("BEGIN READ ONLY; SET LOCAL statement_timeout='12000ms'; "+rows_sql+"; COMMIT;") if line.startswith('{')),None)
+                  if payload: extras.append(json.loads(payload))
               except Exception as exc:
                   extras.append({'schema':sch,'relation':rel,'export_error':type(exc).__name__})
 
-          result={
-            'status':'success','read_only':True,'db_writes_performed':False,'migrations_performed':False,'service_changes_performed':False,
+          run_ids=sorted({str(row['source_run_id']) for row in systems+bodies if row.get('source_run_id')})
+          run_ids_sql=','.join("'%s'"%r.replace("'","''") for r in run_ids)
+          source_metadata=[]
+          if run_ids:
+              meta_sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
+              SELECT json_build_object('rows',COALESCE(json_agg(json_build_object(
+                'source_run_id',sr.source_run_id,'source_id',sr.source_id,'source_code',s.source_code,
+                'artifact_id',sr.artifact_id,'artifact_kind',a.artifact_kind,'media_type',a.media_type,
+                'compression_code',a.compression_code,'storage_locator',a.storage_locator,
+                'retrieved_at',a.retrieved_at,'effective_at',a.effective_at,'size_bytes',a.size_bytes
+              ) ORDER BY sr.source_run_id),'[]'::json))::text
+              FROM v3_source.source_run sr
+              LEFT JOIN v3_source.source s ON s.source_id=sr.source_id
+              LEFT JOIN v3_source.source_artifact a ON a.artifact_id=sr.artifact_id
+              WHERE sr.source_run_id IN ({run_ids_sql}); COMMIT;"""
+              source_metadata=json.loads(next(line for line in psql(meta_sql) if line.startswith('{')))['rows']
+
+          result={'status':'success','read_only':True,'db_writes_performed':False,'migrations_performed':False,'service_changes_performed':False,
             'canonical_schema':schema,'requested_systems':names,'systems':systems,'bodies':bodies,
-            'catalog':catalog,'relations':relations,'extras':extras,
-          }
+            'catalog':catalog,'relations':relations,'extras':extras,'source_metadata':source_metadata}
           print(json.dumps(result,sort_keys=True,separators=(',',':')))
           PY
           python3 - <<'PY' "$output"
-          import json, pathlib, sys
-          path=pathlib.Path(sys.argv[1]); payload=json.loads(path.read_text())
-          assert payload['status']=='success' and payload['read_only'] is True and payload['db_writes_performed'] is False
-          print(f"exported {len(payload['systems'])} systems, {len(payload['bodies'])} bodies, {len(payload['catalog'])} catalog columns")
+          import json,pathlib,sys
+          p=json.loads(pathlib.Path(sys.argv[1]).read_text()); assert p['status']=='success' and p['read_only'] and not p['db_writes_performed']
+          print(f"exported {len(p['systems'])} systems, {len(p['bodies'])} bodies, {len(p['source_metadata'])} source artifact records")
           PY
 
       - name: Upload Ratings V4 fixture export
