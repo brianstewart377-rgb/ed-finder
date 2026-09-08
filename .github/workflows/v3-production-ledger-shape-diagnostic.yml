@@ -1,0 +1,73 @@
+name: V3 production ledger shape diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v3-production-ledger-shape-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Probe ledger shape read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, socket, subprocess
+          C="edfinder-v3-phase4c-full-20260827_r5-postgres"
+          E={"PATH":"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","LANG":"C","LC_ALL":"C"}
+          fqdn=subprocess.run(["hostname","-f"],text=True,capture_output=True,env=E,check=False).stdout.strip()
+          assert socket.gethostname().split('.')[0]=="ed-finder-prod" and fqdn=="nb79a3d.mevnode.com"
+          env=subprocess.run(["docker","--context","default","inspect",C,"--format","{{range .Config.Env}}{{println .}}{{end}}"],text=True,capture_output=True,env=E,check=True).stdout.splitlines()
+          vals={}
+          for line in env:
+              if line.startswith("POSTGRES_USER="): vals["user"]=line.split("=",1)[1]
+              if line.startswith("POSTGRES_DB="): vals["database"]=line.split("=",1)[1]
+          base=["docker","--context","default","exec",C,"psql","-X","--no-password","--tuples-only","--no-align","--quiet","--set","ON_ERROR_STOP=1","--username",vals["user"],"--dbname",vals["database"],"--command"]
+          shape_sql="SELECT json_build_object('table',to_regclass('public.schema_migrations')::text,'columns',COALESCE((SELECT json_agg(column_name ORDER BY ordinal_position) FROM information_schema.columns WHERE table_schema='public' AND table_name='schema_migrations'),'[]'::json))::text;"
+          shape=subprocess.run(base+[shape_sql],text=True,capture_output=True,env=E,check=False)
+          result={"runtime_database_identity":vals,"shape_returncode":shape.returncode}
+          if shape.returncode==0:
+              try: result["shape"]=json.loads(shape.stdout.strip())
+              except Exception: result["shape_stdout_preview"]=shape.stdout.strip()[:300]
+          else:
+              result["shape_error"]=" | ".join(x.strip() for x in shape.stderr.splitlines() if x.strip())[:500]
+          if result.get("shape",{}).get("table"):
+              count=subprocess.run(base+["BEGIN READ ONLY; SELECT count(*) FROM public.schema_migrations; COMMIT;"],text=True,capture_output=True,env=E,check=False)
+              result["count_returncode"]=count.returncode
+              result["count_stdout"]=count.stdout.strip()[:100]
+              if count.returncode:
+                  result["count_error"]=" | ".join(x.strip() for x in count.stderr.splitlines() if x.strip())[:500]
+          exact="""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms'; SELECT json_build_object('database_name',current_database(),'server_address',COALESCE(inet_server_addr()::text,'local'),'server_port',COALESCE(inet_server_port(),current_setting('port')::int),'transaction_read_only',current_setting('transaction_read_only'),'migrations',COALESCE((SELECT json_agg(json_build_object('filename',filename,'checksum_sha256',checksum_sha256) ORDER BY filename) FROM public.schema_migrations),'[]'::json))::text; COMMIT;"""
+          p=subprocess.run(base+[exact],text=True,capture_output=True,env=E,check=False)
+          result["exact_returncode"]=p.returncode
+          result["exact_stdout_preview"]=p.stdout.strip().replace('\n','\\n')[:300]
+          if p.returncode:
+              result["exact_error"]=" | ".join(x.strip() for x in p.stderr.splitlines() if x.strip())[:700]
+          print(json.dumps(result,sort_keys=True,separators=(",",":")))
+          PY
