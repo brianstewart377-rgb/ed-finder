@@ -4,6 +4,9 @@ on:
   push:
     branches: [feat/ratings-v4-scorer-harness]
     paths: ['.github/workflows/v3-ratings-v4-real-system-fixture-diagnostic.yml']
+  pull_request:
+    branches: [decision/v3-search-spatial-derived-data]
+    paths: ['.github/workflows/v3-ratings-v4-real-system-fixture-diagnostic.yml']
 
 permissions:
   contents: read
@@ -99,7 +102,6 @@ jobs:
             ); COMMIT;"""
           relations=json.loads(next(line for line in psql(relation_sql) if line.startswith('{')))
 
-          # Export small vocab relations completely and generation relations only when they expose system/body keys.
           extras=[]
           for item in relations['rows']:
               sch=item['schema']; rel=item['relation']
