@@ -1,0 +1,62 @@
+name: V3 production native ledger rows diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v3-production-native-ledger-rows-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = 22 ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Read V3-native migration identities
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import json, socket, subprocess
+          PG="edfinder-v3-phase4c-full-20260827_r5-postgres"
+          E={"PATH":"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin","LANG":"C","LC_ALL":"C"}
+          fqdn=subprocess.run(["hostname","-f"],text=True,capture_output=True,env=E,check=False,timeout=5).stdout.strip()
+          assert socket.gethostname().split('.')[0]=="ed-finder-prod" and fqdn=="nb79a3d.mevnode.com"
+          raw=subprocess.run(["docker","--context","default","inspect",PG,"--format","{{range .Config.Env}}{{println .}}{{end}}"],text=True,capture_output=True,env=E,check=True,timeout=10).stdout.splitlines()
+          ident={}
+          for line in raw:
+              if line.startswith("POSTGRES_USER="): ident["user"]=line.split("=",1)[1]
+              elif line.startswith("POSTGRES_DB="): ident["database"]=line.split("=",1)[1]
+          sql="""BEGIN READ ONLY;
+          SELECT COALESCE(json_agg(json_build_object('migration_name',migration_name,'migration_sha256',encode(migration_sha256,'hex')) ORDER BY migration_name),'[]'::json)::text FROM v3_meta.schema_migration;
+          COMMIT;"""
+          argv=["docker","--context","default","exec",PG,"psql","-X","--no-password","--tuples-only","--no-align","--quiet","--set","ON_ERROR_STOP=1","--username",ident["user"],"--dbname",ident["database"],"--command",sql]
+          p=subprocess.run(argv,text=True,capture_output=True,env=E,check=True,timeout=15)
+          rows=[]
+          for line in p.stdout.splitlines():
+              line=line.strip()
+              if line.startswith('[') and line.endswith(']'):
+                  rows=json.loads(line)
+          print(json.dumps({"status":"success","database_identity":ident,"migrations":rows,"read_only":True,"db_writes_performed":False,"migrations_performed":False,"service_changes_performed":False},sort_keys=True,separators=(",",":")))
+          PY
