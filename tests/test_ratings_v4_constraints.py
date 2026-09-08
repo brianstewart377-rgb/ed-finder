@@ -34,7 +34,7 @@ def refinery(candidate_id='rocky', ground=None, competitors=()):
 def test_ground_constraint_is_three_state_and_never_changes_raw_potential(ground, quality, bounds):
     candidate = refinery(ground=ground)
     rating = rate_economy('Refinery', [candidate])
-    assert rating.potential_score == 61
+    assert rating.potential_score == 62
     assert rating.local_scores == (75,)
     assert rating.evidence_completeness == rating.confidence == 1
     assert candidate_specialisation(candidate) == rating.specialisation_quality == quality

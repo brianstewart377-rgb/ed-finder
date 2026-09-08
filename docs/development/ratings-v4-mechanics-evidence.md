@@ -1,6 +1,6 @@
 # Ratings V4 Mechanics Evidence Audit
 
-**Status:** proposed evidence authority for Ratings V4; review before freezing the V4 scoring contract
+**Status:** accepted evidence authority frozen with scorer 4.0.0; see [freeze evidence](ratings-v4-freeze/README.md)
 **Scope:** system-colonisation economy inheritance, local-body modifiers, strong/weak links, strong-link modifiers, top-two economy protection, and V4 scoring disposition
 
 ## Purpose
@@ -103,6 +103,12 @@ Current maintained references model strong-link base strength approximately by f
 Raw economy potential may use the **existence of favourable/hostile link conditions** as evidence of natural suitability. It must not pretend a supporting facility has already been built.
 
 ## 4. Strong-link modifier matrix
+
+The source adapter applies reserve rules only where canonical attached body/ring
+observations support them. References may describe these as system reserves;
+the frozen scorer never infers a system-wide scalar from one observed body.
+The synthetic system-reserve input remains a fixture convenience. See the data
+contract for the frozen source-scope and unknown-state rules.
 
 ### Agriculture
 

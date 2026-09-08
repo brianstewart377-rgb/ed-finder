@@ -1,6 +1,6 @@
 # Ratings V4 Coefficient Calibration
 
-**Status:** calibration note; overrides no scoring authority until fixture validation is complete
+**Status:** calibration history; the revised coefficients are frozen in scorer 4.0.0. See [freeze evidence](ratings-v4-freeze/README.md).
 **Depends on:** `ratings-v4-scoring-contract.md`, `ratings-v4-validation-fixtures.md`
 
 ## Finding
@@ -23,9 +23,9 @@ Retain the architecture and depth curve but raise the meaning of mechanics-backe
 | Distinct positive strong-link mechanic | +10 | +10 |
 | Distinct negative strong-link mechanic | -10 | -10 |
 
-Strong-link caps remain provisional at +/-25.
+The frozen strong-link caps are +/-25, applied separately to each sign.
 
-The system roll-up remains provisionally:
+The frozen system roll-up is:
 
 ```text
 0.82*s1 + 0.11*s2 + 0.05*s3 + 0.02*s4
@@ -49,8 +49,8 @@ This gives a useful interpretation: a single genuinely good native opportunity m
 
 ## Military consequence
 
-Military currently has no established environmental strong-link modifiers. Under the revised candidate, one main-sequence/Brown-Dwarf native Military opportunity is about 62 at system level and several independent Military-native opportunities can reach the low/mid 70s. This is intentional pending real-system validation: raw Military potential should remain conservative, while a Military Stronghold archetype may incorporate capacity, Industrial support, geography and other strategic dimensions.
+Military has no established environmental strong-link modifiers. Under the frozen coefficients, one ordinary-star/Brown-Dwarf native Military opportunity is 62 at system level and several independent Military-native opportunities can reach the low/mid 70s. The reviewed cohort supports this conservative raw Military treatment; a Military Stronghold archetype may incorporate capacity, Industrial support, geography and other strategic dimensions.
 
 ## Freeze rule
 
-Do not freeze these revised coefficients merely because they repair F7. The implementation/fixture harness must evaluate every deterministic fixture and a reviewed real-system sample. Coefficients may move again, but the scoring architecture, evidence classes, specialisation split and derived schema do not need to change.
+The freeze evaluated all 18 deterministic fixtures, the evidence/constraint regressions, all 84 source-aware cohort scores and the reviewed V3.4 formula comparisons. PostgreSQL 18 verified persistence and deterministic rebuild. The revised coefficients needed no further tuning; exact nearest-even rounding is now explicit. Future coefficient changes require a new scorer version and derived rebuild, with reviewed regression evidence.

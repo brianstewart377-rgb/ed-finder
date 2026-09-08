@@ -15,6 +15,7 @@ from domain.ratings_v4 import BodyFact, SCORER_VERSION, SystemFacts, rate_system
 
 FIXTURE_PATH = ROOT / 'tests' / 'fixtures' / 'ratings_v4_real_systems.json'
 FIXTURE = json.loads(FIXTURE_PATH.read_text(encoding='utf-8'))
+DELTAS = json.loads(FIXTURE_PATH.with_name('ratings_v4_candidate4_deltas.json').read_text(encoding='utf-8'))
 CASES = FIXTURE['systems']
 CODES = FIXTURE['codes']
 
@@ -42,15 +43,23 @@ def _facts(case: dict) -> SystemFacts:
     )
 
 
-def test_real_system_baseline_uses_the_current_candidate_version() -> None:
-    assert FIXTURE['scorer'] == SCORER_VERSION
+def test_historical_baseline_and_current_rounding_deltas_have_explicit_versions() -> None:
+    assert FIXTURE['scorer'] == DELTAS['historical_scorer']
+    assert DELTAS['scorer'] == SCORER_VERSION
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['n'] for case in CASES])
 def test_v4_real_system_frozen_potential_scores(case: dict) -> None:
     ratings = rate_system_facts(_facts(case))
     actual = {economy: rating.potential_score for economy, rating in ratings.items()}
-    assert actual == case['p']
+    expected = dict(case['p'])
+    for economy, change in DELTAS['potential_changes'].get(str(case['id']), {}).items():
+        if economy == 'name':
+            assert change == case['n']
+            continue
+        assert expected[economy] == change['before']
+        expected[economy] = change['after']
+    assert actual == expected
 
 
 @pytest.mark.parametrize('case', CASES, ids=[case['n'] for case in CASES])

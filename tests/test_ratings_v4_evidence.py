@@ -19,6 +19,7 @@ def known_body(body_class='Water world', **overrides):
     return replace(BodyFact(
         'site', body_class, rings=False, biologicals=False, geologicals=False,
         volcanism=False, terraformable=False, tidally_locked=False,
+        feature_provenance={'provenance': 'test:synthetic-known-body'},
     ), **overrides)
 
 
@@ -125,7 +126,7 @@ def test_feature_confidence_only_affects_economies_using_the_feature():
     trusted = rate_system_facts(facts_for(body))
     uncertain = rate_system_facts(facts_for(replace(
         body, feature_confidence={'biologicals': 0.2},
-        feature_provenance={'biologicals': 'test:low-confidence-observation'},
+        feature_provenance={**body.feature_provenance, 'biologicals': 'test:low-confidence-observation'},
     )))
     assert uncertain['Military'] == trusted['Military']
     for economy in ('Agriculture', 'HighTech', 'Tourism'):
@@ -159,7 +160,7 @@ def test_stellar_source_confidence_follows_derived_system_modifiers():
     trusted = rate_system_facts(SystemFacts(bodies=(star, world), body_inventory_complete=True))
     uncertain = rate_system_facts(SystemFacts(bodies=(replace(
         star, feature_confidence={'spectral_class': 0.1},
-        feature_provenance={'spectral_class': 'test:uncertain-star'},
+        feature_provenance={**star.feature_provenance, 'spectral_class': 'test:uncertain-star'},
     ), world), body_inventory_complete=True))
     assert uncertain['Agriculture'].potential_score == trusted['Agriculture'].potential_score
     assert uncertain['Tourism'].potential_score == trusted['Tourism'].potential_score
@@ -250,3 +251,122 @@ def test_invalid_evidence_values_are_rejected(bad):
 def test_unknown_opportunity_economies_are_not_silently_discarded():
     with pytest.raises(ValueError, match='unknown economy'):
         rate_all([Opportunity('High Tech', 'typo', native=True)])
+
+
+def test_rollup_uses_exact_hundredths_and_nearest_even_ties():
+    assert rate_all([Opportunity('Military', 'star', native=True)])['Military'].potential_score == 62
+    # 0.82 * 60 + 0.11 * 30 = exactly 52.50; the even neighbour is 52.
+    candidates = [
+        Opportunity('Industrial', 'a', native=True, strong_positive_rules=('positive',),
+                    strong_negative_rules=('negative-a', 'negative-b', 'negative-c')),
+        Opportunity('Industrial', 'b', modifier=True,
+                    strong_negative_rules=('negative-a', 'negative-b', 'negative-c')),
+    ]
+    rating = rate_all(candidates)['Industrial']
+    assert rating.local_scores == (60, 30)
+    assert rating.potential_score == 52
+
+
+def test_missing_source_lineage_is_unknown_even_with_known_facts():
+    documented = known_body()
+    undocumented = replace(documented, feature_provenance={})
+    known = rate_system_facts(facts_for(documented))['Agriculture']
+    missing = rate_system_facts(facts_for(undocumented))['Agriculture']
+    assert missing.potential_score == known.potential_score
+    assert missing.evidence_completeness < known.evidence_completeness == 1
+    assert missing.confidence < known.confidence == 1
+    feature = next(f for f in missing.contributions[0].evidence if f.feature_type == 'provenance')
+    assert feature.known is False
+    assert feature.value is feature.provenance is None
+
+
+@pytest.mark.parametrize(('complete', 'exotic', 'expected_known', 'expected_value'), [
+    (False, None, False, None),
+    (True, None, True, False),
+    (False, 'Neutron star', True, 'neutron star'),
+])
+def test_exotic_evidence_preserves_present_absent_and_unknown_values(complete, exotic, expected_known, expected_value):
+    rating = rate_system_facts(SystemFacts(
+        bodies=(known_body(),), body_inventory_complete=complete, exotic_star=exotic,
+        feature_provenance={'exotic_star': 'test:stellar-inventory'},
+    ))['Tourism']
+    feature = next(f for f in rating.contributions[0].evidence if f.feature_type == 'exotic_star')
+    assert feature.known is expected_known
+    assert feature.value == expected_value
+
+
+def test_exotic_evidence_records_every_distinct_stellar_type():
+    rating = rate_system_facts(SystemFacts(bodies=(
+        known_body('Neutron star', candidate_id='n'),
+        known_body('Black hole', candidate_id='h'),
+        known_body('Neutron star', candidate_id='n2'),
+    )))['Tourism']
+    feature = next(f for f in rating.contributions[0].evidence if f.feature_type == 'exotic_star')
+    assert feature.value == 'black hole,neutron star'
+
+
+@pytest.mark.parametrize(('body_class', 'spectral', 'luminosity', 'expected_class'), [
+    ('M (Red super giant) Star', None, None, 'giant star'),
+    ('Star', 'M', 'Iab', 'giant star'),
+    ('Star', 'G', None, 'ordinary star'),
+    ('Star', 'G', 'V', 'main sequence star'),
+    ('Star', 'G', 'Va', 'main sequence star'),
+    ('Star', 'G', 'Vab', 'main sequence star'),
+    ('Star', 'G', 'VI', 'ordinary star'),
+    ('Star', 'G', 'IV', 'giant star'),
+    ('Main sequence star', None, None, 'main sequence star'),
+    ('Wolf-Rayet Star', None, None, 'ordinary star'),
+])
+def test_stellar_inheritance_preserves_classification_precision(body_class, spectral, luminosity, expected_class):
+    body = known_body(body_class, spectral_class=spectral, luminosity_class=luminosity)
+    ratings = rate_system_facts(facts_for(body))
+    assert ratings['Military'].potential_score == 62
+    assert ratings['HighTech'].potential_score == ratings['Tourism'].potential_score == 0
+    assert f'native:{expected_class}' in ratings['Military'].contributions[0].contributors
+    if luminosity is not None:
+        feature = next(f for f in ratings['Military'].contributions[0].evidence if f.feature_type == 'luminosity_class')
+        assert feature.value == luminosity
+
+
+def test_stellar_metadata_cannot_replace_a_known_planetary_classification():
+    body = known_body('Rocky body', spectral_class='N')
+    ratings = rate_system_facts(facts_for(body))
+    assert ratings['Refinery'].potential_score == 62
+    assert ratings['HighTech'].potential_score == ratings['Tourism'].potential_score == 0
+
+
+@pytest.mark.parametrize(('body_reserve', 'scope', 'expected_local', 'known'), [
+    ('Depleted', 'body', 65, True),
+    ('Common', 'body', 75, True),
+    (None, 'body', 75, False),
+    ('UnrecognisedResources', 'body', 75, False),
+    ('Depleted', 'synthetic_system', 65, True),
+    (None, 'synthetic_system', 85, True),
+])
+def test_body_reserve_scope_overrides_synthetic_system_reserves(body_reserve, scope, expected_local, known):
+    body = known_body('Rocky body', reserve_level=body_reserve, reserve_scope=scope,
+                      feature_provenance={'provenance': 'test:body', 'reserve_level': 'test:local-ring'},
+                      feature_confidence={'reserve_level': 0.4})
+    rating = rate_system_facts(facts_for(
+        body, reserve_level='Pristine', feature_provenance={'reserve_level': 'test:synthetic-system'},
+    ))['Refinery']
+    assert rating.local_scores == (expected_local,)
+    feature = next(f for f in rating.contributions[0].evidence if f.feature_type == 'reserve_level')
+    assert feature.known is known
+    if scope == 'body' or body_reserve is not None:
+        assert feature.confidence == 0.4
+        assert feature.provenance == 'test:local-ring'
+    else:
+        assert feature.provenance == 'test:synthetic-system'
+
+
+def test_reserve_observations_do_not_leak_to_other_bodies():
+    observed = known_body('Rocky body', candidate_id='observed', reserve_level='Pristine', reserve_scope='body')
+    unknown = known_body('Rocky body', candidate_id='unknown', reserve_scope='body')
+    rating = rate_system_facts(SystemFacts(bodies=(observed, unknown), reserve_level='Depleted'))['Refinery']
+    assert {c.candidate_id: c.local_score for c in rating.contributions} == {'observed': 85, 'unknown': 75}
+
+
+def test_unsupported_reserve_scope_is_rejected():
+    with pytest.raises(ValueError, match='unknown reserve scope'):
+        rate_system_facts(facts_for(known_body(reserve_scope='guess-from-neighbour')))

@@ -11,7 +11,7 @@ ECONOMIES = (
     'Military', 'Tourism', 'Extraction',
 )
 
-SCORER_VERSION = '4.0-candidate-3'
+SCORER_VERSION = '4.0.0'
 MECHANICS_VERSION = 'v4-mechanics-2026-09'
 
 NATIVE_BASE = 75
@@ -19,7 +19,9 @@ MODIFIER_BASE = 55
 NATIVE_AND_MODIFIER_BASE = 85
 STRONG_LINK_STEP = 10
 STRONG_LINK_CAP = 25
-SYSTEM_WEIGHTS = (0.82, 0.11, 0.05, 0.02)
+SYSTEM_WEIGHT_HUNDREDTHS = (82, 11, 5, 2)
+SYSTEM_WEIGHTS = tuple(weight / 100 for weight in SYSTEM_WEIGHT_HUNDREDTHS)
+ROUNDING_POLICY = 'nearest-even from exact integer hundredths'
 REFINERY_GROUND_RULE = 'refinery-usable-ground-opportunity'
 
 
@@ -123,6 +125,11 @@ class BodyFact:
     feature_confidence: Mapping[str, float] = field(default_factory=dict)
     feature_provenance: Mapping[str, str] = field(default_factory=dict)
     usable_ground_opportunity: bool | None = None
+    luminosity_class: str | None = None
+    reserve_level: str | None = None
+    # Canonical adapters must use body scope even when its reserve is unknown.
+    # The default preserves the historical synthetic system-reserve interface.
+    reserve_scope: str = 'synthetic_system'
 
 
 @dataclass(frozen=True)
@@ -241,6 +248,12 @@ def _weighted_mean(values: Iterable[tuple[float, float]]) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+def _round_hundredths(value: int) -> int:
+    """Round the exact roll-up to nearest integer, resolving ties to even."""
+    whole, remainder = divmod(value, 100)
+    return whole + int(remainder > 50 or (remainder == 50 and whole % 2 == 1))
+
+
 def _ratio(value: float) -> float:
     if not isfinite(value) or not 0 <= value <= 1:
         raise ValueError(f'evidence value must be finite and in 0..1: {value}')
@@ -275,9 +288,9 @@ def rate_economy(economy: str, opportunities: Iterable[Opportunity]) -> EconomyR
         key=lambda pair: (-pair[0], pair[1].candidate_id),
     )
     top = scored[:4]
-    potential = round(sum(
+    potential = _round_hundredths(sum(
         weight * score
-        for weight, (score, _) in zip(SYSTEM_WEIGHTS, top, strict=False)
+        for weight, (score, _) in zip(SYSTEM_WEIGHT_HUNDREDTHS, top, strict=False)
     ))
 
     specialisation_candidates = tuple(
@@ -362,6 +375,13 @@ def _body_key(value: str) -> str:
 
 def _classification(body: BodyFact) -> str:
     key = _body_key(body.body_class)
+    # A retained planetary classification cannot be overwritten by unrelated
+    # stellar metadata. Broad Star rows are resolved from stellar evidence below.
+    if _native_economies(key) and key not in {
+        'black hole', 'neutron star', 'white dwarf', 'brown dwarf',
+        'main sequence star', 'ordinary star', 'giant star',
+    }:
+        return key
     spectral = (body.spectral_class or '').strip().upper()
     spectral = re.sub(r'\d.*$', '', spectral).strip()
     if key in {'black hole', 'supermassive black hole'} or spectral in {'H', 'SUPERMASSIVEBLACKHOLE'}:
@@ -374,10 +394,20 @@ def _classification(body: BodyFact) -> str:
         return 'brown dwarf'
     # A main-star flag alone does not distinguish ordinary from exotic stars.
     # Broad canonical Star rows need the retained spectral classification.
-    if key == 'main sequence star' or spectral in {'O', 'B', 'A', 'F', 'G', 'K', 'M'}:
+    if key == 'main sequence star':
         return 'main sequence star'
-    if key.endswith(' star') and key.split(' ', 1)[0] in {'o', 'b', 'a', 'f', 'g', 'k', 'm'}:
-        return 'main sequence star'
+    ordinary_spectral = {'O', 'B', 'A', 'F', 'G', 'K', 'M', 'C', 'CN', 'CJ', 'CH', 'CHD', 'S', 'MS', 'W', 'WC', 'WN', 'WNC', 'WO'}
+    ordinary_subtype = (
+        key.endswith(' star') and key.split(' ', 1)[0].upper() in ordinary_spectral
+    ) or 'wolf rayet' in key or 'carbon star' in key
+    if ordinary_subtype or spectral in ordinary_spectral or key in {'ordinary star', 'giant star'}:
+        luminosity = (body.luminosity_class or '').strip().upper()
+        if 'giant' in key or re.fullmatch(r'(?:I|II|III|IV)[AB]*', luminosity):
+            return 'giant star'
+        if re.fullmatch(r'V[AB]*', luminosity):
+            return 'main sequence star'
+        # Spectral colour alone does not establish luminosity/evolutionary class.
+        return 'ordinary star'
     return key
 
 
@@ -387,7 +417,7 @@ def _reserve_key(value: str | None) -> str | None:
 
 
 def _classification_feature(body: BodyFact) -> str:
-    if body.spectral_class and not _native_economies(_body_key(body.body_class)):
+    if body.spectral_class and not _native_economies(_classification(replace(body, spectral_class=None))):
         return 'spectral_class'
     return 'body_class'
 
@@ -396,7 +426,7 @@ def _native_economies(body_class: str) -> tuple[str, ...]:
     key = _body_key(body_class)
     if key in {'black hole', 'neutron star', 'white dwarf'}:
         return ('HighTech', 'Tourism')
-    if key in {'brown dwarf', 'main sequence star'}:
+    if key in {'brown dwarf', 'main sequence star', 'ordinary star', 'giant star'}:
         return ('Military',)
     if key in {'earth like world', 'earthlike world', 'elw'}:
         return ('Agriculture', 'HighTech', 'Military', 'Tourism')
@@ -432,7 +462,7 @@ def _preferred(economy: str, body_class: str, body: BodyFact) -> bool:
     if economy == 'Extraction':
         return key in {'high metal content world', 'high metal content', 'hmc', 'metal rich body', 'metal rich'}
     if economy == 'Military':
-        return key in {'brown dwarf', 'main sequence star'} and body.rings is not True
+        return key in {'brown dwarf', 'main sequence star', 'ordinary star', 'giant star'} and body.rings is not True
     if economy in {'HighTech', 'Tourism'}:
         if economy == 'Tourism' and key in {'water world', 'ww'}:
             return True
@@ -442,7 +472,8 @@ def _preferred(economy: str, body_class: str, body: BodyFact) -> bool:
 
 def _evidence_for_economy(
     economy: str, body: BodyFact, facts: SystemFacts,
-    candidate_economies: set[str], reserve: str | None, exotic_known: bool,
+    candidate_economies: set[str], reserve: str | None, reserve_is_system: bool,
+    exotic_known: bool, exotic_value: str | bool | None,
     exotic_confidence: float, exotic_provenance: str | None,
 ) -> tuple[EvidenceFeature, ...]:
     classification_known = bool(_native_economies(_classification(body)))
@@ -485,28 +516,30 @@ def _evidence_for_economy(
         ))
 
     # Identity family (0.35) includes both classification and catalogue coverage.
-    add(_classification_feature(body), classification_known, 0.175)
+    uses_luminosity = body.luminosity_class is not None and _classification(body) in {
+        'ordinary star', 'giant star', 'main sequence star',
+    }
+    add(_classification_feature(body), classification_known, 0.0875 if uses_luminosity else 0.175)
+    if uses_luminosity:
+        add('luminosity_class', True, 0.0875)
     add('body_inventory', facts.body_inventory_complete, 0.175, system=True)
     for name in local_fields:
         add(name, getattr(body, name) is not None, 0.25 / len(local_fields))
     if potentially_eligible and economy in {'Extraction', 'Industrial', 'Refinery'}:
-        add('reserve_level', reserve is not None, 0.20, system=True)
+        add('reserve_level', reserve is not None, 0.20, system=reserve_is_system)
     if potentially_eligible and economy == 'Tourism':
         evidence.append(EvidenceFeature(
-            'exotic_star', exotic_known, 0.20, exotic_confidence, exotic_provenance,
+            'exotic_star', exotic_known, 0.20, exotic_confidence, exotic_provenance, exotic_value,
         ))
     if potentially_eligible and economy == 'Agriculture':
         for name in ('terraformable', 'tidally_locked'):
             add(name, getattr(body, name) is not None, 0.05)
-    add('provenance', True, 0.10)
+    add('provenance', bool(body.feature_provenance.get('provenance', '').strip()), 0.10)
     return tuple(evidence)
 
 
 def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
     result: list[Opportunity] = []
-    reserve = _reserve_key(facts.reserve_level)
-    reserve_positive = reserve in {'major', 'pristine'}
-    reserve_negative = reserve in {'low', 'depleted'}
     exotic_types = {'black hole', 'neutron star', 'white dwarf'}
     classifications = {_classification(body) for body in facts.bodies}
     exotics = classifications & exotic_types
@@ -517,6 +550,7 @@ def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
         facts.body_inventory_complete
         and all(_native_economies(key) for key in classifications)
     )
+    exotic_value = ','.join(sorted(exotics)) if exotics else (False if exotic_known else None)
     exotic_sources = [
         body for body in facts.bodies
         if _classification(body) in exotic_types or not exotics
@@ -533,6 +567,12 @@ def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
     for body in facts.bodies:
         _ratio(body.completeness)
         _ratio(body.confidence)
+        if body.reserve_scope not in {'body', 'synthetic_system'}:
+            raise ValueError(f'unknown reserve scope: {body.reserve_scope}')
+        reserve_is_system = body.reserve_scope == 'synthetic_system' and body.reserve_level is None
+        reserve = _reserve_key(facts.reserve_level if reserve_is_system else body.reserve_level)
+        reserve_positive = reserve in {'major', 'pristine'}
+        reserve_negative = reserve in {'low', 'depleted'}
         key = _classification(body)
         native = set(_native_economies(key))
         modifiers: set[str] = set()
@@ -611,7 +651,8 @@ def opportunities_from_facts(facts: SystemFacts) -> tuple[Opportunity, ...]:
                     negatives.append(f'reserves-{reserve}')
 
             evidence = _evidence_for_economy(
-                economy, body, facts, candidate_economies, reserve, exotic_known,
+                economy, body, facts, candidate_economies, reserve, reserve_is_system,
+                exotic_known, exotic_value,
                 exotic_confidence, exotic_provenance,
             )
             completeness = min(body.completeness, _weighted_mean(
