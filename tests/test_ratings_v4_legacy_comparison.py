@@ -57,6 +57,28 @@ def test_legacy_source_hash_is_stable_across_git_line_endings(tmp_path):
     assert comparison.legacy_source_sha256(source) == lf_hash
 
 
+@pytest.mark.parametrize(('old', 'new', 'message'), [
+    ('return 0.30', 'return 0.31', 'function differs'),
+    ("SCOOPABLE_STARS = {'O', 'B', 'A', 'F', 'G', 'K', 'M'}",
+     "SCOOPABLE_STARS = {'O', 'B', 'A', 'F', 'G', 'K'}", 'constants differ'),
+    ("RATING_VERSION = '3.4'", "RATING_VERSION = '3.5'", 'requires legacy scorer version'),
+])
+def test_static_reference_rejects_changed_original_function_or_constant(tmp_path, old, new, message):
+    source = comparison.LEGACY_PATH.read_text(encoding='utf-8')
+    assert old in source
+    changed = tmp_path / 'changed_original.py'
+    changed.write_text(source.replace(old, new, 1), encoding='utf-8')
+    with pytest.raises(ValueError, match=message):
+        comparison.legacy_functions(changed)
+
+
+def test_static_reference_accepts_only_line_and_formatting_differences(tmp_path):
+    source = comparison.LEGACY_PATH.read_text(encoding='utf-8')
+    formatted = tmp_path / 'formatted_original.py'
+    formatted.write_bytes(('\n\n' + source).replace('\n', '\r\n').encode('utf-8'))
+    assert comparison.legacy_functions(formatted)['RATING_VERSION'] == '3.4'
+
+
 def test_unknown_source_values_remain_null_and_legacy_defaults_are_disclosed():
     export, dumps = _sources()
     report = comparison.build_report(export, dumps)

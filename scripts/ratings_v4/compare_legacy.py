@@ -14,16 +14,23 @@ from collections import Counter, defaultdict
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Optional
+import sys
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
+from scripts.ratings_v4 import legacy_v34_reference  # noqa: E402
+
 LEGACY_PATH = ROOT / 'apps/importer/src/build_ratings.py'
+REFERENCE_PATH = Path(legacy_v34_reference.__file__)
 ECONOMIES = ('Agriculture', 'Refinery', 'Industrial', 'HighTech', 'Military', 'Tourism', 'Extraction')
 FUNCTIONS = {
     '_distance_weight', 'classify_bodies', 'attenuate_economy_scores',
     *(f'score_{economy.lower()}' for economy in ECONOMIES),
 }
+CONSTANTS = {'RATING_VERSION', 'SCOOPABLE_STARS'}
 
 
 def legacy_source_sha256(path: Path = LEGACY_PATH) -> str:
@@ -31,22 +38,38 @@ def legacy_source_sha256(path: Path = LEGACY_PATH) -> str:
     return hashlib.sha256(path.read_text(encoding='utf-8').encode('utf-8')).hexdigest()
 
 
-def legacy_functions(path: Path = LEGACY_PATH) -> dict[str, Any]:
-    """Load original pure definitions, excluding importer configuration/I/O."""
+def _reference_definitions(path: Path) -> tuple[dict[str, ast.FunctionDef], dict[str, Any]]:
     tree = ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
     nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in FUNCTIONS]
-    if {node.name for node in nodes} != FUNCTIONS:
+    if len(nodes) != len(FUNCTIONS) or {node.name for node in nodes} != FUNCTIONS:
         raise ValueError('legacy scorer pure-function contract changed')
-    namespace: dict[str, Any] = {'Optional': Optional}
+    constants = {}
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             target = node.targets[0]
-            if isinstance(target, ast.Name) and target.id in {'RATING_VERSION', 'SCOOPABLE_STARS'}:
-                namespace[target.id] = ast.literal_eval(node.value)
-    if namespace.get('RATING_VERSION') != '3.4':
+            if isinstance(target, ast.Name) and target.id in CONSTANTS:
+                if target.id in constants:
+                    raise ValueError(f'duplicate legacy scorer constant: {target.id}')
+                constants[target.id] = ast.literal_eval(node.value)
+    if set(constants) != CONSTANTS:
+        raise ValueError('legacy scorer constant contract changed')
+    return {node.name: node for node in nodes}, constants
+
+
+def legacy_functions(path: Path = LEGACY_PATH) -> dict[str, Any]:
+    """Use normally imported pure functions after verifying original-source parity."""
+    original_nodes, original_constants = _reference_definitions(path)
+    reference_nodes, reference_constants = _reference_definitions(REFERENCE_PATH)
+    if original_constants.get('RATING_VERSION') != '3.4':
         raise ValueError('comparison requires legacy scorer version 3.4')
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), 'exec'), namespace)
-    return namespace
+    if original_constants != reference_constants:
+        raise ValueError('legacy scorer constants differ from the static reference')
+    for name in sorted(FUNCTIONS):
+        if ast.dump(original_nodes[name], include_attributes=False) != ast.dump(
+            reference_nodes[name], include_attributes=False,
+        ):
+            raise ValueError(f'legacy scorer function differs from the static reference: {name}')
+    return {**reference_constants, **{name: getattr(legacy_v34_reference, name) for name in FUNCTIONS}}
 
 
 def recompute_legacy(bodies: list[dict], main_star_type: str | None) -> dict:
