@@ -9,7 +9,7 @@ import pytest
 
 
 @contextmanager
-def canonical_database():
+def canonical_database(*, prepare=None):
     import psycopg
     from psycopg import sql
     from psycopg.conninfo import conninfo_to_dict, make_conninfo
@@ -25,6 +25,8 @@ def canonical_database():
     database = 'v4_test_' + uuid4().hex
     root = Path(__file__).resolve().parents[1]
     canonical, metadata, payloads = load_source_fixture(root / 'tests/fixtures/ratings_v4_sources')
+    additional_sources = prepare(canonical, metadata) if prepare else ()
+    sources = [metadata, *additional_sources]
     with psycopg.connect(dsn, autocommit=True) as admin:
         admin.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(database)))
         try:
@@ -42,8 +44,8 @@ def canonical_database():
                     connection.execute('''INSERT INTO v3_source.source_rights_policy(
                         rights_policy_id,source_id,policy_version,rights_class,retention_class,effective_at)
                         VALUES (1,40,'test-fixture','CANONICAL_ELIGIBLE','TEST_ONLY',now())''')
-                    insert('v3_source', 'source_artifact', [metadata['artifact']])
-                    insert('v3_source', 'source_run', [metadata['run']])
+                    insert('v3_source', 'source_artifact', [item['artifact'] for item in sources])
+                    insert('v3_source', 'source_run', [item['run'] for item in sources])
                     generation = uuid4()
                     schema = canonical['canonical_schema']
                     connection.execute('''INSERT INTO v3_meta.canonical_generation(
@@ -51,10 +53,11 @@ def canonical_database():
                         VALUES (%s,%s,%s,%s,%s)''',
                         (generation, schema.removeprefix('v3_gen_'), schema, bytes(32), metadata['run']['source_run_id']))
                     connection.execute('SELECT v3_meta.create_canonical_generation_relations(%s)', (generation,))
-                    connection.execute('''INSERT INTO v3_meta.canonical_generation_input(
-                        generation_id,input_ordinal,source_id,source_run_id,artifact_id,input_role)
-                        VALUES (%s,0,40,%s,%s,'TEST_FIXTURE')''',
-                        (generation, metadata['run']['source_run_id'], metadata['artifact']['artifact_id']))
+                    for ordinal, item in enumerate(sources):
+                        connection.execute('''INSERT INTO v3_meta.canonical_generation_input(
+                            generation_id,input_ordinal,source_id,source_run_id,artifact_id,input_role)
+                            VALUES (%s,%s,40,%s,%s,'TEST_FIXTURE')''',
+                            (generation, ordinal, item['run']['source_run_id'], item['artifact']['artifact_id']))
                     for extra in canonical['extras']:
                         if extra['schema'] == 'v3_vocab':
                             insert('v3_vocab', extra['relation'], extra['rows'])

@@ -11,6 +11,7 @@ on:
       - 'scripts/ratings_v4/**'
       - 'scripts/checks/requirements.txt'
       - 'tests/test_ratings_v4*'
+      - 'tests/ratings_v4_pg_fixture.py'
       - 'tests/fixtures/ratings_v4*'
       - 'tests/fixtures/ratings_v4_sources/**'
       - 'docs/development/ratings-v4*'

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import asdict
 import json
 from pathlib import Path
 import sys
@@ -39,6 +40,91 @@ def body_fact(facts, body):
 
 def physical_body(canonical):
     return next(row for row in canonical['bodies'] if row['body_type_id'] == 2)
+
+
+def admitted_metadata(metadata):
+    metadata['generation_id'] = 'test-generation'
+    extra = deepcopy({key: metadata[key] for key in ('run', 'artifact', 'source')})
+    extra['run']['source_run_id'] = '00000000-0000-0000-0000-000000000002'
+    extra['run']['artifact_id'] = extra['artifact']['artifact_id'] = '00000000-0000-0000-0000-000000000003'
+    extra['artifact']['content_sha256'] = '\\x' + 'a' * 64
+    metadata['generation_inputs'] = [
+        {'input': {'generation_id': metadata['generation_id'], 'input_ordinal': ordinal,
+                   'source_id': item['run']['source_id'], 'source_run_id': item['run']['source_run_id'],
+                   'artifact_id': item['run']['artifact_id'], 'input_role': 'TEST_FIXTURE'},
+         **{key: item[key] for key in ('run', 'artifact', 'source')}}
+        for ordinal, item in enumerate((metadata, extra))]
+    return extra
+
+
+@pytest.mark.parametrize('table', ['systems', 'bodies', 'rings', 'body_signal_current'])
+def test_each_canonical_relation_accepts_admitted_runs_and_preserves_provenance(source, table):
+    canonical, metadata, subtypes = source
+    extra = admitted_metadata(metadata)
+    rows = canonical[table] if table in canonical else relation(canonical, table)
+    baseline = adapt_canonical_export(*source)
+    for row in rows:
+        row['source_run_id'] = extra['run']['source_run_id']
+    facts = adapt_canonical_export(*source)
+    # Every economy's score and evidence remain unchanged when only lineage changes.
+    for identifier, system in facts.items():
+        assert {key: value.potential_score for key, value in rate_system_facts(system).items()} == {
+            key: value.potential_score for key, value in rate_system_facts(baseline[identifier]).items()}
+    serialized = json.dumps({key: asdict(value) for key, value in facts.items()})
+    assert extra['run']['source_run_id'] in serialized
+    assert 'a' * 64 in serialized
+    assert canonical_lineage(*source)['canonical_generation_inputs'] == metadata['generation_inputs']
+    rows[0]['source_run_id'] = 'unregistered'
+    with pytest.raises(ValueError, match='unregistered source run'):
+        adapt_canonical_export(*source)
+
+
+@pytest.mark.parametrize('fault', ['empty', 'missing_coordinator', 'duplicate_run', 'duplicate_ordinal',
+                                 'generation', 'source', 'artifact', 'partial', 'private', 'quarantined',
+                                 'hash', 'row_source'])
+def test_invalid_admitted_manifests_fail_closed(source, fault):
+    canonical, metadata, _ = source
+    extra = admitted_metadata(metadata)
+    entries = metadata['generation_inputs']
+    if fault == 'empty':
+        entries.clear()
+    elif fault == 'missing_coordinator':
+        entries.pop(0)
+    elif fault == 'duplicate_run':
+        entries.append(deepcopy(entries[1]))
+    elif fault == 'duplicate_ordinal':
+        entries[1]['input']['input_ordinal'] = 0
+    elif fault == 'generation':
+        entries[1]['input']['generation_id'] = 'another-generation'
+    elif fault in {'source', 'artifact'}:
+        entries[1]['input'][fault + '_id'] = 'wrong'
+    elif fault == 'partial':
+        extra['run']['run_state'] = 'PARTIAL'
+    elif fault == 'private':
+        extra['run']['trust_zone'] = 'PRIVATE'
+    elif fault == 'quarantined':
+        extra['artifact']['quarantine_state'] = 'QUARANTINED'
+    elif fault == 'hash':
+        extra['artifact']['content_sha256'] = 'bad'
+    else:
+        canonical['bodies'][0]['source_run_id'] = extra['run']['source_run_id']
+        canonical['bodies'][0]['source_id'] = -1
+    with pytest.raises(ValueError):
+        adapt_canonical_export(*source)
+
+
+def test_admitted_run_without_artifact_keeps_explicit_missing_hash(source):
+    canonical, metadata, _ = source
+    extra = admitted_metadata(metadata)
+    extra['run']['artifact_id'] = None
+    metadata['generation_inputs'][1]['artifact'] = None
+    metadata['generation_inputs'][1]['input']['artifact_id'] = None
+    body = physical_body(canonical)
+    body['source_run_id'] = extra['run']['source_run_id']
+    adapted = body_fact(adapt_canonical_export(*source), body)
+    provenance = json.loads(adapted.feature_provenance['provenance'])
+    assert provenance['source_run_id'] == extra['run']['source_run_id']
+    assert provenance['artifact_sha256'] is None
 
 
 def test_lossless_cohort_has_body_scoped_reserves_and_distinct_lineage(originals):

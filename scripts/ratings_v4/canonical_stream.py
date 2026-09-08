@@ -6,6 +6,7 @@ All other mechanics facts still come from the pinned canonical relations.
 """
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, replace
 import gzip
 import hashlib
@@ -87,10 +88,12 @@ class RetainedArtifactStream:
         with self.path.open('rb') as source:
             reader = _HashedReader(source)
             chunk = []
+            chunk_bodies = 0
             with gzip.GzipFile(fileobj=reader, mode='rb') as decoded:
-                if not decoded.peek(1).lstrip().startswith(b'['):
+                events = ijson.parse(decoded, use_float=True)
+                if next(events, None) != ('', 'start_array', None):
                     raise ValueError('Spansh artifact must be a JSON array')
-                for record in ijson.items(decoded, 'item', use_float=True):
+                for record in ijson.items(events, 'item'):
                     if not isinstance(record, dict) or not isinstance(record.get('bodies', []), list):
                         raise ValueError('invalid Spansh system record')
                     _system_ids([record.get('id64')])
@@ -99,10 +102,12 @@ class RetainedArtifactStream:
                         raise ValueError('system exceeds bounded body inventory')
                     # Bound both system count and the more variable body count.
                     if chunk and (len(chunk) >= chunk_size or
-                                  sum(len(r.get('bodies', [])) for r in chunk) + body_count > MAX_CHUNK_BODIES):
+                                  chunk_bodies + body_count > MAX_CHUNK_BODIES):
                         yield chunk
                         chunk = []
+                        chunk_bodies = 0
                     chunk.append(record)
+                    chunk_bodies += body_count
                     systems += 1
                     bodies += body_count
                 if decoded.read(1):
@@ -140,12 +145,14 @@ def adapt_retained_chunk(canonical: Mapping, metadata: Mapping,
     if set(identifiers) != {row['id64'] for row in canonical['systems']}:
         raise ValueError('source/canonical chunk system inventory mismatch')
     payloads = []
+    bodies_by_system = defaultdict(set)
+    for row in canonical['bodies']:
+        bodies_by_system[row['system_id64']].add((row['source_body_id64'], row.get('frontier_body_id')))
     for record in records:
         raw_bodies = record.get('bodies', [])
         if not isinstance(raw_bodies, list) or any(not isinstance(body, dict) for body in raw_bodies):
             raise ValueError('invalid source body inventory')
-        expected = {(row['source_body_id64'], row.get('frontier_body_id'))
-                    for row in canonical['bodies'] if row['system_id64'] == record['id64']}
+        expected = bodies_by_system[record['id64']]
         observed = {(body.get('id64'), body.get('bodyId')) for body in raw_bodies}
         if expected != observed or len(observed) != len(raw_bodies):
             raise ValueError('source/canonical chunk body inventory mismatch')
@@ -194,7 +201,18 @@ class CanonicalSnapshot:
                 SELECT g.generation_id::text, c.publication_sequence, g.relation_schema,
                        g.validation_receipt->>'systems', g.validation_receipt->>'bodies',
                        json_build_object('status','success','read_only',true,'db_writes_performed',false,
-                                         'run',to_jsonb(r),'artifact',to_jsonb(a),'source',to_jsonb(s))
+                                         'run',to_jsonb(r),'artifact',to_jsonb(a),'source',to_jsonb(s),
+                                         'generation_id',g.generation_id,
+                                         'generation_inputs',(
+                                             SELECT jsonb_agg(jsonb_build_object(
+                                                 'input',to_jsonb(i),'run',to_jsonb(ir),
+                                                 'artifact',to_jsonb(ia),'source',to_jsonb(src))
+                                                 ORDER BY i.input_ordinal)
+                                             FROM v3_meta.canonical_generation_input i
+                                             JOIN v3_source.source_run ir USING(source_run_id)
+                                             JOIN v3_source.source src ON src.source_id=ir.source_id
+                                             LEFT JOIN v3_source.source_artifact ia ON ia.artifact_id=ir.artifact_id
+                                             WHERE i.generation_id=g.generation_id))
                 FROM v3_meta.current_canonical_generation c
                 JOIN v3_meta.canonical_generation g USING(generation_id)
                 JOIN v3_source.source_run r ON r.source_run_id=g.build_source_run_id
@@ -209,7 +227,8 @@ class CanonicalSnapshot:
             from psycopg import sql
             vocabularies = tuple({'schema': 'v3_vocab', 'relation': name,
                                   'rows': [item[0] for item in connection.execute(
-                                      sql.SQL('SELECT to_jsonb(v) FROM v3_vocab.{} v').format(sql.Identifier(name))) ]}
+                                      sql.SQL('SELECT to_jsonb(v) FROM v3_vocab.{} v ORDER BY {}').format(
+                                          sql.Identifier(name), sql.Identifier(f'{name}_id'))) ]}
                                  for name in VOCABULARIES)
         return cls(row[0], row[1], row[2], int(row[3]), int(row[4]), row[5], vocabularies)
 
@@ -219,9 +238,10 @@ class CanonicalSnapshot:
 
         identifiers = _system_ids(system_ids)
 
-        def rows(relation, column, values, limit):
-            query = sql.SQL('SELECT to_jsonb(t) FROM {}.{} t WHERE {}=ANY(%s) LIMIT %s').format(
-                sql.Identifier(self.schema), sql.Identifier(relation), sql.Identifier(column))
+        def rows(relation, column, values, limit, identity):
+            query = sql.SQL('SELECT to_jsonb(t) FROM {}.{} t WHERE {}=ANY(%s) ORDER BY {} LIMIT %s').format(
+                sql.Identifier(self.schema), sql.Identifier(relation), sql.Identifier(column),
+                sql.SQL(', ').join(map(sql.Identifier, identity)))
             result = [row[0] for row in connection.execute(query, (values, limit + 1))]
             if len(result) > limit:
                 raise ValueError(f'canonical {relation} exceeds bounded chunk limit')
@@ -230,13 +250,13 @@ class CanonicalSnapshot:
         with connection.transaction():
             connection.execute('SET TRANSACTION READ ONLY')
             connection.execute("SET LOCAL statement_timeout='60s'")
-            systems = rows('systems', 'id64', identifiers, MAX_CHUNK_SYSTEMS)
+            systems = rows('systems', 'id64', identifiers, MAX_CHUNK_SYSTEMS, ('id64',))
             if {row['id64'] for row in systems} != set(identifiers):
                 raise ValueError('source system missing from pinned canonical generation')
-            bodies = rows('bodies', 'system_id64', identifiers, MAX_CHUNK_BODIES)
-            rings = rows('rings', 'system_id64', identifiers, MAX_CHUNK_BODIES * 4)
+            bodies = rows('bodies', 'system_id64', identifiers, MAX_CHUNK_BODIES, ('system_id64', 'body_pk'))
+            rings = rows('rings', 'system_id64', identifiers, MAX_CHUNK_BODIES * 4, ('system_id64', 'ring_pk'))
             signals = rows('body_signal_current', 'body_pk', [body['body_pk'] for body in bodies],
-                           MAX_CHUNK_BODIES * 8)
+                           MAX_CHUNK_BODIES * 8, ('body_pk', 'signal_type_id'))
         return {'status': 'success', 'read_only': True, 'db_writes_performed': False,
                 'canonical_schema': self.schema, 'systems': systems, 'bodies': bodies,
                 'extras': [*self.vocabularies,

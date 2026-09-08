@@ -46,6 +46,18 @@ canonical pointer and source metadata in one read snapshot. Subsequent chunks
 read that immutable generation even if the current pointer changes. Chunk
 system/body counts and database query time are bounded.
 
+The snapshot retains every `canonical_generation_input` entry in admission
+order, with its run, source and optional artifact metadata, including inputs
+with no rows in a particular chunk. Canonical rows must reference an admitted
+run and retain that run's provenance and inventory completeness. Relation reads
+use stable identity ordering so scan plans cannot alter output or content hashes.
+
+PR #647's review repair extends the adapter to this explicit multi-run manifest.
+Only the adapter implementation checksum in the freeze manifest is repinned;
+the scorer, mechanics, coefficients, retained source fixtures, 84 cohort outputs
+and derived-input hashes remain unchanged. Historical single-source exports
+retain their exact frozen facts and lineage.
+
 The retained compressed source is streamed and hashed as read. Only successful
 EOF with the exact expected byte count and SHA256 produces an acquisition
 receipt. A cancelled, truncated or corrupt stream cannot establish completeness.
