@@ -156,27 +156,6 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "release_run_id is required" >&2; exit 64; }
-      - name: Authenticate canonical immutable release run
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RELEASE_RUN_ID" > "$RUNNER_TEMP/release-run.json"
-          python - "$RUNNER_TEMP/release-run.json" <<'PY'
-          import json, os, pathlib, sys
-          run = json.loads(pathlib.Path(sys.argv[1]).read_text())
-          checks = {
-              "workflow": run.get("path") == ".github/workflows/v3-application-release.yml",
-              "event": run.get("event") == "workflow_dispatch",
-              "result": run.get("status") == "completed" and run.get("conclusion") == "success",
-              "branch": run.get("head_branch") == "main",
-              "repository": (run.get("head_repository") or {}).get("full_name", "").lower() == os.environ["GITHUB_REPOSITORY"].lower(),
-          }
-          failed = sorted(key for key, passed in checks.items() if not passed)
-          if failed:
-              raise SystemExit("Release provenance failed: " + ",".join(failed))
-          PY
       - name: Download candidate release manifest
         uses: actions/download-artifact@37930b1c80d454462c3107e7378932bdb48a5e8e # v8.0.1
         with:
@@ -184,7 +163,7 @@ jobs:
           path: ${{ runner.temp }}/candidate
           github-token: ${{ github.token }}
           run-id: ${{ inputs.release_run_id }}
-      - name: Verify candidate checksum, manifest, and run SHA
+      - name: Authenticate canonical release and verify candidate
         id: manifest
         env:
           RELEASE_RUN_ID: ${{ inputs.release_run_id }}
@@ -199,8 +178,8 @@ jobs:
             --repository "$GITHUB_REPOSITORY" \
             --candidate-run-id "$RELEASE_RUN_ID" \
             --candidate-manifest v3-application-release.json
-          python - "$RUNNER_TEMP/release-run.json" <<'PY'
-          import hashlib, json, os, pathlib, re, sys
+          python - <<'PY'
+          import hashlib, json, os, pathlib, re
           directory = pathlib.Path(os.environ["RUNNER_TEMP"]) / "candidate"
           manifest_path = directory / "v3-application-release.json"
           sidecar = (directory / "v3-application-release.json.sha256").read_text().strip().split()
@@ -209,9 +188,6 @@ jobs:
           if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != sidecar[0]:
               raise SystemExit("Candidate checksum mismatch")
           manifest = json.loads(manifest_path.read_text())
-          run = json.loads(pathlib.Path(sys.argv[1]).read_text())
-          if manifest.get("git_sha") != run.get("head_sha"):
-              raise SystemExit("Candidate manifest does not match release run SHA")
           if manifest.get("git_sha") != os.environ["CURRENT_MAIN_SHA"]:
               raise SystemExit("Candidate is not the exact current main release")
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:

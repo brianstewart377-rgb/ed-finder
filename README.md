@@ -20,7 +20,8 @@ PR #601's Explore/Finder → fresh Babylon results → canonical Inspect product
 slice and Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact
 merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
-The non-production V3 live checkpoint remains a separate rehearsal boundary.
+The separate Contabo/live checkpoint remains a rehearsal boundary outside
+production.
 The V3 production application promotion authority is now defined independently
 and remains fail-closed until its fresh inventory, schema, network, secret-file,
 receipt-store, Docker-context, and unchanged-edge cutover facts are reviewed.

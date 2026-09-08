@@ -229,6 +229,9 @@ def test_workflow_is_manual_main_only_protected_and_uses_pinned_ssh_trust():
     assert "ED_NEW_OPERATOR" not in source
     assert "target_confirmation" in source
     assert source.count("uses: actions/download-artifact@") == 2
+    assert source.count("scripts/release/v3_release_run.py") == 2
+    assert "gh api" not in source
+    assert "release-run.json" not in source
     assert "Stop before credentials or SSH while production authority is blocked" in source
     assert "Candidate is not the exact current main release" in source
     assert "exec bash scripts/operator/actions/v3-production-promote.sh" not in source
