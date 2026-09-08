@@ -3,9 +3,18 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
+import signal
+import stat
 import subprocess
+import sys
+import tarfile
+import textwrap
+import time
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 
@@ -113,7 +122,7 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         'receipt["docker_context"]',
         '"docker_endpoint"',
         '"loopback_origin_port_ownership"',
-        '"docker_ps_ports"',
+        '"docker_network_settings_ports"',
         '"58080"',
         '"58081"',
         '"bindings"',
@@ -237,6 +246,9 @@ def test_workflow_is_manual_main_only_protected_and_uses_pinned_ssh_trust():
     assert "exec bash scripts/operator/actions/v3-production-promote.sh" not in source
     assert "--runtime-directory" in source
     assert "kill -TERM" in source
+    assert "trap '' HUP INT TERM" in source
+    assert source.index("kill -TERM") < source.index('wait \\"\\$child\\"')
+    assert "kill -KILL" not in source
 
 
 def test_receipts_are_machine_readable_and_secret_safe_by_contract():
@@ -463,17 +475,31 @@ def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monk
             {
                 "Names": "edfinder-v3-proxy",
                 "State": "running",
-                "Ports": "127.0.0.1:58080->80/tcp, 0.0.0.0:58081->81/tcp",
+                "PortsDetail": [
+                    {
+                        "bind_address": "127.0.0.1", "host_port": 58080,
+                        "container_port": 80, "protocol": "tcp",
+                    },
+                    {
+                        "bind_address": "0.0.0.0", "host_port": 58081,
+                        "container_port": 81, "protocol": "tcp",
+                    },
+                ],
             },
             {
                 "Names": "candidate-web",
                 "State": "running",
-                "Ports": "127.0.0.1:58081->3000/tcp",
+                "PortsDetail": [
+                    {
+                        "bind_address": "127.0.0.1", "host_port": 58081,
+                        "container_port": 3000, "protocol": "tcp",
+                    }
+                ],
             },
             {
                 "Names": "stopped-web",
                 "State": "exited",
-                "Ports": "127.0.0.1:58081->3000/tcp",
+                "PortsDetail": None,
             },
         ],
         inspection_succeeded=True,
@@ -481,17 +507,653 @@ def test_inventory_reports_only_default_docker_endpoint_and_loopback_owners(monk
     assert ownership["inspection_succeeded"] is True
     assert ownership["ports"]["58080"]["owners"] == ["edfinder-v3-proxy"]
     assert ownership["ports"]["58080"]["bindings"] == [
-        {"container": "edfinder-v3-proxy", "container_port": 80, "protocol": "tcp"}
+        {
+            "container": "edfinder-v3-proxy", "bind_address": "127.0.0.1",
+            "container_port": 80, "protocol": "tcp",
+        }
     ]
-    assert ownership["ports"]["58081"]["owners"] == ["candidate-web"]
+    assert ownership["ports"]["58080"]["exact_loopback_only"] is True
+    assert ownership["ports"]["58081"]["owners"] == [
+        "candidate-web", "edfinder-v3-proxy"
+    ]
     assert ownership["ports"]["58081"]["bindings"] == [
-        {"container": "candidate-web", "container_port": 3000, "protocol": "tcp"}
+        {
+            "container": "candidate-web", "bind_address": "127.0.0.1",
+            "container_port": 3000, "protocol": "tcp",
+        },
+        {
+            "container": "edfinder-v3-proxy", "bind_address": "0.0.0.0",
+            "container_port": 81, "protocol": "tcp",
+        },
     ]
+    assert ownership["ports"]["58081"]["exact_loopback_only"] is False
+    assert ownership["exact_loopback_only"] is False
 
     incomplete = inventory.loopback_origin_ownership(
-        [{"Names": "malformed", "State": "running", "Ports": ["not-a-string"]}],
+        [{"Names": "malformed", "State": "running", "PortsDetail": "bad"}],
         inspection_succeeded=False,
     )
     assert incomplete["inspection_succeeded"] is False
     assert incomplete["ports"]["58080"]["owners"] == []
     assert incomplete["ports"]["58081"]["owners"] == []
+
+
+def test_protected_job_refetches_main_before_credentials_and_maps_fallback_receipts():
+    workflow = _workflow()
+    steps = workflow["jobs"]["production-operation"]["steps"]
+    names = [step.get("name", "") for step in steps]
+    recheck_index = names.index("Revalidate exact current main after production approval")
+    prepare_index = names.index("Prepare sealed source-free operation bundle and pinned SSH trust")
+    execute_index = names.index("Execute exact production authority")
+    recheck = steps[recheck_index]["run"]
+    execute = steps[execute_index]["run"]
+
+    assert recheck_index < prepare_index < execute_index
+    assert "git fetch --no-tags origin refs/heads/main" in recheck
+    assert 'git rev-parse HEAD' in recheck
+    assert 'git rev-parse FETCH_HEAD' in recheck
+    assert steps[recheck_index]["env"]["EXPECTED_SOURCE_SHA"] == "${{ needs.guard.outputs.source_sha }}"
+    assert "preflight) receipt_operation=production-preflight" in execute
+    assert "promote) receipt_operation=production-promotion" in execute
+    assert 'os.environ["RECEIPT_OPERATION"]' in execute
+    assert '"operation": "production-promotion"' not in execute
+
+
+def test_bundle_and_remote_runtime_roots_remain_private_after_archive_extraction(tmp_path):
+    source = WORKFLOW.read_text(encoding="utf-8")
+    assert 'install -d -m 700 "$BUNDLE"' in source
+    assert 'tar --no-same-permissions --no-overwrite-dir -xf - -C' in source
+    extract = source.index("tar --no-same-permissions --no-overwrite-dir -xf - -C")
+    assert source.index('chmod 700 \\"\\$work\\"', extract) > extract
+
+    bundle = tmp_path / "bundle"
+    bundle.mkdir(mode=0o755)
+    (bundle / "payload").write_text("sealed", encoding="utf-8")
+    archive = tmp_path / "bundle.tar"
+    with tarfile.open(archive, "w") as handle:
+        handle.add(bundle, arcname=".")
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    subprocess.run(
+        [
+            "tar", "--no-same-permissions", "--no-overwrite-dir", "-xf",
+            str(archive), "-C", str(runtime),
+        ],
+        check=True,
+    )
+    runtime.chmod(0o700)
+
+    deployer = _load_deployer()
+    assert deployer.validate_runtime_directory(runtime) == runtime
+    assert stat.S_IMODE(runtime.stat().st_mode) == 0o700
+
+
+def _launcher_environment(fake_bin: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "PATH": f"{fake_bin}:/usr/bin:/bin",
+        "LANG": "C",
+        "LC_ALL": "C",
+    }
+
+
+def _write_executable(path: Path, source: str) -> None:
+    path.write_text(source, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def test_preflight_launcher_prefers_exact_cpython314_and_falls_back_compatibly(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    actual_python = Path(sys.executable).resolve()
+    (fake_bin / "python3.14").symlink_to(actual_python)
+    marker = tmp_path / "python3-used"
+    _write_executable(
+        fake_bin / "python3",
+        f"#!/bin/sh\nprintf used > {marker}\nexit 1\n",
+    )
+    preferred = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation", "preflight"],
+        text=True,
+        capture_output=True,
+        env=_launcher_environment(fake_bin),
+        timeout=10,
+    )
+    assert preferred.returncode == 78
+    assert json.loads(preferred.stdout)["operation"] == "production-preflight"
+    assert not marker.exists()
+
+    (fake_bin / "python3.14").unlink()
+    _write_executable(fake_bin / "python3.14", "#!/bin/sh\nexit 1\n")
+    (fake_bin / "python3").unlink()
+    (fake_bin / "python3").symlink_to("/usr/bin/python3")
+    fallback = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation", "authority-gate"],
+        text=True,
+        capture_output=True,
+        env=_launcher_environment(fake_bin),
+        timeout=10,
+    )
+    assert fallback.returncode == 78
+    assert json.loads(fallback.stdout)["operation"] == "production-authority-gate"
+
+
+def test_launcher_runtime_failures_use_only_validated_operation_names(tmp_path):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _write_executable(fake_bin / "python3.14", "#!/bin/sh\nexit 1\n")
+    _write_executable(fake_bin / "python3", "#!/bin/sh\nexit 1\n")
+    env = _launcher_environment(fake_bin)
+
+    unsupported = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation", "preflight"],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=10,
+    )
+    assert unsupported.returncode == 78
+    unsupported_receipt = json.loads(unsupported.stdout)
+    assert unsupported_receipt["operation"] == "production-preflight"
+    assert unsupported_receipt["failures"] == [
+        "python3_unsupported_for_production_readonly"
+    ]
+
+    mutation = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation", "promote"],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=10,
+    )
+    assert mutation.returncode == 78
+    mutation_receipt = json.loads(mutation.stdout)
+    assert mutation_receipt["operation"] == "production-promotion"
+    assert mutation_receipt["failures"] == [
+        "python314_required_for_production_mutation"
+    ]
+
+    hostile = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation", 'promote\"bad'],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=10,
+    )
+    assert hostile.returncode == 78
+    hostile_receipt = json.loads(hostile.stdout)
+    assert hostile_receipt["operation"] == "production-authority-gate"
+    assert hostile_receipt["failures"] == ["invalid_requested_operation"]
+    assert "bad" not in hostile.stdout
+
+    equals_form = subprocess.run(
+        ["bash", str(PROMOTE_ACTION), "--operation=preflight"],
+        text=True,
+        capture_output=True,
+        env=env,
+        timeout=10,
+    )
+    assert equals_form.returncode == 78
+    assert json.loads(equals_form.stdout)["operation"] == "production-preflight"
+
+
+def test_launcher_runtime_probe_is_bounded_and_invalid_314_is_unsupported(tmp_path):
+    invalid_only = tmp_path / "invalid-only"
+    invalid_only.mkdir()
+    (invalid_only / "timeout").symlink_to("/usr/bin/timeout")
+    _write_executable(invalid_only / "python3.14", "#!/bin/sh\nexit 1\n")
+    invalid = subprocess.run(
+        ["/bin/bash", str(PROMOTE_ACTION), "--operation", "preflight"],
+        text=True,
+        capture_output=True,
+        env={"PATH": str(invalid_only), "LANG": "C", "LC_ALL": "C"},
+        timeout=5,
+    )
+    assert invalid.returncode == 78
+    assert json.loads(invalid.stdout)["failures"] == [
+        "python3_unsupported_for_production_readonly"
+    ]
+
+    hanging = tmp_path / "hanging"
+    hanging.mkdir()
+    _write_executable(hanging / "python3", "#!/bin/sh\nsleep 30\n")
+    started = time.monotonic()
+    bounded = subprocess.run(
+        ["/bin/bash", str(PROMOTE_ACTION), "--operation", "preflight"],
+        text=True,
+        capture_output=True,
+        env=_launcher_environment(hanging),
+        timeout=15,
+    )
+    elapsed = time.monotonic() - started
+    assert bounded.returncode == 78
+    assert elapsed < 13
+    assert json.loads(bounded.stdout)["failures"] == [
+        "python3_unsupported_for_production_readonly"
+    ]
+
+
+def _origin_runner(bindings, listener="127.0.0.1:58080"):
+    ports = {"8080/tcp": bindings} if bindings else {"8080/tcp": None}
+
+    def runner(argv, **_kwargs):
+        if argv[:3] == ["docker", "ps", "--no-trunc"]:
+            return subprocess.CompletedProcess(argv, 0, "edfinder-v3-proxy\n", "")
+        if argv[:3] == ["docker", "inspect", "--format"]:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(ports), "")
+        if argv[:3] == ["ss", "-H", "-lnt"]:
+            stdout = f"LISTEN 0 4096 {listener} 0.0.0.0:*\n" if listener else ""
+            return subprocess.CompletedProcess(argv, 0, stdout, "")
+        raise AssertionError(argv)
+
+    return runner
+
+
+@pytest.mark.parametrize(
+    "bindings",
+    [
+        [{"HostIp": "0.0.0.0", "HostPort": "58080"}],
+        [{"HostIp": "::", "HostPort": "58080"}],
+        [{"HostIp": "[::]", "HostPort": "58080"}],
+        [{"HostIp": "192.0.2.10", "HostPort": "58080"}],
+        [
+            {"HostIp": "127.0.0.1", "HostPort": "58080"},
+            {"HostIp": "0.0.0.0", "HostPort": "58080"},
+        ],
+        [
+            {"HostIp": "127.0.0.1", "HostPort": "58080"},
+            {"HostIp": "127.0.0.1", "HostPort": "58080"},
+        ],
+    ],
+)
+def test_origin_ownership_rejects_wildcard_alternate_and_duplicate_bindings(bindings):
+    deployer = _load_deployer()
+    with pytest.raises(deployer.DeploymentError, match="ownership drifted"):
+        deployer.verify_origin_ownership(
+            "bootstrap", None, {}, _origin_runner(bindings)
+        )
+
+
+def test_origin_ownership_requires_exact_loopback_listener_and_no_staging_binding():
+    deployer = _load_deployer()
+    exact = [{"HostIp": "127.0.0.1", "HostPort": "58080"}]
+    deployer.verify_origin_ownership("bootstrap", None, {}, _origin_runner(exact))
+
+    with pytest.raises(deployer.DeploymentError, match="not exact loopback"):
+        deployer.verify_origin_ownership(
+            "bootstrap", None, {}, _origin_runner(exact, "0.0.0.0:58080")
+        )
+
+    mixed = [
+        {"HostIp": "127.0.0.1", "HostPort": "58080"},
+        {"HostIp": "127.0.0.1", "HostPort": "58081"},
+    ]
+    with pytest.raises(deployer.DeploymentError, match="staging origin"):
+        deployer.verify_origin_ownership(
+            "bootstrap", None, {}, _origin_runner(mixed)
+        )
+
+
+def test_origin_bindings_are_rechecked_for_staging_and_active_cutover():
+    deployer = _load_deployer()
+    owners = {
+        deployer.LEGACY_ORIGIN: {
+            "8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "58080"}]
+        },
+        deployer.CONTAINERS["web-blue"]: {
+            "8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": "58081"}]
+        },
+    }
+
+    def runner(argv, **_kwargs):
+        if argv[:3] == ["docker", "ps", "--no-trunc"]:
+            return subprocess.CompletedProcess(
+                argv, 0, "\n".join(owners) + "\n", ""
+            )
+        if argv[:3] == ["docker", "inspect", "--format"]:
+            return subprocess.CompletedProcess(
+                argv, 0, json.dumps(owners[argv[-1]]), ""
+            )
+        if argv[:3] == ["ss", "-H", "-lnt"]:
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                "LISTEN 0 4096 127.0.0.1:58080 0.0.0.0:*\n"
+                "LISTEN 0 4096 127.0.0.1:58081 0.0.0.0:*\n",
+                "",
+            )
+        raise AssertionError(argv)
+
+    deployer.verify_exact_origin_bindings(
+        deployer.LEGACY_ORIGIN, deployer.CONTAINERS["web-blue"], {}, runner
+    )
+    source = DEPLOYER.read_text(encoding="utf-8")
+    assert source.count("verify_exact_origin_bindings(") >= 4
+
+    owners[deployer.CONTAINERS["web-blue"]]["8080/tcp"].append(
+        {"HostIp": "::", "HostPort": "58081"}
+    )
+    with pytest.raises(deployer.DeploymentError, match="staging origin"):
+        deployer.verify_exact_origin_bindings(
+            deployer.LEGACY_ORIGIN, deployer.CONTAINERS["web-blue"], {}, runner
+        )
+
+
+def test_inventory_preserves_duplicate_and_non_loopback_binding_evidence():
+    inventory = _load_inventory()
+    ownership = inventory.loopback_origin_ownership(
+        [
+            {
+                "Names": "edfinder-v3-proxy",
+                "State": "running",
+                "PortsDetail": [
+                    {
+                        "bind_address": "127.0.0.1", "host_port": 58080,
+                        "container_port": 8080, "protocol": "tcp",
+                    },
+                    {
+                        "bind_address": "127.0.0.1", "host_port": 58080,
+                        "container_port": 8080, "protocol": "tcp",
+                    },
+                    {
+                        "bind_address": "::", "host_port": 58081,
+                        "container_port": 8080, "protocol": "tcp",
+                    },
+                ],
+            }
+        ],
+        inspection_succeeded=True,
+    )
+    assert len(ownership["ports"]["58080"]["bindings"]) == 2
+    assert ownership["ports"]["58080"]["exact_loopback_only"] is False
+    assert ownership["ports"]["58081"]["bindings"][0]["bind_address"] == "::"
+    assert ownership["ports"]["58081"]["exact_loopback_only"] is False
+    assert ownership["exact_loopback_only"] is False
+
+
+def _cancellation_promote_setup(monkeypatch, tmp_path, deployer):
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    receipt_dir = tmp_path / "receipts"
+    receipt_dir.mkdir(mode=0o700)
+    api_env = tmp_path / "api.env"
+    api_env.write_text("DATABASE_URL=postgresql://edfinder:x@db/edfinder\n", encoding="utf-8")
+    api_env.chmod(0o600)
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text("{}", encoding="utf-8")
+    schema_path.chmod(0o600)
+    token = tmp_path / "token"
+    token.write_text("ephemeral", encoding="utf-8")
+    token.chmod(0o600)
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    candidate_path = tmp_path / "candidate.json"
+    checksum_path = tmp_path / "candidate.json.sha256"
+    candidate_path.write_text("{}", encoding="utf-8")
+    checksum_path.write_text("unused", encoding="utf-8")
+
+    database_identity = {
+        "container": deployer.POSTGRES_CONTAINER,
+        "database_name": "edfinder",
+        "database_user": "edfinder",
+        "application_host": deployer.POSTGRES_CONTAINER,
+        "server_address": "local",
+        "server_port": 5432,
+    }
+    schema = {
+        "database_identity": database_identity,
+        "migration_set_identity": "sha256:" + "c" * 64,
+    }
+    candidate = {
+        "git_sha": "a" * 40,
+        "images": {
+            "backend": "ghcr.io/example/backend@sha256:" + "b" * 64,
+            "web": "ghcr.io/example/web@sha256:" + "d" * 64,
+        },
+    }
+    authority = {
+        "target": {
+            "production": True,
+            "hostname": deployer.EXPECTED_HOST,
+            "fqdn": deployer.EXPECTED_FQDN,
+        },
+        "external_authority": {
+            "api_env_file": str(api_env),
+            "api_env_owner_uid": os.geteuid(),
+            "api_env_mode": "0600",
+            "receipt_directory": str(receipt_dir),
+            "receipt_owner_uid": os.geteuid(),
+            "receipt_mode": "0700",
+            "schema_identity_file": str(schema_path),
+            "schema_identity_owner_uid": os.geteuid(),
+            "schema_identity_mode": "0600",
+            "schema_identity_sha256": "e" * 64,
+            "docker_context": "default",
+            "application_network": "production-app",
+            "staging_origin_bind": "127.0.0.1:58081",
+            "active_origin_bind": "127.0.0.1:58080",
+            "public_origin": "https://ed-finder.app",
+        },
+        "preservation_contract": {"exact_containers": []},
+    }
+    args = SimpleNamespace(
+        operation="promote",
+        mode="bootstrap",
+        compose=compose,
+        candidate=candidate_path,
+        candidate_checksum=checksum_path,
+        candidate_run_id="12345",
+        registry_token_file=token,
+        registry_username="operator",
+        runtime_directory=runtime,
+    )
+    snapshot = runtime / ".snapshot"
+
+    monkeypatch.setattr(deployer, "exact_host_guard", lambda _runner: None)
+    monkeypatch.setattr(deployer, "secure_path", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(deployer, "docker_context_guard", lambda *_args: None)
+    monkeypatch.setattr(deployer, "validate_compose", lambda *_args: None)
+    monkeypatch.setattr(deployer, "validate_schema_file", lambda *_args: schema)
+    monkeypatch.setattr(deployer, "validate_network", lambda *_args: None)
+    monkeypatch.setattr(deployer, "live_capacity_guard", lambda: {"logical_cpus": 16})
+    monkeypatch.setattr(deployer, "database_identity_from_env", lambda _path: database_identity)
+    monkeypatch.setattr(
+        deployer, "validate_candidate",
+        lambda *_args: (candidate, "f" * 64, b'{}'),
+    )
+    monkeypatch.setattr(deployer, "container_snapshot", lambda *_args: {})
+    monkeypatch.setattr(
+        deployer, "all_container_snapshot",
+        lambda *_args: {
+            deployer.LEGACY_API: "1" * 64 + ":running",
+            deployer.LEGACY_ORIGIN: "2" * 64 + ":running",
+        },
+    )
+    monkeypatch.setattr(deployer, "verify_origin_ownership", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_exact_origin_bindings", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_edge_routes_to_active_origin", lambda: None)
+    monkeypatch.setattr(deployer, "verify_unrelated_snapshot", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_snapshot", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_env_unchanged", lambda *_args: None)
+    monkeypatch.setattr(deployer, "verify_image", lambda *_args: None)
+    monkeypatch.setattr(deployer, "wait_ready", lambda *_args: None)
+    monkeypatch.setattr(deployer, "smoke", lambda *_args: {})
+
+    def freeze_env(*_args):
+        snapshot.write_text("frozen", encoding="utf-8")
+        snapshot.chmod(0o600)
+        return snapshot, (0, 0, 0, 0, 0, "digest")
+
+    monkeypatch.setattr(deployer, "freeze_env", freeze_env)
+    return args, authority, receipt_dir, snapshot
+
+
+def _assert_durable_failure_receipt(receipt_dir: Path, receipt: dict) -> None:
+    basename = receipt["durable_failure_receipt"]
+    path = receipt_dir / basename
+    sidecar = Path(str(path) + ".sha256")
+    assert path.is_file()
+    fields = sidecar.read_text(encoding="utf-8").split()
+    assert fields == [hashlib.sha256(path.read_bytes()).hexdigest(), basename]
+    persisted = json.loads(path.read_text(encoding="utf-8"))
+    assert persisted["failures"] == receipt["failures"]
+    assert persisted["rollback"] == receipt["rollback"]
+    assert persisted["service_changes_performed"] == receipt[
+        "service_changes_performed"
+    ]
+
+
+def test_cancellation_before_mutation_writes_durable_failure_without_service_change(monkeypatch, tmp_path):
+    deployer = _load_deployer()
+    args, authority, receipt_dir, snapshot = _cancellation_promote_setup(
+        monkeypatch, tmp_path, deployer
+    )
+    commands = []
+
+    def runner(argv, **_kwargs):
+        commands.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    def cancel_before_mutation(*_args):
+        signal.raise_signal(signal.SIGTERM)
+
+    monkeypatch.setattr(deployer, "verify_live_schema", cancel_before_mutation)
+    with deployer.controlled_cancellation():
+        with pytest.raises(deployer.OperationFailed) as failed:
+            deployer.promote(args, authority, runner)
+
+    receipt = failed.value.receipt
+    assert receipt["failures"] == ["operation_cancelled:SIGTERM"]
+    assert receipt["rollback"] == {"attempted": False, "status": "not-required"}
+    assert receipt["service_changes_performed"] is False
+    assert not any("up" in command or "stop" in command for command in commands)
+    assert not snapshot.exists()
+    _assert_durable_failure_receipt(receipt_dir, receipt)
+
+
+def test_pre_mutation_gate_cancellation_is_persisted_by_main(monkeypatch, tmp_path, capsys):
+    deployer = _load_deployer()
+    receipt_dir = tmp_path / "receipts"
+    receipt_dir.mkdir(mode=0o700)
+    authority_path = tmp_path / "authority.json"
+    authority_path.write_text(
+        json.dumps(
+            {
+                "target": {
+                    "production": True,
+                    "hostname": deployer.EXPECTED_HOST,
+                    "fqdn": deployer.EXPECTED_FQDN,
+                },
+                "external_authority": {
+                    "receipt_directory": str(receipt_dir),
+                    "receipt_owner_uid": os.geteuid(),
+                    "receipt_mode": "0700",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(deployer, "validate_authority", lambda _authority: [])
+    def cancel_in_verified_pre_mutation_gate(*_args):
+        deployer._PREMUTATION_FAILURE_RECEIPT_DIR = receipt_dir
+        raise deployer.OperationCancelled(signal.SIGTERM)
+
+    monkeypatch.setattr(deployer, "promote", cancel_in_verified_pre_mutation_gate)
+
+    status = deployer._main(
+        [
+            "--authority", str(authority_path),
+            "--operation", "promote",
+            "--candidate", str(tmp_path / "candidate.json"),
+            "--candidate-checksum", str(tmp_path / "candidate.sha256"),
+            "--candidate-run-id", "12345",
+        ]
+    )
+    assert status == 78
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["failures"] == ["operation_cancelled:SIGTERM"]
+    assert receipt["rollback"] == {"attempted": False, "status": "not-required"}
+    _assert_durable_failure_receipt(receipt_dir, receipt)
+
+
+def test_cancellation_after_cutover_rolls_back_and_writes_durable_failure(monkeypatch, tmp_path):
+    deployer = _load_deployer()
+    args, authority, receipt_dir, snapshot = _cancellation_promote_setup(
+        monkeypatch, tmp_path, deployer
+    )
+    commands = []
+    route_restored = []
+    monkeypatch.setattr(deployer, "verify_live_schema", lambda *_args: None)
+    monkeypatch.setattr(
+        deployer, "wait_for_preserved_edge_route", lambda: route_restored.append(True)
+    )
+
+    def runner(argv, **_kwargs):
+        commands.append(argv)
+        if (
+            "up" in argv
+            and argv[-1] == "web-blue"
+            and argv[-2] == "never"
+        ):
+            signal.raise_signal(signal.SIGTERM)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with deployer.controlled_cancellation():
+        with pytest.raises(deployer.OperationFailed) as failed:
+            deployer.promote(args, authority, runner)
+
+    receipt = failed.value.receipt
+    assert receipt["failures"] == ["operation_cancelled:SIGTERM"]
+    assert receipt["rollback"] == {
+        "attempted": True,
+        "status": "verified",
+        "kind": "first-cutover-abort-to-preserved-origin",
+        "accepted_release_rollback": False,
+    }
+    assert ["docker", "start", deployer.LEGACY_API] in commands
+    assert ["docker", "start", deployer.LEGACY_ORIGIN] in commands
+    assert any("rm" in command and "web-blue" in command for command in commands)
+    assert route_restored == [True]
+    assert not snapshot.exists()
+    _assert_durable_failure_receipt(receipt_dir, receipt)
+
+
+def test_controlled_cancellation_terminates_and_reaps_active_bounded_child(tmp_path):
+    child_pid_file = tmp_path / "child.pid"
+    helper = textwrap.dedent(
+        """
+        import signal
+        import sys
+        from scripts.operator import v3_production_deploy as deployer
+
+        deployer.PROCESS_TERMINATION_GRACE = 0.1
+        child_code = (
+            "import os,signal,sys,time;"
+            "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+            "open(sys.argv[1], 'w').write(str(os.getpid()));"
+            "time.sleep(60)"
+        )
+        try:
+            with deployer.controlled_cancellation():
+                deployer.run_command([sys.executable, "-c", child_code, sys.argv[1]])
+        except deployer.OperationCancelled:
+            raise SystemExit(78)
+        """
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", helper, str(child_pid_file)],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    deadline = time.monotonic() + 5
+    while not child_pid_file.exists() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert child_pid_file.exists()
+    child_pid = int(child_pid_file.read_text(encoding="utf-8"))
+    process.send_signal(signal.SIGTERM)
+    stdout, stderr = process.communicate(timeout=5)
+    assert process.returncode == 78, (stdout, stderr)
+    with pytest.raises(ProcessLookupError):
+        os.kill(child_pid, 0)

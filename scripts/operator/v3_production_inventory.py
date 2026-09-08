@@ -278,21 +278,76 @@ def inspect_default_docker_context() -> dict[str, Any]:
     }
 
 
+def inspect_container_port_bindings(name: str) -> list[dict[str, Any]] | None:
+    """Read bounded structured Docker port bindings without container config."""
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name):
+        return None
+    result = run(
+        [
+            "docker", "inspect", "--format",
+            "{{json .NetworkSettings.Ports}}", name,
+        ]
+    )
+    if result.returncode != 0 or len(result.stdout) > 65536:
+        return None
+    try:
+        mappings = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(mappings, dict):
+        return None
+    result_bindings: list[dict[str, Any]] = []
+    for target, host_bindings in mappings.items():
+        match = re.fullmatch(r"([0-9]{1,5})/(tcp|udp)", str(target))
+        if match is None or not 1 <= int(match.group(1)) <= 65535:
+            return None
+        if host_bindings is None:
+            continue
+        if not isinstance(host_bindings, list) or len(host_bindings) > 128:
+            return None
+        for host_binding in host_bindings:
+            if not isinstance(host_binding, dict) or set(host_binding) != {
+                "HostIp", "HostPort"
+            }:
+                return None
+            host_ip = host_binding["HostIp"]
+            host_port = host_binding["HostPort"]
+            if (
+                not isinstance(host_ip, str)
+                or not 0 < len(host_ip) <= 64
+                or not isinstance(host_port, str)
+                or not host_port.isdigit()
+                or not 1 <= int(host_port) <= 65535
+            ):
+                return None
+            result_bindings.append(
+                {
+                    "bind_address": host_ip,
+                    "host_port": int(host_port),
+                    "container_port": int(match.group(1)),
+                    "protocol": match.group(2),
+                }
+            )
+    return result_bindings
+
+
 def loopback_origin_ownership(
     containers: list[dict[str, Any]], *, inspection_succeeded: bool,
 ) -> dict[str, Any]:
-    """Derive bounded exact-loopback bindings from sanitized Docker port data."""
+    """Report every protected binding and whether it is exact-loopback-only."""
     ports = {
-        "58080": {"bind_address": "127.0.0.1", "owners": [], "bindings": []},
-        "58081": {"bind_address": "127.0.0.1", "owners": [], "bindings": []},
+        "58080": {
+            "expected_bind_address": "127.0.0.1", "owners": [],
+            "bindings": [], "exact_loopback_only": True,
+        },
+        "58081": {
+            "expected_bind_address": "127.0.0.1", "owners": [],
+            "bindings": [], "exact_loopback_only": True,
+        },
     }
     complete = inspection_succeeded
-    pattern = re.compile(
-        r"(?:^|,\s*)127\.0\.0\.1:(58080|58081)->([0-9]{1,5})/(tcp|udp)(?=,|$)"
-    )
     for item in containers:
         name = item.get("Names")
-        published = item.get("Ports")
         state = item.get("State")
         if (
             not isinstance(name, str)
@@ -303,36 +358,62 @@ def loopback_origin_ownership(
             continue
         if state.lower() != "running":
             continue
-        if published is None:
-            published = ""
-        if not isinstance(published, str) or len(published) > 4096:
+        published = item.get("PortsDetail")
+        if not isinstance(published, list):
             complete = False
             continue
-        for match in pattern.finditer(published):
-            host_port, container_port, protocol = match.groups()
-            target_port = int(container_port)
-            if not 1 <= target_port <= 65535:
+        for observed in published:
+            if (
+                not isinstance(observed, dict)
+                or set(observed) != {
+                    "bind_address", "host_port", "container_port", "protocol"
+                }
+                or not isinstance(observed["bind_address"], str)
+                or not 0 < len(observed["bind_address"]) <= 64
+                or not isinstance(observed["host_port"], int)
+                or isinstance(observed["host_port"], bool)
+                or not 1 <= observed["host_port"] <= 65535
+                or not isinstance(observed["container_port"], int)
+                or isinstance(observed["container_port"], bool)
+                or not 1 <= observed["container_port"] <= 65535
+                or observed["protocol"] not in {"tcp", "udp"}
+            ):
                 complete = False
+                continue
+            host_port = observed["host_port"]
+            if str(host_port) not in ports:
                 continue
             binding = {
                 "container": name,
-                "container_port": target_port,
-                "protocol": protocol,
+                "bind_address": observed.get("bind_address"),
+                "container_port": observed.get("container_port"),
+                "protocol": observed.get("protocol"),
             }
-            if binding not in ports[host_port]["bindings"]:
-                ports[host_port]["bindings"].append(binding)
+            ports[str(host_port)]["bindings"].append(binding)
     for value in ports.values():
         value["bindings"].sort(
             key=lambda item: (
-                item["container"], item["container_port"], item["protocol"]
+                str(item["container"]), str(item["bind_address"]),
+                str(item["container_port"]), str(item["protocol"]),
             )
         )
         value["owners"] = sorted(
             {item["container"] for item in value["bindings"]}
         )
+        value["exact_loopback_only"] = (
+            len(value["bindings"]) <= 1
+            and all(
+                item["bind_address"] == "127.0.0.1"
+                and item["protocol"] == "tcp"
+                for item in value["bindings"]
+            )
+        )
     return {
         "inspection_succeeded": complete,
-        "source": "docker_ps_ports",
+        "source": "docker_network_settings_ports",
+        "exact_loopback_only": all(
+            value["exact_loopback_only"] for value in ports.values()
+        ),
         "ports": ports,
     }
 
@@ -546,12 +627,19 @@ def main() -> int:
     for item in containers:
         name = item.get("Names")
         item["NetworksDetail"] = inspect_container_networks(name) if isinstance(name, str) else None
+        item["PortsDetail"] = (
+            inspect_container_port_bindings(name)
+            if isinstance(name, str) and str(item.get("State", "")).lower() == "running"
+            else []
+        )
     receipt["containers"] = {"inspection_succeeded": docker_ok, "items": containers, "limit": MAX_CONTAINERS}
     receipt["loopback_origin_port_ownership"] = loopback_origin_ownership(
         containers, inspection_succeeded=containers_complete
     )
     if not receipt["loopback_origin_port_ownership"]["inspection_succeeded"]:
         failures.append("loopback_origin_ownership_derivation_failed")
+    elif not receipt["loopback_origin_port_ownership"]["exact_loopback_only"]:
+        failures.append("protected_origin_binding_not_exact_loopback")
     required_containers = {
         "edfinder-v3-api", "edfinder-v3-proxy", "edfinder-v3-public-auth-edge",
         POSTGRES_CONTAINER, "edfinder-v3-support-redis", "edfinder-v3-support-nats",

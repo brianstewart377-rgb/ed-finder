@@ -56,8 +56,11 @@ edits `target-authority.json`, fills a blocker, or changes its committed
 `stopped` status automatically. Changing the target to `authorized` without
 those facts is invalid.
 
-Read-only inventory and preflight may use the reported already-present default
-host `python3` standard-library runtime. Actual production mutation retains the
+Read-only inventory may use the reported already-present default host `python3`
+standard-library runtime. Authority and preflight prefer a bounded, validated
+exact CPython 3.14 and may fall back only to a bounded, validated CPython 3.9 or
+newer host `python3`. An unsupported runtime emits an operation-accurate stopped
+receipt and performs no installation. Actual production mutation retains the
 repository's exact CPython 3.14 execution contract and stops with
 `python314_required_for_production_mutation` if that runtime is absent. This
 runbook does not authorize installing it; runtime provisioning, if genuinely
@@ -95,9 +98,11 @@ Promotion uses these gates in order:
    running container identities.
 3. Under the production deployment lock, query the complete ledger in a bounded
    read-only transaction and require exact compatibility before any pull.
-4. Freeze the authorized secret file to a private mode-0600 snapshot, use
-   ephemeral GHCR credentials, pull only the two digest images, and start the
-   inactive app slot on `127.0.0.1:58081`.
+4. Require exactly one `127.0.0.1` Docker binding for the active origin and no
+   staging binding; wildcard, IPv6, alternate-address, duplicate, and extra
+   mappings stop the operation. Freeze the authorized secret file to a private
+   mode-0600 snapshot, use ephemeral GHCR credentials, pull only the two digest
+   images, and start the inactive app slot on `127.0.0.1:58081`.
 5. Require bounded Svelte, health/build/database, OpenAPI, and anonymous-session
    smoke success. Recheck every protected container before cutover.
 6. Stop only the prior app origin, bind the verified candidate web slot to
@@ -108,6 +113,11 @@ Promotion uses these gates in order:
 7. Persist a sanitized immutable receipt, byte-exact manifest and checksums, then
    atomically advance `current.json`. Remove the secret snapshot and registry
    credentials on every exit.
+
+Cancellation is a controlled deployment failure. The remote transport forwards
+one termination signal and waits while the deployer terminates and reaps its
+active bounded subprocess, performs any required application rollback, writes a
+durable failure receipt, and removes ephemeral credentials.
 
 The first promotion cannot describe stale `edfinder-v3-api:phase4c-r5` as an
 accepted immutable rollback. Before cutover it can remove only its inactive

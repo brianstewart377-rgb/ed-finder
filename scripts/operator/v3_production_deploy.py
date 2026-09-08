@@ -9,6 +9,7 @@ PostgreSQL, Redis, NATS, the public-auth edge, Octopus, or unrelated containers.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import importlib.util
@@ -16,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -58,8 +60,11 @@ MAX_JSON = 2 * 1024 * 1024
 MAX_SMOKE = 4 * 1024 * 1024
 MAX_ENV_FILE = 256 * 1024
 MAX_REGISTRY_TOKEN = 64 * 1024
+MAX_CONTAINERS = 256
 COMMAND_TIMEOUT = 120
+PROCESS_TERMINATION_GRACE = 5
 READINESS_TIMEOUT = 120.0
+CANCELLATION_SIGNALS = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
 LEDGER_SQL = r"""
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '10000ms';
@@ -89,16 +94,131 @@ class OperationFailed(DeploymentError):
         self.receipt = receipt
 
 
+class OperationCancelled(DeploymentError):
+    def __init__(self, signum: int):
+        self.signum = signum
+        super().__init__(f"operation_cancelled:{signal.Signals(signum).name}")
+
+
+class CancellationController:
+    """Turn the first termination signal into one catchable deployment failure."""
+
+    def __init__(self) -> None:
+        self.received: int | None = None
+        self.commit_started = False
+        self.previous: dict[int, Any] = {}
+
+    def handler(self, signum: int, _frame: Any) -> None:
+        if self.commit_started or self.received is not None:
+            return
+        self.received = signum
+        # Rollback, failure-receipt persistence, and cleanup must not be
+        # interrupted by repeated cancellation signals.
+        for handled in CANCELLATION_SIGNALS:
+            signal.signal(handled, signal.SIG_IGN)
+        raise OperationCancelled(signum)
+
+    def mark_commit_started(self) -> None:
+        # Cutover has already passed every verification gate. From this point
+        # the small atomic receipt transaction must finish without interruption.
+        self.commit_started = True
+        for handled in CANCELLATION_SIGNALS:
+            signal.signal(handled, signal.SIG_IGN)
+
+
+_CANCELLATION_CONTROLLER: CancellationController | None = None
+_PREMUTATION_FAILURE_RECEIPT_DIR: Path | None = None
+
+
+@contextlib.contextmanager
+def controlled_cancellation() -> Any:
+    global _CANCELLATION_CONTROLLER
+    controller = CancellationController()
+    prior_controller = _CANCELLATION_CONTROLLER
+    _CANCELLATION_CONTROLLER = controller
+    try:
+        for handled in CANCELLATION_SIGNALS:
+            controller.previous[handled] = signal.getsignal(handled)
+            signal.signal(handled, controller.handler)
+        yield controller
+    finally:
+        for handled, previous in controller.previous.items():
+            signal.signal(handled, previous)
+        _CANCELLATION_CONTROLLER = prior_controller
+
+
+@contextlib.contextmanager
+def cancellation_blocked() -> Any:
+    if _CANCELLATION_CONTROLLER is None or not hasattr(signal, "pthread_sigmask"):
+        yield
+        return
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, CANCELLATION_SIGNALS)
+    try:
+        yield
+    finally:
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+
+def terminate_and_reap(process: subprocess.Popen[str]) -> None:
+    if _CANCELLATION_CONTROLLER is not None:
+        # Once child cleanup starts, no later signal may interrupt the bounded
+        # TERM/KILL/reap sequence and leak a Docker/Compose subprocess.
+        for handled in CANCELLATION_SIGNALS:
+            signal.signal(handled, signal.SIG_IGN)
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    try:
+        process.communicate(timeout=PROCESS_TERMINATION_GRACE)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.communicate()
+
+
 def run_command(
     argv: list[str], *, env: dict[str, str] | None = None, input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    process: subprocess.Popen[str] | None = None
     try:
-        result = subprocess.run(
-            argv, input=input_text, text=True, capture_output=True, check=False,
-            timeout=COMMAND_TIMEOUT, env=env,
+        # A pending cancellation is delivered only after Popen returns and the
+        # new process-group leader is assigned to ``process``.
+        with cancellation_blocked():
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE if input_text is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                start_new_session=True,
+            )
+        stdout, stderr = process.communicate(
+            input=input_text, timeout=COMMAND_TIMEOUT
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except OperationCancelled:
+        if process is not None:
+            terminate_and_reap(process)
+        raise
+    except subprocess.TimeoutExpired as exc:
+        if process is not None:
+            terminate_and_reap(process)
+        raise DeploymentError("bounded command failed: TimeoutExpired") from exc
+    except OSError as exc:
+        if process is not None:
+            terminate_and_reap(process)
         raise DeploymentError(f"bounded command failed: {type(exc).__name__}") from exc
+    except BaseException:
+        if process is not None:
+            terminate_and_reap(process)
+        raise
+    assert process is not None
+    result = subprocess.CompletedProcess(argv, process.returncode, stdout, stderr)
     if result.returncode != 0:
         raise DeploymentError(f"bounded command failed: {Path(argv[0]).name}")
     return result
@@ -431,50 +551,141 @@ def validate_network(
         raise DeploymentError("production database is not attached to the authorized app network")
 
 
-def published_port_owners(
-    port: int, env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]]
-) -> set[str]:
-    output = runner(
-        ["docker", "ps", "--format", "{{.Names}}\t{{.Ports}}"], env=env
-    ).stdout
-    owners: set[str] = set()
-    marker = re.compile(rf"(?:127\.0\.0\.1|0\.0\.0\.0|\[::\]):{port}->")
-    for line in output.splitlines():
-        name, separator, ports = line.partition("\t")
-        if separator and marker.search(ports):
-            owners.add(name)
-    return owners
+def published_port_bindings(
+    protected_ports: set[int], env: dict[str, str],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> dict[int, list[dict[str, Any]]]:
+    """Return every Docker binding for a protected host port without deduping."""
+    if not protected_ports or any(not 1 <= port <= 65535 for port in protected_ports):
+        raise DeploymentError("protected port inventory request is invalid")
+    names = runner(
+        ["docker", "ps", "--no-trunc", "--format", "{{.Names}}"], env=env
+    ).stdout.splitlines()
+    if (
+        len(names) > MAX_CONTAINERS
+        or len(names) != len(set(names))
+        or any(not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name) for name in names)
+    ):
+        raise DeploymentError("running container inventory is malformed")
+    bindings: dict[int, list[dict[str, Any]]] = {
+        port: [] for port in protected_ports
+    }
+    for name in names:
+        raw = runner(
+            [
+                "docker", "inspect", "--format",
+                "{{json .NetworkSettings.Ports}}", name,
+            ],
+            env=env,
+        ).stdout
+        try:
+            mappings = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise DeploymentError("published port inventory is malformed") from exc
+        if not isinstance(mappings, dict):
+            raise DeploymentError("published port inventory is malformed")
+        for target, host_bindings in mappings.items():
+            match = re.fullmatch(r"([0-9]{1,5})/(tcp|udp)", str(target))
+            if match is None or not 1 <= int(match.group(1)) <= 65535:
+                raise DeploymentError("published port inventory is malformed")
+            if host_bindings is None:
+                continue
+            if not isinstance(host_bindings, list):
+                raise DeploymentError("published port inventory is malformed")
+            for host_binding in host_bindings:
+                if not isinstance(host_binding, dict) or set(host_binding) != {
+                    "HostIp", "HostPort"
+                }:
+                    raise DeploymentError("published port inventory is malformed")
+                host_ip = host_binding["HostIp"]
+                host_port = host_binding["HostPort"]
+                if (
+                    not isinstance(host_ip, str)
+                    or not 0 < len(host_ip) <= 64
+                    or not isinstance(host_port, str)
+                    or not host_port.isdigit()
+                    or not 1 <= int(host_port) <= 65535
+                ):
+                    raise DeploymentError("published port inventory is malformed")
+                observed_host_port = int(host_port)
+                if observed_host_port in protected_ports:
+                    bindings[observed_host_port].append(
+                        {
+                            "container": name,
+                            "bind_address": host_ip,
+                            "host_port": observed_host_port,
+                            "container_port": int(match.group(1)),
+                            "protocol": match.group(2),
+                        }
+                    )
+    return bindings
 
 
-def listening_ports(
+def listening_addresses(
     env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]]
-) -> set[int]:
+) -> dict[int, list[str]]:
     output = runner(["ss", "-H", "-lnt"], env=env).stdout
-    ports: set[int] = set()
+    listeners: dict[int, list[str]] = {}
     for line in output.splitlines():
         fields = line.split()
         if len(fields) < 4:
             raise DeploymentError("production listener inventory is malformed")
-        match = re.search(r":([0-9]{1,5})\Z", fields[3])
-        if match:
-            ports.add(int(match.group(1)))
-    return ports
+        address, separator, raw_port = fields[3].rpartition(":")
+        if (
+            not separator
+            or not raw_port.isdigit()
+            or not 1 <= int(raw_port) <= 65535
+            or not address
+        ):
+            raise DeploymentError("production listener inventory is malformed")
+        normalized = address.removeprefix("[").removesuffix("]")
+        listeners.setdefault(int(raw_port), []).append(normalized)
+    return listeners
+
+
+def verify_exact_origin_bindings(
+    active_owner: str, staging_owner: str | None, env: dict[str, str],
+    runner: Callable[..., subprocess.CompletedProcess[str]],
+) -> None:
+    listeners = listening_addresses(env, runner)
+    bindings = published_port_bindings({58080, 58081}, env, runner)
+    active_bindings = bindings[58080]
+    staging_bindings = bindings[58081]
+    if (
+        len(active_bindings) != 1
+        or active_bindings[0]["container"] != active_owner
+        or active_bindings[0]["bind_address"] != "127.0.0.1"
+        or active_bindings[0]["protocol"] != "tcp"
+    ):
+        raise DeploymentError("production active origin ownership drifted")
+    active_listeners = listeners.get(58080, [])
+    if not active_listeners:
+        raise DeploymentError("production active origin listener is missing")
+    if any(address != "127.0.0.1" for address in active_listeners):
+        raise DeploymentError("production active origin listener is not exact loopback")
+    staging_listeners = listeners.get(58081, [])
+    if staging_owner is None:
+        if staging_bindings or staging_listeners:
+            raise DeploymentError("production staging origin port is already owned")
+    elif (
+        len(staging_bindings) != 1
+        or staging_bindings[0]["container"] != staging_owner
+        or staging_bindings[0]["bind_address"] != "127.0.0.1"
+        or staging_bindings[0]["protocol"] != "tcp"
+        or not staging_listeners
+        or any(address != "127.0.0.1" for address in staging_listeners)
+    ):
+        raise DeploymentError("production staging origin ownership drifted")
 
 
 def verify_origin_ownership(
     mode: str, prior_slot: str | None, env: dict[str, str],
     runner: Callable[..., subprocess.CompletedProcess[str]],
 ) -> None:
-    ports = listening_ports(env, runner)
-    if 58081 in ports or published_port_owners(58081, env, runner):
-        raise DeploymentError("production staging origin port is already owned")
-    expected = {LEGACY_ORIGIN} if mode == "bootstrap" else {
+    active_owner = LEGACY_ORIGIN if mode == "bootstrap" else (
         CONTAINERS[f"web-{prior_slot}"] if prior_slot in SLOTS else "invalid"
-    }
-    if published_port_owners(58080, env, runner) != expected:
-        raise DeploymentError("production active origin ownership drifted")
-    if 58080 not in ports:
-        raise DeploymentError("production active origin listener is missing")
+    )
+    verify_exact_origin_bindings(active_owner, None, env, runner)
 
 
 def verify_edge_routes_to_active_origin() -> None:
@@ -1058,7 +1269,23 @@ def acquire_lock(directory: Path) -> Any:
     return handle
 
 
+def validate_runtime_directory(supplied: Path) -> Path:
+    runtime_directory = supplied.resolve()
+    if (
+        not supplied.is_absolute()
+        or supplied != runtime_directory
+        or supplied.is_symlink()
+        or not runtime_directory.is_dir()
+        or runtime_directory.stat().st_uid != os.geteuid()
+        or stat.S_IMODE(runtime_directory.stat().st_mode) != 0o700
+    ):
+        raise DeploymentError("private production operation runtime directory is unsafe")
+    return runtime_directory
+
+
 def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callable[..., subprocess.CompletedProcess[str]] = run_command) -> dict[str, Any]:
+    global _PREMUTATION_FAILURE_RECEIPT_DIR
+    _PREMUTATION_FAILURE_RECEIPT_DIR = None
     external = authority["external_authority"]
     receipt_operation = (
         "production-preflight" if args.operation == "preflight" else "production-promotion"
@@ -1068,6 +1295,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
     secure_path(Path(external["api_env_file"]), external["api_env_owner_uid"], external["api_env_mode"], directory=False)
     receipt_dir = Path(external["receipt_directory"])
     secure_path(receipt_dir, external["receipt_owner_uid"], external["receipt_mode"], directory=True)
+    # Only an exact verified host and receipt store may receive a durable
+    # pre-mutation cancellation receipt.
+    _PREMUTATION_FAILURE_RECEIPT_DIR = receipt_dir
     schema_path = Path(external["schema_identity_file"])
     secure_path(
         schema_path, external["schema_identity_owner_uid"],
@@ -1159,17 +1389,7 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
 
     if args.runtime_directory is None:
         raise DeploymentError("private production operation runtime directory required")
-    supplied_runtime_directory = args.runtime_directory
-    runtime_directory = supplied_runtime_directory.resolve()
-    if (
-        not supplied_runtime_directory.is_absolute()
-        or supplied_runtime_directory != runtime_directory
-        or supplied_runtime_directory.is_symlink()
-        or not runtime_directory.is_dir()
-        or runtime_directory.stat().st_uid != os.geteuid()
-        or stat.S_IMODE(runtime_directory.stat().st_mode) != 0o700
-    ):
-        raise DeploymentError("private production operation runtime directory is unsafe")
+    runtime_directory = validate_runtime_directory(args.runtime_directory)
     lock = acquire_lock(receipt_dir)
     snapshot: Path | None = None
     docker_config: str | None = None
@@ -1257,6 +1477,12 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         runner([*base, "up", "--detach", "--no-deps", "--force-recreate", "--pull", "never", *selected], env=release_env)
         wait_ready("http://" + external["staging_origin_bind"], candidate["git_sha"])
         staging_smoke = smoke("http://" + external["staging_origin_bind"], candidate["git_sha"])
+        active_owner = LEGACY_ORIGIN if args.mode == "bootstrap" else CONTAINERS[
+            f"web-{prior_slot}"
+        ]
+        verify_exact_origin_bindings(
+            active_owner, CONTAINERS[f"web-{target_slot}"], env, runner
+        )
         verify_snapshot(protected_before, env, runner)
         controlled = {CONTAINERS[item] for item in selected}
         verify_unrelated_snapshot(all_before, controlled, env, runner)
@@ -1276,6 +1502,9 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
         active_env = compose_env(external, candidate, snapshot, external["active_origin_bind"], env)
         runner([*base, "up", "--detach", "--no-deps", "--force-recreate", "--pull", "never", f"web-{target_slot}"], env=active_env)
         wait_ready("http://" + external["active_origin_bind"], candidate["git_sha"])
+        verify_exact_origin_bindings(
+            CONTAINERS[f"web-{target_slot}"], None, env, runner
+        )
         active_smoke = smoke("http://" + external["active_origin_bind"], candidate["git_sha"])
         public_smoke = smoke(external["public_origin"], candidate["git_sha"])
         verify_live_schema(schema, env, runner)
@@ -1326,6 +1555,8 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             "env_files_read": True,
             "private_keys_read": False,
         }
+        if _CANCELLATION_CONTROLLER is not None:
+            _CANCELLATION_CONTROLLER.mark_commit_started()
         persist_accepted(receipt_dir, receipt, candidate_bytes)
         return receipt
     except Exception as original:
@@ -1428,7 +1659,7 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def _main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     authority: dict[str, Any] = {}
     try:
@@ -1461,7 +1692,34 @@ def main(argv: list[str] | None = None) -> int:
             "promote": "production-promotion",
             "authority-gate": "production-authority-gate",
         }[args.operation]
-        print(json.dumps(stopped_receipt(authority, [str(exc)], operation=operation), sort_keys=True))
+        receipt = stopped_receipt(authority, [str(exc)], operation=operation)
+        if (
+            isinstance(exc, OperationCancelled)
+            and args.operation == "promote"
+            and _PREMUTATION_FAILURE_RECEIPT_DIR is not None
+        ):
+            # A cancellation during the read-only pre-mutation gates occurs
+            # before promote() creates any ephemeral credentials or services,
+            # but it still needs durable host evidence.
+            receipt.update(
+                status="failed",
+                source_sha="unknown",
+                release_run_id=args.candidate_run_id or "unknown",
+                database_access_performed=None,
+                database_access_may_have_been_performed=True,
+                service_changes_performed=False,
+                service_changes_may_have_been_performed=False,
+                filesystem_writes_performed=True,
+                rollback={"attempted": False, "status": "not-required"},
+            )
+            try:
+                receipt["durable_failure_receipt"] = persist_failure(
+                    _PREMUTATION_FAILURE_RECEIPT_DIR, receipt
+                )
+            except (OSError, DeploymentError):
+                receipt["durable_failure_receipt"] = None
+                receipt["failure_receipt_persistence"] = "failed"
+        print(json.dumps(receipt, sort_keys=True))
         return 78
     except Exception as exc:
         operation = {
@@ -1475,6 +1733,11 @@ def main(argv: list[str] | None = None) -> int:
         return 78
     print(json.dumps(receipt, sort_keys=True))
     return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    with controlled_cancellation():
+        return _main(argv)
 
 
 if __name__ == "__main__":
