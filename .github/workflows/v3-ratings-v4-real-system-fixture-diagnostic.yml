@@ -4,6 +4,9 @@ on:
   push:
     branches: [feat/ratings-v4-scorer-harness]
     paths: ['.github/workflows/v3-ratings-v4-real-system-fixture-diagnostic.yml']
+  pull_request:
+    branches: [decision/v3-search-spatial-derived-data]
+    paths: ['.github/workflows/v3-ratings-v4-real-system-fixture-diagnostic.yml']
 
 permissions:
   contents: read
@@ -56,11 +59,7 @@ jobs:
               p=subprocess.run(['docker','--context','default','exec',PG,'psql','-X','--no-password','--tuples-only','--no-align','--quiet','--set','ON_ERROR_STOP=1','--username',USER,'--dbname',DB,'--command',sql],text=True,capture_output=True,env=E,check=True,timeout=30)
               return [line.strip() for line in p.stdout.splitlines() if line.strip()]
           sql=f"""BEGIN READ ONLY; SET LOCAL statement_timeout='10000ms';
-          SELECT json_build_object(
-            'run',to_jsonb(r),
-            'artifact',to_jsonb(a),
-            'source',to_jsonb(s)
-          )::text
+          SELECT json_build_object('run',to_jsonb(r),'artifact',to_jsonb(a),'source',to_jsonb(s))::text
           FROM v3_source.source_run r
           JOIN v3_source.source_artifact a ON a.artifact_id=r.artifact_id
           JOIN v3_source.source s ON s.source_id=r.source_id
