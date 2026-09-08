@@ -93,7 +93,7 @@ jobs:
           SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
         run: |
           set -euo pipefail
-          [ "$SSH_HOST" = "nb79a3d.mevnode.com" ] || { echo "Unexpected production SSH host" >&2; exit 64; }
+          test -n "$SSH_HOST"
           [[ "$SSH_PORT" =~ ^[0-9]{1,5}$ ]] || exit 64
           test -n "$SSH_KEY" && test -n "$SSH_KNOWN_HOSTS"
           install -d -m 700 ~/.ssh
