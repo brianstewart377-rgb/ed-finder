@@ -20,8 +20,11 @@ PR #601's Explore/Finder → fresh Babylon results → canonical Inspect product
 slice and Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact
 merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
-The current bounded exit task is the first non-production V3 live checkpoint;
-it is not a production promotion.
+The separate Contabo/live checkpoint remains a rehearsal boundary outside
+production.
+The V3 production application promotion authority is now defined independently
+and remains fail-closed until its fresh inventory, schema, network, secret-file,
+receipt-store, Docker-context, and unchanged-edge cutover facts are reviewed.
 
 ## Current authority
 
@@ -123,3 +126,9 @@ fail-closed on the recorded missing runtime, data and route authorities.
 The repository currently has no executable PostgreSQL 18 recovery runbook.
 Stop rather than adapting V2 instructions or inventing host paths, credentials,
 backup targets, or restore commands.
+
+The separate V3 production application promotion authority is documented in
+[`docs/operations/v3-production-application-release.md`](docs/operations/v3-production-application-release.md).
+Its committed target is fail-closed pending reviewed inventory and schema/edge
+facts; the root Compose and Contabo checkpoint do not become production
+authority.

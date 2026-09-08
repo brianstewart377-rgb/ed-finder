@@ -7,6 +7,14 @@ replacement infrastructure.
 
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
+The reviewed V3 application promotion boundary is
+[`v3-production-application-release.md`](v3-production-application-release.md).
+It has its own app-only blue/green Compose authority and is deliberately
+separate from the root/legacy Compose and the Contabo checkpoint. Its committed
+target remains stopped pending a reviewed read-only production inventory,
+schema identity, network/secret/receipt facts, and exact unchanged-edge cutover
+topology. That stopped authority is not permission to deploy.
+
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
 
 Hetzner/V2 is decommissioned. Its host, container, cron, database, backup,

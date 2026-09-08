@@ -58,6 +58,32 @@ Do not promote a repository helper into a production command merely because it e
   It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
+- `actions/v3-production-inventory.sh` and `v3_production_inventory.py`: the
+  exact-host, read-only production inventory authority. It reports bounded
+  container/listener/network/HTTP facts and the complete migration ledger from
+  a `BEGIN READ ONLY` transaction. Its sanitized receipt also reports the
+  bounded executable path, implementation, and version of the default host
+  `python3` used for inventory, whether `python3.14` exists and is exactly
+  CPython 3.14 plus its bounded executable path/version when present, the
+  `default` Docker context name and endpoint/host only, requiring exactly the
+  local rootful `unix:///var/run/docker.sock` endpoint and explicitly pinning
+  every Docker evidence command to that context. Context drift stops before
+  daemon inventory. The receipt also includes bounded container ownership of
+  loopback ports `58080`/`58081` when the existing Docker port
+  data supports it. It never reads container environments, secret files,
+  Docker credentials/configuration content, or private keys. It installs
+  nothing and never edits the stopped target authority or fills a blocker
+  automatically.
+- `actions/v3-production-promote.sh` and `v3_production_deploy.py`: the separate
+  fail-closed production-in-place application authority selected only by the
+  protected manual workflow and current production runbook. It consumes the
+  generic immutable release artifact but never the Contabo or root Compose
+  authority. The committed target is stopped until exact inventory/schema,
+  network, env-file, receipt-store, Docker-context, and edge cutover facts are
+  reviewed. When authorized, it owns only blue/green API/web slots, preserves
+  PostgreSQL 18, Redis, NATS, public-auth/TLS edge, Octopus and unrelated
+  containers, and allows rollback only to a schema-compatible prior accepted
+  immutable production release.
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,

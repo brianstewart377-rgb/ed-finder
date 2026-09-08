@@ -73,6 +73,15 @@ The only current replacement-host helpers presently identified by the V3 control
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`;
 - `scripts/operator/recover_v3_runtime_contract.py`.
 
+The production application promotion surface is separately and exclusively
+identified by `docs/operations/v3-production-application-release.md` and
+`.github/workflows/v3-production-application-deploy.yml`. Its
+`v3-production-inventory` operation is read-only and may use an already-present
+host Python 3 standard-library runtime. Its preflight/promotion helper is not a
+general operator command: the committed target authority is stopped and it may
+run only from the exact protected workflow after all external facts are
+reviewed. It never selects the root Compose or the Contabo authority.
+
 `scripts/operator/actions/v3-app-live-checkpoint-preflight.sh` is separate from
 that production surface. It targets the non-production Contabo live-checkpoint
 boundary and launches the reviewed bootstrap/upgrade validator. The committed

@@ -41,6 +41,11 @@ or override this set.
   route authority keeps mutation stopped.
 - **Inference:** Ollama was an Octopus experiment and has been removed from
   production. It is not part of the architecture.
+- **Production application authority:** the separate app-only V3 production
+  promotion path is defined, but its committed target is stopped pending a
+  reviewed fresh inventory, live schema compatibility and exact external
+  network/secret/receipt/Docker/unchanged-edge cutover facts. The root Compose
+  and Contabo checkpoint remain non-authoritative for production.
 
 ## Product journey and spatial north star
 
@@ -60,21 +65,27 @@ evidence-interpretation, and Digital Twin owner.
 
 ## Execution order
 
-1. **Exit the merged browser slice through a checkpoint.** Exercise the
-   accepted Explore/Finder → Babylon results → Inspect journey through the
-   bounded live-checkpoint path. That environment remains non-production.
+1. **Keep checkpoint and production authorities separate.** The Contabo
+   checkpoint remains non-production. Use only the production authority's
+   read-only inventory to resolve its explicit blockers; do not deploy while
+   its target is stopped.
 2. **Harden the V3 release.** Continue CPython 3.14/`uv`, immutable release
    provenance, same-origin route, health, migration compatibility, and rollback
    work without treating an application release as database recovery.
-3. **Preserve the checkpoint boundary.** Keep Contabo non-production and its
+3. **Promote only after reviewed production preflight.** A candidate must be an
+   authenticated immutable release compatible with the freshly verified live
+   ledger. Preserve PostgreSQL 18, Redis, NATS, the public-auth/TLS edge,
+   Octopus and unrelated containers; schema deltas stop for a separate
+   production migration authority.
+4. **Preserve the checkpoint boundary.** Keep Contabo non-production and its
    persistent app-only namespace isolated from the three runner services.
-4. **Resolve search and data architecture in order.** Establish Search product
+5. **Resolve search and data architecture in order.** Establish Search product
    and performance requirements, then choose the spatial index/grid/cluster
    design, then define the PostgreSQL 18 derived-data bootstrap.
-5. **Resolve judgement dependencies.** Reconcile current Ratings v3.4 uses with
+6. **Resolve judgement dependencies.** Reconcile current Ratings v3.4 uses with
    the roadmap's intended archetype judgement layer before a full ratings,
    grid, cluster, or derived-data build is prescribed.
-6. **Establish V3 database evidence.** Add reviewed PostgreSQL 18 maintenance,
+7. **Establish V3 database evidence.** Add reviewed PostgreSQL 18 maintenance,
    backup, restore, and PITR evidence/procedures before claiming operational
    readiness. Historical V2 receipts cannot fill this gap.
 

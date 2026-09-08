@@ -1,0 +1,91 @@
+{
+  "schema_version": "ed-finder/v3-production-target-authority/v1",
+  "status": "stopped",
+  "target": {
+    "provider": "mevspace",
+    "classification": "production",
+    "production": true,
+    "hostname": "ed-finder-prod",
+    "fqdn": "nb79a3d.mevnode.com",
+    "architecture": "x86_64"
+  },
+  "evidence": {
+    "source": "read-only host-status workflow run 34202433965",
+    "fresh_for_implementation": true,
+    "deployment_evidence": false
+  },
+  "reviewed_capacity": null,
+  "observed_runtime": {
+    "api_container": "edfinder-v3-api",
+    "api_image": "edfinder-v3-api:phase4c-r5",
+    "legacy_origin_container": "edfinder-v3-proxy",
+    "public_edge_container": "edfinder-v3-public-auth-edge",
+    "postgres_container": "edfinder-v3-phase4c-full-20260827_r5-postgres",
+    "redis_container": "edfinder-v3-support-redis",
+    "nats_container": "edfinder-v3-support-nats",
+    "octopus_and_unrelated_containers": "preserve-all",
+    "public_ui": "temporary-replacement-shell"
+  },
+  "application_contract": {
+    "compose_project": "edfinder-v3-production",
+    "compose_sha256": "a06a5f0c237b0433457b5f15632fa28cf922768df4cbc4b5936c9f1759a288f4",
+    "slots": ["blue", "green"],
+    "services": ["api-blue", "web-blue", "api-green", "web-green"],
+    "containers": [
+      "edfinder-v3-production-api-blue",
+      "edfinder-v3-production-web-blue",
+      "edfinder-v3-production-api-green",
+      "edfinder-v3-production-web-green"
+    ],
+    "per_active_slot_limits": {
+      "api": {"cpus": "2.00", "memory": "4096m", "pids": 512},
+      "web": {"cpus": "1.00", "memory": "1024m", "pids": 256},
+      "logs": {"driver": "json-file", "max_size": "20m", "max_files": 3}
+    },
+    "named_volumes": [],
+    "database_lifecycle": "external-retained-never-managed",
+    "edge_lifecycle": "external-retained-never-recreated",
+    "cutover_strategy": "verified-loopback-blue-green-port-swap"
+  },
+  "preservation_contract": {
+    "exact_containers": [
+      "edfinder-v3-public-auth-edge",
+      "edfinder-v3-phase4c-full-20260827_r5-postgres",
+      "edfinder-v3-support-redis",
+      "edfinder-v3-support-nats"
+    ],
+    "container_name_patterns": ["^octopus(?:-|$)", "(?:^|-)pg(?:-|$)", "bench", "lab"],
+    "never_compose_services": ["postgres", "redis", "valkey", "nats", "edge", "proxy", "octopus"],
+    "never_recreate_or_remove": true
+  },
+  "external_authority": {
+    "application_network": null,
+    "application_network_allowed_containers": null,
+    "api_env_file": null,
+    "api_env_owner_uid": null,
+    "api_env_mode": null,
+    "schema_identity_file": null,
+    "schema_identity_sha256": null,
+    "schema_identity_owner_uid": null,
+    "schema_identity_mode": null,
+    "active_origin_bind": "127.0.0.1:58080",
+    "staging_origin_bind": "127.0.0.1:58081",
+    "public_origin": "https://ed-finder.app",
+    "edge_route_authority": null,
+    "receipt_directory": null,
+    "receipt_owner_uid": null,
+    "receipt_mode": null,
+    "docker_context": null
+  },
+  "blockers": [
+    "fresh_production_inventory_receipt_not_reviewed",
+    "production_application_network_authority_missing",
+    "production_api_secret_file_authority_missing",
+    "production_schema_identity_and_live_ledger_compatibility_unproved",
+    "production_edge_loopback_cutover_topology_authority_missing",
+    "production_receipt_store_authority_missing",
+    "production_local_docker_context_authority_missing",
+    "production_promotion_cpython314_runtime_unproved",
+    "production_application_resource_capacity_unproved"
+  ]
+}

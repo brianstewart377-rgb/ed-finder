@@ -121,6 +121,8 @@ jobs:
           bash -n scripts/checks/local-ci-parity.sh
           bash -n scripts/run_canonical_safety_tests.sh
           bash -n scripts/deploy_main.sh
+          bash -n scripts/operator/actions/v3-production-inventory.sh
+          bash -n scripts/operator/actions/v3-production-promote.sh
       - name: Reject inline shell password SQL
         run: |
           password_sql_hits="$(
@@ -145,6 +147,7 @@ jobs:
             tests/test_repo_hygiene_contract.py \
             tests/test_backup_restore_ops.py \
             tests/test_windows_local_db_reset_contract.py \
+            tests/test_v3_production_application_deployment.py \
             -q
 
   synchronous-tooling:
