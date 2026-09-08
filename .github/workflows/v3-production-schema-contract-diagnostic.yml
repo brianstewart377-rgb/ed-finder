@@ -1,0 +1,265 @@
+name: V3 production live schema contract diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/v3-production-schema-contract-diagnostic.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: ed-new-operator
+    timeout-minutes: 5
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.ED_NEW_OPERATOR_SSH_KEY }}
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_KNOWN_HOSTS: ${{ secrets.ED_NEW_OPERATOR_SSH_KNOWN_HOSTS || secrets.ED_NEW_OPERATOR_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/key && chmod 600 ~/.ssh/key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+          lookup="$SSH_HOST"; [ "$SSH_PORT" = "22" ] || lookup="[$SSH_HOST]:$SSH_PORT"
+          ssh-keygen -F "$lookup" -f ~/.ssh/known_hosts >/dev/null
+
+      - name: Compare live schema capabilities read-only
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.ED_NEW_OPERATOR_HOST }}
+          SSH_PORT: ${{ secrets.ED_NEW_OPERATOR_PORT }}
+          SSH_USER: ${{ secrets.ED_NEW_OPERATOR_USER }}
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/key -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" 'python3 -' <<'PY'
+          import hashlib
+          import json
+          import socket
+          import subprocess
+          from urllib.parse import unquote, urlsplit
+
+          PG = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+          API = "edfinder-v3-api"
+          SAFE_ENV = {
+              "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+              "LANG": "C",
+              "LC_ALL": "C",
+          }
+
+          fqdn = subprocess.run(
+              ["hostname", "-f"], text=True, capture_output=True, env=SAFE_ENV,
+              check=False, timeout=5
+          ).stdout.strip()
+          assert socket.gethostname().split('.')[0] == "ed-finder-prod"
+          assert fqdn == "nb79a3d.mevnode.com"
+
+          def env_lines(container):
+              return subprocess.run(
+                  ["docker", "--context", "default", "inspect", container,
+                   "--format", "{{range .Config.Env}}{{println .}}{{end}}"],
+                  text=True, capture_output=True, env=SAFE_ENV, check=True, timeout=10
+              ).stdout.splitlines()
+
+          pg = {}
+          for line in env_lines(PG):
+              if line.startswith("POSTGRES_USER="):
+                  pg["user"] = line.split("=", 1)[1]
+              elif line.startswith("POSTGRES_DB="):
+                  pg["database"] = line.split("=", 1)[1]
+
+          api = {"database_url_present": False}
+          for line in env_lines(API):
+              if line.startswith("DATABASE_URL="):
+                  parsed = urlsplit(line.split("=", 1)[1])
+                  api = {
+                      "database_url_present": True,
+                      "user": unquote(parsed.username) if parsed.username else None,
+                      "host": parsed.hostname,
+                      "port": parsed.port,
+                      "database": unquote(parsed.path.lstrip('/')) if parsed.path else None,
+                      "password_present": parsed.password is not None,
+                  }
+
+          assert pg.get("user") and pg.get("database")
+          assert api.get("database") == pg["database"]
+          assert api.get("user") == pg["user"]
+
+          sql = r"""
+          BEGIN READ ONLY;
+          SET LOCAL statement_timeout='10000ms';
+          SELECT json_build_object(
+            'core', json_build_object(
+              'relations', json_build_object(
+                'systems', to_regclass('public.systems') IS NOT NULL,
+                'bodies', to_regclass('public.bodies') IS NOT NULL,
+                'stations', to_regclass('public.stations') IS NOT NULL,
+                'ratings', to_regclass('public.ratings') IS NOT NULL,
+                'cluster_summary', to_regclass('public.cluster_summary') IS NOT NULL,
+                'galaxy_regions', to_regclass('public.galaxy_regions') IS NOT NULL
+              ),
+              'systems_columns', (
+                SELECT COALESCE(json_agg(column_name ORDER BY column_name), '[]'::json)
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='systems'
+                  AND column_name IN ('id64','name','x','y','z','updated_at','first_discovered_at','galaxy_region_id')
+              ),
+              'ratings_columns', (
+                SELECT COALESCE(json_agg(column_name ORDER BY column_name), '[]'::json)
+                FROM information_schema.columns
+                WHERE table_schema='public' AND table_name='ratings'
+                  AND column_name IN ('system_id64','score','score_agriculture','score_refinery','score_industrial','score_hightech','score_military','score_tourism','score_extraction','terraforming_potential','body_diversity','confidence','rationale','ring_count','walkable_count','other_star_count')
+              ),
+              'distance_function', to_regprocedure('public.distance_ly(real,real,real,real,real,real)') IS NOT NULL
+            ),
+            'map_runtime', json_build_object(
+              'indexes', json_build_object(
+                'idx_systems_first_discovered_at', EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid=c.oid WHERE c.relname='idx_systems_first_discovered_at' AND i.indisvalid),
+                'idx_systems_galaxy_region_populated', EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid=c.oid WHERE c.relname='idx_systems_galaxy_region_populated' AND i.indisvalid),
+                'idx_cluster_summary_top_score', EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid=c.oid WHERE c.relname='idx_cluster_summary_top_score' AND i.indisvalid),
+                'idx_sys_name_lower_pattern', EXISTS (SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid=c.oid WHERE c.relname='idx_sys_name_lower_pattern' AND i.indisvalid)
+              ),
+              'materialized_views', json_build_object(
+                'mv_map_regions', to_regclass('public.mv_map_regions') IS NOT NULL,
+                'mv_map_heatmap_200ly', to_regclass('public.mv_map_heatmap_200ly') IS NOT NULL,
+                'mv_map_heatmap_500ly', to_regclass('public.mv_map_heatmap_500ly') IS NOT NULL,
+                'mv_map_heatmap_1000ly', to_regclass('public.mv_map_heatmap_1000ly') IS NOT NULL,
+                'mv_map_timeline_month', to_regclass('public.mv_map_timeline_month') IS NOT NULL
+              ),
+              'refresh_function', to_regprocedure('public.refresh_map_mviews(boolean)') IS NOT NULL
+            ),
+            'additive_feature_schema', json_build_object(
+              'score_history', json_build_object(
+                'score_history', to_regclass('public.score_history') IS NOT NULL,
+                'score_trends', to_regclass('public.score_trends') IS NOT NULL
+              ),
+              'profile_sync', to_regclass('public.profile_sync') IS NOT NULL,
+              'sync_scoping', json_build_object(
+                'watchlist_sync_key', EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='watchlist' AND column_name='sync_key'),
+                'system_notes_sync_key', EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='system_notes' AND column_name='sync_key')
+              ),
+              'colonisation_topology', json_build_object(
+                'system_slot_topology', to_regclass('public.system_slot_topology') IS NOT NULL,
+                'economy_pair_synergy', to_regclass('public.economy_pair_synergy') IS NOT NULL,
+                'pair_synergy_constants', to_regclass('public.pair_synergy_constants') IS NOT NULL
+              ),
+              'archetypes', json_build_object(
+                'system_archetype_scores', to_regclass('public.system_archetype_scores') IS NOT NULL,
+                'system_archetype_traits', to_regclass('public.system_archetype_traits') IS NOT NULL,
+                'mv_archetype_rankings', to_regclass('public.mv_archetype_rankings') IS NOT NULL
+              ),
+              'simulation', json_build_object(
+                'journal_events', to_regclass('public.journal_events') IS NOT NULL,
+                'body_scan_facts', to_regclass('public.body_scan_facts') IS NOT NULL,
+                'body_slot_predictions', to_regclass('public.body_slot_predictions') IS NOT NULL
+              ),
+              'regional_analysis', to_regclass('public.system_regional_analysis') IS NOT NULL,
+              'observed_facts', json_build_object(
+                'table', to_regclass('public.observed_facts') IS NOT NULL,
+                'observation_id_not_null', EXISTS (
+                  SELECT 1 FROM information_schema.columns
+                  WHERE table_schema='public' AND table_name='observed_facts'
+                    AND column_name='observation_id' AND is_nullable='NO'
+                )
+              )
+            ),
+            'native_ledger', COALESCE((
+              SELECT json_agg(
+                json_build_object(
+                  'migration_name', migration_name,
+                  'migration_sha256', encode(migration_sha256,'hex')
+                ) ORDER BY migration_name
+              ) FROM v3_meta.schema_migration
+            ), '[]'::json)
+          )::text;
+          COMMIT;
+          """
+
+          argv = [
+              "docker", "--context", "default", "exec", PG,
+              "psql", "-X", "--no-password", "--tuples-only", "--no-align", "--quiet",
+              "--set", "ON_ERROR_STOP=1", "--username", pg["user"],
+              "--dbname", pg["database"], "--command", sql,
+          ]
+          result = subprocess.run(
+              argv, text=True, capture_output=True, env=SAFE_ENV,
+              check=False, timeout=20
+          )
+          if result.returncode:
+              print(json.dumps({
+                  "status": "stopped",
+                  "returncode": result.returncode,
+                  "stderr_tail": " | ".join(
+                      line.strip() for line in result.stderr.splitlines() if line.strip()
+                  )[-700:],
+                  "read_only": True,
+                  "db_writes_performed": False,
+                  "migrations_performed": False,
+                  "service_changes_performed": False,
+              }, sort_keys=True, separators=(",", ":")))
+              raise SystemExit(1)
+
+          payloads = []
+          for line in result.stdout.splitlines():
+              line = line.strip()
+              if line.startswith('{') and line.endswith('}'):
+                  try:
+                      payloads.append(json.loads(line))
+                  except json.JSONDecodeError:
+                      pass
+          if len(payloads) != 1:
+              print(json.dumps({
+                  "status": "stopped", "stage": "parse", "json_rows": len(payloads),
+                  "read_only": True, "db_writes_performed": False,
+                  "migrations_performed": False, "service_changes_performed": False,
+              }, sort_keys=True, separators=(",", ":")))
+              raise SystemExit(1)
+
+          payload = payloads[0]
+          ledger = payload.pop("native_ledger")
+          digest = hashlib.sha256()
+          for row in ledger:
+              digest.update(row["migration_name"].encode("utf-8"))
+              digest.update(b"\0")
+              digest.update(row["migration_sha256"].encode("ascii"))
+              digest.update(b"\n")
+
+          core = payload["core"]
+          required_system_columns = {'id64','name','x','y','z','updated_at'}
+          required_rating_columns = {
+              'system_id64','score','score_agriculture','score_refinery','score_industrial',
+              'score_hightech','score_military','score_tourism'
+          }
+          core_ok = (
+              all(core["relations"].values())
+              and required_system_columns.issubset(set(core["systems_columns"]))
+              and required_rating_columns.issubset(set(core["ratings_columns"]))
+          )
+
+          output = {
+              "status": "success",
+              "database_identity": pg,
+              "api_database_target": api,
+              "core_runtime_contract_satisfied": core_ok,
+              "capabilities": payload,
+              "native_ledger_count": len(ledger),
+              "native_ledger_names": [row["migration_name"] for row in ledger],
+              "native_ledger_identity": "sha256:" + digest.hexdigest(),
+              "interpretation": {
+                  "core_runtime_contract": "minimum currently-running API database shape",
+                  "map_runtime": "map indexes/materialized-view capability; absence is a concrete forward-migration requirement, not proof the old ledger is corrupt",
+                  "additive_feature_schema": "newer additive feature/colonisation schema; report separately so planned tables are not mistaken for damage to the live baseline"
+              },
+              "read_only": True,
+              "db_writes_performed": False,
+              "migrations_performed": False,
+              "service_changes_performed": False,
+          }
+          print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+          PY
