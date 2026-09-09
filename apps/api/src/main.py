@@ -14,6 +14,7 @@ Endpoint surface (see individual router docstrings for detail):
   routers/watchlist.py  watchlist CRUD + changelog
   routers/notes.py      per-system user notes
   routers/events.py     EDDN SSE live feed + recent
+  routers/ratings_v4.py sealed V4 generation and independent economy scores
   routers/admin.py      cache stats/clear + cluster-rebuild trigger
   routers/search.py     autocomplete + local/galaxy/cluster search
   routers/systems.py    per-system / per-body detail + batch lookup
@@ -67,6 +68,7 @@ from edfinder_api.routers.observations import router as observations_router
 from edfinder_api.routers.operator import router as operator_router
 from edfinder_api.routers.optimiser import router as optimiser_router
 from edfinder_api.routers.profile import router as profile_router
+from edfinder_api.routers.ratings_v4 import router as ratings_v4_router
 from edfinder_api.routers.powerplay import router as powerplay_router
 from edfinder_api.routers.routes import router as routes_router
 from edfinder_api.routers.provenance_cockpit import router as provenance_cockpit_router
@@ -365,6 +367,7 @@ app.include_router(news_router)
 app.include_router(watchlist_router)
 app.include_router(notes_router)
 app.include_router(profile_router)
+app.include_router(ratings_v4_router)
 app.include_router(powerplay_router)
 app.include_router(admin_router)
 app.include_router(events_router)

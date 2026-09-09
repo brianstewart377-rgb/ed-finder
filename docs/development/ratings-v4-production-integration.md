@@ -74,15 +74,42 @@ The freeze cohort's newer API responses exercise bridge equivalence in tests;
 they are not represented as original full-galaxy artifact bytes. Production
 coverage must come from the separately hash-verified retained artifact.
 
+## Derived storage and read API
+
+`003_ratings_v4_derived.sql` adds only derived relations. It stores one compact
+seven-economy vector per system, typed immutable mechanics inputs per physical
+body, and eligible local opportunities. The generation manifest binds the
+frozen scorer, adapter, recovered importer, canonical snapshot, code hashes and
+source admission metadata. Chunk writes are resumable only when their source,
+canonical input and output seals match; EOF and all expected checkpoint
+coverage are required before replay validation can make a generation READY.
+
+Publication is an advisory-lock compare-and-swap on a singleton derived pointer.
+It requires a VERIFIED generation tied to the current canonical generation and
+records every switch, including a rollback, in the publication audit. The
+published pointer is the API boundary; drafts and retired generations cannot be
+served.
+
+The mounted read-only API is `/api/ratings/v4`. `/generation` reports the
+published seal, `/systems/{id64}` reports the seven independent economy scores,
+and `/systems/{id64}/explanation` reconstructs facts from immutable mechanics
+inputs then rejects any stored-vector mismatch. It has no raw overall score and
+does not perform Finder ranking, archetype judgement or buildability analysis.
+
+The disposable PostgreSQL 18 contract covers storage, resumability, source EOF
+and coverage gates, full frozen-score replay, explanations, corruption
+detection, immutability, CAS publication and rollback. This is a synthetic
+fixture proof, not a production full-galaxy generation.
+
 ## Remaining production work
 
-1. Implement compact, immutable generation storage and a bounded resumable
-   builder. Do not scale the disposable proof's repeated JSON lineage to hundreds
-   of millions of bodies.
-2. Validate all-source coverage, score parity, explanations, measured resources,
-   publication compare-and-swap and rollback in PostgreSQL 18.
-3. Establish the reviewed migration/runtime/release authority, build and validate
-   the complete generation, then expose it through a generation-pinned V3 API.
+1. Establish the reviewed V3 migration/runtime/release authority. The current
+   application-only deployment path cannot apply this V3 migration.
+2. Run the approved bounded builder against the retained full artifact and
+   current canonical generation, measure its resources, verify EOF coverage and
+   replay every generated system before publication.
+3. Deploy the API only after a VERIFIED full generation is published through the
+   pointer, then validate the external read boundary and rollback procedure.
 
 Ratings V4.0 mechanics and coefficients remain frozen. Archetype judgement,
 Finder ranking and practical buildability remain subsequent independent layers.
