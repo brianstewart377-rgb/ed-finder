@@ -47,13 +47,14 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     // not a (url, init) pair — proving the facade delegates to the generated
     // operation rather than hand-rolling the fetch.
     const healthRequest = fetchMock.mock.calls[0]?.[0] as Request;
-    const sessionRequest = fetchMock.mock.calls[1]?.[0] as Request;
+    const sessionRequest = fetchMock.mock.calls[1]?.[0] as string;
+    const sessionInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
     expect(healthRequest).toBeInstanceOf(Request);
     expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
     expect(healthRequest.url).toContain('/api/health');
     expect(healthRequest.credentials).toBe('include');
-    expect(sessionRequest.url).toContain('/api/auth/session');
-    expect(sessionRequest.credentials).toBe('include');
+    expect(sessionRequest).toContain('/api/v1/auth/session');
+    expect(sessionInit.credentials).toBe('include');
   });
 
   it('preserves oversized id64 identifiers losslessly through the application facade', async () => {
@@ -138,14 +139,16 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     );
 
     await claimOwner('one-time-owner-secret');
-    const request = fetchMock.mock.calls[0]?.[0] as Request;
-    // /api/auth/owner/claim is not an admin-classified route: the reusable
+    const request = fetchMock.mock.calls[0]?.[0] as string;
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    // /api/v1/auth/owner/claim is not an admin-classified route: the reusable
     // session token must not be attached, and the one-time secret rides only
     // in the body.
-    expect(request.headers.has('X-Admin-Token')).toBe(false);
-    expect(await request.clone().text()).toBe(
+    expect(new Headers(init.headers).has('X-Admin-Token')).toBe(false);
+    expect(init.body).toBe(
       JSON.stringify({ admin_token: 'one-time-owner-secret' }),
     );
+    expect(request).toContain('/api/v1/auth/owner/claim');
   });
 
   it('re-exports the single shared transport inventory rather than duplicating it', () => {

@@ -33,10 +33,7 @@ import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
 import { client } from './generated/client.gen';
 import {
-  authLogoutApiAuthLogoutPost,
-  authSessionApiAuthSessionGet,
   autocompleteApiLocalAutocompleteGet,
-  claimOwnerApiAuthOwnerClaimPost,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getSystemApiSystemId64Get,
   healthApiHealthGet,
@@ -144,7 +141,7 @@ export const getHealth = async (
 export const getAuthSession = async (
   signal?: AbortSignal,
 ): Promise<AuthSessionResponse> =>
-  (await authSessionApiAuthSessionGet({ throwOnError: true, signal })).data;
+  apiRequest<AuthSessionResponse>('/api/v1/auth/session', { signal });
 
 export type AutocompleteSystem = Readonly<
   Pick<
@@ -344,17 +341,15 @@ export function pushProfileSync<TBlob>(
 }
 
 export const authLogout = <T = AuthSessionResponse>(): Promise<T> =>
-  authLogoutApiAuthLogoutPost({ throwOnError: true }).then(
-    (result) => result.data as unknown as T,
-  );
+  apiRequest<T>('/api/v1/auth/logout', { method: 'POST' });
 
 export const claimOwner = <T = AuthSessionResponse>(
   adminToken: string,
 ): Promise<T> =>
-  claimOwnerApiAuthOwnerClaimPost({
-    throwOnError: true,
-    body: { admin_token: adminToken },
-  }).then((result) => result.data as unknown as T);
+  apiRequest<T>('/api/v1/auth/owner/claim', {
+    method: 'POST',
+    body: JSON.stringify({ admin_token: adminToken }),
+  });
 
 export const frontierLoginUrl = (returnTo: string): string =>
-  `/api/auth/frontier/login?return_to=${encodeURIComponent(returnTo)}`;
+  `/api/v1/auth/frontier/login?return_to=${encodeURIComponent(returnTo)}`;
