@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { Compass, Map, Search, ClipboardCheck } from '@lucide/svelte';
+  import AccountIdentityPanel from '$lib/components/AccountIdentityPanel.svelte';
   import BootstrapStatus from '$lib/components/BootstrapStatus.svelte';
 
   const steps = [
@@ -72,6 +73,7 @@
     </div>
   </section>
   <BootstrapStatus />
+  <AccountIdentityPanel />
 </main>
 <footer>
   Explore and Inspect are live in this V3 checkpoint. Plan and Review remain

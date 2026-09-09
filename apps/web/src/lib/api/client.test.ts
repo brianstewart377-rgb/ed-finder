@@ -7,10 +7,13 @@ import {
   apiRequest,
   autocompleteSystems,
   claimOwner,
+  getAuthIdentities,
   getAuthSession,
   getHealth,
   getSystem,
   searchExploreSystems,
+  startFrontierLink,
+  unlinkAuthIdentity,
 } from './client';
 // Allowed only in a .test. file: exercise the generated client configuration
 // (interceptors) the facade installs, on a route the facade does not wrap.
@@ -115,6 +118,49 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(503);
     expect((error as ApiError).path).toContain('/api/health');
+  });
+
+  it('keeps identity management on the credentialed same-origin facade', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            external_identity_id: 'identity-1',
+            provider: 'frontier',
+            linked_at: '2026-09-09T12:00:00Z',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ authorization_url: 'https://auth.frontierstore.net/auth?state=one' }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ authenticated: true, user: null }),
+      );
+
+    await expect(getAuthIdentities()).resolves.toEqual([
+      {
+        external_identity_id: 'identity-1',
+        provider: 'frontier',
+        linked_at: '2026-09-09T12:00:00Z',
+      },
+    ]);
+    await expect(startFrontierLink('/')).resolves.toContain(
+      'auth.frontierstore.net',
+    );
+    await expect(unlinkAuthIdentity('identity-1')).resolves.toMatchObject({
+      authenticated: true,
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      '/api/v1/auth/identities',
+    );
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain(
+      '/api/v1/auth/frontier/link?return_to=%2F',
+    );
+    expect((fetchMock.mock.calls[1]?.[1] as RequestInit).method).toBe('POST');
+    expect((fetchMock.mock.calls[2]?.[1] as RequestInit).method).toBe('DELETE');
   });
 
   it('injects the bounded session admin token only for require_admin routes', async () => {
