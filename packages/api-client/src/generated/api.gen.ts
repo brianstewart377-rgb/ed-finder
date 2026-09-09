@@ -457,6 +457,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ratings/v4/generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Generation */
+        get: operations["generation_api_ratings_v4_generation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ratings/v4/systems/{system_id64}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System Scores */
+        get: operations["system_scores_api_ratings_v4_systems__system_id64__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ratings/v4/systems/{system_id64}/explanation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System Explanation */
+        get: operations["system_explanation_api_ratings_v4_systems__system_id64__explanation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/powerplay/import": {
         parameters: {
             query?: never;
@@ -2610,6 +2661,52 @@ export interface components {
              */
             db_cache_rows: number;
         };
+        /** CandidateContributionResponse */
+        CandidateContributionResponse: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Native */
+            native: boolean;
+            /** Modifier */
+            modifier: boolean;
+            /** Base Score */
+            base_score: number;
+            /** Positive Rules */
+            positive_rules: string[];
+            /** Negative Rules */
+            negative_rules: string[];
+            /** Positive Adjustment */
+            positive_adjustment: number;
+            /** Negative Adjustment */
+            negative_adjustment: number;
+            /** Local Score */
+            local_score: number;
+            /** System Weight */
+            system_weight: number;
+            /** Contributors */
+            contributors: string[];
+            /** Evidence */
+            evidence: components["schemas"]["EvidenceFeatureResponse"][];
+        };
+        /** CandidateSpecialisationResponse */
+        CandidateSpecialisationResponse: {
+            /** Candidate Id */
+            candidate_id: string;
+            /** Intrinsic Quality */
+            intrinsic_quality: number;
+            /** Quality */
+            quality: number | null;
+            /** Minimum Quality */
+            minimum_quality: number;
+            /** Maximum Quality */
+            maximum_quality: number;
+            /** Competing Economies */
+            competing_economies: string[];
+            /** Preferred Specialisation */
+            preferred_specialisation: boolean;
+            /** Constraints */
+            constraints: components["schemas"]["SpecialisationConstraintResponse"][];
+        };
         /** CanonicalEvidencePromotionRequest */
         CanonicalEvidencePromotionRequest: {
             /** Evidence Types */
@@ -2915,6 +3012,21 @@ export interface components {
             contamination_paths?: unknown[];
         } & {
             [key: string]: unknown;
+        };
+        /** EvidenceFeatureResponse */
+        EvidenceFeatureResponse: {
+            /** Feature Type */
+            feature_type: string;
+            /** Known */
+            known: boolean;
+            /** Weight */
+            weight: number;
+            /** Confidence */
+            confidence: number;
+            /** Provenance */
+            provenance: string | null;
+            /** Value */
+            value: string | boolean | null;
         };
         /** EvidenceRecordCreateRequest */
         EvidenceRecordCreateRequest: {
@@ -3581,6 +3693,30 @@ export interface components {
              * @default 0
              */
             offset: number;
+        };
+        /** GenerationResponse */
+        GenerationResponse: {
+            /** Derived Generation Id */
+            derived_generation_id: string;
+            /** Publication Sequence */
+            publication_sequence: number;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Canonical Generation Id */
+            canonical_generation_id: string;
+            /** Canonical Publication Sequence */
+            canonical_publication_sequence: number;
+            /** Scorer Version */
+            scorer_version: string;
+            /** Mechanics Version */
+            mechanics_version: string;
+            /** Validation Receipt */
+            validation_receipt: {
+                [key: string]: unknown;
+            };
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -4827,6 +4963,56 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** RatingExplanationResponse */
+        RatingExplanationResponse: {
+            /** Economy */
+            economy: string;
+            /** Potential Score */
+            potential_score: number;
+            /** Specialisation Quality */
+            specialisation_quality: number | null;
+            /** Specialisation Quality Min */
+            specialisation_quality_min: number;
+            /** Specialisation Quality Max */
+            specialisation_quality_max: number;
+            /** Evidence Completeness */
+            evidence_completeness: number;
+            /** Confidence */
+            confidence: number;
+            /** Best Candidate Id */
+            best_candidate_id: string | null;
+            /** Local Scores */
+            local_scores: number[];
+            /** Explanation */
+            explanation: string[];
+            /** Mechanics Version */
+            mechanics_version: string;
+            /** Scorer Version */
+            scorer_version: string;
+            /** Contributions */
+            contributions: components["schemas"]["CandidateContributionResponse"][];
+            /** Best Specialisation Candidate Id */
+            best_specialisation_candidate_id: string | null;
+            /** Specialisation Candidates */
+            specialisation_candidates: components["schemas"]["CandidateSpecialisationResponse"][];
+        };
+        /** RatingSummaryResponse */
+        RatingSummaryResponse: {
+            /** Economy */
+            economy: string;
+            /** Potential Score */
+            potential_score: number;
+            /** Specialisation Quality */
+            specialisation_quality: number | null;
+            /** Specialisation Quality Min */
+            specialisation_quality_min: number;
+            /** Specialisation Quality Max */
+            specialisation_quality_max: number;
+            /** Evidence Completeness */
+            evidence_completeness: number;
+            /** Confidence */
+            confidence: number;
+        };
         /** RecommendedBuildPlan */
         RecommendedBuildPlan: {
             /** Id */
@@ -5740,6 +5926,19 @@ export interface components {
             /** Label */
             label?: string | null;
         };
+        /** SpecialisationConstraintResponse */
+        SpecialisationConstraintResponse: {
+            /** Rule Id */
+            rule_id: string;
+            /** Satisfied */
+            satisfied: boolean | null;
+            /** Feature Type */
+            feature_type: string;
+            /** Confidence */
+            confidence: number;
+            /** Provenance */
+            provenance: string | null;
+        };
         /** StationModel */
         StationModel: {
             /** Id */
@@ -6095,6 +6294,44 @@ export interface components {
             exploration_value?: components["schemas"]["ExplorationValueModel"] | null;
         } & {
             [key: string]: unknown;
+        };
+        /** SystemExplanationResponse */
+        SystemExplanationResponse: {
+            /** Derived Generation Id */
+            derived_generation_id: string;
+            /** Publication Sequence */
+            publication_sequence: number;
+            /** Canonical Generation Id */
+            canonical_generation_id: string;
+            /** Canonical Publication Sequence */
+            canonical_publication_sequence: number;
+            /** Scorer Version */
+            scorer_version: string;
+            /** Mechanics Version */
+            mechanics_version: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Ratings */
+            ratings: components["schemas"]["RatingExplanationResponse"][];
+        };
+        /** SystemRatingsResponse */
+        SystemRatingsResponse: {
+            /** Derived Generation Id */
+            derived_generation_id: string;
+            /** Publication Sequence */
+            publication_sequence: number;
+            /** Canonical Generation Id */
+            canonical_generation_id: string;
+            /** Canonical Publication Sequence */
+            canonical_publication_sequence: number;
+            /** Scorer Version */
+            scorer_version: string;
+            /** Mechanics Version */
+            mechanics_version: string;
+            /** System Id64 */
+            system_id64: number;
+            /** Ratings */
+            ratings: components["schemas"]["RatingSummaryResponse"][];
         };
         /**
          * SystemRow
@@ -7316,6 +7553,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    generation_api_ratings_v4_generation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GenerationResponse"];
+                };
+            };
+        };
+    };
+    system_scores_api_ratings_v4_systems__system_id64__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemRatingsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    system_explanation_api_ratings_v4_systems__system_id64__explanation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                system_id64: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemExplanationResponse"];
                 };
             };
             /** @description Validation Error */

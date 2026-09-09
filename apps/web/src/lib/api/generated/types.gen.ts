@@ -1081,6 +1081,98 @@ export type CacheStatsResponse = {
 };
 
 /**
+ * CandidateContributionResponse
+ */
+export type CandidateContributionResponse = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Native
+     */
+    native: boolean;
+    /**
+     * Modifier
+     */
+    modifier: boolean;
+    /**
+     * Base Score
+     */
+    base_score: number;
+    /**
+     * Positive Rules
+     */
+    positive_rules: Array<string>;
+    /**
+     * Negative Rules
+     */
+    negative_rules: Array<string>;
+    /**
+     * Positive Adjustment
+     */
+    positive_adjustment: number;
+    /**
+     * Negative Adjustment
+     */
+    negative_adjustment: number;
+    /**
+     * Local Score
+     */
+    local_score: number;
+    /**
+     * System Weight
+     */
+    system_weight: number;
+    /**
+     * Contributors
+     */
+    contributors: Array<string>;
+    /**
+     * Evidence
+     */
+    evidence: Array<EvidenceFeatureResponse>;
+};
+
+/**
+ * CandidateSpecialisationResponse
+ */
+export type CandidateSpecialisationResponse = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Intrinsic Quality
+     */
+    intrinsic_quality: number;
+    /**
+     * Quality
+     */
+    quality: number | null;
+    /**
+     * Minimum Quality
+     */
+    minimum_quality: number;
+    /**
+     * Maximum Quality
+     */
+    maximum_quality: number;
+    /**
+     * Competing Economies
+     */
+    competing_economies: Array<string>;
+    /**
+     * Preferred Specialisation
+     */
+    preferred_specialisation: boolean;
+    /**
+     * Constraints
+     */
+    constraints: Array<SpecialisationConstraintResponse>;
+};
+
+/**
  * CanonicalEvidencePromotionRequest
  */
 export type CanonicalEvidencePromotionRequest = {
@@ -1581,6 +1673,36 @@ export type EconomyPairDetail = {
      */
     contamination_paths?: Array<unknown>;
     [key: string]: unknown;
+};
+
+/**
+ * EvidenceFeatureResponse
+ */
+export type EvidenceFeatureResponse = {
+    /**
+     * Feature Type
+     */
+    feature_type: string;
+    /**
+     * Known
+     */
+    known: boolean;
+    /**
+     * Weight
+     */
+    weight: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Provenance
+     */
+    provenance: string | null;
+    /**
+     * Value
+     */
+    value: string | boolean | null;
 };
 
 /**
@@ -2635,6 +2757,46 @@ export type GalaxySearchRequest = {
      * Offset
      */
     offset?: number;
+};
+
+/**
+ * GenerationResponse
+ */
+export type GenerationResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Published At
+     */
+    published_at: string;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * Validation Receipt
+     */
+    validation_receipt: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -4605,6 +4767,106 @@ export type RangeFilter = {
 };
 
 /**
+ * RatingExplanationResponse
+ */
+export type RatingExplanationResponse = {
+    /**
+     * Economy
+     */
+    economy: string;
+    /**
+     * Potential Score
+     */
+    potential_score: number;
+    /**
+     * Specialisation Quality
+     */
+    specialisation_quality: number | null;
+    /**
+     * Specialisation Quality Min
+     */
+    specialisation_quality_min: number;
+    /**
+     * Specialisation Quality Max
+     */
+    specialisation_quality_max: number;
+    /**
+     * Evidence Completeness
+     */
+    evidence_completeness: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Best Candidate Id
+     */
+    best_candidate_id: string | null;
+    /**
+     * Local Scores
+     */
+    local_scores: Array<number>;
+    /**
+     * Explanation
+     */
+    explanation: Array<string>;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Contributions
+     */
+    contributions: Array<CandidateContributionResponse>;
+    /**
+     * Best Specialisation Candidate Id
+     */
+    best_specialisation_candidate_id: string | null;
+    /**
+     * Specialisation Candidates
+     */
+    specialisation_candidates: Array<CandidateSpecialisationResponse>;
+};
+
+/**
+ * RatingSummaryResponse
+ */
+export type RatingSummaryResponse = {
+    /**
+     * Economy
+     */
+    economy: string;
+    /**
+     * Potential Score
+     */
+    potential_score: number;
+    /**
+     * Specialisation Quality
+     */
+    specialisation_quality: number | null;
+    /**
+     * Specialisation Quality Min
+     */
+    specialisation_quality_min: number;
+    /**
+     * Specialisation Quality Max
+     */
+    specialisation_quality_max: number;
+    /**
+     * Evidence Completeness
+     */
+    evidence_completeness: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+};
+
+/**
  * RecommendedBuildPlan
  */
 export type RecommendedBuildPlan = {
@@ -6055,6 +6317,32 @@ export type SlotRequirement = {
 };
 
 /**
+ * SpecialisationConstraintResponse
+ */
+export type SpecialisationConstraintResponse = {
+    /**
+     * Rule Id
+     */
+    rule_id: string;
+    /**
+     * Satisfied
+     */
+    satisfied: boolean | null;
+    /**
+     * Feature Type
+     */
+    feature_type: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Provenance
+     */
+    provenance: string | null;
+};
+
+/**
  * StationModel
  */
 export type StationModel = {
@@ -6645,6 +6933,82 @@ export type SystemDetailRow = {
     stations?: Array<StationModel>;
     exploration_value?: ExplorationValueModel | null;
     [key: string]: unknown;
+};
+
+/**
+ * SystemExplanationResponse
+ */
+export type SystemExplanationResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Ratings
+     */
+    ratings: Array<RatingExplanationResponse>;
+};
+
+/**
+ * SystemRatingsResponse
+ */
+export type SystemRatingsResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Ratings
+     */
+    ratings: Array<RatingSummaryResponse>;
 };
 
 /**
@@ -7927,6 +8291,82 @@ export type PutProfileSyncApiProfileSyncSyncKeyPutResponses = {
      */
     200: unknown;
 };
+
+export type GenerationApiRatingsV4GenerationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/ratings/v4/generation';
+};
+
+export type GenerationApiRatingsV4GenerationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: GenerationResponse;
+};
+
+export type GenerationApiRatingsV4GenerationGetResponse = GenerationApiRatingsV4GenerationGetResponses[keyof GenerationApiRatingsV4GenerationGetResponses];
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/ratings/v4/systems/{system_id64}';
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetError = SystemScoresApiRatingsV4SystemsSystemId64GetErrors[keyof SystemScoresApiRatingsV4SystemsSystemId64GetErrors];
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemRatingsResponse;
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetResponse = SystemScoresApiRatingsV4SystemsSystemId64GetResponses[keyof SystemScoresApiRatingsV4SystemsSystemId64GetResponses];
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/ratings/v4/systems/{system_id64}/explanation';
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetError = SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors[keyof SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors];
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemExplanationResponse;
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponse = SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses[keyof SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses];
 
 export type ImportPowerplayJournalApiPowerplayImportPostData = {
     body: PowerplayImportRequest;

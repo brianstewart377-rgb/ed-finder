@@ -6,11 +6,13 @@ judgement remain separate layers and are deliberately absent from this route.
 from __future__ import annotations
 
 from dataclasses import asdict
+from datetime import datetime
 import json
 from typing import Any, Mapping
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path
+from pydantic import BaseModel
 
 from edfinder_api.deps import get_readonly_pool
 from edfinder_api.domain.ratings_v4 import BodyFact, ECONOMIES, SystemFacts, opportunities_from_facts, rate_all
@@ -21,6 +23,103 @@ _BODY_FIELDS = ('body_class', 'spectral_class', 'luminosity_class', 'rings',
                 'biologicals', 'geologicals', 'volcanism', 'terraformable',
                 'tidally_locked', 'is_main_star', 'reserve_level', 'usable_ground_opportunity')
 _VECTOR_FIELDS = ('potential', 'quality', 'quality_min', 'quality_max', 'completeness', 'confidence')
+
+
+class RatingSummaryResponse(BaseModel):
+    economy: str
+    potential_score: int
+    specialisation_quality: int | None
+    specialisation_quality_min: int
+    specialisation_quality_max: int
+    evidence_completeness: float
+    confidence: float
+
+
+class EvidenceFeatureResponse(BaseModel):
+    feature_type: str
+    known: bool
+    weight: float
+    confidence: float
+    provenance: str | None
+    value: str | bool | None
+
+
+class SpecialisationConstraintResponse(BaseModel):
+    rule_id: str
+    satisfied: bool | None
+    feature_type: str
+    confidence: float
+    provenance: str | None
+
+
+class CandidateContributionResponse(BaseModel):
+    candidate_id: str
+    native: bool
+    modifier: bool
+    base_score: int
+    positive_rules: tuple[str, ...]
+    negative_rules: tuple[str, ...]
+    positive_adjustment: int
+    negative_adjustment: int
+    local_score: int
+    system_weight: float
+    contributors: tuple[str, ...]
+    evidence: tuple[EvidenceFeatureResponse, ...]
+
+
+class CandidateSpecialisationResponse(BaseModel):
+    candidate_id: str
+    intrinsic_quality: int
+    quality: int | None
+    minimum_quality: int
+    maximum_quality: int
+    competing_economies: tuple[str, ...]
+    preferred_specialisation: bool
+    constraints: tuple[SpecialisationConstraintResponse, ...]
+
+
+class RatingExplanationResponse(RatingSummaryResponse):
+    best_candidate_id: str | None
+    local_scores: tuple[int, ...]
+    explanation: tuple[str, ...]
+    mechanics_version: str
+    scorer_version: str
+    contributions: tuple[CandidateContributionResponse, ...]
+    best_specialisation_candidate_id: str | None
+    specialisation_candidates: tuple[CandidateSpecialisationResponse, ...]
+
+
+class GenerationResponse(BaseModel):
+    derived_generation_id: str
+    publication_sequence: int
+    published_at: datetime
+    canonical_generation_id: str
+    canonical_publication_sequence: int
+    scorer_version: str
+    mechanics_version: str
+    validation_receipt: dict[str, Any]
+
+
+class SystemRatingsResponse(BaseModel):
+    derived_generation_id: str
+    publication_sequence: int
+    canonical_generation_id: str
+    canonical_publication_sequence: int
+    scorer_version: str
+    mechanics_version: str
+    system_id64: int
+    ratings: list[RatingSummaryResponse]
+
+
+class SystemExplanationResponse(BaseModel):
+    derived_generation_id: str
+    publication_sequence: int
+    canonical_generation_id: str
+    canonical_publication_sequence: int
+    scorer_version: str
+    mechanics_version: str
+    system_id64: int
+    ratings: list[RatingExplanationResponse]
 
 
 def _provenance(value: Mapping[str, Any], *, field: str) -> str:
@@ -152,7 +251,7 @@ async def _read_system(pool: asyncpg.Pool, system_id64: int, *, explanation: boo
 
 
 @router.get('/generation')
-async def generation(pool: asyncpg.Pool = Depends(get_readonly_pool)) -> dict[str, Any]:
+async def generation(pool: asyncpg.Pool = Depends(get_readonly_pool)) -> GenerationResponse:
     try:
         async with pool.acquire() as connection:
             async with connection.transaction(readonly=True):
@@ -177,7 +276,7 @@ async def generation(pool: asyncpg.Pool = Depends(get_readonly_pool)) -> dict[st
 @router.get('/systems/{system_id64}')
 async def system_scores(
     system_id64: int = Path(ge=0, le=9223372036854775807), pool: asyncpg.Pool = Depends(get_readonly_pool),
-) -> dict[str, Any]:
+) -> SystemRatingsResponse:
     result = await _read_system(pool, system_id64, explanation=False)
     if result is None:
         raise HTTPException(404, 'System is not in the published Ratings V4 generation')
@@ -187,7 +286,7 @@ async def system_scores(
 @router.get('/systems/{system_id64}/explanation')
 async def system_explanation(
     system_id64: int = Path(ge=0, le=9223372036854775807), pool: asyncpg.Pool = Depends(get_readonly_pool),
-) -> dict[str, Any]:
+) -> SystemExplanationResponse:
     result = await _read_system(pool, system_id64, explanation=True)
     if result is None:
         raise HTTPException(404, 'System is not in the published Ratings V4 generation')

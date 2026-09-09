@@ -15,7 +15,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'apps/api/src'))
 
 from edfinder_api.domain.ratings_v4 import ECONOMIES, opportunities_from_facts, rate_all  # noqa: E402
-from edfinder_api.routers.ratings_v4 import _facts, _read_system, _summary, router  # noqa: E402
+from edfinder_api.routers.ratings_v4 import (  # noqa: E402
+    SystemExplanationResponse, _facts, _read_system, _summary, router,
+)
 from scripts.ratings_v4.canonical_stream import CanonicalSnapshot  # noqa: E402
 from scripts.ratings_v4.production_generation import (  # noqa: E402
     create_generation, seal_source, validate_generation, write_chunk,
@@ -128,6 +130,7 @@ def test_read_only_api_replays_the_published_vector_from_immutable_mechanics():
     assert response['ratings'] == expected_rows
     assert 'overall_score' not in response
     assert response['derived_generation_id'] == str(generation)
+    assert SystemExplanationResponse.model_validate(response).ratings[0].economy == ECONOMIES[0]
 
 
 def test_api_router_exposes_only_generation_and_independent_economy_reads():
