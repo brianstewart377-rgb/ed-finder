@@ -101,11 +101,26 @@ and coverage gates, full frozen-score replay, explanations, corruption
 detection, immutability, CAS publication and rollback. This is a synthetic
 fixture proof, not a production full-galaxy generation.
 
+[`run_generation.py`](../../scripts/ratings_v4/run_generation.py) is the bounded
+operator entry point for a full retained artifact. It requires explicit
+`RATINGS_V4_CANONICAL_DATABASE_URL` and `RATINGS_V4_DERIVED_DATABASE_URL`
+connections, pins the published canonical snapshot, verifies the retained file
+against its canonical size and SHA256, and resumes an existing generation key
+only when its canonical, source and code identities still match. Each rerun
+re-reads the artifact from the beginning; already committed chunks are accepted
+only after their input and output seals match.
+
+The runner completes the verified EOF, contiguous coverage and full replay
+gates, then returns a READY validation receipt. It intentionally does not apply
+the migration, change the published derived pointer or deploy the API. Those
+steps remain part of the separately reviewed V3 migration and release
+operation.
+
 ## Remaining production work
 
 1. Establish the reviewed V3 migration/runtime/release authority. The current
    application-only deployment path cannot apply this V3 migration.
-2. Run the approved bounded builder against the retained full artifact and
+2. Run the approved bounded runner against the retained full artifact and
    current canonical generation, measure its resources, verify EOF coverage and
    replay every generated system before publication.
 3. Deploy the API only after a VERIFIED full generation is published through the

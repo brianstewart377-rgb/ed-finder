@@ -13,6 +13,7 @@ from scripts.ratings_v4.canonical_stream import CanonicalSnapshot  # noqa: E402
 from scripts.ratings_v4.production_generation import (  # noqa: E402
     create_generation, write_chunk, seal_source, validate_generation, explain_system,
 )
+from scripts.ratings_v4.run_generation import build_generation  # noqa: E402
 from tests.ratings_v4_pg_fixture import canonical_database  # noqa: E402
 
 
@@ -173,3 +174,36 @@ def test_generation_cannot_accept_another_canonical_source(database):
     generation = create_generation(connection, changed_snapshot, 'test_' + uuid4().hex)
     with pytest.raises(ValueError, match='source differs'):
         write_chunk(connection, generation, 0, canonical, metadata, records)
+
+
+def test_full_artifact_runner_builds_then_idempotently_resumes(tmp_path):
+    import gzip
+    import hashlib
+    import json
+    import psycopg
+    from domain.ratings_v4_canonical import load_source_fixture
+
+    _, _, payloads = load_source_fixture(ROOT / 'tests/fixtures/ratings_v4_sources')
+    records = [payload['system'] for payload in payloads]
+    compressed = gzip.compress(json.dumps(records).encode(), mtime=0)
+    source = tmp_path / 'galaxy.json.gz'
+    source.write_bytes(compressed)
+
+    def retained_fixture(_canonical, metadata):
+        metadata['artifact']['content_sha256'] = '\\x' + hashlib.sha256(compressed).hexdigest()
+        metadata['artifact']['size_bytes'] = len(compressed)
+        return ()
+
+    with canonical_database(prepare=retained_fixture) as (read_connection, _, _, _):
+        read_connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
+        with psycopg.connect(read_connection.info.dsn, autocommit=True) as write_connection:
+            first = build_generation(read_connection, write_connection, source, 'full_runner_fixture')
+            second = build_generation(read_connection, write_connection, source, 'full_runner_fixture')
+            assert first['status'] == 'VERIFIED'
+            assert first['lifecycle_state'] == 'READY'
+            assert first['publication_performed'] is False
+            assert first['chunks_written'] == 1
+            assert second['status'] == 'VERIFIED'
+            assert second['resumed'] is True
+            assert second['chunks_seen'] == 0
+            assert second['derived_generation_id'] == first['derived_generation_id']

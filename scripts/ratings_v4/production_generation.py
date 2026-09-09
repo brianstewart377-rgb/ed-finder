@@ -45,6 +45,7 @@ OPPORTUNITY_COLUMNS = ('derived_generation_id', 'system_id64', 'body_pk', 'econo
 def code_identity():
     return {name: hashlib.sha256((ROOT / name).read_text(encoding='utf-8').encode()).hexdigest()
             for name in ('scripts/ratings_v4/production_generation.py',
+                         'scripts/ratings_v4/run_generation.py',
                          'scripts/ratings_v4/canonical_stream.py',
                          'sql/v3/migrations/003_ratings_v4_derived.sql')}
 
