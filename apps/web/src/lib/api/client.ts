@@ -143,6 +143,39 @@ export const getAuthSession = async (
 ): Promise<AuthSessionResponse> =>
   apiRequest<AuthSessionResponse>('/api/v1/auth/session', { signal });
 
+export interface AuthIdentity {
+  readonly external_identity_id: string;
+  readonly provider: string;
+  readonly linked_at: string;
+}
+
+interface FrontierLinkResponse {
+  readonly authorization_url: string;
+}
+
+export const getAuthIdentities = (
+  signal?: AbortSignal,
+): Promise<readonly AuthIdentity[]> =>
+  apiRequest<readonly AuthIdentity[]>('/api/v1/auth/identities', { signal });
+
+export const startFrontierLink = async (
+  returnTo: string,
+): Promise<string> => {
+  const response = await apiRequest<FrontierLinkResponse>(
+    `/api/v1/auth/frontier/link?return_to=${encodeURIComponent(returnTo)}`,
+    { method: 'POST' },
+  );
+  return response.authorization_url;
+};
+
+export const unlinkAuthIdentity = (
+  externalIdentityId: string,
+): Promise<AuthSessionResponse> =>
+  apiRequest<AuthSessionResponse>(
+    `/api/v1/auth/identities/${encodeURIComponent(externalIdentityId)}`,
+    { method: 'DELETE' },
+  );
+
 export type AutocompleteSystem = Readonly<
   Pick<
     AutocompleteHit,
