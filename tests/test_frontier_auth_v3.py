@@ -678,6 +678,7 @@ def test_openapi_exposes_v3_contract_and_hides_registered_callback_alias():
         '/api/v1/auth/session',
         '/api/v1/auth/logout',
         '/api/v1/auth/owner/claim',
+        '/api/v1/auth/identities',
         '/api/v1/auth/identities/{external_identity_id}',
     ):
         assert path in paths

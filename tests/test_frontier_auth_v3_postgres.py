@@ -293,6 +293,74 @@ async def test_repeated_login_identity_mapping_commander_separation_and_conflict
 @pytest.mark.db
 @pytest.mark.requires_postgres
 @pytest.mark.asyncio
+async def test_identity_list_is_account_scoped_and_omits_disabled_rows(
+    v3_auth_pool,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    owner_identity = auth_router.FrontierIdentity(
+        issuer=auth_router.FRONTIER_ISSUER,
+        subject='identity-list-owner',
+    )
+    linked_identity = auth_router.FrontierIdentity(
+        issuer=auth_router.FRONTIER_ISSUER,
+        subject='identity-list-linked',
+    )
+    owner_user, _, _ = await auth_router._upsert_account_and_session(
+        v3_auth_pool,
+        owner_identity,
+    )
+    await auth_router._upsert_account_and_session(
+        v3_auth_pool,
+        linked_identity,
+        link_to_account_id=owner_user.account_id,
+    )
+
+    async def recently_authenticated_owner(_request: Request):
+        return owner_user
+
+    monkeypatch.setattr(
+        auth_router,
+        'get_request_user',
+        recently_authenticated_owner,
+    )
+
+    listed = await auth_router.list_identities(
+        _request(),
+        pool=v3_auth_pool,
+    )
+    assert len(listed) == 2
+    assert all(row.provider == 'frontier' for row in listed)
+    assert all(row.linked_at is not None for row in listed)
+
+    async with v3_auth_pool.acquire() as conn:
+        linked_id = await conn.fetchval(
+            """
+            SELECT external_identity_id
+            FROM v3_identity.external_identity
+            WHERE provider = 'frontier' AND issuer = $1 AND subject = $2
+            """,
+            auth_router.FRONTIER_ISSUER,
+            linked_identity.subject,
+        )
+    assert linked_id is not None
+    linked_id = uuid.UUID(str(linked_id))
+    await auth_router.unlink_identity(
+        linked_id,
+        _request(),
+        pool=v3_auth_pool,
+    )
+    remaining = await auth_router.list_identities(
+        _request(),
+        pool=v3_auth_pool,
+    )
+    assert len(remaining) == 1
+    assert remaining[0].external_identity_id != linked_id
+
+
+@pytest.mark.integration
+@pytest.mark.db
+@pytest.mark.requires_postgres
+@pytest.mark.asyncio
 async def test_disabled_identity_requires_explicit_owning_account_relink(
     v3_auth_pool,
     monkeypatch: pytest.MonkeyPatch,

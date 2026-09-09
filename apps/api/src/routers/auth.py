@@ -57,6 +57,14 @@ class AuthSessionResponse(BaseModel):
     owner_claim_available: bool = False
 
 
+class ExternalIdentityResponse(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+
+    external_identity_id: uuid.UUID
+    provider: str
+    linked_at: datetime
+
+
 class OwnerClaimRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
@@ -848,6 +856,33 @@ async def auth_logout(
                     )
     delete_session_cookie(response)
     return _session_response(None)
+
+
+@router.get('/identities', response_model=list[ExternalIdentityResponse])
+async def list_identities(
+    request: Request,
+    pool: asyncpg.Pool = Depends(get_pool),
+):
+    """List the active login identities owned by the current account.
+
+    Provider subjects and other Frontier identifiers stay server-side. The
+    browser only needs an opaque row id to render safe unlink controls.
+    """
+    user = await get_request_user(request)
+    if user is None:
+        raise HTTPException(401, 'Sign in before viewing linked identities')
+
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT external_identity_id, provider, verified_at AS linked_at
+            FROM v3_identity.external_identity
+            WHERE account_id = $1 AND disabled_at IS NULL
+            ORDER BY verified_at, external_identity_id
+            """,
+            user.account_id,
+        )
+    return [ExternalIdentityResponse.model_validate(dict(row)) for row in rows]
 
 
 @router.post('/owner/claim', response_model=AuthSessionResponse)
