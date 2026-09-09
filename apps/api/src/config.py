@@ -23,6 +23,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from edfinder_api.request_logging import (
+    configure_uvicorn_access_log_redaction,
+    redact_frontier_oauth_sentry_event,
+)
+
 
 class Settings(BaseSettings):
     database_url:       str  = 'postgresql://postgres:password@localhost:5432/postgres'
@@ -40,22 +45,24 @@ class Settings(BaseSettings):
     app_version:        str  = '3.0.1'
     build_sha:          str  = 'unknown'
     admin_token:        Optional[str] = None
-    # Frontier OAuth. The client secret is server-only and must never be
-    # exposed to the Vite bundle. OAuth access/refresh tokens are deliberately
-    # not persisted: this first account slice stores only the stable Frontier
-    # account identifier and Commander name approved for ED-Finder.
+    # Frontier OAuth identity login. The client secret and all short-lived
+    # provider tokens remain server-only; provider tokens are discarded after
+    # /decode and /me establish the verified external identity.
     frontier_client_id: Optional[str] = None
     frontier_client_secret: Optional[str] = None
     frontier_redirect_uri: str = 'https://ed-finder.app/api/auth/frontier/callback'
     frontier_auth_base_url: str = 'https://auth.frontierstore.net'
     frontier_capi_base_url: str = 'https://companion.orerve.net'
     frontier_user_agent: str = 'EDCD-EDFinder-3.0.1'
-    # Recovery/explicit provisioning path. Normal owner bootstrap uses the
-    # existing ADMIN_TOKEN once, then persists the role in app_users.
+    # Optional break-glass provisioning by verified Frontier subject. The
+    # normal bootstrap is the one-time ADMIN_TOKEN owner claim.
     frontier_owner_customer_ids: str = ''
-    auth_session_cookie_name: str = 'ed_finder_session'
-    auth_state_cookie_name: str = 'ed_finder_oauth_state'
-    auth_session_ttl_seconds: int = 604800
+    auth_session_cookie_name: str = '__Host-ed_finder_session'
+    auth_state_cookie_name: str = '__Secure-ed_finder_oauth_state'
+    auth_session_idle_ttl_seconds: int = 86400
+    auth_session_absolute_ttl_seconds: int = 604800
+    auth_session_rotation_seconds: int = 3600
+    auth_recent_auth_ttl_seconds: int = 900
     auth_state_ttl_seconds: int = 600
     auth_cookie_secure: bool = True
     # Optional read-only station enrichment status artifact. This should point
@@ -133,6 +140,19 @@ class Settings(BaseSettings):
             if value.strip()
         )
 
+    @field_validator(
+        'auth_session_idle_ttl_seconds',
+        'auth_session_absolute_ttl_seconds',
+        'auth_session_rotation_seconds',
+        'auth_recent_auth_ttl_seconds',
+        'auth_state_ttl_seconds',
+    )
+    @classmethod
+    def _auth_ttl_must_be_positive(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError('authentication TTLs must be positive')
+        return v
+
     @field_validator('cors_origins')
     @classmethod
     def _reject_wildcard_or_unset(cls, v: str) -> str:
@@ -166,6 +186,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 log = logging.getLogger('ed_finder')
+configure_uvicorn_access_log_redaction()
 
 
 # ---------------------------------------------------------------------------
@@ -180,6 +201,7 @@ if settings.sentry_dsn:
         release=settings.build_sha,
         send_default_pii=False,
         traces_sample_rate=0,
+        before_send=redact_frontier_oauth_sentry_event,
     )
 
 
