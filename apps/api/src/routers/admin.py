@@ -432,7 +432,11 @@ async def _run_data_invariants_operation(conn: asyncpg.Connection) -> tuple[bool
     return (not failed), output
 
 
-@router.get('/api/cache/stats', response_model=CacheStatsResponse)
+@router.get(
+    '/api/cache/stats',
+    response_model=CacheStatsResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def cache_stats(
     pool:  asyncpg.Pool              = Depends(get_pool),
     redis: Optional[aioredis.Redis]  = Depends(get_redis),

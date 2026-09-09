@@ -8,6 +8,7 @@ redis[asyncio]==8.1.0
 pydantic==2.13.4
 pydantic-settings==2.15.0
 slowapi==0.1.10
+httpx==0.28.1
 
 # XXE-safe XML parsing for routers/news.py's Galnet RSS feed (2026-08-08,
 # Semgrep use-defused-xml finding) — drop-in replacement for xml.etree.
