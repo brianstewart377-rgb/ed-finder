@@ -338,6 +338,42 @@ def test_production_deployer_uses_release_manifest_and_fresh_schema_compatibilit
         assert forbidden not in source
 
 
+def test_rendered_compose_order_is_not_part_of_app_only_authority(tmp_path):
+    deployer = _load_deployer()
+    compose = tmp_path / "compose.yml"
+    compose.write_text("services: {}\n", encoding="utf-8")
+    authority = {
+        "application_contract": {
+            "compose_sha256": hashlib.sha256(compose.read_bytes()).hexdigest()
+        },
+        "external_authority": {
+            "api_env_file": "/etc/ed-finder/v3-production/api.env",
+            "staging_origin_bind": "127.0.0.1:58081",
+            "application_network": "edfinder-v3-production",
+        },
+    }
+
+    def runner(argv, **_kwargs):
+        if argv[-1] == "--services":
+            # Docker Compose reports services alphabetically, not in file order.
+            return subprocess.CompletedProcess(
+                argv, 0, "api-blue\napi-green\nweb-blue\nweb-green\n", ""
+            )
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    deployer.validate_compose(compose, authority, {}, runner)
+
+    def escaped(argv, **_kwargs):
+        if argv[-1] == "--services":
+            return subprocess.CompletedProcess(
+                argv, 0, "api-blue\napi-green\nweb-blue\nweb-green\nsurprise\n", ""
+            )
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    with pytest.raises(deployer.DeploymentError, match="escapes app-only authority"):
+        deployer.validate_compose(compose, authority, {}, escaped)
+
+
 def test_production_schema_identity_is_derived_from_the_v3_lineage(tmp_path):
     deployer = _load_deployer()
     identity = _load_schema_identity()

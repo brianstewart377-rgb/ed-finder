@@ -741,7 +741,10 @@ def validate_compose(compose: Path, authority: dict[str, Any], env: dict[str, st
     base = ["docker", "compose", "--project-name", PROJECT, "--file", str(compose)]
     services = runner([*base, "config", "--services"], env=compose_env).stdout.split()
     volumes = runner([*base, "config", "--volumes"], env=compose_env).stdout.split()
-    if services != list(SERVICES) or volumes:
+    # Compose reports services in its own order (observed: alphabetical), so this
+    # is a check about the exact set of app-only slots, not their declared order.
+    # The declared order is still enforced against the authority contract.
+    if sorted(services) != sorted(SERVICES) or volumes:
         raise DeploymentError("rendered production Compose escapes app-only authority")
 
 
