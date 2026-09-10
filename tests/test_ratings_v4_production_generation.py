@@ -180,7 +180,6 @@ def test_full_artifact_runner_builds_then_idempotently_resumes(tmp_path):
     import gzip
     import hashlib
     import json
-    import psycopg
     from domain.ratings_v4_canonical import load_source_fixture
 
     _, _, payloads = load_source_fixture(ROOT / 'tests/fixtures/ratings_v4_sources')
@@ -196,14 +195,20 @@ def test_full_artifact_runner_builds_then_idempotently_resumes(tmp_path):
 
     with canonical_database(prepare=retained_fixture) as (read_connection, _, _, _):
         read_connection.execute((ROOT / 'sql/v3/migrations/003_ratings_v4_derived.sql').read_text())
-        with psycopg.connect(read_connection.info.dsn, autocommit=True) as write_connection:
-            first = build_generation(read_connection, write_connection, source, 'full_runner_fixture')
-            second = build_generation(read_connection, write_connection, source, 'full_runner_fixture')
-            assert first['status'] == 'VERIFIED'
-            assert first['lifecycle_state'] == 'READY'
-            assert first['publication_performed'] is False
-            assert first['chunks_written'] == 1
-            assert second['status'] == 'VERIFIED'
-            assert second['resumed'] is True
-            assert second['chunks_seen'] == 0
-            assert second['derived_generation_id'] == first['derived_generation_id']
+        # Psycopg intentionally redacts passwords from ``connection.info.dsn``.
+        # Reusing the autocommit fixture connection keeps this integration test
+        # faithful without manufacturing a credential-less second DSN.
+        first = build_generation(
+            read_connection, read_connection, source, 'full_runner_fixture'
+        )
+        second = build_generation(
+            read_connection, read_connection, source, 'full_runner_fixture'
+        )
+        assert first['status'] == 'VERIFIED'
+        assert first['lifecycle_state'] == 'READY'
+        assert first['publication_performed'] is False
+        assert first['chunks_written'] == 1
+        assert second['status'] == 'VERIFIED'
+        assert second['resumed'] is True
+        assert second['chunks_seen'] == 0
+        assert second['derived_generation_id'] == first['derived_generation_id']
