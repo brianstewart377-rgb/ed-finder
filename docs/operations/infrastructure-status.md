@@ -5,6 +5,17 @@
 ED-Finder production is `ed-finder-prod` at `nb79a3d.mevnode.com` on the V3
 replacement infrastructure.
 
+It is currently serving `edfinder-v3-api:release-6a4fe0ef` with
+`edfinder-v3-production-web:release-1dc4d099`, promoted in place on
+2026-09-09T20:02Z outside the governed workflow. Read-only inventory run
+`34493285192` (2026-09-10) confirms the running containers, the
+`edfinder-v3-production` application network, exact loopback ownership of
+`58080` and `58081`, and the live schema `edfinder_v3_phase4c_full_20260827_r5`.
+The promotion authority remains `stopped`: there is no canonical release, no
+durable promotion receipt, and no checksum-bound rollback target for what is
+running. See
+[`v3-production-application-release.md`](v3-production-application-release.md).
+
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
 The reviewed V3 application promotion boundary is
