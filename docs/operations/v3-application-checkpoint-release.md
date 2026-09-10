@@ -155,7 +155,7 @@ For an owner checkpoint:
    `/api/health` readiness for at most 120 seconds with a two-second interval.
    Only after readiness succeeds does it run the authoritative bounded,
    no-redirect smoke suite against `/`, `/api/health`, `/openapi.json` and
-   `/api/auth/session`. Health must report `database=connected` and the expected
+   `/api/v1/auth/session`. Health must report `database=connected` and the expected
    `build_sha`; OpenAPI must expose the health and session paths; the session
    must be anonymous. A transient startup delay therefore cannot trigger an
    immediate false rollback, while readiness failure remains bounded.
