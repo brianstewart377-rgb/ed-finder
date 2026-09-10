@@ -46,6 +46,15 @@ picture. Without mutation (`db_writes_performed=false`,
   read under `BEGIN READ ONLY`;
 - host capacity still satisfies the reviewed blue/green peak.
 
+The helper also records stat-only evidence for the two designated paths the
+authority still has to pin — existence, kind, owner uid and mode for
+`/etc/ed-finder/v3-production/api.env` and
+`/var/lib/ed-finder/v3-production/receipts`. It never reads their contents, and
+an absent path is recorded as a fact rather than a failure. The 2026-09-10
+receipt predates that addition, so the next reviewed run is the one that
+supplies the owner/mode facts the `api_env_file` and `receipt_directory`
+authority fields need.
+
 The application-network blocker is therefore cleared. These remain, and
 `status` stays `stopped` until each is replaced by exact reviewed facts:
 `production_api_secret_file_authority_missing`,
