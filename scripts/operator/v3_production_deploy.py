@@ -81,9 +81,12 @@ SELECT json_build_object(
   'transaction_read_only', current_setting('transaction_read_only'),
   'migrations', COALESCE((
     SELECT json_agg(
-      json_build_object('filename', filename, 'checksum_sha256', checksum_sha256)
-      ORDER BY filename
-    ) FROM public.schema_migrations
+      json_build_object(
+        'filename', migration_name,
+        'checksum_sha256', encode(migration_sha256, 'hex')
+      )
+      ORDER BY migration_name
+    ) FROM v3_meta.schema_migration
   ), '[]'::json)
 )::text;
 COMMIT;
