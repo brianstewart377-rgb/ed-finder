@@ -69,7 +69,7 @@ def _workflow() -> dict:
     return yaml.load(WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
-def test_production_authority_is_separate_exact_and_currently_fail_closed():
+def test_production_authority_is_separate_exact_and_authorized():
     value = json.loads(AUTHORITY.read_text(encoding="utf-8"))
     module = _load_deployer()
 
@@ -81,13 +81,12 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
         "fqdn": "nb79a3d.mevnode.com",
         "architecture": "x86_64",
     }
-    assert value["status"] == "stopped"
+    assert value["status"] == "authorized"
     assert set(module.validate_authority(value)) == set(value["blockers"])
-    # The runtime gate and the three designated host facts are proven; only the
-    # unchanged-edge cutover topology remains, and that is host execution.
-    assert value["blockers"] == [
-        "production_edge_loopback_cutover_topology_authority_missing"
-    ]
+    # Every reviewed fact is pinned: the retained database identity, the three
+    # designated host paths with their restrictive modes, the runtime, and the
+    # unchanged-edge cutover topology reconciled on the host.
+    assert value["blockers"] == []
     assert value["application_contract"]["compose_project"] == "edfinder-v3-production"
     assert "checkpoint" not in value["application_contract"]["compose_project"]
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()

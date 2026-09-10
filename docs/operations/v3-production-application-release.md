@@ -117,14 +117,13 @@ release. Two facts must be reconciled before a governed promotion can run:
    `deploy/v3-production/target-authority.json`, and
    `deploy/v3-production/public-auth-edge.nginx.conf` forwards the public
    application surface to the active origin instead of the staging port.
-   What remains is host state rather than missing authority. The deployed edge
-   still targets `127.0.0.1:58081`, and the web slot is still staged on `58081`
-   while the retained `edfinder-v3-proxy` holds `127.0.0.1:58080`. Bring the
-   host into agreement by applying the reviewed edge configuration and then
-   completing the governed bootstrap cutover in step 6, which binds the
-   verified candidate web slot to `127.0.0.1:58080` and leaves the edge
-   untouched. The authority must not be marked `authorized` while the host
-   disagrees.
+   The host is now reconciled: the reviewed edge configuration was applied to the
+   deployed edge, which forwards the application surface to
+   `127.0.0.1:58080`, and the staged web slot on `127.0.0.1:58081` was stopped,
+   leaving the retained `edfinder-v3-proxy` as the sole active origin. That is
+   exactly the pristine bootstrap state the deployer models, so the governed
+   bootstrap cutover in step 6 can bind the verified candidate web slot to
+   `127.0.0.1:58080` without repointing the edge.
 2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host,
    and that reviewed provisioning change is now complete. `uv` 0.12.12 is
    installed at `/usr/local/bin/uv` from the checksum-verified upstream release

@@ -50,8 +50,9 @@ or override this set.
   capacity and the live schema/ledger identity. The api secret file, the receipt
   store and the reviewed schema identity file are now provisioned and pinned in
   the committed target authority, and exact CPython 3.14.7 is installed on the
-  host from a checksum-verified `uv` release, so one blocker remains: the
-  unchanged-edge cutover topology.
+  host from a checksum-verified `uv` release. The unchanged-edge topology was
+  reconciled on the host, so the target authority now carries no blockers and is
+  `authorized` for the first governed promotion.
   The reviewed unchanged-edge cutover authority is now published as
   `edge_route_authority`, and the committed edge configuration forwards the
   public application surface to the single active origin rather than the staging
