@@ -103,11 +103,30 @@ superseded containers were stopped and retained as
 `edfinder-v3-production-web-blue-pre-release-20260909T200231Z`. The public UI is
 no longer the temporary replacement shell.
 
-That record describes what is running; it is not an acceptance of the
-promotion through the governed path. No `preflight` or `promote` run has ever
-executed, so there is still no canonical immutable release, no durable
-promotion receipt, and no checksum-bound rollback target for the running
-release. Two facts must be reconciled before a governed promotion can run:
+That record described what was running at the time; it was not an acceptance of
+that promotion through the governed path. The governed path has since run and
+accepted its first release, so the following paragraphs are retained as the
+history of how the target was reconciled rather than as its current state.
+
+## First accepted governed promotion (2026-09-10)
+
+`bootstrap` promotion of release run `34527597963` was accepted from source
+`b1616332c024e262a0aac03018943abbf619c087` in bootstrap mode, active slot
+`blue`. Production now serves `edfinder-v3-api:release-…` and the matching web
+slot from the same commit, with `edfinder-v3-production-api-blue` and
+`edfinder-v3-production-web-blue` owning `127.0.0.1:58080` and `58081` free —
+one active origin, exactly as the cutover model requires.
+
+The receipt store holds the durable receipt, the byte-exact release manifest and
+the advanced `current.json` pointer, so there is now a canonical immutable
+release and a checksum-bound rollback target. The rollback kind for the first
+promotion is `none-first-promotion`; every later promotion becomes
+`prior-accepted-immutable-release`. The legacy `edfinder-v3-api` and
+`edfinder-v3-proxy` and the superseded slot containers were stopped and retained
+as rollback evidence, and the read-only inventory now completes with no failures
+at all.
+
+Two facts had to be reconciled before that promotion could run:
 
 1. **Topology.** The cutover model below keeps one active origin bind
    (`127.0.0.1:58080`) with the inactive slot on `127.0.0.1:58081`, and the
