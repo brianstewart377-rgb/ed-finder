@@ -87,8 +87,42 @@ sizes or encoding is a derived rebuild rather than a schema redesign.
 | Area | Why it is open |
 |---|---|
 | Finder ranking profiles | The decision describes profile inputs (economy potential, archetype score, Best Colony Potential, distance, confidence, accessibility, constraints) but specifies no relation. Query-time versus materialised is undecided. |
-| Exobiology / organics value | `003` is economy-only. Nothing scores biology, organic value or exploration worth, although the product contract asks the map for biological finds, first-map distinctions and incomplete-scan filters. |
-| Commander exploration records | No relations exist for visits, scans, mapped bodies, first-logged discoveries or Codex entries, and `v3_identity.commander` is empty. The V2 design scoped this personal data by sync key and never promoted it to shared tables; V3 has no equivalent yet. `v3_identity` supplies accounts and `v3_private` supplies a privacy pattern, but nothing connects them to exploration. |
+
+Exobiology and exploration are **no longer in this section** — their shape is
+agreed, see section E.
+
+### E. Exobiology and exploration — shape agreed 2026-09-10
+
+The canonical side already exists and is populated: `v3_vocab.genus` (21 genera,
+Codex-keyed as `codex_ent_…`), `body_genus_current` (7.18M bodies),
+`body_signal_current` (25M) and `ring_signal_current`. Every row already carries
+`source_run_id` and `observed_at`, so each fact records when and from which
+import it was learned. What is missing is everything below the genus.
+
+Three layers, in dependency order:
+
+1. **Reference.** A species level beneath genus (genus → species → **variant**,
+   the same shape as the existing genus → species step), plus a **versioned**
+   value table: base value per species and the first-logged bonus. Versioning is
+   required because Frontier rebalance these, so each calculated result must
+   record which value version it used. **Settled:** colour makes no difference to
+   payout, so value is keyed at **species**, never at variant.
+2. **Facts.** Species present on a body, and first-logged claims. Agreed model:
+   **every account keeps its own Codex**, and **only first-logged is shared**.
+   The variant is recorded in the personal record, because it determines Codex
+   completeness even though it does not affect value. The shared claim must be
+   append-only with a database-enforced unique key, so two players sampling the
+   same species minutes apart cannot both be recorded as first.
+3. **Calculated.** Exobiology value per **system** (is this worth visiting?) and
+   per **body** (which body here holds it?), built from layers 1 and 2 plus the
+   canonical genus and signal facts. This must be a **new relation**: the frozen
+   rating vector stores exactly the seven economy values in one row, and adding
+   an eighth would reopen a frozen contract.
+
+One question remains open for layer 2: whether a first-logged claim is scoped
+**globally per species** or **per body**. It changes the uniqueness key and can
+only be settled once; getting it wrong cannot be corrected without invalidating
+real players' claims.
 
 ## Scripts
 
@@ -144,10 +178,11 @@ require DDL.
 
 1. Finder ranking: query-time computation, a materialised per-profile relation, or
    both with a published profile identity?
-2. Exobiology: is exploration value a per-system derived score alongside the
-   economy vector, a per-body value, or a personal/commander-scoped layer?
-3. Commander exploration records: account-scoped tables, the `v3_private` pattern,
-   or a dedicated private schema — and what is ever promoted to shared truth
-   (first-logged discoveries are the obvious candidate)?
-4. Cluster ownership: which domains publish cluster sets, and is that one run per
+2. Exobiology layer 2: is a first-logged claim global per species, or per body?
+   This fixes the uniqueness key and is expensive to change afterwards.
+3. Cluster ownership: which domains publish cluster sets, and is that one run per
    domain or a shared run with domain-specific outputs?
+
+**Settled:** exobiology value is keyed per species, not per variant, because
+colour does not affect payout. Every account keeps its own Codex; only
+first-logged facts are promoted to shared data.
