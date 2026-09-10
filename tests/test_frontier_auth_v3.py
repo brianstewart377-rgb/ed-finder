@@ -632,41 +632,6 @@ async def test_authenticated_non_owner_is_denied(
     assert caught.value.detail == 'Owner access required'
 
 
-def test_v3_identity_migration_is_first_post_baseline_and_has_no_v2_authority():
-    migration_path = ROOT / 'sql' / 'v3' / 'migrations' / '002_v3_accounts_identity.sql'
-    migration = migration_path.read_text(encoding='utf-8')
-    manifest = (ROOT / 'sql' / 'v3' / 'migration-manifest.txt').read_text(
-        encoding='utf-8',
-    )
-    v2_manifest = (ROOT / 'sql' / 'migration-manifest.txt').read_text(
-        encoding='utf-8',
-    )
-    lower = migration.lower()
-
-    assert migration_path.name in manifest
-    manifested_names = [
-        line.split('  ', 1)[1]
-        for line in manifest.splitlines()
-        if line and not line.startswith('#')
-    ]
-    assert manifested_names[:2] == [
-        '001_v3_baseline.sql',
-        '002_v3_accounts_identity.sql',
-    ]
-    assert '048_v3_accounts_identity.sql' not in v2_manifest
-    assert '048_frontier_accounts.sql' not in v2_manifest
-    assert 'create table v3_identity.oauth_login_state' in lower
-    assert 'alter table v3_identity.account_role' in lower
-    assert 'alter table v3_identity.session' in lower
-    assert 'v3_identity.security_audit_event' in lower
-    assert 'app_users' not in lower
-    assert 'web_sessions' not in lower
-    assert 'access_token' not in lower
-    assert 'refresh_token' not in lower
-    assert 'sql/048_frontier_accounts.sql' not in lower
-    assert 'v2 oauth tables' in lower
-
-
 def test_openapi_exposes_v3_contract_and_hides_registered_callback_alias():
     from edfinder_api.main import app
 

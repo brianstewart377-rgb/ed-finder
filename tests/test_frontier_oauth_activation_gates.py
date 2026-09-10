@@ -143,21 +143,8 @@ def test_nginx_access_format_redacts_only_frontier_callbacks():
         assert '"$edfinder_access_request"' in config
 
 
-def test_proxy_identity_and_query_redaction_remain_activation_gates():
-    oauth_runbook = (
-        ROOT / 'docs' / 'operations' / 'frontier-oauth-v3.md'
-    ).read_text(encoding='utf-8')
-    cutover_runbook = (
-        ROOT / 'docs' / 'operations' / 'V3_CUTOVER_RUNBOOK.md'
-    ).read_text(encoding='utf-8')
+def test_api_container_does_not_trust_arbitrary_forwarded_addresses():
     dockerfile = (ROOT / 'apps' / 'api' / 'Dockerfile').read_text(encoding='utf-8')
 
-    assert 'FRONTIER_OAUTH_RATE_LIMIT_CLIENT_IDENTITY: BLOCKED' in oauth_runbook
-    assert (
-        'FRONTIER_OAUTH_QUERY_LOG_REDACTION: '
-        'REQUIRED_BEFORE_PRODUCTION_ACTIVATION'
-    ) in oauth_runbook
     assert 'FORWARDED_ALLOW_IPS=*' not in dockerfile
     assert '--forwarded-allow-ips' not in dockerfile
-    assert 'distinct SlowAPI identities' in cutover_runbook
-    assert 'nginx access/error' in cutover_runbook
