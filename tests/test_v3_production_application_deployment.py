@@ -90,12 +90,11 @@ def test_production_authority_is_separate_exact_and_authorized():
     assert value["application_contract"]["compose_project"] == "edfinder-v3-production"
     assert "checkpoint" not in value["application_contract"]["compose_project"]
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()
-    # Proven by the reviewed 2026-09-10 inventory receipt: the application
-    # network exists and carries exactly the running api and web-slot members.
+    # The application network carries the retained database plus whichever slot
+    # is managed. The legacy api/proxy were retired after the bootstrap cutover,
+    # so the reviewed baseline is the database alone.
     assert value["external_authority"]["application_network"] == "edfinder-v3-production"
     assert value["external_authority"]["application_network_allowed_containers"] == [
-        "edfinder-v3-api",
-        "edfinder-v3-production-web-blue",
         "edfinder-v3-phase4c-full-20260827_r5-postgres",
     ]
     # The reviewed unchanged-edge cutover authority is published from that
@@ -350,17 +349,13 @@ def test_deployer_probe_reads_the_v3_lineage_ledger():
     assert "encode(migration_sha256, 'hex')" in source
 
 
-def test_network_authority_permits_the_legacy_api_to_detach_on_bootstrap():
+def test_network_authority_allows_a_rotating_slot_and_rejects_the_legacy_api():
     deployer = _load_deployer()
     network = "edfinder-v3-production"
     database = deployer.POSTGRES_CONTAINER
     authority = {
         "application_network": network,
-        "application_network_allowed_containers": [
-            deployer.LEGACY_API,
-            deployer.CONTAINERS["web-blue"],
-            database,
-        ],
+        "application_network_allowed_containers": [database],
     }
     schema = {"database_identity": {"container": database}}
 
@@ -383,12 +378,8 @@ def test_network_authority_permits_the_legacy_api_to_detach_on_bootstrap():
 
         return runner
 
-    # Bootstrap: the legacy API is still running, so it is attached.
-    deployer.validate_network(
-        authority, schema, set(), {}, runner_for([database, deployer.LEGACY_API])
-    )
-    # After the cutover the legacy API has been stopped, which detaches it, and
-    # the managed slot is attached in its place.
+    # Steady state after the accepted bootstrap: the active blue slot is managed
+    # and attached, so the baseline plus its two containers is exactly right.
     deployer.validate_network(
         authority,
         schema,
@@ -402,19 +393,62 @@ def test_network_authority_permits_the_legacy_api_to_detach_on_bootstrap():
             ]
         ),
     )
+    # During an upgrade both the prior and the newly staged slot are managed.
+    deployer.validate_network(
+        authority,
+        schema,
+        {"blue", "green"},
+        {},
+        runner_for(
+            [
+                database,
+                deployer.CONTAINERS["api-blue"],
+                deployer.CONTAINERS["web-blue"],
+                deployer.CONTAINERS["api-green"],
+                deployer.CONTAINERS["web-green"],
+            ]
+        ),
+    )
+    # The retired legacy api is no longer permitted, even though it once was.
+    with pytest.raises(deployer.DeploymentError, match="attachment authority drifted"):
+        deployer.validate_network(
+            authority,
+            schema,
+            {"blue"},
+            {},
+            runner_for(
+                [
+                    database,
+                    deployer.CONTAINERS["api-blue"],
+                    deployer.CONTAINERS["web-blue"],
+                    deployer.LEGACY_API,
+                ]
+            ),
+        )
     # An unrelated attached container is still rejected.
     with pytest.raises(deployer.DeploymentError, match="attachment authority drifted"):
         deployer.validate_network(
             authority,
             schema,
-            set(),
+            {"blue"},
             {},
-            runner_for([database, deployer.LEGACY_API, "unrelated-container"]),
+            runner_for(
+                [
+                    database,
+                    deployer.CONTAINERS["api-blue"],
+                    deployer.CONTAINERS["web-blue"],
+                    "unrelated-container",
+                ]
+            ),
         )
     # The retained database must always be attached.
     with pytest.raises(deployer.DeploymentError, match="not attached"):
         deployer.validate_network(
-            authority, schema, set(), {}, runner_for([deployer.LEGACY_API])
+            authority,
+            schema,
+            {"blue"},
+            {},
+            runner_for([deployer.CONTAINERS["api-blue"]]),
         )
 
 

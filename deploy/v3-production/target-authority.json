@@ -24,12 +24,24 @@
     }
   },
   "observed_runtime": {
-    "api_container": "edfinder-v3-api",
-    "api_image": "edfinder-v3-api:release-6a4fe0ef",
-    "api_build_sha": "6a4fe0ef1cb7b8fd03b4151dc8de4802fd3f4c99",
+    "api_container": "edfinder-v3-production-api-blue",
+    "api_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-backend@sha256:7f9e70eb562e6740b3c4d59fcad91f65e73784a7e24b62ef00963b1c81e7c31a",
+    "api_build_sha": "b1616332c024e262a0aac03018943abbf619c087",
     "web_slot_container": "edfinder-v3-production-web-blue",
-    "web_image": "edfinder-v3-production-web:release-1dc4d099",
-    "legacy_origin_container": "edfinder-v3-proxy",
+    "web_image": "ghcr.io/brianstewart377-rgb/ed-finder/v3-web@sha256:87ee670681e1e5a4792433c7da7fc5fddbb93c7b5286b2d124b69d1f33ac6d6f",
+    "accepted_promotion": {
+      "received_at": "2026-09-10",
+      "release_run_id": "34527597963",
+      "source_sha": "b1616332c024e262a0aac03018943abbf619c087",
+      "mode": "bootstrap",
+      "active_slot": "blue",
+      "rollback_kind": "none-first-promotion"
+    },
+    "retired_legacy_containers": [
+      "edfinder-v3-api",
+      "edfinder-v3-proxy"
+    ],
+    "retired_legacy_forensics": "docker inspect records for the retired legacy application containers are archived under the production receipt store, which is root-owned and mode 0700, because their environments are not reproducible from any committed revision and are not safe to commit.",
     "retained_pre_release_containers": [
       "edfinder-v3-api-pre-release-20260909T200206Z",
       "edfinder-v3-production-web-blue-pre-release-20260909T200231Z"
@@ -39,8 +51,8 @@
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "svelte-release-6a4fe0ef",
-    "live_topology_note": "The running api container and the web slot were promoted in place on 2026-09-09T20:02Z outside this workflow. The api keeps its legacy container name on edfinder-v3-production, the web slot binds 127.0.0.1:58081, and edfinder-v3-proxy still binds 127.0.0.1:58080. This does not match the compose slot naming or the single-active-origin cutover model below, so the topology blocker stands until it is reconciled."
+    "public_ui": "svelte-release-b1616332",
+    "live_topology_note": "The accepted bootstrap promotion of 2026-09-10 (release run 34527597963, source b1616332c024e262a0aac03018943abbf619c087) put the active blue slot on 127.0.0.1:58080 and left 127.0.0.1:58081 free, so the unchanged-edge single-active-origin cutover model now holds and the edge was never repointed or recreated. The legacy api and proxy were stopped by that cutover and then retired on 2026-09-10 once their inspect records were archived, so the application network now carries exactly the retained database and the active slot."
   },
   "application_contract": {
     "compose_project": "edfinder-v3-production",
@@ -77,8 +89,6 @@
   "external_authority": {
     "application_network": "edfinder-v3-production",
     "application_network_allowed_containers": [
-      "edfinder-v3-api",
-      "edfinder-v3-production-web-blue",
       "edfinder-v3-phase4c-full-20260827_r5-postgres"
     ],
     "api_env_file": "/etc/ed-finder/v3-production/api.env",

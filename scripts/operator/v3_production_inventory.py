@@ -25,6 +25,7 @@ from typing import Any
 
 
 EXPECTED_HOST = "ed-finder-prod"
+COMPOSE_PROJECT = "edfinder-v3-production"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
 DB_USER = "edfinder_v3"
@@ -772,9 +773,14 @@ def main() -> int:
         failures.append("loopback_origin_ownership_derivation_failed")
     elif not receipt["loopback_origin_port_ownership"]["exact_loopback_only"]:
         failures.append("protected_origin_binding_not_exact_loopback")
+    elif not receipt["loopback_origin_port_ownership"]["ports"]["58080"]["owners"]:
+        # The active origin must be owned by a running container. This is what
+        # makes the application surface present, and it replaces the retired
+        # legacy api/proxy names with a rule that survives blue/green rotation.
+        failures.append("active_origin_owner_missing")
     required_containers = {
-        "edfinder-v3-api", "edfinder-v3-proxy", "edfinder-v3-public-auth-edge",
-        POSTGRES_CONTAINER, "edfinder-v3-support-redis", "edfinder-v3-support-nats",
+        "edfinder-v3-public-auth-edge", POSTGRES_CONTAINER,
+        "edfinder-v3-support-redis", "edfinder-v3-support-nats",
     }
     present_names = {str(item.get("Names")) for item in containers}
     missing_required = sorted(required_containers - present_names)
@@ -841,7 +847,13 @@ def main() -> int:
         "public_health": public_health,
     }
     api_container = next(
-        (item for item in containers if item.get("Names") == "edfinder-v3-api"),
+        (
+            item for item in containers
+            if str(item.get("State", "")).lower() == "running"
+            and isinstance(item.get("ComposeLabels"), dict)
+            and item["ComposeLabels"].get("com.docker.compose.project") == COMPOSE_PROJECT
+            and str(item["ComposeLabels"].get("com.docker.compose.service", "")).startswith("api-")
+        ),
         None,
     )
     receipt["current_release"] = {
