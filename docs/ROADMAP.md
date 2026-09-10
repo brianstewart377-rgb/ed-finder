@@ -44,10 +44,25 @@ or override this set.
 - **Inference:** Ollama was an Octopus experiment and has been removed from
   production. It is not part of the architecture.
 - **Production application authority:** the separate app-only V3 production
-  promotion path is defined, but its committed target is stopped pending a
-  reviewed fresh inventory, live schema compatibility and exact external
-  network/secret/receipt/Docker/unchanged-edge cutover facts. The root Compose
-  and Contabo checkpoint remain non-authoritative for production.
+  promotion path is defined and its committed target is still stopped, but the
+  reviewed read-only inventory of 2026-09-10 proved the application network,
+  the local Docker context, exact loopback ownership of ports 58080/58081, host
+  capacity and the live schema/ledger identity. Five blockers remain: the api
+  secret file, the receipt store, the reviewed schema identity file, the
+  unchanged-edge cutover topology and an exact CPython 3.14 mutation runtime.
+  Production already serves the 2026-09-09 in-place release; that promotion is
+  recorded as a description of what runs, not as governed acceptance. The root
+  Compose and Contabo checkpoint remain non-authoritative for production.
+- **Designated production secret and receipt paths (not yet provisioned):** the
+  api env snapshot is to live at `/etc/ed-finder/v3-production/api.env` (owner
+  uid `0`, mode `0600`) and the durable promotion receipt store at
+  `/var/lib/ed-finder/v3-production/receipts` (owner uid `0`, mode `0700`).
+  Neither path exists on the host yet, and no deployment root can be derived
+  from the running containers: they carry no Compose project directory, and the
+  only labels present belong to unrelated stacks. Both are free parameters that
+  the target authority must pin, and
+  [`scripts/operator/v3_production_deploy.py`](../scripts/operator/v3_production_deploy.py)
+  verifies them with `secure_path` rather than supplying a default.
 
 ## Product journey and spatial north star
 
@@ -101,6 +116,7 @@ evidence-interpretation, and Digital Twin owner.
 | Scoring and judgement | Ratings V4.0 is frozen by PR #646. Seven independent raw scores; archetype judgement and Finder ranking remain later layers. |
 | Derived-data bootstrap | Implement recovered canonical inputs, bounded generation builds, complete validation and atomic publication/rollback through reviewed production controls. |
 | Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
+| Production app promotion authority | Provision the two designated non-secret paths (`/etc/ed-finder/v3-production/api.env`, `/var/lib/ed-finder/v3-production/receipts`) at the recorded owner uid and mode, author the api env snapshot, and capture stat-only existence/owner/mode evidence before the target can be authorized. An exact CPython 3.14 mutation runtime is still absent from the host, and the live loopback bindings must match the reviewed single-active-origin cutover model. |
 | V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
 
 The merged V3 search/spatial decision and Ratings V4.0 freeze are architecture

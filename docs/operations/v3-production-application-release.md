@@ -90,6 +90,18 @@ The runtime identity drift is recorded in
 the legacy name `edfinder-v3-api` rather than the Compose slot name
 `edfinder-v3-production-api-blue`.
 
+Two external paths are designated but not yet provisioned. The api env snapshot
+is to live at `/etc/ed-finder/v3-production/api.env` with owner uid `0` and mode
+`0600`, and the durable receipt store at
+`/var/lib/ed-finder/v3-production/receipts` with owner uid `0` and mode `0700`.
+Neither exists on the host, and no deployment root can be derived from the
+running containers because they carry no Compose project directory. Provision
+them at exactly these owner/mode values, capture stat-only evidence (existence,
+owner, mode - never contents), and only then replace `api_env_file` and
+`receipt_directory` with proven facts. Authoring the api env snapshot is a
+secret-handling step: it must supply the real production API configuration, and
+no automation here reads container environments to synthesise it.
+
 Run only the workflow's default `inventory` operation first. It uses the
 already-present host `python3` standard library and performs only bounded
 runtime, Docker, listener, HTTP, and `BEGIN READ ONLY` ledger inspection. The
