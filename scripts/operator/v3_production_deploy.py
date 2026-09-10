@@ -561,15 +561,16 @@ def validate_network(
     database_container = schema["database_identity"]["container"]
     if database_container not in names:
         raise DeploymentError("production database is not attached to the authorized app network")
-    # A managed slot must be attached while it is managed. The legacy API is
-    # permitted but not required: stopping a container detaches it from the
-    # network, and a bootstrap cutover stops the legacy API on purpose. Anything
-    # attached beyond the reviewed authority still fails.
+    # The retained database and the reviewed baseline must be attached, and a
+    # managed slot must be attached while it is managed. Anything else attached
+    # fails. The legacy api is deliberately no longer permitted: bootstrap has
+    # been accepted, so it has no role, and leaving its name permitted would keep
+    # a hole in the authority for a container that no longer exists.
     required = {database_container}
     for slot in sorted(managed_slots):
         required.add(CONTAINERS[f"api-{slot}"])
         required.add(CONTAINERS[f"web-{slot}"])
-    if not required <= set(names) <= (set(allowed) | required | {LEGACY_API}):
+    if not required <= set(names) <= (set(allowed) | required):
         raise DeploymentError("production application network attachment authority drifted")
 
 

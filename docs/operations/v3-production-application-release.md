@@ -121,10 +121,18 @@ The receipt store holds the durable receipt, the byte-exact release manifest and
 the advanced `current.json` pointer, so there is now a canonical immutable
 release and a checksum-bound rollback target. The rollback kind for the first
 promotion is `none-first-promotion`; every later promotion becomes
-`prior-accepted-immutable-release`. The legacy `edfinder-v3-api` and
-`edfinder-v3-proxy` and the superseded slot containers were stopped and retained
-as rollback evidence, and the read-only inventory now completes with no failures
-at all.
+`prior-accepted-immutable-release`.
+
+The legacy `edfinder-v3-api` and `edfinder-v3-proxy` were stopped by that cutover
+and then retired on 2026-09-10. Their `docker inspect` records were archived into
+the root-owned receipt store first, because their environments are the only
+record of how the ungoverned 2026-09-09 stack ran and are not reproducible from
+any committed revision — and are not safe to commit, since they carry live
+configuration. The superseded 2026-09-09 pre-release containers are still
+retained. The read-only inventory now completes with no failures at all, and its
+required-container set no longer names the legacy pair: it requires the retained
+database, the edge, Redis and NATS, plus a running owner of the active origin, so
+the check survives blue/green rotation instead of pinning two container names.
 
 Two facts had to be reconciled before that promotion could run:
 
