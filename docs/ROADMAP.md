@@ -75,10 +75,13 @@ or override this set.
   The retained database identity is adopted from the running release (role
   `edfinder_v3`, database `edfinder_v3_phase4c_full_20260827_r5`, reached as
   `edfinder-v3-phase4c-full-20260827_r5-postgres` on the application network),
-  and the retained container now joins that network. The reviewed schema identity
-  file cannot be written until the live `v3_meta.schema_migration` lineage is
-  reconciled: two of its three rows have no tracked source in the repository and
-  one does not match the reviewed `sql/NNN_name.sql` shape.
+  and the retained container now joins that network. The live ledger is the
+  independent V3 lineage: all three of its rows are committed under `sql/` with
+  byte hashes re-verified against `v3_meta.schema_migration`, and
+  `sql/v3/migration-manifest.txt` records the lineage as
+  `<sha256> <ledger-name> <path-under-sql>`. Deriving the production schema
+  identity from that manifest, and accepting the `r1_v3/` ledger naming in the
+  schema-identity contract, is the remaining step.
 
 ## Product journey and spatial north star
 

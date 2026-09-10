@@ -1,0 +1,29 @@
+# ED-Finder V3 production migration lineage
+#
+# This is the independent PostgreSQL 18 lineage that the retained production
+# database actually runs. It is deliberately separate from the V2
+# sql/migration-manifest.txt ordered set: never append V2 sql/NNN_*.sql files
+# here.
+#
+# Format: <sha256>  <ledger-name>  <path-under-sql>
+#
+# <ledger-name> is the exact migration_name recorded in v3_meta.schema_migration,
+# so the reviewed live ledger and this manifest are compared directly instead of
+# guessing at a naming convention. <path-under-sql> locates the bytes that hash
+# to <sha256>.
+#
+# Provenance of the reviewed rows, all three re-verified by byte hash against the
+# live ledger read under BEGIN READ ONLY by the 2026-09-10 inventory receipt:
+#
+#   001_v3_baseline.sql           applied 2026-08-27T12:05:58Z by the
+#                                 edfinder-v3-phase4c-full-20260827_r5 rehearsal
+#   002_v3_accounts_identity.sql  applied 2026-08-27T12:05:58Z by the same
+#                                 rehearsal; recovered from the preserved
+#                                 cleanup-snapshot/v3-production-readiness commit
+#   r1_v3/001_structural_shell.sql applied 2026-08-31T16:22:56Z as the additive
+#                                 R1 normalized shell; recovered from the
+#                                 chatgpt-ed-new-ops-requests branch
+
+ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql  v3/migrations/001_v3_baseline.sql
+e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql  v3/migrations/002_v3_accounts_identity.sql
+1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40  r1_v3/001_structural_shell.sql  r1_v3/001_structural_shell.sql
