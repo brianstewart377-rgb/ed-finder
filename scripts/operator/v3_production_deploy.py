@@ -1524,7 +1524,14 @@ def promote(args: argparse.Namespace, authority: dict[str, Any], runner: Callabl
             or stat.S_IMODE(token_details.st_mode) != 0o600
             or token_details.st_nlink != 1
         ):
-            raise DeploymentError("ephemeral registry token path is unsafe")
+            # Report the observed metadata: these are not secrets, and without
+            # them a rejection here is impossible to diagnose from the receipt.
+            raise DeploymentError(
+                "ephemeral registry token path is unsafe"
+                f" (uid={token_details.st_uid} euid={os.geteuid()}"
+                f" mode={stat.S_IMODE(token_details.st_mode):04o}"
+                f" nlink={token_details.st_nlink})"
+            )
         if args.registry_token_file.stat().st_size > MAX_REGISTRY_TOKEN:
             raise DeploymentError("ephemeral registry token exceeds size limit")
         token = args.registry_token_file.read_text(encoding="utf-8").strip()
