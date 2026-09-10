@@ -50,6 +50,12 @@ or override this set.
   capacity and the live schema/ledger identity. Five blockers remain: the api
   secret file, the receipt store, the reviewed schema identity file, the
   unchanged-edge cutover topology and an exact CPython 3.14 mutation runtime.
+  The reviewed unchanged-edge cutover authority is now published as
+  `edge_route_authority`, and the committed edge configuration forwards the
+  public application surface to the single active origin rather than the staging
+  port, so the topology blocker is host state only: the deployed edge still
+  targets `127.0.0.1:58081` and the web slot is still staged there pending the
+  governed bootstrap cutover.
   Production already serves the 2026-09-09 in-place release; that promotion is
   recorded as a description of what runs, not as governed acceptance. The root
   Compose and Contabo checkpoint remain non-authoritative for production.
@@ -116,7 +122,7 @@ evidence-interpretation, and Digital Twin owner.
 | Scoring and judgement | Ratings V4.0 is frozen by PR #646. Seven independent raw scores; archetype judgement and Finder ranking remain later layers. |
 | Derived-data bootstrap | Implement recovered canonical inputs, bounded generation builds, complete validation and atomic publication/rollback through reviewed production controls. |
 | Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
-| Production app promotion authority | Provision the two designated non-secret paths (`/etc/ed-finder/v3-production/api.env`, `/var/lib/ed-finder/v3-production/receipts`) at the recorded owner uid and mode, author the api env snapshot, and capture stat-only existence/owner/mode evidence before the target can be authorized. An exact CPython 3.14 mutation runtime is still absent from the host, and the live loopback bindings must match the reviewed single-active-origin cutover model. |
+| Production app promotion authority | Provision the two designated non-secret paths (`/etc/ed-finder/v3-production/api.env`, `/var/lib/ed-finder/v3-production/receipts`) at the recorded owner uid and mode, author the api env snapshot, and capture stat-only existence/owner/mode evidence before the target can be authorized. An exact CPython 3.14 mutation runtime is still absent from the host, and the live loopback bindings must match the reviewed single-active-origin cutover model, whose authority and edge configuration are now published but not yet applied to the host. |
 | V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
 
 The merged V3 search/spatial decision and Ratings V4.0 freeze are architecture

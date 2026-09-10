@@ -90,7 +90,12 @@
     "active_origin_bind": "127.0.0.1:58080",
     "staging_origin_bind": "127.0.0.1:58081",
     "public_origin": "https://ed-finder.app",
-    "edge_route_authority": null,
+    "edge_route_authority": {
+      "strategy": "verified-loopback-blue-green-port-swap",
+      "edge_container": "edfinder-v3-public-auth-edge",
+      "active_origin_bind": "127.0.0.1:58080",
+      "evidence": "reviewed-production-inventory-receipt"
+    },
     "receipt_directory": null,
     "receipt_owner_uid": null,
     "receipt_mode": null,

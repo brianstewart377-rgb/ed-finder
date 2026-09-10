@@ -72,13 +72,22 @@ executed, so there is still no canonical immutable release, no durable
 promotion receipt, and no checksum-bound rollback target for the running
 release. Two facts must be reconciled before a governed promotion can run:
 
-1. **Topology.** The cutover model below assumes one active origin bind
+1. **Topology.** The cutover model below keeps one active origin bind
    (`127.0.0.1:58080`) with the inactive slot on `127.0.0.1:58081`, and the
    deployer refuses an active bind that also presents a staging binding. The
-   live host presents both, with the web slot on `58081` and the retained
-   `edfinder-v3-proxy` on `58080`. Either the host wiring or the reviewed
-   authority and its deployer checks must be brought into agreement. The
-   authority must not be marked `authorized` while they disagree.
+   reviewed authority and its edge configuration now agree with that model:
+   `edge_route_authority` is published in
+   `deploy/v3-production/target-authority.json`, and
+   `deploy/v3-production/public-auth-edge.nginx.conf` forwards the public
+   application surface to the active origin instead of the staging port.
+   What remains is host state rather than missing authority. The deployed edge
+   still targets `127.0.0.1:58081`, and the web slot is still staged on `58081`
+   while the retained `edfinder-v3-proxy` holds `127.0.0.1:58080`. Bring the
+   host into agreement by applying the reviewed edge configuration and then
+   completing the governed bootstrap cutover in step 6, which binds the
+   verified candidate web slot to `127.0.0.1:58080` and leaves the edge
+   untouched. The authority must not be marked `authorized` while the host
+   disagrees.
 2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host.
    Inventory proves the host's default interpreter reports version 3.13.5 and
    that no `python3.14` exists. The gate is deliberately retained: provisioning

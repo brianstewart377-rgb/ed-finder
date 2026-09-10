@@ -25,6 +25,7 @@ DEPLOYER = ROOT / "scripts/operator/v3_production_deploy.py"
 INVENTORY = ROOT / "scripts/operator/v3_production_inventory.py"
 INVENTORY_ACTION = ROOT / "scripts/operator/actions/v3-production-inventory.sh"
 PROMOTE_ACTION = ROOT / "scripts/operator/actions/v3-production-promote.sh"
+PUBLIC_EDGE_CONF = ROOT / "deploy/v3-production/public-auth-edge.nginx.conf"
 WORKFLOW = ROOT / ".github/workflows/v3-production-application-deploy.yml"
 RUNBOOK = ROOT / "docs/operations/v3-production-application-release.md"
 
@@ -77,10 +78,17 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
         "edfinder-v3-api",
         "edfinder-v3-production-web-blue",
     ]
-    # Still unproven or unreconciled after that receipt.
+    # The reviewed unchanged-edge cutover authority is published from that
+    # receipt.  The remaining nulls are host facts that are still unprovisioned.
+    assert value["external_authority"]["edge_route_authority"] == {
+        "strategy": "verified-loopback-blue-green-port-swap",
+        "edge_container": "edfinder-v3-public-auth-edge",
+        "active_origin_bind": "127.0.0.1:58080",
+        "evidence": "reviewed-production-inventory-receipt",
+    }
     assert all(value["external_authority"][key] is None for key in (
-        "api_env_file", "schema_identity_file",
-        "edge_route_authority", "receipt_directory",
+        "api_env_file", "api_env_owner_uid", "api_env_mode",
+        "schema_identity_file", "receipt_directory",
     ))
     assert value["external_authority"]["docker_context"] == "default"
 
@@ -448,6 +456,21 @@ def test_runbook_states_no_execution_boundary_and_concrete_first_run_blockers():
     assert "fills a blocker" in source
     assert "stale `edfinder-v3-api:phase4c-r5`" in source
     assert "Redis and NATS are not removed or replaced" in source
+
+
+def test_public_edge_forwards_the_app_surface_to_the_single_active_origin():
+    authority = json.loads(AUTHORITY.read_text(encoding="utf-8"))
+    source = PUBLIC_EDGE_CONF.read_text(encoding="utf-8")
+    external = authority["external_authority"]
+    active = external["active_origin_bind"]
+    staging = external["staging_origin_bind"]
+
+    # The cutover swaps which slot owns the active bind while the edge is never
+    # repointed, so the public application surface must target the active origin
+    # and must never target the staging port.
+    assert f"proxy_pass http://{active};" in source
+    assert f"http://{staging}" not in source
+    assert external["edge_route_authority"]["active_origin_bind"] == active
 
 
 def test_new_shell_launchers_parse():
