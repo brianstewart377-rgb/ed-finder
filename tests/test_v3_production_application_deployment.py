@@ -70,8 +70,16 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     assert value["application_contract"]["compose_project"] == "edfinder-v3-production"
     assert "checkpoint" not in value["application_contract"]["compose_project"]
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()
+    # Proven by the reviewed 2026-09-10 inventory receipt: the application
+    # network exists and carries exactly the running api and web-slot members.
+    assert value["external_authority"]["application_network"] == "edfinder-v3-production"
+    assert value["external_authority"]["application_network_allowed_containers"] == [
+        "edfinder-v3-api",
+        "edfinder-v3-production-web-blue",
+    ]
+    # Still unproven or unreconciled after that receipt.
     assert all(value["external_authority"][key] is None for key in (
-        "application_network", "api_env_file", "schema_identity_file",
+        "api_env_file", "schema_identity_file",
         "edge_route_authority", "receipt_directory",
     ))
     assert value["external_authority"]["docker_context"] == "default"

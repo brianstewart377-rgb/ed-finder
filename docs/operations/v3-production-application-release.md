@@ -23,11 +23,72 @@ it never builds, resolves dependencies, installs packages, or runs `git pull`.
 ## Current fail-closed state
 
 The committed `deploy/v3-production/target-authority.json` is intentionally
-`stopped`. Read-only host-status run `34202433965` proves the named production
-containers, retained PostgreSQL 18 container, Redis, NATS, edge, and temporary
-UI shell. It does not prove the application network, secret-file path and mode,
-local Docker context, receipt store, live migration ledger identity, or the
-exact edge-to-loopback cutover topology.
+`stopped`. Read-only host-status run `34202433965` proved the named production
+containers, retained PostgreSQL 18 container, Redis, NATS, edge, and the
+temporary UI shell.
+
+Reviewed read-only inventory run `34493285192` (2026-09-10, sanitized receipt
+committed under `artifacts/v3-production-inventory-20260910/`) supersedes that
+picture. Without mutation (`db_writes_performed=false`,
+`migrations_performed=false`, `service_changes_performed=false`,
+`env_files_read=false`) it proved:
+
+- the application network `edfinder-v3-production` exists and carries exactly
+  the running `edfinder-v3-api` and `edfinder-v3-production-web-blue` members;
+- Docker context `default` resolves to the local rootful
+  `unix:///var/run/docker.sock` endpoint;
+- loopback ownership is deterministic and exact: `127.0.0.1:58080` is owned by
+  `edfinder-v3-proxy` and `127.0.0.1:58081` by
+  `edfinder-v3-production-web-blue`;
+- the live schema is `edfinder_v3_phase4c_full_20260827_r5`, with migration
+  ledger rows
+  `sha256:364e6153ee392a92faa11189b1b80cb9b8489abdbdb87b87971a20ee88cfa023`
+  read under `BEGIN READ ONLY`;
+- host capacity still satisfies the reviewed blue/green peak.
+
+The application-network blocker is therefore cleared. These remain, and
+`status` stays `stopped` until each is replaced by exact reviewed facts:
+`production_api_secret_file_authority_missing`,
+`production_receipt_store_authority_missing`,
+`production_schema_identity_file_missing`,
+`production_edge_loopback_cutover_topology_authority_missing`, and
+`production_promotion_cpython314_runtime_unproved`.
+
+## Live production state and the 2026-09-09 in-place promotion
+
+Production was promoted in place on 2026-09-09T20:02Z, outside this workflow.
+It serves `edfinder-v3-api:release-6a4fe0ef`
+(`build_sha 6a4fe0ef1cb7b8fd03b4151dc8de4802fd3f4c99`) and
+`edfinder-v3-production-web:release-1dc4d099`; the loopback origin and the
+public edge report the same health body with `database=connected`. The
+superseded containers were stopped and retained as
+`edfinder-v3-api-pre-release-20260909T200206Z` and
+`edfinder-v3-production-web-blue-pre-release-20260909T200231Z`. The public UI is
+no longer the temporary replacement shell.
+
+That record describes what is running; it is not an acceptance of the
+promotion through the governed path. No `preflight` or `promote` run has ever
+executed, so there is still no canonical immutable release, no durable
+promotion receipt, and no checksum-bound rollback target for the running
+release. Two facts must be reconciled before a governed promotion can run:
+
+1. **Topology.** The cutover model below assumes one active origin bind
+   (`127.0.0.1:58080`) with the inactive slot on `127.0.0.1:58081`, and the
+   deployer refuses an active bind that also presents a staging binding. The
+   live host presents both, with the web slot on `58081` and the retained
+   `edfinder-v3-proxy` on `58080`. Either the host wiring or the reviewed
+   authority and its deployer checks must be brought into agreement. The
+   authority must not be marked `authorized` while they disagree.
+2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host.
+   Inventory proves the host's default interpreter reports version 3.13.5 and
+   that no `python3.14` exists. The gate is deliberately retained: provisioning
+   a pinned 3.14 is a separate reviewed change, not a status-tool repair, and
+   this runbook does not authorize installing one.
+
+The runtime identity drift is recorded in
+`deploy/v3-production/target-authority.json`: the running api container keeps
+the legacy name `edfinder-v3-api` rather than the Compose slot name
+`edfinder-v3-production-api-blue`.
 
 Run only the workflow's default `inventory` operation first. It uses the
 already-present host `python3` standard library and performs only bounded
@@ -144,6 +205,10 @@ only when the fresh live schema identity is still explicitly compatible, and
 with `--pull never`. There is no database rollback in this path.
 
 ## Owner sequence after blockers are reviewed away
+
+Reconcile the topology and CPython 3.14 facts above before step 1. Until they
+agree, a governed promotion stops inside preflight rather than at a reviewed
+gate.
 
 1. Dispatch `inventory` and review the sanitized receipt without changing the
    host. Require the default inventory Python executable,

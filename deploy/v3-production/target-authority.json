@@ -10,14 +10,14 @@
     "architecture": "x86_64"
   },
   "evidence": {
-    "source": "reviewed read-only production inventory workflow run 34236384791",
+    "source": "reviewed read-only production inventory workflow run 34493285192 (2026-09-10), superseding run 34236384791",
     "fresh_for_implementation": true,
     "deployment_evidence": false
   },
   "reviewed_capacity": {
     "logical_cpus": 32,
-    "memory_available_kib": 184655448,
-    "root_available_bytes": 1037594374144,
+    "memory_available_kib": 185216388,
+    "root_available_bytes": 1034516992000,
     "blue_green_peak": {
       "cpus": "6.00",
       "memory": "10240m"
@@ -25,14 +25,22 @@
   },
   "observed_runtime": {
     "api_container": "edfinder-v3-api",
-    "api_image": "edfinder-v3-api:phase4c-r5",
+    "api_image": "edfinder-v3-api:release-6a4fe0ef",
+    "api_build_sha": "6a4fe0ef1cb7b8fd03b4151dc8de4802fd3f4c99",
+    "web_slot_container": "edfinder-v3-production-web-blue",
+    "web_image": "edfinder-v3-production-web:release-1dc4d099",
     "legacy_origin_container": "edfinder-v3-proxy",
+    "retained_pre_release_containers": [
+      "edfinder-v3-api-pre-release-20260909T200206Z",
+      "edfinder-v3-production-web-blue-pre-release-20260909T200231Z"
+    ],
     "public_edge_container": "edfinder-v3-public-auth-edge",
     "postgres_container": "edfinder-v3-phase4c-full-20260827_r5-postgres",
     "redis_container": "edfinder-v3-support-redis",
     "nats_container": "edfinder-v3-support-nats",
     "octopus_and_unrelated_containers": "preserve-all",
-    "public_ui": "temporary-replacement-shell"
+    "public_ui": "svelte-release-6a4fe0ef",
+    "live_topology_note": "The running api container and the web slot were promoted in place on 2026-09-09T20:02Z outside this workflow. The api keeps its legacy container name on edfinder-v3-production, the web slot binds 127.0.0.1:58081, and edfinder-v3-proxy still binds 127.0.0.1:58080. This does not match the compose slot naming or the single-active-origin cutover model below, so the topology blocker stands until it is reconciled."
   },
   "application_contract": {
     "compose_project": "edfinder-v3-production",
@@ -67,8 +75,11 @@
     "never_recreate_or_remove": true
   },
   "external_authority": {
-    "application_network": null,
-    "application_network_allowed_containers": null,
+    "application_network": "edfinder-v3-production",
+    "application_network_allowed_containers": [
+      "edfinder-v3-api",
+      "edfinder-v3-production-web-blue"
+    ],
     "api_env_file": null,
     "api_env_owner_uid": null,
     "api_env_mode": null,
@@ -86,11 +97,10 @@
     "docker_context": "default"
   },
   "blockers": [
-    "production_application_network_authority_missing",
     "production_api_secret_file_authority_missing",
-    "production_schema_identity_and_live_ledger_compatibility_unproved",
     "production_edge_loopback_cutover_topology_authority_missing",
     "production_receipt_store_authority_missing",
-    "production_promotion_cpython314_runtime_unproved"
+    "production_promotion_cpython314_runtime_unproved",
+    "production_schema_identity_file_missing"
   ]
 }
