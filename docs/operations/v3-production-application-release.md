@@ -55,6 +55,19 @@ receipt predates that addition, so the next reviewed run is the one that
 supplies the owner/mode facts the `api_env_file` and `receipt_directory`
 authority fields need.
 
+The retained production database identity is adopted from the running release
+rather than from an aspirational name: role `edfinder_v3`, database
+`edfinder_v3_phase4c_full_20260827_r5`, reached as
+`edfinder-v3-phase4c-full-20260827_r5-postgres` on the application network, which
+the retained container now joins. Adopting that identity also exposed a
+remaining incompatibility, because the live `v3_meta.schema_migration` ledger
+cannot be described by the reviewed migration set. Two of its three rows
+(`002_v3_accounts_identity.sql` and `r1_v3/001_structural_shell.sql`) have no
+tracked source in this repository, and the `r1_v3/` row does not match the
+`sql/NNN_name.sql` shape that both the schema-identity contract and the ledger
+compatibility check require. The schema identity file therefore stays unwritten
+until that lineage is reconciled.
+
 The application-network blocker is therefore cleared. These remain, and
 `status` stays `stopped` until each is replaced by exact reviewed facts:
 `production_api_secret_file_authority_missing`,
