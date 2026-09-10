@@ -130,6 +130,8 @@ evidence-interpretation, and Digital Twin owner.
    The table and script inventory for that work, including what is already
    written but never applied and what is still undesigned, is in
    [the derived-data completion plan](development/v3-derived-data-completion-plan.md).
+   How Finder in particular gets from there to a working feature is in
+   [the Finder delivery plan](development/v3-finder-delivery-plan.md).
 6. **Validate and publish V4.** Prove complete generation coverage, scores,
    explanations, resource use and rollback before exposing a stable API through
    the reviewed production release controls. Archetypes and Finder ranking
