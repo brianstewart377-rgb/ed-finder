@@ -53,7 +53,11 @@ describe('auth store', () => {
   it('derives owner state and claims with a trimmed one-time token', async () => {
     const owner = {
       authenticated: true,
-      user: { commander_name: 'Owner', is_owner: true },
+      user: {
+        account_id: 'account-owner',
+        commander_name: 'Owner',
+        is_owner: true,
+      },
       owner_claim_available: false,
     };
     const api = {
@@ -73,7 +77,11 @@ describe('auth store', () => {
   it('does not replace the session token before owner claim success', async () => {
     const owner = {
       authenticated: true,
-      user: { commander_name: 'Owner', is_owner: true },
+      user: {
+        account_id: 'account-owner',
+        commander_name: 'Owner',
+        is_owner: true,
+      },
       owner_claim_available: false,
     };
     let resolveClaim!: (session: typeof owner) => void;
@@ -106,7 +114,11 @@ describe('auth store', () => {
   it('bridges a successful claim to later bounded mutation requests', async () => {
     const owner = {
       authenticated: true,
-      user: { commander_name: 'Owner', is_owner: true },
+      user: {
+        account_id: 'account-owner',
+        commander_name: 'Owner',
+        is_owner: true,
+      },
       owner_claim_available: false,
     };
     const api = {
@@ -140,7 +152,11 @@ describe('auth store', () => {
   it('reports when a successful claim cannot persist the credential', async () => {
     const owner = {
       authenticated: true,
-      user: { commander_name: 'Owner', is_owner: true },
+      user: {
+        account_id: 'account-owner',
+        commander_name: 'Owner',
+        is_owner: true,
+      },
       owner_claim_available: false,
     };
     const api = {
@@ -171,7 +187,11 @@ describe('auth store', () => {
     const clearToken = vi.spyOn(adminToken, 'clear');
     const signedInNonOwner = {
       authenticated: true,
-      user: { commander_name: 'Commander', is_owner: false },
+      user: {
+        account_id: 'account-commander',
+        commander_name: 'Commander',
+        is_owner: false,
+      },
       owner_claim_available: true,
     };
     const api = {
@@ -268,7 +288,11 @@ describe('auth store', () => {
   it('preserves the signed-in session when an owner claim is rejected', async () => {
     const signedIn = {
       authenticated: true,
-      user: { commander_name: 'Commander', is_owner: false },
+      user: {
+        account_id: 'account-commander',
+        commander_name: 'Commander',
+        is_owner: false,
+      },
       owner_claim_available: true,
     };
     const rejection = new Error('Invalid admin token');

@@ -33,18 +33,25 @@ import { parseLosslessJson } from '@ed-finder/api-client/lossless-json';
 import { parseId64, type Id64 } from '@ed-finder/api-client/id64';
 import { client } from './generated/client.gen';
 import {
+  authLogoutApiV1AuthLogoutPost,
+  authSessionApiV1AuthSessionGet,
   autocompleteApiLocalAutocompleteGet,
+  claimOwnerApiV1AuthOwnerClaimPost,
+  frontierLinkApiV1AuthFrontierLinkPost,
   getProfileSyncApiProfileSyncSyncKeyGet,
   getSystemApiSystemId64Get,
   healthApiHealthGet,
+  listIdentitiesApiV1AuthIdentitiesGet,
   localSearchEndpointApiLocalSearchPost,
   postOptimiserCandidatesApiOptimiserCandidatesPost,
   putProfileSyncApiProfileSyncSyncKeyPut,
+  unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete,
 } from './generated/sdk.gen';
 import type {
   AuthSessionResponse,
   AutocompleteHit,
   AutocompleteResponse,
+  ExternalIdentityResponse,
   HealthResponse,
   LocalSearchRequest,
   SearchResponse,
@@ -138,43 +145,36 @@ export const getHealth = async (
 ): Promise<HealthResponse> =>
   (await healthApiHealthGet({ throwOnError: true, signal })).data;
 
+export type AuthIdentity = ExternalIdentityResponse;
+
 export const getAuthSession = async (
   signal?: AbortSignal,
 ): Promise<AuthSessionResponse> =>
-  apiRequest<AuthSessionResponse>('/api/v1/auth/session', { signal });
+  (await authSessionApiV1AuthSessionGet({ throwOnError: true, signal })).data;
 
-export interface AuthIdentity {
-  readonly external_identity_id: string;
-  readonly provider: string;
-  readonly linked_at: string;
-}
-
-interface FrontierLinkResponse {
-  readonly authorization_url: string;
-}
-
-export const getAuthIdentities = (
+export const getAuthIdentities = async (
   signal?: AbortSignal,
 ): Promise<readonly AuthIdentity[]> =>
-  apiRequest<readonly AuthIdentity[]>('/api/v1/auth/identities', { signal });
+  (await listIdentitiesApiV1AuthIdentitiesGet({ throwOnError: true, signal }))
+    .data;
 
-export const startFrontierLink = async (
-  returnTo: string,
-): Promise<string> => {
-  const response = await apiRequest<FrontierLinkResponse>(
-    `/api/v1/auth/frontier/link?return_to=${encodeURIComponent(returnTo)}`,
-    { method: 'POST' },
-  );
-  return response.authorization_url;
+export const startFrontierLink = async (returnTo: string): Promise<string> => {
+  const { data } = await frontierLinkApiV1AuthFrontierLinkPost({
+    throwOnError: true,
+    query: { return_to: returnTo },
+  });
+  return data.authorization_url;
 };
 
-export const unlinkAuthIdentity = (
+export const unlinkAuthIdentity = async (
   externalIdentityId: string,
 ): Promise<AuthSessionResponse> =>
-  apiRequest<AuthSessionResponse>(
-    `/api/v1/auth/identities/${encodeURIComponent(externalIdentityId)}`,
-    { method: 'DELETE' },
-  );
+  (
+    await unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete({
+      throwOnError: true,
+      path: { external_identity_id: externalIdentityId },
+    })
+  ).data;
 
 export type AutocompleteSystem = Readonly<
   Pick<
@@ -373,16 +373,19 @@ export function pushProfileSync<TBlob>(
   }).then((result) => result.data as unknown as ProfileSyncPushResponse);
 }
 
-export const authLogout = <T = AuthSessionResponse>(): Promise<T> =>
-  apiRequest<T>('/api/v1/auth/logout', { method: 'POST' });
+export const authLogout = async <T = AuthSessionResponse>(): Promise<T> =>
+  (await authLogoutApiV1AuthLogoutPost({ throwOnError: true }))
+    .data as unknown as T;
 
-export const claimOwner = <T = AuthSessionResponse>(
+export const claimOwner = async <T = AuthSessionResponse>(
   adminToken: string,
 ): Promise<T> =>
-  apiRequest<T>('/api/v1/auth/owner/claim', {
-    method: 'POST',
-    body: JSON.stringify({ admin_token: adminToken }),
-  });
+  (
+    await claimOwnerApiV1AuthOwnerClaimPost({
+      throwOnError: true,
+      body: { admin_token: adminToken },
+    })
+  ).data as unknown as T;
 
 export const frontierLoginUrl = (returnTo: string): string =>
   `/api/v1/auth/frontier/login?return_to=${encodeURIComponent(returnTo)}`;

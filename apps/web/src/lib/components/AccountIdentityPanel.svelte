@@ -59,7 +59,9 @@
   async function unlinkIdentity(identity: AuthIdentity): Promise<void> {
     if (identities.length <= 1) return;
     const label = identityLabel(identity);
-    if (!window.confirm(`Unlink ${label}? You can link it again with Frontier.`))
+    if (
+      !window.confirm(`Unlink ${label}? You can link it again with Frontier.`)
+    )
       return;
     actionId = identity.external_identity_id;
     error = null;
@@ -105,7 +107,10 @@
         onclick={() => void linkIdentity()}
         disabled={actionId !== null}
         data-testid="link-frontier-identity"
-      >{actionId === 'link' ? 'Opening Frontier…' : 'Link another identity'}</button>
+        >{actionId === 'link'
+          ? 'Opening Frontier…'
+          : 'Link another identity'}</button
+      >
     </div>
     <p class="identity-panel-copy">
       Keep more than one Frontier identity linked so you can sign in from either
@@ -130,7 +135,10 @@
               disabled={identities.length <= 1 || actionId !== null}
               aria-label={`Unlink ${identityLabel(identity)}`}
               data-testid={`unlink-frontier-identity-${identity.external_identity_id}`}
-            >{actionId === identity.external_identity_id ? 'Unlinking…' : 'Unlink'}</button>
+              >{actionId === identity.external_identity_id
+                ? 'Unlinking…'
+                : 'Unlink'}</button
+            >
           </li>
         {/each}
       </ul>

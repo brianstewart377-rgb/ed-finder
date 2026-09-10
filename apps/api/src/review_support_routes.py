@@ -61,6 +61,11 @@ async def review_latest_news(limit: int = 8) -> dict[str, object]:
     response_model=AuthSessionResponse,
     include_in_schema=False,
 )
+@router.get(
+    '/api/v1/auth/session',
+    response_model=AuthSessionResponse,
+    include_in_schema=False,
+)
 async def review_auth_session() -> AuthSessionResponse:
     """Expose the real signed-out session envelope without Frontier access.
 
@@ -68,6 +73,10 @@ async def review_auth_session() -> AuthSessionResponse:
     still performs its normal account bootstrap, so return the same canonical
     unauthenticated contract as production instead of allowing a transport 404
     to obscure unrelated browser verification.
+
+    Both the legacy and the canonical V3 auth paths are served here while the
+    application lane moves to `/api/v1/auth`, mirroring the transitional alias
+    the edge keeps for the registered Frontier callback.
     """
     return AuthSessionResponse(
         authenticated=False,

@@ -131,7 +131,8 @@ def test_bootstrap_client_is_a_typed_facade_over_the_shared_lossless_transport()
     # configuring the generated client (not by hand-rolling raw routes).
     assert "from './generated/sdk.gen'" in client
     assert "healthApiHealthGet(" in client
-    assert "authSessionApiAuthSessionGet(" in client
+    assert "authSessionApiV1AuthSessionGet(" in client
+    assert "listIdentitiesApiV1AuthIdentitiesGet(" in client
     assert "autocompleteApiLocalAutocompleteGet(" in client
     assert "localSearchEndpointApiLocalSearchPost(" in client
     assert "apiRequest('/health'" not in client
