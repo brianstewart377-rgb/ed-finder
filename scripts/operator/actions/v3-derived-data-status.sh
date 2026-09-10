@@ -26,8 +26,6 @@ from typing import Any
 EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
-DB_USER = "edfinder"
-DB_NAME = "edfinder"
 STATEMENT_TIMEOUT_MS = 20_000
 PROCESS_TIMEOUT_SECONDS = 30
 
@@ -58,7 +56,30 @@ def run(argv: list[str], *, timeout: int = PROCESS_TIMEOUT_SECONDS) -> subproces
         return subprocess.CompletedProcess(argv, 125, "", type(exc).__name__)
 
 
-def psql(sql: str, *, timeout: int = PROCESS_TIMEOUT_SECONDS) -> list[list[str]]:
+def resolve_database_identity() -> tuple[str, str]:
+    """Read only the non-secret role/database names from the running DB container.
+
+    The retained phase4c runtime was created with a different POSTGRES_USER than
+    the local/dev defaults. Resolve the two identity variables inside the
+    container rather than inspecting its full environment (which could expose
+    credentials). No password variable or env file is read or printed.
+    """
+    result = run(
+        [
+            "docker", "exec", POSTGRES_CONTAINER,
+            "sh", "-lc",
+            'printf "%s\\t%s\\n" "$POSTGRES_USER" "${POSTGRES_DB:-$POSTGRES_USER}"',
+        ]
+    )
+    if result.returncode != 0:
+        raise RuntimeError("postgres_runtime_identity_command_failed")
+    parts = result.stdout.rstrip("\n").split("\t")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise RuntimeError("postgres_runtime_identity_missing")
+    return parts[0], parts[1]
+
+
+def psql(sql: str, db_user: str, db_name: str, *, timeout: int = PROCESS_TIMEOUT_SECONDS) -> list[list[str]]:
     # Every statement is hard-coded in this file. The explicit READ ONLY
     # transaction is a second safety boundary on top of the operator workflow.
     wrapped = (
@@ -71,7 +92,7 @@ def psql(sql: str, *, timeout: int = PROCESS_TIMEOUT_SECONDS) -> list[list[str]]
         [
             "docker", "exec", POSTGRES_CONTAINER,
             "psql", "-X", "-qAt", "-F", "\t", "-v", "ON_ERROR_STOP=1",
-            "-U", DB_USER, "-d", DB_NAME, "-c", wrapped,
+            "-U", db_user, "-d", db_name, "-c", wrapped,
         ],
         timeout=timeout,
     )
@@ -116,6 +137,7 @@ receipt: dict[str, Any] = {
     "private_keys_read": False,
     "service_changes_performed": False,
     "filesystem_writes_performed": False,
+    "database_identity_source": "running_container_role_and_database_names_only",
     "query_policy": {
         "transaction": "READ ONLY",
         "statement_timeout_ms": STATEMENT_TIMEOUT_MS,
@@ -144,12 +166,23 @@ if container.returncode != 0 or container.stdout.strip() != "true":
     print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
     sys.exit(1)
 
+try:
+    db_user, db_name = resolve_database_identity()
+except RuntimeError as exc:
+    failures.append("postgres_runtime_identity_unavailable")
+    receipt["query_error"] = str(exc)
+    receipt["failures"] = sorted(set(failures))
+    print(json.dumps(receipt, sort_keys=True, separators=(",", ":")))
+    sys.exit(1)
+
 receipt["direct_db_access_performed"] = True
 
 try:
     version_rows = psql(
         "SELECT current_setting('server_version'), current_setting('server_version_num'), "
-        "pg_size_pretty(pg_database_size(current_database()))"
+        "pg_size_pretty(pg_database_size(current_database()))",
+        db_user,
+        db_name,
     )
     if version_rows:
         receipt["postgres"] = {
@@ -167,7 +200,9 @@ try:
         "JOIN pg_namespace n ON n.oid=c.relnamespace "
         "LEFT JOIN pg_matviews pm ON pm.schemaname=n.nspname AND pm.matviewname=c.relname "
         "WHERE n.nspname='public' AND c.relname IN (" + relation_names + ") "
-        "ORDER BY c.relname"
+        "ORDER BY c.relname",
+        db_user,
+        db_name,
     )
     relations: dict[str, Any] = {}
     for row in relation_rows:
@@ -188,7 +223,9 @@ try:
         "(tablename='systems' AND attname IN ('grid_cell_id','macro_grid_id','rating_dirty','cluster_dirty','has_body_data')) OR "
         "(tablename='ratings' AND attname='rating_version') OR "
         "(tablename='system_archetype_scores' AND attname='dirty')) "
-        "ORDER BY tablename, attname"
+        "ORDER BY tablename, attname",
+        db_user,
+        db_name,
     )
     receipt["planner_statistics"] = [
         {
@@ -212,7 +249,9 @@ try:
         "COUNT(*) FILTER (WHERE has_body_data)::bigint, "
         "COUNT(*) FILTER (WHERE rating_dirty)::bigint, "
         "COUNT(*) FILTER (WHERE cluster_dirty)::bigint "
-        "FROM systems TABLESAMPLE SYSTEM (0.01)"
+        "FROM systems TABLESAMPLE SYSTEM (0.01)",
+        db_user,
+        db_name,
     )
     if system_sample:
         row = system_sample[0]
@@ -230,7 +269,9 @@ try:
         "SELECT COUNT(*)::bigint, "
         "COUNT(*) FILTER (WHERE rating_version='3.4')::bigint, "
         "COUNT(*) FILTER (WHERE rating_version IS NULL)::bigint "
-        "FROM ratings TABLESAMPLE SYSTEM (0.05)"
+        "FROM ratings TABLESAMPLE SYSTEM (0.05)",
+        db_user,
+        db_name,
     )
     if ratings_sample:
         row = ratings_sample[0]
@@ -243,7 +284,9 @@ try:
 
     archetype_sample = psql(
         "SELECT COUNT(*)::bigint, COUNT(*) FILTER (WHERE dirty)::bigint "
-        "FROM system_archetype_scores TABLESAMPLE SYSTEM (0.1)"
+        "FROM system_archetype_scores TABLESAMPLE SYSTEM (0.1)",
+        db_user,
+        db_name,
     ) if not relations.get("system_archetype_scores", {}).get("missing") else []
     if archetype_sample:
         receipt["archetype_sample"] = {
@@ -255,7 +298,9 @@ try:
     app_meta_rows = psql(
         "SELECT key, value, updated_at::text FROM app_meta "
         "WHERE key IN ('last_nightly_update','nightly_update_started_at_epoch','nightly_update_completed_at_epoch') "
-        "ORDER BY key"
+        "ORDER BY key",
+        db_user,
+        db_name,
     )
     receipt["maintenance_markers"] = [
         {"key": row[0], "value": row[1], "updated_at": row[2]}
@@ -266,7 +311,9 @@ try:
         "SELECT relname, last_analyze::text, last_autoanalyze::text, last_vacuum::text, last_autovacuum::text "
         "FROM pg_stat_user_tables WHERE relname IN "
         "('systems','bodies','ratings','cluster_summary','system_archetype_scores','system_regional_analysis') "
-        "ORDER BY relname"
+        "ORDER BY relname",
+        db_user,
+        db_name,
     )
     receipt["table_maintenance"] = [
         {
