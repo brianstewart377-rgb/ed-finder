@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import signal
 import stat
@@ -28,6 +29,15 @@ PROMOTE_ACTION = ROOT / "scripts/operator/actions/v3-production-promote.sh"
 PUBLIC_EDGE_CONF = ROOT / "deploy/v3-production/public-auth-edge.nginx.conf"
 WORKFLOW = ROOT / ".github/workflows/v3-production-application-deploy.yml"
 RUNBOOK = ROOT / "docs/operations/v3-production-application-release.md"
+V3_MANIFEST = ROOT / "sql/v3/migration-manifest.txt"
+
+# The reviewed live ledger of the retained production database, read under
+# BEGIN READ ONLY by the 2026-09-10 inventory receipt.
+LIVE_V3_LEDGER = (
+    ("001_v3_baseline.sql", "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e"),
+    ("002_v3_accounts_identity.sql", "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"),
+    ("r1_v3/001_structural_shell.sql", "1a2d15c2db5cff7714a01a5d0c710a22326ed57d90d9a20e362495714ad97a40"),
+)
 
 
 def _load_deployer():
@@ -226,6 +236,32 @@ def test_inventory_designated_paths_report_stat_only_evidence(tmp_path):
     linked = inventory.inspect_designated_path({**spec, "path": str(link)})
     assert linked["is_symlink"] is True
     assert linked["matches_designation"] is False
+
+
+def test_v3_lineage_manifest_reproduces_the_reviewed_live_ledger():
+    entries: dict[str, tuple[str, str]] = {}
+    for raw_line in V3_MANIFEST.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        checksum, first_separator, remainder = line.partition("  ")
+        ledger_name, second_separator, path = remainder.partition("  ")
+        assert first_separator and second_separator, f"unsafe manifest entry: {line!r}"
+        assert re.fullmatch(r"[0-9a-f]{64}", checksum), line
+        assert re.fullmatch(r"(?:[a-z0-9_]+/)?[0-9]{3}_[a-z0-9_]+\.sql", ledger_name), line
+        assert re.fullmatch(r"(?:[a-z0-9_]+/)+[0-9]{3}_[a-z0-9_]+\.sql", path), line
+        assert ledger_name not in entries, line
+        entries[ledger_name] = (path, checksum)
+
+    assert set(entries) == {name for name, _ in LIVE_V3_LEDGER}
+    for ledger_name, reviewed_checksum in LIVE_V3_LEDGER:
+        path, checksum = entries[ledger_name]
+        assert checksum == reviewed_checksum
+        # The committed bytes must be the ones PostgreSQL actually applied, so
+        # they stay LF-terminated and byte-identical on every platform.
+        source = (ROOT / "sql" / path).read_bytes()
+        assert hashlib.sha256(source).hexdigest() == reviewed_checksum
+        assert b"\r\n" not in source
 
 
 def test_inventory_container_labels_are_limited_to_compose_identity():
