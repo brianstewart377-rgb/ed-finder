@@ -1040,8 +1040,11 @@ def test_protected_job_refetches_main_before_credentials_and_maps_fallback_recei
 def test_bundle_and_remote_runtime_roots_remain_private_after_archive_extraction(tmp_path):
     source = WORKFLOW.read_text(encoding="utf-8")
     assert 'install -d -m 700 "$BUNDLE"' in source
-    assert 'tar --no-same-permissions --no-overwrite-dir -xf - -C' in source
-    extract = source.index("tar --no-same-permissions --no-overwrite-dir -xf - -C")
+    # Extracting as root would otherwise restore the archive's ownership, leaving
+    # the ephemeral registry token owned by the runner uid instead of the
+    # deployer's, which the deployer rejects as an unsafe credential path.
+    assert 'tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C' in source
+    extract = source.index("tar --no-same-permissions --no-same-owner --no-overwrite-dir -xf - -C")
     assert source.index('chmod 700 \\"\\$work\\"', extract) > extract
 
     bundle = tmp_path / "bundle"
@@ -1054,7 +1057,7 @@ def test_bundle_and_remote_runtime_roots_remain_private_after_archive_extraction
     runtime.mkdir(mode=0o700)
     subprocess.run(
         [
-            "tar", "--no-same-permissions", "--no-overwrite-dir", "-xf",
+            "tar", "--no-same-permissions", "--no-same-owner", "--no-overwrite-dir", "-xf",
             str(archive), "-C", str(runtime),
         ],
         check=True,
