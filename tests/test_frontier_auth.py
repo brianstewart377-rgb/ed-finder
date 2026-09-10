@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -17,6 +19,16 @@ from edfinder_api.auth import AuthenticatedUser, token_digest  # noqa: E402
 from edfinder_api.config import settings  # noqa: E402
 from edfinder_api import deps  # noqa: E402
 from edfinder_api.routers import auth as auth_router  # noqa: E402
+
+
+def _authenticated_user(*, owner: bool) -> AuthenticatedUser:
+    return AuthenticatedUser(
+        account_id=uuid.uuid4(),
+        commander_name='Owner Cmdr' if owner else 'Regular Cmdr',
+        is_owner=owner,
+        recent_auth_at=datetime.now(timezone.utc),
+        session_id=uuid.uuid4(),
+    )
 
 
 def _request(
@@ -96,7 +108,7 @@ def test_frontier_authorize_url_uses_registered_callback_pkce_and_scopes(monkeyp
         'response_type': ['code'],
         'client_id': ['client-123'],
         'redirect_uri': ['https://ed-finder.app/api/auth/frontier/callback'],
-        'scope': ['auth capi'],
+        'scope': ['auth'],
         'audience': ['all'],
         'state': ['state-value'],
         'code_challenge': ['challenge-value'],
@@ -182,11 +194,13 @@ async def test_frontier_login_reaps_expired_states_before_insert(monkeypatch: py
     state_cookie = response.headers['set-cookie']
     assert settings.auth_state_cookie_name in state_cookie
     assert 'Domain=' not in state_cookie
-    assert 'Path=/api/auth/frontier' in state_cookie
+    assert 'Path=/api' in state_cookie
     assert pool.connection.queries[0] == (
-        'DELETE FROM oauth_login_states WHERE expires_at <= NOW()'
+        'DELETE FROM v3_identity.oauth_login_state WHERE expires_at <= NOW()'
     )
-    assert pool.connection.queries[1].startswith('INSERT INTO oauth_login_states')
+    assert pool.connection.queries[1].startswith(
+        'INSERT INTO v3_identity.oauth_login_state'
+    )
 
 
 @pytest.mark.asyncio
@@ -271,7 +285,8 @@ def test_frontier_identity_uses_parent_account_and_stores_only_commander_name(mo
     )
 
     assert identity.model_dump() == {
-        'customer_id': 'frontier-parent',
+        'issuer': 'https://auth.frontierstore.net',
+        'subject': 'frontier-parent',
         'commander_name': 'Test Cmdr',
     }
 
@@ -280,7 +295,8 @@ def test_session_token_digest_is_deterministic_without_storing_raw_token():
     digest = token_digest('raw-secret-session')
     assert digest == token_digest('raw-secret-session')
     assert digest != 'raw-secret-session'
-    assert len(digest) == 64
+    assert isinstance(digest, bytes)
+    assert len(digest) == 32
 
 
 @pytest.mark.asyncio
@@ -294,12 +310,7 @@ async def test_require_admin_accepts_owner_session(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(settings, 'admin_token', 'legacy-secret')
 
     async def owner_user(_request: Request) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            id=1,
-            frontier_customer_id='owner-id',
-            commander_name='Owner Cmdr',
-            stored_is_owner=True,
-        )
+        return _authenticated_user(owner=True)
 
     monkeypatch.setattr(deps, 'get_request_user', owner_user)
     await deps.require_admin(_request())
@@ -308,12 +319,7 @@ async def test_require_admin_accepts_owner_session(monkeypatch: pytest.MonkeyPat
 @pytest.mark.asyncio
 async def test_owner_session_write_requires_trusted_origin(monkeypatch: pytest.MonkeyPatch):
     async def owner_user(_request: Request) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            id=1,
-            frontier_customer_id='owner-id',
-            commander_name='Owner Cmdr',
-            stored_is_owner=True,
-        )
+        return _authenticated_user(owner=True)
 
     monkeypatch.setattr(settings, 'cors_origins', 'https://ed-finder.app,https://www.ed-finder.app')
     monkeypatch.setattr(deps, 'get_request_user', owner_user)
@@ -334,12 +340,7 @@ async def test_legacy_admin_token_write_does_not_require_browser_origin(monkeypa
 @pytest.mark.asyncio
 async def test_require_admin_rejects_authenticated_non_owner(monkeypatch: pytest.MonkeyPatch):
     async def regular_user(_request: Request) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            id=2,
-            frontier_customer_id='regular-id',
-            commander_name='Regular Cmdr',
-            stored_is_owner=False,
-        )
+        return _authenticated_user(owner=False)
 
     monkeypatch.setattr(settings, 'frontier_owner_customer_ids', '')
     monkeypatch.setattr(deps, 'get_request_user', regular_user)

@@ -47,7 +47,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/frontier/login": {
+    "/api/v1/auth/frontier/login": {
         parameters: {
             query?: never;
             header?: never;
@@ -55,7 +55,7 @@ export interface paths {
             cookie?: never;
         };
         /** Frontier Login */
-        get: operations["frontier_login_api_auth_frontier_login_get"];
+        get: operations["frontier_login_api_v1_auth_frontier_login_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -64,7 +64,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/frontier/callback": {
+    "/api/v1/auth/frontier/link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Frontier Link */
+        post: operations["frontier_link_api_v1_auth_frontier_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/frontier/callback": {
         parameters: {
             query?: never;
             header?: never;
@@ -72,7 +89,7 @@ export interface paths {
             cookie?: never;
         };
         /** Frontier Callback */
-        get: operations["frontier_callback_api_auth_frontier_callback_get"];
+        get: operations["frontier_callback_api_v1_auth_frontier_callback_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -81,7 +98,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/session": {
+    "/api/v1/auth/session": {
         parameters: {
             query?: never;
             header?: never;
@@ -89,7 +106,7 @@ export interface paths {
             cookie?: never;
         };
         /** Auth Session */
-        get: operations["auth_session_api_auth_session_get"];
+        get: operations["auth_session_api_v1_auth_session_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -98,7 +115,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auth/logout": {
+    "/api/v1/auth/logout": {
         parameters: {
             query?: never;
             header?: never;
@@ -108,14 +125,37 @@ export interface paths {
         get?: never;
         put?: never;
         /** Auth Logout */
-        post: operations["auth_logout_api_auth_logout_post"];
+        post: operations["auth_logout_api_v1_auth_logout_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/auth/owner/claim": {
+    "/api/v1/auth/identities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Identities
+         * @description List the active login identities owned by the current account.
+         *
+         *     Provider subjects and other Frontier identifiers stay server-side. The
+         *     browser only needs an opaque row id to render safe unlink controls.
+         */
+        get: operations["list_identities_api_v1_auth_identities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/owner/claim": {
         parameters: {
             query?: never;
             header?: never;
@@ -125,8 +165,25 @@ export interface paths {
         get?: never;
         put?: never;
         /** Claim Owner */
-        post: operations["claim_owner_api_auth_owner_claim_post"];
+        post: operations["claim_owner_api_v1_auth_owner_claim_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/identities/{external_identity_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Unlink Identity */
+        delete: operations["unlink_identity_api_v1_auth_identities__external_identity_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2263,6 +2320,11 @@ export interface components {
         };
         /** AuthUserResponse */
         AuthUserResponse: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
             /** Commander Name */
             commander_name?: string | null;
             /** Is Owner */
@@ -3616,6 +3678,21 @@ export interface components {
             /** Last Visited At */
             last_visited_at?: string | null;
         };
+        /** ExternalIdentityResponse */
+        ExternalIdentityResponse: {
+            /**
+             * External Identity Id
+             * Format: uuid
+             */
+            external_identity_id: string;
+            /** Provider */
+            provider: string;
+            /**
+             * Linked At
+             * Format: date-time
+             */
+            linked_at: string;
+        };
         /** FacilityTemplateResponse */
         FacilityTemplateResponse: {
             /** Id */
@@ -3670,6 +3747,11 @@ export interface components {
             green_cp_cost: number;
             /** Stat Effects */
             stat_effects?: unknown;
+        };
+        /** FrontierLinkResponse */
+        FrontierLinkResponse: {
+            /** Authorization Url */
+            authorization_url: string;
         };
         /** GalaxySearchRequest */
         GalaxySearchRequest: {
@@ -6694,7 +6776,7 @@ export interface operations {
             };
         };
     };
-    frontier_login_api_auth_frontier_login_get: {
+    frontier_login_api_v1_auth_frontier_login_get: {
         parameters: {
             query?: {
                 return_to?: string | null;
@@ -6725,7 +6807,38 @@ export interface operations {
             };
         };
     };
-    frontier_callback_api_auth_frontier_callback_get: {
+    frontier_link_api_v1_auth_frontier_link_post: {
+        parameters: {
+            query?: {
+                return_to?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrontierLinkResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    frontier_callback_api_v1_auth_frontier_callback_get: {
         parameters: {
             query?: {
                 code?: string | null;
@@ -6758,7 +6871,7 @@ export interface operations {
             };
         };
     };
-    auth_session_api_auth_session_get: {
+    auth_session_api_v1_auth_session_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -6778,7 +6891,7 @@ export interface operations {
             };
         };
     };
-    auth_logout_api_auth_logout_post: {
+    auth_logout_api_v1_auth_logout_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -6798,7 +6911,27 @@ export interface operations {
             };
         };
     };
-    claim_owner_api_auth_owner_claim_post: {
+    list_identities_api_v1_auth_identities_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalIdentityResponse"][];
+                };
+            };
+        };
+    };
+    claim_owner_api_v1_auth_owner_claim_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -6810,6 +6943,37 @@ export interface operations {
                 "application/json": components["schemas"]["OwnerClaimRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthSessionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unlink_identity_api_v1_auth_identities__external_identity_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                external_identity_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
