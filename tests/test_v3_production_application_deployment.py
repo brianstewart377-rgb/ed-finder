@@ -83,10 +83,11 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     }
     assert value["status"] == "stopped"
     assert set(module.validate_authority(value)) == set(value["blockers"])
-    assert {
-        "production_promotion_cpython314_runtime_unproved",
-        "production_edge_loopback_cutover_topology_authority_missing",
-    }.issubset(value["blockers"])
+    # The runtime gate and the three designated host facts are proven; only the
+    # unchanged-edge cutover topology remains, and that is host execution.
+    assert value["blockers"] == [
+        "production_edge_loopback_cutover_topology_authority_missing"
+    ]
     assert value["application_contract"]["compose_project"] == "edfinder-v3-production"
     assert "checkpoint" not in value["application_contract"]["compose_project"]
     assert value["application_contract"]["compose_sha256"] == hashlib.sha256(COMPOSE.read_bytes()).hexdigest()
