@@ -127,6 +127,9 @@ evidence-interpretation, and Digital Twin owner.
    derived-generation architecture; PR #646 freezes Ratings V4.0. Recover the
    verified canonical importer, preserve source provenance and unknowns, then
    implement the production derived-generation schema and bounded builder.
+   The table and script inventory for that work, including what is already
+   written but never applied and what is still undesigned, is in
+   [the derived-data completion plan](development/v3-derived-data-completion-plan.md).
 6. **Validate and publish V4.** Prove complete generation coverage, scores,
    explanations, resource use and rollback before exposing a stable API through
    the reviewed production release controls. Archetypes and Finder ranking
