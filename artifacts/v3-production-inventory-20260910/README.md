@@ -34,7 +34,8 @@ reviewed cutover model is tracked in
 - the running release identity: `edfinder-v3-api:release-6a4fe0ef` with
   `build_sha 6a4fe0ef1cb7b8fd03b4151dc8de4802fd3f4c99`, plus
   `edfinder-v3-production-web:release-1dc4d099`;
-- that no `python3.14` exists on the host (default `python3` is CPython 3.13.5).
+- that no `python3.14` exists on the host (the default `python3` interpreter
+  reports version 3.13.5).
 
 The receipt deliberately excludes container environments, env-file contents,
 DSNs, passwords, tokens, private keys, and Docker credential/configuration

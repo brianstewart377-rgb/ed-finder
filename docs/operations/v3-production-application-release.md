@@ -80,10 +80,10 @@ release. Two facts must be reconciled before a governed promotion can run:
    authority and its deployer checks must be brought into agreement. The
    authority must not be marked `authorized` while they disagree.
 2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host.
-   Inventory proves the host has only CPython 3.13.5 and no `python3.14`. The
-   gate is deliberately retained: provisioning a pinned 3.14 is a separate
-   reviewed change, not a status-tool repair, and this runbook does not
-   authorize installing one.
+   Inventory proves the host's default interpreter reports version 3.13.5 and
+   that no `python3.14` exists. The gate is deliberately retained: provisioning
+   a pinned 3.14 is a separate reviewed change, not a status-tool repair, and
+   this runbook does not authorize installing one.
 
 The runtime identity drift is recorded in
 `deploy/v3-production/target-authority.json`: the running api container keeps
