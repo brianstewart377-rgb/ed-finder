@@ -47,9 +47,10 @@ or override this set.
   promotion path is defined and its committed target is still stopped, but the
   reviewed read-only inventory of 2026-09-10 proved the application network,
   the local Docker context, exact loopback ownership of ports 58080/58081, host
-  capacity and the live schema/ledger identity. Five blockers remain: the api
-  secret file, the receipt store, the reviewed schema identity file, the
-  unchanged-edge cutover topology and an exact CPython 3.14 mutation runtime.
+  capacity and the live schema/ledger identity. The api secret file, the receipt
+  store and the reviewed schema identity file are now provisioned and pinned in
+  the committed target authority, so two blockers remain: the unchanged-edge
+  cutover topology and an exact CPython 3.14 mutation runtime.
   The reviewed unchanged-edge cutover authority is now published as
   `edge_route_authority`, and the committed edge configuration forwards the
   public application surface to the single active origin rather than the staging
@@ -59,19 +60,18 @@ or override this set.
   Production already serves the 2026-09-09 in-place release; that promotion is
   recorded as a description of what runs, not as governed acceptance. The root
   Compose and Contabo checkpoint remain non-authoritative for production.
-- **Designated production secret and receipt paths (not yet provisioned):** the
-  api env snapshot is to live at `/etc/ed-finder/v3-production/api.env` (owner
-  uid `0`, mode `0600`) and the durable promotion receipt store at
-  `/var/lib/ed-finder/v3-production/receipts` (owner uid `0`, mode `0700`).
-  Neither path exists on the host yet, and no deployment root can be derived
-  from the running containers: they carry no Compose project directory, and the
-  only labels present belong to unrelated stacks. Both are free parameters that
-  the target authority must pin, and
+- **Designated production secret, schema and receipt paths (provisioned):** the
+  api env snapshot lives at `/etc/ed-finder/v3-production/api.env` (owner uid
+  `0`, mode `0600`), the reviewed schema identity at
+  `/etc/ed-finder/v3-production/schema-identity.json` (owner uid `0`, mode
+  `0600`), and the durable promotion receipt store at
+  `/var/lib/ed-finder/v3-production/receipts` (owner uid `0`, mode `0700`). All
+  three are provisioned on the host and pinned by the target authority, and
   [`scripts/operator/v3_production_deploy.py`](../scripts/operator/v3_production_deploy.py)
-  verifies them with `secure_path` rather than supplying a default.
-  The read-only inventory records stat-only existence/kind/owner-uid/mode
-  evidence for both designated paths without reading their contents, so the next
-  reviewed run supplies the facts those two authority fields need.
+  verifies each with `secure_path` rather than supplying a default. The
+  read-only inventory records stat-only existence/kind/owner-uid/mode evidence
+  for all three without reading their contents, so each pinned fact is
+  re-checkable on the next reviewed run.
   The retained database identity is adopted from the running release (role
   `edfinder_v3`, database `edfinder_v3_phase4c_full_20260827_r5`, reached as
   `edfinder-v3-phase4c-full-20260827_r5-postgres` on the application network),

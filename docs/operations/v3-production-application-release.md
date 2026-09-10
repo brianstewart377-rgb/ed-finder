@@ -73,21 +73,22 @@ production schema identity document from it. The schema-identity contract and th
 live-ledger check now carry the applied ledger name explicitly and accept the
 `r1_v3/` naming.
 
-Three steps remain before the schema blocker clears. Author the identity file on
-the host from that derivation, pin its path, owner uid, mode and sha256 in the
-target authority, and have the candidate release declare compatibility with the
-resulting V3 identity through the existing `--compatible-migration-set` flag.
-That last point matters: the canonical release manifest still derives its own
-migration set from the V2 `sql/migration-manifest.txt`, so the production
-database's V3 identity has to be declared as an additional compatible set rather
-than inferred.
+The identity file is authored on the host from that derivation and pinned in the
+target authority. One release-build step remains: a production candidate has to
+declare compatibility with the resulting V3 identity through the existing
+`--compatible-migration-set` flag. That matters because the canonical release
+manifest still derives its own migration set from the V2
+`sql/migration-manifest.txt`, so the production database's V3 identity has to be
+declared as an additional compatible set rather than inferred.
 
-The application-network blocker is therefore cleared. These remain, and
-`status` stays `stopped` until each is replaced by exact reviewed facts:
-`production_api_secret_file_authority_missing`,
-`production_receipt_store_authority_missing`,
-`production_schema_identity_file_missing`,
-`production_edge_loopback_cutover_topology_authority_missing`, and
+The application-network, api secret file, receipt store and schema identity
+authorities are therefore resolved. `/etc/ed-finder/v3-production/api.env`
+(uid `0`, mode `0600`), `/var/lib/ed-finder/v3-production/receipts`
+(uid `0`, mode `0700`) and
+`/etc/ed-finder/v3-production/schema-identity.json` (uid `0`, mode `0600`) are
+provisioned on the host and pinned with their reviewed evidence. These remain,
+and `status` stays `stopped` until each is replaced by exact reviewed facts:
+`production_edge_loopback_cutover_topology_authority_missing` and
 `production_promotion_cpython314_runtime_unproved`.
 
 ## Live production state and the 2026-09-09 in-place promotion

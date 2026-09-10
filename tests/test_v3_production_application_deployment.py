@@ -99,17 +99,25 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
         "edfinder-v3-phase4c-full-20260827_r5-postgres",
     ]
     # The reviewed unchanged-edge cutover authority is published from that
-    # receipt.  The remaining nulls are host facts that are still unprovisioned.
+    # receipt.
     assert value["external_authority"]["edge_route_authority"] == {
         "strategy": "verified-loopback-blue-green-port-swap",
         "edge_container": "edfinder-v3-public-auth-edge",
         "active_origin_bind": "127.0.0.1:58080",
         "evidence": "reviewed-production-inventory-receipt",
     }
-    assert all(value["external_authority"][key] is None for key in (
-        "api_env_file", "api_env_owner_uid", "api_env_mode",
-        "schema_identity_file", "receipt_directory",
-    ))
+    # The three designated host facts are provisioned and pinned. Their modes are
+    # the restrictive ones the authorized path enforces.
+    assert value["external_authority"]["api_env_file"] == "/etc/ed-finder/v3-production/api.env"
+    assert value["external_authority"]["api_env_owner_uid"] == 0
+    assert value["external_authority"]["api_env_mode"] == "0600"
+    assert value["external_authority"]["receipt_directory"] == "/var/lib/ed-finder/v3-production/receipts"
+    assert value["external_authority"]["receipt_owner_uid"] == 0
+    assert value["external_authority"]["receipt_mode"] == "0700"
+    assert value["external_authority"]["schema_identity_file"] == "/etc/ed-finder/v3-production/schema-identity.json"
+    assert value["external_authority"]["schema_identity_owner_uid"] == 0
+    assert value["external_authority"]["schema_identity_mode"] == "0600"
+    assert re.fullmatch(r"[0-9a-f]{64}", value["external_authority"]["schema_identity_sha256"])
     assert value["external_authority"]["docker_context"] == "default"
 
 

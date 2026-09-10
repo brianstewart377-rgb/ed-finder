@@ -81,13 +81,13 @@
       "edfinder-v3-production-web-blue",
       "edfinder-v3-phase4c-full-20260827_r5-postgres"
     ],
-    "api_env_file": null,
-    "api_env_owner_uid": null,
-    "api_env_mode": null,
-    "schema_identity_file": null,
-    "schema_identity_sha256": null,
-    "schema_identity_owner_uid": null,
-    "schema_identity_mode": null,
+    "api_env_file": "/etc/ed-finder/v3-production/api.env",
+    "api_env_owner_uid": 0,
+    "api_env_mode": "0600",
+    "schema_identity_file": "/etc/ed-finder/v3-production/schema-identity.json",
+    "schema_identity_sha256": "5669ee535a6dc4410ce16001eca15807cad95d5b50930cc44141e0dbdfd7a5c0",
+    "schema_identity_owner_uid": 0,
+    "schema_identity_mode": "0600",
     "active_origin_bind": "127.0.0.1:58080",
     "staging_origin_bind": "127.0.0.1:58081",
     "public_origin": "https://ed-finder.app",
@@ -97,16 +97,13 @@
       "active_origin_bind": "127.0.0.1:58080",
       "evidence": "reviewed-production-inventory-receipt"
     },
-    "receipt_directory": null,
-    "receipt_owner_uid": null,
-    "receipt_mode": null,
+    "receipt_directory": "/var/lib/ed-finder/v3-production/receipts",
+    "receipt_owner_uid": 0,
+    "receipt_mode": "0700",
     "docker_context": "default"
   },
   "blockers": [
-    "production_api_secret_file_authority_missing",
     "production_edge_loopback_cutover_topology_authority_missing",
-    "production_receipt_store_authority_missing",
-    "production_promotion_cpython314_runtime_unproved",
-    "production_schema_identity_file_missing"
+    "production_promotion_cpython314_runtime_unproved"
   ]
 }
