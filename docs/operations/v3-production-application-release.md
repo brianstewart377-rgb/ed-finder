@@ -86,10 +86,10 @@ authorities are therefore resolved. `/etc/ed-finder/v3-production/api.env`
 (uid `0`, mode `0600`), `/var/lib/ed-finder/v3-production/receipts`
 (uid `0`, mode `0700`) and
 `/etc/ed-finder/v3-production/schema-identity.json` (uid `0`, mode `0600`) are
-provisioned on the host and pinned with their reviewed evidence. These remain,
-and `status` stays `stopped` until each is replaced by exact reviewed facts:
-`production_edge_loopback_cutover_topology_authority_missing` and
-`production_promotion_cpython314_runtime_unproved`.
+provisioned on the host and pinned with their reviewed evidence, and the runtime
+gate is proven (see below). One blocker remains, and `status` stays `stopped`
+until it is replaced by exact reviewed facts:
+`production_edge_loopback_cutover_topology_authority_missing`.
 
 ## Live production state and the 2026-09-09 in-place promotion
 
@@ -125,28 +125,35 @@ release. Two facts must be reconciled before a governed promotion can run:
    verified candidate web slot to `127.0.0.1:58080` and leaves the edge
    untouched. The authority must not be marked `authorized` while the host
    disagrees.
-2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host.
-   Inventory proves the host's default interpreter reports version 3.13.5 and
-   that no `python3.14` exists. The gate is deliberately retained: provisioning
-   a pinned 3.14 is a separate reviewed change, not a status-tool repair, and
-   this runbook does not authorize installing one.
+2. **Runtime.** Production mutation requires an exact CPython 3.14 on the host,
+   and that reviewed provisioning change is now complete. `uv` 0.12.12 is
+   installed at `/usr/local/bin/uv` from the checksum-verified upstream release
+   tarball, and it installed CPython 3.14.7 into
+   `/opt/python/cpython-3.14.7-linux-x86_64-gnu`. `/usr/local/bin/python3.14` is a
+   symlink to that pinned build, so the launcher's `command -v python3.14` lookup
+   resolves on the safe path instead of depending on a user-specific
+   `~/.local/bin`. The launcher's own exactness test passes, and inventory run
+   `34517318462` records `python3_14` as `exists=true`, `version=3.14.7`,
+   `is_exact_cpython_3_14=true`, which is the reviewed evidence that clears
+   `production_promotion_cpython314_runtime_unproved`. The host's default
+   `python3` is still 3.13.5 and still runs the read-only inventory. To reverse
+   the change, remove the symlink, `/opt/python` and `/usr/local/bin/uv`.
 
 The runtime identity drift is recorded in
 `deploy/v3-production/target-authority.json`: the running api container keeps
 the legacy name `edfinder-v3-api` rather than the Compose slot name
 `edfinder-v3-production-api-blue`.
 
-Two external paths are designated but not yet provisioned. The api env snapshot
-is to live at `/etc/ed-finder/v3-production/api.env` with owner uid `0` and mode
-`0600`, and the durable receipt store at
-`/var/lib/ed-finder/v3-production/receipts` with owner uid `0` and mode `0700`.
-Neither exists on the host, and no deployment root can be derived from the
-running containers because they carry no Compose project directory. Provision
-them at exactly these owner/mode values, capture stat-only evidence (existence,
-owner, mode - never contents), and only then replace `api_env_file` and
-`receipt_directory` with proven facts. Authoring the api env snapshot is a
-secret-handling step: it must supply the real production API configuration, and
-no automation here reads container environments to synthesise it.
+All three designated paths now exist at exactly the reviewed owner/mode: the api
+env snapshot at `/etc/ed-finder/v3-production/api.env` (uid `0`, mode `0600`), the
+reviewed schema identity at `/etc/ed-finder/v3-production/schema-identity.json`
+(uid `0`, mode `0600`), and the durable receipt store at
+`/var/lib/ed-finder/v3-production/receipts` (uid `0`, mode `0700`). The target
+authority pins all three, and inventory run `34517318462` records stat-only
+existence/owner/mode evidence for each without reading contents. Authoring the
+api env snapshot was a secret-handling step: it supplies the real production API
+configuration, and no automation here reads container environments to synthesise
+it.
 
 Run only the workflow's default `inventory` operation first. It uses the
 already-present host `python3` standard library and performs only bounded

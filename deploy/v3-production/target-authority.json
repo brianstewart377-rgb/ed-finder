@@ -10,7 +10,7 @@
     "architecture": "x86_64"
   },
   "evidence": {
-    "source": "reviewed read-only production inventory workflow run 34493285192 (2026-09-10), superseding run 34236384791",
+    "source": "reviewed read-only production inventory workflow run 34517318462 (2026-09-10), superseding runs 34493285192 and 34236384791",
     "fresh_for_implementation": true,
     "deployment_evidence": false
   },
@@ -103,7 +103,6 @@
     "docker_context": "default"
   },
   "blockers": [
-    "production_edge_loopback_cutover_topology_authority_missing",
-    "production_promotion_cpython314_runtime_unproved"
+    "production_edge_loopback_cutover_topology_authority_missing"
   ]
 }

@@ -49,8 +49,9 @@ or override this set.
   the local Docker context, exact loopback ownership of ports 58080/58081, host
   capacity and the live schema/ledger identity. The api secret file, the receipt
   store and the reviewed schema identity file are now provisioned and pinned in
-  the committed target authority, so two blockers remain: the unchanged-edge
-  cutover topology and an exact CPython 3.14 mutation runtime.
+  the committed target authority, and exact CPython 3.14.7 is installed on the
+  host from a checksum-verified `uv` release, so one blocker remains: the
+  unchanged-edge cutover topology.
   The reviewed unchanged-edge cutover authority is now published as
   `edge_route_authority`, and the committed edge configuration forwards the
   public application surface to the single active origin rather than the staging
