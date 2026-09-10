@@ -31,6 +31,9 @@ select = ["B905", "E4", "E7", "E9", "F"]
 ignore = ["E701", "E702"]
 
 [tool.ruff.lint.per-file-ignores]
+# Retained canonical source must stay byte-identical to its published run hash.
+# Its unused Iterator import is harmless; new bridge code is linted normally.
+"apps/importer/src/v3_spansh/pipeline.py" = ["F401"]
 "apps/importer/src/build_regional_analysis.py" = ["E402"]
 "scripts/checks/data_invariants.py" = ["E402"]
 "scripts/dev/review_environment.py" = ["E402"]

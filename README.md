@@ -42,7 +42,11 @@ evidence but never override it.
    — renderer-neutral boundaries and ownership.
 6. [`docs/development/v3-browser-validation-lanes.md`](docs/development/v3-browser-validation-lanes.md)
    — Product E2E/Visual Acceptance and Review Lab authority.
-7. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md)
+7. [`docs/development/v3-search-spatial-derived-data-decision.md`](docs/development/v3-search-spatial-derived-data-decision.md)
+   — merged search/spatial and derived-generation architecture.
+8. [`docs/development/ratings-v4-freeze/README.md`](docs/development/ratings-v4-freeze/README.md)
+   — frozen Ratings V4.0 mechanics, scores and validation evidence.
+9. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md)
    — production, runtime, checkpoint, and recovery boundary.
 
 [`CLAUDE.md`](CLAUDE.md) is the repository and agent contract that points to
@@ -69,10 +73,10 @@ Digital Twin contributions.
 - Commander History/Journal, Routes, Powerplay, Colonisation, and planned CPE
   overlays contribute through explicit renderer-neutral boundaries.
 
-Search/spatial indexing, grid/cluster design, Ratings-versus-archetype
-dependencies, and PostgreSQL 18 derived-data bootstrap are open decisions.
-Current Finder behaviour uses raw `x/y/z` bounding and distance; do not infer a
-first-class `grid_cell_id` design from older plans.
+PR #645 establishes the V3 search/spatial and derived-generation architecture;
+PR #646 freezes Ratings V4.0. Production integration now follows canonical
+source recovery, bounded derived builds, validation and atomic publication.
+Archetype judgement and Finder ranking remain separate later layers.
 
 ## Repository layout
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from fnmatch import fnmatchcase
 from pathlib import Path
 import sys
 
@@ -12,6 +13,13 @@ sys.path.insert(0, str(ROOT / 'apps' / 'api' / 'src'))
 
 from domain.ratings_v4 import ECONOMIES, MECHANICS_VERSION, SCORER_VERSION  # noqa: E402
 from scripts.ratings_v4 import verify_freeze  # noqa: E402
+
+
+def test_freeze_validation_triggers_for_postgres_fixture_changes():
+    workflow = (ROOT / '.github/workflows/ratings-v4-freeze.yml').read_text()
+    path_block = workflow.split('    paths:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
+    paths = [line.strip().removeprefix('- ').strip("'") for line in path_block.splitlines()]
+    assert any(fnmatchcase('tests/ratings_v4_pg_fixture.py', pattern) for pattern in paths)
 
 
 @pytest.fixture(scope='module')

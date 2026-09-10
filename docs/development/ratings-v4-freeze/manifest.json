@@ -82,7 +82,7 @@
   "status": "FROZEN",
   "text_files_sha256_lf": {
     "apps/api/src/domain/ratings_v4.py": "344c620fa29cda725fcecf6aaa18acd7ae68730b9919f22d86a23dea643d29ad",
-    "apps/api/src/domain/ratings_v4_canonical.py": "55258eef522379a817e075e2b21aa1a771332507b29a222800ab40f07a1ed1c1",
+    "apps/api/src/domain/ratings_v4_canonical.py": "99882b08aa112c80f8b673b553a374fbc58c4da4db27619042367ba6fdfa6e84",
     "apps/importer/src/build_ratings.py": "d7056f68789237b2e22c97e43468dc65dbbf97fc2cd650d31bbb56303fe66f6d",
     "docs/development/ratings-v4-coefficient-calibration.md": "6ec38df3e7ce2bb3dafb3a79d939f2e77724c6937d5bb7201488ea083a78f11c",
     "docs/development/ratings-v4-data-contract.md": "fd89c221406066f801a1bfd26b1165708e0e4b35eaba647f08e1ca1b89e2f56b",

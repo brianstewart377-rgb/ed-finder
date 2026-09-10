@@ -11,6 +11,8 @@ Start at the [root authority index](../README.md), then use:
 - [V3 application stack decision](development/v3-application-stack-decision.md)
 - [spatial product contract](colonisation-redesign/spatial-platform-product-contract.md)
 - [spatial architecture decision](colonisation-redesign/spatial-platform-architecture-decision.md)
+- [V3 search, spatial and derived-data decision](development/v3-search-spatial-derived-data-decision.md)
+- [Ratings V4.0 freeze](development/ratings-v4-freeze/README.md)
 - [browser validation lanes](development/v3-browser-validation-lanes.md)
 - [infrastructure status](operations/infrastructure-status.md)
 
@@ -79,12 +81,14 @@ evidence-interpretation, and Digital Twin owner.
    production migration authority.
 4. **Preserve the checkpoint boundary.** Keep Contabo non-production and its
    persistent app-only namespace isolated from the three runner services.
-5. **Resolve search and data architecture in order.** Establish Search product
-   and performance requirements, then choose the spatial index/grid/cluster
-   design, then define the PostgreSQL 18 derived-data bootstrap.
-6. **Resolve judgement dependencies.** Reconcile current Ratings v3.4 uses with
-   the roadmap's intended archetype judgement layer before a full ratings,
-   grid, cluster, or derived-data build is prescribed.
+5. **Integrate the merged V4 contract.** PR #645 establishes search/spatial and
+   derived-generation architecture; PR #646 freezes Ratings V4.0. Recover the
+   verified canonical importer, preserve source provenance and unknowns, then
+   implement the production derived-generation schema and bounded builder.
+6. **Validate and publish V4.** Prove complete generation coverage, scores,
+   explanations, resource use and rollback before exposing a stable API through
+   the reviewed production release controls. Archetypes and Finder ranking
+   follow this raw-economy layer and do not alter its frozen coefficients.
 7. **Establish V3 database evidence.** Add reviewed PostgreSQL 18 maintenance,
    backup, restore, and PITR evidence/procedures before claiming operational
    readiness. Historical V2 receipts cannot fill this gap.
@@ -93,14 +97,15 @@ evidence-interpretation, and Digital Twin owner.
 
 | Gate | Decision required before implementation |
 |---|---|
-| Search and spatial data | Search requirements → spatial index/grid/cluster design → PG18 derived-data bootstrap. Current normal Finder uses raw `x/y/z` bounding and distance and does not establish `grid_cell_id` as a first-class accelerator. |
-| Scoring and judgement | Decide how Ratings v3.4 code/data dependencies relate to the intended archetype judgement layer. Do not trigger a full ratings/archetype rebuild from this roadmap. |
-| Derived-data bootstrap | Define sources, ordering, versioning, bounded resource use, rebuildability, verification, and rollback only after the preceding two gates. |
+| Search and spatial data | Decided by merged PR #645: exact coordinates, cube/GiST, versioned search/map projections and independent cluster publication. |
+| Scoring and judgement | Ratings V4.0 is frozen by PR #646. Seven independent raw scores; archetype judgement and Finder ranking remain later layers. |
+| Derived-data bootstrap | Implement recovered canonical inputs, bounded generation builds, complete validation and atomic publication/rollback through reviewed production controls. |
 | Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
 | V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
 
-No final Search/Grid/Cluster authority document exists yet. Active audits feed
-that future decision; they do not pre-authorize its conclusion.
+The merged V3 search/spatial decision and Ratings V4.0 freeze are architecture
+and scoring authority. Their merge does not establish production build or
+publication evidence; the integration must produce those receipts.
 
 ## Deferred and later capabilities
 

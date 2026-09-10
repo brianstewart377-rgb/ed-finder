@@ -49,7 +49,7 @@ def _index(rows: Iterable[Mapping[str, Any]], keys: tuple[str, ...], name: str) 
     return result
 
 
-def _source_contract(canonical: Mapping, metadata: Mapping) -> tuple[Mapping, Mapping]:
+def _source_contract(canonical: Mapping, metadata: Mapping) -> tuple[Mapping, Mapping, dict]:
     if (canonical.get('status') != 'success' or canonical.get('read_only') is not True
             or canonical.get('db_writes_performed') is not False):
         raise ValueError('canonical export must be a successful read-only snapshot')
@@ -73,20 +73,56 @@ def _source_contract(canonical: Mapping, metadata: Mapping) -> tuple[Mapping, Ma
     if generation_key is not None and schema != f'v3_gen_{generation_key}':
         raise ValueError('source run/generation mismatch')
     _boolean(run.get('is_complete_snapshot'), 'is_complete_snapshot')
-    return run, artifact
+    # Historical exports contain one source. Production snapshots carry the
+    # complete admitted input manifest, including runs with no rows in a chunk.
+    admitted = {run['source_run_id']: (run, artifact)}
+    if 'generation_inputs' in metadata:
+        inputs = metadata['generation_inputs']
+        if not isinstance(inputs, list) or not inputs:
+            raise ValueError('missing admitted source-run manifest')
+        admitted = {}
+        ordinals = set()
+        for entry in inputs:
+            admission, input_run = entry['input'], entry['run']
+            input_artifact = entry['artifact']
+            if (admission['generation_id'] != metadata['generation_id'] or
+                    admission['source_run_id'] != input_run['source_run_id'] or
+                    admission['source_id'] != input_run['source_id'] or
+                    admission['artifact_id'] != input_run['artifact_id'] or
+                    entry['source']['source_id'] != input_run['source_id']):
+                raise ValueError('admitted source manifest identity mismatch')
+            ordinal = _id(admission['input_ordinal'], 'input ordinal')
+            if input_run['source_run_id'] in admitted or ordinal in ordinals:
+                raise ValueError('duplicate admitted source manifest identity')
+            ordinals.add(ordinal)
+            if input_run.get('run_state') != 'SUCCEEDED' or input_run.get('trust_zone') != 'CANONICAL':
+                raise ValueError('admitted source run must have succeeded in canonical trust zone')
+            _boolean(input_run.get('is_complete_snapshot'), 'is_complete_snapshot')
+            if input_artifact is None:
+                if input_run['artifact_id'] is not None:
+                    raise ValueError('missing admitted source artifact')
+            elif (input_artifact['artifact_id'] != input_run['artifact_id'] or
+                  input_artifact['source_id'] != input_run['source_id'] or
+                  input_artifact.get('quarantine_state') != 'ADMITTED' or
+                  not _SHA256.fullmatch(input_artifact['content_sha256'].removeprefix('\\x'))):
+                raise ValueError('invalid admitted source artifact')
+            admitted[input_run['source_run_id']] = (input_run, input_artifact)
+        if admitted.get(run['source_run_id']) != (run, artifact):
+            raise ValueError('build source run missing or inconsistent in admitted manifest')
+    return run, artifact, admitted
 
 
 def canonical_lineage(canonical_export: Mapping, source_metadata: Mapping,
                       subtype_sources: Iterable[Mapping]) -> dict[str, Any]:
     """Expose distinct canonical and subtype identities for derived manifests."""
-    run, artifact = _source_contract(canonical_export, source_metadata)
+    run, artifact, _ = _source_contract(canonical_export, source_metadata)
     source_hashes = {}
     for payload in subtype_sources:
         system_id = _id(payload['system']['id64'], 'subtype system id64')
         if str(system_id) in source_hashes:
             raise ValueError(f'duplicate subtype system: {system_id}')
         source_hashes[str(system_id)] = normalized_sha256(payload)
-    return {
+    lineage = {
         'adapter_version': ADAPTER_VERSION,
         'canonical_schema': canonical_export['canonical_schema'],
         'canonical_source_run_id': run['source_run_id'],
@@ -101,6 +137,9 @@ def canonical_lineage(canonical_export: Mapping, source_metadata: Mapping,
         'ring_absence_policy': 'No per-body ring completeness fact is retained; missing rings are unknown.',
         'ground_policy': 'Usable ground is unknown; landability does not establish an opportunity.',
     }
+    if 'generation_inputs' in source_metadata:
+        lineage['canonical_generation_inputs'] = source_metadata['generation_inputs']
+    return lineage
 
 
 def adapt_canonical_export(canonical_export: Mapping, source_metadata: Mapping,
@@ -112,7 +151,7 @@ def adapt_canonical_export(canonical_export: Mapping, source_metadata: Mapping,
     flag. Published snapshot rows and all supplied subtype identities must join.
     """
     subtype_sources = tuple(subtype_sources)
-    run, artifact = _source_contract(canonical_export, source_metadata)
+    run, _, admitted = _source_contract(canonical_export, source_metadata)
     lineage = canonical_lineage(canonical_export, source_metadata, subtype_sources)
     schema = canonical_export['canonical_schema']
     systems = {key[0]: row for key, row in _index(
@@ -144,16 +183,18 @@ def adapt_canonical_export(canonical_export: Mapping, source_metadata: Mapping,
         return vocab.get(value)
 
     def validate_source(row: Mapping) -> None:
-        if row.get('source_run_id') != run['source_run_id']:
+        if row.get('source_run_id') not in admitted:
             raise ValueError('unregistered source run in canonical row')
+        run, _ = admitted[row['source_run_id']]
         if 'source_id' in row and row['source_id'] != run['source_id']:
             raise ValueError('canonical row source identity mismatch')
 
     def provenance(row: Mapping, relation_name: str, **details: Any) -> str:
+        run, artifact = admitted[row['source_run_id']]
         return json.dumps({
             'adapter': ADAPTER_VERSION, 'canonical_schema': schema,
             'source_run_id': run['source_run_id'],
-            'artifact_sha256': artifact['content_sha256'].removeprefix('\\x'),
+            'artifact_sha256': artifact['content_sha256'].removeprefix('\\x') if artifact else None,
             'relation': relation_name, 'body_pk': row.get('body_pk'),
             'source_updated_at': row.get('source_updated_at', row.get('observed_at')),
             **details,
@@ -272,8 +313,14 @@ def adapt_canonical_export(canonical_export: Mapping, source_metadata: Mapping,
                 return observed[0] > 0 if observed else (False if known_signals else None)
 
             rings = attached_rings[row['body_pk']]
+            def ring_lineage(ring: Mapping) -> dict:
+                # Preserve the frozen single-run payload while identifying
+                # observations supplied by a different admitted run.
+                return ({'provenance': provenance(ring, 'rings')}
+                        if ring['source_run_id'] != row['source_run_id'] else {})
+
             fields['rings'] = provenance(row, 'rings',
-                observations=[{'ring_pk': ring['ring_pk'], 'kind': ring['kind']} for ring in rings],
+                observations=[{'ring_pk': ring['ring_pk'], 'kind': ring['kind'], **ring_lineage(ring)} for ring in rings],
                 source_inventory_complete=source_complete,
                 absent_observations_state='UNKNOWN',
                 mechanics_rule='Rings including stellar asteroid belts supply Extraction inheritance.')
@@ -282,7 +329,7 @@ def adapt_canonical_export(canonical_export: Mapping, source_metadata: Mapping,
             if len(observed_reserves) > 1:
                 raise ValueError('conflicting attached reserve observations')
             fields['reserve_level'] = provenance(row, 'rings', observations=[
-                dict(ring) for ring in rings if ring.get('reserve_type_id') is not None])
+                {**ring, **ring_lineage(ring)} for ring in rings if ring.get('reserve_type_id') is not None])
             fields['usable_ground_opportunity'] = provenance(row, 'bodies',
                 known_state='UNKNOWN', reason='No usable-ground opportunity source fact; landability is insufficient.')
             volcano = vocab_value(row, 'volcanism_type_id', volcanism)

@@ -104,8 +104,10 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
     assert 'POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"' in source
     assert "BEGIN READ ONLY;" in source
     assert "statement_timeout" in source
-    assert "FROM public.schema_migrations" in source
-    assert "ORDER BY filename" in source
+    assert 'DB_USER = "edfinder_v3"' in source
+    assert 'DB_NAME = "edfinder_v3_phase4c_full_20260827_r5"' in source
+    assert "FROM v3_meta.schema_migration" in source
+    assert "ORDER BY migration_name" in source
     assert '"container_environment_read": False' in source
     assert '"filesystem_writes_performed": False' in source
     for required_inventory_fact in (
@@ -405,12 +407,13 @@ def test_inventory_ledger_parser_rejects_extra_or_malformed_output():
     inventory = _load_inventory()
     good = json.dumps(
         {
-            "database_name": "edfinder",
+            "database_name": inventory.DB_NAME,
             "server_address": "local",
             "server_port": 5432,
             "transaction_read_only": "on",
             "migrations": [
-                {"filename": "001_initial.sql", "checksum_sha256": "a" * 64}
+                {"filename": "001_v3_baseline.sql", "checksum_sha256": "a" * 64},
+                {"filename": "r1_v3/001_structural_shell.sql", "checksum_sha256": "b" * 64},
             ],
         }
     )
@@ -419,6 +422,10 @@ def test_inventory_ledger_parser_rejects_extra_or_malformed_output():
 
     for hostile in (
         good + "\nignored-extra-output",
+        json.dumps({**json.loads(good), 'database_name': 'edfinder'}),
+        json.dumps({**json.loads(good), 'server_address': 'elsewhere'}),
+        json.dumps({**json.loads(good), 'migrations': [
+            {'filename': '../001_escape.sql', 'checksum_sha256': 'a' * 64}]}),
         json.dumps(
             {
                 **json.loads(good),
