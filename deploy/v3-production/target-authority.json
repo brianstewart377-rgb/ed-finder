@@ -1,6 +1,6 @@
 {
   "schema_version": "ed-finder/v3-production-target-authority/v1",
-  "status": "stopped",
+  "status": "authorized",
   "target": {
     "provider": "mevspace",
     "classification": "production",
@@ -10,7 +10,7 @@
     "architecture": "x86_64"
   },
   "evidence": {
-    "source": "reviewed read-only production inventory workflow run 34517318462 (2026-09-10), superseding runs 34493285192 and 34236384791",
+    "source": "reviewed read-only production inventory workflow run 34517318462 (2026-09-10), superseding runs 34493285192 and 34236384791; unchanged-edge bootstrap topology reconciled on the host on 2026-09-10 by applying the reviewed edge configuration and stopping the staged web slot",
     "fresh_for_implementation": true,
     "deployment_evidence": false
   },
@@ -102,7 +102,5 @@
     "receipt_mode": "0700",
     "docker_context": "default"
   },
-  "blockers": [
-    "production_edge_loopback_cutover_topology_authority_missing"
-  ]
+  "blockers": []
 }
