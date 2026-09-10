@@ -271,7 +271,7 @@ receipt["frontend_comparison"] = {
 # edge must not be mistaken for proof that the loopback V3 origin is healthy.
 origin_root, _ = get(ORIGIN + "/", body=False, follow_redirects=False)
 origin_health, health_body = get(ORIGIN + "/api/health", follow_redirects=False)
-origin_session, session_body = get(ORIGIN + "/api/auth/session", follow_redirects=False)
+origin_session, session_body = get(ORIGIN + "/api/v1/auth/session", follow_redirects=False)
 origin_openapi, openapi_body = get(
     ORIGIN + "/openapi.json",
     follow_redirects=False,
@@ -281,11 +281,11 @@ origin_openapi, openapi_body = get(
 health_shape = parse_health_response(health_body)
 session_shape = parse_anonymous_session(session_body)
 required_oauth_paths = {
-    "/api/auth/frontier/login",
-    "/api/auth/frontier/callback",
-    "/api/auth/session",
-    "/api/auth/logout",
-    "/api/auth/owner/claim",
+    "/api/v1/auth/frontier/login",
+    "/api/v1/auth/frontier/callback",
+    "/api/v1/auth/session",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/owner/claim",
 }
 openapi_paths = set()
 try:
@@ -319,7 +319,7 @@ if required_oauth_paths - openapi_paths:
 # an HTML SPA fallback or redirect is not a healthy public API/auth surface.
 public_root, _ = get(PUBLIC + "/", body=False, follow_redirects=True)
 public_health, public_health_body = get(PUBLIC + "/api/health", follow_redirects=False)
-public_session, public_session_body = get(PUBLIC + "/api/auth/session", follow_redirects=False)
+public_session, public_session_body = get(PUBLIC + "/api/v1/auth/session", follow_redirects=False)
 public_health_shape = parse_health_response(public_health_body)
 public_session_shape = parse_anonymous_session(public_session_body)
 receipt["public"] = {
