@@ -5,7 +5,7 @@ import {
   REVIEW_ADVISORY_COPY,
   reviewAreaLabel,
   reviewStatusLabel,
-} from './validationLabels';
+} from '@ed-finder/planner-core/validation/validationLabels';
 
 interface ValidationReviewPanelProps {
   review: ValidationReviewResponse;

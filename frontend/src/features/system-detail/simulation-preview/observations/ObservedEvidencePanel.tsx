@@ -29,7 +29,7 @@ import {
   statusLabel,
 } from './observationLabels';
 import { describeApiError } from './observationUtils';
-import { invalidateObservedFactQueries } from './observedFactsQueryKeys';
+import { invalidateObservedFactQueries } from '@ed-finder/planner-core/observedFactsQueryKeys';
 
 interface ObservedEvidencePanelProps {
   systemId64: number;

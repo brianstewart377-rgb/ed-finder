@@ -94,12 +94,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def connect_read_only_db(dsn: str):
     """Connect lazily so tests and imports do not require Postgres."""
-    import psycopg2  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
 
-    conn = psycopg2.connect(dsn)
-    set_session = getattr(conn, 'set_session', None)
-    if callable(set_session):
-        set_session(readonly=True, autocommit=False)
+    conn = psycopg.connect(dsn, autocommit=False)
+    conn.read_only = True
     return conn
 
 

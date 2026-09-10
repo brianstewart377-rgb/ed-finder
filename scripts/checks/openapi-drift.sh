@@ -43,6 +43,8 @@ pick_python() {
     printf '%s\n' "$ROOT/.venv/bin/python"
   elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
     printf '%s\n' "$ROOT/.venv/Scripts/python.exe"
+  elif command -v python3.14 >/dev/null 2>&1; then
+    command -v python3.14
   elif command -v python3 >/dev/null 2>&1; then
     command -v python3
   elif command -v python >/dev/null 2>&1; then
@@ -99,6 +101,9 @@ PYTHON_BIN="$(pick_python)"
 YARN_BIN="$(pick_yarn)"
 PNPM_BIN="$(pick_pnpm)"
 
+"$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
+  || die "OpenAPI generation requires exact CPython 3.14. Set PYTHON to the repository's 3.14 interpreter."
+
 need_cmd git "Git is required to detect generated type drift."
 need_cmd curl "curl is required to wait for the local API."
 need_cmd psql "psql is required because this check mirrors CI schema seeding."
@@ -152,8 +157,8 @@ section "Regenerate Svelte Hey API client"
 section "Check generated type drift"
 (
   cd "$ROOT"
-  if ! git diff --exit-code frontend/src/types/api.gen.ts; then
-    die "OpenAPI type drift detected. Commit the regenerated frontend/src/types/api.gen.ts."
+  if ! git diff --exit-code -- packages/api-client/src/generated/api.gen.ts; then
+    die "OpenAPI type drift detected. Commit the regenerated packages/api-client/src/generated/api.gen.ts."
   fi
   if ! git diff --exit-code -- apps/web/src/lib/api/generated; then
     die "OpenAPI client drift detected. Commit the regenerated apps/web/src/lib/api/generated tree."

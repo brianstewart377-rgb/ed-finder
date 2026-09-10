@@ -12,7 +12,7 @@ class ReviewLabTimeouts:
     sse_probe: int = 3
     frontend_build: int = 90
     preview_readiness: int = 30
-    playwright: int = 360
+    cypress: int = 360
     teardown: int = 60
 
 

@@ -1,7 +1,7 @@
 describe('ED-Finder V3 foundation', () => {
   it('loads the shell and exercises the real same-origin bootstrap', () => {
     cy.intercept('/api/health').as('health');
-    cy.intercept('/api/auth/session').as('session');
+    cy.intercept('/api/v1/auth/session').as('session');
     cy.visit('/');
     cy.get('h1').should('contain.text', 'Find your place').and('be.visible');
     cy.wait('@health').its('response.statusCode').should('eq', 200);
@@ -42,18 +42,18 @@ describe('ED-Finder V3 foundation', () => {
 
   it('supports direct navigation and refresh through the SPA fallback', () => {
     cy.visit('/explore');
-    cy.get('h1').should('have.text', 'Explore').and('be.visible');
+    cy.get('h1')
+      .should('contain.text', 'Chart a promising system')
+      .and('be.visible');
     cy.reload();
-    cy.contains('This product surface has not been ported yet.').should(
-      'be.visible',
-    );
+    cy.get('h1')
+      .should('contain.text', 'Chart a promising system')
+      .and('be.visible');
   });
 
   it('rejects unknown journey routes instead of rendering a placeholder', () => {
     cy.visit('/explroe', { failOnStatusCode: false });
-    cy.contains('This product surface has not been ported yet.').should(
-      'not.exist',
-    );
+    cy.contains('Chart a promising system').should('not.exist');
     cy.contains(/not found/i).should('be.visible');
   });
 });

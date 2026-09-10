@@ -8,8 +8,8 @@ import type {
   SystemBody,
   SystemDetail,
 } from '@/types/api';
-import type { RoleReviewResult } from '@/features/colony-planner/colonyRoleReview';
-import { buildExportArtifacts } from './exportArtifacts';
+import type { RoleReviewResult } from '@ed-finder/planner-core/colonyRoleReview';
+import { buildExportArtifacts } from '@ed-finder/planner-core/exportArtifacts';
 import { ReviewReadinessStrip } from './ReviewReadinessStrip';
 import { ReviewWorkflowRail, type ReviewPreviewStatus } from './ReviewWorkflowRail';
 import { SelectedSystemReviewContext } from './SelectedSystemReviewContext';

@@ -1,5 +1,5 @@
 import type { SimulateBuildResponse } from '@/types/api';
-import { signed } from '../utils/formatters';
+import { signed } from '@ed-finder/planner-core/formatters';
 
 export function CpTimelinePanel({ timeline }: { timeline: SimulateBuildResponse['cp_timeline'] }) {
   if (!timeline || timeline.length === 0) return null;

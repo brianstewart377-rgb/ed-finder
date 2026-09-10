@@ -17,7 +17,7 @@ import json
 import os
 import sys
 
-import psycopg2
+import psycopg
 
 
 BODY_AND_DIRTY_SQL = """
@@ -209,12 +209,13 @@ def main() -> int:
         print("data_trust_health_snapshot: missing --database-url or DATABASE_URL", file=sys.stderr)
         return 2
 
-    conn = psycopg2.connect(
+    conn = psycopg.connect(
         args.database_url,
         options=(
             "-c statement_timeout=0 "
             "-c lock_timeout=0 "
             "-c application_name=data_trust_health_snapshot "
+            "-c default_transaction_read_only=on "
             "-c max_parallel_workers_per_gather=0 "
             "-c work_mem=4MB "
             "-c enable_hashjoin=off"

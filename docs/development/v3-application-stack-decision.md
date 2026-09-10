@@ -20,10 +20,9 @@ behaviour, user journeys, accessibility expectations, screenshots, and parity
 until equivalent coverage exists. It is not the architecture target or current
 production authority. R3F's Stage 26 bakeoff win remains accurate history.
 
-PR #601 is the single active V3 application integration lane. At currently
-known head `190d26446a2487596299cbb6b497ffa5201fee0b`, it contains a real
-Explore/Finder → fresh Babylon results → canonical Inspect slice. This is
-active-PR state, not a claim that it has merged into this branch's `main` base.
+PR #601's Explore/Finder → fresh Babylon results → canonical Inspect slice and
+Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact commit
+`6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 
 ## Historical post-cutover starting evidence
 
@@ -97,7 +96,7 @@ The existing Stage 27 renderer-neutral `SpatialSceneContract`, contribution, com
 | API framework | **FastAPI** |
 | Validation/contracts | **Pydantic 2** + FastAPI OpenAPI |
 | API PostgreSQL driver | **asyncpg** |
-| Importer/synchronous PostgreSQL driver | **Psycopg 3**; retire `psycopg2-binary` as importer code is ported |
+| Importer/synchronous PostgreSQL driver | **Psycopg 3**, pinned as `psycopg[binary]==3.3.4` |
 | Database | Existing **PostgreSQL 18** V3 database; do not recreate or restore V2 wholesale |
 | Schema migrations | Existing reviewed SQL manifest/checksum `schema_migrations` ledger |
 | ORM | **None by default**; do not add SQLAlchemy merely as part of the reset |
@@ -193,7 +192,10 @@ New baseline:
 - Vitest/Testing Library owns fast component/unit tests;
 - Cypress Svelte component testing may be reconsidered when its Svelte integration has proved stable for this repository.
 
-Existing Playwright coverage is migration evidence, not future authority. Do not delete a still-useful parity check before equivalent Cypress coverage exists. Port or retire deliberately, then remove Playwright configs/dependencies/workflow installation steps and misleading labels. In particular, the current `Cypress Parity` workflow already runs Cypress but still carries an obsolete Playwright job name; Review Lab and historical map/bakeoff suites also retain Playwright-specific machinery that must be dispositioned explicitly.
+Historical Playwright coverage is migration evidence, not future authority. PR
+#601 has moved the active V3 browser and Review Lab responsibilities to Cypress;
+historical Stage 26 receipts may retain provenance wording but do not restore a
+runnable Playwright lane.
 
 ## Frontend/renderer ownership amendment
 
@@ -236,7 +238,8 @@ Deck.gl/Luma.gl are not automatically retained. Current use is renderer-bakeoff/
 The reset remains serialized to avoid unrelated simultaneous cutovers. The
 programme order is authoritative in [`../ROADMAP.md`](../ROADMAP.md):
 
-1. Stabilize and accept PR #601's Svelte/Finder/Babylon/Inspect product slice.
+1. Exit the merged Svelte/Finder/Babylon/Inspect slice through the bounded
+   non-production live-checkpoint path.
 2. Complete CPython 3.14/`uv` and immutable release/provenance hardening.
 3. Merge the exact accepted head, then make an explicit checkpoint decision.
 4. Resolve Search requirements, spatial index/grid/cluster design, scoring

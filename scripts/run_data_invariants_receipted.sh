@@ -26,6 +26,29 @@ say() { printf '\n[INFO] %s\n' "$*"; }
 ok()  { printf '[OK]   %s\n' "$*"; }
 die() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
+pick_python() {
+  if [[ -n "${PYTHON:-}" ]]; then
+    printf '%s\n' "$PYTHON"
+  elif [[ -x "$REPO_DIR/apps/api/.venv/bin/python" ]]; then
+    printf '%s\n' "$REPO_DIR/apps/api/.venv/bin/python"
+  elif [[ -x "$REPO_DIR/.venv/bin/python" ]]; then
+    printf '%s\n' "$REPO_DIR/.venv/bin/python"
+  elif command -v python3.14 >/dev/null 2>&1; then
+    command -v python3.14
+  elif command -v python3 >/dev/null 2>&1; then
+    command -v python3
+  elif command -v python >/dev/null 2>&1; then
+    command -v python
+  else
+    die "Python not found; install exact CPython 3.14 or set PYTHON"
+  fi
+}
+
+require_python314() {
+  "$1" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14)" \
+    || die "data invariants require exact CPython 3.14; rebuild the selected environment or set PYTHON"
+}
+
 usage() {
   sed -n '1,20p' "$0"
 }
@@ -102,16 +125,16 @@ if [[ -z "$effective_database_url" && -n "${DATABASE_URL:-}" ]]; then
 fi
 
 if [[ -n "$effective_database_url" ]]; then
-  command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || die "python/python3 not found for DATABASE_URL mode"
   mode="database_url"
-  python_bin="$(command -v python3 || command -v python)"
+  python_bin="$(pick_python)"
+  require_python314 "$python_bin"
   command_args=("$python_bin" "${command_args[@]}" --database-url "$effective_database_url")
   runner=("${command_args[@]}")
 else
   command -v docker >/dev/null 2>&1 || die "docker not found"
-  command -v python3 >/dev/null 2>&1 || command -v python >/dev/null 2>&1 || die "python/python3 not found for host invariants mode"
   host_database_url="$(resolve_host_database_url)"
-  python_bin="$(command -v python3 || command -v python)"
+  python_bin="$(pick_python)"
+  require_python314 "$python_bin"
   command_args=("$python_bin" "${command_args[@]}" --database-url "$host_database_url")
   runner=("${command_args[@]}")
 fi

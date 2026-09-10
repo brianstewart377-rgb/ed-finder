@@ -81,7 +81,7 @@ def _octopus_ignored_paths(paths: set[str]) -> set[str]:
 def test_octopus_ignore_excludes_only_review_noise():
     expected_noise = {
         'frontend/dist/assets/app.js',
-        'frontend/src/types/api.gen.ts',
+        'packages/api-client/src/generated/api.gen.ts',
         'docs/development/evidence/example/browser.png',
         'artifacts/map-foundation/example/screenshot.jpg',
         'captured-review.patch',
@@ -95,6 +95,8 @@ def test_octopus_ignore_excludes_only_review_noise():
         'frontend/package.json',
         'frontend/yarn.lock',
         'frontend/public/assets/elite-dangerous-region-map.svg',
+        'packages/api-client/src/core.ts',
+        'packages/planner-core/src/exportArtifacts.ts',
         'scripts/apply_migrations.sh',
         'sql/001_initial_schema.sql',
         'tests/fixtures/edsm_body_ring_snapshot.json',

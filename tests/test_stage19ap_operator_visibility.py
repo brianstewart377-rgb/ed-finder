@@ -584,5 +584,5 @@ def test_fake_operator_visibility_boundary_is_paired_with_real_stage19_readiness
     assert readiness_test.is_file()
     assert 'Fake' + 'Conn' not in source
     assert 'Fake' + 'Cursor' not in source
-    assert 'psycopg2.connect' in source
+    assert 'psycopg.connect' in source
     assert 'real Stage 19 DB readiness skipped explicitly' in source

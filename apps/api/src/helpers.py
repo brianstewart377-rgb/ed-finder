@@ -112,8 +112,8 @@ def run_cluster_rebuild(active_jobs: dict[str, Any]) -> None:
             'docker', 'compose',
             '--project-directory', compose_dir,
             '--profile', 'import',
-            'run', '--rm', 'importer',
-            'python3', 'build_clusters.py', '--dirty-only', '--workers', '6',
+            'run', '--rm', '--entrypoint', 'python3', 'importer',
+            'build_clusters.py', '--dirty-only', '--workers', '6',
         ]
         log.info('Triggering background cluster rebuild: %s', ' '.join(cmd))
         subprocess.run(cmd, capture_output=True, text=True, check=True)

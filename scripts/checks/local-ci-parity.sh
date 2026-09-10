@@ -25,6 +25,8 @@ pick_python() {
     printf '%s\n' "$ROOT/.venv/bin/python"
   elif [ -x "$ROOT/.venv/Scripts/python.exe" ]; then
     printf '%s\n' "$ROOT/.venv/Scripts/python.exe"
+  elif command -v python3.14 >/dev/null 2>&1; then
+    command -v python3.14
   elif command -v python3 >/dev/null 2>&1; then
     command -v python3
   elif command -v python >/dev/null 2>&1; then
@@ -59,6 +61,9 @@ PY
 
 PYTHON_BIN="$(pick_python)"
 YARN_BIN="$(pick_yarn)"
+
+"$PYTHON_BIN" -c "import platform, sys; assert platform.python_implementation() == 'CPython' and sys.version_info[:2] == (3, 14), f'CPython 3.14 required, found {platform.python_implementation()} {platform.python_version()}'" \
+  || die "local CI parity requires exact CPython 3.14. Set PYTHON to the repository's 3.14 interpreter."
 
 section "Dependency check"
 require_python_module pytest || die "missing Python module pytest. Install test dependencies before running parity checks."

@@ -19,12 +19,9 @@ describe('api.health', () => {
     expect(response.status).toBe('ok');
     expect(fetchSpy).toHaveBeenCalledWith(
       '/api/health',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        }),
-      }),
+      expect.objectContaining({ credentials: 'include' }),
     );
+    const healthInit = fetchSpy.mock.calls[0][1] as RequestInit;
+    expect(new Headers(healthInit.headers).get('Accept')).toBe('application/json');
   });
 });

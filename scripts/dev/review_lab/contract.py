@@ -16,9 +16,10 @@ from apps.api.src.review_runtime_guard import (
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = ROOT / 'scripts' / 'dev' / 'review_environment.py'
 API_SRC = ROOT / 'apps' / 'api' / 'src'
-FRONTEND_DIR = ROOT / 'frontend'
+FRONTEND_DIR = ROOT / 'apps' / 'web'
 COMPOSE_FILE = ROOT / 'docker-compose.review.yml'
-VERIFY_BROWSER_SPEC = FRONTEND_DIR / 'e2e' / 'review-environment.spec.js'
+VERIFY_BROWSER_SPEC = FRONTEND_DIR / 'cypress' / 'e2e' / 'review-lab.cy.ts'
+VERIFY_BROWSER_CONFIG = FRONTEND_DIR / 'cypress.review.config.ts'
 VERIFY_TMP_ROOT = Path('/tmp/edfinder-local-review')
 LATEST_REPORT_POINTER = VERIFY_TMP_ROOT / 'latest-report.json'
 PROJECT_NAME = 'edfinder-review'
@@ -31,47 +32,14 @@ EXPECTED_REVIEW_STACK_MARKER = 'edfinder-review'
 EXPECTED_FRONTEND_PREVIEW_HOST = '127.0.0.1'
 EXPECTED_FRONTEND_PREVIEW_PORT = 4173
 REVIEW_LAB_BROWSER_MARKER = 'EDFINDER_REVIEW_LAB_RUN'
-REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION = 1
+REVIEW_LAB_BROWSER_SUMMARY_SCHEMA_VERSION = 2
 REVIEW_LAB_VIEWPORT_PROFILES: tuple[dict[str, Any], ...] = (
     {
-        'profile_name': 'planner_desktop_primary',
-        'viewport_width': 1440,
-        'viewport_height': 900,
-        'device_scale_factor': 1,
-        'product_scope': 'planner',
-        'acceptance_level': 'required',
-    },
-    {
-        'profile_name': 'planner_laptop_minimum',
+        'profile_name': 'v3_desktop_synthetic',
         'viewport_width': 1280,
-        'viewport_height': 720,
+        'viewport_height': 800,
         'device_scale_factor': 1,
-        'product_scope': 'planner',
-        'acceptance_level': 'required',
-    },
-    {
-        'profile_name': 'planner_constrained_diagnostic',
-        'viewport_width': 1024,
-        'viewport_height': 768,
-        'device_scale_factor': 1,
-        'product_scope': 'planner',
-        'acceptance_level': 'diagnostic',
-    },
-    {
-        'profile_name': 'finder_mobile',
-        'viewport_width': 390,
-        'viewport_height': 844,
-        'device_scale_factor': 1,
-        'product_scope': 'finder_and_system_detail',
-        'acceptance_level': 'required',
-    },
-    {
-        'profile_name': 'planner_mobile_resilience',
-        'viewport_width': 390,
-        'viewport_height': 844,
-        'device_scale_factor': 1,
-        'product_scope': 'planner',
-        'acceptance_level': 'resilience_only',
+        'review_scope': 'synthetic_edge_and_failure_proving',
     },
 )
 REVIEW_LAB_VIEWPORT_PROFILE_NAMES = tuple(profile['profile_name'] for profile in REVIEW_LAB_VIEWPORT_PROFILES)
@@ -81,16 +49,14 @@ REQUIRED_PHASE_NAMES = (
     'static',
     'stack',
     'api_contracts',
-    'browser_desktop',
-    'browser_accessibility',
+    'browser_synthetic',
     'browser_console',
     'teardown',
-    'product_observations',
 )
 STATIC_TEST_FILES = (
-    'tests/test_local_review_test_environment.py',
+    'tests/test_review_lab_v3.py',
+    'tests/test_review_lab_timeouts.py',
     'tests/test_db_isolation_guardrails.py',
-    'tests/test_project_state_resolver.py',
 )
 DISALLOWED_REFERENCES = (
     'ed-postgres',
@@ -116,7 +82,7 @@ SupportRouteValidationMode = Literal[
 
 
 def resolve_platform_command(command: list[str]) -> list[str]:
-    if os.name != 'nt' or command[0] not in {'npm', 'npx', 'yarn'}:
+    if os.name != 'nt' or command[0] not in {'npm', 'npx', 'pnpm', 'yarn'}:
         return command
     for candidate in (f'{command[0]}.cmd', f'{command[0]}.exe'):
         executable = shutil.which(candidate)
@@ -142,11 +108,7 @@ class ScenarioDefinition:
     browser_journey: tuple[str, ...]
     expected_network_policy: tuple[str, ...]
     evidence_posture: str
-    accessibility_checks: tuple[str, ...]
-    viewport_checks: tuple[str, ...]
-    product_observation_policy: str
     browser_flow_keys: tuple[str, ...] = ()
-    requires_product_observations: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -158,11 +120,7 @@ class ScenarioDefinition:
             'browser_journey': list(self.browser_journey),
             'expected_network_policy': list(self.expected_network_policy),
             'evidence_posture': self.evidence_posture,
-            'accessibility_checks': list(self.accessibility_checks),
-            'viewport_checks': list(self.viewport_checks),
-            'product_observation_policy': self.product_observation_policy,
             'browser_flow_keys': list(self.browser_flow_keys),
-            'requires_product_observations': self.requires_product_observations,
         }
 
 
@@ -199,8 +157,8 @@ class VerifyContext:
     report_path: Path
 
     def command_text(self) -> str:
-        scenario_label = 'all' if tuple(s.name for s in self.scenarios) == () else ','.join(s.name for s in self.scenarios)
-        return f"scripts/dev/review_environment.py verify --mode {self.mode} --scenario {scenario_label or 'all'} {CONFIRM_FLAG}"
+        scenario_label = self.scenarios[0].name if len(self.scenarios) == 1 else 'all'
+        return f"scripts/dev/review_environment.py verify --mode {self.mode} --scenario {scenario_label} {CONFIRM_FLAG}"
 
 
 def elapsed_ms(started_at: float) -> int:

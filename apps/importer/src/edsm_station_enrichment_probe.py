@@ -25,8 +25,8 @@ from urllib.error import URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 
 from api_source_resolver import add_api_source_to_path
 
@@ -207,7 +207,7 @@ def fetch_local_payload(conn, *, system_name: str | None, system_id64: int | Non
     if system_name is None and system_id64 is None:
         raise ValueError('--system-name or --system-id64 is required.')
 
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         if system_id64 is not None:
             cur.execute("""
                 SELECT id64, name, x, y, z
@@ -1238,7 +1238,7 @@ def _apply_one_metadata_update(conn, update: Mapping[str, Any]) -> Mapping[str, 
         new_value = _clean_text(update.get('new_value'))
         if not is_permanent_colony_slot_station_type(new_value):
             return None
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 UPDATE stations
                 SET station_type = %s::station_type,
@@ -1260,7 +1260,7 @@ def _apply_one_metadata_update(conn, update: Mapping[str, Any]) -> Mapping[str, 
         new_value = _read_float(update.get('new_value'))
         if new_value is None:
             return None
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 UPDATE stations
                 SET distance_from_star = %s,
@@ -1281,7 +1281,7 @@ def _apply_one_metadata_update(conn, update: Mapping[str, Any]) -> Mapping[str, 
         new_value = _clean_text(update.get('new_value'))
         if new_value is None:
             return None
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 UPDATE stations
                 SET body_name = %s,
@@ -1340,7 +1340,7 @@ def apply_confirmed_link_updates(conn, report: dict[str, Any]) -> tuple[list[dic
         if station_id is None or system_id64 is None or body_id is None or body_name is None or lane not in ('orbital', 'surface'):
             skipped.append({**update, 'reason': 'invalid_confirmed_link_plan'})
             continue
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 INSERT INTO station_body_links (
                     station_id, market_id, system_id64, body_id, body_name, lane,
@@ -2303,7 +2303,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     try:
-        with psycopg2.connect(args.dsn) as conn:
+        with psycopg.connect(args.dsn) as conn:
             local = fetch_local_payload(conn, system_name=args.system_name, system_id64=args.system_id64)
             conn.rollback()
     except Exception as exc:
@@ -2347,7 +2347,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if applying:
         try:
-            with psycopg2.connect(args.dsn) as conn:
+            with psycopg.connect(args.dsn) as conn:
                 if apply_station_metadata:
                     applied, apply_skipped = apply_metadata_updates(conn, report)
                     apply_metadata_result(report, applied, apply_skipped)

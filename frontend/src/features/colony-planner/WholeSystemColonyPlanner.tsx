@@ -4,17 +4,17 @@ import { useQuery } from '@tanstack/react-query';
 import type { FacilityTemplate, SimulateBuildPlacement, SimulationSummary, SystemDetail } from '@/types/api';
 import { getFacilityTemplates, getSimulationSummary, getSlotPredictions } from '@/lib/api';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
-import { sameBodyId } from '@/features/system-detail/simulation-preview/bodyIdUtils';
-import { archetypeFromEconomy, resequence } from '@/features/system-detail/simulation-preview/utils/placementHelpers';
-import type { BodyPlannerLane } from './BodySlotPlanner';
+import { sameBodyId } from '@ed-finder/planner-core/bodyId';
+import { archetypeFromEconomy, resequence } from '@ed-finder/planner-core/placementHelpers';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
 import { CanvasStructurePicker } from './CanvasStructurePicker';
-import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
-import { describeTopologySelection } from './topologySelectionUtils';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import { describeTopologySelection } from '@ed-finder/planner-core/topologySelection';
 import { PlannerStatusStrip } from './PlannerStatusStrip';
 import { WorkspaceSummaryRail } from './WorkspaceSummaryRail';
 import { useWorkspaceProjectState } from './useWorkspaceProjectState';
-import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from './workspaceUtils';
-import { buildPlanningEconomyLedger } from './planningEconomy';
+import { getPlanningFocusLabel, type PlannerWorkspaceCommand } from '@ed-finder/planner-core/workspace';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 import { AdvancedPlannerDrawer } from './AdvancedPlannerDrawer';
 import {
   SystemBuildMapCanvas,
@@ -23,7 +23,7 @@ import { WORKSPACE_MODE_META, workspaceModeLabel } from '@/features/system-detai
 import {
   buildPlannerCanvasOccupancySummary,
   getPlannerLaneCapacityState,
-} from './plannerCanvasUtils';
+} from '@ed-finder/planner-core/plannerCanvas';
 import {
   buildPlanPrerequisiteIssues,
   describePlacementTarget,
@@ -31,7 +31,7 @@ import {
   templateCanFitBody,
   templateDisplayName,
   templateMatchesLane,
-} from './structurePlanningRules';
+} from '@ed-finder/planner-core/structurePlanning';
 
 export function WholeSystemColonyPlanner({
   system,
@@ -495,7 +495,13 @@ export function WholeSystemColonyPlanner({
       </main>
 
       <div
-        className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-4 xl:max-h-[calc(100vh-14rem)] xl:overflow-y-auto"
+        // The app NavBar is sticky (z-30) and ~291px tall in the planner context.
+        // Stick this plan-details region BELOW it (top-80 = 320px) so the region —
+        // and its telemetry toggle — never clamps underneath the nav when scrolled.
+        // scroll-margin cannot fix this for pointer/keyboard tooling that ignores it
+        // (e.g. Cypress actionability scrolling); the sticky offset clamps position
+        // deterministically. max-h leaves room for the larger offset.
+        className="order-2 min-w-0 max-xl:sticky max-xl:bottom-3 max-xl:z-30 xl:sticky xl:top-80 xl:max-h-[calc(100vh-22rem)] xl:overflow-y-auto"
         data-testid="planner-telemetry-region"
         data-layout="plan-details-panel"
         data-mobile-dock={telemetryDockOpen ? 'open' : 'closed'}
@@ -506,6 +512,18 @@ export function WholeSystemColonyPlanner({
           aria-expanded={telemetryDockOpen}
           aria-controls="planner-telemetry-dock-content"
           onClick={() => setTelemetryDockOpen((open) => !open)}
+          onKeyDown={(event) => {
+            // A native <button> only activates on a TRUSTED Enter (the browser's
+            // default action), so synthetic-event tooling (e.g. Cypress .type
+            // '{enter}') dispatches keydown without ever firing click. Handle the
+            // keydown directly so keyboard activation is robust for both, and
+            // preventDefault so a trusted Enter does not ALSO fire the native
+            // click (which would double-toggle). Space is left to native handling.
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              setTelemetryDockOpen((open) => !open);
+            }
+          }}
           className="flex w-full items-center justify-between gap-3 rounded-chunk-lg border border-cyan/35 bg-bg2/95 px-3 py-2 shadow-metal"
         >
           <span className="flex min-w-0 items-center gap-2">

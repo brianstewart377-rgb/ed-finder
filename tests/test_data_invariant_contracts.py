@@ -29,6 +29,15 @@ script_invariants = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(script_invariants)
 
 
+def test_synchronous_invariant_runner_uses_psycopg3_and_read_only_transactions():
+    source = SCRIPT_PATH.read_text(encoding='utf-8')
+
+    assert 'import psycopg\n' in source
+    assert 'psycopg.connect(' in source
+    assert 'psycopg' + '2' not in source
+    assert '-c default_transaction_read_only=on' in source
+
+
 def test_admin_shared_invariant_check_names_are_a_subset_of_script_checks():
     assert set(admin_router._ADMIN_DATA_INVARIANT_CHECK_KEYS).issubset(
         set(script_invariants.SCRIPT_DATA_INVARIANT_CHECK_KEYS)

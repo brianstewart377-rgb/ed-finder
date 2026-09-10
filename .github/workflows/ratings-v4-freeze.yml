@@ -1,0 +1,61 @@
+name: Ratings V4 freeze
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/src/domain/ratings_v4*'
+      - 'apps/importer/src/build_ratings.py'
+      - 'apps/importer/src/v3_spansh/**'
+      - 'sql/v3/**'
+      - 'docs/development/v3-canonical-source-recovery.json'
+      - 'scripts/ratings_v4/**'
+      - 'scripts/checks/requirements.txt'
+      - 'tests/test_ratings_v4*'
+      - 'tests/ratings_v4_pg_fixture.py'
+      - 'tests/fixtures/ratings_v4*'
+      - 'tests/fixtures/ratings_v4_sources/**'
+      - 'docs/development/ratings-v4*'
+      - 'docs/development/ratings-v4-freeze/**'
+      - '.github/workflows/ratings-v4-freeze.yml'
+      - '.gitattributes'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Frozen V4 contract + PostgreSQL 18 rebuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: v4validator
+          POSTGRES_PASSWORD: v4test
+          POSTGRES_DB: ratings_v4_validation
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Install validation dependencies
+        run: python -m pip install -r apps/api/requirements.txt -r scripts/checks/requirements.txt pytest==9.1.1 pytest-asyncio==1.4.0 ruff==0.16.6 ijson==3.5.1
+      - name: Verify scorer, source adapter and PostgreSQL failure gates
+        env:
+          RATINGS_V4_VALIDATION_DATABASE_URL: postgresql://v4validator:v4test@127.0.0.1:5432/ratings_v4_validation
+        run: |
+          python -m ruff check apps/api/src/domain/ratings_v4*.py scripts/ratings_v4 tests/test_ratings_v4*.py
+          python -m pytest tests/test_ratings_v4*.py -q
+          python scripts/ratings_v4/verify_freeze.py --postgres --receipt /tmp/ratings-v4-validation-receipt.json
+      - name: Retain independent generation validation receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ratings-v4-validation-receipt
+          path: /tmp/ratings-v4-validation-receipt.json
+          if-no-files-found: error

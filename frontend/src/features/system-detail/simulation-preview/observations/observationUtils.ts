@@ -225,7 +225,7 @@ export function defaultEditFormState(fact: ObservedFact): EditFormState {
 export function describeApiError(err: unknown): string {
   if (err instanceof Error) {
     const apiErr = err as unknown as ApiError;
-    const body = (apiErr.body ?? '').trim();
+    const body = typeof apiErr.body === 'string' ? apiErr.body.trim() : '';
     if (body.startsWith('{') || body.startsWith('[')) {
       try {
         const parsed = JSON.parse(body) as { detail?: unknown };

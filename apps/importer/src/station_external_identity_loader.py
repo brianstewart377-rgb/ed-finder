@@ -171,13 +171,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 def connect_write_db(dsn: str):
     """Connect lazily so tests and dry-run imports do not require Postgres."""
-    import psycopg2  # noqa: PLC0415
+    import psycopg  # noqa: PLC0415
 
-    conn = psycopg2.connect(dsn)
-    set_session = getattr(conn, 'set_session', None)
-    if callable(set_session):
-        set_session(readonly=False, autocommit=False)
-    return conn
+    return psycopg.connect(dsn, autocommit=False)
 
 
 def build_execution_plan_from_files(

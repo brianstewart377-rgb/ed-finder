@@ -1,6 +1,6 @@
 import { BadgeInfo } from 'lucide-react';
 import { Chip } from './components';
-import type { ColonyRoleHint } from './colonyRoleHintUtils';
+import type { ColonyRoleHint } from '@ed-finder/planner-core/colonyRoleHints';
 
 export function ColonyRoleHints({
   hints,

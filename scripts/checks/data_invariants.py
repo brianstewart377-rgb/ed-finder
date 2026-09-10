@@ -23,7 +23,7 @@ import os
 import sys
 from pathlib import Path
 
-import psycopg2
+import psycopg
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -252,6 +252,7 @@ def main() -> int:
         "-c statement_timeout=0",
         "-c lock_timeout=0",
         "-c application_name=data_invariants",
+        "-c default_transaction_read_only=on",
     ]
     if args.production_safe:
         options.extend(
@@ -262,7 +263,7 @@ def main() -> int:
             ]
         )
 
-    conn = psycopg2.connect(args.database_url, options=" ".join(options))
+    conn = psycopg.connect(args.database_url, options=" ".join(options))
     try:
         with conn, conn.cursor() as cur:
             eligible_systems = fetch_count(cur, ELIGIBLE_SYSTEMS_SQL)

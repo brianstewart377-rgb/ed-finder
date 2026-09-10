@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import type { FacilityTemplate } from '@/types/api';
-import { economyColor } from './economyVisuals';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
 import { BodyStructureSlot } from './BodyStructureSlot';
 import { ProjectedStructureSlot } from './ProjectedStructureSlot';
 

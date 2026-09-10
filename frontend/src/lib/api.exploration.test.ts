@@ -20,6 +20,16 @@ describe('exploration API client', () => {
           event_counts: { Scan: 1 },
         },
       }),
+      text: async () => JSON.stringify({
+        sync_key: 'a'.repeat(32),
+        status: 'succeeded',
+        summary: {
+          observations_received: 1,
+          observations_staged: 1,
+          duplicates_skipped: 0,
+          event_counts: { Scan: 1 },
+        },
+      }),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -49,6 +59,10 @@ describe('exploration API client', () => {
         sync_key: 'a'.repeat(32),
         facts: [],
       }),
+      text: async () => JSON.stringify({
+        sync_key: 'a'.repeat(32),
+        facts: [],
+      }),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -69,6 +83,7 @@ describe('exploration API client', () => {
       ok: true,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ url: String(input) }),
+      text: async () => JSON.stringify({ url: String(input) }),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
     const syncKey = 'a'.repeat(32);

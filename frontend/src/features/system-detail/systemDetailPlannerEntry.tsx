@@ -7,7 +7,7 @@ import {
   PLANNER_OBJECTIVE_OPTIONS,
   type ColonyProjectObjective,
   type ColonyProjectStartApproach,
-} from '@/features/colony-planner/plannerDraftContext';
+} from '@ed-finder/planner-core/plannerDraftContext';
 import { SemanticStatusBadge } from '@/components/SemanticStatusBadge';
 import { WorkspaceContextHeader } from '@/components/WorkspaceContextHeader';
 
@@ -47,7 +47,13 @@ export function ColonyPlannerEntryPoint({
     },
   ) => void;
 }) {
-  const canStartPlan = Number.isFinite(system.id64) && system.id64 > 0 && !!onStartPlan;
+  // The shared lossless transport returns id64 fields as decimal strings, so
+  // coerce before the finite/positive guard (matching ResultCard / SystemTable /
+  // useHashRoute). Without this the planner reads a string id64 as "unknown"
+  // and disables planner routing for every real system record.
+  const systemId64 = Number(system.id64);
+  const hasValidId64 = Number.isFinite(systemId64) && systemId64 > 0;
+  const canStartPlan = hasValidId64 && !!onStartPlan;
   const saveActionBusy = saveForLaterState === 'saving' || saveForLaterState === 'removing';
   const saveActionLabel = saveForLaterState === 'saving'
     ? 'Saving…'
@@ -74,7 +80,7 @@ export function ColonyPlannerEntryPoint({
           ? 'Assess this system, save it for later if needed, then create an intentional draft when you are ready to enter the canonical planner.'
           : 'Planner routing is unavailable for this system record, so continue reviewing system detail here or return to Explore.'}
         selectedSystemName={system.name || 'Unknown system'}
-        selectedSystemMeta={<span className="tabular-nums">ID64 {Number.isFinite(system.id64) ? system.id64 : 'unknown'}</span>}
+        selectedSystemMeta={<span className="tabular-nums">ID64 {hasValidId64 ? system.id64 : 'unknown'}</span>}
         status={(
           <SemanticStatusBadge
             label={canStartPlan ? 'Planning available' : 'Planner unavailable'}

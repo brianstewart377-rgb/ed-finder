@@ -21,7 +21,7 @@ This is the current position of the external adversarial audit / Claude-report
 response lane.
 
 - Local engineering trust is materially improved:
-  - repo-local Python 3.12 `.venv` is the canonical local runner;
+  - repo-local CPython 3.14 `.venv` is the canonical local runner;
   - Docker-backed disposable Postgres/Redis preflight is green;
   - the broad local pytest burn-down was most recently observed green at
     `1487 passed, 16 skipped` in the current workspace.

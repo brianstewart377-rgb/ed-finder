@@ -20,8 +20,8 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
+from psycopg.rows import dict_row
 
 from api_source_resolver import add_api_source_to_path
 
@@ -152,7 +152,7 @@ def is_dry_run(args: argparse.Namespace) -> bool:
 def run(
     args: argparse.Namespace,
     *,
-    connect: Callable[[str], Any] = psycopg2.connect,
+    connect: Callable[[str], Any] = psycopg.connect,
     edsm_fetcher: Callable[..., dict[str, Any]] = edsm_probe.fetch_edsm_system,
     sleep: Callable[[float], None] = time.sleep,
 ) -> dict[str, Any]:
@@ -283,7 +283,7 @@ def select_station_systems(conn, args: argparse.Namespace) -> list[dict[str, Any
         params.append(checkpointed)
     if args.limit is not None:
         params.append(args.limit)
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(f"""
             SELECT DISTINCT s.id64, s.name
               FROM systems s
@@ -322,7 +322,7 @@ def select_ring_systems(conn, args: argparse.Namespace) -> list[dict[str, Any]]:
         params.append(checkpointed)
     if args.limit is not None:
         params.append(args.limit)
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(f"""
             SELECT s.id64, s.name
               FROM systems s
@@ -581,7 +581,7 @@ def apply_ring_rows(
         if None in key:
             skipped.append({**dict(row), 'reason': 'missing_ring_upsert_key'})
             continue
-        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        with conn.cursor(row_factory=dict_row) as cur:
             cur.execute("""
                 INSERT INTO body_rings (
                     system_id64, body_id, body_name,
@@ -674,7 +674,7 @@ def audit_local_ring_state(conn, args: argparse.Namespace) -> dict[str, Any]:
     if args.limit is not None:
         params.append(args.limit)
     where_sql = f"WHERE {' AND '.join(where)}" if where else ''
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(f"""
             SELECT s.id64, s.name,
                    (
@@ -721,7 +721,7 @@ def audit_local_ring_state(conn, args: argparse.Namespace) -> dict[str, Any]:
 
 
 def fetch_local_bodies(conn, system_id64: int) -> list[dict[str, Any]]:
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         cur.execute("""
             SELECT id, system_id64, name, body_type::text AS body_type, subtype, distance_from_star
               FROM bodies
@@ -804,7 +804,7 @@ def match_local_body(
 def _fetch_one_system(conn, *, system_id64: int | None, system_name: str | None) -> dict[str, Any]:
     if system_id64 is None and system_name is None:
         raise ValueError('--system-id64 or --system-name is required for single-system lookup.')
-    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+    with conn.cursor(row_factory=dict_row) as cur:
         if system_id64 is not None:
             cur.execute("SELECT id64, name FROM systems WHERE id64 = %s", (system_id64,))
         else:

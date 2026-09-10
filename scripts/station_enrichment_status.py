@@ -17,6 +17,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+if sys.implementation.name != 'cpython' or sys.version_info[:2] != (3, 14):
+    raise SystemExit('station_enrichment_status.py requires exact CPython 3.14.x')
+
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:

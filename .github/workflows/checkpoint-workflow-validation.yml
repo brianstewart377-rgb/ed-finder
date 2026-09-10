@@ -1,0 +1,39 @@
+name: Checkpoint workflow validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  values:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      marker: ${{ steps.value.outputs.marker }}
+    steps:
+      - id: value
+        run: echo 'marker=sealed' >> "$GITHUB_OUTPUT"
+
+  custom-shell:
+    name: Native job-default shell expressions
+    needs: values
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    defaults:
+      run:
+        # Proves GitHub accepts/evaluates defaults, passes needs/github values,
+        # and directly executes a command that ignores the generated script.
+        # This is unprivileged hosted CI: no sudo, token, artifact or host access.
+        shell: >-
+          python3.14 -I -S -c "import sys;assert len(sys.argv)==5;assert len(sys.argv[1])==40;assert sys.argv[1]==sys.argv[2];assert sys.argv[3]=='sealed';print('Native immutable-launch template passed')" ${{ github.sha }} ${{ github.sha }} ${{ needs.values.outputs.marker }} {0}
+    steps:
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+      - name: Verify generated script is not executed
+        run: raise RuntimeError('The immutable launcher must never execute this file')

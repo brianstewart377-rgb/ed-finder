@@ -41,12 +41,40 @@ def test_seeded_ci_rating_topups_write_rating_version_34():
     assert workflow.count("2, '3.4'") >= 2
 
 
+def test_seeded_ci_rating_topups_only_target_body_data_eligible_systems():
+    cypress_workflow = _read(CYPRESS_WORKFLOW)
+    cypress_topup = cypress_workflow.split('- name: Top up ratings for search journeys', 1)[1].split(
+        '- name: Validate seeded Cypress database', 1
+    )[0]
+    ci_workflow = _read(CI_WORKFLOW)
+    integration_topup = ci_workflow.split(
+        '- name: Top up ratings (richer scoring for integration tests)', 1
+    )[1].split('- name: Run data invariants against seeded integration DB', 1)[0]
+
+    for topup in (cypress_topup, integration_topup):
+        assert topup.count('INSERT INTO ratings') == 1
+        assert 'FROM systems s\n          WHERE s.has_body_data = TRUE\n' in topup
+        assert 'FROM systems s ON CONFLICT DO NOTHING' not in topup
+
+    # The lossless Id64 journey deliberately exercises a system that is not
+    # eligible for ratings. The top-up must not make this fixture lie about its
+    # body-data state or leave ineligible derived-data work pending to get
+    # through the invariant check.
+    assert '9007199254740993' in cypress_topup
+    assert 'data_quality, galaxy_region_id, rating_dirty, cluster_dirty' in cypress_topup
+    assert "'Cooperative', 'F', '5 V', false, 0, 5, 18, false, false" in cypress_topup
+
+
 def test_backend_ci_runs_real_unit_suite_instead_of_smoke_only():
     workflow = _read(CI_WORKFLOW)
 
     assert 'name: Backend unit tests + compose validate' in workflow
     assert 'Run backend unit test suite (no DB required)' in workflow
-    assert 'python -m pytest -m "unit or not (integration or db or operator or e2e or slow)" -q' in workflow
+    assert 'apps/api/.venv/bin/python -m pytest' in workflow
+    assert '--ignore=tests/integration' in workflow
+    assert '-m "unit or not (integration or db or operator or e2e or slow)" -q' in workflow
+    assert 'Importer and synchronous tooling (CPython 3.14)' in workflow
+    assert 'tests/synchronous_tooling_test_paths.txt' in workflow
     assert 'python -m unittest discover -s tests -p "test_smoke.py"' not in workflow
 
 

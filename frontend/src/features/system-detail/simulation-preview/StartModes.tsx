@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, CheckCircle2, Sparkles, Wand2 } from 'lucide-react';
 import { Message } from './components';
-import type { StartMode } from './types';
+import type { StartMode } from '@ed-finder/planner-core/simulationTypes';
 
 export function StartModes({
   mode,

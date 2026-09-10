@@ -65,17 +65,17 @@ def test_worker_bootstrap_fails_closed_on_wrong_python_before_main_state_gate() 
     gate = text.split("- name: Prepare repository state gate", 1)[1].split(
         "- name: Verify worker identity", 1
     )[0]
-    setup = text.split("- name: Set up Python 3.12", 1)[1].split(
+    setup = text.split("- name: Set up CPython 3.14", 1)[1].split(
         "- name: Prepare repository state gate", 1
     )[0]
 
     assert "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97" in setup
-    assert 'python-version: "3.12"' in setup
+    assert 'python-version: "3.14"' in setup
     assert "command -v python" in gate
     assert "::error::" in gate
-    assert "sys.version_info[:2] == (3, 12)" in gate
+    assert "sys.version_info[:2] == (3, 14)" in gate
     assert "python -m venv .venv" in gate
-    assert "The repository venv does not use the required Python 3.12" in gate
+    assert "The repository venv does not use the required CPython 3.14" in gate
     assert "resolve_project_state.py --strict" in gate
     assert "CODEX_MAIN_STATE_GATE=PASS" in gate
 

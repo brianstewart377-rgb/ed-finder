@@ -15,8 +15,8 @@ import {
   NO_PREVIEW_COPY,
   STALE_PREVIEW_COPY,
   VALIDATION_REVIEW_REMINDERS,
-} from './validationLabels';
-import { previewResultFingerprint, validationInputProjection } from './validationUtils';
+} from '@ed-finder/planner-core/validation/validationLabels';
+import { previewResultFingerprint, validationInputProjection } from '@ed-finder/planner-core/validation/validationUtils';
 
 interface ValidationPanelProps {
   systemId64: number;

@@ -1,5 +1,10 @@
 # Bodies Composite Identity Migration Implementation Plan
 
+> **Historical implementation evidence only.** This dated plan preserves the
+> dependency and command shapes used at the time. It is not current runtime,
+> dependency, schema-change, or execution authority; use the repository's
+> current authority chain and CPython/Psycopg contracts instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 ## Status as of 2026-08-07 (partial re-verification — Task 0 Steps 1 and 3 only; Steps 2 and 4 NOT re-checked, see below)

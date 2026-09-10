@@ -179,15 +179,15 @@ def readonly_stage19as1_conn() -> Iterator[object]:
         pytest.skip(f'Stage 19AS.1 disposable Postgres checks skipped: unsafe_target:{exc}')
 
     try:
-        import psycopg2  # noqa: PLC0415
-        import psycopg2.extras  # noqa: PLC0415
+        import psycopg  # noqa: PLC0415
+        from psycopg.rows import dict_row  # noqa: PLC0415
     except Exception:
-        pytest.skip('Stage 19AS.1 disposable Postgres checks skipped: psycopg2_missing')
+        pytest.skip('Stage 19AS.1 disposable Postgres checks skipped: psycopg_missing')
 
     conn = None
     try:
-        conn = psycopg2.connect(str(config['database_url']), cursor_factory=psycopg2.extras.RealDictCursor)
-        conn.set_session(readonly=True, autocommit=False)
+        conn = psycopg.connect(str(config['database_url']), row_factory=dict_row)
+        conn.read_only = True
     except Exception as exc:
         if conn is not None:
             conn.close()

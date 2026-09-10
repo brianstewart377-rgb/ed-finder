@@ -318,7 +318,7 @@ def test_source_run_artifacts_has_no_prod_db_import_scheduler_or_canonical_write
     source = inspect.getsource(artifacts)
     source_upper = source.upper()
     forbidden_fragments = (
-        'PSYCOPG2.CONNECT',
+        'PSYCOPG.CONNECT',
         'ASYNCPG.CONNECT',
         'SUBPROCESS',
         'OS.SYSTEM',

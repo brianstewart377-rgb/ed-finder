@@ -1,17 +1,17 @@
 import type { FacilityTemplate, SimulateBuildPlacement, SystemBody } from '@/types/api';
-import { bodyDisplayName } from './buildPlanLayoutUtils';
+import { bodyDisplayName } from '@ed-finder/planner-core/buildPlanLayout';
 import { Chip } from './components';
 import {
   getStructurePickerValidityLabel,
   getStructurePickerWarnings,
   resolveBodyContext,
   type StructurePickerBodyContext,
-} from './structurePickerUtils';
+} from '@ed-finder/planner-core/structurePicker';
 import {
   buildReplacementFieldDeltas,
   buildWarningDeltas,
   type ReplacementFieldDelta,
-} from './structureReplacementDeltaUtils';
+} from '@ed-finder/planner-core/structureReplacementDelta';
 
 export function StructureReplacementComparison({
   placement,

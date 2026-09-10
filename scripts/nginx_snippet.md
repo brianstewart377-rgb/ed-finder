@@ -20,5 +20,5 @@ docker compose exec nginx nginx -t
 docker compose exec nginx nginx -s reload
 ```
 
-Then re-run `yarn types:gen` from `frontend` to refresh `src/types/api.gen.ts`
-from the live schema.
+Then re-run `yarn types:gen` from `frontend` to refresh
+`packages/api-client/src/generated/api.gen.ts` from the live schema.

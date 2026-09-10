@@ -14,20 +14,12 @@ describe('Frontier auth API helpers', () => {
     );
   });
 
-  it('honors a non-default API base when starting sign-in', async () => {
-    vi.stubEnv('VITE_API_BASE', 'https://api.example.test/custom/');
-    vi.resetModules();
-    const { frontierLoginUrl } = await import('./api/auth');
-
-    expect(frontierLoginUrl('/#admin')).toBe(
-      'https://api.example.test/custom/auth/frontier/login?return_to=%2F%23admin',
-    );
-  });
-
   it('uses cookie credentials for session reads and logout', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => ({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({ authenticated: false, user: null, owner_claim_available: false }),
+      text: async () => JSON.stringify({ authenticated: false, user: null, owner_claim_available: false }),
     } as Response));
     vi.stubGlobal('fetch', fetchMock);
 
@@ -45,7 +37,13 @@ describe('Frontier auth API helpers', () => {
   it('sends the one-time owner-link secret in the request body, never the URL', async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> => ({
       ok: true,
+      headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => ({
+        authenticated: true,
+        user: { commander_name: 'Owner Cmdr', is_owner: true },
+        owner_claim_available: false,
+      }),
+      text: async () => JSON.stringify({
         authenticated: true,
         user: { commander_name: 'Owner Cmdr', is_owner: true },
         owner_claim_available: false,

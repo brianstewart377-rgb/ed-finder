@@ -1,12 +1,12 @@
 import { Telescope } from 'lucide-react';
-import type { ArchitectObservationInput } from './architectObservationUtils';
+import type { ArchitectObservationInput } from '@ed-finder/planner-core/architectObservation';
 import {
   architectObservationGuidance,
   architectPrimaryPortFlagLabel,
   architectSlotCountLabel,
   architectSurveyLabel,
   normalizeArchitectObservation,
-} from './architectObservationUtils';
+} from '@ed-finder/planner-core/architectObservation';
 import { Chip } from './components';
 
 export function ArchitectObservationPanel({

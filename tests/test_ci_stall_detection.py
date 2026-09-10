@@ -19,7 +19,7 @@ after `jobs:` (e.g. `defaults:`) wasn't detected as the end of the jobs
 section, so its children were misread as job blocks; `.yaml` (as opposed to
 `.yml`) workflow files were never enumerated; and (a second-round finding,
 on this file's own PyYAML-based rewrite) YAML 1.1's boolean coercion turns
-bare mapping keys like `on` or `yes` into Python `True`, so two distinctly-
+bare mapping keys like `on` or `yes` into Python True, so two distinctly-
 named jobs (both legal GitHub Actions job IDs) would collide into one dict
 key and silently overwrite each other. Real YAML parsing avoids the first
 four by construction; the fifth needs an explicit loader that disables that
@@ -39,6 +39,7 @@ WORKFLOWS_DIR = ROOT / '.github' / 'workflows'
 # intentionally absent because they no longer exist in the V3 control plane.
 CHECKED_WORKFLOWS = (
     'chatgpt-ed-new-ops.yml',
+    'checkpoint-workflow-validation.yml',
     'ci.yml',
     'codeql.yml',
     'codex-dispatch.yml',
@@ -46,10 +47,16 @@ CHECKED_WORKFLOWS = (
     'container-image-parity.yml',
     'coverage.yml',
     'cypress-parity.yml',
+    'ratings-v4-freeze.yml',
     'remove-ollama-production.yml',
     'review-lab.yml',
     'semgrep.yml',
+    'v3-application-live-checkpoint-preflight.yml',
+    'v3-application-release.yml',
     'v3-derived-data-status.yml',
+    'v3-live-checkpoint-control.yml',
+    'v3-production-application-deploy.yml',
+    'v3-production-schema-contract-diagnostic.yml',
 )
 
 
@@ -58,7 +65,7 @@ class _NoBoolCoercionLoader(yaml.SafeLoader):
 
     By default PyYAML resolves bare `on`/`off`/`yes`/`no`/`true`/`false`
     (any case) to Python bool, for BOTH mapping keys and values. A GitHub
-    Actions job literally named `on` or `yes` — both legal job IDs — would
+    Actions job literally named `on` or `yes` — both legal GitHub Actions job IDs — would
     collide with any other job of the opposite boolean-ish name into a
     single `True`/`False` dict key, and the later one silently overwrites
     the earlier before this test ever sees it. This repo's real
@@ -157,7 +164,8 @@ def test_boolean_like_job_ids_do_not_collide():
     job IDs, but PyYAML's default (YAML 1.1) boolean coercion resolves
     bare `on`/`yes` mapping keys to Python True, so two such jobs would
     collide with any other job of the opposite boolean-ish name into a
-    single `True`/`False` dict key and silently overwrite one another."""
+    single `True`/`False` dict key, and the later one silently overwrites
+    the earlier before this test ever sees it."""
     workflow_yaml = (
         'jobs:\n'
         '  on:\n'

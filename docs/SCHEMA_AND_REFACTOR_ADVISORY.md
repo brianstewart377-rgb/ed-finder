@@ -181,10 +181,11 @@ duplication here.
 - **Risk:** zero — pure annotation.
 - **Verdict:** **ship**.
 
-### 2.4 Replace direct `psycopg2` with `psycopg2-pool`  ★ skip
+### 2.4 Add connection pooling to the importer  ★ superseded / skip
 
-- **What:** the importer scripts open a fresh psycopg2 connection on
-  start, hold it for hours, and close on exit. Use `psycopg2.pool`.
+- **Historical proposal:** the importer scripts opened one synchronous
+  connection at start, held it for hours, and closed it on exit. The driver has
+  since moved to Psycopg 3; this pooling proposal remains unnecessary.
 - **Why considered:** "best practice".
 - **Why I'd skip it:** the importer is single-process, single-conn,
   and its lifetime is exactly one connection's worth. A pool buys
@@ -417,7 +418,7 @@ Sorted by **ROI** (impact ÷ effort × inverse-risk):
 | 15 | § 4.2 Move score_* into apps/shared | M | depends on importer phase 5 | **defer** |
 | 16 | § 1.4 Partition `bodies` | XL | small | **skip** until > 5 B rows |
 | 17 | § 2.2 Replace progress.py with tqdm | S | none | **skip** |
-| 18 | § 2.4 psycopg2-pool | S | none | **skip** |
+| 18 | § 2.4 importer connection pool | S | none | **superseded / skip** |
 
 If you action **just the top 4** (observability + pg_stat_statements +
 backups + cache pinning), you have a fundamentally more reliable
@@ -441,4 +442,3 @@ leisure, no rush:
 
 Reviewing this PR commits us to nothing. Merging it just lands the
 doc in `main` so future-us can find it without trawling chat history.
-

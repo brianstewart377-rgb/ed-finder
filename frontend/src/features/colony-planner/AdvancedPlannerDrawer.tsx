@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import type { SimulationWorkspaceMode } from '@/features/system-detail/simulation-preview/WorkspaceModeTabs';
 import { SimulationPreviewPanel } from '@/features/system-detail/SimulationPreviewPanel';
 import type { SimulateBuildRequest, SystemDetail } from '@/types/api';
-import type { DeclaredColonyRole } from './colonyRoles';
-import type { TopologyPlanSnapshot, TopologySelection } from './ColonyTopologyRail';
-import type { PlannerWorkspaceCommand } from './workspaceUtils';
+import type { DeclaredColonyRole } from '@ed-finder/planner-core/colonyRoles';
+import type { TopologyPlanSnapshot, TopologySelection } from '@ed-finder/planner-core/topologySelection';
+import type { PlannerWorkspaceCommand } from '@ed-finder/planner-core/workspace';
 
 export function AdvancedPlannerDrawer({
   open,

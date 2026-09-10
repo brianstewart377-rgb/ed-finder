@@ -25,7 +25,6 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def reset_rate_limiter_state():
     try:
         import sys
-        import importlib
 
         root = Path(__file__).resolve().parent.parent
         api_src = root / 'apps' / 'api' / 'src'
@@ -34,7 +33,13 @@ def reset_rate_limiter_state():
 
         for module_name in ('config', 'edfinder_api.config'):
             try:
-                limiter = importlib.import_module(module_name).limiter
+                # Reset API state when an API test already imported it during
+                # collection. Do not make every repository/tooling-only pytest
+                # invocation import V3 application code as a side effect.
+                module = sys.modules.get(module_name)
+                if module is None:
+                    continue
+                limiter = module.limiter
                 limiter._storage.reset()  # pyright: ignore[reportPrivateUsage]
             except Exception:
                 continue

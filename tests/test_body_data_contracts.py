@@ -14,6 +14,15 @@ def test_worker_process_leaves_empty_body_systems_dirty_for_retry():
     assert "failed_ids.add(system_id64)" in source
 
 
+def test_ratings_stream_uses_psycopg3_read_only_connection_property():
+    source = (ROOT / "apps" / "importer" / "src" / "build_ratings.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "stream_conn.read_only = True" in source
+    assert "stream_conn.set_session" not in source
+
+
 def test_data_invariants_check_reports_body_contract_drift():
     source = (ROOT / "scripts" / "checks" / "data_invariants.py").read_text(encoding="utf-8")
 
@@ -66,6 +75,12 @@ def test_repair_body_contract_script_is_guarded_and_marks_rows_dirty():
     assert 'SET statement_timeout = \'{SESSION_STATEMENT_TIMEOUT}\'' in source
     assert 'SET lock_timeout = \'{SESSION_LOCK_TIMEOUT}\'' in source
     assert "mode={report['mode']}" in source
+
+
+def test_repair_body_contract_types_nullable_pagination_cursor_as_bigint():
+    source = (ROOT / "scripts" / "repair_body_contract.py").read_text(encoding="utf-8")
+
+    assert "AND (%s::bigint IS NULL OR s.id64 > %s)" in source
 
 
 def test_reconcile_no_body_ratings_script_clears_dirty_and_deletes_stale_rows():

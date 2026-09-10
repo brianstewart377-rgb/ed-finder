@@ -4,13 +4,13 @@ import {
   PREDICTED_ONLY_COPY,
   comparisonSeverityLabel,
   comparisonStatusLabel,
-} from './validationLabels';
+} from '@ed-finder/planner-core/validation/validationLabels';
 import {
   validationMismatchCategory,
   validationMismatchCategoryClassName,
   validationMismatchCategoryCopy,
-} from './validationReviewCategoryUtils';
-import { formatComparisonValue } from './validationUtils';
+} from '@ed-finder/planner-core/validation/validationReviewCategoryUtils';
+import { formatComparisonValue } from '@ed-finder/planner-core/validation/validationUtils';
 
 interface ValidationComparisonCardProps {
   comparison: PredictionObservationComparison;

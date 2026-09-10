@@ -4,6 +4,19 @@ set -euo pipefail
 EXPECTED_HOST="ed-finder-prod"
 EXPECTED_FQDN="nb79a3d.mevnode.com"
 
+if command -v python3.14 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3.14)"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  echo '{"operation":"remove-ollama","status":"stopped","failure":"python3_unavailable"}'
+  exit 1
+fi
+if ! "$PYTHON_BIN" -c 'import platform, sys; raise SystemExit(0 if platform.python_implementation() == "CPython" and sys.version_info[:2] == (3, 14) else 1)'; then
+  echo '{"operation":"remove-ollama","status":"stopped","failure":"python314_required"}'
+  exit 1
+fi
+
 short_host="$(hostname | cut -d. -f1)"
 fqdn="$(hostname -f 2>/dev/null || true)"
 if [ "$short_host" != "$EXPECTED_HOST" ] || [ "$fqdn" != "$EXPECTED_FQDN" ]; then
@@ -171,7 +184,7 @@ done
 after_avail="$(df -B1 --output=avail / | tail -1 | tr -d ' ')"
 freed=$((after_avail - before_avail))
 
-python3 - "$freed" "$removed_paths" "$removed_containers" "$removed_images" "$removed_volumes" "$unhandled_bind_mounts" "$service_touched" "${failures[*]-}" <<'PY'
+"$PYTHON_BIN" - "$freed" "$removed_paths" "$removed_containers" "$removed_images" "$removed_volumes" "$unhandled_bind_mounts" "$service_touched" "${failures[*]-}" <<'PY'
 import json
 import sys
 freed, paths, containers, images, volumes, unhandled_binds, service_touched, failures = sys.argv[1:]

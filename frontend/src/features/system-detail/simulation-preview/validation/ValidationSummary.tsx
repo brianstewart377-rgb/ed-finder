@@ -3,7 +3,7 @@ import {
   comparisonStatusLabel,
   confidenceImpactLabel,
   overallStatusLabel,
-} from './validationLabels';
+} from '@ed-finder/planner-core/validation/validationLabels';
 
 interface ValidationSummaryProps {
   summary: PredictionObservationComparisonSummary;

@@ -1,9 +1,9 @@
 import type { FacilityTemplate, SimulateBuildPlacement } from '@/types/api';
-import { templateLocationKind } from '@/features/system-detail/simulation-preview/structurePickerUtils';
-import type { BodyPlannerLane } from './BodySlotPlanner';
-import { normalisePlanningEconomy } from './planningEconomy';
-import { economyColor } from './economyVisuals';
-import { contextualEconomyLabel, structureFamilyLabel, templateDisplayName } from './structurePlanningRules';
+import { templateLocationKind } from '@ed-finder/planner-core/structurePicker';
+import type { BodyPlannerLane } from '@ed-finder/planner-core/plannerTypes';
+import { normalisePlanningEconomy } from '@ed-finder/planner-core/planningEconomy';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
+import { contextualEconomyLabel, structureFamilyLabel, templateDisplayName } from '@ed-finder/planner-core/structurePlanning';
 
 export function ProjectedStructureSlot({
   item,

@@ -44,3 +44,20 @@ def test_uninhabited_filter_stays_conservative_for_zero_population():
     assert ctx.require_empty is True
     assert "s.population = 0" in builder.wheres
     assert "s.is_colonised = FALSE" in builder.wheres
+
+
+def test_review_lab_galaxy_wide_request_accepts_explicit_null_reference_coords():
+    """The search router emits this shape when Review Lab omits coordinates."""
+    ctx = _parse_local_search_context(
+        {
+            "reference_coords": None,
+            "galaxy_wide": True,
+            "filters": {"economy": "any"},
+            "sort_by": "development",
+            "size": 24,
+            "from": 0,
+        }
+    )
+
+    assert ctx.galaxy_wide is True
+    assert ctx.has_reference_coords is False

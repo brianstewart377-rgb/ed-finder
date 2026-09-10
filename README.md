@@ -16,12 +16,15 @@ retained migration and behavioural evidence, not the V3 target or an authority
 for current production. Stage 26's R3F selection remains an accurate historical
 decision.
 
-PR #601 is the single active V3 application integration lane. Its current known
-head, `12eebac48ca9286e0fd8c180cc5f552dc922d07e`, contains the real
-Explore/Finder → fresh Babylon results → canonical Inspect product slice and
-the Review Lab rebase onto `apps/web` + Babylon. Exact-head validation is still
-stabilising, so this is active-PR state rather than a green checkpoint or a
-claim that the implementation has merged into this `main`-based branch.
+PR #601's Explore/Finder → fresh Babylon results → canonical Inspect product
+slice and Review Lab rebase onto `apps/web` + Babylon merged to `main` at exact
+merge commit `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
+
+The separate Contabo/live checkpoint remains a rehearsal boundary outside
+production.
+The V3 production application promotion authority is now defined independently
+and remains fail-closed until its fresh inventory, schema, network, secret-file,
+receipt-store, Docker-context, and unchanged-edge cutover facts are reviewed.
 
 ## Current authority
 
@@ -39,7 +42,11 @@ evidence but never override it.
    — renderer-neutral boundaries and ownership.
 6. [`docs/development/v3-browser-validation-lanes.md`](docs/development/v3-browser-validation-lanes.md)
    — Product E2E/Visual Acceptance and Review Lab authority.
-7. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md)
+7. [`docs/development/v3-search-spatial-derived-data-decision.md`](docs/development/v3-search-spatial-derived-data-decision.md)
+   — merged search/spatial and derived-generation architecture.
+8. [`docs/development/ratings-v4-freeze/README.md`](docs/development/ratings-v4-freeze/README.md)
+   — frozen Ratings V4.0 mechanics, scores and validation evidence.
+9. [`docs/operations/infrastructure-status.md`](docs/operations/infrastructure-status.md)
    — production, runtime, checkpoint, and recovery boundary.
 
 [`CLAUDE.md`](CLAUDE.md) is the repository and agent contract that points to
@@ -66,10 +73,10 @@ Digital Twin contributions.
 - Commander History/Journal, Routes, Powerplay, Colonisation, and planned CPE
   overlays contribute through explicit renderer-neutral boundaries.
 
-Search/spatial indexing, grid/cluster design, Ratings-versus-archetype
-dependencies, and PostgreSQL 18 derived-data bootstrap are open decisions.
-Current Finder behaviour uses raw `x/y/z` bounding and distance; do not infer a
-first-class `grid_cell_id` design from older plans.
+PR #645 establishes the V3 search/spatial and derived-generation architecture;
+PR #646 freezes Ratings V4.0. Production integration now follows canonical
+source recovery, bounded derived builds, validation and atomic publication.
+Archetype judgement and Finder ranking remain separate later layers.
 
 ## Repository layout
 
@@ -109,7 +116,7 @@ Before a repository change, run the strict state resolver and the focused tests
 for the touched surface:
 
 ```bash
-python3 scripts/dev/resolve_project_state.py --strict
+make state-check
 ```
 
 ## Operations boundary
@@ -117,8 +124,15 @@ python3 scripts/dev/resolve_project_state.py --strict
 The root `docker-compose.yml` and retired V2 procedures do not describe V3
 production. Production or recovery work requires an explicitly current V3
 runbook and target. Contabo hosts exactly three self-hosted Codex runners; it is
-not production and is not automatically a live-checkpoint destination.
+not production. Its selected first live-checkpoint path remains isolated and
+fail-closed on the recorded missing runtime, data and route authorities.
 
 The repository currently has no executable PostgreSQL 18 recovery runbook.
 Stop rather than adapting V2 instructions or inventing host paths, credentials,
 backup targets, or restore commands.
+
+The separate V3 production application promotion authority is documented in
+[`docs/operations/v3-production-application-release.md`](docs/operations/v3-production-application-release.md).
+Its committed target is fail-closed pending reviewed inventory and schema/edge
+facts; the root Compose and Contabo checkpoint do not become production
+authority.

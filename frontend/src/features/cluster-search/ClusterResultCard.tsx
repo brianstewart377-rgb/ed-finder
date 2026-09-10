@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ChevronRight, Plus } from 'lucide-react';
-import { economyColor } from '@/features/colony-planner/economyVisuals';
+import { economyColor } from '@ed-finder/planner-core/economyVisuals';
 import { useExpansionPlanStore } from '@/features/expansion-plans/expansionPlanStore';
 import type { ExpansionPlanSlotInput } from '@/features/expansion-plans/expansionPlanStore';
 import type { ClusterResult } from './useClusterSearch';

@@ -3,6 +3,11 @@
 # Run a full backup + restore rehearsal against the local docker-compose stack.
 # This stays non-destructive by default: it restores into a disposable database
 # and drops that database again unless --keep-db is supplied.
+#
+# LOCAL/CI ONLY — NEVER V3 PRODUCTION. This rehearsal covers the retained legacy
+# Compose PostgreSQL 16 tooling only. A green result says nothing about V3
+# PostgreSQL 18 backup/PITR readiness and must not be used as production recovery
+# authority.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

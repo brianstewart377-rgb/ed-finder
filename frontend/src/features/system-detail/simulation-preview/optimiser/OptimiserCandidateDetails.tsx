@@ -1,14 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { FacilityTemplate, OptimiserCandidate, OptimiserCandidatesResponse, RankedOptimiserCandidate, SimulateBuildPlacement } from '@/types/api';
 import { PlanningEconomyStrip } from '@/features/colony-planner/PlanningEconomyStrip';
-import { bodyIdKey } from '../bodyIdUtils';
-import { buildPlanningEconomyLedger } from '@/features/colony-planner/planningEconomy';
+import { bodyIdKey } from '@ed-finder/planner-core/bodyId';
+import { buildPlanningEconomyLedger } from '@ed-finder/planner-core/planningEconomy';
 import { OptimiserPlacementList } from './OptimiserPlacementList';
 import { OptimiserRankingBreakdown } from './OptimiserRankingBreakdown';
 import { OptimiserComparisonPanel, compareBuildSources, sourceFromCurrentPreview, sourceFromOptimiserCandidate } from './comparison';
-import { formatScore, rankTone, strategyLabel } from './optimiserUtils';
-import { suggestedBuildPresentation } from './optimiserQualityUtils';
-import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from './suggestedBuildStrategyAdvisor';
+import { formatScore, rankTone, strategyLabel } from '@ed-finder/planner-core/optimiserUtils';
+import { suggestedBuildPresentation } from '@ed-finder/planner-core/optimiserQuality';
+import { buildSuggestedBuildAdvisorHighlights, type SuggestedBuildStrategyAdvisor } from '@ed-finder/planner-core/suggestedBuildStrategyAdvisor';
 
 export function OptimiserCandidateDetails({
   candidate,

@@ -4,7 +4,7 @@ import os
 import re
 import sys
 
-import psycopg2
+import psycopg
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
@@ -55,7 +55,7 @@ def fix_index():
         )
 
         # Connect to the database
-        conn = psycopg2.connect(_raw_url, options=connection_options)
+        conn = psycopg.connect(_raw_url, options=connection_options)
         conn.autocommit = True
         cur = conn.cursor()
 

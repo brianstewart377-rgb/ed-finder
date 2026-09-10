@@ -1,6 +1,6 @@
 services:
   review-postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_DB: edfinder_local_review
       POSTGRES_USER: review_user
@@ -47,6 +47,7 @@ services:
       LOG_LEVEL: WARNING
       ADMIN_TOKEN: review-environment-admin-token
       EXPOSE_ERROR_DETAIL: "true"
+      EDDN_SIMULATION_INGEST_ENABLED: "false"
       ED_FINDER_REVIEW_STACK_MARKER: edfinder-review
     ports:
       - "127.0.0.1:8001:8000"

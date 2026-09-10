@@ -1,19 +1,20 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { Compass, Map, Search, ClipboardCheck } from '@lucide/svelte';
+  import AccountIdentityPanel from '$lib/components/AccountIdentityPanel.svelte';
   import BootstrapStatus from '$lib/components/BootstrapStatus.svelte';
 
   const steps = [
     {
       href: '/explore',
       label: 'Explore',
-      detail: 'Future discovery workspace',
+      detail: 'Live catalogue discovery',
       icon: Compass,
     },
     {
       href: '/inspect',
       label: 'Inspect',
-      detail: 'Future system detail',
+      detail: 'Canonical system detail',
       icon: Search,
     },
     {
@@ -50,11 +51,11 @@
 </header>
 <main>
   <section class="hero">
-    <p class="eyebrow">New application foundation</p>
+    <p class="eyebrow">V3 product checkpoint</p>
     <h1>Find your place<br />among the stars.</h1>
     <p class="lede">
-      ED-Finder V3 is taking shape. This shell establishes the journey while
-      existing tools remain in the reference application during migration.
+      Begin with real catalogue discovery and a fresh spatial view, then carry
+      an exact system into Inspect. Planning and review follow in later slices.
     </p>
   </section>
   <section aria-labelledby="journey-title">
@@ -72,5 +73,9 @@
     </div>
   </section>
   <BootstrapStatus />
+  <AccountIdentityPanel />
 </main>
-<footer>Foundation only — product features have not yet been ported.</footer>
+<footer>
+  Explore and Inspect are live in this V3 checkpoint. Plan and Review remain
+  staged.
+</footer>

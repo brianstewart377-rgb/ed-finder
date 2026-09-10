@@ -5,5 +5,5 @@
     "noUnusedParameters": false,
     "types": ["vite/client"]
   },
-  "include": ["./**/*.ts", "./**/*.tsx", "../vite.bakeoff.config.ts", "../playwright.bakeoff.config.ts"]
+  "include": ["./**/*.ts", "./**/*.tsx", "../vite.bakeoff.config.ts"]
 }

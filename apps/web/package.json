@@ -17,6 +17,10 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "shared:build": "tsc -p ../../packages/api-client/tsconfig.build.json && tsc -p ../../packages/planner-core/tsconfig.build.json",
+    "shared:check": "tsc -p ../../packages/api-client/tsconfig.json && tsc -p ../../packages/planner-core/tsconfig.json",
+    "shared:lint": "cd ../.. && apps/web/node_modules/.bin/eslint --config apps/web/eslint.shared.config.js packages/api-client/src packages/planner-core/src",
+    "shared:test": "cd ../.. && apps/web/node_modules/.bin/vitest run --config apps/web/vitest.shared.config.ts",
     "test:e2e": "cypress run --browser chrome",
     "generate:api": "svelte-kit sync && node scripts/capture-openapi.mjs && openapi-ts"
   },
@@ -26,10 +30,12 @@
     "@sveltejs/kit": "2.70.3",
     "@sveltejs/vite-plugin-svelte": "7.0.0",
     "@tailwindcss/vite": "4.3.3",
-    "@types/node": "24.10.0",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/svelte": "5.4.2",
+    "@types/node": "24.10.0",
+    "axe-core": "4.12.1",
     "cypress": "15.21.1",
+    "cypress-axe": "1.7.0",
     "eslint": "10.9.1",
     "eslint-plugin-svelte": "3.23.0",
     "jsdom": "27.4.0",
@@ -44,8 +50,11 @@
     "vitest": "4.1.0"
   },
   "dependencies": {
+    "@babylonjs/core": "9.23.0",
+    "@ed-finder/api-client": "file:../../packages/api-client",
     "@lucide/svelte": "1.37.0",
     "@tanstack/svelte-query": "6.1.48",
-    "bits-ui": "2.19.0"
+    "bits-ui": "2.19.0",
+    "json-with-bigint": "3.5.11"
   }
 }
