@@ -43,6 +43,12 @@ EXPECTED_HOST = "ed-finder-prod"
 EXPECTED_FQDN = "nb79a3d.mevnode.com"
 EXPECTED_ARCH = "x86_64"
 POSTGRES_CONTAINER = "edfinder-v3-phase4c-full-20260827_r5-postgres"
+# The retained production database identity, adopted from the reviewed
+# 2026-09-10 inventory of the running release rather than from an aspirational
+# name. That container exposes exactly one application role and one application
+# database, and the reviewed ledger lives in that database.
+DATABASE_NAME = "edfinder_v3_phase4c_full_20260827_r5"
+DATABASE_USER = "edfinder_v3"
 LEGACY_API = "edfinder-v3-api"
 LEGACY_ORIGIN = "edfinder-v3-proxy"
 PUBLIC_EDGE = "edfinder-v3-public-auth-edge"
@@ -749,8 +755,8 @@ def validate_schema_file(path: Path, expected_sha: str) -> dict[str, Any]:
     identity = value.get("database_identity")
     if identity != {
         "container": POSTGRES_CONTAINER,
-        "database_name": "edfinder",
-        "database_user": "edfinder",
+        "database_name": DATABASE_NAME,
+        "database_user": DATABASE_USER,
         "application_host": POSTGRES_CONTAINER,
         "server_address": "local",
         "server_port": 5432,
@@ -819,11 +825,11 @@ def database_identity_from_env(
         raise DeploymentError("production DATABASE_URL identity is invalid") from exc
     if (
         parsed.scheme not in {"postgresql", "postgres"}
-        or username != "edfinder"
+        or username != DATABASE_USER
         or not password
         or parsed.hostname != POSTGRES_CONTAINER
         or port not in {None, 5432}
-        or database_name != "edfinder"
+        or database_name != DATABASE_NAME
         or parsed.query
         or parsed.fragment
     ):
@@ -840,7 +846,7 @@ def database_identity_from_env(
 
 def verify_live_schema(schema: dict[str, Any], env: dict[str, str], runner: Callable[..., subprocess.CompletedProcess[str]]) -> None:
     result = runner(
-        ["docker", "exec", POSTGRES_CONTAINER, "psql", "-X", "--no-password", "--tuples-only", "--no-align", "--quiet", "--field-separator", "\t", "--set", "ON_ERROR_STOP=1", "--username", "edfinder", "--dbname", "edfinder", "--command", LEDGER_SQL],
+        ["docker", "exec", POSTGRES_CONTAINER, "psql", "-X", "--no-password", "--tuples-only", "--no-align", "--quiet", "--field-separator", "\t", "--set", "ON_ERROR_STOP=1", "--username", DATABASE_USER, "--dbname", DATABASE_NAME, "--command", LEDGER_SQL],
         env=env,
     )
     if len(result.stdout.encode("utf-8")) > MAX_JSON:
@@ -878,7 +884,7 @@ def verify_live_schema(schema: dict[str, Any], env: dict[str, str], runner: Call
         key=lambda item: item["filename"],
     )
     if (
-        observed["database_name"] != "edfinder"
+        observed["database_name"] != DATABASE_NAME
         or observed["server_address"] != "local"
         or observed["server_port"] != 5432
         or observed["transaction_read_only"] != "on"

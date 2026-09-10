@@ -72,6 +72,13 @@ or override this set.
   The read-only inventory records stat-only existence/kind/owner-uid/mode
   evidence for both designated paths without reading their contents, so the next
   reviewed run supplies the facts those two authority fields need.
+  The retained database identity is adopted from the running release (role
+  `edfinder_v3`, database `edfinder_v3_phase4c_full_20260827_r5`, reached as
+  `edfinder-v3-phase4c-full-20260827_r5-postgres` on the application network),
+  and the retained container now joins that network. The reviewed schema identity
+  file cannot be written until the live `v3_meta.schema_migration` lineage is
+  reconciled: two of its three rows have no tracked source in the repository and
+  one does not match the reviewed `sql/NNN_name.sql` shape.
 
 ## Product journey and spatial north star
 

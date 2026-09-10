@@ -77,6 +77,7 @@ def test_production_authority_is_separate_exact_and_currently_fail_closed():
     assert value["external_authority"]["application_network_allowed_containers"] == [
         "edfinder-v3-api",
         "edfinder-v3-production-web-blue",
+        "edfinder-v3-phase4c-full-20260827_r5-postgres",
     ]
     # The reviewed unchanged-edge cutover authority is published from that
     # receipt.  The remaining nulls are host facts that are still unprovisioned.
@@ -301,8 +302,8 @@ def test_production_schema_identity_preserves_release_manifest_order(tmp_path):
         "schema_version": deployer.SCHEMA_IDENTITY_SCHEMA,
         "database_identity": {
             "container": deployer.POSTGRES_CONTAINER,
-            "database_name": "edfinder",
-            "database_user": "edfinder",
+            "database_name": deployer.DATABASE_NAME,
+            "database_user": deployer.DATABASE_USER,
             "application_host": deployer.POSTGRES_CONTAINER,
             "server_address": "local",
             "server_port": 5432,
@@ -1192,7 +1193,16 @@ def _cancellation_promote_setup(monkeypatch, tmp_path, deployer):
     receipt_dir = tmp_path / "receipts"
     receipt_dir.mkdir(mode=0o700)
     api_env = tmp_path / "api.env"
-    api_env.write_text("DATABASE_URL=postgresql://edfinder:x@db/edfinder\n", encoding="utf-8")
+    api_env.write_text(
+        "DATABASE_URL=postgresql://"
+        + deployer.DATABASE_USER
+        + ":x@"
+        + deployer.POSTGRES_CONTAINER
+        + ":5432/"
+        + deployer.DATABASE_NAME
+        + "\n",
+        encoding="utf-8",
+    )
     api_env.chmod(0o600)
     schema_path = tmp_path / "schema.json"
     schema_path.write_text("{}", encoding="utf-8")
@@ -1209,8 +1219,8 @@ def _cancellation_promote_setup(monkeypatch, tmp_path, deployer):
 
     database_identity = {
         "container": deployer.POSTGRES_CONTAINER,
-        "database_name": "edfinder",
-        "database_user": "edfinder",
+        "database_name": deployer.DATABASE_NAME,
+        "database_user": deployer.DATABASE_USER,
         "application_host": deployer.POSTGRES_CONTAINER,
         "server_address": "local",
         "server_port": 5432,

@@ -78,7 +78,8 @@
     "application_network": "edfinder-v3-production",
     "application_network_allowed_containers": [
       "edfinder-v3-api",
-      "edfinder-v3-production-web-blue"
+      "edfinder-v3-production-web-blue",
+      "edfinder-v3-phase4c-full-20260827_r5-postgres"
     ],
     "api_env_file": null,
     "api_env_owner_uid": null,
