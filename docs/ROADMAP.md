@@ -59,9 +59,11 @@ or override this set.
   port, so the topology blocker is host state only: the deployed edge still
   targets `127.0.0.1:58081` and the web slot is still staged there pending the
   governed bootstrap cutover.
-  Production already serves the 2026-09-09 in-place release; that promotion is
-  recorded as a description of what runs, not as governed acceptance. The root
-  Compose and Contabo checkpoint remain non-authoritative for production.
+  Production served the 2026-09-09 in-place release without governed acceptance
+  until 2026-09-10, when the first governed `bootstrap` promotion was accepted
+  from `b1616332c024e262a0aac03018943abbf619c087` and left a durable receipt and
+  a rollback target. The root Compose and Contabo checkpoint remain
+  non-authoritative for production.
 - **Designated production secret, schema and receipt paths (provisioned):** the
   api env snapshot lives at `/etc/ed-finder/v3-production/api.env` (owner uid
   `0`, mode `0600`), the reviewed schema identity at
