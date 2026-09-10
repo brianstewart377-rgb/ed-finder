@@ -1,0 +1,12 @@
+[Unit]
+Description=ED-Finder V3 differential backup Monday-Saturday
+
+[Timer]
+OnCalendar=Mon..Sat *-*-* 02:30:00 UTC
+RandomizedDelaySec=10min
+AccuracySec=2min
+Persistent=false
+Unit=edfinder-v3-pgbackrest@diff.service
+
+[Install]
+WantedBy=timers.target

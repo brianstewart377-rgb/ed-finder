@@ -1,0 +1,12 @@
+[Unit]
+Description=ED-Finder V3 weekly full backup
+
+[Timer]
+OnCalendar=Sun *-*-* 02:30:00 UTC
+RandomizedDelaySec=10min
+AccuracySec=2min
+Persistent=false
+Unit=edfinder-v3-pgbackrest@full.service
+
+[Install]
+WantedBy=timers.target
