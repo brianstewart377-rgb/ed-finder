@@ -186,6 +186,72 @@ h2 {
 .status-panel dd {
   margin: 0.25rem 0;
 }
+.identity-panel {
+  margin: 0 0 3rem;
+  padding: 1.5rem;
+  border: 1px solid #283242;
+  background: var(--color-panel);
+}
+.identity-panel-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+}
+.identity-panel h2 {
+  margin: 0.25rem 0;
+}
+.identity-panel-copy,
+.identity-panel-note,
+.identity-list small {
+  color: var(--muted);
+}
+.identity-panel-copy {
+  max-width: 52rem;
+  line-height: 1.5;
+}
+.identity-list {
+  display: grid;
+  gap: 0.65rem;
+  list-style: none;
+  margin: 1.25rem 0;
+  padding: 0;
+}
+.identity-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--panel-raised);
+}
+.identity-list li > div {
+  display: grid;
+  gap: 0.25rem;
+}
+.secondary-button,
+.quiet-button {
+  border: 1px solid var(--color-cyan);
+  padding: 0.65rem 0.85rem;
+  color: #061116;
+  background: var(--color-cyan);
+  cursor: pointer;
+}
+.quiet-button {
+  border-color: var(--line);
+  color: #eef2f6;
+  background: transparent;
+}
+.secondary-button:disabled,
+.quiet-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.identity-panel-note {
+  margin: 0;
+  font-size: 0.9rem;
+}
 footer {
   color: #8793a1;
   padding: 2rem 0 3rem;

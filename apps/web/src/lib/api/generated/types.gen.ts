@@ -405,6 +405,10 @@ export type AuthSessionResponse = {
  */
 export type AuthUserResponse = {
     /**
+     * Account Id
+     */
+    account_id: string;
+    /**
      * Commander Name
      */
     commander_name?: string | null;
@@ -2654,6 +2658,24 @@ export type ExplorationVisitSummary = {
 };
 
 /**
+ * ExternalIdentityResponse
+ */
+export type ExternalIdentityResponse = {
+    /**
+     * External Identity Id
+     */
+    external_identity_id: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Linked At
+     */
+    linked_at: string;
+};
+
+/**
  * FacilityTemplateResponse
  */
 export type FacilityTemplateResponse = {
@@ -2735,6 +2757,16 @@ export type FacilityTemplateResponse = {
      * Stat Effects
      */
     stat_effects?: unknown;
+};
+
+/**
+ * FrontierLinkResponse
+ */
+export type FrontierLinkResponse = {
+    /**
+     * Authorization Url
+     */
+    authorization_url: string;
 };
 
 /**
@@ -7525,7 +7557,7 @@ export type OgImageApiShareOgId64GetResponses = {
     200: unknown;
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetData = {
+export type FrontierLoginApiV1AuthFrontierLoginGetData = {
     body?: never;
     path?: never;
     query?: {
@@ -7534,26 +7566,56 @@ export type FrontierLoginApiAuthFrontierLoginGetData = {
          */
         return_to?: string | null;
     };
-    url: '/api/auth/frontier/login';
+    url: '/api/v1/auth/frontier/login';
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetErrors = {
+export type FrontierLoginApiV1AuthFrontierLoginGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetError = FrontierLoginApiAuthFrontierLoginGetErrors[keyof FrontierLoginApiAuthFrontierLoginGetErrors];
+export type FrontierLoginApiV1AuthFrontierLoginGetError = FrontierLoginApiV1AuthFrontierLoginGetErrors[keyof FrontierLoginApiV1AuthFrontierLoginGetErrors];
 
-export type FrontierLoginApiAuthFrontierLoginGetResponses = {
+export type FrontierLoginApiV1AuthFrontierLoginGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetData = {
+export type FrontierLinkApiV1AuthFrontierLinkPostData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Return To
+         */
+        return_to?: string | null;
+    };
+    url: '/api/v1/auth/frontier/link';
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostError = FrontierLinkApiV1AuthFrontierLinkPostErrors[keyof FrontierLinkApiV1AuthFrontierLinkPostErrors];
+
+export type FrontierLinkApiV1AuthFrontierLinkPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: FrontierLinkResponse;
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostResponse = FrontierLinkApiV1AuthFrontierLinkPostResponses[keyof FrontierLinkApiV1AuthFrontierLinkPostResponses];
+
+export type FrontierCallbackApiV1AuthFrontierCallbackGetData = {
     body?: never;
     path?: never;
     query?: {
@@ -7570,81 +7632,129 @@ export type FrontierCallbackApiAuthFrontierCallbackGetData = {
          */
         error?: string | null;
     };
-    url: '/api/auth/frontier/callback';
+    url: '/api/v1/auth/frontier/callback';
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetErrors = {
+export type FrontierCallbackApiV1AuthFrontierCallbackGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetError = FrontierCallbackApiAuthFrontierCallbackGetErrors[keyof FrontierCallbackApiAuthFrontierCallbackGetErrors];
+export type FrontierCallbackApiV1AuthFrontierCallbackGetError = FrontierCallbackApiV1AuthFrontierCallbackGetErrors[keyof FrontierCallbackApiV1AuthFrontierCallbackGetErrors];
 
-export type FrontierCallbackApiAuthFrontierCallbackGetResponses = {
+export type FrontierCallbackApiV1AuthFrontierCallbackGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type AuthSessionApiAuthSessionGetData = {
+export type AuthSessionApiV1AuthSessionGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/auth/session';
+    url: '/api/v1/auth/session';
 };
 
-export type AuthSessionApiAuthSessionGetResponses = {
+export type AuthSessionApiV1AuthSessionGetResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type AuthSessionApiAuthSessionGetResponse = AuthSessionApiAuthSessionGetResponses[keyof AuthSessionApiAuthSessionGetResponses];
+export type AuthSessionApiV1AuthSessionGetResponse = AuthSessionApiV1AuthSessionGetResponses[keyof AuthSessionApiV1AuthSessionGetResponses];
 
-export type AuthLogoutApiAuthLogoutPostData = {
+export type AuthLogoutApiV1AuthLogoutPostData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/auth/logout';
+    url: '/api/v1/auth/logout';
 };
 
-export type AuthLogoutApiAuthLogoutPostResponses = {
+export type AuthLogoutApiV1AuthLogoutPostResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type AuthLogoutApiAuthLogoutPostResponse = AuthLogoutApiAuthLogoutPostResponses[keyof AuthLogoutApiAuthLogoutPostResponses];
+export type AuthLogoutApiV1AuthLogoutPostResponse = AuthLogoutApiV1AuthLogoutPostResponses[keyof AuthLogoutApiV1AuthLogoutPostResponses];
 
-export type ClaimOwnerApiAuthOwnerClaimPostData = {
+export type ListIdentitiesApiV1AuthIdentitiesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/identities';
+};
+
+export type ListIdentitiesApiV1AuthIdentitiesGetResponses = {
+    /**
+     * Response List Identities Api V1 Auth Identities Get
+     *
+     * Successful Response
+     */
+    200: Array<ExternalIdentityResponse>;
+};
+
+export type ListIdentitiesApiV1AuthIdentitiesGetResponse = ListIdentitiesApiV1AuthIdentitiesGetResponses[keyof ListIdentitiesApiV1AuthIdentitiesGetResponses];
+
+export type ClaimOwnerApiV1AuthOwnerClaimPostData = {
     body: OwnerClaimRequest;
     path?: never;
     query?: never;
-    url: '/api/auth/owner/claim';
+    url: '/api/v1/auth/owner/claim';
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostErrors = {
+export type ClaimOwnerApiV1AuthOwnerClaimPostErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostError = ClaimOwnerApiAuthOwnerClaimPostErrors[keyof ClaimOwnerApiAuthOwnerClaimPostErrors];
+export type ClaimOwnerApiV1AuthOwnerClaimPostError = ClaimOwnerApiV1AuthOwnerClaimPostErrors[keyof ClaimOwnerApiV1AuthOwnerClaimPostErrors];
 
-export type ClaimOwnerApiAuthOwnerClaimPostResponses = {
+export type ClaimOwnerApiV1AuthOwnerClaimPostResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostResponse = ClaimOwnerApiAuthOwnerClaimPostResponses[keyof ClaimOwnerApiAuthOwnerClaimPostResponses];
+export type ClaimOwnerApiV1AuthOwnerClaimPostResponse = ClaimOwnerApiV1AuthOwnerClaimPostResponses[keyof ClaimOwnerApiV1AuthOwnerClaimPostResponses];
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * External Identity Id
+         */
+        external_identity_id: string;
+    };
+    query?: never;
+    url: '/api/v1/auth/identities/{external_identity_id}';
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteError = UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors[keyof UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors];
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthSessionResponse;
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponse = UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses[keyof UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses];
 
 export type HealthApiHealthGetData = {
     body?: never;

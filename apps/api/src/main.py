@@ -42,6 +42,7 @@ from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
 from edfinder_api.config import settings, log, limiter
+from edfinder_api.request_logging import redact_frontier_oauth_target
 from edfinder_api.state import (
     metrics as _metrics,
     observe_request_duration,
@@ -52,7 +53,10 @@ from edfinder_api.state import (
 
 # Routers
 from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_operation_runs
-from edfinder_api.routers.auth import router as auth_router
+from edfinder_api.routers.auth import (
+    frontier_callback_compat_router,
+    router as auth_router,
+)
 from edfinder_api.routers.archetypes import router as archetypes_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
 from edfinder_api.routers.evidence import router as evidence_router
@@ -320,6 +324,7 @@ async def metrics_middleware(request: Request, call_next: Any) -> Response:
 # ---------------------------------------------------------------------------
 @app.exception_handler(HTTPException)
 async def problem_details_handler(request: Request, exc: HTTPException):
+    request_target = redact_frontier_oauth_target(str(request.url))
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -327,7 +332,7 @@ async def problem_details_handler(request: Request, exc: HTTPException):
             'title':    exc.detail if isinstance(exc.detail, str) else 'Error',
             'status':   exc.status_code,
             'detail':   exc.detail,
-            'instance': str(request.url),
+            'instance': request_target,
         },
         headers=getattr(exc, 'headers', None),
     )
@@ -336,7 +341,8 @@ async def problem_details_handler(request: Request, exc: HTTPException):
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
     _metrics['errors_total'] += 1
-    log.exception('Unhandled error on %s %s', request.method, request.url)
+    request_target = redact_frontier_oauth_target(str(request.url))
+    log.exception('Unhandled error on %s %s', request.method, request_target)
     # This handler is what stops the exception from ever reaching an ASGI
     # middleware, so sentry_sdk's automatic capture never fires — report
     # explicitly instead. No-ops when SENTRY_DSN isn't set (config.py).
@@ -362,6 +368,7 @@ async def generic_error_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 app.include_router(share_router)
 app.include_router(auth_router)
+app.include_router(frontier_callback_compat_router)
 app.include_router(meta_router)
 app.include_router(news_router)
 app.include_router(watchlist_router)
