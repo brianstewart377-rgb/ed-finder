@@ -124,6 +124,34 @@ One question remains open for layer 2: whether a first-logged claim is scoped
 only be settled once; getting it wrong cannot be corrected without invalidating
 real players' claims.
 
+#### Images
+
+Decided: **one image per species, not per variant.** The variant is still
+recorded in the personal Codex, because it determines completeness, but it does
+not need its own picture.
+
+An image is a **reference to a shipped asset**, never a blob in the database. The
+species row carries the reference; the file lives where assets live and is
+recorded in `assets/PROVENANCE.json`.
+
+**Source decided:** the project owner will capture their own in-game pictures.
+Every such file is therefore `frontier_derived: true` with
+`commercial_use_approved: false`, a named creator, the official long-form
+Frontier community attribution, and a per-file provenance record with its hash.
+The existing CI guard rejects missing, stale or invalid entries and any hash
+drift, so the photographs cannot be added informally.
+
+**Until those exist:** placeholders should be **original** artwork
+(`source_kind: original`), which carries no Frontier treatment and no third-party
+credit, and one placeholder per **genus** visually covers every species beneath
+it. Twenty-one images cover the whole Codex initially.
+
+**Consequence to keep in view:** because the real images are Frontier-derived and
+noncommercial-only, the Codex imagery is what would have to be replaced or
+excluded from the shipped bundle if ED-Finder ever becomes commercial. That is a
+reason to keep the species-to-image reference indirect rather than wiring file
+paths through the application.
+
 ## Scripts
 
 ### Exists
@@ -185,4 +213,7 @@ require DDL.
 
 **Settled:** exobiology value is keyed per species, not per variant, because
 colour does not affect payout. Every account keeps its own Codex; only
-first-logged facts are promoted to shared data.
+first-logged facts are promoted to shared data. Codex images are one per species
+(not per variant) and arrive as the owner's own in-game captures, recorded as
+Frontier-derived and noncommercial, with original genus placeholders in the
+meantime.
