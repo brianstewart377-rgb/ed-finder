@@ -338,6 +338,18 @@ def test_production_deployer_uses_release_manifest_and_fresh_schema_compatibilit
         assert forbidden not in source
 
 
+def test_deployer_probe_reads_the_v3_lineage_ledger():
+    source = DEPLOYER.read_text(encoding="utf-8")
+
+    # The retained production database records the independent V3 lineage in
+    # v3_meta.schema_migration. The V2 public.schema_migrations relation does not
+    # exist there, so probing it made every preflight fail at the ledger step.
+    assert "FROM v3_meta.schema_migration" in source
+    assert "public.schema_migrations" not in source
+    assert "'filename', migration_name" in source
+    assert "encode(migration_sha256, 'hex')" in source
+
+
 def test_network_authority_permits_the_legacy_api_to_detach_on_bootstrap():
     deployer = _load_deployer()
     network = "edfinder-v3-production"
