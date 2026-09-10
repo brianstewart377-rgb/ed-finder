@@ -338,6 +338,74 @@ def test_production_deployer_uses_release_manifest_and_fresh_schema_compatibilit
         assert forbidden not in source
 
 
+def test_network_authority_permits_the_legacy_api_to_detach_on_bootstrap():
+    deployer = _load_deployer()
+    network = "edfinder-v3-production"
+    database = deployer.POSTGRES_CONTAINER
+    authority = {
+        "application_network": network,
+        "application_network_allowed_containers": [
+            deployer.LEGACY_API,
+            deployer.CONTAINERS["web-blue"],
+            database,
+        ],
+    }
+    schema = {"database_identity": {"container": database}}
+
+    def runner_for(attached):
+        def runner(argv, **_kwargs):
+            value = [
+                {
+                    "Name": network,
+                    "Driver": "bridge",
+                    "Scope": "local",
+                    "Internal": False,
+                    "Ingress": False,
+                    "Containers": {
+                        str(index): {"Name": name}
+                        for index, name in enumerate(attached)
+                    },
+                }
+            ]
+            return subprocess.CompletedProcess(argv, 0, json.dumps(value), "")
+
+        return runner
+
+    # Bootstrap: the legacy API is still running, so it is attached.
+    deployer.validate_network(
+        authority, schema, set(), {}, runner_for([database, deployer.LEGACY_API])
+    )
+    # After the cutover the legacy API has been stopped, which detaches it, and
+    # the managed slot is attached in its place.
+    deployer.validate_network(
+        authority,
+        schema,
+        {"blue"},
+        {},
+        runner_for(
+            [
+                database,
+                deployer.CONTAINERS["api-blue"],
+                deployer.CONTAINERS["web-blue"],
+            ]
+        ),
+    )
+    # An unrelated attached container is still rejected.
+    with pytest.raises(deployer.DeploymentError, match="attachment authority drifted"):
+        deployer.validate_network(
+            authority,
+            schema,
+            set(),
+            {},
+            runner_for([database, deployer.LEGACY_API, "unrelated-container"]),
+        )
+    # The retained database must always be attached.
+    with pytest.raises(deployer.DeploymentError, match="not attached"):
+        deployer.validate_network(
+            authority, schema, set(), {}, runner_for([deployer.LEGACY_API])
+        )
+
+
 def test_rendered_compose_order_is_not_part_of_app_only_authority(tmp_path):
     deployer = _load_deployer()
     compose = tmp_path / "compose.yml"
