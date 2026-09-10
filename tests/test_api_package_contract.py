@@ -58,6 +58,7 @@ def test_newly_touched_api_modules_use_package_imports_instead_of_new_flat_debt(
         'apps/api/src/routers/operator.py',
         'apps/api/src/routers/optimiser.py',
         'apps/api/src/routers/profile.py',
+        'apps/api/src/routers/ratings_v4.py',
         'apps/api/src/routers/provenance_cockpit.py',
         'apps/api/src/routers/search.py',
         'apps/api/src/routers/simulate.py',
