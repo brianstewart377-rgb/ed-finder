@@ -1,7 +1,7 @@
 describe('ED-Finder V3 foundation', () => {
   it('loads the shell and exercises the real same-origin bootstrap', () => {
     cy.intercept('/api/health').as('health');
-    cy.intercept('/api/auth/session').as('session');
+    cy.intercept('/api/v1/auth/session').as('session');
     cy.visit('/');
     cy.get('h1').should('contain.text', 'Find your place').and('be.visible');
     cy.wait('@health').its('response.statusCode').should('eq', 200);

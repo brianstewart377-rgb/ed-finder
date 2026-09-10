@@ -405,6 +405,10 @@ export type AuthSessionResponse = {
  */
 export type AuthUserResponse = {
     /**
+     * Account Id
+     */
+    account_id: string;
+    /**
      * Commander Name
      */
     commander_name?: string | null;
@@ -1081,6 +1085,98 @@ export type CacheStatsResponse = {
 };
 
 /**
+ * CandidateContributionResponse
+ */
+export type CandidateContributionResponse = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Native
+     */
+    native: boolean;
+    /**
+     * Modifier
+     */
+    modifier: boolean;
+    /**
+     * Base Score
+     */
+    base_score: number;
+    /**
+     * Positive Rules
+     */
+    positive_rules: Array<string>;
+    /**
+     * Negative Rules
+     */
+    negative_rules: Array<string>;
+    /**
+     * Positive Adjustment
+     */
+    positive_adjustment: number;
+    /**
+     * Negative Adjustment
+     */
+    negative_adjustment: number;
+    /**
+     * Local Score
+     */
+    local_score: number;
+    /**
+     * System Weight
+     */
+    system_weight: number;
+    /**
+     * Contributors
+     */
+    contributors: Array<string>;
+    /**
+     * Evidence
+     */
+    evidence: Array<EvidenceFeatureResponse>;
+};
+
+/**
+ * CandidateSpecialisationResponse
+ */
+export type CandidateSpecialisationResponse = {
+    /**
+     * Candidate Id
+     */
+    candidate_id: string;
+    /**
+     * Intrinsic Quality
+     */
+    intrinsic_quality: number;
+    /**
+     * Quality
+     */
+    quality: number | null;
+    /**
+     * Minimum Quality
+     */
+    minimum_quality: number;
+    /**
+     * Maximum Quality
+     */
+    maximum_quality: number;
+    /**
+     * Competing Economies
+     */
+    competing_economies: Array<string>;
+    /**
+     * Preferred Specialisation
+     */
+    preferred_specialisation: boolean;
+    /**
+     * Constraints
+     */
+    constraints: Array<SpecialisationConstraintResponse>;
+};
+
+/**
  * CanonicalEvidencePromotionRequest
  */
 export type CanonicalEvidencePromotionRequest = {
@@ -1581,6 +1677,36 @@ export type EconomyPairDetail = {
      */
     contamination_paths?: Array<unknown>;
     [key: string]: unknown;
+};
+
+/**
+ * EvidenceFeatureResponse
+ */
+export type EvidenceFeatureResponse = {
+    /**
+     * Feature Type
+     */
+    feature_type: string;
+    /**
+     * Known
+     */
+    known: boolean;
+    /**
+     * Weight
+     */
+    weight: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Provenance
+     */
+    provenance: string | null;
+    /**
+     * Value
+     */
+    value: string | boolean | null;
 };
 
 /**
@@ -2532,6 +2658,24 @@ export type ExplorationVisitSummary = {
 };
 
 /**
+ * ExternalIdentityResponse
+ */
+export type ExternalIdentityResponse = {
+    /**
+     * External Identity Id
+     */
+    external_identity_id: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Linked At
+     */
+    linked_at: string;
+};
+
+/**
  * FacilityTemplateResponse
  */
 export type FacilityTemplateResponse = {
@@ -2616,6 +2760,16 @@ export type FacilityTemplateResponse = {
 };
 
 /**
+ * FrontierLinkResponse
+ */
+export type FrontierLinkResponse = {
+    /**
+     * Authorization Url
+     */
+    authorization_url: string;
+};
+
+/**
  * GalaxySearchRequest
  */
 export type GalaxySearchRequest = {
@@ -2635,6 +2789,46 @@ export type GalaxySearchRequest = {
      * Offset
      */
     offset?: number;
+};
+
+/**
+ * GenerationResponse
+ */
+export type GenerationResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Published At
+     */
+    published_at: string;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * Validation Receipt
+     */
+    validation_receipt: {
+        [key: string]: unknown;
+    };
 };
 
 /**
@@ -4605,6 +4799,106 @@ export type RangeFilter = {
 };
 
 /**
+ * RatingExplanationResponse
+ */
+export type RatingExplanationResponse = {
+    /**
+     * Economy
+     */
+    economy: string;
+    /**
+     * Potential Score
+     */
+    potential_score: number;
+    /**
+     * Specialisation Quality
+     */
+    specialisation_quality: number | null;
+    /**
+     * Specialisation Quality Min
+     */
+    specialisation_quality_min: number;
+    /**
+     * Specialisation Quality Max
+     */
+    specialisation_quality_max: number;
+    /**
+     * Evidence Completeness
+     */
+    evidence_completeness: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Best Candidate Id
+     */
+    best_candidate_id: string | null;
+    /**
+     * Local Scores
+     */
+    local_scores: Array<number>;
+    /**
+     * Explanation
+     */
+    explanation: Array<string>;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Contributions
+     */
+    contributions: Array<CandidateContributionResponse>;
+    /**
+     * Best Specialisation Candidate Id
+     */
+    best_specialisation_candidate_id: string | null;
+    /**
+     * Specialisation Candidates
+     */
+    specialisation_candidates: Array<CandidateSpecialisationResponse>;
+};
+
+/**
+ * RatingSummaryResponse
+ */
+export type RatingSummaryResponse = {
+    /**
+     * Economy
+     */
+    economy: string;
+    /**
+     * Potential Score
+     */
+    potential_score: number;
+    /**
+     * Specialisation Quality
+     */
+    specialisation_quality: number | null;
+    /**
+     * Specialisation Quality Min
+     */
+    specialisation_quality_min: number;
+    /**
+     * Specialisation Quality Max
+     */
+    specialisation_quality_max: number;
+    /**
+     * Evidence Completeness
+     */
+    evidence_completeness: number;
+    /**
+     * Confidence
+     */
+    confidence: number;
+};
+
+/**
  * RecommendedBuildPlan
  */
 export type RecommendedBuildPlan = {
@@ -6055,6 +6349,32 @@ export type SlotRequirement = {
 };
 
 /**
+ * SpecialisationConstraintResponse
+ */
+export type SpecialisationConstraintResponse = {
+    /**
+     * Rule Id
+     */
+    rule_id: string;
+    /**
+     * Satisfied
+     */
+    satisfied: boolean | null;
+    /**
+     * Feature Type
+     */
+    feature_type: string;
+    /**
+     * Confidence
+     */
+    confidence: number;
+    /**
+     * Provenance
+     */
+    provenance: string | null;
+};
+
+/**
  * StationModel
  */
 export type StationModel = {
@@ -6648,6 +6968,82 @@ export type SystemDetailRow = {
 };
 
 /**
+ * SystemExplanationResponse
+ */
+export type SystemExplanationResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Ratings
+     */
+    ratings: Array<RatingExplanationResponse>;
+};
+
+/**
+ * SystemRatingsResponse
+ */
+export type SystemRatingsResponse = {
+    /**
+     * Derived Generation Id
+     */
+    derived_generation_id: string;
+    /**
+     * Publication Sequence
+     */
+    publication_sequence: number;
+    /**
+     * Canonical Generation Id
+     */
+    canonical_generation_id: string;
+    /**
+     * Canonical Publication Sequence
+     */
+    canonical_publication_sequence: number;
+    /**
+     * Scorer Version
+     */
+    scorer_version: string;
+    /**
+     * Mechanics Version
+     */
+    mechanics_version: string;
+    /**
+     * System Id64
+     */
+    system_id64: number;
+    /**
+     * Ratings
+     */
+    ratings: Array<RatingSummaryResponse>;
+};
+
+/**
  * SystemRow
  *
  * One result row inside `SearchResponse.results`.
@@ -7161,7 +7557,7 @@ export type OgImageApiShareOgId64GetResponses = {
     200: unknown;
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetData = {
+export type FrontierLoginApiV1AuthFrontierLoginGetData = {
     body?: never;
     path?: never;
     query?: {
@@ -7170,26 +7566,56 @@ export type FrontierLoginApiAuthFrontierLoginGetData = {
          */
         return_to?: string | null;
     };
-    url: '/api/auth/frontier/login';
+    url: '/api/v1/auth/frontier/login';
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetErrors = {
+export type FrontierLoginApiV1AuthFrontierLoginGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type FrontierLoginApiAuthFrontierLoginGetError = FrontierLoginApiAuthFrontierLoginGetErrors[keyof FrontierLoginApiAuthFrontierLoginGetErrors];
+export type FrontierLoginApiV1AuthFrontierLoginGetError = FrontierLoginApiV1AuthFrontierLoginGetErrors[keyof FrontierLoginApiV1AuthFrontierLoginGetErrors];
 
-export type FrontierLoginApiAuthFrontierLoginGetResponses = {
+export type FrontierLoginApiV1AuthFrontierLoginGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetData = {
+export type FrontierLinkApiV1AuthFrontierLinkPostData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * Return To
+         */
+        return_to?: string | null;
+    };
+    url: '/api/v1/auth/frontier/link';
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostError = FrontierLinkApiV1AuthFrontierLinkPostErrors[keyof FrontierLinkApiV1AuthFrontierLinkPostErrors];
+
+export type FrontierLinkApiV1AuthFrontierLinkPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: FrontierLinkResponse;
+};
+
+export type FrontierLinkApiV1AuthFrontierLinkPostResponse = FrontierLinkApiV1AuthFrontierLinkPostResponses[keyof FrontierLinkApiV1AuthFrontierLinkPostResponses];
+
+export type FrontierCallbackApiV1AuthFrontierCallbackGetData = {
     body?: never;
     path?: never;
     query?: {
@@ -7206,81 +7632,129 @@ export type FrontierCallbackApiAuthFrontierCallbackGetData = {
          */
         error?: string | null;
     };
-    url: '/api/auth/frontier/callback';
+    url: '/api/v1/auth/frontier/callback';
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetErrors = {
+export type FrontierCallbackApiV1AuthFrontierCallbackGetErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type FrontierCallbackApiAuthFrontierCallbackGetError = FrontierCallbackApiAuthFrontierCallbackGetErrors[keyof FrontierCallbackApiAuthFrontierCallbackGetErrors];
+export type FrontierCallbackApiV1AuthFrontierCallbackGetError = FrontierCallbackApiV1AuthFrontierCallbackGetErrors[keyof FrontierCallbackApiV1AuthFrontierCallbackGetErrors];
 
-export type FrontierCallbackApiAuthFrontierCallbackGetResponses = {
+export type FrontierCallbackApiV1AuthFrontierCallbackGetResponses = {
     /**
      * Successful Response
      */
     200: unknown;
 };
 
-export type AuthSessionApiAuthSessionGetData = {
+export type AuthSessionApiV1AuthSessionGetData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/auth/session';
+    url: '/api/v1/auth/session';
 };
 
-export type AuthSessionApiAuthSessionGetResponses = {
+export type AuthSessionApiV1AuthSessionGetResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type AuthSessionApiAuthSessionGetResponse = AuthSessionApiAuthSessionGetResponses[keyof AuthSessionApiAuthSessionGetResponses];
+export type AuthSessionApiV1AuthSessionGetResponse = AuthSessionApiV1AuthSessionGetResponses[keyof AuthSessionApiV1AuthSessionGetResponses];
 
-export type AuthLogoutApiAuthLogoutPostData = {
+export type AuthLogoutApiV1AuthLogoutPostData = {
     body?: never;
     path?: never;
     query?: never;
-    url: '/api/auth/logout';
+    url: '/api/v1/auth/logout';
 };
 
-export type AuthLogoutApiAuthLogoutPostResponses = {
+export type AuthLogoutApiV1AuthLogoutPostResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type AuthLogoutApiAuthLogoutPostResponse = AuthLogoutApiAuthLogoutPostResponses[keyof AuthLogoutApiAuthLogoutPostResponses];
+export type AuthLogoutApiV1AuthLogoutPostResponse = AuthLogoutApiV1AuthLogoutPostResponses[keyof AuthLogoutApiV1AuthLogoutPostResponses];
 
-export type ClaimOwnerApiAuthOwnerClaimPostData = {
+export type ListIdentitiesApiV1AuthIdentitiesGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/auth/identities';
+};
+
+export type ListIdentitiesApiV1AuthIdentitiesGetResponses = {
+    /**
+     * Response List Identities Api V1 Auth Identities Get
+     *
+     * Successful Response
+     */
+    200: Array<ExternalIdentityResponse>;
+};
+
+export type ListIdentitiesApiV1AuthIdentitiesGetResponse = ListIdentitiesApiV1AuthIdentitiesGetResponses[keyof ListIdentitiesApiV1AuthIdentitiesGetResponses];
+
+export type ClaimOwnerApiV1AuthOwnerClaimPostData = {
     body: OwnerClaimRequest;
     path?: never;
     query?: never;
-    url: '/api/auth/owner/claim';
+    url: '/api/v1/auth/owner/claim';
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostErrors = {
+export type ClaimOwnerApiV1AuthOwnerClaimPostErrors = {
     /**
      * Validation Error
      */
     422: HttpValidationError;
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostError = ClaimOwnerApiAuthOwnerClaimPostErrors[keyof ClaimOwnerApiAuthOwnerClaimPostErrors];
+export type ClaimOwnerApiV1AuthOwnerClaimPostError = ClaimOwnerApiV1AuthOwnerClaimPostErrors[keyof ClaimOwnerApiV1AuthOwnerClaimPostErrors];
 
-export type ClaimOwnerApiAuthOwnerClaimPostResponses = {
+export type ClaimOwnerApiV1AuthOwnerClaimPostResponses = {
     /**
      * Successful Response
      */
     200: AuthSessionResponse;
 };
 
-export type ClaimOwnerApiAuthOwnerClaimPostResponse = ClaimOwnerApiAuthOwnerClaimPostResponses[keyof ClaimOwnerApiAuthOwnerClaimPostResponses];
+export type ClaimOwnerApiV1AuthOwnerClaimPostResponse = ClaimOwnerApiV1AuthOwnerClaimPostResponses[keyof ClaimOwnerApiV1AuthOwnerClaimPostResponses];
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * External Identity Id
+         */
+        external_identity_id: string;
+    };
+    query?: never;
+    url: '/api/v1/auth/identities/{external_identity_id}';
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteError = UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors[keyof UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteErrors];
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses = {
+    /**
+     * Successful Response
+     */
+    200: AuthSessionResponse;
+};
+
+export type UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponse = UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses[keyof UnlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDeleteResponses];
 
 export type HealthApiHealthGetData = {
     body?: never;
@@ -7927,6 +8401,82 @@ export type PutProfileSyncApiProfileSyncSyncKeyPutResponses = {
      */
     200: unknown;
 };
+
+export type GenerationApiRatingsV4GenerationGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/ratings/v4/generation';
+};
+
+export type GenerationApiRatingsV4GenerationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: GenerationResponse;
+};
+
+export type GenerationApiRatingsV4GenerationGetResponse = GenerationApiRatingsV4GenerationGetResponses[keyof GenerationApiRatingsV4GenerationGetResponses];
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/ratings/v4/systems/{system_id64}';
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetError = SystemScoresApiRatingsV4SystemsSystemId64GetErrors[keyof SystemScoresApiRatingsV4SystemsSystemId64GetErrors];
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemRatingsResponse;
+};
+
+export type SystemScoresApiRatingsV4SystemsSystemId64GetResponse = SystemScoresApiRatingsV4SystemsSystemId64GetResponses[keyof SystemScoresApiRatingsV4SystemsSystemId64GetResponses];
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetData = {
+    body?: never;
+    path: {
+        /**
+         * System Id64
+         */
+        system_id64: number;
+    };
+    query?: never;
+    url: '/api/ratings/v4/systems/{system_id64}/explanation';
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetError = SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors[keyof SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetErrors];
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: SystemExplanationResponse;
+};
+
+export type SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponse = SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses[keyof SystemExplanationApiRatingsV4SystemsSystemId64ExplanationGetResponses];
 
 export type ImportPowerplayJournalApiPowerplayImportPostData = {
     body: PowerplayImportRequest;

@@ -7,6 +7,14 @@ replacement infrastructure.
 
 The current environment uses PostgreSQL 18, the current backup/PITR design, the Frontier identity service, and the replacement-host operator boundary. Production actions must use only current V3 runbooks and workflows that explicitly target this environment.
 
+The reviewed V3 application promotion boundary is
+[`v3-production-application-release.md`](v3-production-application-release.md).
+It has its own app-only blue/green Compose authority and is deliberately
+separate from the root/legacy Compose and the Contabo checkpoint. Its committed
+target remains stopped pending a reviewed read-only production inventory,
+schema identity, network/secret/receipt facts, and exact unchanged-edge cutover
+topology. That stopped authority is not permission to deploy.
+
 Do not infer production authority from old Git history, archived artifacts, removed workflows, or obsolete server-side paths.
 
 Hetzner/V2 is decommissioned. Its host, container, cron, database, backup,
@@ -16,13 +24,30 @@ describe this V3 environment.
 ## Contabo runner and checkpoint boundary
 
 Contabo hosts exactly three self-hosted Codex runners. It is not ED-Finder
-production and it is not automatically the destination for a live checkpoint.
+production. It is now the selected first V3 live-checkpoint target only through
+the separate environment-gated application checkpoint boundary; this does not
+make it a production target or authorize production credentials/data/routing.
 
-A separate read-only capacity audit found only that a small checkpoint could be
-feasible with explicit resource limits and isolation. Checkpoint destination,
-topology, data posture, lifecycle, capacity limits, and acceptance remain a
-deployment decision. Current authority must not couple that destination to the
-runner host.
+Read-only inspection on 2026-09-06 proved host identity
+`vmi3542235` / `vmi3542235.contaboserver.net`, `x86_64`, 8 logical CPUs,
+24,608,576 KiB RAM (23,340,792 KiB then available), and 268,809,076,736 bytes
+free on the root filesystem. Exactly three runner services were active. Only
+SSH on TCP 22 and loopback DNS on TCP 53 were listening. No container runtime,
+Compose installation, containers, container networks or volumes were present.
+Provision run `34066816058` subsequently reached `contabo-codex-worker` on that
+host, but job `101576958599` stopped at the immutable provision step with
+`sudo: a password is required`. It performed no provisioning mutation. The
+current checkpoint runbook defines the one-time narrow host-interface install
+required before retrying provisioning; it does not grant broad sudo authority.
+
+The reviewed checkpoint namespace is `edfinder-v3-checkpoint`, limited to the
+`api` and `web` application services and 2 CPUs/2 GiB combined. Its lifecycle
+is persistent: application upgrades never rebuild or tear down infrastructure.
+The exact stopped facts and external-authority blockers live in
+`deploy/v3-live-checkpoint/target-authority.json`. In particular, there is no
+authorized checkpoint database/data source, origin/edge wiring, secret mount,
+GHCR pull authority or durable receipt store yet, so first-deployment mutation
+remains stopped. Production PostgreSQL/data must not fill that gap.
 
 Ollama was experimental residue used to test local inference for Octopus. It
 has been removed from production and is not part of the V3 architecture.

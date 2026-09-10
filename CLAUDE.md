@@ -11,18 +11,22 @@ Start at `README.md`, then use this small current authority chain:
 3. `docs/colonisation-redesign/spatial-platform-product-contract.md` — product and spatial feature contract.
 4. `docs/colonisation-redesign/spatial-platform-architecture-decision.md` — renderer-neutral architecture and ownership.
 5. `docs/development/v3-browser-validation-lanes.md` — browser acceptance lanes.
-6. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
-7. this file — engineering and agent constraints, followed by current code/tests on the target branch.
+6. `docs/development/v3-search-spatial-derived-data-decision.md` — merged search/spatial and derived-generation authority.
+7. `docs/development/ratings-v4-freeze/README.md` — frozen Ratings V4.0 mechanics and validation.
+8. `docs/operations/infrastructure-status.md` — current production/recovery boundary.
+9. this file — engineering and agent constraints, followed by current code/tests on the target branch.
 
 Git history, removed workflows, old artifacts, and superseded design documents are evidence only. They are not current execution authority.
 
 ## Current programme
 
-The V3 application and One Spatial Platform programme is current. PR #601 is
-the single active application integration lane; at its currently known head it
-contains an Explore/Finder → fresh Babylon results → canonical Inspect slice.
-Because that work is an active PR, do not claim it has merged into `main`
-before repository state proves it.
+The V3 application and One Spatial Platform programme is current. PR #601's
+Explore/Finder → fresh Babylon results → canonical Inspect slice merged to
+`main` at `6d574a2908ebda146a2c271f8fb46a9e272ad12e`. The non-production live
+checkpoint remains a separate rehearsal boundary. The explicitly V3 production
+application authority is app-only and currently stopped pending reviewed live
+inventory/schema and external network, secret-file, receipt-store, Docker-context
+and unchanged-edge cutover facts; its presence is not permission to deploy.
 
 `apps/web/` is the sole target for new browser application work. Svelte/SvelteKit
 owns the application, domain orchestration, routes, panels, and accessible DOM;
@@ -62,9 +66,10 @@ environment. Hetzner/V2 is decommissioned.
 - Redis/cache state is disposable and rebuildable.
 - NATS/JetStream transport state is not canonical domain truth.
 - Production commands must come from current V3 runbooks/workflows that explicitly identify the target and safety boundary.
-- Contabo hosts exactly three self-hosted Codex runners. It is not production
-  and is not automatically a live-checkpoint destination; that destination is
-  a deployment decision with explicit capacity and isolation limits.
+- Contabo hosts exactly three self-hosted Codex runners. It is not production.
+  It is the selected first live-checkpoint target only through the isolated,
+  bounded application deployment authority; missing runtime/data/route facts
+  still stop mutation.
 - Ollama was experimental Octopus residue and has been removed from production;
   do not restore or document it as architecture.
 
@@ -83,6 +88,10 @@ Current operator helpers include:
 - `scripts/operator/actions/octopus-edge-status.sh`
 - `scripts/operator/actions/octopus-qdrant-healthcheck-repair.sh`
 - `scripts/operator/recover_v3_runtime_contract.py`
+- `scripts/operator/v3_production_inventory.py` (read-only, already-present host
+  Python runtime allowed; no host Python installation authority)
+- `scripts/operator/v3_production_deploy.py` (only through the protected,
+  manual production workflow and its fail-closed target authority)
 
 Other scripts under `scripts/operator/` are repository tooling unless a current V3 runbook explicitly promotes them to production authority.
 
@@ -109,6 +118,14 @@ use pinned Psycopg 3. The Codex worker, repository tooling, importer, canonical
 safety, and static-contract lanes follow the same CPython 3.14 authority.
 Ruff targets `py314` so its parser and lint contract matches the exact runtime.
 
+Named pre-install exception: the fixed root-owned checkpoint launcher executes
+the installed root-owned bootstrap with `/usr/bin/python3 -I -S` and
+standard-library modules only to verify and unpack the sealed operation artifact
+before system CPython 3.14 exists. A committed-source SHA handshake must match
+the installed helper before artifact access. Neither launcher nor bootstrap may
+load coding-worktree or toolcache code. This exception does not apply to
+application, migration, release-verification or canonical deploy runtimes.
+
 Backend code lives primarily under `apps/`; migrations live under `sql/`.
 
 Rules:
@@ -123,9 +140,8 @@ Rules:
 
 New V3 application implementation lives under `apps/web/` and follows the locked Svelte 5/SvelteKit 2/TypeScript 6, Node 24 and pnpm 11 target in `docs/development/v3-application-stack-decision.md`. The checked-in frontend under `frontend/` still uses React, TypeScript and Vite; it remains migration/reference evidence with protected validation until deliberately retired after equivalent coverage exists.
 
-PR #601's known active head includes Finder, fresh Babylon results, and
-canonical Inspect integration. Treat that as active-PR state until merged, and
-keep new implementation in `apps/web/`.
+The merged #601 baseline includes Finder, fresh Babylon results, and canonical
+Inspect integration. Keep new implementation in `apps/web/`.
 
 The `apps/web/` static SPA owns application/static routes. FastAPI retains `/api/*`, exact `/openapi.json`, and numeric `/s/{id64}`; do not add a frontend route or backend catch-all that blurs that boundary.
 

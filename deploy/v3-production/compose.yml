@@ -1,0 +1,82 @@
+name: edfinder-v3-production
+
+# This is the only V3 production application Compose authority. It deliberately
+# owns two blue/green application slots and nothing else. PostgreSQL, Redis,
+# NATS, the TLS/public-auth edge, the legacy proxy, Octopus, and unrelated
+# containers remain externally managed and must never become dependencies.
+x-api: &api
+  image: ${V3_PRODUCTION_API_IMAGE:?digest-pinned API image is required}
+  restart: unless-stopped
+  env_file:
+    - ${V3_PRODUCTION_API_ENV_FILE:?verified production API env snapshot is required}
+  environment:
+    BUILD_SHA: ${V3_PRODUCTION_SOURCE_SHA:?exact source SHA is required}
+    # Candidate verification must not perform startup/background writes. These
+    # remain disabled after cutover until a separate reviewed worker authority
+    # explicitly owns them.
+    ADMIN_OPERATION_STARTUP_REAP_ENABLED: "false"
+    EDDN_SIMULATION_INGEST_ENABLED: "false"
+  expose:
+    - "8000"
+  networks:
+    - app
+  pids_limit: 512
+  cpus: "2.00"
+  mem_limit: 4096m
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "3"
+  security_opt:
+    - no-new-privileges:true
+
+x-web: &web
+  image: ${V3_PRODUCTION_WEB_IMAGE:?digest-pinned web image is required}
+  restart: unless-stopped
+  environment:
+    BUILD_SHA: ${V3_PRODUCTION_SOURCE_SHA:?exact source SHA is required}
+  networks:
+    - app
+  pids_limit: 256
+  cpus: "1.00"
+  mem_limit: 1024m
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "3"
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  api-blue:
+    <<: *api
+    container_name: edfinder-v3-production-api-blue
+
+  web-blue:
+    <<: *web
+    container_name: edfinder-v3-production-web-blue
+    environment:
+      BUILD_SHA: ${V3_PRODUCTION_SOURCE_SHA:?exact source SHA is required}
+      EDFINDER_API_UPSTREAM: edfinder-v3-production-api-blue:8000
+    ports:
+      - ${V3_PRODUCTION_ORIGIN_BIND:?reviewed loopback origin bind is required}:8080
+
+  api-green:
+    <<: *api
+    container_name: edfinder-v3-production-api-green
+
+  web-green:
+    <<: *web
+    container_name: edfinder-v3-production-web-green
+    environment:
+      BUILD_SHA: ${V3_PRODUCTION_SOURCE_SHA:?exact source SHA is required}
+      EDFINDER_API_UPSTREAM: edfinder-v3-production-api-green:8000
+    ports:
+      - ${V3_PRODUCTION_ORIGIN_BIND:?reviewed loopback origin bind is required}:8080
+
+networks:
+  app:
+    name: ${V3_PRODUCTION_APP_NETWORK:?reviewed external application network is required}
+    external: true

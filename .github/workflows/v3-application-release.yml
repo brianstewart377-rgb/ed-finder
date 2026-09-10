@@ -21,6 +21,10 @@ on:
         description: Non-secret reviewed evidence identifier (required for proved compatibility)
         required: false
         type: string
+      reviewed_compatible_migration_sets:
+        description: Reviewed sha256 migration-set identities, one per line (backward-compatible only)
+        required: false
+        type: string
       rollback_eligible:
         description: Mark this release application-only rollback eligible
         required: true
@@ -43,6 +47,7 @@ jobs:
       git_sha: ${{ steps.source.outputs.git_sha }}
       backend_repository: ${{ steps.source.outputs.backend_repository }}
       web_repository: ${{ steps.source.outputs.web_repository }}
+      compatible_migration_sets: ${{ steps.compatibility.outputs.compatible_migration_sets }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,12 +72,57 @@ jobs:
           echo "git_sha=$actual_sha" >> "$GITHUB_OUTPUT"
           echo "backend_repository=ghcr.io/$repository/v3-backend" >> "$GITHUB_OUTPUT"
           echo "web_repository=ghcr.io/$repository/v3-web" >> "$GITHUB_OUTPUT"
+      - name: Normalize reviewed compatible migration identities
+        id: compatibility
+        shell: bash
+        env:
+          COMPATIBILITY: ${{ inputs.schema_compatibility }}
+          REVIEWED_COMPATIBLE_MIGRATION_SETS: ${{ inputs.reviewed_compatible_migration_sets }}
+        run: |
+          set -euo pipefail
+          normalized="$RUNNER_TEMP/reviewed-compatible-migration-sets.txt"
+          : > "$normalized"
+
+          if [ "$COMPATIBILITY" != "backward-compatible" ]; then
+            if [[ "$REVIEWED_COMPATIBLE_MIGRATION_SETS" =~ [^[:space:]] ]]; then
+              echo "reviewed compatible migration sets are accepted only for backward-compatible releases" >&2
+              exit 64
+            fi
+          else
+            if printf '%s' "$REVIEWED_COMPATIBLE_MIGRATION_SETS" | grep -Eiq \
+              '(password|passwd|secret|private[-_ ]?key|access[-_ ]?token|dsn|credential|[a-z][a-z0-9+.-]*://[^/@[:space:]:]+:[^/@[:space:]]+@)'; then
+              echo "reviewed compatible migration sets contain secret-like material" >&2
+              exit 64
+            fi
+
+            declare -A seen=()
+            while IFS= read -r identity || [ -n "$identity" ]; do
+              identity="${identity%$'\r'}"
+              identity="${identity#"${identity%%[![:space:]]*}"}"
+              identity="${identity%"${identity##*[![:space:]]}"}"
+              [ -n "$identity" ] || continue
+              [[ "$identity" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+                echo "each reviewed compatible migration set must be sha256:<64 lowercase hex>" >&2
+                exit 64
+              }
+              if [[ -v 'seen[$identity]' ]]; then
+                echo "reviewed compatible migration sets must not contain duplicates" >&2
+                exit 64
+              fi
+              seen["$identity"]=1
+              printf '%s\n' "$identity" >> "$normalized"
+            done <<< "$REVIEWED_COMPATIBLE_MIGRATION_SETS"
+            sort -o "$normalized" "$normalized"
+          fi
+
+          printf 'compatible_migration_sets=%s\n' "$(paste -sd ' ' "$normalized")" >> "$GITHUB_OUTPUT"
       - name: Validate manifest policy inputs before image publication
         shell: bash
         env:
           GIT_SHA: ${{ inputs.source_sha }}
           COMPATIBILITY: ${{ inputs.schema_compatibility }}
           COMPATIBILITY_EVIDENCE: ${{ inputs.compatibility_evidence }}
+          COMPATIBLE_MIGRATION_SETS: ${{ steps.compatibility.outputs.compatible_migration_sets }}
           ROLLBACK_ELIGIBLE: ${{ inputs.rollback_eligible }}
         run: |
           set -euo pipefail
@@ -86,6 +136,12 @@ jobs:
           )
           if [ -n "$COMPATIBILITY_EVIDENCE" ]; then
             args+=(--compatibility-evidence "$COMPATIBILITY_EVIDENCE")
+          fi
+          if [ "$COMPATIBILITY" = "backward-compatible" ]; then
+            read -ra compatible_migration_sets <<< "$COMPATIBLE_MIGRATION_SETS"
+            for identity in "${compatible_migration_sets[@]}"; do
+              args+=(--compatible-migration-set "$identity")
+            done
           fi
           if [ "$ROLLBACK_ELIGIBLE" = true ]; then
             args+=(--rollback-eligible --rollback-reason "Eligible only for the listed migration identities.")
@@ -190,6 +246,7 @@ jobs:
           WEB_IMAGE: ${{ needs.validate-source.outputs.web_repository }}@${{ needs.build-web.outputs.digest }}
           COMPATIBILITY: ${{ inputs.schema_compatibility }}
           COMPATIBILITY_EVIDENCE: ${{ inputs.compatibility_evidence }}
+          COMPATIBLE_MIGRATION_SETS: ${{ needs.validate-source.outputs.compatible_migration_sets }}
           ROLLBACK_ELIGIBLE: ${{ inputs.rollback_eligible }}
         run: |
           set -euo pipefail
@@ -204,6 +261,12 @@ jobs:
           if [ -n "$COMPATIBILITY_EVIDENCE" ]; then
             args+=(--compatibility-evidence "$COMPATIBILITY_EVIDENCE")
           fi
+          if [ "$COMPATIBILITY" = "backward-compatible" ]; then
+            read -ra compatible_migration_sets <<< "$COMPATIBLE_MIGRATION_SETS"
+            for identity in "${compatible_migration_sets[@]}"; do
+              args+=(--compatible-migration-set "$identity")
+            done
+          fi
           if [ "$ROLLBACK_ELIGIBLE" = true ]; then
             args+=(--rollback-eligible --rollback-reason "Eligible only for the listed migration identities.")
           else
@@ -214,7 +277,7 @@ jobs:
             release/v3-application-release.json \
             --expected-git-sha "$GIT_SHA" \
             --verify-source-migrations
-          sha256sum release/v3-application-release.json > release/v3-application-release.json.sha256
+          (cd release && sha256sum v3-application-release.json > v3-application-release.json.sha256)
       - name: Upload immutable release manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

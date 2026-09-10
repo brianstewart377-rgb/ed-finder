@@ -71,7 +71,12 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     # Ordinary operations delegate to the GENERATED Hey API SDK operations.
     assert "from './generated/sdk.gen'" in source
     assert "healthApiHealthGet(" in source
-    assert "authSessionApiAuthSessionGet(" in source
+    assert "authSessionApiV1AuthSessionGet(" in source
+    assert "authLogoutApiV1AuthLogoutPost(" in source
+    assert "claimOwnerApiV1AuthOwnerClaimPost(" in source
+    assert "listIdentitiesApiV1AuthIdentitiesGet(" in source
+    assert "frontierLinkApiV1AuthFrontierLinkPost(" in source
+    assert "unlinkIdentityApiV1AuthIdentitiesExternalIdentityIdDelete(" in source
     assert "getSystemApiSystemId64Get(" in source
     assert "autocompleteApiLocalAutocompleteGet(" in source
     assert "localSearchEndpointApiLocalSearchPost(" in source
@@ -79,6 +84,7 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     # ...not the raw shared transport hand-rolling the route any more.
     assert "apiRequest('/health'" not in source
     assert "apiRequest('/auth/session'" not in source
+    assert "apiRequest('/api/v1/auth" not in source
 
     # The facade configures the generated client with the application transport
     # contract (same-origin credentials, interceptors) and keeps the generated
@@ -89,6 +95,7 @@ def test_facade_delegates_ordinary_operations_to_generated_sdk_with_normalizatio
     assert "import type {" in source and "from './generated'" in source
     for generated_type in (
         "AuthSessionResponse",
+        "ExternalIdentityResponse",
         "HealthResponse",
         "AutocompleteHit",
         "LocalSearchRequest",

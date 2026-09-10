@@ -14,6 +14,7 @@ Endpoint surface (see individual router docstrings for detail):
   routers/watchlist.py  watchlist CRUD + changelog
   routers/notes.py      per-system user notes
   routers/events.py     EDDN SSE live feed + recent
+  routers/ratings_v4.py sealed V4 generation and independent economy scores
   routers/admin.py      cache stats/clear + cluster-rebuild trigger
   routers/search.py     autocomplete + local/galaxy/cluster search
   routers/systems.py    per-system / per-body detail + batch lookup
@@ -41,6 +42,7 @@ from slowapi.errors import RateLimitExceeded
 
 # Shared config, state, deps
 from edfinder_api.config import settings, log, limiter
+from edfinder_api.request_logging import redact_frontier_oauth_target
 from edfinder_api.state import (
     metrics as _metrics,
     observe_request_duration,
@@ -51,7 +53,10 @@ from edfinder_api.state import (
 
 # Routers
 from edfinder_api.routers.admin import router as admin_router, reap_stale_admin_operation_runs
-from edfinder_api.routers.auth import router as auth_router
+from edfinder_api.routers.auth import (
+    frontier_callback_compat_router,
+    router as auth_router,
+)
 from edfinder_api.routers.archetypes import router as archetypes_router
 from edfinder_api.routers.colony_planner import router as colony_planner_router
 from edfinder_api.routers.evidence import router as evidence_router
@@ -67,6 +72,7 @@ from edfinder_api.routers.observations import router as observations_router
 from edfinder_api.routers.operator import router as operator_router
 from edfinder_api.routers.optimiser import router as optimiser_router
 from edfinder_api.routers.profile import router as profile_router
+from edfinder_api.routers.ratings_v4 import router as ratings_v4_router
 from edfinder_api.routers.powerplay import router as powerplay_router
 from edfinder_api.routers.routes import router as routes_router
 from edfinder_api.routers.provenance_cockpit import router as provenance_cockpit_router
@@ -83,6 +89,20 @@ from edfinder_api.share_router import router as share_router
 # ---------------------------------------------------------------------------
 _sse_pubsub_task: Optional[asyncio.Task] = None
 _eddn_simulation_ingest_task: Optional[asyncio.Task] = None
+
+
+async def _reap_stale_admin_runs_on_startup(pool: asyncpg.Pool) -> None:
+    """Run the normal admin-operation recovery unless explicitly disabled."""
+    if not settings.admin_operation_startup_reap_enabled:
+        log.info('Startup admin operation reaping disabled by configuration')
+        return
+
+    try:
+        reaped = await reap_stale_admin_operation_runs(pool)
+        if reaped:
+            log.warning('Reaped %d stale admin operation runs during startup', reaped)
+    except asyncpg.exceptions.UndefinedTableError:
+        log.warning('admin_job_runs table missing during startup reap; skipping stale admin run cleanup')
 
 
 @asynccontextmanager
@@ -177,12 +197,7 @@ async def lifespan(app: FastAPI):
         log.info('PostgreSQL read-only pool not configured; reusing primary pool')
     set_readonly_pool(readonly_pool)
 
-    try:
-        reaped = await reap_stale_admin_operation_runs(pool)
-        if reaped:
-            log.warning('Reaped %d stale admin operation runs during startup', reaped)
-    except asyncpg.exceptions.UndefinedTableError:
-        log.warning('admin_job_runs table missing during startup reap; skipping stale admin run cleanup')
+    await _reap_stale_admin_runs_on_startup(pool)
 
     redis = None
     try:
@@ -309,6 +324,7 @@ async def metrics_middleware(request: Request, call_next: Any) -> Response:
 # ---------------------------------------------------------------------------
 @app.exception_handler(HTTPException)
 async def problem_details_handler(request: Request, exc: HTTPException):
+    request_target = redact_frontier_oauth_target(str(request.url))
     return JSONResponse(
         status_code=exc.status_code,
         content={
@@ -316,7 +332,7 @@ async def problem_details_handler(request: Request, exc: HTTPException):
             'title':    exc.detail if isinstance(exc.detail, str) else 'Error',
             'status':   exc.status_code,
             'detail':   exc.detail,
-            'instance': str(request.url),
+            'instance': request_target,
         },
         headers=getattr(exc, 'headers', None),
     )
@@ -325,7 +341,8 @@ async def problem_details_handler(request: Request, exc: HTTPException):
 @app.exception_handler(Exception)
 async def generic_error_handler(request: Request, exc: Exception):
     _metrics['errors_total'] += 1
-    log.exception('Unhandled error on %s %s', request.method, request.url)
+    request_target = redact_frontier_oauth_target(str(request.url))
+    log.exception('Unhandled error on %s %s', request.method, request_target)
     # This handler is what stops the exception from ever reaching an ASGI
     # middleware, so sentry_sdk's automatic capture never fires — report
     # explicitly instead. No-ops when SENTRY_DSN isn't set (config.py).
@@ -351,11 +368,13 @@ async def generic_error_handler(request: Request, exc: Exception):
 # ---------------------------------------------------------------------------
 app.include_router(share_router)
 app.include_router(auth_router)
+app.include_router(frontier_callback_compat_router)
 app.include_router(meta_router)
 app.include_router(news_router)
 app.include_router(watchlist_router)
 app.include_router(notes_router)
 app.include_router(profile_router)
+app.include_router(ratings_v4_router)
 app.include_router(powerplay_router)
 app.include_router(admin_router)
 app.include_router(events_router)

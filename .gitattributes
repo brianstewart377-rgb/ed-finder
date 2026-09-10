@@ -1,1 +1,8 @@
 *.sh text eol=lf
+# Immutable validation source artifacts retain their original byte checksums.
+tests/fixtures/ratings_v4_sources/canonical.json -text
+tests/fixtures/ratings_v4_sources/source-metadata.json -text
+tests/fixtures/ratings_v4_sources/spansh-system-dumps.zip -text
+# Recovered canonical source is verified against the published run's byte hash.
+apps/importer/src/v3_spansh/*.py -text
+sql/v3/migrations/001_v3_baseline.sql -text

@@ -187,10 +187,11 @@ def test_browser_product_acceptance_and_review_lab_are_separate_babylon_lanes():
     assert browser_lanes.count("babylon") >= 2
 
 
-def test_pr_601_is_described_as_an_active_product_integration_lane():
+def test_pr_601_is_described_as_the_merged_product_baseline():
     roadmap = _contract(ROADMAP).lower()
 
-    assert "#601" in roadmap and "active" in roadmap
+    assert "#601" in roadmap and "merged" in roadmap
+    assert "6d574a2908ebda146a2c271f8fb46a9e272ad12e" in roadmap
     for product_slice in ("finder", "inspect", "babylon"):
         assert product_slice in roadmap
     assert not re.search(r"#601.{0,160}foundation[- ]only", roadmap)
@@ -203,10 +204,6 @@ def test_primary_authorities_do_not_restore_superseded_stage_or_checkpoint_claim
     forbidden_claims = (
         r"(?:archived?|historical) (?:documents?|docs).{0,80}(?:are|as) "
         r"(?:the )?(?:current|primary) authority",
-        r"contabo live[- ]checkpoint",
-        r"contabo.{0,80}live[- ]checkpoint environment",
-        r"contabo is (?:the |a )?(?:live[- ]?)?checkpoint",
-        r"checkpoint (?:target|destination|environment) is contabo",
         r"27a.{0,80}only authori[sz]es 27b",
         r"babylon runtime is not authori[sz]ed in this stage",
         r"(?:#601|apps/web).{0,120}foundation[- ]only",

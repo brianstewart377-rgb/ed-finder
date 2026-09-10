@@ -11,6 +11,8 @@ Start at the [root authority index](../README.md), then use:
 - [V3 application stack decision](development/v3-application-stack-decision.md)
 - [spatial product contract](colonisation-redesign/spatial-platform-product-contract.md)
 - [spatial architecture decision](colonisation-redesign/spatial-platform-architecture-decision.md)
+- [V3 search, spatial and derived-data decision](development/v3-search-spatial-derived-data-decision.md)
+- [Ratings V4.0 freeze](development/ratings-v4-freeze/README.md)
 - [browser validation lanes](development/v3-browser-validation-lanes.md)
 - [infrastructure status](operations/infrastructure-status.md)
 
@@ -27,22 +29,25 @@ or override this set.
   new browser application work: Svelte/SvelteKit with a fresh Babylon renderer.
   React/R3F/Three is historical migration, behaviour, and parity evidence only;
   it is not the V3 target or current production authority.
-- **Active integration lane:** PR #601 is the single active V3 application
-  integration lane. Its current known head
-  `12eebac48ca9286e0fd8c180cc5f552dc922d07e` contains the real
-  Explore/Finder → fresh Babylon results → canonical Inspect slice and the
-  Review Lab rebase to `apps/web` + Babylon. Exact-head validation remains in
-  stabilization, so that is active-PR state rather than a green checkpoint or
-  a claim that the implementation has merged into this `main`-based branch.
+- **Merged application baseline:** PR #601's Explore/Finder → fresh Babylon
+  results → canonical Inspect slice and Review Lab rebase to `apps/web` +
+  Babylon merged at exact `main` commit
+  `6d574a2908ebda146a2c271f8fb46a9e272ad12e`.
 - **Historical renderer decision:** the equal Stage 26 bakeoff selected R3F and
   the subsequent Stage 26 work shipped. That result remains valuable history;
   it does not constrain the post-V2 V3 renderer target.
 - **Infrastructure separation:** Contabo is the host for exactly three
-  self-hosted Codex runners. It is not production. A live-checkpoint destination
-  remains a deployment decision; a prior read-only capacity audit established
-  only that a small isolated, bounded checkpoint might be feasible.
+  self-hosted Codex runners and the selected first live-checkpoint target. It
+  is not production. The checkpoint is limited to a persistent, isolated and
+  bounded two-service application namespace; current missing runtime, data and
+  route authority keeps mutation stopped.
 - **Inference:** Ollama was an Octopus experiment and has been removed from
   production. It is not part of the architecture.
+- **Production application authority:** the separate app-only V3 production
+  promotion path is defined, but its committed target is stopped pending a
+  reviewed fresh inventory, live schema compatibility and exact external
+  network/secret/receipt/Docker/unchanged-edge cutover facts. The root Compose
+  and Contabo checkpoint remain non-authoritative for production.
 
 ## Product journey and spatial north star
 
@@ -62,23 +67,29 @@ evidence-interpretation, and Digital Twin owner.
 
 ## Execution order
 
-1. **Stabilize the active browser slice.** Complete review of PR #601's
-   Explore/Finder → Babylon results → Inspect journey, including typed
-   boundaries, accessibility, bounded data, Product E2E/Visual Acceptance, and
-   the separate Review Lab lane.
+1. **Keep checkpoint and production authorities separate.** The Contabo
+   checkpoint remains non-production. Use only the production authority's
+   read-only inventory to resolve its explicit blockers; do not deploy while
+   its target is stopped.
 2. **Harden the V3 release.** Continue CPython 3.14/`uv`, immutable release
    provenance, same-origin route, health, migration compatibility, and rollback
    work without treating an application release as database recovery.
-3. **Merge, then choose checkpoint policy.** Accept the exact reviewed PR head
-   before any checkpoint/promotion decision. The destination and isolation
-   limits are deployment choices; Contabo is not a default.
-4. **Resolve search and data architecture in order.** Establish Search product
-   and performance requirements, then choose the spatial index/grid/cluster
-   design, then define the PostgreSQL 18 derived-data bootstrap.
-5. **Resolve judgement dependencies.** Reconcile current Ratings v3.4 uses with
-   the roadmap's intended archetype judgement layer before a full ratings,
-   grid, cluster, or derived-data build is prescribed.
-6. **Establish V3 database evidence.** Add reviewed PostgreSQL 18 maintenance,
+3. **Promote only after reviewed production preflight.** A candidate must be an
+   authenticated immutable release compatible with the freshly verified live
+   ledger. Preserve PostgreSQL 18, Redis, NATS, the public-auth/TLS edge,
+   Octopus and unrelated containers; schema deltas stop for a separate
+   production migration authority.
+4. **Preserve the checkpoint boundary.** Keep Contabo non-production and its
+   persistent app-only namespace isolated from the three runner services.
+5. **Integrate the merged V4 contract.** PR #645 establishes search/spatial and
+   derived-generation architecture; PR #646 freezes Ratings V4.0. Recover the
+   verified canonical importer, preserve source provenance and unknowns, then
+   implement the production derived-generation schema and bounded builder.
+6. **Validate and publish V4.** Prove complete generation coverage, scores,
+   explanations, resource use and rollback before exposing a stable API through
+   the reviewed production release controls. Archetypes and Finder ranking
+   follow this raw-economy layer and do not alter its frozen coefficients.
+7. **Establish V3 database evidence.** Add reviewed PostgreSQL 18 maintenance,
    backup, restore, and PITR evidence/procedures before claiming operational
    readiness. Historical V2 receipts cannot fill this gap.
 
@@ -86,14 +97,15 @@ evidence-interpretation, and Digital Twin owner.
 
 | Gate | Decision required before implementation |
 |---|---|
-| Search and spatial data | Search requirements → spatial index/grid/cluster design → PG18 derived-data bootstrap. Current normal Finder uses raw `x/y/z` bounding and distance and does not establish `grid_cell_id` as a first-class accelerator. |
-| Scoring and judgement | Decide how Ratings v3.4 code/data dependencies relate to the intended archetype judgement layer. Do not trigger a full ratings/archetype rebuild from this roadmap. |
-| Derived-data bootstrap | Define sources, ordering, versioning, bounded resource use, rebuildability, verification, and rollback only after the preceding two gates. |
-| Live checkpoint | Choose destination, resource limits, isolation, data posture, lifecycle, and acceptance. Contabo runner hosting is not architectural authorization. |
+| Search and spatial data | Decided by merged PR #645: exact coordinates, cube/GiST, versioned search/map projections and independent cluster publication. |
+| Scoring and judgement | Ratings V4.0 is frozen by PR #646. Seven independent raw scores; archetype judgement and Finder ranking remain later layers. |
+| Derived-data bootstrap | Implement recovered canonical inputs, bounded generation builds, complete validation and atomic publication/rollback through reviewed production controls. |
+| Live checkpoint | Supply the still-missing non-production database/config, container runtime, origin/edge and receipt authorities before first mutation. |
 | V3 DB maintenance/recovery | Supply current PG18 population/invariant evidence and an executable reviewed backup/restore/PITR procedure. Until then, recovery remains fail-closed. |
 
-No final Search/Grid/Cluster authority document exists yet. Active audits feed
-that future decision; they do not pre-authorize its conclusion.
+The merged V3 search/spatial decision and Ratings V4.0 freeze are architecture
+and scoring authority. Their merge does not establish production build or
+publication evidence; the integration must produce those receipts.
 
 ## Deferred and later capabilities
 

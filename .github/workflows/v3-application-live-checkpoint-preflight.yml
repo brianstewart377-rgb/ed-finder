@@ -1,43 +1,92 @@
-name: V3 application live-checkpoint deploy preflight
+name: V3 application live-checkpoint deploy
 
 on:
   workflow_dispatch:
     inputs:
+      transport:
+        description: Existing local connection; SSH is explicit compatibility only
+        required: true
+        default: local
+        type: choice
+        options:
+          - local
+          - ssh
+      deployment_mode:
+        description: Bootstrap proves app absence; upgrade uses the durable accepted host receipt and manifest
+        required: true
+        default: bootstrap
+        type: choice
+        options:
+          - bootstrap
+          - upgrade
       release_run_id:
         description: Release workflow run containing the Contabo live-checkpoint candidate
-        required: true
-        type: string
-      rollback_run_id:
-        description: Accepted prior release run containing the rollback manifest
         required: true
         type: string
 
 permissions:
   actions: read
   contents: read
+  packages: read
 
 concurrency:
   group: v3-application-live-checkpoint-deploy
   cancel-in-progress: false
 
 jobs:
-  preflight:
-    name: Verify live-checkpoint candidate and stop before mutation
-    runs-on: ubuntu-latest
-    # This boundary is intentionally distinct from the production operator
-    # environment and credentials. It grants no mutation authority by itself.
+  deploy:
+    name: Verify and apply the bounded live-checkpoint release
+    if: github.ref == 'refs/heads/main' && github.repository == 'brianstewart377-rgb/ed-finder'
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      artifact_id: ${{ steps.bundle-artifact.outputs.artifact-id }}
+      bundle_sha256: ${{ steps.bundle.outputs.bundle_sha256 }}
+      bootstrap_sha256: ${{ steps.bundle.outputs.bootstrap_sha256 }}
+      launcher_sha256: ${{ steps.bundle.outputs.launcher_sha256 }}
+    # This boundary is distinct from production credentials and routing.
     environment: v3-live-checkpoint
-    timeout-minutes: 10
+    # The operator bounds each command at 120 seconds and each candidate/rollback
+    # readiness window at 120 seconds. A worst-case upgrade, including host/runtime
+    # validation, four digest pull/inspect pairs, candidate apply/smoke, rollback
+    # apply/smoke, SSH transfer and receipt handling, remains below this job ceiling.
+    timeout-minutes: 75
     steps:
       - name: Checkout trusted operator implementation
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: main
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Set up CPython 3.14 for release verification
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
+      - name: Validate deployment mode before artifact access
+        shell: bash
+        env:
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]] || { echo "Candidate release run ID is invalid" >&2; exit 64; }
+          [[ "$DEPLOYMENT_MODE" = bootstrap || "$DEPLOYMENT_MODE" = upgrade ]] || { echo "Deployment mode is invalid" >&2; exit 64; }
+      - name: Stop locally when target authority is incomplete
+        shell: bash
+        env:
+          RECEIPT: ${{ runner.temp }}/v3-live-checkpoint-receipt.json
+        run: |
+          set -euo pipefail
+          gate_receipt="$RECEIPT.authority"
+          set +e
+          python scripts/operator/v3_checkpoint_deploy.py --authority-gate > "$gate_receipt"
+          gate_rc="$?"
+          set -e
+          cat "$gate_receipt"
+          if [ "$gate_rc" -ne 0 ]; then
+            mv "$gate_receipt" "$RECEIPT"
+            exit "$gate_rc"
+          fi
+          rm "$gate_receipt"
       - name: Download candidate release manifest
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
@@ -45,51 +94,116 @@ jobs:
           path: ${{ runner.temp }}/candidate
           run-id: ${{ inputs.release_run_id }}
           github-token: ${{ github.token }}
-      - name: Download accepted rollback manifest
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: v3-application-release-manifest
-          path: ${{ runner.temp }}/rollback
-          run-id: ${{ inputs.rollback_run_id }}
-          github-token: ${{ github.token }}
-      - name: Verify downloaded artifact checksums
-        shell: bash
-        env:
-          CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
-          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
-        run: |
-          set -euo pipefail
-          (cd "$(dirname "$CANDIDATE")" && sha256sum --check v3-application-release.json.sha256)
-          (cd "$(dirname "$ROLLBACK")" && sha256sum --check v3-application-release.json.sha256)
       - name: Authenticate release workflow run provenance
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
-          ROLLBACK_RUN_ID: ${{ inputs.rollback_run_id }}
           CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
-          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
         run: |
           set -euo pipefail
-          GITHUB_TOKEN="$GH_TOKEN" python scripts/release/v3_release_run.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --candidate-run-id "$CANDIDATE_RUN_ID" \
-            --candidate-manifest "$CANDIDATE" \
-            --rollback-run-id "$ROLLBACK_RUN_ID" \
-            --rollback-manifest "$ROLLBACK"
-      - name: Verify release and eligible rollback manifests
+          args=(
+            --repository "$GITHUB_REPOSITORY"
+            --candidate-run-id "$CANDIDATE_RUN_ID"
+            --candidate-manifest "$CANDIDATE"
+          )
+          GITHUB_TOKEN="$GH_TOKEN" python scripts/release/v3_release_run.py "${args[@]}"
+      - name: Verify downloaded artifact checksum
+        shell: bash
+        env:
+          CANDIDATE_DIR: ${{ runner.temp }}/candidate
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          import os
+          import re
+          import stat
+          import sys
+          from pathlib import Path
+
+          candidate_dir = Path(os.environ["CANDIDATE_DIR"])
+          manifest_basename = "v3-application-release.json"
+          manifest = candidate_dir / manifest_basename
+          checksum = candidate_dir / f"{manifest_basename}.sha256"
+
+          try:
+              for artifact in (manifest, checksum):
+                  metadata = artifact.lstat()
+                  if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                      raise OSError("candidate artifact is not a regular file")
+              checksum_bytes = checksum.read_bytes()
+          except OSError as exc:
+              print(
+                  f"Unable to read candidate checksum: {type(exc).__name__}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64) from exc
+
+          match = re.fullmatch(
+              rb"([0-9a-f]{64})  v3-application-release[.]json\n",
+              checksum_bytes,
+          )
+          if match is None:
+              print(
+                  "Candidate checksum must name only v3-application-release.json",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64)
+
+          try:
+              digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+          except OSError as exc:
+              print(
+                  f"Unable to read candidate manifest: {type(exc).__name__}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(64) from exc
+          if digest != match.group(1).decode("ascii"):
+              print("Candidate manifest checksum mismatch", file=sys.stderr)
+              raise SystemExit(64)
+          PY
+      - name: Verify candidate manifest
         shell: bash
         env:
           CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
-          ROLLBACK: ${{ runner.temp }}/rollback/v3-application-release.json
         run: |
           set -euo pipefail
           python scripts/release/v3_release_manifest.py verify "$CANDIDATE" --purpose deploy-candidate
-          python scripts/release/v3_release_manifest.py verify "$ROLLBACK" --purpose rollback-candidate
-          candidate_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$CANDIDATE")"
-          rollback_sha="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["git_sha"])' "$ROLLBACK")"
-          [ "$candidate_sha" != "$rollback_sha" ] || { echo "Candidate cannot be its own rollback" >&2; exit 64; }
+      - name: Record authenticated candidate identity
+        id: identity
+        env:
+          CANDIDATE: ${{ runner.temp }}/candidate/v3-application-release.json
+        run: |
+          python - <<'PYCODE'
+          import json, os, pathlib, re
+          sha = json.loads(pathlib.Path(os.environ["CANDIDATE"]).read_text())["git_sha"]
+          assert re.fullmatch(r"[0-9a-f]{40}", sha)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"source_sha={sha}\n")
+          PYCODE
+      - name: Seal verified local deployment bundle off-host
+        if: inputs.transport != 'ssh'
+        id: bundle
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+          MODE: ${{ inputs.deployment_mode }}
+          RELEASE_RUN: ${{ inputs.release_run_id }}
+        run: |
+          python scripts/operator/v3_checkpoint_bundle.py deploy --source "$SOURCE_SHA" \
+            --mode "$MODE" --run-id "$RELEASE_RUN" --candidate "$RUNNER_TEMP/candidate" \
+            --output "$RUNNER_TEMP/operation.tar"
+      - name: Upload sealed deployment bundle
+        if: inputs.transport != 'ssh'
+        id: bundle-artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: checkpoint-deploy-operation
+          path: ${{ runner.temp }}/operation.tar
+          if-no-files-found: error
+          retention-days: 1
       - name: Prepare pinned Contabo live-checkpoint SSH trust boundary
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
           SSH_KEY: ${{ secrets.V3_LIVE_CHECKPOINT_SSH_KEY }}
@@ -100,7 +214,7 @@ jobs:
           set -euo pipefail
           test -n "$SSH_KEY" || { echo "Missing V3_LIVE_CHECKPOINT_SSH_KEY" >&2; exit 1; }
           test -n "$SSH_HOST" || { echo "Missing V3_LIVE_CHECKPOINT_HOST" >&2; exit 1; }
-          test -n "$SSH_PORT" || { echo "Missing V3_LIVE_CHECKPOINT_PORT" >&2; exit 1; }
+          [[ "$SSH_PORT" =~ ^[1-9][0-9]{0,4}$ ]] && [ "$SSH_PORT" -le 65535 ] || { echo "Invalid V3_LIVE_CHECKPOINT_PORT" >&2; exit 1; }
           test -n "$SSH_KNOWN_HOSTS" || { echo "Missing pinned live-checkpoint known-hosts secret" >&2; exit 1; }
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
@@ -108,29 +222,169 @@ jobs:
           chmod 600 ~/.ssh/v3_live_checkpoint_key
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-          if [ "$SSH_PORT" = "22" ]; then
-            known_host_lookup="$SSH_HOST"
-          else
-            known_host_lookup="[$SSH_HOST]:$SSH_PORT"
-          fi
+          if [ "$SSH_PORT" = "22" ]; then known_host_lookup="$SSH_HOST"; else known_host_lookup="[$SSH_HOST]:$SSH_PORT"; fi
           ssh-keygen -F "$known_host_lookup" -f ~/.ssh/known_hosts >/dev/null || {
             echo "Pinned known-host trust does not cover the configured host and port" >&2
             exit 1
           }
-      - name: Run deliberately stopped Contabo host/topology preflight
+      - name: Authenticate ephemeral Contabo GHCR pull authority
+        if: inputs.transport == 'ssh'
         shell: bash
         env:
+          GHCR_TOKEN: ${{ github.token }}
           SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
           SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
           SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
         run: |
           set -euo pipefail
           test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
-          ssh -i ~/.ssh/v3_live_checkpoint_key \
-              -p "$SSH_PORT" \
-              -o IdentitiesOnly=yes \
-              -o StrictHostKeyChecking=yes \
-              -o UserKnownHostsFile=~/.ssh/known_hosts \
-              "$SSH_USER@$SSH_HOST" \
-              'bash -s' \
-              < scripts/operator/actions/v3-app-live-checkpoint-preflight.sh
+          printf '%s' "$GHCR_TOKEN" | ssh -i ~/.ssh/v3_live_checkpoint_key \
+            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; umask 077; env DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config DOCKER_CONTEXT=edfinder-v3-checkpoint-local docker login ghcr.io -u brianstewart377-rgb --password-stdin >/dev/null'
+      - name: Assemble source-free deployment bundle
+        if: inputs.transport == 'ssh'
+        shell: bash
+        env:
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-bundle
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$BUNDLE/deploy/v3-live-checkpoint" "$BUNDLE/scripts/operator/actions" "$BUNDLE/scripts/release" "$BUNDLE/artifacts/candidate"
+          install -m 600 deploy/v3-live-checkpoint/compose.yml deploy/v3-live-checkpoint/target-authority.json "$BUNDLE/deploy/v3-live-checkpoint/"
+          install -m 700 scripts/operator/v3_checkpoint_deploy.py "$BUNDLE/scripts/operator/"
+          install -m 700 scripts/operator/actions/v3-app-live-checkpoint-preflight.sh "$BUNDLE/scripts/operator/actions/"
+          install -m 600 scripts/release/v3_release_manifest.py "$BUNDLE/scripts/release/"
+          install -m 600 "$RUNNER_TEMP/candidate/v3-application-release.json" "$RUNNER_TEMP/candidate/v3-application-release.json.sha256" "$BUNDLE/artifacts/candidate/"
+      - name: Run bounded Contabo deployment boundary
+        if: inputs.transport == 'ssh'
+        shell: bash
+        env:
+          DEPLOYMENT_MODE: ${{ inputs.deployment_mode }}
+          CANDIDATE_RUN_ID: ${{ inputs.release_run_id }}
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+          BUNDLE: ${{ runner.temp }}/v3-live-checkpoint-bundle
+          RECEIPT: ${{ runner.temp }}/v3-live-checkpoint-receipt.json
+        run: |
+          set -euo pipefail
+          test -n "$SSH_USER" || { echo "Missing V3_LIVE_CHECKPOINT_USER" >&2; exit 1; }
+          remote_receipt="$RECEIPT.remote"
+          remote_args=(--mode "$DEPLOYMENT_MODE" --candidate-run-id "$CANDIDATE_RUN_ID" --candidate artifacts/candidate/v3-application-release.json --candidate-checksum artifacts/candidate/v3-application-release.json.sha256)
+          printf '%s\0' "${remote_args[@]}" > "$BUNDLE/arguments"
+          set +e
+          tar -C "$BUNDLE" -cf - . | ssh -i ~/.ssh/v3_live_checkpoint_key \
+            -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+            'set -eu; umask 077; work="$(mktemp -d)"; trap '\''rm -rf -- "$work"'\'' EXIT HUP INT TERM; tar -xf - -C "$work"; cd "$work"; xargs -0 bash scripts/operator/actions/v3-app-live-checkpoint-preflight.sh < arguments' \
+            > "$remote_receipt"
+          pipeline_status=("${PIPESTATUS[@]}")
+          set -e
+          if [ -s "$remote_receipt" ] && python -m json.tool "$remote_receipt" >/dev/null; then
+            mv "$remote_receipt" "$RECEIPT"
+            cat "$RECEIPT"
+          else
+            python - <<'PY' > "$RECEIPT"
+          import json
+          print(json.dumps({
+              "schema_version": "ed-finder/v3-live-checkpoint-deployment-receipt/v1",
+              "status": "stopped",
+              "failures": ["remote_transport_or_bundle_failed"],
+              "service_changes_performed": None,
+              "service_changes_may_have_been_performed": True,
+              "image_pulls_performed": None,
+              "image_pulls_may_have_been_performed": True,
+              "database_access_performed": None,
+              "database_access_may_have_been_performed": True,
+              "env_file_consumed_by_compose": None,
+              "env_file_may_have_been_consumed_by_compose": True,
+              "rollback_status": "unknown_require_durable_host_receipt_inspection",
+              "target_temporary_files_may_have_been_written": True,
+          }, sort_keys=True))
+          PY
+            cat "$RECEIPT"
+          fi
+          [ "${pipeline_status[0]}" -eq 0 ] && [ "${pipeline_status[1]}" -eq 0 ] || exit 78
+      - name: Clear ephemeral Contabo GHCR pull authority
+        if: always() && inputs.transport == 'ssh'
+        shell: bash
+        env:
+          SSH_HOST: ${{ secrets.V3_LIVE_CHECKPOINT_HOST }}
+          SSH_PORT: ${{ secrets.V3_LIVE_CHECKPOINT_PORT }}
+          SSH_USER: ${{ secrets.V3_LIVE_CHECKPOINT_USER }}
+        run: |
+          set +e
+          if [ -f ~/.ssh/v3_live_checkpoint_key ] && [ -n "$SSH_HOST" ] && [ -n "$SSH_PORT" ] && [ -n "$SSH_USER" ]; then
+            ssh -i ~/.ssh/v3_live_checkpoint_key \
+              -p "$SSH_PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=~/.ssh/known_hosts "$SSH_USER@$SSH_HOST" \
+              'env DOCKER_CONFIG=/var/lib/edfinder-v3-checkpoint/docker-config DOCKER_CONTEXT=edfinder-v3-checkpoint-local docker logout ghcr.io >/dev/null 2>&1 || true'
+          fi
+          exit 0
+      - name: Upload sanitized deployment receipt
+        if: always() && inputs.transport == 'ssh'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: v3-live-checkpoint-deployment-receipt
+          path: ${{ runner.temp }}/v3-live-checkpoint-receipt.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  apply-local:
+    needs: deploy
+    if: inputs.transport != 'ssh' && github.ref == 'refs/heads/main' && github.repository == 'brianstewart377-rgb/ed-finder'
+    runs-on: [self-hosted, Linux, X64, codex]
+    environment: v3-live-checkpoint
+    timeout-minutes: 75
+    # Job defaults support github/needs expressions; step.shell is literal-only.
+    defaults:
+      run:
+        shell: >-
+          /usr/bin/sudo -n --preserve-env=GH_TOKEN /usr/local/sbin/edfinder-v3-checkpoint-launcher --bootstrap-sha ${{ needs.deploy.outputs.bootstrap_sha256 }} --launcher-sha ${{ needs.deploy.outputs.launcher_sha256 }} ${{ needs.deploy.outputs.artifact_id }} ${{ needs.deploy.outputs.bundle_sha256 }} ${{ github.sha }} deploy "/tmp/v3-live-checkpoint-deployment-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json" {0}
+    steps:
+      - name: Execute sealed deploy bundle without a mutable launch script
+        # The runner starts only the installed checkpoint launcher via sudo. The generated {0} file is ignored.
+        # The hosted bootstrap SHA must match the installed root-owned helper.
+        working-directory: /
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ignored-by-immutable-bootstrap
+      - name: Upload v3-live-checkpoint-deployment-receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v3-live-checkpoint-deployment-receipt
+          path: /tmp/v3-live-checkpoint-deployment-receipt-${{ github.run_id }}-${{ github.run_attempt }}.json
+          if-no-files-found: warn
+          retention-days: 90
+
+  public-smoke:
+    name: Verify live checkpoint from outside Contabo
+    needs: [deploy, apply-local]
+    if: always() && needs.deploy.result == 'success' && (needs.apply-local.result == 'success' || (inputs.transport == 'ssh' && needs.apply-local.result == 'skipped'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact trusted main source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up CPython 3.14
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.14"
+      - name: Verify public Svelte and API release identity
+        env:
+          EXPECTED_SOURCE_SHA: ${{ needs.deploy.outputs.source_sha }}
+        run: python scripts/operator/v3_checkpoint_public_smoke.py --receipt "$RUNNER_TEMP/v3-checkpoint-public-smoke.json"
+      - name: Upload v3-live-checkpoint-public-smoke
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: v3-live-checkpoint-public-smoke
+          path: ${{ runner.temp }}/v3-checkpoint-public-smoke.json
+          if-no-files-found: error
+          retention-days: 90

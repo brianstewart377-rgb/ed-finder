@@ -10,17 +10,80 @@ Do not promote a repository helper into a production command merely because it e
 
 ## Contabo live-checkpoint helper
 
-- `actions/v3-app-live-checkpoint-preflight.sh`: fail-closed, read-only checkpoint
-  deployment preflight for the Contabo live-checkpoint environment, which is
-  explicitly not production and is separate from the production operator
-  environment and credentials. The environment-gated workflow invokes it only after
-  verifying digest release and rollback manifests. It reports the observed host
-  identity while explicitly keeping authoritative Contabo identity unresolved,
-  emits every unresolved topology/secret/schema/rollback fact, and always stops
-  without reading target-host secret files, accessing the database, pulling
-  images, writing files, or changing services.
+- `install_v3_checkpoint_host_interface.py`: the one-time, idempotent
+  non-production host privilege installer. The owner uses the single command
+  in `docs/operations/v3-live-checkpoint-infrastructure.md`; it resolves
+  protected `main` through GitHub and stages immutable-SHA source in a fresh
+  root-owned `/run` directory. Never execute this file as root from a mutable
+  runner checkout. The installer independently checks that exact head before
+  and after installation. It
+  atomically installs the root-owned fixed launcher and bootstrap. It first
+  removes the checkpoint sudo rule from the active include path and validates
+  the complete policy, then installs the helper pair and installs the
+  single host-specific sudoers rule for `codex` last. It validates the rule and
+  full policy with `visudo`, and exercises `sudo -n` through the launcher's
+  `--check` path. A failed validation or self-test transactionally restores all
+  three prior files and revalidates the complete sudo policy, with sudo
+  authority revoked first and the prior sudoers rule restored last. The rule preserves only `GH_TOKEN` and grants only
+  `/usr/local/sbin/edfinder-v3-checkpoint-launcher`, never Python, Bash,
+  `runuser`, Docker, or general command authority.
+- `actions/edfinder-v3-checkpoint-launcher` and `v3_checkpoint_bootstrap.py`:
+  reviewed sources for the installed root-owned interface. Workflows invoke
+  only the fixed installed launcher. A SHA-256 handshake binds the committed
+  launcher and bootstrap sources, both installed helpers, and the sealed
+  request; the root-owned launcher enforces it. A stale launcher or bootstrap
+  stops before artifact access and requires a deliberate installer rerun.
+  Before download, the bootstrap also resolves
+  the artifact's GitHub-owned workflow-run association and requires the exact
+  operation artifact name, canonical workflow/event/repository, active trusted
+  `main` head, and matching source SHA. These files must not be executed as
+  privileged worktree helpers during normal provisioning or deployment.
+- `actions/v3-app-live-checkpoint-preflight.sh`: CPython 3.14 launcher for the
+  fail-closed `v3_checkpoint_deploy.py` bootstrap/upgrade boundary. Contabo is
+  explicitly non-production and uses separate environment credentials. The
+  helper verifies digest manifests, target authority, the fixed `api`/`web`
+  allowlist, the selected context's exact `unix:///var/run/docker.sock` endpoint,
+  the local bridge network's exact app-only attachments and aliases, app absence
+  or the checksum-bound durable prior receipt/manifest, and the live database
+  identity plus current applied migration set before any pull or service change.
+  Database verification is read-only and never reports or persists the
+  credential-bearing `DATABASE_URL`; Compose receives only a private verified
+  snapshot that is retained through rollback and then removed. Candidate and
+  rollback starts receive bounded readiness polling before authoritative smoke
+  checks. Upgrade
+  rollback recreates from the already-verified prior digest images with
+  `--pull never` and no registry request; receipts account for database reads
+  independently from service mutation. The committed authority currently stops
+  because the runtime, database/config, origin/edge and receipt facts are absent.
+  It does not manage database, cache, NATS, edge, runner or volume resources.
 
 ## Current replacement-host helpers
+- `actions/v3-production-inventory.sh` and `v3_production_inventory.py`: the
+  exact-host, read-only production inventory authority. It reports bounded
+  container/listener/network/HTTP facts and the complete migration ledger from
+  a `BEGIN READ ONLY` transaction. Its sanitized receipt also reports the
+  bounded executable path, implementation, and version of the default host
+  `python3` used for inventory, whether `python3.14` exists and is exactly
+  CPython 3.14 plus its bounded executable path/version when present, the
+  `default` Docker context name and endpoint/host only, requiring exactly the
+  local rootful `unix:///var/run/docker.sock` endpoint and explicitly pinning
+  every Docker evidence command to that context. Context drift stops before
+  daemon inventory. The receipt also includes bounded container ownership of
+  loopback ports `58080`/`58081` when the existing Docker port
+  data supports it. It never reads container environments, secret files,
+  Docker credentials/configuration content, or private keys. It installs
+  nothing and never edits the stopped target authority or fills a blocker
+  automatically.
+- `actions/v3-production-promote.sh` and `v3_production_deploy.py`: the separate
+  fail-closed production-in-place application authority selected only by the
+  protected manual workflow and current production runbook. It consumes the
+  generic immutable release artifact but never the Contabo or root Compose
+  authority. The committed target is stopped until exact inventory/schema,
+  network, env-file, receipt-store, Docker-context, and edge cutover facts are
+  reviewed. When authorized, it owns only blue/green API/web slots, preserves
+  PostgreSQL 18, Redis, NATS, public-auth/TLS edge, Octopus and unrelated
+  containers, and allows rollback only to a schema-compatible prior accepted
+  immutable production release.
 - `actions/v3-app-status.sh`: fail-closed, read-only application status receipt
   for the current ED-Finder V3 origin and public edge. It checks the fixed V3
   container set, the loopback origin listener, the frontend index classification,

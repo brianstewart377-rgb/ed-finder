@@ -7,10 +7,13 @@ import {
   apiRequest,
   autocompleteSystems,
   claimOwner,
+  getAuthIdentities,
   getAuthSession,
   getHealth,
   getSystem,
   searchExploreSystems,
+  startFrontierLink,
+  unlinkAuthIdentity,
 } from './client';
 // Allowed only in a .test. file: exercise the generated client configuration
 // (interceptors) the facade installs, on a route the facade does not wrap.
@@ -52,7 +55,8 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     expect(fetchMock.mock.calls[0]?.[1]).toBeUndefined();
     expect(healthRequest.url).toContain('/api/health');
     expect(healthRequest.credentials).toBe('include');
-    expect(sessionRequest.url).toContain('/api/auth/session');
+    expect(sessionRequest).toBeInstanceOf(Request);
+    expect(sessionRequest.url).toContain('/api/v1/auth/session');
     expect(sessionRequest.credentials).toBe('include');
   });
 
@@ -116,6 +120,54 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
     expect((error as ApiError).path).toContain('/api/health');
   });
 
+  it('keeps identity management on the credentialed same-origin facade', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        jsonResponse([
+          {
+            external_identity_id: 'identity-1',
+            provider: 'frontier',
+            linked_at: '2026-09-09T12:00:00Z',
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          authorization_url: 'https://auth.frontierstore.net/auth?state=one',
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ authenticated: true, user: null }));
+
+    await expect(getAuthIdentities()).resolves.toEqual([
+      {
+        external_identity_id: 'identity-1',
+        provider: 'frontier',
+        linked_at: '2026-09-09T12:00:00Z',
+      },
+    ]);
+    await expect(startFrontierLink('/')).resolves.toContain(
+      'auth.frontierstore.net',
+    );
+    await expect(unlinkAuthIdentity('identity-1')).resolves.toMatchObject({
+      authenticated: true,
+    });
+
+    // Every identity operation is dispatched by the generated client as a
+    // credentialed same-origin Request, exactly like the bootstrap lane.
+    const identitiesRequest = fetchMock.mock.calls[0]?.[0] as Request;
+    const linkRequest = fetchMock.mock.calls[1]?.[0] as Request;
+    const unlinkRequest = fetchMock.mock.calls[2]?.[0] as Request;
+    expect(identitiesRequest).toBeInstanceOf(Request);
+    expect(identitiesRequest.url).toContain('/api/v1/auth/identities');
+    expect(identitiesRequest.credentials).toBe('include');
+    expect(linkRequest.url).toContain('/api/v1/auth/frontier/link');
+    expect(linkRequest.url).toContain('return_to=%2F');
+    expect(linkRequest.method).toBe('POST');
+    expect(unlinkRequest.url).toContain('/api/v1/auth/identities/identity-1');
+    expect(unlinkRequest.method).toBe('DELETE');
+  });
+
   it('injects the bounded session admin token only for require_admin routes', async () => {
     sessionStorage.setItem(ADMIN_TOKEN_SESSION_KEY, 'session-admin');
     const fetchMock = vi
@@ -139,13 +191,15 @@ describe('typed V3 API facade over the generated Hey API SDK', () => {
 
     await claimOwner('one-time-owner-secret');
     const request = fetchMock.mock.calls[0]?.[0] as Request;
-    // /api/auth/owner/claim is not an admin-classified route: the reusable
+    // /api/v1/auth/owner/claim is not an admin-classified route: the reusable
     // session token must not be attached, and the one-time secret rides only
     // in the body.
+    expect(request).toBeInstanceOf(Request);
     expect(request.headers.has('X-Admin-Token')).toBe(false);
     expect(await request.clone().text()).toBe(
       JSON.stringify({ admin_token: 'one-time-owner-secret' }),
     );
+    expect(request.url).toContain('/api/v1/auth/owner/claim');
   });
 
   it('re-exports the single shared transport inventory rather than duplicating it', () => {
