@@ -82,14 +82,10 @@ The existing canonical `grid_x/grid_y/grid_z/macro_grid_key` fields are evidence
 only. Their encoding is explicitly **not** the pyramid contract, so changing cell
 sizes or encoding is a derived rebuild rather than a schema redesign.
 
-### D. Not designed anywhere
+### D. Approach agreed, relation not yet written
 
-| Area | Why it is open |
-|---|---|
-| Finder ranking profiles | The decision describes profile inputs (economy potential, archetype score, Best Colony Potential, distance, confidence, accessibility, constraints) but specifies no relation. Query-time versus materialised is undecided. |
-
-Exobiology and exploration are **no longer in this section** — their shape is
-agreed, see section E.
+Finder ranking is the only area here. Its approach is settled (section F); the
+relation that carries it is not yet written.
 
 ### E. Exobiology and exploration — shape agreed 2026-09-10
 
@@ -119,10 +115,9 @@ Three layers, in dependency order:
    rating vector stores exactly the seven economy values in one row, and adding
    an eighth would reopen a frozen contract.
 
-One question remains open for layer 2: whether a first-logged claim is scoped
-**globally per species** or **per body**. It changes the uniqueness key and can
-only be settled once; getting it wrong cannot be corrected without invalidating
-real players' claims.
+**Settled:** a first-logged claim is scoped **globally per species**. The shared
+claim therefore has one row per species for all time, and the database enforces
+that uniqueness rather than the application.
 
 #### Images
 
@@ -151,6 +146,27 @@ noncommercial-only, the Codex imagery is what would have to be replaced or
 excluded from the shipped bundle if ED-Finder ever becomes commercial. That is a
 reason to keep the species-to-image reference indirect rather than wiring file
 paths through the application.
+
+### F. Finder ranking — approach agreed 2026-09-10
+
+Both, in that order:
+
+1. **Published, precomputed profile values as the primary path.** Ranking values
+   are computed as part of a derived generation and published under an explicit
+   ranking-profile identity, so a search reads stored numbers, is reproducible,
+   and can name exactly which values produced a result. Adding a profile is a
+   derived rebuild, not a schema change.
+2. **Query-time adjustment on top.** Constraints, personal weighting and
+   distance-relative factors are applied at query time, so a one-off ranking need
+   not force a rebuild.
+
+The rule that keeps this honest: ranking logic lives in one place and never
+mutates stored mechanics truth. Router SQL must not grow accidental ranking
+expressions, which is the failure mode the decision explicitly warns about.
+
+Profile inputs remain those the decision lists: a selected economy potential, a
+selected archetype score, Best Colony Potential, distance, confidence and
+completeness, accessibility, and user or query constraints.
 
 ## Scripts
 
@@ -204,12 +220,12 @@ require DDL.
 
 ## Open decisions to settle before SQL
 
-1. Finder ranking: query-time computation, a materialised per-profile relation, or
-   both with a published profile identity?
-2. Exobiology layer 2: is a first-logged claim global per species, or per body?
-   This fixes the uniqueness key and is expensive to change afterwards.
-3. Cluster ownership: which domains publish cluster sets, and is that one run per
+1. Cluster ownership: which domains publish cluster sets, and is that one run per
    domain or a shared run with domain-specific outputs?
+
+**Settled:** Finder ranking is both — published precomputed profile values as the
+primary path, with query-time adjustment on top (section F). A first-logged claim
+is global per species (section E).
 
 **Settled:** exobiology value is keyed per species, not per variant, because
 colour does not affect payout. Every account keeps its own Codex; only
