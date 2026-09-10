@@ -60,11 +60,11 @@ def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login()
     source = _read(ACTION)
 
     assert 'get(ORIGIN + "/api/health", follow_redirects=False)' in source
-    assert 'get(ORIGIN + "/api/auth/session", follow_redirects=False)' in source
+    assert 'get(ORIGIN + "/api/v1/auth/session", follow_redirects=False)' in source
     assert 'ORIGIN + "/openapi.json"' in source
     assert 'max_body=MAX_OPENAPI_BODY' in source
     assert 'get(PUBLIC + "/api/health", follow_redirects=False)' in source
-    assert 'get(PUBLIC + "/api/auth/session", follow_redirects=False)' in source
+    assert 'get(PUBLIC + "/api/v1/auth/session", follow_redirects=False)' in source
     assert 'parse_health_response(public_health_body)' in source
     assert 'parse_anonymous_session(public_session_body)' in source
     assert 'public_health_shape_invalid' in source
@@ -75,11 +75,11 @@ def test_v3_app_status_checks_frontend_health_and_oauth_without_starting_login()
     assert 'get(PUBLIC + "/api/auth/frontier/login")' not in source
 
     for path in (
-        '/api/auth/frontier/login',
-        '/api/auth/frontier/callback',
-        '/api/auth/session',
-        '/api/auth/logout',
-        '/api/auth/owner/claim',
+        '/api/v1/auth/frontier/login',
+        '/api/v1/auth/frontier/callback',
+        '/api/v1/auth/session',
+        '/api/v1/auth/logout',
+        '/api/v1/auth/owner/claim',
     ):
         assert path in source
 
@@ -91,7 +91,7 @@ def test_v3_app_status_does_not_mask_origin_with_public_redirects():
     assert 'if follow_redirects:\n        argv.append("--location")' in source
     assert 'origin_root, _ = get(ORIGIN + "/", body=False, follow_redirects=False)' in source
     assert 'get(ORIGIN + "/api/health", follow_redirects=False)' in source
-    assert 'get(ORIGIN + "/api/auth/session", follow_redirects=False)' in source
+    assert 'get(ORIGIN + "/api/v1/auth/session", follow_redirects=False)' in source
     assert 'public_root, _ = get(PUBLIC + "/", body=False, follow_redirects=True)' in source
     assert '200 <= code < 300' in source
 
