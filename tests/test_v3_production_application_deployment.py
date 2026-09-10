@@ -147,6 +147,12 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         '"owners"',
         '"ComposeLabels"',
         "COMPOSE_LABEL_KEYS",
+        'receipt["designated_paths"]',
+        "DESIGNATED_PATHS",
+        "os.lstat(",
+        '"matches_designation"',
+        '"expected_owner_uid"',
+        '"expected_mode"',
     ):
         assert required_inventory_fact in source
     assert 'return ["docker", "--context", DOCKER_CONTEXT, *arguments]' in source
@@ -159,6 +165,66 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         "DELETE FROM", "TRUNCATE", "ALTER TABLE", "DROP TABLE",
     ):
         assert forbidden not in source
+    # The designated production paths are reviewed with stat-only evidence, so
+    # the helper must never read a file, let alone their contents.
+    assert "read_text" not in source
+    assert "read_bytes" not in source
+
+
+def test_inventory_designated_paths_report_stat_only_evidence(tmp_path):
+    inventory = _load_inventory()
+
+    missing = inventory.inspect_designated_path(
+        {
+            "name": "receipt_directory",
+            "path": str(tmp_path / "absent"),
+            "kind": "directory",
+            "owner_uid": 0,
+            "mode": "0700",
+        }
+    )
+    assert missing["inspection_succeeded"] is True
+    assert missing["exists"] is False
+    assert missing["owner_uid"] is None
+    assert missing["mode"] is None
+    assert missing["matches_designation"] is False
+
+    target = tmp_path / "api.env"
+    target.write_text("EDFINDER_SECRET=must-not-be-recorded\n", encoding="utf-8")
+    details = os.lstat(target)
+    spec = {
+        "name": "api_env_file",
+        "path": str(target),
+        "kind": "file",
+        "owner_uid": details.st_uid,
+        "mode": f"{stat.S_IMODE(details.st_mode):04o}",
+    }
+    present = inventory.inspect_designated_path(spec)
+    assert present["inspection_succeeded"] is True
+    assert present["exists"] is True
+    assert present["is_file"] is True
+    assert present["is_symlink"] is False
+    assert present["owner_uid"] == details.st_uid
+    assert present["mode"] == spec["mode"]
+    assert present["matches_designation"] is True
+    assert "must-not-be-recorded" not in json.dumps(present)
+
+    wrong_kind = inventory.inspect_designated_path({**spec, "kind": "directory"})
+    assert wrong_kind["matches_designation"] is False
+    wrong_owner = inventory.inspect_designated_path({**spec, "owner_uid": details.st_uid + 1})
+    assert wrong_owner["matches_designation"] is False
+    wrong_mode = inventory.inspect_designated_path({**spec, "mode": "0644"})
+    if spec["mode"] != "0644":
+        assert wrong_mode["matches_designation"] is False
+
+    link = tmp_path / "api.env.link"
+    try:
+        link.symlink_to(target)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is unavailable on this platform")
+    linked = inventory.inspect_designated_path({**spec, "path": str(link)})
+    assert linked["is_symlink"] is True
+    assert linked["matches_designation"] is False
 
 
 def test_inventory_container_labels_are_limited_to_compose_identity():

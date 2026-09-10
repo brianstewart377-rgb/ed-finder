@@ -15,6 +15,7 @@ import platform
 import re
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import urllib.error
@@ -48,6 +49,27 @@ COMPOSE_LABEL_KEYS = (
     "com.docker.compose.project.working_dir",
     "com.docker.compose.project.config_files",
 )
+# Designated production paths the promotion authority still has to pin. Reviewing
+# them needs stat-only evidence: existence, kind, owner uid and mode. The helper
+# never reads their contents, and an absent path is a recorded fact rather than a
+# failure, exactly like the absent python3.14 runtime.
+DESIGNATED_PATHS = (
+    {
+        "name": "api_env_file",
+        "path": "/etc/ed-finder/v3-production/api.env",
+        "kind": "file",
+        "owner_uid": 0,
+        "mode": "0600",
+    },
+    {
+        "name": "receipt_directory",
+        "path": "/var/lib/ed-finder/v3-production/receipts",
+        "kind": "directory",
+        "owner_uid": 0,
+        "mode": "0700",
+    },
+)
+MAX_DESIGNATED_PATH = 256
 LEDGER_SQL = r"""
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '10000ms';
@@ -456,6 +478,64 @@ def loopback_origin_ownership(
     }
 
 
+def inspect_designated_path(spec: dict[str, Any]) -> dict[str, Any]:
+    path = spec["path"]
+    item: dict[str, Any] = {
+        "name": spec["name"],
+        "path": path,
+        "expected_kind": spec["kind"],
+        "expected_owner_uid": spec["owner_uid"],
+        "expected_mode": spec["mode"],
+        "inspection_succeeded": False,
+        "exists": False,
+        "is_symlink": False,
+        "is_file": False,
+        "is_directory": False,
+        "owner_uid": None,
+        "mode": None,
+        "matches_designation": False,
+    }
+    # The live designations are POSIX absolute paths. A relative or oversized
+    # path is a malformed constant rather than a host fact, so it is reported as
+    # a failed inspection instead of being resolved against the working directory.
+    if (
+        not isinstance(path, str)
+        or len(path) > MAX_DESIGNATED_PATH
+        or not (path.startswith("/") or os.path.isabs(path))
+    ):
+        return item
+    try:
+        # lstat never follows a link, so a symlink cannot fake the designation.
+        details = os.lstat(path)
+    except FileNotFoundError:
+        item["inspection_succeeded"] = True
+        return item
+    except OSError:
+        return item
+    is_symlink = stat.S_ISLNK(details.st_mode)
+    is_file = stat.S_ISREG(details.st_mode)
+    is_directory = stat.S_ISDIR(details.st_mode)
+    mode = f"{stat.S_IMODE(details.st_mode):04o}"
+    item.update(
+        {
+            "inspection_succeeded": True,
+            "exists": True,
+            "is_symlink": is_symlink,
+            "is_file": is_file,
+            "is_directory": is_directory,
+            "owner_uid": details.st_uid,
+            "mode": mode,
+        }
+    )
+    item["matches_designation"] = (
+        not is_symlink
+        and (is_file if spec["kind"] == "file" else is_directory)
+        and details.st_uid == spec["owner_uid"]
+        and mode == spec["mode"]
+    )
+    return item
+
+
 def host_capacity() -> dict[str, Any]:
     memory: dict[str, int] = {}
     try:
@@ -650,6 +730,14 @@ def main() -> int:
     if not receipt["host_runtime"]["python3_14"]["inspection_succeeded"]:
         failures.append("python314_runtime_inspection_failed")
     receipt["capacity"] = host_capacity()
+    receipt["designated_paths"] = {
+        "inspection_succeeded": True,
+        "items": [inspect_designated_path(spec) for spec in DESIGNATED_PATHS],
+        "limit": len(DESIGNATED_PATHS),
+    }
+    if not all(item["inspection_succeeded"] for item in receipt["designated_paths"]["items"]):
+        receipt["designated_paths"]["inspection_succeeded"] = False
+        failures.append("designated_path_inspection_failed")
     receipt["docker_context"] = inspect_default_docker_context()
     if not receipt["docker_context"]["inspection_succeeded"]:
         failures.append("default_docker_context_inventory_failed")

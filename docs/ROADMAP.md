@@ -69,6 +69,9 @@ or override this set.
   the target authority must pin, and
   [`scripts/operator/v3_production_deploy.py`](../scripts/operator/v3_production_deploy.py)
   verifies them with `secure_path` rather than supplying a default.
+  The read-only inventory records stat-only existence/kind/owner-uid/mode
+  evidence for both designated paths without reading their contents, so the next
+  reviewed run supplies the facts those two authority fields need.
 
 ## Product journey and spatial north star
 
