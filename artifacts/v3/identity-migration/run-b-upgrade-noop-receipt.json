@@ -1,0 +1,26 @@
+{
+  "applied_now": [],
+  "baseline_sha256": "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e",
+  "format": "edfinder-v3-migration-receipt/v1",
+  "ledger": {
+    "001_v3_baseline.sql": "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e",
+    "002_v3_accounts_identity.sql": "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"
+  },
+  "manifest": [
+    {
+      "name": "001_v3_baseline.sql",
+      "sha256": "ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e"
+    },
+    {
+      "name": "002_v3_accounts_identity.sql",
+      "sha256": "e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07"
+    }
+  ],
+  "manifest_sha256": "3259dc3415186515716c8c5a728df9ef30e767b1f62ba1d2a0f7349c132a7df9",
+  "mode": "upgrade",
+  "non_relation_user_objects_before": 11,
+  "postgresql_version_num": "180006",
+  "user_relations_after": 56,
+  "user_relations_before": 56,
+  "v2_lineage_used": false
+}

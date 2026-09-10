@@ -1,0 +1,7 @@
+# ED-Finder V3 migration manifest
+#
+# Independent PostgreSQL 18 lineage. Never append V2 sql/NNN_*.sql files here.
+# Format: lowercase SHA-256, two spaces, migration filename.
+
+ee08c17eb3f87f614468db5a038d2f23273ce2b72906226c9aa1f669e724cd2e  001_v3_baseline.sql
+e7a2f404b7d8194d74ba4e807ae450c7520a1c8a186ca77e41377307e7b12b07  002_v3_accounts_identity.sql

@@ -225,11 +225,21 @@ competing roadmap source.
   - Phase 2 (Client LOD): Viewport hook + RealStarLayer rendering + LOD switch. (Pending Phase 1)
   - Phase 3 (Polish): Hysteresis fade + truncated affordance. (Pending Phase 2)
 
-### Deferred Product Expansion
+### Authorized Identity Foundation (2026-08-26)
 
-- Accounts, auth, and sync expansion remain explicitly deferred pending a
-  separately reviewed identity and product-scope decision; the former ratings,
-  migration, backup, and CI foundation blockers are now closed.
+- The owner has explicitly authorized the bounded V3 Frontier identity slice:
+  reuse PR #490's Authorization Code + PKCE mechanics, map the verified issuer
+  and subject to UUID `v3_identity.account` through
+  `v3_identity.external_identity`, keep Commander
+  data separate, add secure rotating sessions and one-time owner role bootstrap,
+  and expose the `/api/v1/auth` contract. Production routing and the existing
+  registered callback remain unchanged until controlled cutover.
+- V2 Frontier OAuth was never deployed or used. PR #490 and migration 048 are
+  superseded reference evidence only; the separate V3 lineage starts with the
+  frozen V3 baseline and `002_v3_accounts_identity.sql`.
+- Collaboration, plan sync, generic role-management UI, CAPI/Commander access,
+  and provider-token retention remain deferred. Any CAPI capability requires
+  separate consent and a separately reviewed lane.
 - Broad product-surface expansion remains secondary to eliminating hidden or
   conflicting surfaces already in the tree.
 
@@ -465,8 +475,8 @@ competing roadmap source.
    API, state-store, storage, cache-truthfulness, and accessibility gaps. H3
    closed the remaining database-operator secret-handling and migration-timeout
    findings with PostgreSQL 16 rehearsals and CI contracts.
-6. Re-evaluate accounts/auth only through a separately reviewed product and
-   identity decision now that steps 1-4 are complete.
+6. Implement the explicitly authorized bounded V3 Frontier identity foundation;
+   keep collaboration, sync, CAPI, and production cutover separately gated.
 
 ## Active Priorities
 
@@ -506,8 +516,9 @@ competing roadmap source.
 
 - Mission intelligence remains deferred and unauthorized.
 - Ring/mining work remains deferred and unauthorized.
-- Accounts, OAuth, collaboration, and plan sync remain deferred pending an
-  explicit product and identity-continuity decision.
+- The bounded V3 Frontier identity/session foundation is authorized. Additional
+  providers, collaboration, plan sync, and CAPI remain deferred pending their
+  own product, consent, and identity-continuity decisions.
 - Journal `A-2` canonical promotion remains deferred pending a separately
   reviewed write-lane authorization; its former migration and restore
   prerequisites are now complete.

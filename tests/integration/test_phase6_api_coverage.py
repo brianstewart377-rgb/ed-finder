@@ -86,7 +86,13 @@ async def test_health_endpoint(client):
 
 
 async def test_status_endpoint(client):
-    r = await client.get('/api/status')
+    anonymous = await client.get('/api/status')
+    assert anonymous.status_code == 401
+
+    r = await client.get(
+        '/api/status',
+        headers={'X-Admin-Token': ADMIN_TOKEN},
+    )
     assert r.status_code == 200
     body = r.json()
     assert 'version' in body
@@ -94,7 +100,13 @@ async def test_status_endpoint(client):
 
 
 async def test_cache_stats(client):
-    r = await client.get('/api/cache/stats')
+    anonymous = await client.get('/api/cache/stats')
+    assert anonymous.status_code == 401
+
+    r = await client.get(
+        '/api/cache/stats',
+        headers={'X-Admin-Token': ADMIN_TOKEN},
+    )
     assert r.status_code == 200
     assert isinstance(r.json(), dict)
 
