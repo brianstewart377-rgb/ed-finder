@@ -39,6 +39,15 @@ MAX_RUNTIME_VERSION = 64
 MAX_DOCKER_ENDPOINT = 256
 DOCKER_CONTEXT = "default"
 LOCAL_DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
+# Non-secret Compose identity labels. Deployment paths are required to review
+# the production target authority; every other label is dropped so container
+# labels can never become a credential channel in the receipt.
+COMPOSE_LABEL_KEYS = (
+    "com.docker.compose.project",
+    "com.docker.compose.service",
+    "com.docker.compose.project.working_dir",
+    "com.docker.compose.project.config_files",
+)
 LEDGER_SQL = r"""
 BEGIN READ ONLY;
 SET LOCAL statement_timeout = '10000ms';
@@ -137,9 +146,30 @@ def docker_json_lines(arguments: list[str]) -> tuple[bool, list[dict[str, Any]]]
     return result.returncode == 0, items
 
 
+def sanitize_compose_labels(raw: Any) -> dict[str, str] | None:
+    """Keep only the non-secret Compose identity labels for one container.
+
+    ``docker ps --format '{{json .}}'`` reports labels as a comma-joined
+    string. The reviewed production authority needs the deployment location, so
+    the working directory and config-file path are retained; no other label is
+    ever copied into the receipt.
+    """
+    if not isinstance(raw, str) or not raw:
+        return None
+    labels: dict[str, str] = {}
+    for chunk in raw.split(","):
+        key, separator, value = chunk.partition("=")
+        key = key.strip()
+        if separator and key in COMPOSE_LABEL_KEYS:
+            labels[key] = value.strip()
+    return labels or None
+
+
 def sanitize_container(item: dict[str, Any]) -> dict[str, Any]:
     allowed = ("Names", "Image", "ID", "State", "Status", "Ports", "Networks")
-    return {key: item.get(key) for key in allowed}
+    sanitized = {key: item.get(key) for key in allowed}
+    sanitized["ComposeLabels"] = sanitize_compose_labels(item.get("Labels"))
+    return sanitized
 
 
 def sanitize_network(item: dict[str, Any]) -> dict[str, Any]:
