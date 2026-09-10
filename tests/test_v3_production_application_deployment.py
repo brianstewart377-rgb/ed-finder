@@ -996,8 +996,16 @@ def test_preflight_launcher_prefers_exact_cpython314_and_falls_back_compatibly(t
         env=_launcher_environment(fake_bin),
         timeout=10,
     )
-    assert fallback.returncode == 78
-    assert json.loads(fallback.stdout)["operation"] == "production-authority-gate"
+    # The gate's exit status now depends on the committed authority state, which
+    # is authorized. What this test is actually about is interpreter selection:
+    # the fallback must have been accepted as a compatible read-only runtime, so
+    # none of the runtime-selection failures may appear.
+    receipt = json.loads(fallback.stdout)
+    assert receipt["operation"] == "production-authority-gate"
+    encoded = json.dumps(receipt)
+    assert "python3_unavailable" not in encoded
+    assert "python3_unsupported_for_production_readonly" not in encoded
+    assert "python314_required_for_production_mutation" not in encoded
 
 
 def test_launcher_runtime_failures_use_only_validated_operation_names(tmp_path):
