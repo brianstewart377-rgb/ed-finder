@@ -1,0 +1,12 @@
+[Unit]
+Description=ED-Finder V3 weekly backup repository verification
+
+[Timer]
+OnCalendar=Sun *-*-* 12:00:00 UTC
+RandomizedDelaySec=15min
+AccuracySec=5min
+Persistent=false
+Unit=edfinder-v3-pgbackrest@verify.service
+
+[Install]
+WantedBy=timers.target

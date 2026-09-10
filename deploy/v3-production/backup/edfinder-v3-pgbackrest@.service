@@ -1,0 +1,14 @@
+[Unit]
+Description=ED-Finder V3 pgBackRest %i operation
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+ConditionPathIsMountPoint=/mnt/ed-storagebox
+
+[Service]
+Type=oneshot
+ExecStart=/opt/ed-finder-v3-runtime/pgbackrest-operation.sh %i
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=infinity
