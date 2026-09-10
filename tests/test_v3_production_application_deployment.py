@@ -24,6 +24,7 @@ COMPOSE = ROOT / "deploy/v3-production/compose.yml"
 AUTHORITY = ROOT / "deploy/v3-production/target-authority.json"
 DEPLOYER = ROOT / "scripts/operator/v3_production_deploy.py"
 INVENTORY = ROOT / "scripts/operator/v3_production_inventory.py"
+SCHEMA_IDENTITY = ROOT / "scripts/operator/v3_schema_identity.py"
 INVENTORY_ACTION = ROOT / "scripts/operator/actions/v3-production-inventory.sh"
 PROMOTE_ACTION = ROOT / "scripts/operator/actions/v3-production-promote.sh"
 PUBLIC_EDGE_CONF = ROOT / "deploy/v3-production/public-auth-edge.nginx.conf"
@@ -42,6 +43,14 @@ LIVE_V3_LEDGER = (
 
 def _load_deployer():
     spec = importlib.util.spec_from_file_location("v3_production_deploy", DEPLOYER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _load_schema_identity():
+    spec = importlib.util.spec_from_file_location("v3_schema_identity", SCHEMA_IDENTITY)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -321,39 +330,44 @@ def test_production_deployer_uses_release_manifest_and_fresh_schema_compatibilit
         assert forbidden not in source
 
 
-def test_production_schema_identity_preserves_release_manifest_order(tmp_path):
+def test_production_schema_identity_is_derived_from_the_v3_lineage(tmp_path):
     deployer = _load_deployer()
-    release_spec = importlib.util.spec_from_file_location(
-        "v3_release_manifest_for_production_test",
-        ROOT / "scripts/release/v3_release_manifest.py",
-    )
-    assert release_spec and release_spec.loader
-    release = importlib.util.module_from_spec(release_spec)
-    release_spec.loader.exec_module(release)
-    migration_set = release.migration_set(ROOT)
-    assert migration_set["entries"] != sorted(
-        migration_set["entries"], key=lambda item: item["path"]
-    )
-    schema = {
-        "schema_version": deployer.SCHEMA_IDENTITY_SCHEMA,
-        "database_identity": {
-            "container": deployer.POSTGRES_CONTAINER,
-            "database_name": deployer.DATABASE_NAME,
-            "database_user": deployer.DATABASE_USER,
-            "application_host": deployer.POSTGRES_CONTAINER,
-            "server_address": "local",
-            "server_port": 5432,
-        },
-        "migration_set_identity": migration_set["identity"],
-        "migration_set_entries": migration_set["entries"],
-        "evidence": "reviewed-production-inventory-receipt",
-    }
-    path = tmp_path / "schema.json"
-    path.write_text(json.dumps(schema), encoding="utf-8")
+    identity = _load_schema_identity()
 
-    assert deployer.validate_schema_file(
-        path, hashlib.sha256(path.read_bytes()).hexdigest()
-    )["migration_set_identity"] == migration_set["identity"]
+    # The derivation and the deployer must agree on the schema and the database
+    # identity, or the produced document could never be accepted.
+    assert identity.SCHEMA_IDENTITY_SCHEMA == deployer.SCHEMA_IDENTITY_SCHEMA
+    assert identity.DATABASE_IDENTITY == {
+        "container": deployer.POSTGRES_CONTAINER,
+        "database_name": deployer.DATABASE_NAME,
+        "database_user": deployer.DATABASE_USER,
+        "application_host": deployer.POSTGRES_CONTAINER,
+        "server_address": "local",
+        "server_port": 5432,
+    }
+
+    document = identity.build(ROOT)
+    entries = document["migration_set_entries"]
+    assert [(item["ledger_name"], item["sha256"]) for item in entries] == list(
+        LIVE_V3_LEDGER
+    )
+    assert document["migration_set_identity"] == identity.migration_set_identity(entries)
+    # The reviewed lineage order is not directory order, and the identity must
+    # preserve the manifest order rather than re-sorting it.
+    assert entries != sorted(entries, key=lambda item: item["path"])
+
+    path = tmp_path / "schema.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert (
+        deployer.validate_schema_file(path, digest)["migration_set_identity"]
+        == document["migration_set_identity"]
+    )
+
+    tampered = {**document, "migration_set_identity": "sha256:" + "a" * 64}
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(deployer.DeploymentError, match="checksum mismatch"):
+        deployer.validate_schema_file(path, digest)
 
 
 def test_mutation_is_explicit_app_only_and_preserves_edge_database_redis_nats():

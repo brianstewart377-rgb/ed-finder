@@ -79,9 +79,13 @@ or override this set.
   independent V3 lineage: all three of its rows are committed under `sql/` with
   byte hashes re-verified against `v3_meta.schema_migration`, and
   `sql/v3/migration-manifest.txt` records the lineage as
-  `<sha256> <ledger-name> <path-under-sql>`. Deriving the production schema
-  identity from that manifest, and accepting the `r1_v3/` ledger naming in the
-  schema-identity contract, is the remaining step.
+  `<sha256> <ledger-name> <path-under-sql>`, and
+  `scripts/operator/v3_schema_identity.py` derives the production schema identity
+  from it. Remaining: author that identity file on the host, pin its
+  path/owner/mode/sha256 in the target authority, and have the candidate release
+  declare the resulting V3 identity as an additional compatible migration set,
+  because the canonical release manifest still derives its own set from the V2
+  manifest.
 
 ## Product journey and spatial north star
 

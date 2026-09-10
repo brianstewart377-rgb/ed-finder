@@ -68,10 +68,19 @@ committed under `sql/` with byte hashes re-verified against the ledger:
 2026-08-27T12:05:58Z, and `r1_v3/001_structural_shell.sql` applied
 2026-08-31T16:22:56Z. `sql/v3/migration-manifest.txt` records that lineage as
 `<sha256> <ledger-name> <path-under-sql>` so the reviewed ledger and the manifest
-are compared directly. What remains is to derive the production schema identity
-from that manifest and to accept the `r1_v3/` ledger naming in the schema-identity
-contract and the ledger compatibility check. The migration sources are no longer
-missing, so the schema identity file is now blocked only on that contract change.
+are compared directly, and `scripts/operator/v3_schema_identity.py` derives the
+production schema identity document from it. The schema-identity contract and the
+live-ledger check now carry the applied ledger name explicitly and accept the
+`r1_v3/` naming.
+
+Three steps remain before the schema blocker clears. Author the identity file on
+the host from that derivation, pin its path, owner uid, mode and sha256 in the
+target authority, and have the candidate release declare compatibility with the
+resulting V3 identity through the existing `--compatible-migration-set` flag.
+That last point matters: the canonical release manifest still derives its own
+migration set from the V2 `sql/migration-manifest.txt`, so the production
+database's V3 identity has to be declared as an additional compatible set rather
+than inferred.
 
 The application-network blocker is therefore cleared. These remain, and
 `status` stays `stopped` until each is replaced by exact reviewed facts:

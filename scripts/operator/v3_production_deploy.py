@@ -766,11 +766,21 @@ def validate_schema_file(path: Path, expected_sha: str) -> dict[str, Any]:
     if not isinstance(entries, list) or not entries:
         raise DeploymentError("production schema identity has no entries")
     for item in entries:
-        if not isinstance(item, dict) or set(item) != {"path", "mode", "sha256"}:
+        if not isinstance(item, dict) or set(item) != {"path", "ledger_name", "mode", "sha256"}:
             raise DeploymentError("production schema entry shape is invalid")
-        if not re.fullmatch(r"sql/[0-9]{3}_[a-z0-9_]+\.sql", str(item["path"])) or item["mode"] not in {"auto", "manual"} or not re.fullmatch(r"[0-9a-f]{64}", str(item["sha256"])):
+        # The V3 lineage nests its sources, and the applied ledger name is not
+        # always derivable from the path: the historical applier recorded two
+        # rows by basename and one by path, so both are carried explicitly.
+        if (
+            not re.fullmatch(r"sql/(?:v3/migrations/|r[0-9]+_v3/)[0-9]{3}_[a-z0-9_]+\.sql", str(item["path"]))
+            or not re.fullmatch(r"(?:r[0-9]+_v3/)?[0-9]{3}_[a-z0-9_]+\.sql", str(item["ledger_name"]))
+            or item["mode"] not in {"auto", "manual"}
+            or not re.fullmatch(r"[0-9a-f]{64}", str(item["sha256"]))
+        ):
             raise DeploymentError("production schema entry is invalid")
-    if len({item["path"] for item in entries}) != len(entries):
+    if len({item["path"] for item in entries}) != len(entries) or len(
+        {item["ledger_name"] for item in entries}
+    ) != len(entries):
         raise DeploymentError("production schema entries are duplicated")
     evidence = value.get("evidence")
     if not isinstance(evidence, str) or not evidence.strip():
@@ -866,7 +876,7 @@ def verify_live_schema(schema: dict[str, Any], env: dict[str, str], runner: Call
         or any(
             not isinstance(item, dict)
             or set(item) != {"filename", "checksum_sha256"}
-            or not re.fullmatch(r"[0-9]{3}_[a-z0-9_]+\.sql", str(item["filename"]))
+            or not re.fullmatch(r"(?:r[0-9]+_v3/)?[0-9]{3}_[a-z0-9_]+\.sql", str(item["filename"]))
             or not re.fullmatch(r"[0-9a-f]{64}", str(item["checksum_sha256"]))
             for item in ledger
         )
@@ -876,7 +886,7 @@ def verify_live_schema(schema: dict[str, Any], env: dict[str, str], runner: Call
     expected = sorted(
         (
             {
-                "filename": item["path"].removeprefix("sql/"),
+                "filename": item["ledger_name"],
                 "checksum_sha256": item["sha256"],
             }
             for item in schema["migration_set_entries"]
