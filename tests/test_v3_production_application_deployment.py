@@ -137,6 +137,8 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         '"58081"',
         '"bindings"',
         '"owners"',
+        '"ComposeLabels"',
+        "COMPOSE_LABEL_KEYS",
     ):
         assert required_inventory_fact in source
     assert 'return ["docker", "--context", DOCKER_CONTEXT, *arguments]' in source
@@ -149,6 +151,49 @@ def test_read_only_inventory_has_exact_guards_complete_ledger_and_no_secret_read
         "DELETE FROM", "TRUNCATE", "ALTER TABLE", "DROP TABLE",
     ):
         assert forbidden not in source
+
+
+def test_inventory_container_labels_are_limited_to_compose_identity():
+    inventory = _load_inventory()
+
+    labels = inventory.sanitize_compose_labels(
+        "com.docker.compose.project=edfinder-v3-production,"
+        "com.docker.compose.service=web-blue,"
+        "com.docker.compose.project.working_dir=/opt/ed-finder,"
+        "com.docker.compose.project.config_files=/opt/ed-finder/compose.yml,"
+        "com.example.token=must-not-appear"
+    )
+
+    assert labels == {
+        "com.docker.compose.project": "edfinder-v3-production",
+        "com.docker.compose.service": "web-blue",
+        "com.docker.compose.project.working_dir": "/opt/ed-finder",
+        "com.docker.compose.project.config_files": "/opt/ed-finder/compose.yml",
+    }
+    assert "must-not-appear" not in json.dumps(labels)
+    assert inventory.sanitize_compose_labels(None) is None
+    assert inventory.sanitize_compose_labels("com.example.token=x") is None
+
+    item = inventory.sanitize_container(
+        {
+            "Names": "edfinder-v3-api",
+            "Image": "edfinder-v3-api:release-6a4fe0ef",
+            "ID": "abc",
+            "State": "running",
+            "Status": "Up 1 day",
+            "Ports": "",
+            "Networks": "edfinder-v3-production",
+            "Labels": "com.docker.compose.project=edfinder-v3-production",
+            "Config": {"Env": ["SECRET=leak"]},
+        }
+    )
+    assert item["ComposeLabels"] == {
+        "com.docker.compose.project": "edfinder-v3-production"
+    }
+    assert set(item) == {
+        "Names", "Image", "ID", "State", "Status", "Ports", "Networks",
+        "ComposeLabels",
+    }
 
 
 def test_production_deployer_uses_release_manifest_and_fresh_schema_compatibility():
