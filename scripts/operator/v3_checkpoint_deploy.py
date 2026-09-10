@@ -758,7 +758,7 @@ def validate_release_inputs(
             != [CONTAINERS[service] for service in SERVICES]
             or not isinstance(prior_smoke, dict)
             or set(prior_smoke)
-            != {"/", "/api/health", "/openapi.json", "/api/auth/session"}
+            != {"/", "/api/health", "/openapi.json", "/api/v1/auth/session"}
             or any(
                 not isinstance(outcome, dict)
                 or not 200 <= outcome.get("status", 0) < 300
@@ -1384,7 +1384,7 @@ def wait_for_origin_ready(
 
 def smoke_origin(origin: str, source_sha: str) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
-    for path in ("/", "/api/health", "/openapi.json", "/api/auth/session"):
+    for path in ("/", "/api/health", "/openapi.json", "/api/v1/auth/session"):
         status, body, content_type = get_origin(origin, path)
         outcomes[path] = {"status": status, "bytes": len(body)}
         if path == "/":
@@ -1403,10 +1403,13 @@ def smoke_origin(origin: str, source_sha: str) -> dict[str, Any]:
         if path == "/openapi.json" and not (
             isinstance(payload.get("paths"), dict)
             and "/api/health" in payload["paths"]
-            and "/api/auth/session" in payload["paths"]
+            and "/api/v1/auth/session" in payload["paths"]
         ):
             raise DeploymentError("OpenAPI smoke lacks required route identity")
-        if path == "/api/auth/session" and payload.get("authenticated") is not False:
+        if (
+            path == "/api/v1/auth/session"
+            and payload.get("authenticated") is not False
+        ):
             raise DeploymentError("anonymous session smoke is not anonymous")
     return outcomes
 
