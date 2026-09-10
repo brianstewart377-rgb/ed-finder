@@ -549,16 +549,25 @@ def validate_network(
         if isinstance(item, dict) and isinstance(item.get("Name"), str)
     )
     allowed = external.get("application_network_allowed_containers")
-    expected_names = list(allowed) if isinstance(allowed, list) else []
+    if not isinstance(allowed, list) or not allowed:
+        raise DeploymentError("production application network attachment authority is invalid")
     if not managed_slots <= set(SLOTS):
         raise DeploymentError("production application network slot authority is invalid")
-    for slot in sorted(managed_slots):
-        expected_names.extend([CONTAINERS[f"api-{slot}"], CONTAINERS[f"web-{slot}"]])
-    if not isinstance(allowed, list) or names != sorted(expected_names):
-        raise DeploymentError("production application network attachment authority drifted")
+    if len(names) != len(set(names)):
+        raise DeploymentError("production application network attachments are duplicated")
     database_container = schema["database_identity"]["container"]
     if database_container not in names:
         raise DeploymentError("production database is not attached to the authorized app network")
+    # A managed slot must be attached while it is managed. The legacy API is
+    # permitted but not required: stopping a container detaches it from the
+    # network, and a bootstrap cutover stops the legacy API on purpose. Anything
+    # attached beyond the reviewed authority still fails.
+    required = {database_container}
+    for slot in sorted(managed_slots):
+        required.add(CONTAINERS[f"api-{slot}"])
+        required.add(CONTAINERS[f"web-{slot}"])
+    if not required <= set(names) <= (set(allowed) | required | {LEGACY_API}):
+        raise DeploymentError("production application network attachment authority drifted")
 
 
 def published_port_bindings(
