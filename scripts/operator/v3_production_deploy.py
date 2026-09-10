@@ -710,7 +710,7 @@ def wait_for_preserved_edge_route() -> None:
         try:
             verify_edge_routes_to_active_origin()
             status, _body, _content_type = get(
-                "http://127.0.0.1:58080", "/api/auth/session"
+                "http://127.0.0.1:58080", "/api/v1/auth/session"
             )
             if status == 200:
                 return
@@ -961,7 +961,7 @@ def get(origin: str, path: str) -> tuple[int, bytes, str]:
 def smoke(origin: str, sha: str) -> dict[str, Any]:
     outcomes: dict[str, Any] = {}
     bodies: dict[str, bytes] = {}
-    for path in ("/", "/api/health", "/openapi.json", "/api/auth/session"):
+    for path in ("/", "/api/health", "/openapi.json", "/api/v1/auth/session"):
         status, body, content_type = get(origin, path)
         if not 200 <= status < 300 or len(body) > MAX_SMOKE:
             raise DeploymentError(f"smoke failed: {path}")
@@ -969,7 +969,7 @@ def smoke(origin: str, sha: str) -> dict[str, Any]:
         bodies[path] = body
     try:
         health = json.loads(bodies["/api/health"])
-        session = json.loads(bodies["/api/auth/session"])
+        session = json.loads(bodies["/api/v1/auth/session"])
         openapi = json.loads(bodies["/openapi.json"])
     except json.JSONDecodeError as exc:
         raise DeploymentError("smoke JSON response invalid") from exc
@@ -978,7 +978,10 @@ def smoke(origin: str, sha: str) -> dict[str, Any]:
     if session.get("authenticated") is not False or session.get("user") is not None:
         raise DeploymentError("anonymous session smoke failed")
     paths = openapi.get("paths") if isinstance(openapi, dict) else None
-    if not isinstance(paths, dict) or not {"/api/health", "/api/auth/session"}.issubset(paths):
+    if not isinstance(paths, dict) or not {
+        "/api/health",
+        "/api/v1/auth/session",
+    }.issubset(paths):
         raise DeploymentError("OpenAPI smoke routes missing")
     marker = f'name="edfinder-build-sha" content="{sha}"'.encode()
     if bodies["/"].count(marker) != 1:

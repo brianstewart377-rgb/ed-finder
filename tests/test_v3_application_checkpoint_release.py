@@ -1162,7 +1162,7 @@ def test_upgrade_requires_receipt_matching_prior_digest_release(tmp_path):
                         "/",
                         "/api/health",
                         "/openapi.json",
-                        "/api/auth/session",
+                        "/api/v1/auth/session",
                     )
                 },
                 "database_mutation_performed": False,
@@ -1247,11 +1247,11 @@ def test_origin_smoke_checks_exact_required_routes_and_build_identity(monkeypatc
         "/openapi.json": (
             200,
             json.dumps(
-                {"paths": {"/api/health": {}, "/api/auth/session": {}}}
+                {"paths": {"/api/health": {}, "/api/v1/auth/session": {}}}
             ).encode(),
             "application/json",
         ),
-        "/api/auth/session": (
+        "/api/v1/auth/session": (
             200,
             json.dumps({"authenticated": False}).encode(),
             "application/json",
@@ -1270,7 +1270,7 @@ def test_origin_smoke_checks_exact_required_routes_and_build_identity(monkeypatc
         "/",
         "/api/health",
         "/openapi.json",
-        "/api/auth/session",
+        "/api/v1/auth/session",
     ]
     assert all(value["status"] == 200 for value in outcomes.values())
 
@@ -1450,7 +1450,12 @@ def test_sanitized_receipt_is_atomic_current_upgrade_authority(tmp_path):
         "changed_resources": list(module.CONTAINERS.values()),
         "smoke": {
             path: {"status": 200}
-            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+            for path in (
+                "/",
+                "/api/health",
+                "/openapi.json",
+                "/api/v1/auth/session",
+            )
         },
         "rollback": {"kind": "predeploy_absence"},
     }
@@ -1782,7 +1787,12 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
         "changed_resources": list(module.CONTAINERS.values()),
         "smoke": {
             path: {"status": 200}
-            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+            for path in (
+                "/",
+                "/api/health",
+                "/openapi.json",
+                "/api/v1/auth/session",
+            )
         },
         "database_mutation_performed": False,
         "infrastructure_changes_performed": False,
@@ -1817,7 +1827,12 @@ def test_failed_upgrade_uses_durable_rollback_and_tracks_database_access(
             raise module.DeploymentError("candidate smoke failed")
         return {
             path: {"status": 200}
-            for path in ("/", "/api/health", "/openapi.json", "/api/auth/session")
+            for path in (
+                "/",
+                "/api/health",
+                "/openapi.json",
+                "/api/v1/auth/session",
+            )
         }
 
     monkeypatch.setattr(module, "smoke_origin", smoke_origin)
