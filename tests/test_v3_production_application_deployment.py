@@ -254,8 +254,15 @@ def test_inventory_designated_paths_report_stat_only_evidence(tmp_path):
     assert linked["matches_designation"] is False
 
 
-def test_v3_lineage_manifest_reproduces_the_reviewed_live_ledger():
+def test_v3_lineage_manifest_starts_with_the_reviewed_live_ledger():
+    """The manifest declares the desired lineage: applied first, then pending.
+
+    The reviewed live ledger is what production actually has, so it must be an
+    exact prefix of the manifest. Anything after that prefix is a migration that
+    has been committed and declared but not yet applied.
+    """
     entries: dict[str, tuple[str, str]] = {}
+    order: list[str] = []
     for raw_line in V3_MANIFEST.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -268,8 +275,10 @@ def test_v3_lineage_manifest_reproduces_the_reviewed_live_ledger():
         assert re.fullmatch(r"(?:[a-z0-9_]+/)+[0-9]{3}_[a-z0-9_]+\.sql", path), line
         assert ledger_name not in entries, line
         entries[ledger_name] = (path, checksum)
+        order.append(ledger_name)
 
-    assert set(entries) == {name for name, _ in LIVE_V3_LEDGER}
+    assert order[: len(LIVE_V3_LEDGER)] == [name for name, _ in LIVE_V3_LEDGER]
+    assert len(order) >= len(LIVE_V3_LEDGER)
     for ledger_name, reviewed_checksum in LIVE_V3_LEDGER:
         path, checksum = entries[ledger_name]
         assert checksum == reviewed_checksum
@@ -277,6 +286,12 @@ def test_v3_lineage_manifest_reproduces_the_reviewed_live_ledger():
         # they stay LF-terminated and byte-identical on every platform.
         source = (ROOT / "sql" / path).read_bytes()
         assert hashlib.sha256(source).hexdigest() == reviewed_checksum
+        assert b"\r\n" not in source
+    for pending_name in order[len(LIVE_V3_LEDGER):]:
+        # Declared but unapplied: the bytes must still be committed and stable.
+        path, checksum = entries[pending_name]
+        source = (ROOT / "sql" / path).read_bytes()
+        assert hashlib.sha256(source).hexdigest() == checksum
         assert b"\r\n" not in source
 
 
@@ -506,9 +521,11 @@ def test_production_schema_identity_is_derived_from_the_v3_lineage(tmp_path):
 
     document = identity.build(ROOT)
     entries = document["migration_set_entries"]
-    assert [(item["ledger_name"], item["sha256"]) for item in entries] == list(
-        LIVE_V3_LEDGER
-    )
+    pairs = [(item["ledger_name"], item["sha256"]) for item in entries]
+    # The identity describes the state the declared lineage would make true, so
+    # the applied rows are its prefix and any pending migration follows.
+    assert pairs[: len(LIVE_V3_LEDGER)] == list(LIVE_V3_LEDGER)
+    assert len(pairs) >= len(LIVE_V3_LEDGER)
     assert document["migration_set_identity"] == identity.migration_set_identity(entries)
     # The reviewed lineage order is not directory order, and the identity must
     # preserve the manifest order rather than re-sorting it.
